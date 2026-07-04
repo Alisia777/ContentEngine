@@ -10,6 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.assets.asset_kit_builder import AssetKitBuilder
+from app.assets.asset_validator import AssetValidator
+from app.assets.errors import AssetKitError
+from app.assets.types import ProductAssetDescriptor
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.errors import CreativeSpecError
@@ -26,6 +30,11 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.variants.creative_variant_builder import CreativeVariantBuilder
+from app.variants.errors import VariantError
+from app.variants.first_frame_builder import FirstFrameBuilder
+from app.variants.variant_scorer import VariantScorer
+from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
 from app.services.script_engine import ScriptEngine
@@ -88,8 +97,34 @@ class CreativeSpecBuildRequest(BaseModel):
     aspect_ratio: str = "9:16"
 
 
+class AssetKitBuildRequest(BaseModel):
+    product_id: int
+    override_required_assets: bool = False
+
+
+class AssetKitValidateRequest(BaseModel):
+    require_real_generation: bool = True
+    override_required_assets: bool = False
+
+
+class FirstFrameBuildRequest(BaseModel):
+    creative_spec_id: int
+    asset_kit_id: int | None = None
+
+
+class CreativeVariantSetBuildRequest(BaseModel):
+    creative_spec_id: int
+    asset_kit_id: int | None = None
+    count: int = 5
+
+
 class VideoGeneratorPromptPackRequest(BaseModel):
     creative_spec_id: int
+    video_provider: str | None = None
+
+
+class VideoGeneratorVariantPromptPackRequest(BaseModel):
+    creative_variant_id: int
     video_provider: str | None = None
 
 
@@ -158,11 +193,76 @@ def creative_spec_response(record: models.VideoCreativeSpecRecord) -> dict:
     }
 
 
+def asset_kit_response(kit: models.ProductAssetKit) -> dict:
+    return {
+        "id": kit.id,
+        "product_id": kit.product_id,
+        "status": kit.status,
+        "assets": kit.assets_json,
+        "required_assets": kit.required_assets_json,
+        "missing_assets": kit.missing_assets_json,
+        "validation_report": kit.validation_report_json,
+        "warnings": kit.warnings_json,
+        "real_generation_allowed": kit.real_generation_allowed,
+        "override_required_assets": kit.override_required_assets,
+    }
+
+
+def first_frame_response(option: models.FirstFrameOption) -> dict:
+    return {
+        "id": option.id,
+        "creative_spec_id": option.creative_spec_id,
+        "asset_kit_id": option.asset_kit_id,
+        "option_number": option.option_number,
+        "status": option.status,
+        "option": option.option_json,
+        "risk_flags": option.risk_flags_json,
+    }
+
+
+def variant_response(variant: models.CreativeVariant) -> dict:
+    return {
+        "id": variant.id,
+        "creative_variant_set_id": variant.creative_variant_set_id,
+        "creative_spec_id": variant.creative_spec_id,
+        "first_frame_option_id": variant.first_frame_option_id,
+        "variant_number": variant.variant_number,
+        "status": variant.status,
+        "hook_text": variant.hook_text,
+        "first_frame": variant.first_frame_json,
+        "scene_plan": variant.scene_plan_json,
+        "scene_pacing": variant.pacing_json,
+        "cta_framing": variant.cta_framing,
+        "visual_style": variant.visual_style,
+        "product_reveal_timing": variant.product_reveal_timing,
+        "asset_refs": variant.asset_refs_json,
+        "score": variant.score_json,
+        "risk_flags": variant.risk_flags_json,
+        "selection_reason": variant.selection_reason,
+    }
+
+
+def variant_set_response(variant_set: models.CreativeVariantSet) -> dict:
+    return {
+        "id": variant_set.id,
+        "creative_spec_id": variant_set.creative_spec_id,
+        "asset_kit_id": variant_set.asset_kit_id,
+        "status": variant_set.status,
+        "variant_count": variant_set.variant_count,
+        "selected_variant_id": variant_set.selected_variant_id,
+        "selection_reason": variant_set.selection_reason,
+        "score_summary": variant_set.score_summary_json,
+        "warnings": variant_set.warnings_json,
+        "variants": [variant_response(variant) for variant in sorted(variant_set.variants, key=lambda item: item.variant_number)],
+    }
+
+
 def generation_variant_response(variant: models.VideoGenerationVariant) -> dict:
     video_job = variant.video_job
     return {
         "id": variant.id,
         "creative_spec_id": variant.creative_spec_id,
+        "creative_variant_id": variant.creative_variant_id,
         "prompt_pack_id": variant.prompt_pack_id,
         "video_job_id": variant.video_job_id,
         "provider": variant.provider,
@@ -320,11 +420,110 @@ def get_creative_spec_hook_candidates(creative_spec_id: int, db: Session = Depen
     return {"id": record.id, "hook_candidates": record.hook_candidates_json}
 
 
+@router.post("/assets/kits/build")
+def build_asset_kit(payload: AssetKitBuildRequest, db: Session = Depends(get_db)):
+    try:
+        kit = AssetKitBuilder(db).build_for_product(
+            payload.product_id,
+            override_required_assets=payload.override_required_assets,
+        )
+        return asset_kit_response(kit)
+    except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/assets/kits/{asset_kit_id}")
+def get_asset_kit(asset_kit_id: int, db: Session = Depends(get_db)):
+    return asset_kit_response(get_or_404(db, models.ProductAssetKit, asset_kit_id))
+
+
+@router.post("/assets/kits/{asset_kit_id}/validate")
+def validate_asset_kit(asset_kit_id: int, payload: AssetKitValidateRequest, db: Session = Depends(get_db)):
+    kit = get_or_404(db, models.ProductAssetKit, asset_kit_id)
+    assets = [ProductAssetDescriptor.model_validate(asset) for asset in kit.assets_json]
+    report = AssetValidator().validate(
+        assets,
+        require_real_generation=payload.require_real_generation,
+        override_required_assets=payload.override_required_assets,
+    )
+    kit.validation_report_json = report.model_dump(mode="json")
+    kit.missing_assets_json = report.missing_assets
+    kit.warnings_json = report.warnings
+    kit.real_generation_allowed = report.real_generation_allowed or payload.override_required_assets
+    kit.status = "ready" if report.valid else "needs_assets"
+    db.commit()
+    db.refresh(kit)
+    return asset_kit_response(kit)
+
+
+@router.post("/variants/first-frames/build")
+def build_first_frame_options(payload: FirstFrameBuildRequest, db: Session = Depends(get_db)):
+    try:
+        options = FirstFrameBuilder(db).build_options(
+            payload.creative_spec_id,
+            asset_kit_id=payload.asset_kit_id,
+        )
+        return {"creative_spec_id": payload.creative_spec_id, "options": [first_frame_response(option) for option in options]}
+    except (VariantError, AssetKitError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/variants/first-frames/{first_frame_option_id}")
+def get_first_frame_option(first_frame_option_id: int, db: Session = Depends(get_db)):
+    return first_frame_response(get_or_404(db, models.FirstFrameOption, first_frame_option_id))
+
+
+@router.post("/variants/sets/build")
+def build_creative_variant_set(payload: CreativeVariantSetBuildRequest, db: Session = Depends(get_db)):
+    try:
+        variant_set = CreativeVariantBuilder(db).build_set(
+            payload.creative_spec_id,
+            count=payload.count,
+            asset_kit_id=payload.asset_kit_id,
+        )
+        return variant_set_response(variant_set)
+    except (VariantError, AssetKitError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/variants/sets/{variant_set_id}")
+def get_creative_variant_set(variant_set_id: int, db: Session = Depends(get_db)):
+    return variant_set_response(get_or_404(db, models.CreativeVariantSet, variant_set_id))
+
+
+@router.post("/variants/sets/{variant_set_id}/score")
+def score_creative_variant_set(variant_set_id: int, db: Session = Depends(get_db)):
+    try:
+        return variant_set_response(VariantScorer(db).score_set(variant_set_id))
+    except VariantError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/variants/sets/{variant_set_id}/select-best")
+def select_best_creative_variant(variant_set_id: int, db: Session = Depends(get_db)):
+    try:
+        return variant_set_response(VariantSelector(db).select_best(variant_set_id))
+    except VariantError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/video-generator/prompt-packs/from-spec")
 def build_video_generator_prompt_pack(payload: VideoGeneratorPromptPackRequest, db: Session = Depends(get_db)):
     try:
         variant = VideoGenerator(db).build_prompt_pack_from_spec(
             payload.creative_spec_id,
+            provider=payload.video_provider,
+        )
+        return generation_variant_response(variant)
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/prompt-packs/from-variant")
+def build_video_generator_prompt_pack_from_variant(payload: VideoGeneratorVariantPromptPackRequest, db: Session = Depends(get_db)):
+    try:
+        variant = VideoGenerator(db).build_prompt_pack_from_variant(
+            payload.creative_variant_id,
             provider=payload.video_provider,
         )
         return generation_variant_response(variant)

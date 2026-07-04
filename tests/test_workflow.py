@@ -13,6 +13,9 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app import models
+from app.assets.asset_kit_builder import AssetKitBuilder
+from app.assets.asset_validator import AssetValidator
+from app.assets.types import ProductAssetDescriptor
 from app.config import get_settings
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
@@ -39,6 +42,10 @@ from app.intelligence.validators import validate_script_claim_refs
 from app.main import app
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
+from app.variants.creative_variant_builder import CreativeVariantBuilder
+from app.variants.first_frame_builder import FirstFrameBuilder
+from app.variants.variant_scorer import VariantScorer
+from app.variants.variant_selector import VariantSelector
 from app.video_generator.generator import VideoGenerator
 
 
@@ -280,6 +287,35 @@ def build_creative_spec_fixture(
             duration_seconds=duration,
         )
     return product_id, record.id, CreativeSpec.model_validate(record.spec_json)
+
+
+def build_variant_set_fixture(
+    api: TestClient,
+    title: str = "Variant Product",
+    images: list[str] | None = None,
+    count: int = 5,
+    ctr: float = 0.035,
+    conversion_rate: float = 0.02,
+) -> tuple[int, int, int, int]:
+    product_id, spec_id, _ = build_creative_spec_fixture(
+        api,
+        title=title,
+        images=images
+        or [
+            "https://example.com/packshot_front.jpg",
+            "https://example.com/label_closeup.png",
+            "https://example.com/lifestyle_use.jpg",
+        ],
+        ctr=ctr,
+        conversion_rate=conversion_rate,
+    )
+    with SessionLocal() as db:
+        kit = AssetKitBuilder(db).build_for_product(product_id)
+        variant_set = CreativeVariantBuilder(db).build_set(spec_id, count=count, asset_kit_id=kit.id)
+        VariantScorer(db).score_set(variant_set.id)
+        variant_set = VariantSelector(db).select_best(variant_set.id)
+        selected_variant_id = variant_set.selected_variant_id or variant_set.variants[0].id
+    return product_id, spec_id, variant_set.id, selected_variant_id
 
 
 def create_script(api: TestClient, title: str = "Altea Test Bottle", forbidden_words: list[str] | None = None) -> int:
@@ -1144,3 +1180,205 @@ def test_video_generator_api_build_spec_and_prompt_pack():
         assert prompt_response.status_code == 200, prompt_response.text
         assert prompt_response.json()["status"] == "prompt_pack_ready"
         assert prompt_response.json()["prompt_pack"]["scene_prompts"][0]["first_frame_requirements"]
+
+
+def test_asset_kit_builds_from_product_images_json():
+    with client() as api:
+        product_id = create_product(
+            api,
+            title="Asset Kit Product",
+            images=[
+                "https://example.com/packshot_front.jpg",
+                "https://example.com/label_closeup.png",
+                "https://example.com/lifestyle_use.jpg",
+            ],
+        )
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id)
+
+        assert kit.status == "ready"
+        assert len(kit.assets_json) == 3
+        assert {asset["asset_type"] for asset in kit.assets_json} >= {"packshot", "label_closeup", "lifestyle"}
+        assert kit.real_generation_allowed is True
+
+
+def test_asset_kit_warns_when_no_reference_images():
+    with client() as api:
+        product_id = create_product(api, title="No Reference Product")
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id)
+
+        assert kit.status == "needs_assets"
+        assert "No product reference images available." in kit.warnings_json
+        assert "packshot" in kit.missing_assets_json
+
+
+def test_asset_validator_blocks_real_generation_without_required_packshot():
+    report = AssetValidator().validate(
+        [
+            ProductAssetDescriptor(
+                source_ref="https://example.com/lifestyle_use.jpg",
+                source_type="url",
+                asset_type="lifestyle",
+                filename="lifestyle_use.jpg",
+                extension=".jpg",
+                mime_type="image/jpeg",
+                exists=True,
+            )
+        ],
+        require_real_generation=True,
+    )
+
+    assert report.valid is False
+    assert any("packshot" in error.lower() for error in report.errors)
+    assert report.real_generation_allowed is False
+
+
+def test_first_frame_builder_creates_three_options():
+    with client() as api:
+        product_id, spec_id, _ = build_creative_spec_fixture(
+            api,
+            title="First Frame Options Product",
+            images=["https://example.com/packshot_front.jpg"],
+        )
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id, override_required_assets=True)
+            options = FirstFrameBuilder(db).build_options(spec_id, asset_kit_id=kit.id)
+
+        assert len(options) == 3
+        assert all(option.hook_text for option in options)
+        assert all(option.required_assets_json for option in options)
+
+
+def test_first_frame_option_has_product_visible_by_second():
+    with client() as api:
+        product_id, spec_id, _ = build_creative_spec_fixture(
+            api,
+            title="Visible First Second Product",
+            images=["https://example.com/packshot_front.jpg"],
+        )
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id, override_required_assets=True)
+            option = FirstFrameBuilder(db).build_options(spec_id, asset_kit_id=kit.id)[0]
+
+        assert option.product_visible_by_second <= 1.0
+        assert option.option_json["product_visible_by_second"] <= 1.0
+
+
+def test_variant_builder_creates_multiple_variants():
+    with client() as api:
+        product_id, spec_id, _ = build_creative_spec_fixture(
+            api,
+            title="Multiple Variant Product",
+            images=[
+                "https://example.com/packshot_front.jpg",
+                "https://example.com/label_closeup.png",
+                "https://example.com/lifestyle_use.jpg",
+            ],
+        )
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id)
+            variant_set = CreativeVariantBuilder(db).build_set(spec_id, count=5, asset_kit_id=kit.id)
+            variant_count = len(variant_set.variants)
+            pacing_names = {variant.pacing_json["name"] for variant in variant_set.variants}
+
+        assert variant_set.variant_count == 5
+        assert variant_count == 5
+        assert len(pacing_names) > 1
+
+
+def test_variant_scorer_penalizes_missing_assets():
+    with client() as api:
+        product_id, spec_id, _ = build_creative_spec_fixture(api, title="Missing Assets Variant Product")
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id)
+            variant_set = CreativeVariantBuilder(db).build_set(spec_id, count=2, asset_kit_id=kit.id)
+            VariantScorer(db).score_set(variant_set.id)
+            variant = sorted(variant_set.variants, key=lambda item: item.variant_number)[0]
+
+        assert variant.score_json["dimensions"]["asset_readiness"] < 0.5
+        assert "missing_product_reference_assets" in variant.risk_flags_json
+
+
+def test_variant_scorer_boosts_matching_low_ctr_hook():
+    with client() as api:
+        product_id, spec_id, _ = build_creative_spec_fixture(
+            api,
+            title="Low CTR Variant Product",
+            images=[
+                "https://example.com/packshot_front.jpg",
+                "https://example.com/label_closeup.png",
+                "https://example.com/lifestyle_use.jpg",
+            ],
+            ctr=0.01,
+            conversion_rate=0.08,
+        )
+
+        with SessionLocal() as db:
+            kit = AssetKitBuilder(db).build_for_product(product_id)
+            variant_set = CreativeVariantBuilder(db).build_set(spec_id, count=3, asset_kit_id=kit.id)
+            VariantScorer(db).score_set(variant_set.id)
+            variant = sorted(variant_set.variants, key=lambda item: item.variant_number)[0]
+
+        assert "low_ctr" in variant.first_frame_json["source_flags"]
+        assert variant.score_json["dimensions"]["hook_strength"] >= 0.9
+
+
+def test_variant_selector_selects_highest_safe_score():
+    with client() as api:
+        _, _, variant_set_id, selected_variant_id = build_variant_set_fixture(api, title="Selected Variant Product")
+
+        with SessionLocal() as db:
+            variant_set = db.get(models.CreativeVariantSet, variant_set_id)
+            selected = db.get(models.CreativeVariant, selected_variant_id)
+
+        assert variant_set.status == "selected"
+        assert variant_set.selected_variant_id == selected_variant_id
+        assert selected.status == "selected"
+        assert selected.score_json["safe"] is True
+
+
+def test_prompt_pack_from_variant_contains_first_frame_and_assets():
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Variant Prompt Product")
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        prompt_pack = generation_variant.prompt_pack_json
+        assert prompt_pack["creative_variant_id"] == selected_variant_id
+        assert prompt_pack["selected_first_frame"]["text_overlay"]
+        assert prompt_pack["asset_references"]
+        assert prompt_pack["product_accuracy_rules"]
+        assert "distorted product" in prompt_pack["scene_prompts"][0]["negative_prompt"]
+
+
+def test_generate_from_variant_prompt_only_never_calls_provider(monkeypatch):
+    def fail_if_instantiated(*args, **kwargs):
+        raise AssertionError("Video provider should not be called when building prompts from a creative variant.")
+
+    monkeypatch.setattr("app.intelligence.video_generator.RunwayVideoProvider", fail_if_instantiated)
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Variant Prompt Only Product")
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        assert generation_variant.status == "prompt_pack_ready"
+        assert generation_variant.video_job_id is None
+
+
+def test_video_generator_ui_shows_asset_kit_and_variants():
+    with client() as api:
+        response = api.get("/video-generator")
+
+        assert response.status_code == 200
+        assert "Asset Kit" in response.text
+        assert "First Frame Options" in response.text
+        assert "Creative Variants" in response.text

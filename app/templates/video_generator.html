@@ -31,6 +31,95 @@
   </section>
 
   <section class="panel">
+    <h2>Asset Kit</h2>
+    <form action="/video-generator/run" method="post">
+      <input type="hidden" name="action" value="build_asset_kit">
+      <div class="form-grid">
+        <label>SKU
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit">Build Asset Kit</button></div>
+    </form>
+    {% if asset_kits %}
+      <div class="grid">
+        {% for kit in asset_kits[:3] %}
+          <article class="card">
+            <p class="muted">Kit #{{ kit.id }} / product #{{ kit.product_id }}</p>
+            <p>{{ kit.status }} / real provider {{ "allowed" if kit.real_generation_allowed else "blocked" }}</p>
+            <p>Missing: {{ kit.missing_assets_json | join(", ") if kit.missing_assets_json else "none" }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>First Frame Options</h2>
+    <form action="/video-generator/run" method="post">
+      <input type="hidden" name="action" value="build_first_frames">
+      <div class="form-grid">
+        <label>Creative Spec
+          <select name="creative_spec_id" required>
+            {% for spec in specs %}
+              <option value="{{ spec.id }}">#{{ spec.id }} / {{ spec.product.sku }} / {{ spec.platform }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Asset Kit
+          <select name="asset_kit_id">
+            <option value="">Latest for product</option>
+            {% for kit in asset_kits %}
+              <option value="{{ kit.id }}">#{{ kit.id }} / product #{{ kit.product_id }} / {{ kit.status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit">Generate 3 first frames</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Creative Variants</h2>
+    <form action="/video-generator/run" method="post">
+      <div class="form-grid">
+        <label>Creative Spec
+          <select name="creative_spec_id">
+            {% for spec in specs %}
+              <option value="{{ spec.id }}">#{{ spec.id }} / {{ spec.product.sku }} / {{ spec.platform }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Asset Kit
+          <select name="asset_kit_id">
+            <option value="">Latest for product</option>
+            {% for kit in asset_kits %}
+              <option value="{{ kit.id }}">#{{ kit.id }} / product #{{ kit.product_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Variant Set
+          <select name="variant_set_id">
+            {% for set in variant_sets %}
+              <option value="{{ set.id }}">#{{ set.id }} / {{ set.status }} / selected {{ set.selected_variant_id or "none" }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Count<input name="variant_count" type="number" min="1" max="12" value="5"></label>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="build_variants">Build variants</button>
+        <button class="secondary" type="submit" name="action" value="score_variant_set">Score variants</button>
+        <button class="secondary" type="submit" name="action" value="select_best_variant">Select best</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
     <h2>Generate Video</h2>
     <form action="/video-generator/run" method="post">
       <div class="form-grid">
@@ -49,6 +138,13 @@
             {% endfor %}
           </select>
         </label>
+        <label>Creative Variant
+          <select name="creative_variant_id">
+            {% for creative_variant in creative_variants %}
+              <option value="{{ creative_variant.id }}">#{{ creative_variant.id }} / set #{{ creative_variant.creative_variant_set_id }} / {{ creative_variant.status }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <label>Video provider
           <select name="video_provider">
             <option value="mock" {% if selected_video_provider == "mock" %}selected{% endif %}>Mock local</option>
@@ -59,6 +155,7 @@
         <label>Scene number<input name="scene_number" type="number" min="1" value="1"></label>
       </div>
       <div class="actions">
+        <button type="submit" name="action" value="build_prompts_from_variant">Build prompt pack from selected variant</button>
         <button type="submit" name="action" value="build_prompts">Build prompt pack only</button>
         <button class="secondary" type="submit" name="action" value="real_smoke">Run one-scene real smoke</button>
         <button class="secondary" type="submit" name="action" value="poll">Poll</button>
@@ -107,6 +204,37 @@
     <section class="panel">
       <h2>Validation</h2>
       <pre>{{ result.spec.validation_report_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.asset_kit %}
+    <section class="panel">
+      <h2>Asset Kit Result</h2>
+      <pre>{{ result.asset_kit.validation_report_json | tojson(indent=2) }}</pre>
+      <pre>{{ result.asset_kit.assets_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.first_frame_options %}
+    <section class="grid">
+      {% for option in result.first_frame_options %}
+        <article class="card">
+          <h2>First Frame #{{ option.option_number }}</h2>
+          <p><strong>{{ option.hook_text }}</strong></p>
+          <p>{{ option.text_overlay }}</p>
+          <p class="muted">{{ option.visual_concept }}</p>
+          <p>Risks: {{ option.risk_flags_json | join(", ") if option.risk_flags_json else "none" }}</p>
+        </article>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {% if result and result.variant_set %}
+    <section class="panel">
+      <h2>Creative Variant Set</h2>
+      <p>#{{ result.variant_set.id }} / {{ result.variant_set.status }} / selected {{ result.variant_set.selected_variant_id or "none" }}</p>
+      <p>{{ result.variant_set.selection_reason or "" }}</p>
+      <pre>{{ result.variant_set.score_summary_json | tojson(indent=2) }}</pre>
     </section>
   {% endif %}
 

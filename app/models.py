@@ -35,6 +35,7 @@ class Product(Base, TimestampMixin):
     script_jobs = relationship("ScriptJob", back_populates="product")
     publishing_packages = relationship("PublishingPackage", back_populates="product")
     creative_specs = relationship("VideoCreativeSpecRecord", back_populates="product")
+    asset_kits = relationship("ProductAssetKit", back_populates="product")
 
 
 class BrandGuide(Base, TimestampMixin):
@@ -476,6 +477,120 @@ class VideoCreativeSpecRecord(Base, TimestampMixin):
     intelligence_pack = relationship("CreativeIntelligencePackRecord")
     script_brief = relationship("ScriptBrief")
     generation_variants = relationship("VideoGenerationVariant", back_populates="creative_spec")
+    first_frame_options = relationship("FirstFrameOption", back_populates="creative_spec")
+    creative_variant_sets = relationship("CreativeVariantSet", back_populates="creative_spec")
+
+
+class ProductAssetKit(Base, TimestampMixin):
+    __tablename__ = "product_asset_kits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    assets_json = Column(JSON, default=list, nullable=False)
+    required_assets_json = Column(JSON, default=list, nullable=False)
+    missing_assets_json = Column(JSON, default=list, nullable=False)
+    validation_report_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    real_generation_allowed = Column(Boolean, default=False, nullable=False)
+    override_required_assets = Column(Boolean, default=False, nullable=False)
+
+    product = relationship("Product", back_populates="asset_kits")
+    assets = relationship("ProductAsset", back_populates="asset_kit", cascade="all, delete-orphan")
+    first_frame_options = relationship("FirstFrameOption", back_populates="asset_kit")
+    creative_variant_sets = relationship("CreativeVariantSet", back_populates="asset_kit")
+
+
+class ProductAsset(Base, TimestampMixin):
+    __tablename__ = "product_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    asset_kit_id = Column(Integer, ForeignKey("product_asset_kits.id"), nullable=False, index=True)
+    source_ref = Column(String(1000), nullable=False)
+    source_type = Column(String(40), nullable=False, default="unknown")
+    asset_type = Column(String(80), nullable=False, default="unknown", index=True)
+    filename = Column(String(255), nullable=True)
+    extension = Column(String(40), nullable=True)
+    mime_type = Column(String(120), nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    exists = Column(Boolean, default=False, nullable=False)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    asset_kit = relationship("ProductAssetKit", back_populates="assets")
+
+
+class FirstFrameOption(Base, TimestampMixin):
+    __tablename__ = "first_frame_options"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    asset_kit_id = Column(Integer, ForeignKey("product_asset_kits.id"), nullable=True, index=True)
+    option_number = Column(Integer, nullable=False, default=1)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    hook_text = Column(Text, nullable=False)
+    visual_concept = Column(Text, nullable=False)
+    text_overlay = Column(Text, nullable=False)
+    product_placement = Column(Text, nullable=False)
+    camera_motion = Column(Text, nullable=False)
+    composition = Column(Text, nullable=False)
+    product_visible_by_second = Column(Float, nullable=False, default=1.0)
+    required_assets_json = Column(JSON, default=list, nullable=False)
+    risk_flags_json = Column(JSON, default=list, nullable=False)
+    option_json = Column(JSON, default=dict, nullable=False)
+
+    creative_spec = relationship("VideoCreativeSpecRecord", back_populates="first_frame_options")
+    asset_kit = relationship("ProductAssetKit", back_populates="first_frame_options")
+    creative_variants = relationship("CreativeVariant", back_populates="first_frame_option")
+
+
+class CreativeVariantSet(Base, TimestampMixin):
+    __tablename__ = "creative_variant_sets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    asset_kit_id = Column(Integer, ForeignKey("product_asset_kits.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    variant_count = Column(Integer, nullable=False, default=0)
+    selected_variant_id = Column(Integer, nullable=True)
+    selection_reason = Column(Text, nullable=True)
+    variants_json = Column(JSON, default=list, nullable=False)
+    score_summary_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    creative_spec = relationship("VideoCreativeSpecRecord", back_populates="creative_variant_sets")
+    asset_kit = relationship("ProductAssetKit", back_populates="creative_variant_sets")
+    variants = relationship("CreativeVariant", back_populates="variant_set", cascade="all, delete-orphan")
+
+
+class CreativeVariant(Base, TimestampMixin):
+    __tablename__ = "creative_variants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creative_variant_set_id = Column(Integer, ForeignKey("creative_variant_sets.id"), nullable=False, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    first_frame_option_id = Column(Integer, ForeignKey("first_frame_options.id"), nullable=True, index=True)
+    variant_number = Column(Integer, nullable=False, default=1)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    hook_text = Column(Text, nullable=False)
+    first_frame_json = Column(JSON, default=dict, nullable=False)
+    scene_plan_json = Column(JSON, default=list, nullable=False)
+    pacing_json = Column(JSON, default=dict, nullable=False)
+    cta_framing = Column(Text, nullable=True)
+    visual_style = Column(Text, nullable=True)
+    product_reveal_timing = Column(Float, nullable=False, default=1.0)
+    asset_refs_json = Column(JSON, default=list, nullable=False)
+    score_json = Column(JSON, default=dict, nullable=False)
+    risk_flags_json = Column(JSON, default=list, nullable=False)
+    selection_reason = Column(Text, nullable=True)
+
+    variant_set = relationship("CreativeVariantSet", back_populates="variants")
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    first_frame_option = relationship("FirstFrameOption", back_populates="creative_variants")
 
 
 class VideoGenerationVariant(Base, TimestampMixin):
@@ -483,6 +598,7 @@ class VideoGenerationVariant(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
     prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True)
     script_variant_id = Column(Integer, ForeignKey("script_variants.id"), nullable=True)
     video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True)
@@ -496,6 +612,7 @@ class VideoGenerationVariant(Base, TimestampMixin):
     regeneration_log_json = Column(JSON, default=list, nullable=False)
 
     creative_spec = relationship("VideoCreativeSpecRecord", back_populates="generation_variants")
+    creative_variant = relationship("CreativeVariant")
     prompt_pack = relationship("PromptPack")
     script_variant = relationship("ScriptVariant")
     video_job = relationship("VideoJob")

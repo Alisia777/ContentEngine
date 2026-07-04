@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.assets.asset_kit_builder import AssetKitBuilder
+from app.assets.errors import AssetKitError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
 from app.database import get_db
@@ -19,6 +21,11 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.variants.creative_variant_builder import CreativeVariantBuilder
+from app.variants.errors import VariantError
+from app.variants.first_frame_builder import FirstFrameBuilder
+from app.variants.variant_scorer import VariantScorer
+from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
 from app.services.script_engine import ScriptEngine
@@ -321,20 +328,15 @@ async def import_generator_csv_ui(
 
 @router.get("/video-generator", response_class=HTMLResponse)
 def video_generator_page(request: Request, db: Session = Depends(get_db)):
-    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
-    specs = db.scalars(select(models.VideoCreativeSpecRecord).order_by(models.VideoCreativeSpecRecord.created_at.desc()).limit(10)).all()
-    variants = db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all()
     return templates.TemplateResponse(
         "video_generator.html",
         {
             "request": request,
             "page_title": "Video Generator",
-            "products": products,
-            "specs": specs,
-            "variants": variants,
             "provider_status": provider_key_status(),
             "result": None,
             "error": None,
+            **video_generator_context(db),
         },
     )
 
@@ -342,32 +344,53 @@ def video_generator_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/video-generator/run", response_class=HTMLResponse)
 def run_video_generator_page(
     request: Request,
-    product_id: int = Form(...),
+    product_id: int = Form(0),
     platform: str = Form("Instagram Reels"),
     duration: int = Form(15),
+    asset_kit_id: str = Form(""),
     creative_spec_id: str = Form(""),
+    variant_set_id: str = Form(""),
+    creative_variant_id: str = Form(""),
     generation_variant_id: str = Form(""),
+    variant_count: int = Form(5),
     video_provider: str = Form("mock"),
     action: str = Form("build_spec"),
     scene_number: int = Form(1),
     db: Session = Depends(get_db),
 ):
-    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
     result = {}
     error = None
     try:
         generator = VideoGenerator(db)
         spec = None
         variant = None
+        asset_kit = None
+        first_frame_options = None
+        variant_set = None
         if action == "build_spec":
             spec = CreativeSpecBuilder(db).build_for_product(product_id, platform=platform, duration_seconds=duration)
+        elif action == "build_asset_kit":
+            asset_kit = AssetKitBuilder(db).build_for_product(product_id)
         else:
             spec_id = int(creative_spec_id) if creative_spec_id else None
+            kit_id = int(asset_kit_id) if asset_kit_id else None
+            set_id = int(variant_set_id) if variant_set_id else None
+            source_creative_variant_id = int(creative_variant_id) if creative_variant_id else None
             variant_id = int(generation_variant_id) if generation_variant_id else None
             if not spec_id and variant_id:
                 variant = db.get(models.VideoGenerationVariant, variant_id)
                 spec_id = variant.creative_spec_id if variant else None
-            if action == "build_prompts":
+            if action == "build_first_frames":
+                first_frame_options = FirstFrameBuilder(db).build_options(spec_id, asset_kit_id=kit_id)
+            elif action == "build_variants":
+                variant_set = CreativeVariantBuilder(db).build_set(spec_id, asset_kit_id=kit_id, count=variant_count)
+            elif action == "score_variant_set":
+                variant_set = VariantScorer(db).score_set(set_id)
+            elif action == "select_best_variant":
+                variant_set = VariantSelector(db).select_best(set_id)
+            elif action == "build_prompts_from_variant":
+                variant = generator.build_prompt_pack_from_variant(source_creative_variant_id, provider=video_provider)
+            elif action == "build_prompts":
                 variant = generator.build_prompt_pack_from_spec(spec_id, provider=video_provider)
             elif action == "real_smoke":
                 if variant_id is None:
@@ -393,20 +416,19 @@ def run_video_generator_page(
                 result["regenerated_scene"] = generator.regenerate_scene(variant_id, scene_number)
                 variant = db.get(models.VideoGenerationVariant, variant_id)
             spec = db.get(models.VideoCreativeSpecRecord, spec_id) if spec_id else spec
+            asset_kit = db.get(models.ProductAssetKit, kit_id) if kit_id else asset_kit
         result["spec"] = spec
         result["variant"] = variant
-    except (CreativeSpecError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
+        result["asset_kit"] = asset_kit
+        result["first_frame_options"] = first_frame_options
+        result["variant_set"] = variant_set
+    except (AssetKitError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
         error = str(exc)
-    specs = db.scalars(select(models.VideoCreativeSpecRecord).order_by(models.VideoCreativeSpecRecord.created_at.desc()).limit(10)).all()
-    variants = db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all()
     return templates.TemplateResponse(
         "video_generator.html",
         {
             "request": request,
             "page_title": "Video Generator",
-            "products": products,
-            "specs": specs,
-            "variants": variants,
             "provider_status": provider_key_status(),
             "result": result,
             "error": error,
@@ -414,8 +436,24 @@ def run_video_generator_page(
             "selected_platform": platform,
             "selected_duration": duration,
             "selected_video_provider": video_provider,
+            "selected_asset_kit_id": int(asset_kit_id) if asset_kit_id else None,
+            "selected_variant_set_id": int(variant_set_id) if variant_set_id else None,
+            "selected_creative_variant_id": int(creative_variant_id) if creative_variant_id else None,
+            **video_generator_context(db),
         },
     )
+
+
+def video_generator_context(db: Session) -> dict:
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "specs": db.scalars(select(models.VideoCreativeSpecRecord).order_by(models.VideoCreativeSpecRecord.created_at.desc()).limit(10)).all(),
+        "asset_kits": db.scalars(select(models.ProductAssetKit).order_by(models.ProductAssetKit.created_at.desc()).limit(10)).all(),
+        "first_frames": db.scalars(select(models.FirstFrameOption).order_by(models.FirstFrameOption.created_at.desc()).limit(10)).all(),
+        "variant_sets": db.scalars(select(models.CreativeVariantSet).order_by(models.CreativeVariantSet.created_at.desc()).limit(10)).all(),
+        "creative_variants": db.scalars(select(models.CreativeVariant).order_by(models.CreativeVariant.created_at.desc()).limit(20)).all(),
+        "variants": db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all(),
+    }
 
 
 @router.get("/engine", response_class=HTMLResponse)
