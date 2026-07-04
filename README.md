@@ -1,4 +1,6 @@
-# Qharisma Video Factory
+# ContentEngine
+
+Qharisma Video Factory MVP.
 
 Local MVP for an internal product content factory workflow:
 
