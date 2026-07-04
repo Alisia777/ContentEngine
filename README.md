@@ -48,6 +48,41 @@ Then open http://localhost:8000/engine to trigger the same demo pipeline from th
 
 The fast demo is local-first and mock-provider based. It generates a script, auto-approves demo review steps, creates a mock video artifact, creates and approves a publishing package, schedules within warm-up limits, runs mock upload, and collects fake analytics. It does not call real LLM, video, or upload APIs.
 
+## Real Generator Flow
+
+The primary product page is `/generator`. It is the data-driven generation path for ContentEngine:
+
+1. Import product and performance data.
+2. Build `CreativeIntelligencePack` from product facts, marketplace metrics, creative performance, review insights, market signals, and brand rules.
+3. Build `ScriptBrief` with source-backed allowed claims.
+4. Generate a structured script with the selected LLM provider.
+5. Build a scene-level `PromptPack`.
+6. Generate a video with the selected video provider.
+7. Poll/download/assemble outputs.
+8. Review final video.
+
+Local no-cost verification:
+
+```bash
+python scripts/seed.py
+python scripts/import_sample_data.py
+python scripts/generate_video.py --product-id 1 --build-prompts-only
+```
+
+Real providers are selected explicitly with environment variables. If a real provider is selected and its key is missing, the app fails clearly instead of silently falling back to mock.
+
+```env
+QVF_LLM_PROVIDER=openai
+OPENAI_API_KEY=
+QVF_OPENAI_MODEL=gpt-5.5
+
+QVF_VIDEO_PROVIDER=runway
+RUNWAYML_API_SECRET=
+QVF_RUNWAY_MODEL=gen4.5
+QVF_VIDEO_RATIO=720:1280
+QVF_VIDEO_SCENE_DURATION=5
+```
+
 ## Docker Compose
 
 ```bash

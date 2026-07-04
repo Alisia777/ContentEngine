@@ -13,6 +13,13 @@ from app import models, schemas
 from app.database import get_db
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
+from app.intelligence.csv_imports import import_csv_text
+from app.intelligence.errors import IntelligenceError
+from app.intelligence.insight_builder import CreativeIntelligenceBuilder
+from app.intelligence.prompt_builder import PromptPackBuilder
+from app.intelligence.script_brief_builder import ScriptBriefBuilder
+from app.intelligence.script_generator import GeneratorScriptService
+from app.intelligence.video_generator import GeneratorVideoService
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -26,6 +33,30 @@ router = APIRouter(prefix="/api", tags=["api"])
 class EngineRunRequest(BaseModel):
     product_id: int
     account_id: int | None = None
+
+
+class GeneratorProductRequest(BaseModel):
+    product_id: int
+
+
+class GeneratorScriptBriefRequest(BaseModel):
+    intelligence_pack_id: int
+
+
+class GeneratorScriptRequest(BaseModel):
+    script_brief_id: int
+    llm_provider: str | None = None
+
+
+class GeneratorPromptPackRequest(BaseModel):
+    script_variant_id: int
+    provider: str = "runway"
+    script_brief_id: int | None = None
+
+
+class GeneratorVideoJobRequest(BaseModel):
+    prompt_pack_id: int
+    video_provider: str | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -143,6 +174,141 @@ def get_engine_status(publishing_job_id: int, db: Session = Depends(get_db)):
         return VideoFactoryEngine(db).status_for_publishing_job(publishing_job_id)
     except EngineError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/generator/intelligence/build")
+def build_generator_intelligence(payload: GeneratorProductRequest, db: Session = Depends(get_db)):
+    try:
+        record = CreativeIntelligenceBuilder(db).build_for_product(payload.product_id)
+        return {"id": record.id, "status": record.status, "pack": record.pack_json, "warnings": record.warnings_json}
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/generator/intelligence/{intelligence_pack_id}")
+def get_generator_intelligence(intelligence_pack_id: int, db: Session = Depends(get_db)):
+    record = get_or_404(db, models.CreativeIntelligencePackRecord, intelligence_pack_id)
+    return {"id": record.id, "status": record.status, "pack": record.pack_json, "warnings": record.warnings_json}
+
+
+@router.post("/generator/script-briefs")
+def create_generator_script_brief(payload: GeneratorScriptBriefRequest, db: Session = Depends(get_db)):
+    try:
+        brief = ScriptBriefBuilder(db).build_from_record(payload.intelligence_pack_id)
+        return {"id": brief.id, "status": brief.status, "brief": brief.brief_json}
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/generator/script-briefs/{script_brief_id}")
+def get_generator_script_brief(script_brief_id: int, db: Session = Depends(get_db)):
+    brief = get_or_404(db, models.ScriptBrief, script_brief_id)
+    return {"id": brief.id, "status": brief.status, "brief": brief.brief_json}
+
+
+@router.post("/generator/scripts/generate")
+def generate_generator_script(payload: GeneratorScriptRequest, db: Session = Depends(get_db)):
+    try:
+        script_job = GeneratorScriptService(db).generate_from_brief(payload.script_brief_id, payload.llm_provider)
+        variant = sorted(script_job.variants, key=lambda item: item.variant_number)[0]
+        return {
+            "script_job_id": script_job.id,
+            "script_variant_id": variant.id,
+            "status": script_job.status,
+            "llm_provider": script_job.llm_provider,
+            "script": script_job.output_script_json,
+        }
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/generator/scripts/{script_job_id}")
+def get_generator_script(script_job_id: int, db: Session = Depends(get_db)):
+    script_job = get_or_404(db, models.ScriptJob, script_job_id)
+    return {
+        "script_job_id": script_job.id,
+        "status": script_job.status,
+        "llm_provider": script_job.llm_provider,
+        "script": script_job.output_script_json,
+        "validation": script_job.validation_report_json,
+    }
+
+
+@router.post("/generator/prompt-packs")
+def create_generator_prompt_pack(payload: GeneratorPromptPackRequest, db: Session = Depends(get_db)):
+    try:
+        prompt_pack = PromptPackBuilder(db).build_for_script(
+            payload.script_variant_id,
+            payload.provider,
+            payload.script_brief_id,
+        )
+        return {
+            "id": prompt_pack.id,
+            "status": prompt_pack.status,
+            "prompt_pack": prompt_pack.prompt_pack_json,
+            "provider_payload": prompt_pack.provider_payload_json,
+        }
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/generator/prompt-packs/{prompt_pack_id}")
+def get_generator_prompt_pack(prompt_pack_id: int, db: Session = Depends(get_db)):
+    prompt_pack = get_or_404(db, models.PromptPack, prompt_pack_id)
+    return {
+        "id": prompt_pack.id,
+        "status": prompt_pack.status,
+        "prompt_pack": prompt_pack.prompt_pack_json,
+        "provider_payload": prompt_pack.provider_payload_json,
+    }
+
+
+@router.post("/generator/video-jobs")
+def create_generator_video_job(payload: GeneratorVideoJobRequest, db: Session = Depends(get_db)):
+    try:
+        video_job = GeneratorVideoService(db).create_video_job_from_prompt_pack(
+            payload.prompt_pack_id,
+            payload.video_provider,
+        )
+        return {"id": video_job.id, "status": video_job.status, "provider": video_job.provider}
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/generator/video-jobs/{video_job_id}/run")
+def run_generator_video_job(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    return GeneratorVideoService(db).status(video_job)
+
+
+@router.get("/generator/video-jobs/{video_job_id}/status")
+def get_generator_video_status(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    return GeneratorVideoService(db).status(video_job)
+
+
+@router.post("/generator/video-jobs/{video_job_id}/download")
+def download_generator_video_outputs(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    try:
+        return {"paths": GeneratorVideoService(db).download_outputs(video_job)}
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/generator/video-jobs/{video_job_id}/assemble")
+def assemble_generator_video(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    video_job = GeneratorVideoService(db).assemble(video_job)
+    return {"id": video_job.id, "status": video_job.status, "output_video_path": video_job.output_video_path}
+
+
+@router.post("/generator/import/{kind}")
+async def import_generator_csv(kind: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if kind not in {"product_metrics", "creative_performance", "review_insights", "market_signals"}:
+        raise HTTPException(status_code=404, detail="Unknown generator import type")
+    text = (await file.read()).decode("utf-8-sig")
+    return {"kind": kind, "imported": import_csv_text(db, kind, text)}
 
 
 @router.post("/script-jobs/generate", response_model=schemas.ScriptJobRead)

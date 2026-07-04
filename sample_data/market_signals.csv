@@ -1,0 +1,4 @@
+sku,marketplace,competitor_brand,competitor_product_url,competitor_price,competitor_rating,competitor_reviews_count,signal_type,signal_strength,notes
+ALT-SERUM-001,Ozon,GlowLab,https://example.com/competitors/glowlab-serum,1690,4.5,320,price_pressure,medium,Competitor is cheaper; use value framing instead of price claims.
+ALT-BOTTLE-002,Wildberries,SteelDaily,https://example.com/competitors/steel-daily,990,4.7,410,price_pressure,high,Cheaper competitor and stronger reviews; avoid pure price claims.
+

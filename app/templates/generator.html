@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Primary product flow</p>
+      <h1>Real data-driven generator</h1>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form action="/generator/run" method="post">
+      <div class="form-grid">
+        <label>SKU
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>
+                {{ product.sku }} - {{ product.title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>LLM provider
+          <select name="llm_provider">
+            <option value="mock" {% if selected_llm_provider == "mock" %}selected{% endif %}>Mock local</option>
+            <option value="openai" {% if selected_llm_provider == "openai" %}selected{% endif %}>OpenAI</option>
+          </select>
+        </label>
+        <label>Video provider
+          <select name="video_provider">
+            <option value="mock" {% if selected_video_provider == "mock" %}selected{% endif %}>Mock local</option>
+            <option value="runway" {% if selected_video_provider == "runway" %}selected{% endif %}>Runway</option>
+            <option value="gemini" {% if selected_video_provider == "gemini" %}selected{% endif %}>Gemini</option>
+          </select>
+        </label>
+        <label><input type="checkbox" name="build_prompts_only" value="true" {% if build_prompts_only %}checked{% endif %}> Build prompts only</label>
+      </div>
+      <div class="actions"><button type="submit">Generate</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Import generator data</h2>
+    <div class="form-grid">
+      <form action="/generator/import/product_metrics" method="post" enctype="multipart/form-data">
+        <label>Product metrics CSV<input type="file" name="file" accept=".csv" required></label>
+        <div class="actions"><button class="secondary" type="submit">Import</button></div>
+      </form>
+      <form action="/generator/import/creative_performance" method="post" enctype="multipart/form-data">
+        <label>Creative performance CSV<input type="file" name="file" accept=".csv" required></label>
+        <div class="actions"><button class="secondary" type="submit">Import</button></div>
+      </form>
+      <form action="/generator/import/review_insights" method="post" enctype="multipart/form-data">
+        <label>Review insights CSV<input type="file" name="file" accept=".csv" required></label>
+        <div class="actions"><button class="secondary" type="submit">Import</button></div>
+      </form>
+      <form action="/generator/import/market_signals" method="post" enctype="multipart/form-data">
+        <label>Market signals CSV<input type="file" name="file" accept=".csv" required></label>
+        <div class="actions"><button class="secondary" type="submit">Import</button></div>
+      </form>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel"><p class="status">{{ error }}</p></section>
+  {% endif %}
+
+  {% if result and result.pack %}
+    <section class="grid">
+      <article class="card">
+        <h2>Creative Intelligence Pack</h2>
+        <p><strong>{{ result.pack.pack_json.recommended_objective }}</strong></p>
+        <p>{{ result.pack.pack_json.reasoning_summary }}</p>
+        <p class="muted">Angles: {{ result.pack.pack_json.recommended_creative_angles | join(", ") }}</p>
+      </article>
+      <article class="card">
+        <h2>Warnings and Missing Data</h2>
+        {% for warning in result.pack.warnings_json %}
+          <p class="status">{{ warning }}</p>
+        {% endfor %}
+        {% for item in result.pack.pack_json.missing_data %}
+          <p class="muted">{{ item }}</p>
+        {% endfor %}
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Script Brief</h2>
+      <pre>{{ result.brief.brief_json | tojson(indent=2) }}</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Generated Script</h2>
+      <p>Script job #{{ result.script_job.id }} via {{ result.script_job.llm_provider }}</p>
+      <pre>{{ result.script_job.output_script_json | tojson(indent=2) }}</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Prompt Pack</h2>
+      <p>Prompt pack #{{ result.prompt_pack.id }}</p>
+      <pre>{{ result.prompt_pack.prompt_pack_json | tojson(indent=2) }}</pre>
+    </section>
+
+    {% if result.video_job %}
+      <section class="panel">
+        <h2>Video Provider Job</h2>
+        <p>#{{ result.video_job.id }} / {{ result.video_job.provider }} / {{ result.video_job.status }}</p>
+        <p>{{ result.video_job.output_video_path or "Provider output pending" }}</p>
+      </section>
+    {% endif %}
+  {% endif %}
+{% endblock %}

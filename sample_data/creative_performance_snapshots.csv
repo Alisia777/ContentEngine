@@ -1,0 +1,4 @@
+sku,platform,account_id,video_url,creative_template,creative_angle,hook_text,posted_at,views,likes,comments,shares,saves,clicks,ctr,orders,revenue,watch_time_seconds,retention_rate
+ALT-SERUM-001,Instagram Reels,,https://example.com/reel/serum-1,problem_solution_cta,trust_builder,Why shoppers choose a light serum,2026-06-12T10:00:00,4500,240,18,31,88,160,0.035,6,11940,8.2,0.42
+ALT-BOTTLE-002,TikTok,,https://example.com/tiktok/bottle-1,feature_stack,strong_hook,One bottle for work and gym,2026-06-14T12:00:00,3800,120,9,12,45,35,0.009,1,1290,5.1,0.24
+

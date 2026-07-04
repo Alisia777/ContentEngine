@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -8,6 +8,13 @@ from sqlalchemy.orm import Session
 from app import models
 from app.database import get_db
 from app.engine import VideoFactoryEngine
+from app.intelligence.csv_imports import import_csv_text
+from app.intelligence.errors import IntelligenceError
+from app.intelligence.insight_builder import CreativeIntelligenceBuilder
+from app.intelligence.prompt_builder import PromptPackBuilder
+from app.intelligence.script_brief_builder import ScriptBriefBuilder
+from app.intelligence.script_generator import GeneratorScriptService
+from app.intelligence.video_generator import GeneratorVideoService
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -217,6 +224,73 @@ def reject_video_ui(video_job_id: int, reason: str = Form("Needs revision"), db:
     if video_job:
         VideoEngine(db).reject_video(video_job, reason)
     return redirect(f"/videos/{video_job_id}")
+
+
+@router.get("/generator", response_class=HTMLResponse)
+def generator_page(request: Request, db: Session = Depends(get_db)):
+    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
+    return templates.TemplateResponse(
+        "generator.html",
+        {"request": request, "page_title": "Generator", "products": products, "result": None, "error": None},
+    )
+
+
+@router.post("/generator/run", response_class=HTMLResponse)
+def run_generator_page(
+    request: Request,
+    product_id: int = Form(...),
+    llm_provider: str = Form("mock"),
+    video_provider: str = Form("mock"),
+    build_prompts_only: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
+    result = {}
+    error = None
+    try:
+        pack = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+        brief = ScriptBriefBuilder(db).build_from_record(pack.id)
+        script_job = GeneratorScriptService(db).generate_from_brief(brief.id, llm_provider)
+        variant = sorted(script_job.variants, key=lambda item: item.variant_number)[0]
+        prompt_pack = PromptPackBuilder(db).build_for_script(variant.id, video_provider, brief.id)
+        result = {
+            "pack": pack,
+            "brief": brief,
+            "script_job": script_job,
+            "variant": variant,
+            "prompt_pack": prompt_pack,
+            "video_job": None,
+        }
+        if not build_prompts_only:
+            result["video_job"] = GeneratorVideoService(db).create_video_job_from_prompt_pack(prompt_pack.id, video_provider)
+    except IntelligenceError as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "generator.html",
+        {
+            "request": request,
+            "page_title": "Generator",
+            "products": products,
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_llm_provider": llm_provider,
+            "selected_video_provider": video_provider,
+            "build_prompts_only": build_prompts_only,
+        },
+    )
+
+
+@router.post("/generator/import/{kind}")
+async def import_generator_csv_ui(
+    kind: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if kind in {"product_metrics", "creative_performance", "review_insights", "market_signals"}:
+        text = (await file.read()).decode("utf-8-sig")
+        import_csv_text(db, kind, text)
+    return redirect("/generator")
 
 
 @router.get("/engine", response_class=HTMLResponse)
