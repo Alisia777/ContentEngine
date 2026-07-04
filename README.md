@@ -69,12 +69,18 @@ python scripts/import_sample_data.py
 python scripts/generate_video.py --product-id 1 --build-prompts-only
 ```
 
-Real providers are selected explicitly with environment variables. If a real provider is selected and its key is missing, the app fails clearly instead of silently falling back to mock.
+Real providers are selected explicitly with environment variables. If a real provider is selected and its key is missing, the app fails clearly instead of silently falling back to mock. Paid video generation also requires both `QVF_GENERATION_MODE=real` and `QVF_ALLOW_REAL_SPEND=true`.
 
 ```env
 QVF_LLM_PROVIDER=openai
 OPENAI_API_KEY=
 QVF_OPENAI_MODEL=gpt-5.5
+
+QVF_GENERATION_MODE=mock
+QVF_ALLOW_REAL_SPEND=false
+QVF_MAX_VIDEO_SECONDS_PER_RUN=5
+QVF_MAX_SCENES_PER_REAL_RUN=1
+QVF_MAX_PROVIDER_POLL_SECONDS=600
 
 QVF_VIDEO_PROVIDER=runway
 RUNWAYML_API_SECRET=
@@ -82,6 +88,28 @@ QVF_RUNWAY_MODEL=gen4.5
 QVF_VIDEO_RATIO=720:1280
 QVF_VIDEO_SCENE_DURATION=5
 ```
+
+OpenAI-only prompt build:
+
+```powershell
+$env:QVF_LLM_PROVIDER="openai"
+$env:OPENAI_API_KEY="..."
+python scripts\generate_video.py --product-id 1 --llm-provider openai --build-prompts-only
+```
+
+First paid one-scene smoke run:
+
+```powershell
+$env:QVF_GENERATION_MODE="real"
+$env:QVF_ALLOW_REAL_SPEND="true"
+$env:QVF_LLM_PROVIDER="openai"
+$env:OPENAI_API_KEY="..."
+$env:QVF_VIDEO_PROVIDER="runway"
+$env:RUNWAYML_API_SECRET="..."
+python scripts\generate_video.py --product-id 1 --llm-provider openai --video-provider runway --real-run --max-scenes 1
+```
+
+Full-video real generation requires `--full-video` and still obeys the configured max scene and duration caps.
 
 ## Docker Compose
 
@@ -124,7 +152,8 @@ curl -X POST http://localhost:8000/api/script-jobs/generate \
 
 ## Limitations
 
-- Real LLM, video, and upload providers are stubs. They do not call external APIs.
+- OpenAI and Runway adapters can call external APIs only when explicitly selected and configured; normal tests do not require real provider keys.
+- Gemini/Veo and upload providers remain scaffolded or manual.
 - Authentication is not implemented in this MVP.
 - FFmpeg text burn-in is intentionally conservative; captions are stored as sidecar files.
 - Background jobs are synchronous in-process calls for local demo simplicity.

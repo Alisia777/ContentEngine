@@ -10,8 +10,10 @@ from app.database import get_db
 from app.engine import VideoFactoryEngine
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
+from app.intelligence.generation_runner import GeneratorRunService
 from app.intelligence.insight_builder import CreativeIntelligenceBuilder
 from app.intelligence.prompt_builder import PromptPackBuilder
+from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
@@ -231,7 +233,14 @@ def generator_page(request: Request, db: Session = Depends(get_db)):
     products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
     return templates.TemplateResponse(
         "generator.html",
-        {"request": request, "page_title": "Generator", "products": products, "result": None, "error": None},
+        {
+            "request": request,
+            "page_title": "Generator",
+            "products": products,
+            "result": None,
+            "error": None,
+            "provider_status": provider_key_status(),
+        },
     )
 
 
@@ -241,28 +250,40 @@ def run_generator_page(
     product_id: int = Form(...),
     llm_provider: str = Form("mock"),
     video_provider: str = Form("mock"),
-    build_prompts_only: bool = Form(False),
+    action: str = Form("prompt_only"),
     db: Session = Depends(get_db),
 ):
     products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
-    result = {}
+    result = None
     error = None
     try:
-        pack = CreativeIntelligenceBuilder(db).build_for_product(product_id)
-        brief = ScriptBriefBuilder(db).build_from_record(pack.id)
-        script_job = GeneratorScriptService(db).generate_from_brief(brief.id, llm_provider)
-        variant = sorted(script_job.variants, key=lambda item: item.variant_number)[0]
-        prompt_pack = PromptPackBuilder(db).build_for_script(variant.id, video_provider, brief.id)
+        runner = GeneratorRunService(db)
+        if action == "prompt_only":
+            artifacts = runner.build_prompt_pack_only(
+                product_id=product_id,
+                llm_provider=llm_provider,
+                video_provider=video_provider,
+            )
+        else:
+            artifacts = runner.run_real(
+                product_id=product_id,
+                llm_provider=llm_provider,
+                video_provider=video_provider,
+                confirm_real_spend=True,
+                max_scenes=1 if action == "real_smoke" else None,
+                full_video=action == "full_real",
+            )
         result = {
-            "pack": pack,
-            "brief": brief,
-            "script_job": script_job,
-            "variant": variant,
-            "prompt_pack": prompt_pack,
-            "video_job": None,
+            "pack": artifacts.pack,
+            "brief": artifacts.brief,
+            "script_job": artifacts.script_job,
+            "variant": artifacts.variant,
+            "prompt_pack": artifacts.prompt_pack,
+            "video_job": artifacts.video_job,
+            "provider_status": artifacts.provider_status,
+            "local_output_paths": artifacts.local_output_paths or [],
+            "report_path": artifacts.report_path,
         }
-        if not build_prompts_only:
-            result["video_job"] = GeneratorVideoService(db).create_video_job_from_prompt_pack(prompt_pack.id, video_provider)
     except IntelligenceError as exc:
         error = str(exc)
     return templates.TemplateResponse(
@@ -273,10 +294,11 @@ def run_generator_page(
             "products": products,
             "result": result,
             "error": error,
+            "provider_status": provider_key_status(),
             "selected_product_id": product_id,
             "selected_llm_provider": llm_provider,
             "selected_video_provider": video_provider,
-            "build_prompts_only": build_prompts_only,
+            "action": action,
         },
     )
 

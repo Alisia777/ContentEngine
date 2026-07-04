@@ -32,10 +32,35 @@
             <option value="gemini" {% if selected_video_provider == "gemini" %}selected{% endif %}>Gemini</option>
           </select>
         </label>
-        <label><input type="checkbox" name="build_prompts_only" value="true" {% if build_prompts_only %}checked{% endif %}> Build prompts only</label>
       </div>
-      <div class="actions"><button type="submit">Generate</button></div>
+      <div class="actions">
+        <button type="submit" name="action" value="prompt_only">Build prompt pack only</button>
+        <button class="secondary" type="submit" name="action" value="real_smoke">Run real one-scene smoke test</button>
+        <button class="secondary" type="submit" name="action" value="full_real" {% if not provider_status.allow_real_spend %}disabled{% endif %}>Run full real video</button>
+      </div>
     </form>
+  </section>
+
+  <section class="panel">
+    <h2>Provider status</h2>
+    <div class="grid">
+      <article class="card">
+        <p class="muted">Mode</p>
+        <p>{{ provider_status.generation_mode }} / spend {{ "enabled" if provider_status.allow_real_spend else "disabled" }}</p>
+      </article>
+      <article class="card">
+        <p class="muted">OpenAI key</p>
+        <p>{{ "configured" if provider_status.openai_api_key_configured else "missing" }}</p>
+      </article>
+      <article class="card">
+        <p class="muted">Runway key</p>
+        <p>{{ "configured" if provider_status.runway_api_secret_configured else "missing" }}</p>
+      </article>
+      <article class="card">
+        <p class="muted">Real run caps</p>
+        <p>{{ provider_status.max_scenes_per_real_run }} scene / {{ provider_status.max_video_seconds_per_run }}s</p>
+      </article>
+    </div>
   </section>
 
   <section class="panel">
@@ -104,7 +129,24 @@
       <section class="panel">
         <h2>Video Provider Job</h2>
         <p>#{{ result.video_job.id }} / {{ result.video_job.provider }} / {{ result.video_job.status }}</p>
-        <p>{{ result.video_job.output_video_path or "Provider output pending" }}</p>
+        {% for clip in result.video_job.clips %}
+          <p>
+            Scene {{ clip.scene.scene_number }}:
+            {{ clip.provider_job_id or "provider task pending" }} /
+            {{ clip.status }} /
+            {{ clip.clip_path or "download pending" }}
+          </p>
+        {% endfor %}
+        {% if result.provider_status %}
+          <pre>{{ result.provider_status | tojson(indent=2) }}</pre>
+        {% endif %}
+        {% for path in result.local_output_paths %}
+          <p class="muted">{{ path }}</p>
+        {% endfor %}
+        <p>{{ result.video_job.output_video_path or "Final artifact pending" }}</p>
+        {% if result.report_path %}
+          <p class="muted">Report: {{ result.report_path }}</p>
+        {% endif %}
       </section>
     {% endif %}
   {% endif %}
