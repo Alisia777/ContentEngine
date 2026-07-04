@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Hook-driven product layer</p>
+      <h1>Video Generator</h1>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel"><p class="status">{{ error }}</p></section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Creative TZ</h2>
+    <form action="/video-generator/run" method="post">
+      <input type="hidden" name="action" value="build_spec">
+      <div class="form-grid">
+        <label>SKU
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Platform<input name="platform" value="{{ selected_platform or 'Instagram Reels' }}" required></label>
+        <label>Duration<input name="duration" type="number" min="5" max="60" value="{{ selected_duration or 15 }}" required></label>
+      </div>
+      <div class="actions"><button type="submit">Build Creative Spec</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Generate Video</h2>
+    <form action="/video-generator/run" method="post">
+      <div class="form-grid">
+        <label>Creative Spec
+          <select name="creative_spec_id">
+            {% for spec in specs %}
+              <option value="{{ spec.id }}">#{{ spec.id }} / {{ spec.product.sku }} / {{ spec.platform }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Generation Job
+          <select name="generation_variant_id">
+            <option value="">New from selected spec</option>
+            {% for variant in variants %}
+              <option value="{{ variant.id }}">#{{ variant.id }} / spec #{{ variant.creative_spec_id }} / {{ variant.provider }} / {{ variant.status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Video provider
+          <select name="video_provider">
+            <option value="mock" {% if selected_video_provider == "mock" %}selected{% endif %}>Mock local</option>
+            <option value="runway" {% if selected_video_provider == "runway" %}selected{% endif %}>Runway</option>
+            <option value="gemini" {% if selected_video_provider == "gemini" %}selected{% endif %}>Gemini</option>
+          </select>
+        </label>
+        <label>Scene number<input name="scene_number" type="number" min="1" value="1"></label>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="build_prompts">Build prompt pack only</button>
+        <button class="secondary" type="submit" name="action" value="real_smoke">Run one-scene real smoke</button>
+        <button class="secondary" type="submit" name="action" value="poll">Poll</button>
+        <button class="secondary" type="submit" name="action" value="download">Download</button>
+        <button class="secondary" type="submit" name="action" value="assemble">Assemble</button>
+        <button class="secondary" type="submit" name="action" value="score">Score</button>
+        <button class="secondary" type="submit" name="action" value="regenerate_scene">Regenerate scene</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Provider status</h2>
+    <div class="grid">
+      <article class="card"><p class="muted">Mode</p><p>{{ provider_status.generation_mode }} / spend {{ "enabled" if provider_status.allow_real_spend else "disabled" }}</p></article>
+      <article class="card"><p class="muted">OpenAI key</p><p>{{ "configured" if provider_status.openai_api_key_configured else "missing" }}</p></article>
+      <article class="card"><p class="muted">Runway key</p><p>{{ "configured" if provider_status.runway_api_secret_configured else "missing" }}</p></article>
+    </div>
+  </section>
+
+  {% if result and result.spec %}
+    <section class="grid">
+      <article class="card">
+        <h2>Hook Candidates</h2>
+        {% for hook in result.spec.hook_candidates_json %}
+          <p><strong>{{ hook.hook_type }}</strong>: {{ hook.hook_text }}</p>
+        {% endfor %}
+      </article>
+      <article class="card">
+        <h2>Selected Hook</h2>
+        <p>{{ result.spec.spec_json.hook_text }}</p>
+        <p class="muted">{{ result.spec.spec_json.viewer_promise }}</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>First Frame</h2>
+      <pre>{{ result.spec.spec_json.first_frame_spec | tojson(indent=2) }}</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Scene Plan</h2>
+      <pre>{{ result.spec.spec_json.scene_plan | tojson(indent=2) }}</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Validation</h2>
+      <pre>{{ result.spec.validation_report_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.variant %}
+    <section class="panel">
+      <h2>Prompt Pack</h2>
+      <p>#{{ result.variant.prompt_pack_id }} / {{ result.variant.provider }} / {{ result.variant.status }}</p>
+      <pre>{{ result.variant.prompt_pack_json | tojson(indent=2) }}</pre>
+    </section>
+
+    <section class="panel">
+      <h2>Artifact</h2>
+      <p>Video job: {{ result.variant.video_job_id or "not started" }}</p>
+      {% if result.variant.video_job %}
+        {% for clip in result.variant.video_job.clips %}
+          <p>Scene {{ clip.scene.scene_number }}: {{ clip.provider_job_id or "provider task pending" }} / {{ clip.status }} / {{ clip.clip_path or "download pending" }}</p>
+        {% endfor %}
+      {% endif %}
+      <p>{{ result.variant.final_video_path or "Final artifact pending" }}</p>
+      <pre>{{ result.variant.quality_score_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.provider_status %}
+    <section class="panel">
+      <h2>Provider Poll</h2>
+      <pre>{{ result.provider_status | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.quality_review %}
+    <section class="panel">
+      <h2>Quality Score</h2>
+      <pre>{{ result.quality_review.review_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.regenerated_scene %}
+    <section class="panel">
+      <h2>Regenerated Scene</h2>
+      <pre>{{ result.regenerated_scene | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+{% endblock %}
