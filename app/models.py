@@ -34,6 +34,7 @@ class Product(Base, TimestampMixin):
 
     script_jobs = relationship("ScriptJob", back_populates="product")
     publishing_packages = relationship("PublishingPackage", back_populates="product")
+    creative_specs = relationship("VideoCreativeSpecRecord", back_populates="product")
 
 
 class BrandGuide(Base, TimestampMixin):
@@ -452,3 +453,67 @@ class PromptPack(Base):
 
     script_brief = relationship("ScriptBrief")
     script_variant = relationship("ScriptVariant")
+
+
+class VideoCreativeSpecRecord(Base, TimestampMixin):
+    __tablename__ = "video_creative_spec_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    intelligence_pack_id = Column(Integer, ForeignKey("creative_intelligence_pack_records.id"), nullable=False)
+    script_brief_id = Column(Integer, ForeignKey("script_briefs.id"), nullable=False)
+    platform = Column(String(120), nullable=False, index=True)
+    format = Column(String(80), nullable=False, default="short_video")
+    aspect_ratio = Column(String(20), nullable=False, default="9:16")
+    duration_seconds = Column(Integer, nullable=False, default=15)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    spec_json = Column(JSON, default=dict, nullable=False)
+    hook_candidates_json = Column(JSON, default=list, nullable=False)
+    validation_report_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product", back_populates="creative_specs")
+    intelligence_pack = relationship("CreativeIntelligencePackRecord")
+    script_brief = relationship("ScriptBrief")
+    generation_variants = relationship("VideoGenerationVariant", back_populates="creative_spec")
+
+
+class VideoGenerationVariant(Base, TimestampMixin):
+    __tablename__ = "video_generation_variants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True)
+    script_variant_id = Column(Integer, ForeignKey("script_variants.id"), nullable=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True)
+    provider = Column(String(120), nullable=False, default="mock")
+    status = Column(String(80), nullable=False, default="prompt_pack_ready", index=True)
+    prompt_pack_json = Column(JSON, default=dict, nullable=False)
+    provider_payload_json = Column(JSON, default=dict, nullable=False)
+    local_output_paths_json = Column(JSON, default=list, nullable=False)
+    final_video_path = Column(String(500), nullable=True)
+    quality_score_json = Column(JSON, default=dict, nullable=False)
+    regeneration_log_json = Column(JSON, default=list, nullable=False)
+
+    creative_spec = relationship("VideoCreativeSpecRecord", back_populates="generation_variants")
+    prompt_pack = relationship("PromptPack")
+    script_variant = relationship("ScriptVariant")
+    video_job = relationship("VideoJob")
+    quality_reviews = relationship("VideoQualityReview", back_populates="generation_variant")
+
+
+class VideoQualityReview(Base, TimestampMixin):
+    __tablename__ = "video_quality_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=False, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True)
+    status = Column(String(80), nullable=False, default="metadata_scored", index=True)
+    score = Column(Float, nullable=False, default=0)
+    review_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    generation_variant = relationship("VideoGenerationVariant", back_populates="quality_reviews")
+    video_job = relationship("VideoJob")

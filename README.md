@@ -111,6 +111,40 @@ python scripts\generate_video.py --product-id 1 --llm-provider openai --video-pr
 
 Full-video real generation requires `--full-video` and still obeys the configured max scene and duration caps.
 
+## Hook-Driven Video Generator
+
+The `/video-generator` page adds the Sprint 04 product layer:
+
+```text
+Product + metrics + reviews + market signals + brand rules
+-> Creative Intelligence Pack
+-> Hook Strategy
+-> VideoCreativeSpec
+-> Scene Plan
+-> Provider Prompt Pack
+-> Real/mock video generation
+-> Metadata Quality Score
+```
+
+Local prompt-only verification:
+
+```bash
+python scripts/build_creative_spec.py --product-id 1 --platform "Instagram Reels" --duration 15
+python scripts/generate_from_spec.py --creative-spec-id 1 --build-prompts-only
+```
+
+One-scene real smoke still requires the Sprint 03 spend gates:
+
+```powershell
+$env:QVF_GENERATION_MODE="real"
+$env:QVF_ALLOW_REAL_SPEND="true"
+$env:QVF_VIDEO_PROVIDER="runway"
+$env:RUNWAYML_API_SECRET="..."
+python scripts\generate_from_spec.py --creative-spec-id 1 --video-provider runway --real-run --max-scenes 1
+```
+
+Batch generation remains out of scope until the one-SKU real video path is proven.
+
 ## Docker Compose
 
 ```bash

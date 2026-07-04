@@ -10,6 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.creative.creative_spec_builder import CreativeSpecBuilder
+from app.creative.creative_spec_validator import CreativeSpecValidator
+from app.creative.errors import CreativeSpecError
+from app.creative.types import CreativeSpec
 from app.database import get_db
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
@@ -22,6 +26,8 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.video_generator.errors import VideoGeneratorError
+from app.video_generator.generator import VideoGenerator
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -74,6 +80,32 @@ class GeneratorProviderRunRequest(BaseModel):
     confirm_real_spend: bool = False
 
 
+class CreativeSpecBuildRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    duration: int = 15
+    format: str = "short_video"
+    aspect_ratio: str = "9:16"
+
+
+class VideoGeneratorPromptPackRequest(BaseModel):
+    creative_spec_id: int
+    video_provider: str | None = None
+
+
+class VideoGeneratorStartRequest(BaseModel):
+    creative_spec_id: int | None = None
+    generation_variant_id: int | None = None
+    video_provider: str | None = None
+    confirm_real_spend: bool = False
+    max_scenes: int | None = None
+    full_video: bool = False
+
+
+class VideoGeneratorRegenerateSceneRequest(BaseModel):
+    scene_number: int
+
+
 def get_or_404(db: Session, model: type, entity_id: int):
     entity = db.get(model, entity_id)
     if not entity:
@@ -108,6 +140,39 @@ def generator_artifacts_response(artifacts: GeneratorRunArtifacts) -> dict:
         "local_output_paths": artifacts.local_output_paths or [],
         "final_video_path": video_job.output_video_path if video_job else None,
         "report_path": artifacts.report_path,
+    }
+
+
+def creative_spec_response(record: models.VideoCreativeSpecRecord) -> dict:
+    return {
+        "id": record.id,
+        "product_id": record.product_id,
+        "status": record.status,
+        "platform": record.platform,
+        "format": record.format,
+        "duration_seconds": record.duration_seconds,
+        "spec": record.spec_json,
+        "hook_candidates": record.hook_candidates_json,
+        "validation_report": record.validation_report_json,
+        "warnings": record.warnings_json,
+    }
+
+
+def generation_variant_response(variant: models.VideoGenerationVariant) -> dict:
+    video_job = variant.video_job
+    return {
+        "id": variant.id,
+        "creative_spec_id": variant.creative_spec_id,
+        "prompt_pack_id": variant.prompt_pack_id,
+        "video_job_id": variant.video_job_id,
+        "provider": variant.provider,
+        "status": variant.status,
+        "prompt_pack": variant.prompt_pack_json,
+        "provider_payload": variant.provider_payload_json,
+        "local_output_paths": variant.local_output_paths_json,
+        "final_video_path": variant.final_video_path or (video_job.output_video_path if video_job else None),
+        "quality_score": variant.quality_score_json,
+        "provider_job_ids": [clip.provider_job_id for clip in video_job.clips if clip.provider_job_id] if video_job else [],
     }
 
 
@@ -210,6 +275,141 @@ def get_engine_status(publishing_job_id: int, db: Session = Depends(get_db)):
         return VideoFactoryEngine(db).status_for_publishing_job(publishing_job_id)
     except EngineError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/creative/specs/build")
+def build_creative_spec(payload: CreativeSpecBuildRequest, db: Session = Depends(get_db)):
+    try:
+        record = CreativeSpecBuilder(db).build_for_product(
+            payload.product_id,
+            platform=payload.platform,
+            duration_seconds=payload.duration,
+            format=payload.format,
+            aspect_ratio=payload.aspect_ratio,
+        )
+        return creative_spec_response(record)
+    except (CreativeSpecError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/creative/specs/{creative_spec_id}")
+def get_creative_spec(creative_spec_id: int, db: Session = Depends(get_db)):
+    return creative_spec_response(get_or_404(db, models.VideoCreativeSpecRecord, creative_spec_id))
+
+
+@router.post("/creative/specs/{creative_spec_id}/validate")
+def validate_creative_spec(creative_spec_id: int, db: Session = Depends(get_db)):
+    record = get_or_404(db, models.VideoCreativeSpecRecord, creative_spec_id)
+    product = record.product
+    brand_guide = db.scalar(select(models.BrandGuide).where(models.BrandGuide.brand == product.brand).order_by(models.BrandGuide.id))
+    spec = CreativeSpec.model_validate(record.spec_json)
+    report = CreativeSpecValidator().validate(
+        spec,
+        forbidden_words=brand_guide.forbidden_words_json if brand_guide else [],
+        forbidden_claims=brand_guide.forbidden_claims_json if brand_guide else [],
+    )
+    record.validation_report_json = report.model_dump(mode="json")
+    record.status = "ready" if report.valid else "needs_revision"
+    db.commit()
+    return {"id": record.id, "validation_report": record.validation_report_json, "status": record.status}
+
+
+@router.post("/creative/specs/{creative_spec_id}/hook-candidates")
+def get_creative_spec_hook_candidates(creative_spec_id: int, db: Session = Depends(get_db)):
+    record = get_or_404(db, models.VideoCreativeSpecRecord, creative_spec_id)
+    return {"id": record.id, "hook_candidates": record.hook_candidates_json}
+
+
+@router.post("/video-generator/prompt-packs/from-spec")
+def build_video_generator_prompt_pack(payload: VideoGeneratorPromptPackRequest, db: Session = Depends(get_db)):
+    try:
+        variant = VideoGenerator(db).build_prompt_pack_from_spec(
+            payload.creative_spec_id,
+            provider=payload.video_provider,
+        )
+        return generation_variant_response(variant)
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/start")
+def start_video_generator(payload: VideoGeneratorStartRequest, db: Session = Depends(get_db)):
+    try:
+        generator = VideoGenerator(db)
+        generation_variant_id = payload.generation_variant_id
+        if generation_variant_id is None:
+            if payload.creative_spec_id is None:
+                raise HTTPException(status_code=400, detail="creative_spec_id or generation_variant_id is required")
+            generation_variant_id = generator.build_prompt_pack_from_spec(
+                payload.creative_spec_id,
+                provider=payload.video_provider,
+            ).id
+        variant = generator.start_generation(
+            generation_variant_id,
+            provider=payload.video_provider,
+            confirm_real_spend=payload.confirm_real_spend,
+            max_scenes=payload.max_scenes,
+            full_video=payload.full_video,
+        )
+        return generation_variant_response(variant)
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/video-generator/jobs/{generation_variant_id}")
+def get_video_generator_job(generation_variant_id: int, db: Session = Depends(get_db)):
+    return generation_variant_response(get_or_404(db, models.VideoGenerationVariant, generation_variant_id))
+
+
+@router.post("/video-generator/jobs/{generation_variant_id}/poll")
+def poll_video_generator_job(generation_variant_id: int, db: Session = Depends(get_db)):
+    try:
+        return VideoGenerator(db).poll(generation_variant_id)
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/jobs/{generation_variant_id}/download")
+def download_video_generator_job(generation_variant_id: int, db: Session = Depends(get_db)):
+    try:
+        return generation_variant_response(VideoGenerator(db).download(generation_variant_id))
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/jobs/{generation_variant_id}/assemble")
+def assemble_video_generator_job(generation_variant_id: int, db: Session = Depends(get_db)):
+    try:
+        return generation_variant_response(VideoGenerator(db).assemble(generation_variant_id))
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/jobs/{generation_variant_id}/score")
+def score_video_generator_job(generation_variant_id: int, db: Session = Depends(get_db)):
+    try:
+        review = VideoGenerator(db).score(generation_variant_id)
+        return {
+            "id": review.id,
+            "score": review.score,
+            "status": review.status,
+            "review": review.review_json,
+            "warnings": review.warnings_json,
+        }
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/jobs/{generation_variant_id}/regenerate-scene")
+def regenerate_video_generator_scene(
+    generation_variant_id: int,
+    payload: VideoGeneratorRegenerateSceneRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return {"scene": VideoGenerator(db).regenerate_scene(generation_variant_id, payload.scene_number)}
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/generator/intelligence/build")

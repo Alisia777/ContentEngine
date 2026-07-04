@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.creative.creative_spec_builder import CreativeSpecBuilder
+from app.creative.errors import CreativeSpecError
 from app.database import get_db
 from app.engine import VideoFactoryEngine
 from app.intelligence.csv_imports import import_csv_text
@@ -17,6 +19,8 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.video_generator.errors import VideoGeneratorError
+from app.video_generator.generator import VideoGenerator
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -313,6 +317,105 @@ async def import_generator_csv_ui(
         text = (await file.read()).decode("utf-8-sig")
         import_csv_text(db, kind, text)
     return redirect("/generator")
+
+
+@router.get("/video-generator", response_class=HTMLResponse)
+def video_generator_page(request: Request, db: Session = Depends(get_db)):
+    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
+    specs = db.scalars(select(models.VideoCreativeSpecRecord).order_by(models.VideoCreativeSpecRecord.created_at.desc()).limit(10)).all()
+    variants = db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all()
+    return templates.TemplateResponse(
+        "video_generator.html",
+        {
+            "request": request,
+            "page_title": "Video Generator",
+            "products": products,
+            "specs": specs,
+            "variants": variants,
+            "provider_status": provider_key_status(),
+            "result": None,
+            "error": None,
+        },
+    )
+
+
+@router.post("/video-generator/run", response_class=HTMLResponse)
+def run_video_generator_page(
+    request: Request,
+    product_id: int = Form(...),
+    platform: str = Form("Instagram Reels"),
+    duration: int = Form(15),
+    creative_spec_id: str = Form(""),
+    generation_variant_id: str = Form(""),
+    video_provider: str = Form("mock"),
+    action: str = Form("build_spec"),
+    scene_number: int = Form(1),
+    db: Session = Depends(get_db),
+):
+    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
+    result = {}
+    error = None
+    try:
+        generator = VideoGenerator(db)
+        spec = None
+        variant = None
+        if action == "build_spec":
+            spec = CreativeSpecBuilder(db).build_for_product(product_id, platform=platform, duration_seconds=duration)
+        else:
+            spec_id = int(creative_spec_id) if creative_spec_id else None
+            variant_id = int(generation_variant_id) if generation_variant_id else None
+            if not spec_id and variant_id:
+                variant = db.get(models.VideoGenerationVariant, variant_id)
+                spec_id = variant.creative_spec_id if variant else None
+            if action == "build_prompts":
+                variant = generator.build_prompt_pack_from_spec(spec_id, provider=video_provider)
+            elif action == "real_smoke":
+                if variant_id is None:
+                    variant_id = generator.build_prompt_pack_from_spec(spec_id, provider=video_provider).id
+                variant = generator.start_generation(
+                    variant_id,
+                    provider=video_provider,
+                    confirm_real_spend=True,
+                    max_scenes=1,
+                    full_video=False,
+                )
+            elif action == "poll":
+                result["provider_status"] = generator.poll(variant_id)
+                variant = db.get(models.VideoGenerationVariant, variant_id)
+            elif action == "download":
+                variant = generator.download(variant_id)
+            elif action == "assemble":
+                variant = generator.assemble(variant_id)
+            elif action == "score":
+                result["quality_review"] = generator.score(variant_id)
+                variant = db.get(models.VideoGenerationVariant, variant_id)
+            elif action == "regenerate_scene":
+                result["regenerated_scene"] = generator.regenerate_scene(variant_id, scene_number)
+                variant = db.get(models.VideoGenerationVariant, variant_id)
+            spec = db.get(models.VideoCreativeSpecRecord, spec_id) if spec_id else spec
+        result["spec"] = spec
+        result["variant"] = variant
+    except (CreativeSpecError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
+        error = str(exc)
+    specs = db.scalars(select(models.VideoCreativeSpecRecord).order_by(models.VideoCreativeSpecRecord.created_at.desc()).limit(10)).all()
+    variants = db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all()
+    return templates.TemplateResponse(
+        "video_generator.html",
+        {
+            "request": request,
+            "page_title": "Video Generator",
+            "products": products,
+            "specs": specs,
+            "variants": variants,
+            "provider_status": provider_key_status(),
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_platform": platform,
+            "selected_duration": duration,
+            "selected_video_provider": video_provider,
+        },
+    )
 
 
 @router.get("/engine", response_class=HTMLResponse)

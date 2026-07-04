@@ -14,6 +14,10 @@ from fastapi.testclient import TestClient
 
 from app import models
 from app.config import get_settings
+from app.creative.creative_spec_builder import CreativeSpecBuilder
+from app.creative.creative_spec_validator import CreativeSpecValidator
+from app.creative.hook_strategy import HookStrategySelector
+from app.creative.types import CreativeSpec
 from app.database import Base, SessionLocal, engine
 from app.engine import VideoFactoryEngine
 from app.intelligence.errors import ClaimValidationError, ProviderConfigurationError
@@ -24,6 +28,7 @@ from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.types import (
     AllowedClaim,
+    CreativeIntelligencePack,
     GeneratedSceneOutput,
     GeneratedScriptOutput,
     PromptPackOutput,
@@ -34,6 +39,7 @@ from app.intelligence.validators import validate_script_claim_refs
 from app.main import app
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
+from app.video_generator.generator import VideoGenerator
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +59,12 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def create_product(api: TestClient, title: str = "Altea Test Bottle", benefits: list[str] | None = None) -> int:
+def create_product(
+    api: TestClient,
+    title: str = "Altea Test Bottle",
+    benefits: list[str] | None = None,
+    images: list[str] | None = None,
+) -> int:
     response = api.post(
         "/api/products",
         json={
@@ -65,7 +76,7 @@ def create_product(api: TestClient, title: str = "Altea Test Bottle", benefits: 
             "category": "Home",
             "attributes_json": {"capacity": "600 ml"},
             "benefits_json": benefits or ["keeps drinks at hand"],
-            "images_json": [],
+            "images_json": images or [],
             "reviews_json": [],
             "restrictions_json": [],
             "product_url": "https://example.com/product",
@@ -248,6 +259,27 @@ def prepare_generator_product(api: TestClient, title: str = "Sprint 03 Product")
     create_template(api)
     add_generator_snapshots(product_sku(api, product_id))
     return product_id
+
+
+def build_creative_spec_fixture(
+    api: TestClient,
+    title: str = "Creative Spec Product",
+    duration: int = 15,
+    images: list[str] | None = None,
+    ctr: float = 0.035,
+    conversion_rate: float = 0.02,
+) -> tuple[int, int, CreativeSpec]:
+    product_id = create_product(api, title=title, images=images)
+    create_guide(api)
+    create_template(api)
+    add_generator_snapshots(product_sku(api, product_id), ctr=ctr, conversion_rate=conversion_rate)
+    with SessionLocal() as db:
+        record = CreativeSpecBuilder(db).build_for_product(
+            product_id,
+            platform="Instagram Reels",
+            duration_seconds=duration,
+        )
+    return product_id, record.id, CreativeSpec.model_validate(record.spec_json)
 
 
 def create_script(api: TestClient, title: str = "Altea Test Bottle", forbidden_words: list[str] | None = None) -> int:
@@ -934,3 +966,181 @@ def test_generator_ui_shows_provider_key_status_without_secret_values(monkeypatc
         assert "configured" in response.text
         assert "sk-test-secret-value" not in response.text
         assert "runway-test-secret-value" not in response.text
+
+
+def test_video_generator_ui_renders_creative_tz_and_generate_blocks():
+    with client() as api:
+        response = api.get("/video-generator")
+
+        assert response.status_code == 200
+        assert "Creative TZ" in response.text
+        assert "Generate Video" in response.text
+
+
+def test_hook_strategy_low_ctr_selects_curiosity_and_benefit_first():
+    with client() as api:
+        product_id = create_product(api, title="Low CTR Hook Product")
+        create_guide(api)
+        add_generator_snapshots(product_sku(api, product_id), ctr=0.01, conversion_rate=0.08)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+
+        pack = CreativeIntelligencePack.model_validate(record.pack_json)
+        hook_types = [candidate.hook_type for candidate in HookStrategySelector().select(pack)]
+        assert "curiosity_gap" in hook_types
+        assert "benefit_first_frame" in hook_types
+        assert len(hook_types) == 3
+
+
+def test_hook_strategy_low_conversion_selects_objection_handling():
+    with client() as api:
+        product_id = create_product(api, title="Low Conversion Hook Product")
+        create_guide(api)
+        add_generator_snapshots(product_sku(api, product_id), ctr=0.04, conversion_rate=0.01)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+
+        pack = CreativeIntelligencePack.model_validate(record.pack_json)
+        hook_types = [candidate.hook_type for candidate in HookStrategySelector().select(pack)]
+        assert hook_types[0] == "objection_handling"
+
+
+def test_creative_spec_has_first_frame_and_product_rules():
+    with client() as api:
+        _, _, spec = build_creative_spec_fixture(api, title="First Frame Spec Product")
+
+        assert spec.first_frame_spec.product_visible_by_second <= 1.5
+        assert spec.first_frame_spec.visual_hook
+        assert spec.first_frame_spec.text_overlay
+        assert any("first frame" in rule.lower() for rule in spec.product_display_rules)
+        assert any("hallucinate packaging" in rule.lower() for rule in spec.product_display_rules)
+
+
+def test_creative_spec_claims_have_source_refs():
+    with client() as api:
+        _, _, spec = build_creative_spec_fixture(api, title="Claim Ref Spec Product")
+
+        assert spec.allowed_claim_refs
+        allowed_refs = set(spec.allowed_claim_refs)
+        for scene in spec.scene_plan:
+            if scene.role != "cta":
+                assert scene.claim_refs
+                assert set(scene.claim_refs).issubset(allowed_refs)
+
+
+def test_creative_spec_validation_blocks_missing_captions():
+    with client() as api:
+        _, _, spec = build_creative_spec_fixture(api, title="Missing Caption Spec Product")
+        broken_scene = spec.scene_plan[0].model_copy(update={"caption": ""})
+        broken = spec.model_copy(update={"scene_plan": [broken_scene, *spec.scene_plan[1:]]})
+
+        report = CreativeSpecValidator().validate(broken)
+
+        assert report.valid is False
+        assert any("missing caption" in error.lower() for error in report.errors)
+
+
+def test_creative_spec_duration_matches_scene_sum():
+    with client() as api:
+        _, _, spec = build_creative_spec_fixture(api, title="Duration Spec Product", duration=15)
+
+        assert sum(scene.duration_seconds for scene in spec.scene_plan) == spec.duration_seconds
+
+
+def test_prompt_pack_from_spec_contains_first_frame_requirements():
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Prompt First Frame Product")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_spec(spec_id, provider="runway")
+
+        first_scene = variant.prompt_pack_json["scene_prompts"][0]
+        assert first_scene["first_frame_requirements"]["product_visible_by_second"] <= 1.5
+        assert first_scene["caption_text"]
+        assert first_scene["product_accuracy_rules"]
+
+
+def test_prompt_pack_includes_reference_image_warning_when_missing():
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Missing Reference Product")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_spec(spec_id, provider="runway")
+
+        assert "No reference images supplied" in variant.prompt_pack_json["warnings"][0]
+        assert all(scene["reference_images"] == [] for scene in variant.prompt_pack_json["scene_prompts"])
+
+
+def test_video_generator_prompt_only_does_not_call_provider(monkeypatch):
+    def fail_if_instantiated(*args, **kwargs):
+        raise AssertionError("Video provider should not be called when only building prompts from a creative spec.")
+
+    monkeypatch.setattr("app.intelligence.video_generator.RunwayVideoProvider", fail_if_instantiated)
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Spec Prompt Only Product")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_spec(spec_id, provider="runway")
+
+        assert variant.status == "prompt_pack_ready"
+        assert variant.video_job_id is None
+
+
+def test_video_quality_score_is_metadata_based_and_honest():
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Metadata Quality Product")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_spec(spec_id, provider="mock")
+            review = VideoGenerator(db).score(variant.id)
+
+        assert review.status == "metadata_scored"
+        assert any("No computer vision" in note for note in review.review_json["notes"])
+        assert all(check["check_type"] == "metadata" for check in review.review_json["checks"])
+
+
+def test_regenerate_scene_creates_new_prompt_for_one_scene_only():
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Regenerate Scene Product")
+
+        with SessionLocal() as db:
+            generator = VideoGenerator(db)
+            variant = generator.build_prompt_pack_from_spec(spec_id, provider="mock")
+            before = {
+                scene["scene_number"]: scene["prompt_text"]
+                for scene in variant.prompt_pack_json["scene_prompts"]
+            }
+            changed = generator.regenerate_scene(variant.id, 2)
+            db.refresh(variant)
+            after = {
+                scene["scene_number"]: scene["prompt_text"]
+                for scene in variant.prompt_pack_json["scene_prompts"]
+            }
+
+        assert "Regeneration pass" in changed["prompt_text"]
+        assert after[2] != before[2]
+        assert after[1] == before[1]
+        assert after[3] == before[3]
+        assert after[4] == before[4]
+
+
+def test_video_generator_api_build_spec_and_prompt_pack():
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Video Generator API Product")
+
+        spec_response = api.post(
+            "/api/creative/specs/build",
+            json={"product_id": product_id, "platform": "Instagram Reels", "duration": 15},
+        )
+        assert spec_response.status_code == 200, spec_response.text
+        assert spec_response.json()["status"] == "ready"
+
+        prompt_response = api.post(
+            "/api/video-generator/prompt-packs/from-spec",
+            json={"creative_spec_id": spec_response.json()["id"], "video_provider": "mock"},
+        )
+        assert prompt_response.status_code == 200, prompt_response.text
+        assert prompt_response.json()["status"] == "prompt_pack_ready"
+        assert prompt_response.json()["prompt_pack"]["scene_prompts"][0]["first_frame_requirements"]
