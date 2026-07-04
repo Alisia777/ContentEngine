@@ -25,6 +25,16 @@ class AssetValidationReport(BaseModel):
     missing_assets: list[str] = Field(default_factory=list)
 
 
+class ProductReferenceReadiness(BaseModel):
+    status: str
+    real_generation_allowed: bool
+    primary_reference_asset_id: int | None = None
+    reference_asset_ids: list[int] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    provider_reference_bundle: dict = Field(default_factory=dict)
+
+
 class ProductAssetKitOutput(BaseModel):
     product_id: int
     sku: str

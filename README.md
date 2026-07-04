@@ -172,6 +172,28 @@ python scripts/generate_from_variant.py --creative-variant-id 1 --build-prompts-
 
 The asset kit and variant scorer are metadata/rules-based. They do not inspect videos visually, do not generate images, do not call paid providers, and do not bypass Sprint 03 spend gates.
 
+## Preparing Product References
+
+Before a selected variant is eligible for real one-scene smoke:
+
+1. Upload or attach a packshot/reference image.
+2. Mark it as the primary reference.
+3. Approve the asset.
+4. Rebuild or refresh the asset kit if needed.
+5. Run the readiness check.
+6. Build a prompt pack from the selected variant.
+7. Only then run one-scene real smoke with the Sprint 03 spend gates enabled.
+
+CLI flow:
+
+```bash
+python scripts/attach_product_asset.py --product-id 1 --url https://example.com/packshot.png --asset-type packshot --primary
+python scripts/check_product_references.py --product-id 1 --provider runway
+python scripts/generate_from_variant.py --creative-variant-id 1 --build-prompts-only
+```
+
+Reference readiness blocks real generation when no approved primary reference exists. Missing label closeup or lifestyle assets are warnings, not blockers. Provider reference bundles use clean internal payloads and avoid signed/private URL leakage.
+
 ## Docker Compose
 
 ```bash

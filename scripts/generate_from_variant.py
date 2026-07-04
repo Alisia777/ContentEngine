@@ -41,6 +41,10 @@ def main() -> int:
                 "prompt_pack_id": variant.prompt_pack_id,
                 "provider": variant.provider,
                 "status": variant.status,
+                "reference_readiness_status": variant.prompt_pack_json.get("reference_readiness_status"),
+                "reference_bundle_id": variant.prompt_pack_json.get("reference_bundle_id"),
+                "reference_images": variant.prompt_pack_json.get("reference_images") or [],
+                "warnings": variant.prompt_pack_json.get("warnings") or [],
             }
     except (VideoGeneratorError, IntelligenceError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -54,6 +58,12 @@ def main() -> int:
     print(f"Prompt Pack ID: {summary['prompt_pack_id']}")
     print(f"Provider: {summary['provider']}")
     print(f"Status: {summary['status']}")
+    print(f"Reference Readiness: {summary['reference_readiness_status'] or 'unknown'}")
+    print(f"Reference Bundle ID: {summary['reference_bundle_id'] or 'none'}")
+    print(f"Reference Images: {len(summary['reference_images'])}")
+    print(f"Real Smoke Eligible: {summary['reference_readiness_status'] == 'ready'}")
+    if summary["warnings"]:
+        print("Warnings: " + ", ".join(summary["warnings"]))
     print("Video Job: skipped by prompt-only mode")
     return 0
 

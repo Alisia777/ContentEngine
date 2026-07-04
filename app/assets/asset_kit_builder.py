@@ -54,6 +54,7 @@ class AssetKitBuilder:
                     source_ref=descriptor.source_ref,
                     source_type=descriptor.source_type,
                     asset_type=descriptor.asset_type,
+                    asset_role=None,
                     filename=descriptor.filename,
                     extension=descriptor.extension,
                     mime_type=descriptor.mime_type,
@@ -61,6 +62,9 @@ class AssetKitBuilder:
                     height=descriptor.height,
                     exists=descriptor.exists,
                     status="ready",
+                    is_primary_reference=False,
+                    is_safe_for_real_generation=False,
+                    review_status="pending",
                     metadata_json=descriptor.metadata,
                     warnings_json=descriptor.warnings,
                 )

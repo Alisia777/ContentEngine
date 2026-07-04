@@ -54,3 +54,35 @@ def _ensure_sqlite_schema() -> None:
         with engine.begin() as connection:
             if "creative_variant_id" not in variant_columns:
                 connection.execute(text("ALTER TABLE video_generation_variants ADD COLUMN creative_variant_id INTEGER"))
+    _add_missing_sqlite_columns(
+        inspector,
+        "product_asset_kits",
+        {
+            "primary_reference_asset_id": "ALTER TABLE product_asset_kits ADD COLUMN primary_reference_asset_id INTEGER",
+            "provider_reference_bundle_json": "ALTER TABLE product_asset_kits ADD COLUMN provider_reference_bundle_json TEXT DEFAULT '{}'",
+            "real_generation_blockers_json": "ALTER TABLE product_asset_kits ADD COLUMN real_generation_blockers_json TEXT DEFAULT '[]'",
+        },
+    )
+    _add_missing_sqlite_columns(
+        inspector,
+        "product_assets",
+        {
+            "asset_role": "ALTER TABLE product_assets ADD COLUMN asset_role VARCHAR(80)",
+            "is_primary_reference": "ALTER TABLE product_assets ADD COLUMN is_primary_reference BOOLEAN DEFAULT 0",
+            "is_safe_for_real_generation": "ALTER TABLE product_assets ADD COLUMN is_safe_for_real_generation BOOLEAN DEFAULT 0",
+            "manual_label": "ALTER TABLE product_assets ADD COLUMN manual_label VARCHAR(255)",
+            "review_status": "ALTER TABLE product_assets ADD COLUMN review_status VARCHAR(80) DEFAULT 'pending'",
+            "review_notes": "ALTER TABLE product_assets ADD COLUMN review_notes TEXT",
+            "checksum": "ALTER TABLE product_assets ADD COLUMN checksum VARCHAR(128)",
+        },
+    )
+
+
+def _add_missing_sqlite_columns(inspector, table_name: str, migrations: dict[str, str]) -> None:
+    if table_name not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    with engine.begin() as connection:
+        for column, statement in migrations.items():
+            if column not in columns:
+                connection.execute(text(statement))
