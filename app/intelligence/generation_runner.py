@@ -63,15 +63,17 @@ class GeneratorRunService:
         max_scenes: int | None = None,
         full_video: bool = False,
     ) -> GeneratorRunArtifacts:
+        selected_video_provider = video_provider or self.settings.video_provider
+        video_service = GeneratorVideoService(self.db)
+        video_service.preflight_provider(selected_video_provider, explicit_real_run=confirm_real_spend)
         artifacts = self.build_prompt_pack_only(
             product_id=product_id,
             llm_provider=llm_provider,
-            video_provider=video_provider,
+            video_provider=selected_video_provider,
         )
-        video_service = GeneratorVideoService(self.db)
         video_job = video_service.create_video_job_from_prompt_pack(
             artifacts.prompt_pack.id,
-            video_provider or artifacts.prompt_pack.prompt_pack_json.get("provider"),
+            selected_video_provider,
             max_scenes=max_scenes,
             full_video=full_video,
             apply_safety_limits=True,

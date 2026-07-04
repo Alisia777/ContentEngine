@@ -834,6 +834,34 @@ def test_real_run_runway_missing_key_fails_clearly(monkeypatch):
         assert "RUNWAYML_API_SECRET is missing" in response.json()["detail"]
 
 
+def test_real_run_preflights_runway_before_openai(monkeypatch):
+    def fail_if_openai_is_instantiated(*args, **kwargs):
+        raise AssertionError("OpenAI should not be called when Runway preflight fails.")
+
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
+    monkeypatch.setattr("app.intelligence.script_generator.OpenAILLMProvider", fail_if_openai_is_instantiated)
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Runway Preflight Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={
+                "product_id": product_id,
+                "llm_provider": "openai",
+                "video_provider": "runway",
+                "confirm_real_spend": True,
+            },
+        )
+
+        assert response.status_code == 400
+        assert "RUNWAYML_API_SECRET is missing" in response.json()["detail"]
+        with SessionLocal() as db:
+            assert db.query(models.ScriptJob).count() == 0
+
+
 def test_prompt_only_never_calls_video_provider(monkeypatch):
     def fail_if_instantiated(*args, **kwargs):
         raise AssertionError("Video provider should not be called in prompt-only mode.")

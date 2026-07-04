@@ -86,6 +86,10 @@ class GeneratorVideoService:
         self.db.refresh(video_job)
         return video_job
 
+    def preflight_provider(self, provider_name: str, *, explicit_real_run: bool = False) -> None:
+        require_real_video_allowed(provider_name, explicit_real_run)
+        self._provider(provider_name)
+
     def start_provider_jobs(self, video_job: models.VideoJob, *, explicit_real_run: bool = False) -> models.VideoJob:
         require_real_video_allowed(video_job.provider, explicit_real_run)
         provider = self._provider(video_job.provider)
