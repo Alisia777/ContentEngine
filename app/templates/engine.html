@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Core engine pipeline</p>
+      <h1>Run demo pipeline</h1>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form action="/engine/run" method="post">
+      <div class="form-grid">
+        <label>Product
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>
+                {{ product.sku }} - {{ product.title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Account
+          <select name="account_id">
+            <option value="">Auto-select owned account</option>
+            {% for account in accounts %}
+              <option value="{{ account.id }}" {% if selected_account_id == account.id %}selected{% endif %}>
+                {{ account.platform }} - {{ account.account_name }} / {{ account.warmup_status }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit">Run demo pipeline</button></div>
+    </form>
+  </section>
+
+  {% if result %}
+    <section class="grid">
+      <article class="card">
+        <h2>Result</h2>
+        <p><strong>{{ result.status }}</strong></p>
+        <p>Script job: {{ result.script_job_id or "" }}</p>
+        <p>Video job: {{ result.video_job_id or "" }}</p>
+        <p>Package: {{ result.publishing_package_id or "" }}</p>
+        <p>Publishing job: {{ result.publishing_job_id or "" }}</p>
+        <p>Analytics: {{ result.analytics_id or "" }}</p>
+      </article>
+      <article class="card">
+        <h2>Post</h2>
+        {% for step in result.steps %}
+          {% if step.step_name == "run_upload" %}
+            <p>{{ step.data.provider_post_url or "No mock post URL yet." }}</p>
+            <p class="muted">{{ step.data.status }}</p>
+          {% endif %}
+        {% endfor %}
+      </article>
+    </section>
+
+    {% if result.errors %}
+      <section class="panel">
+        <h2>Errors</h2>
+        {% for error in result.errors %}
+          <p class="status">{{ error }}</p>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    <section class="panel">
+      <h2>Steps</h2>
+      <table class="table">
+        <thead>
+          <tr><th>Step</th><th>Status</th><th>Entity</th><th>Message</th></tr>
+        </thead>
+        <tbody>
+          {% for step in result.steps %}
+            <tr>
+              <td>{{ step.step_name }}</td>
+              <td>{{ step.status }}</td>
+              <td>{{ step.entity_type or "" }} {{ step.entity_id or "" }}</td>
+              <td>{{ step.message }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+{% endblock %}

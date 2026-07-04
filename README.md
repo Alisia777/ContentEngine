@@ -34,6 +34,20 @@ python -m uvicorn app.main:app --reload
 
 Open http://localhost:8000.
 
+## Fast Demo
+
+Run the full mock/local MVP workflow from one command:
+
+```bash
+python scripts/seed.py
+python scripts/run_demo_pipeline.py
+python -m uvicorn app.main:app --reload
+```
+
+Then open http://localhost:8000/engine to trigger the same demo pipeline from the admin UI.
+
+The fast demo is local-first and mock-provider based. It generates a script, auto-approves demo review steps, creates a mock video artifact, creates and approves a publishing package, schedules within warm-up limits, runs mock upload, and collects fake analytics. It does not call real LLM, video, or upload APIs.
+
 ## Docker Compose
 
 ```bash
