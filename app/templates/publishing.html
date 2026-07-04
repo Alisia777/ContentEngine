@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Owned destinations and manual upload tasks</p>
+      <h1>Publishing</h1>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel danger-panel"><strong>{{ error }}</strong></section>
+  {% endif %}
+
+  <section class="grid">
+    <article class="card">
+      <h2>Destinations</h2>
+      <form action="/publishing/destinations/create" method="post">
+        <label>Brand<input name="brand" value="Altea" required></label>
+        <label>Platform<input name="platform" value="telegram" required></label>
+        <label>Name<input name="name" placeholder="Altea Telegram" required></label>
+        <label>Handle<input name="handle" placeholder="@altea"></label>
+        <label>Owner<input name="owner_name" placeholder="Content Ops"></label>
+        <label>Posting mode
+          <select name="posting_mode">
+            <option value="manual">Manual</option>
+            <option value="api">API</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </label>
+        <div class="form-grid">
+          <label>Daily limit<input name="daily_limit" type="number" min="1" value="1"></label>
+          <label>Weekly limit<input name="weekly_limit" type="number" min="1" value="3"></label>
+        </div>
+        <label>Notes<textarea name="notes" rows="2"></textarea></label>
+        <div class="actions"><button type="submit">Add destination</button></div>
+      </form>
+      <table class="table compact">
+        <thead><tr><th>Destination</th><th>Mode</th><th>Status</th><th>Limits</th></tr></thead>
+        <tbody>
+          {% for destination in destinations %}
+            <tr>
+              <td>{{ destination.platform }} / {{ destination.name }}</td>
+              <td>{{ destination.posting_mode }} / {{ destination.auth_status }}</td>
+              <td>{{ destination.status }}</td>
+              <td>{{ destination.daily_limit }}/day, {{ destination.weekly_limit }}/week</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="muted">No destinations yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </article>
+
+    <article class="card">
+      <h2>Publishing Packages</h2>
+      <form action="/publishing/packages/create" method="post">
+        <label>Video artifact
+          <select name="video_job_id" required>
+            {% for video in video_jobs %}
+              <option value="{{ video.id }}">#{{ video.id }} / {{ video.status }} / {{ video.output_video_path }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Platform<input name="platform" value="telegram" required></label>
+        <label>Title<input name="title" placeholder="Optional override"></label>
+        <label>Description<textarea name="description" rows="2"></textarea></label>
+        <label>Hashtags<input name="hashtags" placeholder="#brand #product"></label>
+        <label>CTA<input name="cta" placeholder="Open the product card"></label>
+        <div class="actions"><button type="submit">Create package</button></div>
+      </form>
+      <table class="table compact">
+        <thead><tr><th>Package</th><th>Video</th><th>Status</th><th>Approve</th></tr></thead>
+        <tbody>
+          {% for package in packages %}
+            <tr>
+              <td>#{{ package.id }} / {{ package.target_platform }}</td>
+              <td>#{{ package.video_job_id }}</td>
+              <td>{{ package.status }} / {{ package.review_status }}</td>
+              <td>
+                <form action="/publishing/packages/{{ package.id }}/approve" method="post">
+                  <input name="reviewer_name" value="operator">
+                  <label><input type="checkbox" name="manual_override" value="true"> Override</label>
+                  <button type="submit">Approve</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="muted">No packages yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </article>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Calendar</h2>
+      <form action="/publishing/tasks/schedule" method="post">
+        <label>Package
+          <select name="publishing_package_id" required>
+            {% for package in packages %}
+              <option value="{{ package.id }}">#{{ package.id }} / {{ package.status }} / {{ package.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Destination
+          <select name="destination_id" required>
+            {% for destination in destinations %}
+              <option value="{{ destination.id }}">#{{ destination.id }} / {{ destination.platform }} / {{ destination.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Scheduled at<input type="datetime-local" name="scheduled_at" value="{{ default_time }}" required></label>
+        <label>Operator<input name="operator_name" value="operator"></label>
+        <div class="actions"><button type="submit">Schedule task</button></div>
+      </form>
+      <table class="table compact">
+        <thead><tr><th>When</th><th>Destination</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for task in tasks %}
+            <tr>
+              <td>{{ task.scheduled_at }}</td>
+              <td>{{ task.destination.platform }} / {{ task.destination.name }}</td>
+              <td>{{ task.status }}</td>
+              <td><a href="/publishing/tasks/{{ task.id }}">Open</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="muted">No tasks yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </article>
+
+    <article class="card">
+      <h2>Manual Upload</h2>
+      <p class="muted">Manual tasks expose the approved file and metadata. The operator uploads on the platform, then stores the final URL here.</p>
+      {% for task in tasks[:3] %}
+        <p><a href="/publishing/tasks/{{ task.id }}">Task #{{ task.id }}</a> / {{ task.status }} / {{ task.final_url or "no final URL" }}</p>
+      {% else %}
+        <p class="muted">No manual upload tasks yet.</p>
+      {% endfor %}
+    </article>
+  </section>
+{% endblock %}

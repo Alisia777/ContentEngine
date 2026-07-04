@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Manual upload task #{{ task.id }} / {{ task.status }}</p>
+      <h1>{{ task.publishing_package.title }}</h1>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Asset</h2>
+      <p><strong>Video path:</strong> {{ task.publishing_package.video_file_path }}</p>
+      <p><strong>Destination:</strong> {{ task.destination.platform }} / {{ task.destination.name }}</p>
+      <p><strong>Scheduled:</strong> {{ task.scheduled_at }}</p>
+      <p><strong>Final URL:</strong> {{ task.final_url or "not published" }}</p>
+      <div class="actions">
+        <form action="/publishing/tasks/{{ task.id }}/run" method="post">
+          <button type="submit">Prepare manual upload</button>
+        </form>
+      </div>
+    </article>
+    <article class="card">
+      <h2>Metadata</h2>
+      <p><strong>Title:</strong> {{ task.publishing_package.title }}</p>
+      <p><strong>Description:</strong> {{ task.publishing_package.description }}</p>
+      <p><strong>Hashtags:</strong> {{ task.publishing_package.hashtags_json | join(" ") }}</p>
+      <p><strong>CTA:</strong> {{ task.publishing_package.cta }}</p>
+    </article>
+    <article class="card">
+      <h2>Mark Published</h2>
+      <form action="/publishing/tasks/{{ task.id }}/mark-manual-uploaded" method="post">
+        <label>Operator<input name="operator_name" value="{{ task.operator_name or 'operator' }}" required></label>
+        <label>Final URL<input name="final_url" placeholder="https://platform.example/post/..." required></label>
+        <div class="actions"><button type="submit">Mark Published</button></div>
+      </form>
+    </article>
+  </section>
+{% endblock %}

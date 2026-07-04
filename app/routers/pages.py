@@ -25,6 +25,8 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
+from app.publishing.errors import PublishingError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -627,6 +629,166 @@ def video_generator_context(db: Session) -> dict:
         "real_smoke_spend_gate_enabled": real_smoke_spend_gate_enabled,
         "real_smoke_ui_enabled": real_smoke_spend_gate_enabled and bool(eligible_variant_ids),
     }
+
+
+@router.get("/publishing", response_class=HTMLResponse)
+def publishing_page(request: Request, db: Session = Depends(get_db)):
+    default_time = (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).replace(microsecond=0).isoformat(
+        timespec="minutes"
+    )
+    return templates.TemplateResponse(
+        "publishing.html",
+        {
+            "request": request,
+            "page_title": "Publishing",
+            "error": request.query_params.get("error"),
+            "default_time": default_time,
+            "destinations": db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.platform)).all(),
+            "packages": db.scalars(select(models.PublishingPackage).order_by(models.PublishingPackage.created_at.desc())).all(),
+            "tasks": db.scalars(select(models.PublishingTask).order_by(models.PublishingTask.scheduled_at.desc())).all(),
+            "video_jobs": db.scalars(
+                select(models.VideoJob)
+                .where(models.VideoJob.output_video_path.is_not(None))
+                .order_by(models.VideoJob.created_at.desc())
+                .limit(20)
+            ).all(),
+        },
+    )
+
+
+@router.post("/publishing/destinations/create")
+def create_publishing_destination_ui(
+    brand: str = Form("Altea"),
+    platform: str = Form(...),
+    name: str = Form(...),
+    handle: str = Form(""),
+    url: str = Form(""),
+    owner_name: str = Form(""),
+    posting_mode: str = Form("manual"),
+    daily_limit: int = Form(1),
+    weekly_limit: int = Form(3),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        PublishingDestinationService(db).create(
+            brand=brand,
+            platform=platform,
+            name=name,
+            handle=handle or None,
+            url=url or None,
+            owner_name=owner_name or None,
+            posting_mode=posting_mode,
+            daily_limit=daily_limit,
+            weekly_limit=weekly_limit,
+            notes=notes or None,
+        )
+    except PublishingError as exc:
+        return redirect(f"/publishing?error={str(exc)}")
+    return redirect("/publishing")
+
+
+@router.post("/publishing/packages/create")
+def create_safe_publishing_package_ui(
+    video_job_id: int = Form(...),
+    platform: str = Form(...),
+    title: str = Form(""),
+    description: str = Form(""),
+    hashtags: str = Form(""),
+    cta: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        PublishingPackageService(db).create_from_video(
+            video_job_id=video_job_id,
+            platform=platform,
+            title=title or None,
+            description=description or None,
+            hashtags=[item.strip() for item in hashtags.split() if item.strip()] or None,
+            cta=cta or None,
+        )
+    except PublishingError as exc:
+        return redirect(f"/publishing?error={str(exc)}")
+    return redirect("/publishing")
+
+
+@router.post("/publishing/packages/{package_id}/approve")
+def approve_safe_publishing_package_ui(
+    package_id: int,
+    reviewer_name: str = Form("operator"),
+    manual_override: bool = Form(False),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    package = db.get(models.PublishingPackage, package_id)
+    if not package:
+        return redirect("/publishing")
+    try:
+        PublishingPackageService(db).approve(
+            package,
+            reviewer_name=reviewer_name,
+            manual_override=manual_override,
+            notes=notes or None,
+        )
+    except PublishingError as exc:
+        return redirect(f"/publishing?error={str(exc)}")
+    return redirect("/publishing")
+
+
+@router.post("/publishing/tasks/schedule")
+def schedule_safe_publishing_task_ui(
+    publishing_package_id: int = Form(...),
+    destination_id: int = Form(...),
+    scheduled_at: str = Form(...),
+    operator_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    package = db.get(models.PublishingPackage, publishing_package_id)
+    destination = db.get(models.PublishingDestination, destination_id)
+    if not package or not destination:
+        return redirect("/publishing")
+    try:
+        PublishingScheduler(db).schedule(
+            package=package,
+            destination=destination,
+            scheduled_at=datetime.fromisoformat(scheduled_at),
+            operator_name=operator_name or None,
+        )
+    except PublishingError as exc:
+        return redirect(f"/publishing?error={str(exc)}")
+    return redirect("/publishing")
+
+
+@router.get("/publishing/tasks/{task_id}", response_class=HTMLResponse)
+def safe_publishing_task_page(task_id: int, request: Request, db: Session = Depends(get_db)):
+    task = db.get(models.PublishingTask, task_id)
+    if not task:
+        return redirect("/publishing")
+    return templates.TemplateResponse(
+        "publishing_task.html",
+        {"request": request, "page_title": "Publishing Task", "task": task},
+    )
+
+
+@router.post("/publishing/tasks/{task_id}/run")
+def run_safe_publishing_task_ui(task_id: int, db: Session = Depends(get_db)):
+    task = db.get(models.PublishingTask, task_id)
+    if task:
+        ManualUploadProvider(db).run(task)
+    return redirect(f"/publishing/tasks/{task_id}")
+
+
+@router.post("/publishing/tasks/{task_id}/mark-manual-uploaded")
+def mark_safe_publishing_task_uploaded_ui(
+    task_id: int,
+    final_url: str = Form(...),
+    operator_name: str = Form("operator"),
+    db: Session = Depends(get_db),
+):
+    task = db.get(models.PublishingTask, task_id)
+    if task:
+        ManualUploadProvider(db).mark_published(task, final_url, operator_name)
+    return redirect(f"/publishing/tasks/{task_id}")
 
 
 @router.get("/engine", response_class=HTMLResponse)

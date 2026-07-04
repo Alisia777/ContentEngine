@@ -244,6 +244,7 @@ class PublishingPackageCreate(BaseModel):
 class PublishingPackageRead(OrmModel):
     id: int
     video_job_id: int
+    creative_variant_id: int | None = None
     product_id: int
     brand: str
     target_platform: str
@@ -257,9 +258,116 @@ class PublishingPackageRead(OrmModel):
     video_file_path: str | None
     metadata_json: JsonDict
     ai_generated_flag: bool
+    review_status: str = "needs_review"
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class PublishingDestinationCreate(BaseModel):
+    brand: str = "Altea"
+    platform: str
+    name: str
+    handle: str | None = None
+    url: str | None = None
+    owner_name: str | None = None
+    status: str = "active"
+    posting_mode: str = "manual"
+    auth_status: str | None = None
+    allowed_formats_json: JsonList = Field(default_factory=lambda: ["vertical_video"])
+    daily_limit: int = 1
+    weekly_limit: int = 3
+    notes: str | None = None
+
+
+class PublishingDestinationPatch(BaseModel):
+    brand: str | None = None
+    platform: str | None = None
+    name: str | None = None
+    handle: str | None = None
+    url: str | None = None
+    owner_name: str | None = None
+    status: str | None = None
+    posting_mode: str | None = None
+    auth_status: str | None = None
+    allowed_formats_json: JsonList | None = None
+    daily_limit: int | None = None
+    weekly_limit: int | None = None
+    notes: str | None = None
+
+
+class PublishingDestinationRead(OrmModel):
+    id: int
+    brand: str
+    platform: str
+    name: str
+    handle: str | None
+    url: str | None
+    owner_name: str | None
+    status: str
+    posting_mode: str
+    auth_status: str
+    allowed_formats_json: JsonList
+    daily_limit: int
+    weekly_limit: int
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublishingReadinessRead(BaseModel):
+    ready: bool
+    status: str
+    blockers: list[str]
+    warnings: list[str]
+
+
+class SafePublishingPackageCreate(BaseModel):
+    video_job_id: int
+    platform: str
+    title: str | None = None
+    description: str | None = None
+    hashtags_json: JsonList = Field(default_factory=list)
+    cta: str | None = None
+    cover_image_path: str | None = None
+
+
+class PublishingPackageApprovalRequest(BaseModel):
+    reviewer_name: str = "operator"
+    manual_override: bool = False
+    notes: str | None = None
+
+
+class PublishingPackageRejectRequest(BaseModel):
+    reviewer_name: str = "operator"
+    reason: str = "Rejected by operator"
+
+
+class PublishingTaskScheduleRequest(BaseModel):
+    publishing_package_id: int
+    destination_id: int
+    scheduled_at: datetime
+    operator_name: str | None = None
+
+
+class PublishingTaskRead(OrmModel):
+    id: int
+    publishing_package_id: int
+    destination_id: int
+    platform: str
+    status: str
+    scheduled_at: datetime
+    final_url: str | None
+    operator_name: str | None
+    error_message: str | None
+    raw_response_json: JsonDict
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublishingManualUploadedRequest(BaseModel):
+    final_url: str
+    operator_name: str = "operator"
 
 
 class PublishingScheduleRequest(BaseModel):
@@ -310,4 +418,3 @@ class PublishAnalyticsRead(OrmModel):
 class ExportCreate(BaseModel):
     video_job_id: int
     destination: str = "local"
-
