@@ -15,8 +15,10 @@ from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
+from app.intelligence.generation_runner import GeneratorRunArtifacts, GeneratorRunService
 from app.intelligence.insight_builder import CreativeIntelligenceBuilder
 from app.intelligence.prompt_builder import PromptPackBuilder
+from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
@@ -59,6 +61,19 @@ class GeneratorVideoJobRequest(BaseModel):
     video_provider: str | None = None
 
 
+class GeneratorRealRunRequest(BaseModel):
+    product_id: int
+    llm_provider: str | None = None
+    video_provider: str | None = None
+    confirm_real_spend: bool = False
+    max_scenes: int | None = None
+    full_video: bool = False
+
+
+class GeneratorProviderRunRequest(BaseModel):
+    confirm_real_spend: bool = False
+
+
 def get_or_404(db: Session, model: type, entity_id: int):
     entity = db.get(model, entity_id)
     if not entity:
@@ -73,6 +88,27 @@ def parse_json_cell(value: str | None, fallback: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return fallback
+
+
+def generator_artifacts_response(artifacts: GeneratorRunArtifacts) -> dict:
+    video_job = artifacts.video_job
+    return {
+        "product_id": artifacts.pack.product_id,
+        "intelligence_pack_id": artifacts.pack.id,
+        "script_brief_id": artifacts.brief.id,
+        "script_job_id": artifacts.script_job.id,
+        "script_variant_id": artifacts.variant.id,
+        "prompt_pack_id": artifacts.prompt_pack.id,
+        "video_job_id": video_job.id if video_job else None,
+        "status": video_job.status if video_job else "prompt_pack_ready",
+        "llm_provider": artifacts.script_job.llm_provider,
+        "llm_model": artifacts.script_job.llm_model,
+        "video_provider": video_job.provider if video_job else artifacts.prompt_pack.prompt_pack_json.get("provider"),
+        "provider_status": artifacts.provider_status,
+        "local_output_paths": artifacts.local_output_paths or [],
+        "final_video_path": video_job.output_video_path if video_job else None,
+        "report_path": artifacts.report_path,
+    }
 
 
 @router.post("/products", response_model=schemas.ProductRead)
@@ -275,16 +311,74 @@ def create_generator_video_job(payload: GeneratorVideoJobRequest, db: Session = 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/generator/run-real")
+def run_generator_real(payload: GeneratorRealRunRequest, db: Session = Depends(get_db)):
+    try:
+        artifacts = GeneratorRunService(db).run_real(
+            product_id=payload.product_id,
+            llm_provider=payload.llm_provider,
+            video_provider=payload.video_provider,
+            confirm_real_spend=payload.confirm_real_spend,
+            max_scenes=payload.max_scenes,
+            full_video=payload.full_video,
+        )
+        return generator_artifacts_response(artifacts)
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/generator/provider-key-status")
+def get_generator_provider_key_status():
+    return provider_key_status()
+
+
 @router.post("/generator/video-jobs/{video_job_id}/run")
-def run_generator_video_job(video_job_id: int, db: Session = Depends(get_db)):
+def run_generator_video_job(
+    video_job_id: int,
+    payload: GeneratorProviderRunRequest | None = None,
+    db: Session = Depends(get_db),
+):
     video_job = get_or_404(db, models.VideoJob, video_job_id)
-    return GeneratorVideoService(db).status(video_job)
+    try:
+        video_job = GeneratorVideoService(db).start_provider_jobs(
+            video_job,
+            explicit_real_run=payload.confirm_real_spend if payload else False,
+        )
+        return {
+            "id": video_job.id,
+            "status": video_job.status,
+            "provider": video_job.provider,
+            "provider_job_ids": [clip.provider_job_id for clip in video_job.clips if clip.provider_job_id],
+        }
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/generator/video-jobs/{video_job_id}/status")
 def get_generator_video_status(video_job_id: int, db: Session = Depends(get_db)):
     video_job = get_or_404(db, models.VideoJob, video_job_id)
-    return GeneratorVideoService(db).status(video_job)
+    try:
+        return GeneratorVideoService(db).status(video_job)
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/generator/video-jobs/{video_job_id}/provider-status")
+def get_generator_video_provider_status(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    try:
+        return GeneratorVideoService(db).provider_status(video_job)
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/generator/video-jobs/{video_job_id}/poll")
+def poll_generator_video_provider(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    try:
+        return GeneratorVideoService(db).poll_until_complete(video_job)
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/generator/video-jobs/{video_job_id}/download")
@@ -299,8 +393,11 @@ def download_generator_video_outputs(video_job_id: int, db: Session = Depends(ge
 @router.post("/generator/video-jobs/{video_job_id}/assemble")
 def assemble_generator_video(video_job_id: int, db: Session = Depends(get_db)):
     video_job = get_or_404(db, models.VideoJob, video_job_id)
-    video_job = GeneratorVideoService(db).assemble(video_job)
-    return {"id": video_job.id, "status": video_job.status, "output_video_path": video_job.output_video_path}
+    try:
+        video_job = GeneratorVideoService(db).assemble(video_job)
+        return {"id": video_job.id, "status": video_job.status, "output_video_path": video_job.output_video_path}
+    except IntelligenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/generator/import/{kind}")

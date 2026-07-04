@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -8,19 +9,38 @@ os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
 os.environ["QVF_MEDIA_ROOT"] = "test_media"
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from app import models
+from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.engine import VideoFactoryEngine
-from app.intelligence.errors import ProviderConfigurationError
+from app.intelligence.errors import ClaimValidationError, ProviderConfigurationError
+from app.intelligence.generation_runner import GeneratorRunService
 from app.intelligence.insight_builder import CreativeIntelligenceBuilder
 from app.intelligence.prompt_builder import PromptPackBuilder
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
+from app.intelligence.types import (
+    AllowedClaim,
+    GeneratedSceneOutput,
+    GeneratedScriptOutput,
+    PromptPackOutput,
+    PromptSceneOutput,
+    ScriptBriefOutput,
+)
+from app.intelligence.validators import validate_script_claim_refs
 from app.main import app
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
+
+
+@pytest.fixture(autouse=True)
+def clear_settings_cache():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def reset_db() -> None:
@@ -220,6 +240,14 @@ def add_generator_snapshots(
                 )
             )
         db.commit()
+
+
+def prepare_generator_product(api: TestClient, title: str = "Sprint 03 Product") -> int:
+    product_id = create_product(api, title=title)
+    create_guide(api)
+    create_template(api)
+    add_generator_snapshots(product_sku(api, product_id))
+    return product_id
 
 
 def create_script(api: TestClient, title: str = "Altea Test Bottle", forbidden_words: list[str] | None = None) -> int:
@@ -619,3 +647,290 @@ def test_real_video_provider_missing_key_fails_in_runway_mode(monkeypatch):
     monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
     with pytest.raises(ProviderConfigurationError, match="RUNWAYML_API_SECRET is missing"):
         RunwayVideoProvider()
+
+
+def test_openai_network_error_fails_clearly(monkeypatch):
+    def raise_connect_error(*args, **kwargs):
+        raise httpx.ConnectError("TLS handshake failed")
+
+    monkeypatch.setattr("app.providers.openai_llm.httpx.post", raise_connect_error)
+    brief = ScriptBriefOutput(
+        sku="SKU-OPENAI-NETWORK",
+        product_title="Network Test Product",
+        objective="improve_conversion",
+        creative_angle="trust_builder",
+        reasoning_summary="Use only source-backed claims.",
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="OpenAI structured script request failed"):
+        OpenAILLMProvider(api_key="test-key").generate_script(brief)
+
+
+def test_openai_structured_output_schema_is_strict():
+    schema = OpenAILLMProvider._strict_json_schema(GeneratedScriptOutput.model_json_schema())
+
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])
+    for definition in schema["$defs"].values():
+        if "properties" in definition:
+            assert definition["additionalProperties"] is False
+            assert set(definition["required"]) == set(definition["properties"])
+
+
+def test_claim_refs_accept_source_type_source_key_format():
+    brief = ScriptBriefOutput(
+        sku="SKU-CLAIM-REF",
+        product_title="Claim Ref Product",
+        objective="improve_conversion",
+        creative_angle="trust_builder",
+        reasoning_summary="Use source-backed claims.",
+        allowed_claims=[
+            AllowedClaim(claim="keeps essentials visible", source_type="product_field", source_key="description")
+        ],
+    )
+    script = GeneratedScriptOutput(
+        creative_angle="trust_builder",
+        hook="Proof first",
+        key_message="keeps essentials visible",
+        final_cta="Open the product card",
+        scenes=[
+            GeneratedSceneOutput(
+                scene_number=1,
+                time_start=0,
+                time_end=5,
+                visual_description="Show the product clearly.",
+                voiceover="keeps essentials visible",
+                caption="Visible essentials",
+                claim_refs=["product_field:description"],
+                video_prompt="Realistic product video",
+                negative_prompt="distorted product",
+            )
+        ],
+    )
+
+    assert validate_script_claim_refs(script, brief)["valid"] is True
+
+
+def test_claim_refs_reject_wrong_source_type_prefix():
+    brief = ScriptBriefOutput(
+        sku="SKU-CLAIM-REF-REJECT",
+        product_title="Claim Ref Reject Product",
+        objective="improve_conversion",
+        creative_angle="trust_builder",
+        reasoning_summary="Use source-backed claims.",
+        allowed_claims=[
+            AllowedClaim(claim="keeps essentials visible", source_type="product_field", source_key="description")
+        ],
+    )
+    script = GeneratedScriptOutput(
+        creative_angle="trust_builder",
+        hook="Proof first",
+        key_message="keeps essentials visible",
+        final_cta="Open the product card",
+        scenes=[
+            GeneratedSceneOutput(
+                scene_number=1,
+                time_start=0,
+                time_end=5,
+                visual_description="Show the product clearly.",
+                voiceover="keeps essentials visible",
+                caption="Visible essentials",
+                claim_refs=["review:description"],
+                video_prompt="Realistic product video",
+                negative_prompt="distorted product",
+            )
+        ],
+    )
+
+    with pytest.raises(ClaimValidationError):
+        validate_script_claim_refs(script, brief)
+
+
+def test_runway_network_error_fails_clearly(monkeypatch):
+    def raise_connect_error(*args, **kwargs):
+        raise httpx.ConnectError("TLS handshake failed")
+
+    monkeypatch.setattr("app.providers.runway_video.httpx.post", raise_connect_error)
+    prompt_pack = PromptPackOutput(
+        provider="runway",
+        aspect_ratio="9:16",
+        duration_seconds=5,
+        scene_prompts=[
+            PromptSceneOutput(
+                scene_number=1,
+                duration_seconds=5,
+                prompt_text="Realistic product video",
+                negative_prompt="distorted product",
+            )
+        ],
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="Runway generation request failed"):
+        RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
+
+
+def test_real_run_requires_allow_spend_true(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "false")
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Spend Gate Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={
+                "product_id": product_id,
+                "llm_provider": "mock",
+                "video_provider": "runway",
+                "confirm_real_spend": True,
+            },
+        )
+
+        assert response.status_code == 400
+        assert "QVF_ALLOW_REAL_SPEND=true" in response.json()["detail"]
+
+
+def test_real_run_openai_missing_key_fails_clearly(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Missing OpenAI Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={
+                "product_id": product_id,
+                "llm_provider": "openai",
+                "video_provider": "mock",
+                "confirm_real_spend": True,
+            },
+        )
+
+        assert response.status_code == 400
+        assert "OPENAI_API_KEY is missing" in response.json()["detail"]
+
+
+def test_real_run_runway_missing_key_fails_clearly(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Missing Runway Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={
+                "product_id": product_id,
+                "llm_provider": "mock",
+                "video_provider": "runway",
+                "confirm_real_spend": True,
+            },
+        )
+
+        assert response.status_code == 400
+        assert "RUNWAYML_API_SECRET is missing" in response.json()["detail"]
+
+
+def test_real_run_preflights_runway_before_openai(monkeypatch):
+    def fail_if_openai_is_instantiated(*args, **kwargs):
+        raise AssertionError("OpenAI should not be called when Runway preflight fails.")
+
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
+    monkeypatch.setattr("app.intelligence.script_generator.OpenAILLMProvider", fail_if_openai_is_instantiated)
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Runway Preflight Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={
+                "product_id": product_id,
+                "llm_provider": "openai",
+                "video_provider": "runway",
+                "confirm_real_spend": True,
+            },
+        )
+
+        assert response.status_code == 400
+        assert "RUNWAYML_API_SECRET is missing" in response.json()["detail"]
+        with SessionLocal() as db:
+            assert db.query(models.ScriptJob).count() == 0
+
+
+def test_prompt_only_never_calls_video_provider(monkeypatch):
+    def fail_if_instantiated(*args, **kwargs):
+        raise AssertionError("Video provider should not be called in prompt-only mode.")
+
+    monkeypatch.setattr("app.intelligence.video_generator.RunwayVideoProvider", fail_if_instantiated)
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Prompt Only Product")
+
+        with SessionLocal() as db:
+            artifacts = GeneratorRunService(db).build_prompt_pack_only(
+                product_id=product_id,
+                llm_provider="mock",
+                video_provider="runway",
+            )
+
+        assert artifacts.prompt_pack.prompt_pack_json["provider"] == "runway"
+        assert artifacts.video_job is None
+
+
+def test_real_run_limited_to_one_scene_by_default(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="One Scene Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={"product_id": product_id, "llm_provider": "mock", "video_provider": "mock"},
+        )
+
+        assert response.status_code == 200, response.text
+        with SessionLocal() as db:
+            video_job = db.get(models.VideoJob, response.json()["video_job_id"])
+            assert len(video_job.clips) == 1
+
+
+def test_generation_report_created_for_mock_real_mode(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_generator_product(api, title="Report Product")
+
+        response = api.post(
+            "/api/generator/run-real",
+            json={"product_id": product_id, "llm_provider": "mock", "video_provider": "mock"},
+        )
+
+        assert response.status_code == 200, response.text
+        report_path = Path(response.json()["report_path"])
+        assert report_path.exists()
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report["product_id"] == product_id
+        assert report["video_job_id"] == response.json()["video_job_id"]
+        assert report["video_provider"] == "mock"
+        assert report["provider_job_ids"]
+        assert report["local_output_paths"]
+        assert report["final_video_path"]
+
+
+def test_generator_ui_shows_provider_key_status_without_secret_values(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret-value")
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "runway-test-secret-value")
+    get_settings.cache_clear()
+    with client() as api:
+        response = api.get("/generator")
+
+        assert response.status_code == 200
+        assert "OpenAI key" in response.text
+        assert "Runway key" in response.text
+        assert "configured" in response.text
+        assert "sk-test-secret-value" not in response.text
+        assert "runway-test-secret-value" not in response.text
