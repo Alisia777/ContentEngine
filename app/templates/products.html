@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Product data</p>
+      <h1>Products</h1>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form action="/products/create" method="post">
+      <div class="form-grid">
+        <label>SKU<input name="sku" required></label>
+        <label>Brand<input name="brand" required></label>
+        <label>Title<input name="title" required></label>
+        <label>Marketplace<input name="marketplace"></label>
+        <label>Category<input name="category"></label>
+        <label>Product URL<input name="product_url"></label>
+      </div>
+      <label>Description<textarea name="description"></textarea></label>
+      <div class="actions"><button type="submit">Create product</button></div>
+    </form>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>SKU</th><th>Brand</th><th>Title</th><th>Marketplace</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for product in products %}
+        <tr>
+          <td>{{ product.sku }}</td>
+          <td>{{ product.brand }}</td>
+          <td>{{ product.title }}</td>
+          <td>{{ product.marketplace or "" }}</td>
+          <td><a href="/products/{{ product.id }}">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">No products yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

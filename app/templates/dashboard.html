@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Internal production workflow</p>
+      <h1>Product video factory</h1>
+    </div>
+    <a class="button" href="/products">Start with products</a>
+  </section>
+
+  <section class="workflow">
+    <span>Product</span>
+    <span>Script</span>
+    <span>Video</span>
+    <span>Review</span>
+    <span>Package</span>
+    <span>Schedule</span>
+    <span>Upload</span>
+    <span>Analytics</span>
+  </section>
+
+  <section class="metric-grid">
+    {% for label, value in metrics.items() %}
+      <article class="metric">
+        <strong>{{ value }}</strong>
+        <span>{{ label }}</span>
+      </article>
+    {% endfor %}
+  </section>
+{% endblock %}
+

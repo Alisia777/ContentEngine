@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Generate strict JSON</p>
+      <h1>Create script</h1>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form action="/scripts/generate" method="post">
+      <div class="form-grid">
+        <label>Product
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Brand guide
+          <select name="brand_guide_id" required>
+            {% for guide in brand_guides %}
+              <option value="{{ guide.id }}">{{ guide.brand }} - {{ guide.tone_of_voice }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Template
+          <select name="template_id" required>
+            {% for template in creative_templates %}
+              <option value="{{ template.id }}">{{ template.name }} / {{ template.duration_seconds }}s</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit">Generate script</button></div>
+    </form>
+  </section>
+{% endblock %}
+

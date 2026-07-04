@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Scene prompts to mock clips</p>
+      <h1>Create video job</h1>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form action="/videos/create" method="post">
+      <div class="form-grid">
+        <label>Approved script variant
+          <select name="script_variant_id" required>
+            {% for variant in variants %}
+              <option value="{{ variant.id }}" {% if selected_variant_id == variant.id %}selected{% endif %}>
+                #{{ variant.id }} - {{ variant.script_job.product.title }} / {{ variant.creative_angle }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Provider
+          <select name="provider">
+            <option value="mock">MockVideoProvider</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit">Create job</button></div>
+    </form>
+  </section>
+{% endblock %}
+

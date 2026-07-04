@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title or "Qharisma Video Factory" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">Qharisma Video Factory</a>
+      <nav>
+        <a href="/products">Products</a>
+        <a href="/scripts">Scripts</a>
+        <a href="/videos">Videos</a>
+        <a href="/publishing-packages">Packages</a>
+        <a href="/publishing-calendar">Calendar</a>
+        <a href="/analytics">Analytics</a>
+        <a href="/settings">Settings</a>
+      </nav>
+    </header>
+    <main class="shell">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>
+

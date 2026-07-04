@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">AI script engine</p>
+      <h1>Scripts</h1>
+    </div>
+    <a class="button" href="/scripts/new">Create script</a>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>ID</th><th>Product</th><th>Template</th><th>Status</th><th>Validation</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for job in script_jobs %}
+        <tr>
+          <td>{{ job.id }}</td>
+          <td>{{ job.product.title }}</td>
+          <td>{{ job.template.name }}</td>
+          <td>{{ job.status }}</td>
+          <td>{{ "valid" if job.validation_report_json.valid else "check" }}</td>
+          <td><a href="/scripts/{{ job.id }}">Review</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No generated scripts yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

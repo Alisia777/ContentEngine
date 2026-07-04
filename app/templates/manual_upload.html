@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Manual upload task #{{ job.id }}</p>
+      <h1>{{ job.publishing_package.title }}</h1>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Package</h2>
+      <p><strong>Video:</strong> {{ job.publishing_package.video_file_path }}</p>
+      <p><strong>Title:</strong> {{ job.publishing_package.title }}</p>
+      <p><strong>Description:</strong> {{ job.publishing_package.description }}</p>
+      <p><strong>Hashtags:</strong> {{ job.publishing_package.hashtags_json | join(" ") }}</p>
+      <p><strong>CTA:</strong> {{ job.publishing_package.cta }}</p>
+    </article>
+    <article class="card">
+      <h2>Complete upload</h2>
+      <form action="/manual-upload/{{ job.id }}/complete" method="post">
+        <label>Operator<input name="operator_name" value="{{ job.operator_name or 'operator' }}" required></label>
+        <label>Post URL<input name="provider_post_url" placeholder="https://platform.example/post/..." required></label>
+        <div class="actions"><button type="submit">Mark as manually uploaded</button></div>
+      </form>
+    </article>
+  </section>
+{% endblock %}
+

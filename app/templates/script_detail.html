@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Script job #{{ script_job.id }} / {{ script_job.status }}</p>
+      <h1>{{ script_job.output_script_json.hook }}</h1>
+    </div>
+    <a class="button" href="/videos/new?variant_id={{ script_job.variants[0].id if script_job.variants else '' }}">Create video</a>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Validation</h2>
+      <p><strong>{{ "Valid" if script_job.validation_report_json.valid else "Needs attention" }}</strong></p>
+      {% for error in script_job.validation_report_json.errors %}
+        <p class="status">{{ error }}</p>
+      {% endfor %}
+      {% for warning in script_job.validation_report_json.warnings %}
+        <p class="status">{{ warning }}</p>
+      {% endfor %}
+    </article>
+    <article class="card">
+      <h2>Message</h2>
+      <p>{{ script_job.output_script_json.key_message }}</p>
+      <p class="muted">CTA: {{ script_job.output_script_json.final_cta }}</p>
+    </article>
+  </section>
+
+  {% for variant in script_job.variants %}
+    <section class="panel">
+      <h2>Variant {{ variant.variant_number }} / {{ variant.status }}</h2>
+      <p><strong>{{ variant.creative_angle }}</strong></p>
+      <p>{{ variant.hook }}</p>
+      <div class="actions">
+        <form action="/script-variants/{{ variant.id }}/approve-ui" method="post"><button type="submit">Approve</button></form>
+        <form action="/script-variants/{{ variant.id }}/reject-ui" method="post">
+          <input name="rejection_reason" value="Needs clearer source references">
+          <button class="danger" type="submit">Reject</button>
+        </form>
+      </div>
+      <table class="table">
+        <thead>
+          <tr><th>#</th><th>Timing</th><th>Visual</th><th>Caption</th><th>Sources</th></tr>
+        </thead>
+        <tbody>
+          {% for scene in variant.scenes %}
+            <tr>
+              <td>{{ scene.scene_number }}</td>
+              <td>{{ scene.time_start }}-{{ scene.time_end }}s</td>
+              <td>{{ scene.visual_description }}</td>
+              <td>{{ scene.caption }}</td>
+              <td>{{ scene.source_fields_json | join(", ") }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endfor %}
+
+  <section class="panel">
+    <h2>Script JSON</h2>
+    <pre>{{ script_job.output_script_json | tojson(indent=2) }}</pre>
+  </section>
+{% endblock %}
+

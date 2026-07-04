@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Metadata and approval</p>
+      <h1>Publishing packages</h1>
+    </div>
+    <a class="button" href="/publishing-packages/new">Create package</a>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>ID</th><th>Product</th><th>Platform</th><th>Status</th><th>Title</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for package in packages %}
+        <tr>
+          <td>{{ package.id }}</td>
+          <td>{{ package.product.title }}</td>
+          <td>{{ package.target_platform }}</td>
+          <td>{{ package.status }}</td>
+          <td>{{ package.title }}</td>
+          <td><a href="/publishing-packages/{{ package.id }}">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No publishing packages yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

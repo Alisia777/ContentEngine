@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Publishing job #{{ job.id }} / {{ job.status }}</p>
+      <h1>{{ job.publishing_package.title }}</h1>
+    </div>
+    <a class="button" href="/manual-upload/{{ job.id }}">Manual upload task</a>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Schedule</h2>
+      <p>{{ job.scheduled_at }}</p>
+      <p>{{ job.account.platform }} / {{ job.account.account_name }}</p>
+      <p class="muted">{{ job.provider }}</p>
+      <div class="actions">
+        <form action="/publishing-jobs/{{ job.id }}/run-ui" method="post"><button type="submit">Run upload</button></form>
+        <form action="/publishing-jobs/{{ job.id }}/collect-analytics-ui" method="post"><button class="secondary" type="submit">Collect analytics</button></form>
+      </div>
+    </article>
+    <article class="card">
+      <h2>Post</h2>
+      <p>{{ job.provider_post_url or "No post URL yet." }}</p>
+      <p>{{ "Manual upload required" if job.manual_upload_required else "Provider flow" }}</p>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Analytics</h2>
+    <table class="table">
+      <thead>
+        <tr><th>Collected</th><th>Views</th><th>Likes</th><th>Comments</th><th>Clicks</th><th>CTR</th></tr>
+      </thead>
+      <tbody>
+        {% for item in job.analytics %}
+          <tr>
+            <td>{{ item.collected_at }}</td>
+            <td>{{ item.views }}</td>
+            <td>{{ item.likes }}</td>
+            <td>{{ item.comments }}</td>
+            <td>{{ item.clicks }}</td>
+            <td>{{ item.ctr }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="muted">No analytics collected yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Raw response</h2>
+    <pre>{{ job.raw_response_json | tojson(indent=2) }}</pre>
+  </section>
+{% endblock %}

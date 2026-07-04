@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Compliance-first content calendar</p>
+      <h1>Warm-up plans</h1>
+    </div>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>Name</th><th>Status</th><th>Phase</th><th>Account</th></tr>
+    </thead>
+    <tbody>
+      {% for plan in plans %}
+        <tr>
+          <td>{{ plan.name }}</td>
+          <td>{{ plan.status }}</td>
+          <td>{{ plan.current_phase }}</td>
+          <td>{{ plan.account_id or "Template" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">No warm-up plans yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

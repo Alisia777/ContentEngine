@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Video job #{{ video_job.id }} / {{ video_job.status }}</p>
+      <h1>{{ video_job.script_variant.script_job.product.title }}</h1>
+    </div>
+    <a class="button" href="/publishing-packages/new?video_job_id={{ video_job.id }}">Create package</a>
+  </section>
+
+  <section class="panel">
+    <p><strong>Output:</strong> {{ video_job.output_video_path or "Not assembled yet" }}</p>
+    <p><strong>Preview:</strong> {{ video_job.preview_path or "Not generated yet" }}</p>
+    {% if video_job.output_video_path %}
+      <video controls width="260" src="/{{ video_job.output_video_path }}"></video>
+    {% endif %}
+    <div class="actions">
+      <form action="/videos/{{ video_job.id }}/run-ui" method="post"><button type="submit">Run mock generation</button></form>
+      <form action="/videos/{{ video_job.id }}/approve-ui" method="post"><button type="submit">Approve video</button></form>
+      <form action="/videos/{{ video_job.id }}/reject-ui" method="post">
+        <input name="reason" value="Needs visual revision">
+        <button class="danger" type="submit">Reject</button>
+      </form>
+    </div>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>Scene</th><th>Status</th><th>Clip path</th><th>Prompt</th></tr>
+    </thead>
+    <tbody>
+      {% for clip in video_job.clips %}
+        <tr>
+          <td>{{ clip.scene.scene_number }}</td>
+          <td>{{ clip.status }}</td>
+          <td>{{ clip.clip_path }}</td>
+          <td>{{ clip.scene.video_prompt }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">Run generation to create clips.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

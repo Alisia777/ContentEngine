@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">{{ product.sku }}</p>
+      <h1>{{ product.title }}</h1>
+    </div>
+    <a class="button" href="/scripts/new?product_id={{ product.id }}">Create script</a>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Product</h2>
+      <p>{{ product.description or "No description yet." }}</p>
+      <p class="muted">{{ product.brand }} / {{ product.marketplace or "No marketplace" }}</p>
+    </article>
+    <article class="card">
+      <h2>Structured data</h2>
+      <pre>{{ product.attributes_json | tojson(indent=2) }}</pre>
+    </article>
+  </section>
+{% endblock %}
+

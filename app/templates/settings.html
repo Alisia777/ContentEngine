@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Provider and brand defaults</p>
+      <h1>Settings</h1>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Brand guides</h2>
+      {% for guide in brand_guides %}
+        <p><strong>{{ guide.brand }}</strong><br><span class="muted">{{ guide.tone_of_voice }}</span></p>
+      {% else %}
+        <p class="muted">No brand guides seeded yet.</p>
+      {% endfor %}
+    </article>
+    <article class="card">
+      <h2>Creative templates</h2>
+      {% for template in creative_templates %}
+        <p><strong>{{ template.name }}</strong><br><span class="muted">{{ template.duration_seconds }}s {{ template.aspect_ratio }}</span></p>
+      {% else %}
+        <p class="muted">No templates seeded yet.</p>
+      {% endfor %}
+    </article>
+  </section>
+{% endblock %}
+

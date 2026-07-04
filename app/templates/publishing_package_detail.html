@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Package #{{ package.id }} / {{ package.status }}</p>
+      <h1>{{ package.title }}</h1>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Publishing metadata</h2>
+      <p>{{ package.description }}</p>
+      <p><strong>CTA:</strong> {{ package.cta }}</p>
+      <p><strong>UTM:</strong> {{ package.utm_url or "No product URL" }}</p>
+      <p><strong>Hashtags:</strong> {{ package.hashtags_json | join(" ") }}</p>
+      <div class="actions">
+        <form action="/publishing-packages/{{ package.id }}/approve-ui" method="post"><button type="submit">Approve package</button></form>
+        <form action="/publishing-packages/{{ package.id }}/reject-ui" method="post">
+          <input name="reason" value="Needs metadata revision">
+          <button class="danger" type="submit">Reject</button>
+        </form>
+      </div>
+    </article>
+    <article class="card">
+      <h2>Schedule</h2>
+      <form action="/publishing-jobs/schedule-ui" method="post">
+        <input type="hidden" name="publishing_package_id" value="{{ package.id }}">
+        <label>Account
+          <select name="account_id" required>
+            {% for account in accounts %}
+              <option value="{{ account.id }}">{{ account.platform }} - {{ account.account_name }} ({{ account.warmup_status }})</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Scheduled at
+          <input type="datetime-local" name="scheduled_at" value="{{ default_time }}" required>
+        </label>
+        <label>Provider
+          <select name="provider">
+            <option value="mock">Mock upload</option>
+            <option value="manual">Manual upload task</option>
+          </select>
+        </label>
+        <label><input type="checkbox" name="manual_override" value="true"> Manual override</label>
+        <div class="actions"><button type="submit">Schedule</button></div>
+      </form>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Safety metadata</h2>
+    <pre>{{ package.metadata_json | tojson(indent=2) }}</pre>
+  </section>
+{% endblock %}
+

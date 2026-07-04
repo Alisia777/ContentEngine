@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Mock video provider</p>
+      <h1>Videos</h1>
+    </div>
+    <a class="button" href="/videos/new">Create video job</a>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>ID</th><th>Product</th><th>Provider</th><th>Status</th><th>Output</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for job in video_jobs %}
+        <tr>
+          <td>{{ job.id }}</td>
+          <td>{{ job.script_variant.script_job.product.title }}</td>
+          <td>{{ job.provider }}</td>
+          <td>{{ job.status }}</td>
+          <td>{{ job.output_video_path or "" }}</td>
+          <td><a href="/videos/{{ job.id }}">Review</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No video jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Approved video to platform package</p>
+      <h1>Create publishing package</h1>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form action="/publishing-packages/create" method="post">
+      <div class="form-grid">
+        <label>Approved video
+          <select name="video_job_id" required>
+            {% for job in video_jobs %}
+              <option value="{{ job.id }}" {% if selected_video_job_id == job.id %}selected{% endif %}>
+                #{{ job.id }} - {{ job.script_variant.script_job.product.title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Target platform
+          <select name="target_platform" required>
+            <option>Instagram Reels</option>
+            <option>TikTok</option>
+            <option>YouTube Shorts</option>
+            <option>Telegram</option>
+            <option>WB/Ozon</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit">Generate package</button></div>
+    </form>
+  </section>
+{% endblock %}
+

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Owned authorized accounts</p>
+      <h1>Publishing accounts</h1>
+    </div>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>Platform</th><th>Account</th><th>Status</th><th>Phase</th><th>Limits</th><th>Owner</th></tr>
+    </thead>
+    <tbody>
+      {% for account in accounts %}
+        <tr>
+          <td>{{ account.platform }}</td>
+          <td>{{ account.account_name }}<br><span class="muted">{{ account.account_handle or "" }}</span></td>
+          <td>{{ account.warmup_status }}</td>
+          <td>{{ account.warmup_phase }}</td>
+          <td>{{ account.daily_publish_limit }}/day, {{ account.weekly_publish_limit }}/week</td>
+          <td>{{ account.owner_name or "" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No publishing accounts yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

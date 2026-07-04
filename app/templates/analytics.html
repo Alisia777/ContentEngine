@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Fake provider metrics</p>
+      <h1>Analytics</h1>
+    </div>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>Collected</th><th>Product</th><th>Account</th><th>Views</th><th>Likes</th><th>Clicks</th><th>CTR</th></tr>
+    </thead>
+    <tbody>
+      {% for item in analytics %}
+        <tr>
+          <td>{{ item.collected_at }}</td>
+          <td>{{ item.publishing_job.publishing_package.product.title }}</td>
+          <td>{{ item.publishing_job.account.platform }}</td>
+          <td>{{ item.views }}</td>
+          <td>{{ item.likes }}</td>
+          <td>{{ item.clicks }}</td>
+          <td>{{ item.ctr }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">No analytics collected yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

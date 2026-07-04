@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Warm-up limited schedule</p>
+      <h1>Publishing calendar</h1>
+    </div>
+  </section>
+
+  <table class="table">
+    <thead>
+      <tr><th>When</th><th>Product</th><th>Account</th><th>Provider</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+        <tr>
+          <td>{{ job.scheduled_at }}</td>
+          <td>{{ job.publishing_package.product.title }}</td>
+          <td>{{ job.account.platform }} - {{ job.account.account_name }}</td>
+          <td>{{ job.provider }}</td>
+          <td>{{ job.status }}</td>
+          <td><a href="/publishing-jobs/{{ job.id }}">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No scheduled publishing jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

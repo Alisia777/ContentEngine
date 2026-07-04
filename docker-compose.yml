@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      QVF_DATABASE_URL: sqlite:///./qharisma.db
+      QVF_MEDIA_ROOT: media
+    volumes:
+      - .:/app
+      - ./media:/app/media
+
