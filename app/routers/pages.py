@@ -14,6 +14,7 @@ from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
 from app.database import get_db
+from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
@@ -32,6 +33,7 @@ from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
 from app.video_generator.real_smoke_runner import RealSmokeRunner
+from app.workflows.working_video_generator import WorkingVideoGenerator
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -328,6 +330,95 @@ async def import_generator_csv_ui(
         text = (await file.read()).decode("utf-8-sig")
         import_csv_text(db, kind, text)
     return redirect("/generator")
+
+
+@router.get("/working-video-generator", response_class=HTMLResponse)
+def working_video_generator_page(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "working_video_generator.html",
+        {
+            "request": request,
+            "page_title": "Working Video Generator",
+            "result": None,
+            "real_smoke": None,
+            "error": None,
+            **working_video_context(db),
+        },
+    )
+
+
+@router.post("/working-video-generator/run", response_class=HTMLResponse)
+def run_working_video_generator_page(
+    request: Request,
+    product_id: int = Form(0),
+    platform: str = Form("Instagram Reels"),
+    duration: int = Form(15),
+    variant_count: int = Form(5),
+    selected_variant_id: str = Form(""),
+    video_provider: str = Form("runway"),
+    action: str = Form("prepare"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    real_smoke = None
+    error = None
+    try:
+        runner = WorkingVideoGenerator(db)
+        if action == "prepare":
+            result = runner.prepare(product_id, platform, duration, variant_count).model_dump(mode="json")
+        else:
+            variant_id = int(selected_variant_id)
+            if action == "prompt_only":
+                result = runner.run_prompt_only(variant_id, provider=video_provider).model_dump(mode="json")
+            elif action == "real_smoke":
+                real_smoke = runner.run_real_smoke(
+                    variant_id,
+                    provider=video_provider,
+                    allow_real_spend=True,
+                    max_scenes=1,
+                ).model_dump(mode="json")
+                result = runner.status(variant_id).model_dump(mode="json")
+    except (DemandError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "working_video_generator.html",
+        {
+            "request": request,
+            "page_title": "Working Video Generator",
+            "result": result,
+            "real_smoke": real_smoke,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_platform": platform,
+            "selected_duration": duration,
+            "selected_variant_count": variant_count,
+            "selected_variant_id": int(selected_variant_id) if selected_variant_id else None,
+            "selected_video_provider": video_provider,
+            **working_video_context(db),
+        },
+    )
+
+
+def working_video_context(db: Session) -> dict:
+    status = provider_key_status()
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "selected_variants": db.scalars(
+            select(models.CreativeVariant)
+            .where(models.CreativeVariant.status == "selected")
+            .order_by(models.CreativeVariant.created_at.desc())
+            .limit(20)
+        ).all(),
+        "demand_hypotheses": db.scalars(
+            select(models.DemandHypothesisRecord).order_by(models.DemandHypothesisRecord.created_at.desc()).limit(10)
+        ).all(),
+        "provider_status": status,
+        "real_smoke_gate_ready": (
+            status["generation_mode"] == "real"
+            and status["allow_real_spend"]
+            and status["runway_api_secret_configured"]
+        ),
+    }
 
 
 @router.get("/video-generator", response_class=HTMLResponse)

@@ -212,6 +212,35 @@ Paid manual acceptance uses the same command after `QVF_GENERATION_MODE=real`, `
 
 Full runbook: `docs/REAL_SMOKE_FROM_VARIANT.md`.
 
+## Working Demand + Video Generator
+
+Sprint 08 connects the demand generator to the selected-variant video generator:
+
+```text
+Product data + marketplace/content signals
+-> Demand Hypothesis
+-> CreativeSpec
+-> Selected CreativeVariant
+-> Product References
+-> PromptPack
+-> prompt-only or spend-gated one-scene smoke
+```
+
+The main guided page is `/working-video-generator`.
+
+```bash
+python scripts/prepare_working_video.py --product-id 1 --platform "Instagram Reels" --duration 15 --variant-count 5
+python scripts/run_working_video.py --selected-variant-id 1 --build-prompts-only
+```
+
+The real-smoke command reuses Sprint 07 gates and does not bypass spend controls:
+
+```bash
+python scripts/run_working_video.py --selected-variant-id 1 --video-provider runway --real-run --max-scenes 1
+```
+
+Docs: `docs/DEMAND_GENERATOR.md` and `docs/WORKING_VIDEO_GENERATOR.md`.
+
 ## Docker Compose
 
 ```bash

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Demand to video</p>
+      <h1>Working Video Generator</h1>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel"><p class="status">{{ error }}</p></section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Prepare</h2>
+    <form action="/working-video-generator/run" method="post">
+      <input type="hidden" name="action" value="prepare">
+      <div class="form-grid">
+        <label>Product
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Platform<input name="platform" value="{{ selected_platform or 'Instagram Reels' }}" required></label>
+        <label>Duration<input name="duration" type="number" min="5" max="60" value="{{ selected_duration or 15 }}" required></label>
+        <label>Variants<input name="variant_count" type="number" min="1" max="12" value="{{ selected_variant_count or 5 }}" required></label>
+      </div>
+      <div class="actions"><button type="submit">Prepare working video</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Run</h2>
+    <form action="/working-video-generator/run" method="post">
+      <div class="form-grid">
+        <label>Selected variant
+          <select name="selected_variant_id">
+            {% if result and result.selected_variant_id %}
+              <option value="{{ result.selected_variant_id }}" selected>#{{ result.selected_variant_id }} / prepared</option>
+            {% endif %}
+            {% for variant in selected_variants %}
+              <option value="{{ variant.id }}" {% if selected_variant_id == variant.id %}selected{% endif %}>#{{ variant.id }} / spec #{{ variant.creative_spec_id }} / score {{ variant.score_json.score if variant.score_json else "n/a" }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Video provider
+          <select name="video_provider">
+            <option value="runway" {% if selected_video_provider == "runway" %}selected{% endif %}>Runway</option>
+            <option value="mock" {% if selected_video_provider == "mock" %}selected{% endif %}>Mock local</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="prompt_only" {% if not result and not selected_variants %}disabled{% endif %}>Build prompt pack</button>
+        <button class="secondary" type="submit" name="action" value="real_smoke" {% if not result or not result.real_smoke_eligible or not real_smoke_gate_ready %}disabled{% endif %}>Run real one-scene smoke</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Provider Status</h2>
+    <div class="grid">
+      <article class="card"><p class="muted">Mode</p><p>{{ provider_status.generation_mode }} / spend {{ "enabled" if provider_status.allow_real_spend else "disabled" }}</p></article>
+      <article class="card"><p class="muted">Runway key</p><p>{{ "configured" if provider_status.runway_api_secret_configured else "missing" }}</p></article>
+      <article class="card"><p class="muted">Real smoke</p><p>{{ "ready" if real_smoke_gate_ready else "blocked" }}</p></article>
+    </div>
+  </section>
+
+  {% if result %}
+    <section class="grid">
+      <article class="card">
+        <h2>Demand</h2>
+        <p class="muted">Buyer need</p>
+        <p>{{ result.buyer_need }}</p>
+        <p class="muted">Trigger</p>
+        <p>{{ result.trigger_situation }}</p>
+        <p class="muted">Objection</p>
+        <p>{{ result.objection }}</p>
+        <p class="muted">Safe promise</p>
+        <p>{{ result.safe_promise }}</p>
+      </article>
+      <article class="card">
+        <h2>Evidence</h2>
+        <p class="muted">Source refs</p>
+        <p>{{ result.source_refs | join(", ") if result.source_refs else "none" }}</p>
+        <p class="muted">Missing data</p>
+        <p>{{ result.missing_data | join(", ") if result.missing_data else "none" }}</p>
+        <p class="muted">Validation</p>
+        <p>{{ result.demand_validation.status }} / real video {{ "eligible" if result.demand_validation.real_video_eligible else "ineligible" }}</p>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Creative Spec</h2>
+        <p>#{{ result.creative_spec_id }}</p>
+        <p class="muted">Selected hook</p>
+        <p>{{ result.selected_hook }}</p>
+        <p class="muted">First frame</p>
+        <p>{{ result.first_frame.visual_concept or result.first_frame.text_overlay }}</p>
+      </article>
+      <article class="card">
+        <h2>Variant</h2>
+        <p>#{{ result.selected_variant_id }} / score {{ result.selected_variant_score.score if result.selected_variant_score else "n/a" }}</p>
+        <p class="muted">Reference readiness</p>
+        <p>{{ result.reference_readiness.status }} / {{ "allowed" if result.reference_readiness.real_generation_allowed else "blocked" }}</p>
+        <p>{{ result.reference_readiness.blockers | join(", ") if result.reference_readiness.blockers else "no blockers" }}</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Prompt Pack</h2>
+      <p>#{{ result.prompt_pack_id }} / generation variant #{{ result.generation_variant_id }}</p>
+      <p>Real smoke eligible: {{ "true" if result.real_smoke_eligible else "false" }}</p>
+      <pre>{{ result.prompt_pack | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if real_smoke %}
+    <section class="panel">
+      <h2>Real Smoke</h2>
+      <p>Video job: {{ real_smoke.video_job_id }} / {{ real_smoke.status }}</p>
+      <p>Provider jobs: {{ real_smoke.provider_job_ids | join(", ") if real_smoke.provider_job_ids else "none" }}</p>
+      <p>Output: {{ real_smoke.final_video_path or real_smoke.local_output_paths | join(", ") }}</p>
+      <p>Generation report: {{ real_smoke.generation_report_path or "not written" }}</p>
+      <p>Quality review: {{ real_smoke.quality_review_id or "pending" }}</p>
+      <p>Needs human review</p>
+      <pre>{{ real_smoke | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if demand_hypotheses %}
+    <section class="panel">
+      <h2>Recent Demand</h2>
+      <div class="grid">
+        {% for demand in demand_hypotheses[:3] %}
+          <article class="card">
+            <p class="muted">#{{ demand.id }} / {{ demand.status }}</p>
+            <p>{{ demand.buyer_need }}</p>
+            <p>{{ demand.need_type }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}
