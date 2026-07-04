@@ -9,18 +9,28 @@ os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
 os.environ["QVF_MEDIA_ROOT"] = "test_media"
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from app import models
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.engine import VideoFactoryEngine
-from app.intelligence.errors import ProviderConfigurationError
+from app.intelligence.errors import ClaimValidationError, ProviderConfigurationError
 from app.intelligence.generation_runner import GeneratorRunService
 from app.intelligence.insight_builder import CreativeIntelligenceBuilder
 from app.intelligence.prompt_builder import PromptPackBuilder
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
+from app.intelligence.types import (
+    AllowedClaim,
+    GeneratedSceneOutput,
+    GeneratedScriptOutput,
+    PromptPackOutput,
+    PromptSceneOutput,
+    ScriptBriefOutput,
+)
+from app.intelligence.validators import validate_script_claim_refs
 from app.main import app
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
@@ -637,6 +647,126 @@ def test_real_video_provider_missing_key_fails_in_runway_mode(monkeypatch):
     monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
     with pytest.raises(ProviderConfigurationError, match="RUNWAYML_API_SECRET is missing"):
         RunwayVideoProvider()
+
+
+def test_openai_network_error_fails_clearly(monkeypatch):
+    def raise_connect_error(*args, **kwargs):
+        raise httpx.ConnectError("TLS handshake failed")
+
+    monkeypatch.setattr("app.providers.openai_llm.httpx.post", raise_connect_error)
+    brief = ScriptBriefOutput(
+        sku="SKU-OPENAI-NETWORK",
+        product_title="Network Test Product",
+        objective="improve_conversion",
+        creative_angle="trust_builder",
+        reasoning_summary="Use only source-backed claims.",
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="OpenAI structured script request failed"):
+        OpenAILLMProvider(api_key="test-key").generate_script(brief)
+
+
+def test_openai_structured_output_schema_is_strict():
+    schema = OpenAILLMProvider._strict_json_schema(GeneratedScriptOutput.model_json_schema())
+
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])
+    for definition in schema["$defs"].values():
+        if "properties" in definition:
+            assert definition["additionalProperties"] is False
+            assert set(definition["required"]) == set(definition["properties"])
+
+
+def test_claim_refs_accept_source_type_source_key_format():
+    brief = ScriptBriefOutput(
+        sku="SKU-CLAIM-REF",
+        product_title="Claim Ref Product",
+        objective="improve_conversion",
+        creative_angle="trust_builder",
+        reasoning_summary="Use source-backed claims.",
+        allowed_claims=[
+            AllowedClaim(claim="keeps essentials visible", source_type="product_field", source_key="description")
+        ],
+    )
+    script = GeneratedScriptOutput(
+        creative_angle="trust_builder",
+        hook="Proof first",
+        key_message="keeps essentials visible",
+        final_cta="Open the product card",
+        scenes=[
+            GeneratedSceneOutput(
+                scene_number=1,
+                time_start=0,
+                time_end=5,
+                visual_description="Show the product clearly.",
+                voiceover="keeps essentials visible",
+                caption="Visible essentials",
+                claim_refs=["product_field:description"],
+                video_prompt="Realistic product video",
+                negative_prompt="distorted product",
+            )
+        ],
+    )
+
+    assert validate_script_claim_refs(script, brief)["valid"] is True
+
+
+def test_claim_refs_reject_wrong_source_type_prefix():
+    brief = ScriptBriefOutput(
+        sku="SKU-CLAIM-REF-REJECT",
+        product_title="Claim Ref Reject Product",
+        objective="improve_conversion",
+        creative_angle="trust_builder",
+        reasoning_summary="Use source-backed claims.",
+        allowed_claims=[
+            AllowedClaim(claim="keeps essentials visible", source_type="product_field", source_key="description")
+        ],
+    )
+    script = GeneratedScriptOutput(
+        creative_angle="trust_builder",
+        hook="Proof first",
+        key_message="keeps essentials visible",
+        final_cta="Open the product card",
+        scenes=[
+            GeneratedSceneOutput(
+                scene_number=1,
+                time_start=0,
+                time_end=5,
+                visual_description="Show the product clearly.",
+                voiceover="keeps essentials visible",
+                caption="Visible essentials",
+                claim_refs=["review:description"],
+                video_prompt="Realistic product video",
+                negative_prompt="distorted product",
+            )
+        ],
+    )
+
+    with pytest.raises(ClaimValidationError):
+        validate_script_claim_refs(script, brief)
+
+
+def test_runway_network_error_fails_clearly(monkeypatch):
+    def raise_connect_error(*args, **kwargs):
+        raise httpx.ConnectError("TLS handshake failed")
+
+    monkeypatch.setattr("app.providers.runway_video.httpx.post", raise_connect_error)
+    prompt_pack = PromptPackOutput(
+        provider="runway",
+        aspect_ratio="9:16",
+        duration_seconds=5,
+        scene_prompts=[
+            PromptSceneOutput(
+                scene_number=1,
+                duration_seconds=5,
+                prompt_text="Realistic product video",
+                negative_prompt="distorted product",
+            )
+        ],
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="Runway generation request failed"):
+        RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
 
 
 def test_real_run_requires_allow_spend_true(monkeypatch):
