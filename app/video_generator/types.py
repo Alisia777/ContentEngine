@@ -38,3 +38,23 @@ class QualityScoreResult(BaseModel):
     checks: list[dict[str, Any]]
     warnings: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+
+class RealSmokeRunOutput(BaseModel):
+    status: str
+    product_id: int
+    sku: str
+    creative_spec_id: int
+    creative_variant_id: int
+    prompt_pack_id: int
+    video_job_id: int | None = None
+    provider: str
+    provider_job_ids: list[str] = Field(default_factory=list)
+    reference_bundle_id: int | None = None
+    local_output_paths: list[str] = Field(default_factory=list)
+    final_video_path: str | None = None
+    generation_report_path: str | None = None
+    quality_review_id: int | None = None
+    quality_score: float | None = None
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)

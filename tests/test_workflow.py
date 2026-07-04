@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -39,6 +41,8 @@ from app.intelligence.types import (
     GeneratedScriptOutput,
     PromptPackOutput,
     PromptSceneOutput,
+    ProviderVideoJob,
+    ProviderVideoStatus,
     ScriptBriefOutput,
 )
 from app.intelligence.validators import validate_script_claim_refs
@@ -50,6 +54,7 @@ from app.variants.first_frame_builder import FirstFrameBuilder
 from app.variants.variant_scorer import VariantScorer
 from app.variants.variant_selector import VariantSelector
 from app.video_generator.generator import VideoGenerator
+from app.video_generator.real_smoke_runner import RealSmokeRunner
 
 
 @pytest.fixture(autouse=True)
@@ -319,6 +324,77 @@ def build_variant_set_fixture(
         variant_set = VariantSelector(db).select_best(variant_set.id)
         selected_variant_id = variant_set.selected_variant_id or variant_set.variants[0].id
     return product_id, spec_id, variant_set.id, selected_variant_id
+
+
+def enable_real_smoke_env(monkeypatch, *, allow_spend: str = "true", runway_key: str | None = "test-runway-key") -> None:
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", allow_spend)
+    monkeypatch.setenv("QVF_VIDEO_PROVIDER", "runway")
+    if runway_key is None:
+        monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("RUNWAYML_API_SECRET", runway_key)
+    get_settings.cache_clear()
+
+
+def prepare_ready_variant(
+    api: TestClient,
+    title: str = "Ready Real Smoke Variant",
+    *,
+    url: str = "https://example.com/packshot.png",
+) -> tuple[int, int, int, int]:
+    product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title=title)
+    with SessionLocal() as db:
+        storage = ProductAssetStorage(db)
+        asset = storage.attach_url(
+            product_id,
+            url=url,
+            asset_type="packshot",
+            is_primary_reference=True,
+        )
+        storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+        bundle = ProviderReferenceBundleBuilder(db).build(product_id, provider="runway")
+    return product_id, spec_id, selected_variant_id, bundle.id
+
+
+def install_fake_runway_provider(monkeypatch) -> list[int]:
+    scene_counts: list[int] = []
+
+    class FakeRunwayProvider:
+        provider_name = "runway"
+
+        def create_generation(self, prompt_pack: PromptPackOutput) -> ProviderVideoJob:
+            scene_counts.append(len(prompt_pack.scene_prompts))
+            return ProviderVideoJob(
+                provider="runway",
+                provider_job_id=f"fake-runway-job-{len(scene_counts)}",
+                status="succeeded",
+                raw_response={
+                    "id": f"fake-runway-job-{len(scene_counts)}",
+                    "status": "succeeded",
+                    "request_token": "fake-provider-secret",
+                },
+            )
+
+        def get_status(self, provider_job_id: str) -> ProviderVideoStatus:
+            return ProviderVideoStatus(
+                provider_job_id=provider_job_id,
+                status="succeeded",
+                raw_response={
+                    "id": provider_job_id,
+                    "status": "succeeded",
+                    "output": ["https://cdn.example.com/out.mp4?token=raw-secret&signature=abc123"],
+                },
+            )
+
+        def download_outputs(self, provider_job_id: str, target_dir: Path) -> list[Path]:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            path = target_dir / f"{provider_job_id}.mp4"
+            path.write_text("fake provider video bytes", encoding="utf-8")
+            return [path]
+
+    monkeypatch.setattr("app.intelligence.video_generator.RunwayVideoProvider", FakeRunwayProvider)
+    return scene_counts
 
 
 def create_script(api: TestClient, title: str = "Altea Test Bottle", forbidden_words: list[str] | None = None) -> int:
@@ -1612,3 +1688,190 @@ def test_no_secrets_or_signed_urls_in_reference_bundle_report():
         assert "token=secret" not in serialized
         assert "signature=abc123" not in serialized
         assert response.json()["provider_payload"]["reference_images"] == ["https://example.com/packshot.png"]
+
+
+def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "mock")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "test-runway-key")
+    get_settings.cache_clear()
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Mode Gate Variant")
+
+        with SessionLocal() as db:
+            with pytest.raises(ProviderConfigurationError, match="QVF_GENERATION_MODE=real"):
+                RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+
+def test_variant_real_smoke_requires_allow_spend_true(monkeypatch):
+    enable_real_smoke_env(monkeypatch, allow_spend="false")
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Spend Gate Variant")
+
+        with SessionLocal() as db:
+            with pytest.raises(ProviderConfigurationError, match="QVF_ALLOW_REAL_SPEND=true"):
+                RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+
+def test_variant_real_smoke_requires_runway_key(monkeypatch):
+    enable_real_smoke_env(monkeypatch, runway_key=None)
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Missing Key Variant")
+
+        with SessionLocal() as db:
+            with pytest.raises(ProviderConfigurationError, match="RUNWAYML_API_SECRET is missing"):
+                RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+
+def test_variant_real_smoke_requires_reference_readiness_ready(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+
+    def fail_if_instantiated(*args, **kwargs):
+        raise AssertionError("Runway provider should not be created before reference readiness passes.")
+
+    monkeypatch.setattr("app.intelligence.video_generator.RunwayVideoProvider", fail_if_instantiated)
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Reference Gate Variant")
+
+        with SessionLocal() as db:
+            with pytest.raises(ProviderConfigurationError, match="Product reference readiness must be ready"):
+                RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+
+def test_variant_real_smoke_defaults_to_one_scene(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    scene_counts = install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Default One Scene Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            video_job = db.get(models.VideoJob, output.video_job_id)
+            clip_count = len(video_job.clips)
+
+        assert scene_counts == [1]
+        assert clip_count == 1
+        assert output.provider_job_ids == ["fake-runway-job-1"]
+
+
+def test_variant_real_smoke_refuses_full_video_without_explicit_flag(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    scene_counts = install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="No Full Video Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(
+                selected_variant_id,
+                max_scenes=4,
+                full_video=False,
+                allow_real_spend=True,
+            )
+            video_job = db.get(models.VideoJob, output.video_job_id)
+            clip_count = len(video_job.clips)
+
+        assert scene_counts == [1]
+        assert clip_count == 1
+
+
+def test_variant_real_smoke_prompt_pack_contains_reference_bundle(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, bundle_id = prepare_ready_variant(api, title="Prompt Reference Bundle Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            generation_variant = db.query(models.VideoGenerationVariant).filter_by(video_job_id=output.video_job_id).one()
+
+        assert output.reference_bundle_id
+        assert generation_variant.prompt_pack_json["reference_bundle_id"] >= bundle_id
+        assert generation_variant.prompt_pack_json["reference_images"] == ["https://example.com/packshot.png"]
+        assert generation_variant.prompt_pack_json["provider_reference_bundle"]["reference_asset_ids"]
+
+
+def test_variant_real_smoke_generation_report_has_no_secrets(monkeypatch):
+    enable_real_smoke_env(monkeypatch, runway_key="runway-test-secret-value")
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(
+            api,
+            title="Secret Report Variant",
+            url="https://example.com/packshot.png?token=secret&signature=abc123",
+        )
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+        report_text = Path(output.generation_report_path).read_text(encoding="utf-8")
+        report = json.loads(report_text)
+
+        assert report["run_type"] == "real_one_scene_smoke"
+        assert "runway-test-secret-value" not in report_text
+        assert "fake-provider-secret" not in report_text
+        assert "raw-secret" not in report_text
+        assert "token=" not in report_text
+        assert "signature=abc123" not in report_text
+        assert report["provider_job_ids"] == ["fake-runway-job-1"]
+
+
+def test_variant_real_smoke_creates_quality_review_needs_human_review(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Quality Review Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            review = db.get(models.VideoQualityReview, output.quality_review_id)
+
+        assert review.status == "needs_human_review"
+        assert review.review_json["status"] == "needs_human_review"
+        assert review.review_json["score"] > 0
+        assert output.quality_score == review.score
+        assert any(check["key"] == "generation_report_exists" and check["passed"] for check in review.review_json["checks"])
+
+
+def test_variant_real_smoke_cli_safe_failure_without_spend_gate():
+    env = os.environ.copy()
+    env["QVF_GENERATION_MODE"] = "real"
+    env["QVF_ALLOW_REAL_SPEND"] = "false"
+    env.pop("RUNWAYML_API_SECRET", None)
+    root = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_variant_real_smoke.py",
+            "--creative-variant-id",
+            "1",
+            "--video-provider",
+            "runway",
+            "--real-run",
+            "--max-scenes",
+            "1",
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "QVF_ALLOW_REAL_SPEND=true" in result.stderr
+
+
+def test_video_generator_ui_shows_real_smoke_eligibility(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="UI Real Smoke Variant")
+
+        response = api.get("/video-generator")
+
+        assert response.status_code == 200
+        assert "Real Smoke Eligibility" in response.text
+        assert "Run real one-scene smoke from selected variant" in response.text
+        assert str(selected_variant_id) in response.text
+        assert "Runway key" in response.text
+        assert "test-runway-key" not in response.text

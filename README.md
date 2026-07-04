@@ -194,6 +194,24 @@ python scripts/generate_from_variant.py --creative-variant-id 1 --build-prompts-
 
 Reference readiness blocks real generation when no approved primary reference exists. Missing label closeup or lifestyle assets are warnings, not blockers. Provider reference bundles use clean internal payloads and avoid signed/private URL leakage.
 
+## Selected Variant Real Smoke
+
+Sprint 07 adds the first real-smoke eligible path from a selected creative variant:
+
+```text
+Product -> approved primary reference -> selected CreativeVariant -> PromptPack with reference bundle -> Runway one-scene job -> download -> generation report -> metadata quality review
+```
+
+Safe local failure without spend gates:
+
+```bash
+python scripts/run_variant_real_smoke.py --creative-variant-id 1 --video-provider runway --real-run --max-scenes 1
+```
+
+Paid manual acceptance uses the same command after `QVF_GENERATION_MODE=real`, `QVF_ALLOW_REAL_SPEND=true`, `QVF_VIDEO_PROVIDER=runway`, and `RUNWAYML_API_SECRET` are configured. The report path is `media/generation_reports/variant_{creative_variant_id}_video_{video_job_id}.json`, and the resulting quality review remains `needs_human_review` until a person checks the file.
+
+Full runbook: `docs/REAL_SMOKE_FROM_VARIANT.md`.
+
 ## Docker Compose
 
 ```bash

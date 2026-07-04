@@ -31,6 +31,7 @@ from app.variants.variant_scorer import VariantScorer
 from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
+from app.video_generator.real_smoke_runner import RealSmokeRunner
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -440,6 +441,16 @@ def run_video_generator_page(
                 variant = generator.build_prompt_pack_from_variant(source_creative_variant_id, provider=video_provider)
             elif action == "build_prompts":
                 variant = generator.build_prompt_pack_from_spec(spec_id, provider=video_provider)
+            elif action == "real_smoke_from_variant":
+                if source_creative_variant_id is None:
+                    raise ValueError("Creative Variant is required for selected-variant real smoke.")
+                result["real_smoke"] = RealSmokeRunner(db).run_from_variant(
+                    source_creative_variant_id,
+                    provider=video_provider,
+                    max_scenes=1,
+                    full_video=False,
+                    allow_real_spend=True,
+                ).model_dump(mode="json")
             elif action == "real_smoke":
                 if variant_id is None:
                     variant_id = generator.build_prompt_pack_from_spec(spec_id, provider=video_provider).id
@@ -497,16 +508,33 @@ def run_video_generator_page(
 
 
 def video_generator_context(db: Session) -> dict:
+    creative_variants = db.scalars(select(models.CreativeVariant).order_by(models.CreativeVariant.created_at.desc()).limit(20)).all()
+    provider_status = provider_key_status()
+    eligible_variant_ids = []
+    for creative_variant in creative_variants:
+        variant_set = creative_variant.variant_set
+        asset_kit = variant_set.asset_kit if variant_set else None
+        selected = creative_variant.status == "selected" or (variant_set and variant_set.selected_variant_id == creative_variant.id)
+        if selected and asset_kit and asset_kit.real_generation_allowed:
+            eligible_variant_ids.append(creative_variant.id)
+    real_smoke_spend_gate_enabled = (
+        provider_status["generation_mode"] == "real"
+        and provider_status["allow_real_spend"]
+        and provider_status["runway_api_secret_configured"]
+    )
     return {
         "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
         "specs": db.scalars(select(models.VideoCreativeSpecRecord).order_by(models.VideoCreativeSpecRecord.created_at.desc()).limit(10)).all(),
         "asset_kits": db.scalars(select(models.ProductAssetKit).order_by(models.ProductAssetKit.created_at.desc()).limit(10)).all(),
         "first_frames": db.scalars(select(models.FirstFrameOption).order_by(models.FirstFrameOption.created_at.desc()).limit(10)).all(),
         "variant_sets": db.scalars(select(models.CreativeVariantSet).order_by(models.CreativeVariantSet.created_at.desc()).limit(10)).all(),
-        "creative_variants": db.scalars(select(models.CreativeVariant).order_by(models.CreativeVariant.created_at.desc()).limit(20)).all(),
+        "creative_variants": creative_variants,
         "variants": db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all(),
         "product_assets": db.scalars(select(models.ProductAsset).order_by(models.ProductAsset.created_at.desc()).limit(20)).all(),
         "reference_bundles": db.scalars(select(models.ProductReferenceBundle).order_by(models.ProductReferenceBundle.created_at.desc()).limit(10)).all(),
+        "real_smoke_eligible_variant_ids": eligible_variant_ids,
+        "real_smoke_spend_gate_enabled": real_smoke_spend_gate_enabled,
+        "real_smoke_ui_enabled": real_smoke_spend_gate_enabled and bool(eligible_variant_ids),
     }
 
 
