@@ -5,11 +5,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.engine import EngineRunResult, VideoFactoryEngine
+from app.engine.errors import EngineError
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -18,6 +21,11 @@ from app.services.upload_service import UploadService
 from app.services.analytics_service import AnalyticsService
 
 router = APIRouter(prefix="/api", tags=["api"])
+
+
+class EngineRunRequest(BaseModel):
+    product_id: int
+    account_id: int | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -119,6 +127,22 @@ def create_review(payload: schemas.ReviewCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(review)
     return review
+
+
+@router.post("/engine/run-demo", response_model=EngineRunResult)
+def run_engine_demo(payload: EngineRunRequest, db: Session = Depends(get_db)):
+    result = VideoFactoryEngine(db).run_full_demo(payload.product_id, payload.account_id)
+    if result.status == "failed":
+        raise HTTPException(status_code=400, detail=result.model_dump())
+    return result
+
+
+@router.get("/engine/status/{publishing_job_id}")
+def get_engine_status(publishing_job_id: int, db: Session = Depends(get_db)):
+    try:
+        return VideoFactoryEngine(db).status_for_publishing_job(publishing_job_id)
+    except EngineError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/script-jobs/generate", response_model=schemas.ScriptJobRead)

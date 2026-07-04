@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.database import get_db
+from app.engine import VideoFactoryEngine
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -216,6 +217,47 @@ def reject_video_ui(video_job_id: int, reason: str = Form("Needs revision"), db:
     if video_job:
         VideoEngine(db).reject_video(video_job, reason)
     return redirect(f"/videos/{video_job_id}")
+
+
+@router.get("/engine", response_class=HTMLResponse)
+def engine_page(request: Request, db: Session = Depends(get_db)):
+    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
+    accounts = db.scalars(select(models.PublishingAccount).order_by(models.PublishingAccount.platform)).all()
+    return templates.TemplateResponse(
+        "engine.html",
+        {
+            "request": request,
+            "page_title": "Engine",
+            "products": products,
+            "accounts": accounts,
+            "result": None,
+        },
+    )
+
+
+@router.post("/engine/run", response_class=HTMLResponse)
+def run_engine_page(
+    request: Request,
+    product_id: int = Form(...),
+    account_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    selected_account_id = int(account_id) if account_id else None
+    result = VideoFactoryEngine(db).run_full_demo(product_id, selected_account_id)
+    products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
+    accounts = db.scalars(select(models.PublishingAccount).order_by(models.PublishingAccount.platform)).all()
+    return templates.TemplateResponse(
+        "engine.html",
+        {
+            "request": request,
+            "page_title": "Engine",
+            "products": products,
+            "accounts": accounts,
+            "result": result,
+            "selected_product_id": product_id,
+            "selected_account_id": selected_account_id,
+        },
+    )
 
 
 @router.get("/publishing-packages", response_class=HTMLResponse)

@@ -9,7 +9,9 @@ os.environ["QVF_MEDIA_ROOT"] = "test_media"
 
 from fastapi.testclient import TestClient
 
-from app.database import Base, engine
+from app import models
+from app.database import Base, SessionLocal, engine
+from app.engine import VideoFactoryEngine
 from app.main import app
 
 
@@ -303,3 +305,90 @@ def test_manual_upload_status_update():
         )
         assert done.status_code == 200
         assert done.json()["status"] == "published_manual"
+
+
+def test_engine_full_demo_pipeline():
+    with client() as api:
+        product_id = create_product(api, title="Engine Demo Product")
+        create_guide(api)
+        create_template(api)
+        create_account(api)
+        create_warmup_plan(api)
+
+        with SessionLocal() as db:
+            result = VideoFactoryEngine(db).run_full_demo(product_id)
+
+        assert result.status == "completed"
+        assert result.script_job_id is not None
+        assert result.script_variant_id is not None
+        assert result.video_job_id is not None
+        assert result.publishing_package_id is not None
+        assert result.publishing_job_id is not None
+        assert result.analytics_id is not None
+        assert [step.step_name for step in result.steps] == [
+            "generate_script",
+            "approve_script_variant",
+            "generate_video",
+            "approve_video",
+            "create_publishing_package",
+            "approve_publishing_package",
+            "schedule_publishing",
+            "run_upload",
+            "collect_analytics",
+        ]
+
+
+def test_engine_creates_script_video_package_job_analytics():
+    with client() as api:
+        product_id = create_product(api, title="Engine Entity Product")
+        create_guide(api)
+        create_template(api)
+        create_account(api)
+        create_warmup_plan(api)
+
+        with SessionLocal() as db:
+            result = VideoFactoryEngine(db).run_full_demo(product_id)
+            script_job = db.get(models.ScriptJob, result.script_job_id)
+            video_job = db.get(models.VideoJob, result.video_job_id)
+            package = db.get(models.PublishingPackage, result.publishing_package_id)
+            publishing_job = db.get(models.PublishingJob, result.publishing_job_id)
+            analytics = db.get(models.PublishAnalytics, result.analytics_id)
+
+        assert script_job is not None
+        assert video_job is not None
+        assert package is not None
+        assert publishing_job is not None
+        assert analytics is not None
+        assert publishing_job.status == "published"
+        assert publishing_job.provider_post_url.startswith("https://mock.social/posts/")
+        assert analytics.views > 0
+
+
+def test_engine_blocks_when_no_product():
+    with client():
+        with SessionLocal() as db:
+            result = VideoFactoryEngine(db).run_full_demo(product_id=999)
+
+        assert result.status == "failed"
+        assert result.errors
+        assert "Product 999 not found" in result.errors[0]
+
+
+def test_engine_api_run_demo():
+    with client() as api:
+        product_id = create_product(api, title="Engine API Product")
+        create_guide(api)
+        create_template(api)
+        account_id = create_account(api)
+        create_warmup_plan(api)
+
+        response = api.post("/api/engine/run-demo", json={"product_id": product_id, "account_id": account_id})
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["status"] == "completed"
+        assert payload["publishing_job_id"] is not None
+        assert payload["analytics_id"] is not None
+        status = api.get(f"/api/engine/status/{payload['publishing_job_id']}")
+        assert status.status_code == 200
+        assert status.json()["provider_post_url"].startswith("https://mock.social/posts/")
