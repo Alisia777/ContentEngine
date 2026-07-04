@@ -27,6 +27,16 @@ Sprint 06 adds prompt packs from selected creative variants with product referen
 
 When the product has no approved primary reference, prompt-only generation still works, but the prompt pack records blockers and is not real-smoke eligible.
 
+Sprint 07 adds the selected-variant real smoke runner. It starts only from a selected `CreativeVariant`, requires product reference readiness `ready`, builds a prompt pack with a provider reference bundle, runs a spend-gated Runway one-scene job, downloads and assembles the output, writes `media/generation_reports/variant_{creative_variant_id}_video_{video_job_id}.json`, and creates a metadata-only quality review with `needs_human_review`.
+
+Manual CLI:
+
+```bash
+python scripts/run_variant_real_smoke.py --creative-variant-id 1 --video-provider runway --real-run --max-scenes 1
+```
+
+See `docs/REAL_SMOKE_FROM_VARIANT.md` for the full acceptance runbook.
+
 Real provider execution still uses the Sprint 03 gates:
 
 - no silent mock fallback

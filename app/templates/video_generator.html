@@ -231,6 +231,24 @@
   </section>
 
   <section class="panel">
+    <h2>Real Smoke Eligibility</h2>
+    <div class="grid">
+      <article class="card">
+        <p class="muted">Spend gate</p>
+        <p>{{ "enabled" if real_smoke_spend_gate_enabled else "blocked" }}</p>
+      </article>
+      <article class="card">
+        <p class="muted">Eligible selected variants</p>
+        <p>{{ real_smoke_eligible_variant_ids | join(", ") if real_smoke_eligible_variant_ids else "none" }}</p>
+      </article>
+      <article class="card">
+        <p class="muted">Review status</p>
+        <p>Needs human review after download</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel">
     <h2>Generate Video</h2>
     <form action="/video-generator/run" method="post">
       <div class="form-grid">
@@ -268,6 +286,7 @@
       <div class="actions">
         <button type="submit" name="action" value="build_prompts_from_variant">Build prompt pack from selected variant</button>
         <button type="submit" name="action" value="build_prompts">Build prompt pack only</button>
+        <button class="secondary" type="submit" name="action" value="real_smoke_from_variant" {% if not real_smoke_ui_enabled %}disabled{% endif %}>Run real one-scene smoke from selected variant</button>
         <button class="secondary" type="submit" name="action" value="real_smoke">Run one-scene real smoke</button>
         <button class="secondary" type="submit" name="action" value="poll">Poll</button>
         <button class="secondary" type="submit" name="action" value="download">Download</button>
@@ -398,6 +417,20 @@
     <section class="panel">
       <h2>Provider Poll</h2>
       <pre>{{ result.provider_status | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.real_smoke %}
+    <section class="panel">
+      <h2>Real Smoke Result</h2>
+      <p>Video job: {{ result.real_smoke.video_job_id }} / {{ result.real_smoke.status }}</p>
+      <p>Provider jobs: {{ result.real_smoke.provider_job_ids | join(", ") if result.real_smoke.provider_job_ids else "none" }}</p>
+      <p>Output: {{ result.real_smoke.final_video_path or result.real_smoke.local_output_paths | join(", ") }}</p>
+      <p>Generation report: {{ result.real_smoke.generation_report_path or "not written" }}</p>
+      <p>Metadata quality score: {{ result.real_smoke.quality_score if result.real_smoke.quality_score is not none else "pending" }}</p>
+      <p>Quality review: {{ result.real_smoke.quality_review_id or "pending" }}</p>
+      <p>Needs human review</p>
+      <pre>{{ result.real_smoke | tojson(indent=2) }}</pre>
     </section>
   {% endif %}
 

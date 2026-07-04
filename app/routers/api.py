@@ -40,6 +40,7 @@ from app.variants.variant_scorer import VariantScorer
 from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
+from app.video_generator.real_smoke_runner import RealSmokeRunner
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -162,6 +163,14 @@ class VideoGeneratorStartRequest(BaseModel):
 
 class VideoGeneratorRegenerateSceneRequest(BaseModel):
     scene_number: int
+
+
+class VariantRealSmokeRequest(BaseModel):
+    provider: str = "runway"
+    real_run: bool = False
+    allow_real_spend: bool = False
+    max_scenes: int = 1
+    full_video: bool = False
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -742,6 +751,58 @@ def regenerate_video_generator_scene(
 ):
     try:
         return {"scene": VideoGenerator(db).regenerate_scene(generation_variant_id, payload.scene_number)}
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/variants/{creative_variant_id}/real-smoke")
+def run_variant_real_smoke(
+    creative_variant_id: int,
+    payload: VariantRealSmokeRequest,
+    db: Session = Depends(get_db),
+):
+    if not payload.real_run:
+        raise HTTPException(status_code=400, detail="Real smoke requires explicit real_run=true.")
+    try:
+        return RealSmokeRunner(db).run_from_variant(
+            creative_variant_id,
+            provider=payload.provider,
+            max_scenes=payload.max_scenes,
+            full_video=payload.full_video,
+            allow_real_spend=payload.allow_real_spend,
+        ).model_dump(mode="json")
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/video-generator/real-smoke/{video_job_id}")
+def get_variant_real_smoke(video_job_id: int, db: Session = Depends(get_db)):
+    try:
+        return RealSmokeRunner(db).output_for_video_job(video_job_id).model_dump(mode="json")
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/real-smoke/{video_job_id}/poll")
+def poll_variant_real_smoke(video_job_id: int, db: Session = Depends(get_db)):
+    try:
+        return RealSmokeRunner(db).poll(video_job_id).model_dump(mode="json")
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/real-smoke/{video_job_id}/download")
+def download_variant_real_smoke(video_job_id: int, db: Session = Depends(get_db)):
+    try:
+        return RealSmokeRunner(db).download(video_job_id).model_dump(mode="json")
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/real-smoke/{video_job_id}/score")
+def score_variant_real_smoke(video_job_id: int, db: Session = Depends(get_db)):
+    try:
+        return RealSmokeRunner(db).score(video_job_id).model_dump(mode="json")
     except (VideoGeneratorError, IntelligenceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
