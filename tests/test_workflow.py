@@ -2089,6 +2089,8 @@ def test_working_video_prepare_returns_selected_variant_prompt_pack_without_paid
         assert result.prompt_pack_id
         assert result.prompt_pack["creative_variant_id"] == result.selected_variant_id
         assert result.real_smoke_eligible is False
+        assert any(blocker.startswith("reference:") for blocker in result.real_smoke_blockers)
+        assert "spend_gate:QVF_GENERATION_MODE=real" in result.real_smoke_blockers
 
 
 def test_working_video_prompt_only_from_selected_variant():
@@ -2158,7 +2160,11 @@ def test_working_video_ui_shows_primary_guided_page():
 
         assert response.status_code == 200, response.text
         assert "Working Video Generator" in response.text
-        assert "Buyer need" in response.text
-        assert "Safe promise" in response.text
+        assert "buyer_need" in response.text
+        assert "safe_promise" in response.text
+        assert "selected_variant_id" in response.text
+        assert "prompt_pack_id" in response.text
+        assert "real_smoke_eligible" in response.text
+        assert "missing references / spend gate blockers" in response.text
         assert "Prompt Pack" in response.text
         assert "Run real one-scene smoke" in response.text

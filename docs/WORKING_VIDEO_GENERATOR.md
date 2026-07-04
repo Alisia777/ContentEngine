@@ -123,3 +123,29 @@ It shows:
 The prompt-only path builds a prompt pack from the selected variant and does not call a video provider.
 
 The real-smoke path delegates to `RealSmokeRunner`, so it keeps the same no-silent-fallback, no-spend-bypass behavior as Sprint 07.
+
+## Acceptance Checklist
+
+Prompt-only acceptance:
+
+- `python scripts/import_sample_data.py` completes.
+- `prepare_working_video.py` prints actual `Demand Hypothesis ID`, `Creative Spec ID`, `Selected Variant ID`, `Prompt Pack ID`, and `Generation Variant ID`.
+- The operator copies the printed `Selected Variant ID`; no assumed id is required.
+- `run_working_video.py --selected-variant-id <printed_id> --build-prompts-only` completes.
+- The output shows `buyer_need`, selected hook, `prompt_pack_id`, reference readiness, `real_smoke_eligible`, and real smoke blockers.
+- `/working-video-generator` shows `buyer_need`, `safe_promise`, `selected_variant_id`, `prompt_pack_id`, `real_smoke_eligible`, missing reference blockers, and spend gate blockers.
+
+Reference readiness acceptance:
+
+- A real packshot/reference image is attached with `attach_product_asset.py`.
+- `check_product_references.py` prints a real `Reference Bundle ID`, primary reference asset id, status, blockers, and warnings.
+- If references are blocked, real smoke remains ineligible.
+
+Real smoke acceptance:
+
+- `QVF_GENERATION_MODE=real`, `QVF_ALLOW_REAL_SPEND=true`, `QVF_VIDEO_PROVIDER=runway`, and `RUNWAYML_API_SECRET` are configured.
+- `run_working_video.py --selected-variant-id <printed_id> --video-provider runway --real-run --max-scenes 1` starts only after gates pass.
+- Provider job id, video job id, output path, generation report path, and quality review id are printed.
+- The generation report contains no API keys, signed URL secrets, or authorization tokens.
+- The video is downloaded locally, non-empty, and remains `needs_human_review`.
+- A person checks the video visually before any merge/approval claim.

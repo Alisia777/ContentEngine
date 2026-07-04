@@ -49,6 +49,7 @@ def main() -> int:
                 print(f"Generation Variant ID: {result.generation_variant_id}")
                 print(f"Reference Readiness: {result.reference_readiness.get('status')}")
                 print(f"Real Smoke Eligible: {result.real_smoke_eligible}")
+                print("Real Smoke Blockers: " + (", ".join(result.real_smoke_blockers) if result.real_smoke_blockers else "none"))
             else:
                 output = runner.run_real_smoke(
                     args.selected_variant_id,

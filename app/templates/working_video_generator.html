@@ -72,13 +72,13 @@
     <section class="grid">
       <article class="card">
         <h2>Demand</h2>
-        <p class="muted">Buyer need</p>
+        <p class="muted">buyer_need</p>
         <p>{{ result.buyer_need }}</p>
         <p class="muted">Trigger</p>
         <p>{{ result.trigger_situation }}</p>
         <p class="muted">Objection</p>
         <p>{{ result.objection }}</p>
-        <p class="muted">Safe promise</p>
+        <p class="muted">safe_promise</p>
         <p>{{ result.safe_promise }}</p>
       </article>
       <article class="card">
@@ -103,6 +103,7 @@
       </article>
       <article class="card">
         <h2>Variant</h2>
+        <p class="muted">selected_variant_id</p>
         <p>#{{ result.selected_variant_id }} / score {{ result.selected_variant_score.score if result.selected_variant_score else "n/a" }}</p>
         <p class="muted">Reference readiness</p>
         <p>{{ result.reference_readiness.status }} / {{ "allowed" if result.reference_readiness.real_generation_allowed else "blocked" }}</p>
@@ -112,8 +113,12 @@
 
     <section class="panel">
       <h2>Prompt Pack</h2>
+      <p class="muted">prompt_pack_id</p>
       <p>#{{ result.prompt_pack_id }} / generation variant #{{ result.generation_variant_id }}</p>
-      <p>Real smoke eligible: {{ "true" if result.real_smoke_eligible else "false" }}</p>
+      <p class="muted">real_smoke_eligible</p>
+      <p>{{ "true" if result.real_smoke_eligible else "false" }}</p>
+      <p class="muted">missing references / spend gate blockers</p>
+      <p>{{ result.real_smoke_blockers | join(", ") if result.real_smoke_blockers else "none" }}</p>
       <pre>{{ result.prompt_pack | tojson(indent=2) }}</pre>
     </section>
   {% endif %}

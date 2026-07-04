@@ -54,8 +54,10 @@ def main() -> int:
     print(f"Selected Hook: {result.selected_hook}")
     print(f"Selected Variant ID: {result.selected_variant_id}")
     print(f"Prompt Pack ID: {result.prompt_pack_id}")
+    print(f"Generation Variant ID: {result.generation_variant_id}")
     print(f"Reference Readiness: {result.reference_readiness.get('status')}")
     print(f"Real Smoke Eligible: {result.real_smoke_eligible}")
+    print("Real Smoke Blockers: " + (", ".join(result.real_smoke_blockers) if result.real_smoke_blockers else "none"))
     return 0
 
 

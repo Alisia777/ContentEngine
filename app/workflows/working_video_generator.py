@@ -50,6 +50,7 @@ class WorkingVideoPrepareResult(BaseModel):
     prompt_pack_id: int | None = None
     prompt_pack: dict[str, Any] = Field(default_factory=dict)
     real_smoke_eligible: bool = False
+    real_smoke_blockers: list[str] = Field(default_factory=list)
     provider_status: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
@@ -207,6 +208,13 @@ class WorkingVideoGenerator:
             and selected_variant.status == "selected"
             and bool(prompt_pack.get("reference_bundle_id"))
         )
+        blockers = self._real_smoke_blockers(
+            validation=validation,
+            readiness=readiness,
+            selected_variant=selected_variant,
+            prompt_pack=prompt_pack,
+            provider_status=provider_status,
+        )
         return WorkingVideoPrepareResult(
             status="ready" if selected_variant else "needs_review",
             product_id=product.id,
@@ -232,6 +240,7 @@ class WorkingVideoGenerator:
             prompt_pack_id=generation_variant.prompt_pack_id if generation_variant else None,
             prompt_pack=prompt_pack,
             real_smoke_eligible=real_smoke_eligible,
+            real_smoke_blockers=blockers,
             provider_status=provider_status,
             warnings=list(
                 dict.fromkeys(
@@ -242,6 +251,35 @@ class WorkingVideoGenerator:
                 )
             ),
         )
+
+    @staticmethod
+    def _real_smoke_blockers(
+        *,
+        validation: dict,
+        readiness: dict,
+        selected_variant: models.CreativeVariant,
+        prompt_pack: dict,
+        provider_status: dict,
+    ) -> list[str]:
+        blockers = []
+        if validation.get("errors"):
+            blockers.extend(f"demand_error:{item}" for item in validation["errors"])
+        if validation.get("missing_data") and validation.get("real_video_eligible") is not True:
+            blockers.extend(f"demand_missing_data:{item}" for item in validation["missing_data"])
+        if readiness.get("status") != "ready":
+            reference_blockers = readiness.get("blockers") or ["product_reference_readiness_not_ready"]
+            blockers.extend(f"reference:{item}" for item in reference_blockers)
+        if selected_variant.status != "selected":
+            blockers.append("selected_variant_required")
+        if not prompt_pack.get("reference_bundle_id"):
+            blockers.append("prompt_pack_missing_reference_bundle")
+        if provider_status.get("generation_mode") != "real":
+            blockers.append("spend_gate:QVF_GENERATION_MODE=real")
+        if not provider_status.get("allow_real_spend"):
+            blockers.append("spend_gate:QVF_ALLOW_REAL_SPEND=true")
+        if not provider_status.get("runway_api_secret_configured"):
+            blockers.append("spend_gate:RUNWAYML_API_SECRET configured")
+        return list(dict.fromkeys(blockers))
 
     def _selected_variant(self, selected_variant_id: int) -> models.CreativeVariant:
         selected_variant = self.db.get(models.CreativeVariant, selected_variant_id)
