@@ -42,6 +42,7 @@ from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
 from app.video_generator.real_smoke_runner import RealSmokeRunner
+from app.video_generator.regeneration import VideoRegenerationService
 from app.workflows.working_video_generator import WorkingVideoGenerator
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
@@ -192,6 +193,23 @@ class WorkingVideoRealSmokeRequest(BaseModel):
     video_provider: str = "runway"
     real_run: bool = False
     allow_real_spend: bool = False
+    max_scenes: int = 1
+
+
+class VideoRegenerationCreateRequest(BaseModel):
+    video_job_id: int
+    scene_number: int = 1
+    reason: str
+    feedback: str
+
+
+class VideoRegenerationPromptRequest(BaseModel):
+    video_provider: str = "runway"
+
+
+class VideoRegenerationRealRunRequest(BaseModel):
+    video_provider: str = "runway"
+    real_run: bool = False
     max_scenes: int = 1
 
 
@@ -372,6 +390,24 @@ def generation_variant_response(variant: models.VideoGenerationVariant) -> dict:
         "final_video_path": variant.final_video_path or (video_job.output_video_path if video_job else None),
         "quality_score": variant.quality_score_json,
         "provider_job_ids": [clip.provider_job_id for clip in video_job.clips if clip.provider_job_id] if video_job else [],
+    }
+
+
+def regeneration_request_response(request: models.VideoRegenerationRequest) -> dict:
+    return {
+        "id": request.id,
+        "video_job_id": request.video_job_id,
+        "creative_variant_id": request.creative_variant_id,
+        "video_generation_variant_id": request.video_generation_variant_id,
+        "scene_number": request.scene_number,
+        "reason": request.reason,
+        "human_feedback": request.human_feedback,
+        "identity_corrections": request.identity_corrections_json,
+        "status": request.status,
+        "new_prompt_pack_id": request.new_prompt_pack_id,
+        "new_video_job_id": request.new_video_job_id,
+        "created_at": request.created_at,
+        "updated_at": request.updated_at,
     }
 
 
@@ -773,6 +809,60 @@ def regenerate_video_generator_scene(
 ):
     try:
         return {"scene": VideoGenerator(db).regenerate_scene(generation_variant_id, payload.scene_number)}
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/regeneration-requests")
+def create_video_regeneration_request(payload: VideoRegenerationCreateRequest, db: Session = Depends(get_db)):
+    try:
+        request = VideoRegenerationService(db).request(
+            video_job_id=payload.video_job_id,
+            scene_number=payload.scene_number,
+            reason=payload.reason,
+            human_feedback=payload.feedback,
+        )
+        return regeneration_request_response(request)
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/video-generator/regeneration-requests/{regeneration_request_id}")
+def get_video_regeneration_request(regeneration_request_id: int, db: Session = Depends(get_db)):
+    return regeneration_request_response(get_or_404(db, models.VideoRegenerationRequest, regeneration_request_id))
+
+
+@router.post("/video-generator/regeneration-requests/{regeneration_request_id}/build-prompts")
+def build_video_regeneration_prompt_pack(
+    regeneration_request_id: int,
+    payload: VideoRegenerationPromptRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return regeneration_request_response(
+            VideoRegenerationService(db).build_prompt_pack(regeneration_request_id, provider=payload.video_provider)
+        )
+    except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/video-generator/regeneration-requests/{regeneration_request_id}/run-real")
+def run_video_regeneration_real(
+    regeneration_request_id: int,
+    payload: VideoRegenerationRealRunRequest,
+    db: Session = Depends(get_db),
+):
+    if not payload.real_run:
+        raise HTTPException(status_code=400, detail="Regeneration real run requires explicit real_run=true.")
+    try:
+        return regeneration_request_response(
+            VideoRegenerationService(db).run_real(
+                regeneration_request_id,
+                provider=payload.video_provider,
+                explicit_real_run=payload.real_run,
+                max_scenes=payload.max_scenes,
+            )
+        )
     except (VideoGeneratorError, IntelligenceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

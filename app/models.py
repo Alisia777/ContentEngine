@@ -37,6 +37,7 @@ class Product(Base, TimestampMixin):
     creative_specs = relationship("VideoCreativeSpecRecord", back_populates="product")
     asset_kits = relationship("ProductAssetKit", back_populates="product")
     demand_hypotheses = relationship("DemandHypothesisRecord", back_populates="product")
+    identity_specs = relationship("ProductIdentitySpec", back_populates="product")
 
 
 class BrandGuide(Base, TimestampMixin):
@@ -574,6 +575,24 @@ class ProductReferenceBundle(Base, TimestampMixin):
     asset_kit = relationship("ProductAssetKit", back_populates="reference_bundles")
 
 
+class ProductIdentitySpec(Base, TimestampMixin):
+    __tablename__ = "product_identity_specs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    primary_reference_asset_id = Column(Integer, nullable=True)
+    product_lock_mode = Column(String(80), nullable=False, default="reference_i2v", index=True)
+    packaging_must_match_json = Column(JSON, default=list, nullable=False)
+    label_requirements_json = Column(JSON, default=list, nullable=False)
+    color_requirements_json = Column(JSON, default=list, nullable=False)
+    cap_requirements_json = Column(JSON, default=list, nullable=False)
+    forbidden_transformations_json = Column(JSON, default=list, nullable=False)
+    human_review_notes = Column(Text, nullable=True)
+
+    product = relationship("Product", back_populates="identity_specs")
+
+
 class FirstFrameOption(Base, TimestampMixin):
     __tablename__ = "first_frame_options"
 
@@ -667,6 +686,7 @@ class VideoGenerationVariant(Base, TimestampMixin):
     script_variant = relationship("ScriptVariant")
     video_job = relationship("VideoJob")
     quality_reviews = relationship("VideoQualityReview", back_populates="generation_variant")
+    regeneration_requests = relationship("VideoRegenerationRequest", back_populates="generation_variant")
 
 
 class VideoQualityReview(Base, TimestampMixin):
@@ -680,7 +700,33 @@ class VideoQualityReview(Base, TimestampMixin):
     score = Column(Float, nullable=False, default=0)
     review_json = Column(JSON, default=dict, nullable=False)
     warnings_json = Column(JSON, default=list, nullable=False)
+    human_visual_status = Column(String(80), nullable=False, default="not_reviewed", index=True)
+    human_rejection_reason = Column(Text, nullable=True)
+    identity_mismatch_flags_json = Column(JSON, default=list, nullable=False)
+    requires_regeneration = Column(Boolean, default=False, nullable=False)
 
     creative_spec = relationship("VideoCreativeSpecRecord")
     generation_variant = relationship("VideoGenerationVariant", back_populates="quality_reviews")
     video_job = relationship("VideoJob")
+
+
+class VideoRegenerationRequest(Base, TimestampMixin):
+    __tablename__ = "video_regeneration_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=True, index=True)
+    scene_number = Column(Integer, nullable=False, default=1)
+    reason = Column(String(160), nullable=False, index=True)
+    human_feedback = Column(Text, nullable=False)
+    identity_corrections_json = Column(JSON, default=dict, nullable=False)
+    status = Column(String(80), nullable=False, default="requested", index=True)
+    new_prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True)
+    new_video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True)
+
+    video_job = relationship("VideoJob", foreign_keys=[video_job_id])
+    new_video_job = relationship("VideoJob", foreign_keys=[new_video_job_id])
+    creative_variant = relationship("CreativeVariant")
+    generation_variant = relationship("VideoGenerationVariant", back_populates="regeneration_requests")
+    new_prompt_pack = relationship("PromptPack")

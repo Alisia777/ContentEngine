@@ -51,7 +51,18 @@ class QualityScorer:
             status="metadata_scored",
             checks=checks,
             warnings=spec.warnings,
-            notes=["Metadata-only score. No computer vision inspection has been performed."],
+            notes=[
+                "Metadata-only score. No computer vision inspection has been performed.",
+                "Product identity is not auto-approved by metadata checks.",
+            ],
+        )
+        review_json = result.model_dump(mode="json")
+        review_json.update(
+            {
+                "human_visual_status": "not_reviewed",
+                "identity_mismatch_flags": [],
+                "requires_regeneration": False,
+            }
         )
         review = models.VideoQualityReview(
             creative_spec_id=spec_record.id,
@@ -59,10 +70,10 @@ class QualityScorer:
             video_job_id=video_job.id if video_job else None,
             status=result.status,
             score=result.score,
-            review_json=result.model_dump(mode="json"),
+            review_json=review_json,
             warnings_json=result.warnings,
         )
-        generation_variant.quality_score_json = result.model_dump(mode="json")
+        generation_variant.quality_score_json = review_json
         self.db.add(review)
         self.db.commit()
         self.db.refresh(review)

@@ -33,6 +33,7 @@ from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
 from app.video_generator.real_smoke_runner import RealSmokeRunner
+from app.video_generator.regeneration import VideoRegenerationService
 from app.workflows.working_video_generator import WorkingVideoGenerator
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
@@ -355,17 +356,35 @@ def run_working_video_generator_page(
     duration: int = Form(15),
     variant_count: int = Form(5),
     selected_variant_id: str = Form(""),
+    video_job_id: str = Form(""),
+    regeneration_request_id: str = Form(""),
+    scene_number: int = Form(1),
+    reason: str = Form("product_identity_mismatch"),
+    feedback: str = Form(""),
     video_provider: str = Form("runway"),
     action: str = Form("prepare"),
     db: Session = Depends(get_db),
 ):
     result = None
     real_smoke = None
+    regeneration_request = None
     error = None
     try:
         runner = WorkingVideoGenerator(db)
         if action == "prepare":
             result = runner.prepare(product_id, platform, duration, variant_count).model_dump(mode="json")
+        elif action == "create_regeneration_request":
+            regeneration_request = VideoRegenerationService(db).request(
+                video_job_id=int(video_job_id),
+                scene_number=scene_number,
+                reason=reason,
+                human_feedback=feedback,
+            )
+        elif action == "build_regeneration_prompt":
+            regeneration_request = VideoRegenerationService(db).build_prompt_pack(
+                int(regeneration_request_id),
+                provider=video_provider,
+            )
         else:
             variant_id = int(selected_variant_id)
             if action == "prompt_only":
@@ -387,6 +406,7 @@ def run_working_video_generator_page(
             "page_title": "Working Video Generator",
             "result": result,
             "real_smoke": real_smoke,
+            "regeneration_request": regeneration_request,
             "error": error,
             "selected_product_id": product_id,
             "selected_platform": platform,
@@ -401,6 +421,25 @@ def run_working_video_generator_page(
 
 def working_video_context(db: Session) -> dict:
     status = provider_key_status()
+    latest_generation = db.scalar(
+        select(models.VideoGenerationVariant)
+        .where(models.VideoGenerationVariant.video_job_id.is_not(None))
+        .order_by(models.VideoGenerationVariant.updated_at.desc())
+    )
+    latest_review = None
+    latest_requests = []
+    if latest_generation:
+        latest_review = db.scalar(
+            select(models.VideoQualityReview)
+            .where(models.VideoQualityReview.video_generation_variant_id == latest_generation.id)
+            .order_by(models.VideoQualityReview.id.desc())
+        )
+        latest_requests = db.scalars(
+            select(models.VideoRegenerationRequest)
+            .where(models.VideoRegenerationRequest.video_generation_variant_id == latest_generation.id)
+            .order_by(models.VideoRegenerationRequest.created_at.desc())
+            .limit(5)
+        ).all()
     return {
         "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
         "selected_variants": db.scalars(
@@ -413,6 +452,9 @@ def working_video_context(db: Session) -> dict:
             select(models.DemandHypothesisRecord).order_by(models.DemandHypothesisRecord.created_at.desc()).limit(10)
         ).all(),
         "provider_status": status,
+        "latest_real_smoke_generation": latest_generation,
+        "latest_real_smoke_review": latest_review,
+        "latest_regeneration_requests": latest_requests,
         "real_smoke_gate_ready": (
             status["generation_mode"] == "real"
             and status["allow_real_spend"]

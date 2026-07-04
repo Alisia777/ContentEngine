@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -21,15 +24,20 @@ class RunwayVideoProvider:
             raise ProviderConfigurationError("Runway provider is selected, but RUNWAYML_API_SECRET is missing.")
 
     def create_generation(self, prompt_pack: PromptPackOutput) -> ProviderVideoJob:
+        scene = prompt_pack.scene_prompts[0] if prompt_pack.scene_prompts else None
         payload = {
             "model": self.model,
-            "promptText": prompt_pack.scene_prompts[0].prompt_text if prompt_pack.scene_prompts else "",
+            "promptText": scene.prompt_text if scene else "",
             "ratio": get_settings().video_ratio,
-            "duration": prompt_pack.scene_prompts[0].duration_seconds if prompt_pack.scene_prompts else 5,
+            "duration": scene.duration_seconds if scene else 5,
         }
+        endpoint = "text_to_video"
+        if scene and scene.reference_images:
+            endpoint = "image_to_video"
+            payload["promptImage"] = self._prompt_image(scene.reference_images[0])
         try:
             response = httpx.post(
-                "https://api.dev.runwayml.com/v1/text_to_video",
+                f"https://api.dev.runwayml.com/v1/{endpoint}",
                 headers={
                     "Authorization": f"Bearer {self.api_secret}",
                     "Content-Type": "application/json",
@@ -56,6 +64,17 @@ class RunwayVideoProvider:
             status=str(data.get("status") or "queued"),
             raw_response=data,
         )
+
+    def _prompt_image(self, reference_image: str) -> str:
+        parsed = urlparse(reference_image)
+        if parsed.scheme in {"http", "https", "data"}:
+            return reference_image
+        path = Path(reference_image)
+        if not path.exists():
+            raise ProviderConfigurationError(f"Runway reference image does not exist: {reference_image}")
+        mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
 
     def get_status(self, provider_job_id: str) -> ProviderVideoStatus:
         try:

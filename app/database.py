@@ -76,6 +76,16 @@ def _ensure_sqlite_schema() -> None:
             "checksum": "ALTER TABLE product_assets ADD COLUMN checksum VARCHAR(128)",
         },
     )
+    _add_missing_sqlite_columns(
+        inspector,
+        "video_quality_reviews",
+        {
+            "human_visual_status": "ALTER TABLE video_quality_reviews ADD COLUMN human_visual_status VARCHAR(80) DEFAULT 'not_reviewed'",
+            "human_rejection_reason": "ALTER TABLE video_quality_reviews ADD COLUMN human_rejection_reason TEXT",
+            "identity_mismatch_flags_json": "ALTER TABLE video_quality_reviews ADD COLUMN identity_mismatch_flags_json TEXT DEFAULT '[]'",
+            "requires_regeneration": "ALTER TABLE video_quality_reviews ADD COLUMN requires_regeneration BOOLEAN DEFAULT 0",
+        },
+    )
 
 
 def _add_missing_sqlite_columns(inspector, table_name: str, migrations: dict[str, str]) -> None:

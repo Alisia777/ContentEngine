@@ -270,6 +270,9 @@ class RealSmokeRunner:
             "score": score,
             "status": status,
             "checks": checks,
+            "human_visual_status": "not_reviewed",
+            "identity_mismatch_flags": [],
+            "requires_regeneration": False,
             "notes": ["Metadata-only score. No computer vision or visual product identity verification was performed."],
         }
         review = models.VideoQualityReview(

@@ -13,6 +13,12 @@ from app.intelligence.types import PromptPackOutput, PromptSceneOutput
 from app.intelligence.video_generator import GeneratorVideoService
 from app.video_generator.errors import VideoGeneratorDataError
 from app.video_generator.provider_payloads import build_provider_prompt_pack
+from app.video_generator.product_identity import (
+    ProductIdentityService,
+    identity_negative_prompt,
+    identity_prompt_rules,
+    identity_spec_payload,
+)
 from app.video_generator.quality_scorer import QualityScorer
 from app.video_generator.scene_regenerator import SceneRegenerator
 
@@ -94,7 +100,17 @@ class VideoGenerator:
         if reference_bundle and reference_bundle.status == "ready":
             stale_asset_risks = {"missing_packshot", "packshot_missing_for_product_accuracy", "missing_product_reference_assets"}
             variant_warnings = [warning for warning in variant_warnings if warning not in stale_asset_risks]
-        scene_prompts = self._variant_scene_prompts(creative_variant, spec, reference_images=reference_images)
+        identity_spec = ProductIdentityService(self.db).get_or_create(
+            spec_record.product,
+            primary_reference_asset_id=reference_bundle.primary_image_asset_id if reference_bundle else None,
+        )
+        identity_payload = identity_spec_payload(identity_spec)
+        scene_prompts = self._variant_scene_prompts(
+            creative_variant,
+            spec,
+            reference_images=reference_images,
+            identity_spec=identity_spec,
+        )
         prompt_output = PromptPackOutput(
             provider=selected_provider,
             aspect_ratio=spec.aspect_ratio,
@@ -113,6 +129,10 @@ class VideoGenerator:
                 "reference_images": reference_images,
                 "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
                 "provider_reference_bundle": provider_reference_bundle,
+                "product_identity_spec": identity_payload,
+                "product_lock_mode": identity_spec.product_lock_mode,
+                "packshot_overlay_asset": reference_images[0] if identity_spec.product_lock_mode == "packshot_overlay" and reference_images else None,
+                "end_card_packshot_asset": reference_images[0] if identity_spec.product_lock_mode in {"end_card_packshot", "packshot_overlay", "no_product_generation"} and reference_images else None,
                 "product_accuracy_rules": spec.product_display_rules,
                 "overlay_text": first_frame.get("text_overlay"),
                 "scene_pacing": creative_variant.pacing_json,
@@ -139,6 +159,10 @@ class VideoGenerator:
                 "reference_images": reference_images,
                 "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
                 "provider_reference_bundle": provider_reference_bundle,
+                "product_identity_spec": identity_payload,
+                "product_lock_mode": identity_spec.product_lock_mode,
+                "packshot_overlay_asset": reference_images[0] if identity_spec.product_lock_mode == "packshot_overlay" and reference_images else None,
+                "end_card_packshot_asset": reference_images[0] if identity_spec.product_lock_mode in {"end_card_packshot", "packshot_overlay", "no_product_generation"} and reference_images else None,
                 "aspect_ratio": spec.aspect_ratio,
                 "duration_seconds": prompt_output.duration_seconds,
                 "asset_references": reference_images or creative_variant.asset_refs_json,
@@ -376,24 +400,29 @@ class VideoGenerator:
         spec: CreativeSpec,
         *,
         reference_images: list[str] | None = None,
+        identity_spec: models.ProductIdentitySpec | None = None,
     ) -> list[PromptSceneOutput]:
         prompts = []
+        identity_rules = identity_prompt_rules(identity_spec)
+        identity_negative = identity_negative_prompt(identity_spec)
         for scene in creative_variant.scene_plan_json or []:
+            base_negative = (
+                "distorted product, changed packaging, fake labels, unsupported claims, "
+                "medical claims, unreadable text, low quality"
+            )
             prompts.append(
                 PromptSceneOutput(
                     scene_number=int(scene.get("scene_number") or 1),
                     duration_seconds=max(1, int(scene.get("duration_seconds") or 1)),
-                    prompt_text=self._variant_prompt_text(creative_variant, spec, scene),
-                    negative_prompt=(
-                        "distorted product, changed packaging, fake labels, unsupported claims, "
-                        "medical claims, unreadable text, low quality"
-                    ),
+                    prompt_text=self._variant_prompt_text(creative_variant, spec, scene, identity_rules=identity_rules),
+                    negative_prompt=", ".join(item for item in [base_negative, identity_negative] if item),
                     reference_images=reference_images or creative_variant.asset_refs_json or [],
                     camera_motion=scene.get("camera_motion") or "slow product-focused movement",
                     style=creative_variant.visual_style or spec.visual_style,
                     safety_constraints=[
                         "show the selected first frame clearly",
                         "do not alter product shape, packaging, color, or label",
+                        *identity_rules,
                         "use only source-backed claims",
                         "keep overlay text readable and clear of packaging",
                     ],
@@ -402,7 +431,13 @@ class VideoGenerator:
         return prompts
 
     @staticmethod
-    def _variant_prompt_text(creative_variant: models.CreativeVariant, spec: CreativeSpec, scene: dict) -> str:
+    def _variant_prompt_text(
+        creative_variant: models.CreativeVariant,
+        spec: CreativeSpec,
+        scene: dict,
+        *,
+        identity_rules: list[str] | None = None,
+    ) -> str:
         first_frame = creative_variant.first_frame_json or {}
         first_frame_text = ""
         if int(scene.get("scene_number") or 1) == 1:
@@ -415,7 +450,8 @@ class VideoGenerator:
             f"{first_frame_text}Scene role: {scene.get('role')}. {scene.get('visual')} "
             f"Caption: {scene.get('caption')}. Voiceover: {scene.get('voiceover')}. "
             f"Scene pacing: {creative_variant.pacing_json}. CTA framing: {creative_variant.cta_framing}. "
-            f"Product accuracy rules: {'; '.join(spec.product_display_rules)}"
+            f"Product accuracy rules: {'; '.join(spec.product_display_rules)}. "
+            f"Product identity lock rules: {'; '.join(identity_rules or [])}"
         )
 
     @staticmethod

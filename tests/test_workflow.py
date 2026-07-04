@@ -49,6 +49,7 @@ from app.intelligence.types import (
     ScriptBriefOutput,
 )
 from app.intelligence.validators import validate_script_claim_refs
+from app.intelligence.video_generator import GeneratorVideoService
 from app.main import app
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
@@ -58,7 +59,9 @@ from app.variants.first_frame_builder import FirstFrameBuilder
 from app.variants.variant_scorer import VariantScorer
 from app.variants.variant_selector import VariantSelector
 from app.video_generator.generator import VideoGenerator
+from app.video_generator.product_identity import ProductIdentityService
 from app.video_generator.real_smoke_runner import RealSmokeRunner
+from app.video_generator.regeneration import VideoRegenerationService
 from app.workflows.working_video_generator import WorkingVideoGenerator
 
 
@@ -959,6 +962,79 @@ def test_runway_network_error_fails_clearly(monkeypatch):
         RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
 
 
+def test_runway_uses_image_to_video_when_reference_image_is_present(monkeypatch, tmp_path):
+    captured: dict = {}
+    reference_path = tmp_path / "packshot.png"
+    reference_path.write_bytes(b"fake-png-bytes")
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"id": "runway-image-job-1", "status": "RUNNING"}
+
+    def capture_post(url: str, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("app.providers.runway_video.httpx.post", capture_post)
+    prompt_pack = PromptPackOutput(
+        provider="runway",
+        aspect_ratio="720:1280",
+        duration_seconds=5,
+        scene_prompts=[
+            PromptSceneOutput(
+                scene_number=1,
+                duration_seconds=5,
+                prompt_text="Keep the exact product packaging visible.",
+                negative_prompt="distorted product",
+                reference_images=[reference_path.as_posix()],
+            )
+        ],
+    )
+
+    job = RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
+
+    assert captured["url"].endswith("/v1/image_to_video")
+    assert captured["json"]["promptImage"].startswith("data:image/png;base64,")
+    assert "fake-png-bytes" not in captured["json"]["promptImage"]
+    assert captured["json"]["promptText"] == "Keep the exact product packaging visible."
+    assert job.provider_job_id == "runway-image-job-1"
+
+
+def test_runway_reference_image_missing_fails_before_provider_call(monkeypatch, tmp_path):
+    called = False
+
+    def capture_post(*args, **kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("app.providers.runway_video.httpx.post", capture_post)
+    prompt_pack = PromptPackOutput(
+        provider="runway",
+        aspect_ratio="720:1280",
+        duration_seconds=5,
+        scene_prompts=[
+            PromptSceneOutput(
+                scene_number=1,
+                duration_seconds=5,
+                prompt_text="Keep the exact product packaging visible.",
+                negative_prompt="distorted product",
+                reference_images=[(tmp_path / "missing.png").as_posix()],
+            )
+        ],
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="reference image does not exist"):
+        RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
+    assert called is False
+
+
 def test_real_run_requires_allow_spend_true(monkeypatch):
     monkeypatch.setenv("QVF_GENERATION_MODE", "real")
     monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "false")
@@ -1833,7 +1909,7 @@ def test_variant_real_smoke_prompt_pack_contains_reference_bundle(monkeypatch):
         assert generation_variant.prompt_pack_json["provider_reference_bundle"]["reference_asset_ids"]
 
 
-def test_variant_real_smoke_generation_report_has_no_secrets(monkeypatch):
+def test_generation_report_still_scrubs_signed_urls_and_secrets(monkeypatch):
     enable_real_smoke_env(monkeypatch, runway_key="runway-test-secret-value")
     install_fake_runway_provider(monkeypatch)
     with client() as api:
@@ -1860,7 +1936,169 @@ def test_variant_real_smoke_generation_report_has_no_secrets(monkeypatch):
         assert report["provider_job_ids"] == ["fake-runway-job-1"]
 
 
-def test_video_assembly_copies_single_clip_when_ffmpeg_unavailable(monkeypatch, tmp_path):
+def test_product_identity_constraints_added_to_prompt_pack():
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Identity Constraint Variant")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        prompt_pack = variant.prompt_pack_json
+        first_scene = prompt_pack["scene_prompts"][0]
+        assert prompt_pack["product_identity_spec"]["product_lock_mode"] == "reference_i2v"
+        assert "Use the approved primary reference image as the exact product reference." in first_scene["prompt_text"]
+        assert "Preserve white label if the approved reference has a white label." in first_scene["prompt_text"]
+        assert "Product identity still requires human visual review" in first_scene["prompt_text"]
+
+
+def test_negative_prompt_blocks_packaging_redesign():
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Negative Prompt Identity Variant")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        negative_prompt = variant.prompt_pack_json["scene_prompts"][0]["negative_prompt"]
+        assert "wrong cap color" in negative_prompt
+        assert "black cap if reference cap is not black" in negative_prompt
+        assert "red label if reference label is white" in negative_prompt
+        assert "redesigned packaging" in negative_prompt
+        assert "invented label graphics" in negative_prompt
+
+
+def test_manual_review_can_mark_identity_mismatch(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Manual Identity Mismatch Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            request = VideoRegenerationService(db).request(
+                video_job_id=output.video_job_id,
+                scene_number=1,
+                reason="product_identity_mismatch",
+                human_feedback="Generated bottle cap/dropper became black; label became red; keep reference packaging.",
+            )
+            review = db.get(models.VideoQualityReview, output.quality_review_id)
+
+        assert request.status == "requested"
+        assert review.human_visual_status == "fail"
+        assert review.requires_regeneration is True
+        assert "wrong_cap_color" in review.identity_mismatch_flags_json
+        assert "label_mismatch" in review.identity_mismatch_flags_json
+
+
+def test_regeneration_request_persists_human_feedback(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    feedback = "Generated bottle cap/dropper became black; label became red; keep reference packaging."
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Persist Regeneration Feedback Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            request = VideoRegenerationService(db).request(
+                video_job_id=output.video_job_id,
+                scene_number=1,
+                reason="product_identity_mismatch",
+                human_feedback=feedback,
+            )
+
+        assert request.human_feedback == feedback
+        assert request.identity_corrections_json["feedback"] == feedback
+        assert request.identity_corrections_json["identity_mismatch_flags"]
+
+
+def test_regeneration_prompt_includes_identity_corrections(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    feedback = "Generated bottle cap/dropper became black; label became red; keep reference packaging."
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Regeneration Prompt Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            request = VideoRegenerationService(db).request(
+                video_job_id=output.video_job_id,
+                scene_number=1,
+                reason="product_identity_mismatch",
+                human_feedback=feedback,
+            )
+            request = VideoRegenerationService(db).build_prompt_pack(request.id)
+            prompt_pack = db.get(models.PromptPack, request.new_prompt_pack_id)
+
+        first_scene = prompt_pack.prompt_pack_json["scene_prompts"][0]
+        assert "Human feedback: Generated bottle cap/dropper became black" in first_scene["prompt_text"]
+        assert "Identity corrections" in first_scene["prompt_text"]
+        assert "wrong cap color" in first_scene["negative_prompt"]
+        assert prompt_pack.prompt_pack_json["regeneration_request_id"] == request.id
+
+
+def test_regeneration_real_run_requires_spend_gates(monkeypatch):
+    enable_real_smoke_env(monkeypatch, allow_spend="false")
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Regeneration Spend Gate Variant")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+            video_job = GeneratorVideoService(db).create_video_job_from_prompt_pack(
+                variant.prompt_pack_id,
+                "runway",
+                max_scenes=1,
+                full_video=False,
+                apply_safety_limits=True,
+            )
+            variant.video_job_id = video_job.id
+            db.commit()
+            request = VideoRegenerationService(db).request(
+                video_job_id=video_job.id,
+                scene_number=1,
+                reason="product_identity_mismatch",
+                human_feedback="Keep reference packaging.",
+            )
+            with pytest.raises(ProviderConfigurationError, match="QVF_ALLOW_REAL_SPEND=true"):
+                VideoRegenerationService(db).run_real(request.id, explicit_real_run=True)
+
+
+def test_packshot_overlay_mode_uses_real_asset():
+    with client() as api:
+        product_id, _, selected_variant_id, _ = prepare_ready_variant(api, title="Packshot Overlay Mode Variant")
+
+        with SessionLocal() as db:
+            product = db.get(models.Product, product_id)
+            identity = ProductIdentityService(db).get_or_create(product, primary_reference_asset_id=1)
+            identity.product_lock_mode = "packshot_overlay"
+            db.commit()
+            variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        payload = variant.provider_payload_json
+        scene = variant.prompt_pack_json["scene_prompts"][0]
+        assert payload["product_lock_mode"] == "packshot_overlay"
+        assert payload["packshot_overlay_asset"]
+        assert "real approved packshot will be composited as an overlay" in scene["prompt_text"]
+
+
+def test_end_card_packshot_uses_real_asset():
+    with client() as api:
+        product_id, _, selected_variant_id, _ = prepare_ready_variant(api, title="End Card Packshot Mode Variant")
+
+        with SessionLocal() as db:
+            product = db.get(models.Product, product_id)
+            identity = ProductIdentityService(db).get_or_create(product, primary_reference_asset_id=1)
+            identity.product_lock_mode = "end_card_packshot"
+            db.commit()
+            variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        payload = variant.provider_payload_json
+        scene = variant.prompt_pack_json["scene_prompts"][0]
+        assert payload["product_lock_mode"] == "end_card_packshot"
+        assert payload["end_card_packshot_asset"]
+        assert "final packshot/end card must use the real approved product asset" in scene["prompt_text"]
+
+
+def test_single_scene_downloaded_output_not_replaced_by_placeholder(monkeypatch, tmp_path):
     monkeypatch.setenv("QVF_MEDIA_ROOT", str(tmp_path))
     get_settings.cache_clear()
     monkeypatch.setattr(VideoAssemblyService, "ffmpeg_path", property(lambda self: None))

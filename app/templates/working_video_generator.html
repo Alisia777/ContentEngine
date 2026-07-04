@@ -136,6 +136,65 @@
     </section>
   {% endif %}
 
+  {% if latest_real_smoke_generation %}
+    <section class="panel">
+      <h2>Human Review</h2>
+      <p>Last video job: #{{ latest_real_smoke_generation.video_job_id }} / {{ latest_real_smoke_generation.status }}</p>
+      <p>Output: {{ latest_real_smoke_generation.final_video_path or "pending" }}</p>
+      {% if latest_real_smoke_review %}
+        <p>Review: #{{ latest_real_smoke_review.id }} / {{ latest_real_smoke_review.status }}</p>
+        <p>Human visual status: {{ latest_real_smoke_review.human_visual_status }}</p>
+        <p>Requires regeneration: {{ "yes" if latest_real_smoke_review.requires_regeneration else "no" }}</p>
+        <p>Rejection reason: {{ latest_real_smoke_review.human_rejection_reason or "none" }}</p>
+        <p>Identity mismatch flags: {{ latest_real_smoke_review.identity_mismatch_flags_json | join(", ") if latest_real_smoke_review.identity_mismatch_flags_json else "none" }}</p>
+      {% endif %}
+      <form action="/working-video-generator/run" method="post">
+        <input type="hidden" name="action" value="create_regeneration_request">
+        <input type="hidden" name="video_job_id" value="{{ latest_real_smoke_generation.video_job_id }}">
+        <div class="form-grid">
+          <label>Scene<input name="scene_number" type="number" min="1" value="1"></label>
+          <label>Reason<input name="reason" value="product_identity_mismatch"></label>
+        </div>
+        <label>Human feedback
+          <textarea name="feedback" rows="3">Generated bottle cap/dropper became black; label became red; keep reference packaging.</textarea>
+        </label>
+        <div class="actions"><button type="submit">Create regeneration request</button></div>
+      </form>
+    </section>
+  {% endif %}
+
+  {% if latest_regeneration_requests %}
+    <section class="panel">
+      <h2>Regeneration Requests</h2>
+      <div class="grid">
+        {% for request in latest_regeneration_requests %}
+          <article class="card">
+            <p>#{{ request.id }} / {{ request.status }}</p>
+            <p>{{ request.reason }}</p>
+            <p>{{ request.human_feedback }}</p>
+            <p>Prompt pack: {{ request.new_prompt_pack_id or "not built" }}</p>
+            <form action="/working-video-generator/run" method="post">
+              <input type="hidden" name="action" value="build_regeneration_prompt">
+              <input type="hidden" name="regeneration_request_id" value="{{ request.id }}">
+              <input type="hidden" name="video_provider" value="runway">
+              <button type="submit">Build prompt-only regeneration</button>
+            </form>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if regeneration_request %}
+    <section class="panel">
+      <h2>Regeneration Result</h2>
+      <p>Request: #{{ regeneration_request.id }} / {{ regeneration_request.status }}</p>
+      <p>Prompt pack: {{ regeneration_request.new_prompt_pack_id or "not built" }}</p>
+      <p>New video job: {{ regeneration_request.new_video_job_id or "not run" }}</p>
+      <pre>{{ regeneration_request.identity_corrections_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
   {% if demand_hypotheses %}
     <section class="panel">
       <h2>Recent Demand</h2>
