@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import io
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -57,6 +60,37 @@ class PublishingDestinationService:
     def list(self) -> list[models.PublishingDestination]:
         return self.db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.platform)).all()
 
+    def import_csv_text(self, text: str, *, default_brand: str = "Altea") -> dict:
+        rows = csv.DictReader(io.StringIO(text))
+        created: list[models.PublishingDestination] = []
+        errors: list[dict] = []
+        for index, row in enumerate(rows, start=2):
+            try:
+                destination = self.create(
+                    brand=row.get("brand") or default_brand,
+                    platform=row.get("platform") or "",
+                    name=row.get("name") or row.get("account_name") or "",
+                    handle=row.get("handle") or row.get("account_handle") or None,
+                    url=row.get("url") or row.get("account_url") or None,
+                    owner_name=row.get("owner_name") or None,
+                    status=row.get("status") or "active",
+                    posting_mode=row.get("posting_mode") or "manual",
+                    auth_status=row.get("auth_status") or None,
+                    allowed_formats=self._parse_list(row.get("allowed_formats") or row.get("allowed_formats_json")),
+                    daily_limit=int(row.get("daily_limit") or row.get("daily_publish_limit") or 1),
+                    weekly_limit=int(row.get("weekly_limit") or row.get("weekly_publish_limit") or 3),
+                    notes=row.get("notes") or None,
+                )
+                created.append(destination)
+            except (PublishingError, ValueError) as exc:
+                errors.append({"row": index, "error": str(exc), "data": dict(row)})
+        return {
+            "created_count": len(created),
+            "error_count": len(errors),
+            "destination_ids": [destination.id for destination in created],
+            "errors": errors,
+        }
+
     def get(self, destination_id: int) -> models.PublishingDestination:
         destination = self.db.get(models.PublishingDestination, destination_id)
         if not destination:
@@ -111,3 +145,13 @@ class PublishingDestinationService:
         if posting_mode == "api":
             return "not_configured"
         return "not_configured"
+
+    @staticmethod
+    def _parse_list(value: str | None) -> list[str] | None:
+        if not value:
+            return None
+        separators = [";", ","]
+        values = [value]
+        for separator in separators:
+            values = [part for item in values for part in item.split(separator)]
+        return [item.strip() for item in values if item.strip()]

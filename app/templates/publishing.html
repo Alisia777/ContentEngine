@@ -34,6 +34,11 @@
         <label>Notes<textarea name="notes" rows="2"></textarea></label>
         <div class="actions"><button type="submit">Add destination</button></div>
       </form>
+      <form action="/publishing/destinations/import" method="post" enctype="multipart/form-data">
+        <label>CSV import<input type="file" name="file" accept=".csv,text/csv" required></label>
+        <label>Default brand<input name="default_brand" value="Altea"></label>
+        <div class="actions"><button type="submit">Import destinations</button></div>
+      </form>
       <table class="table compact">
         <thead><tr><th>Destination</th><th>Mode</th><th>Status</th><th>Limits</th></tr></thead>
         <tbody>
@@ -113,6 +118,21 @@
         <label>Scheduled at<input type="datetime-local" name="scheduled_at" value="{{ default_time }}" required></label>
         <label>Operator<input name="operator_name" value="operator"></label>
         <div class="actions"><button type="submit">Schedule task</button></div>
+      </form>
+      <form action="/publishing/tasks/bulk-schedule" method="post">
+        <label>Package IDs
+          <textarea name="publishing_package_ids" rows="2" placeholder="1, 2, 3" required></textarea>
+        </label>
+        <label>Destination IDs
+          <textarea name="destination_ids" rows="2" placeholder="1, 2, 3" required></textarea>
+        </label>
+        <div class="form-grid">
+          <label>Start at<input type="datetime-local" name="start_at" value="{{ default_time }}" required></label>
+          <label>Interval minutes<input name="interval_minutes" type="number" min="1" value="60"></label>
+        </div>
+        <label>Operator<input name="operator_name" value="operator"></label>
+        <label><input type="checkbox" name="dry_run" value="true"> Dry run</label>
+        <div class="actions"><button type="submit">Bulk schedule approved packages</button></div>
       </form>
       <table class="table compact">
         <thead><tr><th>When</th><th>Destination</th><th>Status</th><th></th></tr></thead>

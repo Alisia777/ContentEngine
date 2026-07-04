@@ -350,6 +350,15 @@ class PublishingTaskScheduleRequest(BaseModel):
     operator_name: str | None = None
 
 
+class PublishingBulkScheduleRequest(BaseModel):
+    publishing_package_ids: list[int]
+    destination_ids: list[int]
+    start_at: datetime
+    interval_minutes: int = 60
+    operator_name: str | None = None
+    dry_run: bool = False
+
+
 class PublishingTaskRead(OrmModel):
     id: int
     publishing_package_id: int

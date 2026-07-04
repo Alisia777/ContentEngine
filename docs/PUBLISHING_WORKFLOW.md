@@ -31,9 +31,11 @@ approved video artifact
 
 ```bash
 python scripts/add_publishing_destination.py --platform telegram --name "Altea Telegram" --posting-mode manual
+python scripts/import_publishing_destinations.py --file destinations.csv
 python scripts/create_publishing_package.py --video-job-id 11 --platform telegram
 python scripts/approve_publishing_package.py --package-id 1
 python scripts/schedule_publishing_task.py --package-id 1 --destination-id 1 --scheduled-at "2026-07-05T12:00:00"
+python scripts/bulk_schedule_publishing_tasks.py --package-ids "1,2,3" --destination-ids "1,2" --start-at "2026-07-05T12:00:00" --interval-minutes 90
 python scripts/mark_manual_published.py --task-id 1 --url "https://example.com/post"
 ```
 
@@ -77,3 +79,26 @@ The page shows:
 - publishing packages;
 - calendar tasks;
 - manual upload tasks with final URL capture.
+
+## Scale Operations
+
+For 40 SKUs, 120 owned destinations, and hundreds of videos:
+
+1. Import destinations from CSV.
+2. Create packages only from approved local video artifacts.
+3. Approve packages after human review.
+4. Bulk-schedule approved package ids across destination ids.
+5. Operators work through manual upload tasks and paste final URLs.
+
+Bulk scheduling uses round-robin distribution across destination ids and still enforces every normal gate:
+
+- package must be `approved`;
+- destination must be `active`;
+- video file must exist and be non-empty;
+- daily and weekly limits must not be exceeded.
+
+Use `--dry-run` before creating tasks:
+
+```bash
+python scripts/bulk_schedule_publishing_tasks.py --package-ids "1,2,3" --destination-ids "1,2" --start-at "2026-07-05T12:00:00" --dry-run
+```

@@ -688,6 +688,19 @@ def create_publishing_destination_ui(
     return redirect("/publishing")
 
 
+@router.post("/publishing/destinations/import")
+async def import_publishing_destinations_ui(
+    file: UploadFile = File(...),
+    default_brand: str = Form("Altea"),
+    db: Session = Depends(get_db),
+):
+    text = (await file.read()).decode("utf-8-sig")
+    result = PublishingDestinationService(db).import_csv_text(text, default_brand=default_brand)
+    if result["error_count"]:
+        return redirect(f"/publishing?error=Imported {result['created_count']} destinations with {result['error_count']} errors")
+    return redirect("/publishing")
+
+
 @router.post("/publishing/packages/create")
 def create_safe_publishing_package_ui(
     video_job_id: int = Form(...),
@@ -759,6 +772,34 @@ def schedule_safe_publishing_task_ui(
     return redirect("/publishing")
 
 
+@router.post("/publishing/tasks/bulk-schedule")
+def bulk_schedule_safe_publishing_tasks_ui(
+    publishing_package_ids: str = Form(...),
+    destination_ids: str = Form(...),
+    start_at: str = Form(...),
+    interval_minutes: int = Form(60),
+    operator_name: str = Form(""),
+    dry_run: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = PublishingScheduler(db).bulk_schedule(
+            package_ids=_parse_int_list(publishing_package_ids),
+            destination_ids=_parse_int_list(destination_ids),
+            start_at=datetime.fromisoformat(start_at),
+            interval_minutes=interval_minutes,
+            operator_name=operator_name or None,
+            dry_run=dry_run,
+        )
+        if result["error_count"]:
+            return redirect(
+                f"/publishing?error=Bulk schedule planned {result['planned_count']} tasks with {result['error_count']} blocked items"
+            )
+    except (PublishingError, ValueError) as exc:
+        return redirect(f"/publishing?error={str(exc)}")
+    return redirect("/publishing")
+
+
 @router.get("/publishing/tasks/{task_id}", response_class=HTMLResponse)
 def safe_publishing_task_page(task_id: int, request: Request, db: Session = Depends(get_db)):
     task = db.get(models.PublishingTask, task_id)
@@ -789,6 +830,11 @@ def mark_safe_publishing_task_uploaded_ui(
     if task:
         ManualUploadProvider(db).mark_published(task, final_url, operator_name)
     return redirect(f"/publishing/tasks/{task_id}")
+
+
+def _parse_int_list(value: str) -> list[int]:
+    normalized = value.replace("\n", ",").replace(";", ",").replace(" ", ",")
+    return [int(item) for item in normalized.split(",") if item.strip()]
 
 
 @router.get("/engine", response_class=HTMLResponse)

@@ -438,6 +438,16 @@ def check_publishing_destination_readiness(destination_id: int, db: Session = De
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/publishing/destinations/import-csv")
+async def import_publishing_destinations_csv(
+    file: UploadFile = File(...),
+    default_brand: str = "Altea",
+    db: Session = Depends(get_db),
+):
+    text = (await file.read()).decode("utf-8-sig")
+    return PublishingDestinationService(db).import_csv_text(text, default_brand=default_brand)
+
+
 @router.post("/publishing/packages", response_model=schemas.PublishingPackageRead)
 def create_safe_publishing_package(payload: schemas.SafePublishingPackageCreate, db: Session = Depends(get_db)):
     try:
@@ -502,6 +512,21 @@ def schedule_safe_publishing_task(payload: schemas.PublishingTaskScheduleRequest
             destination=destination,
             scheduled_at=payload.scheduled_at,
             operator_name=payload.operator_name,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/publishing/tasks/bulk-schedule")
+def bulk_schedule_safe_publishing_tasks(payload: schemas.PublishingBulkScheduleRequest, db: Session = Depends(get_db)):
+    try:
+        return PublishingScheduler(db).bulk_schedule(
+            package_ids=payload.publishing_package_ids,
+            destination_ids=payload.destination_ids,
+            start_at=payload.start_at,
+            interval_minutes=payload.interval_minutes,
+            operator_name=payload.operator_name,
+            dry_run=payload.dry_run,
         )
     except PublishingError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

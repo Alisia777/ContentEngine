@@ -38,3 +38,20 @@ The scheduler counts tasks with these statuses:
 - `published_api`
 
 If the count reaches `daily_limit` or `weekly_limit`, scheduling is blocked.
+
+## CSV Import
+
+CSV columns:
+
+```csv
+brand,platform,name,handle,url,owner_name,status,posting_mode,auth_status,allowed_formats,daily_limit,weekly_limit,notes
+Altea,telegram,Altea Telegram,@altea,https://t.me/altea,Content Ops,active,manual,manual_only,vertical_video,1,3,Owned channel
+```
+
+Import:
+
+```bash
+python scripts/import_publishing_destinations.py --file destinations.csv
+```
+
+This imports owned or authorized destinations into ContentEngine. It does not create, verify, warm up, or bypass accounts on the platform.
