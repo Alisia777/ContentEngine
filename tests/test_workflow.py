@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
 os.environ["QVF_MEDIA_ROOT"] = "test_media"
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import models
 from app.database import Base, SessionLocal, engine
 from app.engine import VideoFactoryEngine
+from app.intelligence.errors import ProviderConfigurationError
+from app.intelligence.insight_builder import CreativeIntelligenceBuilder
+from app.intelligence.prompt_builder import PromptPackBuilder
+from app.intelligence.script_brief_builder import ScriptBriefBuilder
+from app.intelligence.script_generator import GeneratorScriptService
 from app.main import app
+from app.providers.openai_llm import OpenAILLMProvider
+from app.providers.runway_video import RunwayVideoProvider
 
 
 def reset_db() -> None:
@@ -127,6 +135,91 @@ def create_warmup_plan(api: TestClient) -> int:
     )
     assert response.status_code == 200, response.text
     return response.json()["id"]
+
+
+def product_sku(api: TestClient, product_id: int) -> str:
+    return api.get(f"/api/products/{product_id}").json()["sku"]
+
+
+def add_generator_snapshots(
+    sku: str,
+    ctr: float = 0.035,
+    conversion_rate: float = 0.02,
+    stock_qty: int = 80,
+    days_of_stock: float = 20,
+    returns_rate: float = 0.04,
+    competitor_price: float | None = None,
+) -> None:
+    with SessionLocal() as db:
+        db.add(
+            models.ProductMetricSnapshot(
+                sku=sku,
+                marketplace="Ozon",
+                period_start=date(2026, 6, 1),
+                period_end=date(2026, 6, 30),
+                views=10000,
+                clicks=max(1, int(10000 * ctr)),
+                orders=max(1, int(10000 * ctr * conversion_rate)),
+                revenue=12000,
+                conversion_rate=conversion_rate,
+                ctr=ctr,
+                avg_price=1500,
+                ad_spend=4000,
+                ad_orders=0,
+                ad_revenue=0,
+                stock_qty=stock_qty,
+                days_of_stock=days_of_stock,
+                returns_rate=returns_rate,
+                rating=4.5,
+                reviews_count=120,
+                raw_json={},
+            )
+        )
+        db.add(
+            models.CreativePerformanceSnapshot(
+                sku=sku,
+                platform="Instagram Reels",
+                creative_angle="trust_builder",
+                hook_text="Why shoppers choose it",
+                posted_at=datetime.now(UTC).replace(tzinfo=None),
+                views=3000,
+                clicks=120,
+                ctr=0.04,
+                orders=5,
+                retention_rate=0.41,
+                raw_json={},
+            )
+        )
+        db.add(
+            models.ProductReviewInsight(
+                sku=sku,
+                marketplace="Ozon",
+                period_start=date(2026, 6, 1),
+                period_end=date(2026, 6, 30),
+                positive_themes_json=["easy to use"],
+                negative_themes_json=["difference from analogs unclear"],
+                buyer_objections_json=["why is it better than cheaper options?"],
+                buyer_language_json=["daily routine", "not sticky"],
+                source_review_count=120,
+                raw_json={},
+            )
+        )
+        if competitor_price is not None:
+            db.add(
+                models.MarketSignal(
+                    sku=sku,
+                    marketplace="Ozon",
+                    competitor_brand="Competitor",
+                    competitor_price=competitor_price,
+                    competitor_rating=4.6,
+                    competitor_reviews_count=240,
+                    signal_type="price_pressure",
+                    signal_strength="medium",
+                    notes="Competitor is cheaper.",
+                    raw_json={},
+                )
+            )
+        db.commit()
 
 
 def create_script(api: TestClient, title: str = "Altea Test Bottle", forbidden_words: list[str] | None = None) -> int:
@@ -392,3 +485,137 @@ def test_engine_api_run_demo():
         status = api.get(f"/api/engine/status/{payload['publishing_job_id']}")
         assert status.status_code == 200
         assert status.json()["provider_post_url"].startswith("https://mock.social/posts/")
+
+
+def test_intelligence_pack_uses_metrics_and_reviews():
+    with client() as api:
+        product_id = create_product(api, title="Generator Review Product")
+        create_guide(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku, ctr=0.035, conversion_rate=0.02)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+
+        pack = record.pack_json
+        assert "low_conversion" in pack["performance_flags"]
+        assert "why is it better than cheaper options?" in pack["buyer_objections"]
+        assert pack["source_map"]["latest_metric"] is not None
+
+
+def test_low_ctr_recommends_hook_angle():
+    with client() as api:
+        product_id = create_product(api, title="Low CTR Product")
+        create_guide(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku, ctr=0.01, conversion_rate=0.08)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+
+        assert record.pack_json["recommended_objective"] == "improve_clickability"
+        assert "strong_hook" in record.pack_json["recommended_creative_angles"]
+
+
+def test_low_conversion_recommends_objection_handling():
+    with client() as api:
+        product_id = create_product(api, title="Low Conversion Product")
+        create_guide(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku, ctr=0.04, conversion_rate=0.01)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+
+        assert record.pack_json["recommended_objective"] == "improve_conversion"
+        assert "objection_handling" in record.pack_json["recommended_creative_angles"]
+
+
+def test_stock_risk_blocks_aggressive_push():
+    with client() as api:
+        product_id = create_product(api, title="Low Stock Product")
+        create_guide(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku, stock_qty=5, days_of_stock=5)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+            brief = ScriptBriefBuilder(db).build_from_record(record.id)
+
+        assert "stock_risk" in record.pack_json["performance_flags"]
+        assert "aggressive demand generation" in brief.brief_json["must_avoid"]
+
+
+def test_script_brief_contains_allowed_claim_source_refs():
+    with client() as api:
+        product_id = create_product(api, title="Source Ref Product", benefits=["keeps essentials visible"])
+        create_guide(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku)
+
+        with SessionLocal() as db:
+            record = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+            brief = ScriptBriefBuilder(db).build_from_record(record.id)
+
+        assert brief.allowed_claims_json
+        assert brief.allowed_claims_json[0]["source_type"] == "product_field"
+        assert brief.allowed_claims_json[0]["source_key"] == "description"
+
+
+def test_llm_provider_missing_key_fails_in_openai_mode(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(ProviderConfigurationError, match="OPENAI_API_KEY is missing"):
+        OpenAILLMProvider()
+
+
+def test_prompt_pack_contains_provider_ready_scene_prompts():
+    with client() as api:
+        product_id = create_product(api, title="Prompt Pack Product")
+        create_guide(api)
+        create_template(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku)
+
+        with SessionLocal() as db:
+            pack = CreativeIntelligenceBuilder(db).build_for_product(product_id)
+            brief = ScriptBriefBuilder(db).build_from_record(pack.id)
+            script_job = GeneratorScriptService(db).generate_from_brief(brief.id, "mock")
+            variant = sorted(script_job.variants, key=lambda item: item.variant_number)[0]
+            prompt_pack = PromptPackBuilder(db).build_for_script(variant.id, "runway", brief.id)
+
+        assert prompt_pack.prompt_pack_json["provider"] == "runway"
+        assert prompt_pack.scene_prompts_json
+        assert prompt_pack.scene_prompts_json[0]["prompt_text"]
+        assert prompt_pack.provider_payload_json["ratio"] == "720:1280"
+
+
+def test_generator_api_builds_intelligence_and_prompt_pack():
+    with client() as api:
+        product_id = create_product(api, title="Generator API Product")
+        create_guide(api)
+        create_template(api)
+        sku = product_sku(api, product_id)
+        add_generator_snapshots(sku)
+
+        intelligence = api.post("/api/generator/intelligence/build", json={"product_id": product_id})
+        assert intelligence.status_code == 200, intelligence.text
+        brief = api.post("/api/generator/script-briefs", json={"intelligence_pack_id": intelligence.json()["id"]})
+        assert brief.status_code == 200, brief.text
+        script = api.post("/api/generator/scripts/generate", json={"script_brief_id": brief.json()["id"], "llm_provider": "mock"})
+        assert script.status_code == 200, script.text
+        prompt_pack = api.post(
+            "/api/generator/prompt-packs",
+            json={
+                "script_variant_id": script.json()["script_variant_id"],
+                "script_brief_id": brief.json()["id"],
+                "provider": "runway",
+            },
+        )
+        assert prompt_pack.status_code == 200, prompt_pack.text
+        assert prompt_pack.json()["prompt_pack"]["scene_prompts"]
+
+
+def test_real_video_provider_missing_key_fails_in_runway_mode(monkeypatch):
+    monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
+    with pytest.raises(ProviderConfigurationError, match="RUNWAYML_API_SECRET is missing"):
+        RunwayVideoProvider()

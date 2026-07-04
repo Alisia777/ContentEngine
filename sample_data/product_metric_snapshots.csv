@@ -1,0 +1,4 @@
+sku,marketplace,period_start,period_end,views,clicks,add_to_cart,orders,revenue,conversion_rate,ctr,avg_price,discount_percent,ad_spend,ad_orders,ad_revenue,stock_qty,days_of_stock,returns_count,returns_rate,rating,reviews_count
+ALT-SERUM-001,Ozon,2026-06-01,2026-06-30,12000,420,110,8,15920,0.019,0.035,1990,10,8500,2,3980,85,22,4,0.06,4.6,180
+ALT-BOTTLE-002,Wildberries,2026-06-01,2026-06-30,9000,90,35,4,5160,0.044,0.010,1290,5,2200,0,0,12,8,3,0.11,4.4,95
+

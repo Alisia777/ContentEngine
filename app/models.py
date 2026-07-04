@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -79,6 +79,10 @@ class ScriptJob(Base, TimestampMixin):
     input_payload_json = Column(JSON, default=dict, nullable=False)
     output_script_json = Column(JSON, default=dict, nullable=False)
     validation_report_json = Column(JSON, default=dict, nullable=False)
+    llm_provider = Column(String(120), nullable=True)
+    llm_model = Column(String(160), nullable=True)
+    llm_request_json = Column(JSON, default=dict, nullable=False)
+    llm_response_json = Column(JSON, default=dict, nullable=False)
 
     product = relationship("Product", back_populates="script_jobs")
     template = relationship("CreativeTemplate", back_populates="script_jobs")
@@ -304,3 +308,147 @@ class ExportPackage(Base):
     tags_json = Column(JSON, default=list, nullable=False)
     metadata_json = Column(JSON, default=dict, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class ProductMetricSnapshot(Base):
+    __tablename__ = "product_metric_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    marketplace = Column(String(120), nullable=True)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    views = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    add_to_cart = Column(Integer, nullable=True)
+    orders = Column(Integer, nullable=True)
+    revenue = Column(Float, nullable=True)
+    conversion_rate = Column(Float, nullable=True)
+    ctr = Column(Float, nullable=True)
+    avg_price = Column(Float, nullable=True)
+    discount_percent = Column(Float, nullable=True)
+    ad_spend = Column(Float, nullable=True)
+    ad_orders = Column(Integer, nullable=True)
+    ad_revenue = Column(Float, nullable=True)
+    stock_qty = Column(Integer, nullable=True)
+    days_of_stock = Column(Float, nullable=True)
+    returns_count = Column(Integer, nullable=True)
+    returns_rate = Column(Float, nullable=True)
+    rating = Column(Float, nullable=True)
+    reviews_count = Column(Integer, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CreativePerformanceSnapshot(Base):
+    __tablename__ = "creative_performance_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("publishing_accounts.id"), nullable=True)
+    video_url = Column(String(500), nullable=True)
+    creative_template = Column(String(160), nullable=True)
+    creative_angle = Column(String(160), nullable=True)
+    hook_text = Column(Text, nullable=True)
+    posted_at = Column(DateTime, nullable=True)
+    views = Column(Integer, nullable=True)
+    likes = Column(Integer, nullable=True)
+    comments = Column(Integer, nullable=True)
+    shares = Column(Integer, nullable=True)
+    saves = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    ctr = Column(Float, nullable=True)
+    orders = Column(Integer, nullable=True)
+    revenue = Column(Float, nullable=True)
+    watch_time_seconds = Column(Float, nullable=True)
+    retention_rate = Column(Float, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class ProductReviewInsight(Base):
+    __tablename__ = "product_review_insights"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    marketplace = Column(String(120), nullable=True)
+    period_start = Column(Date, nullable=True)
+    period_end = Column(Date, nullable=True)
+    positive_themes_json = Column(JSON, default=list, nullable=False)
+    negative_themes_json = Column(JSON, default=list, nullable=False)
+    buyer_objections_json = Column(JSON, default=list, nullable=False)
+    buyer_language_json = Column(JSON, default=list, nullable=False)
+    source_review_count = Column(Integer, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class MarketSignal(Base):
+    __tablename__ = "market_signals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    marketplace = Column(String(120), nullable=True)
+    competitor_brand = Column(String(160), nullable=True)
+    competitor_product_url = Column(String(500), nullable=True)
+    competitor_price = Column(Float, nullable=True)
+    competitor_rating = Column(Float, nullable=True)
+    competitor_reviews_count = Column(Integer, nullable=True)
+    signal_type = Column(String(120), nullable=False, index=True)
+    signal_strength = Column(String(80), nullable=False, default="medium")
+    notes = Column(Text, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CreativeIntelligencePackRecord(Base):
+    __tablename__ = "creative_intelligence_pack_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    sku = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="ready")
+    pack_json = Column(JSON, default=dict, nullable=False)
+    source_summary_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    product = relationship("Product")
+
+
+class ScriptBrief(Base):
+    __tablename__ = "script_briefs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    intelligence_pack_id = Column(Integer, ForeignKey("creative_intelligence_pack_records.id"), nullable=False)
+    status = Column(String(80), nullable=False, default="ready")
+    objective = Column(String(160), nullable=False)
+    creative_angle = Column(String(160), nullable=False)
+    target_audience = Column(String(255), nullable=True)
+    brief_json = Column(JSON, default=dict, nullable=False)
+    allowed_claims_json = Column(JSON, default=list, nullable=False)
+    missing_data_json = Column(JSON, default=list, nullable=False)
+    safety_warnings_json = Column(JSON, default=list, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    product = relationship("Product")
+    intelligence_pack = relationship("CreativeIntelligencePackRecord")
+
+
+class PromptPack(Base):
+    __tablename__ = "prompt_packs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    script_brief_id = Column(Integer, ForeignKey("script_briefs.id"), nullable=False)
+    script_variant_id = Column(Integer, ForeignKey("script_variants.id"), nullable=True)
+    status = Column(String(80), nullable=False, default="ready")
+    prompt_pack_json = Column(JSON, default=dict, nullable=False)
+    scene_prompts_json = Column(JSON, default=list, nullable=False)
+    negative_prompts_json = Column(JSON, default=list, nullable=False)
+    provider_payload_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    script_brief = relationship("ScriptBrief")
+    script_variant = relationship("ScriptVariant")

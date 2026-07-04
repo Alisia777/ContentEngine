@@ -1,0 +1,4 @@
+sku,marketplace,period_start,period_end,positive_themes_json,negative_themes_json,buyer_objections_json,buyer_language_json,source_review_count
+ALT-SERUM-001,Ozon,2026-06-01,2026-06-30,"[""light texture"",""easy routine""]","[""unclear difference from analogs""]","[""why is it better than cheaper options?"",""will it fit daily use?""]","[""light"",""not sticky"",""daily routine""]",180
+ALT-BOTTLE-002,Wildberries,2026-06-01,2026-06-30,"[""durable"",""easy to carry""]","[""small capacity expectations""]","[""is 600 ml enough?"",""will it leak?""]","[""commute"",""gym"",""daily carry""]",95
+
