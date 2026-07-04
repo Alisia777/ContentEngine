@@ -258,6 +258,38 @@ The real-smoke command reuses Sprint 07 gates and does not bypass spend controls
 
 Docs: `docs/DEMAND_GENERATOR.md` and `docs/WORKING_VIDEO_GENERATOR.md`.
 
+## Publishing Workflow
+
+v0.3 adds a safe manual publishing layer after video generation:
+
+```text
+approved video artifact
+-> publishing package
+-> owned destination registry
+-> calendar task
+-> manual upload
+-> final post URL
+-> published_manual
+```
+
+ContentEngine does not create platform accounts, auto-publish unreviewed generated videos, bypass authorization, add fake engagement, or use proxy/anti-detect upload logic.
+
+Operator CLI:
+
+```bash
+python scripts/add_publishing_destination.py --platform telegram --name "Altea Telegram" --posting-mode manual
+python scripts/import_publishing_destinations.py --file destinations.csv
+python scripts/create_publishing_package.py --video-job-id 11 --platform telegram
+python scripts/approve_publishing_package.py --package-id 1
+python scripts/schedule_publishing_task.py --package-id 1 --destination-id 1 --scheduled-at "2026-07-05T12:00:00"
+python scripts/bulk_schedule_publishing_tasks.py --package-ids "1,2,3" --destination-ids "1,2" --start-at "2026-07-05T12:00:00" --dry-run
+python scripts/mark_manual_published.py --task-id 1 --url "https://example.com/post"
+```
+
+Open `/publishing` for destination CSV import, packages, calendar tasks, bulk scheduling, and manual upload final URL capture.
+
+Docs: `docs/PUBLISHING_WORKFLOW.md`, `docs/MANUAL_UPLOAD_FLOW.md`, and `docs/PUBLISHING_DESTINATIONS.md`.
+
 ## Docker Compose
 
 ```bash

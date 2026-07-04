@@ -50,6 +50,7 @@ from app.intelligence.types import (
 )
 from app.intelligence.validators import validate_script_claim_refs
 from app.main import app
+from app.publishing import MockUploadProvider
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
 from app.services.video_assembly import VideoAssemblyService
@@ -480,6 +481,44 @@ def create_approved_package(api: TestClient) -> tuple[int, int]:
     return package_id, account_id
 
 
+def create_safe_approved_package_and_destination(
+    api: TestClient,
+    *,
+    title: str = "Altea Test Bottle",
+    daily_limit: int = 1,
+) -> tuple[int, int]:
+    script_id = create_script(api, title=title)
+    with SessionLocal() as db:
+        variant_id = db.query(models.ScriptVariant).filter_by(script_job_id=script_id).one().id
+    approved = api.post(f"/api/script-variants/{variant_id}/approve")
+    assert approved.status_code == 200, approved.text
+    response = api.post("/api/video-jobs", json={"script_variant_id": variant_id, "provider": "mock"})
+    assert response.status_code == 200, response.text
+    video_job_id = response.json()["id"]
+    run = api.post(f"/api/video-jobs/{video_job_id}/run")
+    assert run.status_code == 200, run.text
+    approved_video = api.post(f"/api/video-jobs/{video_job_id}/approve")
+    assert approved_video.status_code == 200, approved_video.text
+    package = api.post("/api/publishing/packages", json={"video_job_id": video_job_id, "platform": "telegram"})
+    assert package.status_code == 200, package.text
+    package_id = package.json()["id"]
+    approval = api.post(f"/api/publishing/packages/{package_id}/approve", json={"reviewer_name": "ops"})
+    assert approval.status_code == 200, approval.text
+    destination = api.post(
+        "/api/publishing/destinations",
+        json={
+            "brand": "Altea",
+            "platform": "telegram",
+            "name": "Altea Telegram",
+            "posting_mode": "manual",
+            "daily_limit": daily_limit,
+            "weekly_limit": 3,
+        },
+    )
+    assert destination.status_code == 200, destination.text
+    return package_id, destination.json()["id"]
+
+
 def test_product_creation():
     with client() as api:
         product_id = create_product(api)
@@ -616,6 +655,291 @@ def test_manual_upload_status_update():
         )
         assert done.status_code == 200
         assert done.json()["status"] == "published_manual"
+
+
+def test_create_publishing_destination():
+    with client() as api:
+        response = api.post(
+            "/api/publishing/destinations",
+            json={
+                "brand": "Altea",
+                "platform": "telegram",
+                "name": "Altea Telegram",
+                "posting_mode": "manual",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["name"] == "Altea Telegram"
+        assert payload["auth_status"] == "manual_only"
+        assert payload["status"] == "active"
+
+
+def test_destination_readiness_manual_mode_ready():
+    with client() as api:
+        destination = api.post(
+            "/api/publishing/destinations",
+            json={"brand": "Altea", "platform": "telegram", "name": "Altea Telegram", "posting_mode": "manual"},
+        )
+
+        response = api.post(f"/api/publishing/destinations/{destination.json()['id']}/readiness-check")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["ready"] is True
+        assert response.json()["blockers"] == []
+
+
+def test_bulk_import_publishing_destinations():
+    csv_text = (
+        "brand,platform,name,handle,posting_mode,daily_limit,weekly_limit\n"
+        "Altea,telegram,Altea Telegram,@altea,manual,1,3\n"
+        "Altea,youtube,Altea YouTube,@altea_video,manual,2,6\n"
+    )
+    with client() as api:
+        response = api.post(
+            "/api/publishing/destinations/import-csv",
+            files={"file": ("destinations.csv", csv_text, "text/csv")},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["created_count"] == 2
+        assert response.json()["error_count"] == 0
+        assert len(response.json()["destination_ids"]) == 2
+
+
+def test_api_mode_destination_requires_token_valid():
+    with client() as api:
+        destination = api.post(
+            "/api/publishing/destinations",
+            json={
+                "brand": "Altea",
+                "platform": "youtube",
+                "name": "Altea YouTube",
+                "posting_mode": "api",
+                "auth_status": "not_configured",
+            },
+        )
+
+        response = api.post(f"/api/publishing/destinations/{destination.json()['id']}/readiness-check")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["ready"] is False
+        assert "API posting requires configured valid platform credentials." in response.json()["blockers"]
+
+
+def test_create_publishing_package_from_video_artifact():
+    with client() as api:
+        video_job_id = approve_script_and_create_video(api)
+        api.post(f"/api/video-jobs/{video_job_id}/run")
+        api.post(f"/api/video-jobs/{video_job_id}/approve")
+
+        response = api.post("/api/publishing/packages", json={"video_job_id": video_job_id, "platform": "telegram"})
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["video_job_id"] == video_job_id
+        assert payload["video_file_path"]
+        assert payload["review_status"] == "approved"
+        assert payload["status"] == "ready"
+
+
+def test_package_requires_approval_before_schedule():
+    with client() as api:
+        video_job_id = approve_script_and_create_video(api)
+        api.post(f"/api/video-jobs/{video_job_id}/run")
+        api.post(f"/api/video-jobs/{video_job_id}/approve")
+        package = api.post("/api/publishing/packages", json={"video_job_id": video_job_id, "platform": "telegram"})
+        destination = api.post(
+            "/api/publishing/destinations",
+            json={"brand": "Altea", "platform": "telegram", "name": "Altea Telegram", "posting_mode": "manual"},
+        )
+
+        blocked = api.post(
+            "/api/publishing/tasks/schedule",
+            json={
+                "publishing_package_id": package.json()["id"],
+                "destination_id": destination.json()["id"],
+                "scheduled_at": (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).isoformat(),
+            },
+        )
+
+        assert blocked.status_code == 400
+        assert "must be approved" in blocked.json()["detail"]
+
+
+def test_unapproved_quality_review_blocks_auto_package_approval(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Publishing Review Gate Variant")
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+        package = api.post("/api/publishing/packages", json={"video_job_id": output.video_job_id, "platform": "telegram"})
+        assert package.status_code == 200, package.text
+        assert package.json()["review_status"] == "needs_review"
+
+        blocked = api.post(f"/api/publishing/packages/{package.json()['id']}/approve", json={"reviewer_name": "ops"})
+
+        assert blocked.status_code == 400
+        assert "QualityReview is not approved" in blocked.json()["detail"]
+
+
+def test_scheduler_blocks_inactive_destination():
+    with client() as api:
+        package_id, destination_id = create_safe_approved_package_and_destination(api)
+        patch = api.patch(f"/api/publishing/destinations/{destination_id}", json={"status": "paused"})
+        assert patch.status_code == 200, patch.text
+
+        blocked = api.post(
+            "/api/publishing/tasks/schedule",
+            json={
+                "publishing_package_id": package_id,
+                "destination_id": destination_id,
+                "scheduled_at": (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).isoformat(),
+            },
+        )
+
+        assert blocked.status_code == 400
+        assert "Destination must be active" in blocked.json()["detail"]
+
+
+def test_scheduler_blocks_daily_limit():
+    with client() as api:
+        package_id, destination_id = create_safe_approved_package_and_destination(api, daily_limit=1)
+        scheduled_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)
+        first = api.post(
+            "/api/publishing/tasks/schedule",
+            json={
+                "publishing_package_id": package_id,
+                "destination_id": destination_id,
+                "scheduled_at": scheduled_at.isoformat(),
+            },
+        )
+        assert first.status_code == 200, first.text
+        second = api.post(
+            "/api/publishing/tasks/schedule",
+            json={
+                "publishing_package_id": package_id,
+                "destination_id": destination_id,
+                "scheduled_at": (scheduled_at + timedelta(hours=1)).isoformat(),
+            },
+        )
+
+        assert second.status_code == 400
+        assert "Daily publishing limit reached" in second.json()["detail"]
+
+
+def test_bulk_schedule_distributes_approved_packages_only():
+    with client() as api:
+        package_id_1, destination_id_1 = create_safe_approved_package_and_destination(api, title="Bulk Package One")
+        package_id_2, destination_id_2 = create_safe_approved_package_and_destination(api, title="Bulk Package Two")
+
+        response = api.post(
+            "/api/publishing/tasks/bulk-schedule",
+            json={
+                "publishing_package_ids": [package_id_1, package_id_2],
+                "destination_ids": [destination_id_1, destination_id_2],
+                "start_at": (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).isoformat(),
+                "interval_minutes": 90,
+                "operator_name": "ops",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["created_count"] == 2
+        assert payload["error_count"] == 0
+        assert len(payload["task_ids"]) == 2
+
+
+def test_bulk_schedule_blocks_unapproved_package():
+    with client() as api:
+        video_job_id = approve_script_and_create_video(api)
+        api.post(f"/api/video-jobs/{video_job_id}/run")
+        api.post(f"/api/video-jobs/{video_job_id}/approve")
+        package = api.post("/api/publishing/packages", json={"video_job_id": video_job_id, "platform": "telegram"})
+        destination = api.post(
+            "/api/publishing/destinations",
+            json={"brand": "Altea", "platform": "telegram", "name": "Altea Telegram", "posting_mode": "manual"},
+        )
+
+        response = api.post(
+            "/api/publishing/tasks/bulk-schedule",
+            json={
+                "publishing_package_ids": [package.json()["id"]],
+                "destination_ids": [destination.json()["id"]],
+                "start_at": (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).isoformat(),
+                "interval_minutes": 90,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["created_count"] == 0
+        assert response.json()["error_count"] == 1
+        assert "PublishingPackage must be approved" in response.json()["errors"][0]["error"]
+
+
+def test_manual_upload_task_created():
+    with client() as api:
+        package_id, destination_id = create_safe_approved_package_and_destination(api)
+        schedule = api.post(
+            "/api/publishing/tasks/schedule",
+            json={
+                "publishing_package_id": package_id,
+                "destination_id": destination_id,
+                "scheduled_at": (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).isoformat(),
+            },
+        )
+        task_id = schedule.json()["id"]
+
+        task = api.post(f"/api/publishing/tasks/{task_id}/run")
+
+        assert task.status_code == 200, task.text
+        assert task.json()["status"] == "manual_upload_required"
+        assert task.json()["raw_response_json"]["manual_upload"]["video_file_path"]
+
+
+def test_mark_manual_upload_published_stores_final_url():
+    with client() as api:
+        package_id, destination_id = create_safe_approved_package_and_destination(api)
+        schedule = api.post(
+            "/api/publishing/tasks/schedule",
+            json={
+                "publishing_package_id": package_id,
+                "destination_id": destination_id,
+                "scheduled_at": (datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)).isoformat(),
+            },
+        )
+        task_id = schedule.json()["id"]
+        api.post(f"/api/publishing/tasks/{task_id}/run")
+
+        response = api.post(
+            f"/api/publishing/tasks/{task_id}/mark-manual-uploaded",
+            json={"final_url": "https://example.com/post", "operator_name": "ops"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "published_manual"
+        assert response.json()["final_url"] == "https://example.com/post"
+
+
+def test_mock_upload_provider_returns_fake_url():
+    result = MockUploadProvider().upload({"id": 123})
+
+    assert result["status"] == "published_api"
+    assert result["final_url"].startswith("https://mock.social/posts/")
+
+
+def test_publishing_ui_renders():
+    with client() as api:
+        response = api.get("/publishing")
+
+        assert response.status_code == 200, response.text
+        assert "Publishing" in response.text
+        assert "Destinations" in response.text
+        assert "Manual Upload" in response.text
 
 
 def test_engine_full_demo_pipeline():

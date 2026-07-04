@@ -76,6 +76,14 @@ def _ensure_sqlite_schema() -> None:
             "checksum": "ALTER TABLE product_assets ADD COLUMN checksum VARCHAR(128)",
         },
     )
+    _add_missing_sqlite_columns(
+        inspector,
+        "publishing_packages",
+        {
+            "creative_variant_id": "ALTER TABLE publishing_packages ADD COLUMN creative_variant_id INTEGER",
+            "review_status": "ALTER TABLE publishing_packages ADD COLUMN review_status VARCHAR(80) DEFAULT 'needs_review'",
+        },
+    )
 
 
 def _add_missing_sqlite_columns(inspector, table_name: str, migrations: dict[str, str]) -> None:

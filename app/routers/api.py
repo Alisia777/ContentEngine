@@ -34,6 +34,8 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
+from app.publishing.errors import PublishingError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -373,6 +375,206 @@ def generation_variant_response(variant: models.VideoGenerationVariant) -> dict:
         "quality_score": variant.quality_score_json,
         "provider_job_ids": [clip.provider_job_id for clip in video_job.clips if clip.provider_job_id] if video_job else [],
     }
+
+
+@router.post("/publishing/destinations", response_model=schemas.PublishingDestinationRead)
+def create_publishing_destination(payload: schemas.PublishingDestinationCreate, db: Session = Depends(get_db)):
+    try:
+        return PublishingDestinationService(db).create(
+            brand=payload.brand,
+            platform=payload.platform,
+            name=payload.name,
+            handle=payload.handle,
+            url=payload.url,
+            owner_name=payload.owner_name,
+            status=payload.status,
+            posting_mode=payload.posting_mode,
+            auth_status=payload.auth_status,
+            allowed_formats=payload.allowed_formats_json,
+            daily_limit=payload.daily_limit,
+            weekly_limit=payload.weekly_limit,
+            notes=payload.notes,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/publishing/destinations", response_model=list[schemas.PublishingDestinationRead])
+def list_publishing_destinations(db: Session = Depends(get_db)):
+    return PublishingDestinationService(db).list()
+
+
+@router.get("/publishing/destinations/{destination_id}", response_model=schemas.PublishingDestinationRead)
+def get_publishing_destination(destination_id: int, db: Session = Depends(get_db)):
+    try:
+        return PublishingDestinationService(db).get(destination_id)
+    except PublishingError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/publishing/destinations/{destination_id}", response_model=schemas.PublishingDestinationRead)
+def patch_publishing_destination(
+    destination_id: int,
+    payload: schemas.PublishingDestinationPatch,
+    db: Session = Depends(get_db),
+):
+    try:
+        return PublishingDestinationService(db).update(destination_id, **payload.model_dump(exclude_unset=True))
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/publishing/destinations/{destination_id}/readiness-check", response_model=schemas.PublishingReadinessRead)
+def check_publishing_destination_readiness(destination_id: int, db: Session = Depends(get_db)):
+    try:
+        readiness = PublishingDestinationService(db).readiness(PublishingDestinationService(db).get(destination_id))
+        return schemas.PublishingReadinessRead(
+            ready=readiness.ready,
+            status=readiness.status,
+            blockers=readiness.blockers,
+            warnings=readiness.warnings,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/publishing/destinations/import-csv")
+async def import_publishing_destinations_csv(
+    file: UploadFile = File(...),
+    default_brand: str = "Altea",
+    db: Session = Depends(get_db),
+):
+    text = (await file.read()).decode("utf-8-sig")
+    return PublishingDestinationService(db).import_csv_text(text, default_brand=default_brand)
+
+
+@router.post("/publishing/packages", response_model=schemas.PublishingPackageRead)
+def create_safe_publishing_package(payload: schemas.SafePublishingPackageCreate, db: Session = Depends(get_db)):
+    try:
+        return PublishingPackageService(db).create_from_video(
+            video_job_id=payload.video_job_id,
+            platform=payload.platform,
+            title=payload.title,
+            description=payload.description,
+            hashtags=[str(item) for item in payload.hashtags_json] if payload.hashtags_json else None,
+            cta=payload.cta,
+            cover_image_path=payload.cover_image_path,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/publishing/packages", response_model=list[schemas.PublishingPackageRead])
+def list_safe_publishing_packages(db: Session = Depends(get_db)):
+    return db.scalars(select(models.PublishingPackage).order_by(models.PublishingPackage.created_at.desc())).all()
+
+
+@router.get("/publishing/packages/{package_id}", response_model=schemas.PublishingPackageRead)
+def get_safe_publishing_package(package_id: int, db: Session = Depends(get_db)):
+    return get_or_404(db, models.PublishingPackage, package_id)
+
+
+@router.post("/publishing/packages/{package_id}/approve", response_model=schemas.PublishingPackageRead)
+def approve_safe_publishing_package(
+    package_id: int,
+    payload: schemas.PublishingPackageApprovalRequest,
+    db: Session = Depends(get_db),
+):
+    package = get_or_404(db, models.PublishingPackage, package_id)
+    try:
+        return PublishingPackageService(db).approve(
+            package,
+            reviewer_name=payload.reviewer_name,
+            manual_override=payload.manual_override,
+            notes=payload.notes,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/publishing/packages/{package_id}/reject", response_model=schemas.PublishingPackageRead)
+def reject_safe_publishing_package(
+    package_id: int,
+    payload: schemas.PublishingPackageRejectRequest,
+    db: Session = Depends(get_db),
+):
+    package = get_or_404(db, models.PublishingPackage, package_id)
+    return PublishingPackageService(db).reject(package, payload.reason, reviewer_name=payload.reviewer_name)
+
+
+@router.post("/publishing/tasks/schedule", response_model=schemas.PublishingTaskRead)
+def schedule_safe_publishing_task(payload: schemas.PublishingTaskScheduleRequest, db: Session = Depends(get_db)):
+    package = get_or_404(db, models.PublishingPackage, payload.publishing_package_id)
+    destination = get_or_404(db, models.PublishingDestination, payload.destination_id)
+    try:
+        return PublishingScheduler(db).schedule(
+            package=package,
+            destination=destination,
+            scheduled_at=payload.scheduled_at,
+            operator_name=payload.operator_name,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/publishing/tasks/bulk-schedule")
+def bulk_schedule_safe_publishing_tasks(payload: schemas.PublishingBulkScheduleRequest, db: Session = Depends(get_db)):
+    try:
+        return PublishingScheduler(db).bulk_schedule(
+            package_ids=payload.publishing_package_ids,
+            destination_ids=payload.destination_ids,
+            start_at=payload.start_at,
+            interval_minutes=payload.interval_minutes,
+            operator_name=payload.operator_name,
+            dry_run=payload.dry_run,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/publishing/tasks", response_model=list[schemas.PublishingTaskRead])
+def list_safe_publishing_tasks(db: Session = Depends(get_db)):
+    return db.scalars(select(models.PublishingTask).order_by(models.PublishingTask.scheduled_at.desc())).all()
+
+
+@router.get("/publishing/tasks/{task_id}", response_model=schemas.PublishingTaskRead)
+def get_safe_publishing_task(task_id: int, db: Session = Depends(get_db)):
+    return get_or_404(db, models.PublishingTask, task_id)
+
+
+@router.post("/publishing/tasks/{task_id}/run", response_model=schemas.PublishingTaskRead)
+def run_safe_publishing_task(task_id: int, db: Session = Depends(get_db)):
+    return ManualUploadProvider(db).run(get_or_404(db, models.PublishingTask, task_id))
+
+
+@router.post("/publishing/tasks/{task_id}/mark-manual-uploaded", response_model=schemas.PublishingTaskRead)
+def mark_safe_publishing_task_uploaded(
+    task_id: int,
+    payload: schemas.PublishingManualUploadedRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return ManualUploadProvider(db).mark_published(
+            get_or_404(db, models.PublishingTask, task_id),
+            payload.final_url,
+            payload.operator_name,
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/publishing/tasks/{task_id}/cancel", response_model=schemas.PublishingTaskRead)
+def cancel_safe_publishing_task(task_id: int, db: Session = Depends(get_db)):
+    task = get_or_404(db, models.PublishingTask, task_id)
+    task.status = "cancelled"
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@router.get("/publishing/calendar", response_model=list[schemas.PublishingTaskRead])
+def safe_publishing_calendar(db: Session = Depends(get_db)):
+    return PublishingScheduler(db).calendar()
 
 
 @router.post("/products", response_model=schemas.ProductRead)

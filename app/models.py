@@ -239,6 +239,7 @@ class PublishingPackage(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     brand = Column(String(120), nullable=False, index=True)
     target_platform = Column(String(120), nullable=False, index=True)
@@ -252,11 +253,53 @@ class PublishingPackage(Base, TimestampMixin):
     video_file_path = Column(String(500), nullable=True)
     metadata_json = Column(JSON, default=dict, nullable=False)
     ai_generated_flag = Column(Boolean, default=True, nullable=False)
+    review_status = Column(String(80), nullable=False, default="needs_review", index=True)
     status = Column(String(80), nullable=False, default="draft", index=True)
 
     video_job = relationship("VideoJob", back_populates="publishing_packages")
+    creative_variant = relationship("CreativeVariant")
     product = relationship("Product", back_populates="publishing_packages")
     publishing_jobs = relationship("PublishingJob", back_populates="publishing_package")
+    publishing_tasks = relationship("PublishingTask", back_populates="publishing_package")
+
+
+class PublishingDestination(Base, TimestampMixin):
+    __tablename__ = "publishing_destinations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    brand = Column(String(120), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    handle = Column(String(160), nullable=True)
+    url = Column(String(500), nullable=True)
+    owner_name = Column(String(160), nullable=True)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+    posting_mode = Column(String(80), nullable=False, default="manual", index=True)
+    auth_status = Column(String(80), nullable=False, default="manual_only", index=True)
+    allowed_formats_json = Column(JSON, default=list, nullable=False)
+    daily_limit = Column(Integer, nullable=False, default=1)
+    weekly_limit = Column(Integer, nullable=False, default=3)
+    notes = Column(Text, nullable=True)
+
+    publishing_tasks = relationship("PublishingTask", back_populates="destination")
+
+
+class PublishingTask(Base, TimestampMixin):
+    __tablename__ = "publishing_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    publishing_package_id = Column(Integer, ForeignKey("publishing_packages.id"), nullable=False, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+    scheduled_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    final_url = Column(String(500), nullable=True)
+    operator_name = Column(String(160), nullable=True)
+    error_message = Column(Text, nullable=True)
+    raw_response_json = Column(JSON, default=dict, nullable=False)
+
+    publishing_package = relationship("PublishingPackage", back_populates="publishing_tasks")
+    destination = relationship("PublishingDestination", back_populates="publishing_tasks")
 
 
 class PublishingJob(Base, TimestampMixin):
