@@ -145,6 +145,33 @@ python scripts\generate_from_spec.py --creative-spec-id 1 --video-provider runwa
 
 Batch generation remains out of scope until the one-SKU real video path is proven.
 
+## Asset Kit & Creative Variants
+
+Sprint 05 adds a controllable pre-generation quality layer:
+
+```text
+Product
+-> Product Asset Kit
+-> Creative Intelligence Pack
+-> VideoCreativeSpec
+-> First Frame Options
+-> Creative Variants
+-> Variant Score
+-> Selected Variant
+-> PromptPack from variant
+-> Video generation through existing provider gates
+```
+
+Local verification:
+
+```bash
+python scripts/build_asset_kit.py --product-id 1
+python scripts/build_creative_variants.py --creative-spec-id 1 --count 5
+python scripts/generate_from_variant.py --creative-variant-id 1 --build-prompts-only
+```
+
+The asset kit and variant scorer are metadata/rules-based. They do not inspect videos visually, do not generate images, do not call paid providers, and do not bypass Sprint 03 spend gates.
+
 ## Docker Compose
 
 ```bash

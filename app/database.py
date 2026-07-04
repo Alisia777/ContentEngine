@@ -49,3 +49,8 @@ def _ensure_sqlite_schema() -> None:
         for column, statement in migrations.items():
             if column not in columns:
                 connection.execute(text(statement))
+    if "video_generation_variants" in inspector.get_table_names():
+        variant_columns = {column["name"] for column in inspector.get_columns("video_generation_variants")}
+        with engine.begin() as connection:
+            if "creative_variant_id" not in variant_columns:
+                connection.execute(text("ALTER TABLE video_generation_variants ADD COLUMN creative_variant_id INTEGER"))
