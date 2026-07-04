@@ -45,6 +45,116 @@
       </div>
       <div class="actions"><button type="submit">Build Asset Kit</button></div>
     </form>
+
+    <form action="/video-generator/run" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="upload_asset">
+      <div class="form-grid">
+        <label>SKU
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Upload asset<input name="upload_file" type="file" accept="image/*" required></label>
+        <label>Asset type
+          <select name="asset_type">
+            <option value="packshot">packshot</option>
+            <option value="label_closeup">label_closeup</option>
+            <option value="lifestyle">lifestyle</option>
+            <option value="logo">logo</option>
+            <option value="unknown">unknown</option>
+          </select>
+        </label>
+        <label>Manual label<input name="manual_label" placeholder="front packshot"></label>
+        <label><input name="is_primary_reference" type="checkbox" value="true"> Primary reference</label>
+      </div>
+      <div class="actions"><button type="submit">Upload asset</button></div>
+    </form>
+
+    <form action="/video-generator/run" method="post">
+      <input type="hidden" name="action" value="attach_asset_url">
+      <div class="form-grid">
+        <label>SKU
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Asset URL<input name="asset_url" placeholder="https://example.com/packshot.png" required></label>
+        <label>Asset type
+          <select name="asset_type">
+            <option value="packshot">packshot</option>
+            <option value="label_closeup">label_closeup</option>
+            <option value="lifestyle">lifestyle</option>
+            <option value="logo">logo</option>
+            <option value="unknown">unknown</option>
+          </select>
+        </label>
+        <label>Manual label<input name="manual_label" placeholder="front packshot"></label>
+        <label><input name="is_primary_reference" type="checkbox" value="true"> Primary reference</label>
+      </div>
+      <div class="actions"><button type="submit">Attach URL</button></div>
+    </form>
+
+    <form action="/video-generator/run" method="post">
+      <div class="form-grid">
+        <label>SKU
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Video provider
+          <select name="video_provider">
+            <option value="runway">Runway</option>
+            <option value="mock">Mock local</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="readiness_check">Check readiness</button>
+        <button class="secondary" type="submit" name="action" value="reference_bundle">Build reference bundle</button>
+      </div>
+    </form>
+
+    {% if product_assets %}
+      <div class="grid">
+        {% for asset in product_assets[:6] %}
+          <article class="card">
+            <p class="muted">Asset #{{ asset.id }} / product #{{ asset.product_id }}</p>
+            <p>{{ asset.asset_type }} / {{ asset.review_status }} / {{ "primary" if asset.is_primary_reference else "secondary" }}</p>
+            <p>{{ asset.manual_label or asset.filename or asset.source_ref }}</p>
+            <form action="/video-generator/run" method="post">
+              <input type="hidden" name="action" value="patch_asset">
+              <input type="hidden" name="product_id" value="{{ asset.product_id }}">
+              <input type="hidden" name="asset_id" value="{{ asset.id }}">
+              <div class="form-grid">
+                <label>Type
+                  <select name="asset_type">
+                    {% for type in ["packshot", "label_closeup", "lifestyle", "logo", "unknown"] %}
+                      <option value="{{ type }}" {% if asset.asset_type == type %}selected{% endif %}>{{ type }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>Status
+                  <select name="review_status">
+                    {% for status in ["pending", "approved", "rejected"] %}
+                      <option value="{{ status }}" {% if asset.review_status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label><input name="is_primary_reference" type="checkbox" value="true" {% if asset.is_primary_reference %}checked{% endif %}> Primary</label>
+              </div>
+              <div class="actions"><button type="submit">Update asset</button></div>
+            </form>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+
     {% if asset_kits %}
       <div class="grid">
         {% for kit in asset_kits[:3] %}
@@ -52,6 +162,7 @@
             <p class="muted">Kit #{{ kit.id }} / product #{{ kit.product_id }}</p>
             <p>{{ kit.status }} / real provider {{ "allowed" if kit.real_generation_allowed else "blocked" }}</p>
             <p>Missing: {{ kit.missing_assets_json | join(", ") if kit.missing_assets_json else "none" }}</p>
+            <p>Blockers: {{ kit.real_generation_blockers_json | join(", ") if kit.real_generation_blockers_json else "none" }}</p>
           </article>
         {% endfor %}
       </div>
@@ -212,6 +323,31 @@
       <h2>Asset Kit Result</h2>
       <pre>{{ result.asset_kit.validation_report_json | tojson(indent=2) }}</pre>
       <pre>{{ result.asset_kit.assets_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.asset %}
+    <section class="panel">
+      <h2>Asset Result</h2>
+      <p>#{{ result.asset.id }} / {{ result.asset.asset_type }} / {{ result.asset.review_status }} / {{ "primary" if result.asset.is_primary_reference else "secondary" }}</p>
+      <p>{{ result.asset.source_ref }}</p>
+    </section>
+  {% endif %}
+
+  {% if result and result.readiness %}
+    <section class="panel">
+      <h2>Reference Readiness</h2>
+      <p>{{ result.readiness.status }} / real provider {{ "allowed" if result.readiness.real_generation_allowed else "blocked" }}</p>
+      <pre>{{ result.readiness | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if result and result.reference_bundle %}
+    <section class="panel">
+      <h2>Provider Reference Bundle</h2>
+      <p>#{{ result.reference_bundle.id }} / {{ result.reference_bundle.provider }} / {{ result.reference_bundle.status }}</p>
+      <pre>{{ result.reference_bundle.provider_payload_json | tojson(indent=2) }}</pre>
+      <pre>{{ result.reference_bundle.blockers_json | tojson(indent=2) }}</pre>
     </section>
   {% endif %}
 

@@ -16,6 +16,17 @@ VideoCreativeSpec
 
 The prompt pack includes scene role, duration, prompt text, negative prompt, reference images, first-frame requirements, camera motion, composition, lighting, product accuracy rules, caption text, voiceover text, and provider params.
 
+Sprint 06 adds prompt packs from selected creative variants with product reference bundles. When a provider-ready bundle exists, the prompt pack includes:
+
+- `reference_bundle_id`
+- `reference_images`
+- `primary_reference_asset`
+- internal provider reference bundle payload
+- product accuracy rules
+- negative prompts against product distortion
+
+When the product has no approved primary reference, prompt-only generation still works, but the prompt pack records blockers and is not real-smoke eligible.
+
 Real provider execution still uses the Sprint 03 gates:
 
 - no silent mock fallback

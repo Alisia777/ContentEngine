@@ -494,11 +494,15 @@ class ProductAssetKit(Base, TimestampMixin):
     warnings_json = Column(JSON, default=list, nullable=False)
     real_generation_allowed = Column(Boolean, default=False, nullable=False)
     override_required_assets = Column(Boolean, default=False, nullable=False)
+    primary_reference_asset_id = Column(Integer, nullable=True)
+    provider_reference_bundle_json = Column(JSON, default=dict, nullable=False)
+    real_generation_blockers_json = Column(JSON, default=list, nullable=False)
 
     product = relationship("Product", back_populates="asset_kits")
     assets = relationship("ProductAsset", back_populates="asset_kit", cascade="all, delete-orphan")
     first_frame_options = relationship("FirstFrameOption", back_populates="asset_kit")
     creative_variant_sets = relationship("CreativeVariantSet", back_populates="asset_kit")
+    reference_bundles = relationship("ProductReferenceBundle", back_populates="asset_kit", cascade="all, delete-orphan")
 
 
 class ProductAsset(Base, TimestampMixin):
@@ -510,6 +514,7 @@ class ProductAsset(Base, TimestampMixin):
     source_ref = Column(String(1000), nullable=False)
     source_type = Column(String(40), nullable=False, default="unknown")
     asset_type = Column(String(80), nullable=False, default="unknown", index=True)
+    asset_role = Column(String(80), nullable=True)
     filename = Column(String(255), nullable=True)
     extension = Column(String(40), nullable=True)
     mime_type = Column(String(120), nullable=True)
@@ -517,11 +522,35 @@ class ProductAsset(Base, TimestampMixin):
     height = Column(Integer, nullable=True)
     exists = Column(Boolean, default=False, nullable=False)
     status = Column(String(80), nullable=False, default="ready", index=True)
+    is_primary_reference = Column(Boolean, default=False, nullable=False)
+    is_safe_for_real_generation = Column(Boolean, default=False, nullable=False)
+    manual_label = Column(String(255), nullable=True)
+    review_status = Column(String(80), nullable=False, default="pending", index=True)
+    review_notes = Column(Text, nullable=True)
+    checksum = Column(String(128), nullable=True, index=True)
     metadata_json = Column(JSON, default=dict, nullable=False)
     warnings_json = Column(JSON, default=list, nullable=False)
 
     product = relationship("Product")
     asset_kit = relationship("ProductAssetKit", back_populates="assets")
+
+
+class ProductReferenceBundle(Base, TimestampMixin):
+    __tablename__ = "product_reference_bundles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    asset_kit_id = Column(Integer, ForeignKey("product_asset_kits.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="blocked", index=True)
+    provider = Column(String(120), nullable=False, default="runway", index=True)
+    primary_image_asset_id = Column(Integer, nullable=True)
+    reference_asset_ids_json = Column(JSON, default=list, nullable=False)
+    provider_payload_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    asset_kit = relationship("ProductAssetKit", back_populates="reference_bundles")
 
 
 class FirstFrameOption(Base, TimestampMixin):

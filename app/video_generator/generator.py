@@ -4,6 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.assets.errors import AssetKitError
+from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.config import get_settings
 from app.creative.types import CreativeSpec
 from app.intelligence.errors import ProviderConfigurationError
@@ -79,27 +81,44 @@ class VideoGenerator:
         selected_provider = provider or self.settings.video_provider
         spec = CreativeSpec.model_validate(spec_record.spec_json)
         script_variant = self._create_execution_variant_from_creative_variant(spec_record, spec, creative_variant)
-        scene_prompts = self._variant_scene_prompts(creative_variant, spec)
+        first_frame = creative_variant.first_frame_json or {}
+        reference_bundle = self._reference_bundle(spec.product_id, selected_provider)
+        provider_reference_bundle = reference_bundle.provider_payload_json if reference_bundle else {}
+        reference_images = provider_reference_bundle.get("reference_images") or []
+        reference_warnings = []
+        if not reference_bundle:
+            reference_warnings.append("No provider reference bundle is available for this product.")
+        elif reference_bundle.status != "ready":
+            reference_warnings.extend(reference_bundle.blockers_json or ["Product reference bundle is not ready."])
+        variant_warnings = list(creative_variant.risk_flags_json or [])
+        if reference_bundle and reference_bundle.status == "ready":
+            stale_asset_risks = {"missing_packshot", "packshot_missing_for_product_accuracy", "missing_product_reference_assets"}
+            variant_warnings = [warning for warning in variant_warnings if warning not in stale_asset_risks]
+        scene_prompts = self._variant_scene_prompts(creative_variant, spec, reference_images=reference_images)
         prompt_output = PromptPackOutput(
             provider=selected_provider,
             aspect_ratio=spec.aspect_ratio,
             duration_seconds=sum(scene.duration_seconds for scene in scene_prompts),
             scene_prompts=scene_prompts,
         )
-        first_frame = creative_variant.first_frame_json or {}
         prompt_pack_json = prompt_output.model_dump(mode="json")
         prompt_pack_json.update(
             {
                 "creative_spec_id": spec_record.id,
                 "creative_variant_id": creative_variant.id,
+                "reference_bundle_id": reference_bundle.id if reference_bundle else None,
+                "reference_readiness_status": reference_bundle.status if reference_bundle else "missing",
                 "selected_first_frame": first_frame,
-                "asset_references": creative_variant.asset_refs_json,
+                "asset_references": reference_images or creative_variant.asset_refs_json,
+                "reference_images": reference_images,
+                "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
+                "provider_reference_bundle": provider_reference_bundle,
                 "product_accuracy_rules": spec.product_display_rules,
                 "overlay_text": first_frame.get("text_overlay"),
                 "scene_pacing": creative_variant.pacing_json,
                 "selected_cta": creative_variant.cta_framing,
                 "variant_score": creative_variant.score_json,
-                "warnings": creative_variant.risk_flags_json,
+                "warnings": list(dict.fromkeys(variant_warnings + reference_warnings)),
             }
         )
         prompt_pack = models.PromptPack(
@@ -116,9 +135,13 @@ class VideoGenerator:
                 "provider": selected_provider,
                 "creative_spec_id": spec_record.id,
                 "creative_variant_id": creative_variant.id,
+                "reference_bundle_id": reference_bundle.id if reference_bundle else None,
+                "reference_images": reference_images,
+                "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
+                "provider_reference_bundle": provider_reference_bundle,
                 "aspect_ratio": spec.aspect_ratio,
                 "duration_seconds": prompt_output.duration_seconds,
-                "asset_references": creative_variant.asset_refs_json,
+                "asset_references": reference_images or creative_variant.asset_refs_json,
                 "selected_first_frame": first_frame,
                 "scenes": [scene.model_dump(mode="json") for scene in scene_prompts],
             },
@@ -341,7 +364,19 @@ class VideoGenerator:
             raise VideoGeneratorDataError(f"CreativeVariant {creative_variant_id} not found.")
         return creative_variant
 
-    def _variant_scene_prompts(self, creative_variant: models.CreativeVariant, spec: CreativeSpec) -> list[PromptSceneOutput]:
+    def _reference_bundle(self, product_id: int, provider: str) -> models.ProductReferenceBundle | None:
+        try:
+            return ProviderReferenceBundleBuilder(self.db).build(product_id, provider=provider)
+        except AssetKitError:
+            return None
+
+    def _variant_scene_prompts(
+        self,
+        creative_variant: models.CreativeVariant,
+        spec: CreativeSpec,
+        *,
+        reference_images: list[str] | None = None,
+    ) -> list[PromptSceneOutput]:
         prompts = []
         for scene in creative_variant.scene_plan_json or []:
             prompts.append(
@@ -353,7 +388,7 @@ class VideoGenerator:
                         "distorted product, changed packaging, fake labels, unsupported claims, "
                         "medical claims, unreadable text, low quality"
                     ),
-                    reference_images=creative_variant.asset_refs_json or [],
+                    reference_images=reference_images or creative_variant.asset_refs_json or [],
                     camera_motion=scene.get("camera_motion") or "slow product-focused movement",
                     style=creative_variant.visual_style or spec.visual_style,
                     safety_constraints=[

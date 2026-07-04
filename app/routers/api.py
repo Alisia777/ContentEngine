@@ -4,15 +4,18 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.assets.asset_kit_builder import AssetKitBuilder
+from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
 from app.assets.errors import AssetKitError
+from app.assets.readiness_checker import ProductReferenceReadinessChecker
+from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
@@ -105,6 +108,26 @@ class AssetKitBuildRequest(BaseModel):
 class AssetKitValidateRequest(BaseModel):
     require_real_generation: bool = True
     override_required_assets: bool = False
+
+
+class AssetUrlAttachRequest(BaseModel):
+    url: str
+    asset_type: str | None = None
+    manual_label: str | None = None
+    is_primary_reference: bool = False
+
+
+class AssetPatchRequest(BaseModel):
+    asset_type: str | None = None
+    asset_role: str | None = None
+    is_primary_reference: bool | None = None
+    manual_label: str | None = None
+    review_status: str | None = None
+    review_notes: str | None = None
+
+
+class ProductReferenceRequest(BaseModel):
+    provider: str = "runway"
 
 
 class FirstFrameBuildRequest(BaseModel):
@@ -204,7 +227,52 @@ def asset_kit_response(kit: models.ProductAssetKit) -> dict:
         "validation_report": kit.validation_report_json,
         "warnings": kit.warnings_json,
         "real_generation_allowed": kit.real_generation_allowed,
+        "primary_reference_asset_id": kit.primary_reference_asset_id,
+        "provider_reference_bundle": kit.provider_reference_bundle_json,
+        "real_generation_blockers": kit.real_generation_blockers_json,
         "override_required_assets": kit.override_required_assets,
+    }
+
+
+def asset_response(asset: models.ProductAsset) -> dict:
+    return {
+        "id": asset.id,
+        "product_id": asset.product_id,
+        "asset_kit_id": asset.asset_kit_id,
+        "source_ref": asset.source_ref,
+        "source_type": asset.source_type,
+        "asset_type": asset.asset_type,
+        "asset_role": asset.asset_role,
+        "filename": asset.filename,
+        "extension": asset.extension,
+        "mime_type": asset.mime_type,
+        "width": asset.width,
+        "height": asset.height,
+        "exists": asset.exists,
+        "status": asset.status,
+        "is_primary_reference": asset.is_primary_reference,
+        "is_safe_for_real_generation": asset.is_safe_for_real_generation,
+        "manual_label": asset.manual_label,
+        "review_status": asset.review_status,
+        "review_notes": asset.review_notes,
+        "checksum": asset.checksum,
+        "metadata": asset.metadata_json,
+        "warnings": asset.warnings_json,
+    }
+
+
+def reference_bundle_response(bundle: models.ProductReferenceBundle) -> dict:
+    return {
+        "id": bundle.id,
+        "product_id": bundle.product_id,
+        "asset_kit_id": bundle.asset_kit_id,
+        "status": bundle.status,
+        "provider": bundle.provider,
+        "primary_image_asset_id": bundle.primary_image_asset_id,
+        "reference_asset_ids": bundle.reference_asset_ids_json,
+        "provider_payload": bundle.provider_payload_json,
+        "blockers": bundle.blockers_json,
+        "warnings": bundle.warnings_json,
     }
 
 
@@ -454,6 +522,73 @@ def validate_asset_kit(asset_kit_id: int, payload: AssetKitValidateRequest, db: 
     db.commit()
     db.refresh(kit)
     return asset_kit_response(kit)
+
+
+@router.post("/assets/products/{product_id}/upload")
+async def upload_product_asset(
+    product_id: int,
+    file: UploadFile = File(...),
+    asset_type: str | None = Form(None),
+    manual_label: str | None = Form(None),
+    is_primary_reference: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    try:
+        asset = ProductAssetStorage(db).upload_file(
+            product_id,
+            filename=file.filename or "asset",
+            content=await file.read(),
+            asset_type=asset_type,
+            manual_label=manual_label,
+            is_primary_reference=is_primary_reference,
+        )
+        return asset_response(asset)
+    except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/assets/products/{product_id}/attach-url")
+def attach_product_asset_url(product_id: int, payload: AssetUrlAttachRequest, db: Session = Depends(get_db)):
+    try:
+        asset = ProductAssetStorage(db).attach_url(
+            product_id,
+            url=payload.url,
+            asset_type=payload.asset_type,
+            manual_label=payload.manual_label,
+            is_primary_reference=payload.is_primary_reference,
+        )
+        return asset_response(asset)
+    except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/assets/products/{product_id}")
+def list_product_assets(product_id: int, db: Session = Depends(get_db)):
+    assets = db.scalars(select(models.ProductAsset).where(models.ProductAsset.product_id == product_id).order_by(models.ProductAsset.id)).all()
+    return {"product_id": product_id, "assets": [asset_response(asset) for asset in assets]}
+
+
+@router.patch("/assets/{asset_id}")
+def patch_product_asset(asset_id: int, payload: AssetPatchRequest, db: Session = Depends(get_db)):
+    try:
+        asset = ProductAssetStorage(db).update_asset(asset_id, **payload.model_dump(exclude_unset=True))
+        return asset_response(asset)
+    except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/assets/products/{product_id}/readiness-check")
+def check_product_reference_readiness(product_id: int, payload: ProductReferenceRequest, db: Session = Depends(get_db)):
+    readiness = ProductReferenceReadinessChecker(db).check(product_id, provider=payload.provider)
+    return readiness.model_dump(mode="json")
+
+
+@router.post("/assets/products/{product_id}/reference-bundle")
+def build_product_reference_bundle(product_id: int, payload: ProductReferenceRequest, db: Session = Depends(get_db)):
+    try:
+        return reference_bundle_response(ProviderReferenceBundleBuilder(db).build(product_id, provider=payload.provider))
+    except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/variants/first-frames/build")

@@ -14,7 +14,10 @@ from fastapi.testclient import TestClient
 
 from app import models
 from app.assets.asset_kit_builder import AssetKitBuilder
+from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
+from app.assets.readiness_checker import ProductReferenceReadinessChecker
+from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
 from app.config import get_settings
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -1382,3 +1385,230 @@ def test_video_generator_ui_shows_asset_kit_and_variants():
         assert "Asset Kit" in response.text
         assert "First Frame Options" in response.text
         assert "Creative Variants" in response.text
+
+
+def test_upload_product_asset_creates_asset_record_and_file():
+    with client() as api:
+        product_id = create_product(api, title="Upload Asset Product")
+
+        response = api.post(
+            f"/api/assets/products/{product_id}/upload",
+            data={"asset_type": "packshot", "manual_label": "front packshot", "is_primary_reference": "true"},
+            files={"file": ("packshot.png", b"fake-png-bytes", "image/png")},
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["asset_type"] == "packshot"
+        assert payload["is_primary_reference"] is True
+        assert payload["checksum"]
+        assert Path(payload["source_ref"]).exists()
+
+
+def test_attach_url_asset_creates_url_asset():
+    with client() as api:
+        product_id = create_product(api, title="URL Asset Product")
+
+        response = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={
+                "url": "https://example.com/packshot.png",
+                "asset_type": "packshot",
+                "manual_label": "front packshot",
+                "is_primary_reference": True,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["source_type"] == "url"
+        assert payload["source_ref"] == "https://example.com/packshot.png"
+        assert payload["is_primary_reference"] is True
+
+
+def test_patch_asset_sets_primary_reference_and_review_status():
+    with client() as api:
+        product_id = create_product(api, title="Patch Asset Product")
+        attached = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={"url": "https://example.com/product.png", "asset_type": "unknown"},
+        ).json()
+
+        response = api.patch(
+            f"/api/assets/{attached['id']}",
+            json={
+                "asset_type": "packshot",
+                "asset_role": "primary_reference",
+                "is_primary_reference": True,
+                "manual_label": "front approved packshot",
+                "review_status": "approved",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["asset_type"] == "packshot"
+        assert payload["is_primary_reference"] is True
+        assert payload["review_status"] == "approved"
+
+
+def test_readiness_blocks_without_primary_reference():
+    with client() as api:
+        product_id = create_product(api, title="Blocked Reference Product")
+        api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={"url": "https://example.com/packshot.png", "asset_type": "packshot"},
+        )
+
+        response = api.post(f"/api/assets/products/{product_id}/readiness-check", json={"provider": "runway"})
+
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "blocked"
+        assert "missing_approved_primary_reference" in response.json()["blockers"]
+
+
+def test_readiness_allows_approved_primary_packshot():
+    with client() as api:
+        product_id = create_product(api, title="Ready Reference Product")
+        asset = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={
+                "url": "https://example.com/packshot.png",
+                "asset_type": "packshot",
+                "is_primary_reference": True,
+            },
+        ).json()
+        api.patch(f"/api/assets/{asset['id']}", json={"review_status": "approved", "is_primary_reference": True})
+
+        response = api.post(f"/api/assets/products/{product_id}/readiness-check", json={"provider": "runway"})
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["status"] == "ready"
+        assert payload["real_generation_allowed"] is True
+        assert payload["primary_reference_asset_id"] == asset["id"]
+
+
+def test_rejected_asset_not_used_for_reference_bundle():
+    with client() as api:
+        product_id = create_product(api, title="Rejected Reference Product")
+        asset = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={
+                "url": "https://example.com/packshot.png",
+                "asset_type": "packshot",
+                "is_primary_reference": True,
+            },
+        ).json()
+        api.patch(f"/api/assets/{asset['id']}", json={"review_status": "rejected", "is_primary_reference": True})
+
+        response = api.post(f"/api/assets/products/{product_id}/reference-bundle", json={"provider": "runway"})
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["status"] == "blocked"
+        assert payload["reference_asset_ids"] == []
+
+
+def test_reference_bundle_contains_only_approved_assets():
+    with client() as api:
+        product_id = create_product(api, title="Approved Bundle Product")
+        primary = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={
+                "url": "https://example.com/packshot.png",
+                "asset_type": "packshot",
+                "is_primary_reference": True,
+            },
+        ).json()
+        pending = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={"url": "https://example.com/label.png", "asset_type": "label_closeup"},
+        ).json()
+        api.patch(f"/api/assets/{primary['id']}", json={"review_status": "approved", "is_primary_reference": True})
+
+        response = api.post(f"/api/assets/products/{product_id}/reference-bundle", json={"provider": "runway"})
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert primary["id"] in payload["reference_asset_ids"]
+        assert pending["id"] not in payload["reference_asset_ids"]
+
+
+def test_prompt_pack_from_variant_includes_reference_bundle_when_ready():
+    with client() as api:
+        product_id, _, _, selected_variant_id = build_variant_set_fixture(api, title="Ready Variant Bundle Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(
+                product_id,
+                url="https://example.com/packshot.png",
+                asset_type="packshot",
+                is_primary_reference=True,
+            )
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        prompt_pack = generation_variant.prompt_pack_json
+        assert prompt_pack["reference_readiness_status"] == "ready"
+        assert prompt_pack["reference_bundle_id"]
+        assert prompt_pack["reference_images"] == ["https://example.com/packshot.png"]
+        assert prompt_pack["primary_reference_asset"] == asset.id
+
+
+def test_prompt_pack_from_variant_warns_when_reference_bundle_missing():
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Missing Bundle Variant Product", images=[])
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        assert generation_variant.prompt_pack_json["reference_readiness_status"] in {"blocked", "missing"}
+        assert any("missing_approved_primary_reference" in warning or "No provider reference bundle" in warning for warning in generation_variant.prompt_pack_json["warnings"])
+
+
+def test_video_generator_ui_uploads_and_shows_asset_readiness():
+    with client() as api:
+        product_id = create_product(api, title="UI Reference Product")
+
+        upload = api.post(
+            "/video-generator/run",
+            data={
+                "action": "upload_asset",
+                "product_id": str(product_id),
+                "asset_type": "packshot",
+                "is_primary_reference": "true",
+            },
+            files={"upload_file": ("packshot.png", b"fake-png-bytes", "image/png")},
+        )
+        readiness = api.post(
+            "/video-generator/run",
+            data={"action": "readiness_check", "product_id": str(product_id), "video_provider": "runway"},
+        )
+
+        assert upload.status_code == 200
+        assert "Asset Result" in upload.text
+        assert readiness.status_code == 200
+        assert "Reference Readiness" in readiness.text
+
+
+def test_no_secrets_or_signed_urls_in_reference_bundle_report():
+    with client() as api:
+        product_id = create_product(api, title="Secret URL Product")
+        asset = api.post(
+            f"/api/assets/products/{product_id}/attach-url",
+            json={
+                "url": "https://example.com/packshot.png?token=secret&signature=abc123",
+                "asset_type": "packshot",
+                "is_primary_reference": True,
+            },
+        ).json()
+        api.patch(f"/api/assets/{asset['id']}", json={"review_status": "approved", "is_primary_reference": True})
+
+        response = api.post(f"/api/assets/products/{product_id}/reference-bundle", json={"provider": "runway"})
+        serialized = json.dumps(response.json(), sort_keys=True)
+
+        assert response.status_code == 200, response.text
+        assert "token=secret" not in serialized
+        assert "signature=abc123" not in serialized
+        assert response.json()["provider_payload"]["reference_images"] == ["https://example.com/packshot.png"]

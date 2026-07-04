@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.assets.asset_kit_builder import AssetKitBuilder
+from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
+from app.assets.readiness_checker import ProductReferenceReadinessChecker
+from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
 from app.database import get_db
@@ -348,6 +351,15 @@ def run_video_generator_page(
     platform: str = Form("Instagram Reels"),
     duration: int = Form(15),
     asset_kit_id: str = Form(""),
+    asset_id: str = Form(""),
+    asset_type: str = Form(""),
+    asset_role: str = Form(""),
+    asset_url: str = Form(""),
+    manual_label: str = Form(""),
+    review_status: str = Form(""),
+    review_notes: str = Form(""),
+    is_primary_reference: bool = Form(False),
+    upload_file: UploadFile | None = File(None),
     creative_spec_id: str = Form(""),
     variant_set_id: str = Form(""),
     creative_variant_id: str = Form(""),
@@ -365,12 +377,48 @@ def run_video_generator_page(
         spec = None
         variant = None
         asset_kit = None
+        asset = None
+        readiness = None
+        reference_bundle = None
         first_frame_options = None
         variant_set = None
         if action == "build_spec":
             spec = CreativeSpecBuilder(db).build_for_product(product_id, platform=platform, duration_seconds=duration)
         elif action == "build_asset_kit":
             asset_kit = AssetKitBuilder(db).build_for_product(product_id)
+        elif action == "upload_asset":
+            if not upload_file:
+                raise ValueError("Upload file is required.")
+            asset = ProductAssetStorage(db).upload_file(
+                product_id,
+                filename=upload_file.filename or "asset",
+                content=upload_file.file.read(),
+                asset_type=asset_type or None,
+                manual_label=manual_label or None,
+                is_primary_reference=is_primary_reference,
+            )
+        elif action == "attach_asset_url":
+            asset = ProductAssetStorage(db).attach_url(
+                product_id,
+                url=asset_url,
+                asset_type=asset_type or None,
+                manual_label=manual_label or None,
+                is_primary_reference=is_primary_reference,
+            )
+        elif action == "patch_asset":
+            asset = ProductAssetStorage(db).update_asset(
+                int(asset_id),
+                asset_type=asset_type or None,
+                asset_role=asset_role or None,
+                is_primary_reference=is_primary_reference,
+                manual_label=manual_label or None,
+                review_status=review_status or None,
+                review_notes=review_notes or None,
+            )
+        elif action == "readiness_check":
+            readiness = ProductReferenceReadinessChecker(db).check(product_id, provider=video_provider)
+        elif action == "reference_bundle":
+            reference_bundle = ProviderReferenceBundleBuilder(db).build(product_id, provider=video_provider)
         else:
             spec_id = int(creative_spec_id) if creative_spec_id else None
             kit_id = int(asset_kit_id) if asset_kit_id else None
@@ -420,6 +468,9 @@ def run_video_generator_page(
         result["spec"] = spec
         result["variant"] = variant
         result["asset_kit"] = asset_kit
+        result["asset"] = asset
+        result["readiness"] = readiness.model_dump(mode="json") if readiness else None
+        result["reference_bundle"] = reference_bundle
         result["first_frame_options"] = first_frame_options
         result["variant_set"] = variant_set
     except (AssetKitError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
@@ -437,6 +488,7 @@ def run_video_generator_page(
             "selected_duration": duration,
             "selected_video_provider": video_provider,
             "selected_asset_kit_id": int(asset_kit_id) if asset_kit_id else None,
+            "selected_asset_id": int(asset_id) if asset_id else None,
             "selected_variant_set_id": int(variant_set_id) if variant_set_id else None,
             "selected_creative_variant_id": int(creative_variant_id) if creative_variant_id else None,
             **video_generator_context(db),
@@ -453,6 +505,8 @@ def video_generator_context(db: Session) -> dict:
         "variant_sets": db.scalars(select(models.CreativeVariantSet).order_by(models.CreativeVariantSet.created_at.desc()).limit(10)).all(),
         "creative_variants": db.scalars(select(models.CreativeVariant).order_by(models.CreativeVariant.created_at.desc()).limit(20)).all(),
         "variants": db.scalars(select(models.VideoGenerationVariant).order_by(models.VideoGenerationVariant.created_at.desc()).limit(10)).all(),
+        "product_assets": db.scalars(select(models.ProductAsset).order_by(models.ProductAsset.created_at.desc()).limit(20)).all(),
+        "reference_bundles": db.scalars(select(models.ProductReferenceBundle).order_by(models.ProductReferenceBundle.created_at.desc()).limit(10)).all(),
     }
 
 
