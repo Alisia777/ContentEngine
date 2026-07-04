@@ -107,6 +107,10 @@ class VideoAssemblyService:
             except (subprocess.CalledProcessError, FileNotFoundError):
                 pass
 
+        if len(clip_paths) == 1 and Path(clip_paths[0]).exists():
+            shutil.copyfile(clip_paths[0], output_path)
+            return output_path.as_posix(), preview_path.as_posix()
+
         self._write_placeholder_video(
             output_path,
             "Mock final video placeholder\n"

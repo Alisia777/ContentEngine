@@ -52,6 +52,7 @@ from app.intelligence.validators import validate_script_claim_refs
 from app.main import app
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
+from app.services.video_assembly import VideoAssemblyService
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.first_frame_builder import FirstFrameBuilder
 from app.variants.variant_scorer import VariantScorer
@@ -425,7 +426,7 @@ def install_fake_runway_provider(monkeypatch) -> list[int]:
                 raw_response={
                     "id": provider_job_id,
                     "status": "succeeded",
-                    "output": ["https://cdn.example.com/out.mp4?token=raw-secret&signature=abc123"],
+                    "output": ["https://cdn.example.com/out.mp4?token=raw-secret&signature=abc123&_jwt=signed-url-secret"],
                 },
             )
 
@@ -1854,7 +1855,27 @@ def test_variant_real_smoke_generation_report_has_no_secrets(monkeypatch):
         assert "raw-secret" not in report_text
         assert "token=" not in report_text
         assert "signature=abc123" not in report_text
+        assert "_jwt=" not in report_text
+        assert "signed-url-secret" not in report_text
         assert report["provider_job_ids"] == ["fake-runway-job-1"]
+
+
+def test_video_assembly_copies_single_clip_when_ffmpeg_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setenv("QVF_MEDIA_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    monkeypatch.setattr(VideoAssemblyService, "ffmpeg_path", property(lambda self: None))
+    source = tmp_path / "provider_clip.mp4"
+    source.write_bytes(b"real provider video bytes")
+
+    output_path, preview_path = VideoAssemblyService().assemble(
+        123,
+        [source.as_posix()],
+        "Open the product card",
+        ["Product visible in the first frame"],
+    )
+
+    assert Path(output_path).read_bytes() == source.read_bytes()
+    assert Path(preview_path).exists()
 
 
 def test_variant_real_smoke_creates_quality_review_needs_human_review(monkeypatch):

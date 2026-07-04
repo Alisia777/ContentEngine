@@ -23,7 +23,21 @@ from app.video_generator.types import RealSmokeRunOutput
 
 
 SUCCESS_STATUSES = {"video_generated", "provider_succeeded", "completed", "complete", "succeeded", "success", "done"}
-SECRET_KEYS = {"api_key", "key", "token", "signature", "sig", "secret", "authorization", "x-amz-signature", "x-amz-security-token"}
+SECRET_KEYS = {
+    "api_key",
+    "authorization",
+    "credential",
+    "expires",
+    "jwt",
+    "key",
+    "policy",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+    "x-amz-security-token",
+    "x-amz-signature",
+}
 
 
 class RealSmokeRunner:
