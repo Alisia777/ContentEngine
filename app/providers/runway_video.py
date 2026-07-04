@@ -13,6 +13,9 @@ from app.intelligence.errors import ProviderConfigurationError
 from app.intelligence.types import PromptPackOutput, ProviderVideoJob, ProviderVideoStatus
 
 
+MAX_RUNWAY_PROMPT_TEXT_CHARS = 1000
+
+
 class RunwayVideoProvider:
     provider_name = "runway"
 
@@ -27,7 +30,7 @@ class RunwayVideoProvider:
         scene = prompt_pack.scene_prompts[0] if prompt_pack.scene_prompts else None
         payload = {
             "model": self.model,
-            "promptText": scene.prompt_text if scene else "",
+            "promptText": self._prompt_text(scene.prompt_text if scene else ""),
             "ratio": get_settings().video_ratio,
             "duration": scene.duration_seconds if scene else 5,
         }
@@ -75,6 +78,31 @@ class RunwayVideoProvider:
         mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
         encoded = base64.b64encode(path.read_bytes()).decode("ascii")
         return f"data:{mime_type};base64,{encoded}"
+
+    @staticmethod
+    def _prompt_text(prompt_text: str) -> str:
+        if len(prompt_text) <= MAX_RUNWAY_PROMPT_TEXT_CHARS:
+            return prompt_text
+        markers = [
+            "Regeneration request:",
+            "Human feedback:",
+            "Identity corrections:",
+            "Product identity lock rules:",
+            "Product accuracy rules:",
+        ]
+        important_sections = []
+        for marker in markers:
+            index = prompt_text.find(marker)
+            if index >= 0:
+                important_sections.append(prompt_text[index:])
+        if not important_sections:
+            return prompt_text[:MAX_RUNWAY_PROMPT_TEXT_CHARS].rstrip()
+        important = " ".join(dict.fromkeys(section.strip() for section in important_sections if section.strip()))
+        important_budget = min(760, MAX_RUNWAY_PROMPT_TEXT_CHARS - 180)
+        important = important[-important_budget:]
+        prefix_budget = MAX_RUNWAY_PROMPT_TEXT_CHARS - len(important) - 1
+        prefix = prompt_text[: max(0, prefix_budget)].rstrip()
+        return f"{prefix} {important}".strip()[:MAX_RUNWAY_PROMPT_TEXT_CHARS].rstrip()
 
     def get_status(self, provider_job_id: str) -> ProviderVideoStatus:
         try:

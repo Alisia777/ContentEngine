@@ -1035,6 +1035,56 @@ def test_runway_reference_image_missing_fails_before_provider_call(monkeypatch, 
     assert called is False
 
 
+def test_runway_image_to_video_prompt_text_is_limited_but_keeps_identity_context(monkeypatch, tmp_path):
+    captured: dict = {}
+    reference_path = tmp_path / "packshot.png"
+    reference_path.write_bytes(b"fake-png-bytes")
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"id": "runway-image-job-2", "status": "RUNNING"}
+
+    def capture_post(url: str, **kwargs):
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("app.providers.runway_video.httpx.post", capture_post)
+    long_prompt = (
+        "Scene setup. " * 120
+        + " Product identity lock rules: Preserve white label if the approved reference has a white label. "
+        + "Human feedback: Generated bottle cap/dropper became black; label became red; keep reference packaging. "
+        + "Identity corrections: Do not change cap/dropper color or shape; do not change label color."
+    )
+    prompt_pack = PromptPackOutput(
+        provider="runway",
+        aspect_ratio="720:1280",
+        duration_seconds=5,
+        scene_prompts=[
+            PromptSceneOutput(
+                scene_number=1,
+                duration_seconds=5,
+                prompt_text=long_prompt,
+                negative_prompt="distorted product",
+                reference_images=[reference_path.as_posix()],
+            )
+        ],
+    )
+
+    RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
+
+    prompt_text = captured["json"]["promptText"]
+    assert len(prompt_text) <= 1000
+    assert "Human feedback:" in prompt_text
+    assert "Identity corrections:" in prompt_text
+    assert "white label" in prompt_text
+
+
 def test_real_run_requires_allow_spend_true(monkeypatch):
     monkeypatch.setenv("QVF_GENERATION_MODE", "real")
     monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "false")
@@ -2035,6 +2085,39 @@ def test_regeneration_prompt_includes_identity_corrections(monkeypatch):
         assert prompt_pack.prompt_pack_json["regeneration_request_id"] == request.id
 
 
+def test_regeneration_prompt_adds_identity_constraints_to_legacy_prompt_pack(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Legacy Regeneration Prompt Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            generation_variant = db.query(models.VideoGenerationVariant).filter_by(video_job_id=output.video_job_id).one()
+            legacy_prompt_pack = {
+                key: value
+                for key, value in generation_variant.prompt_pack_json.items()
+                if key not in {"product_identity_spec", "product_lock_mode"}
+            }
+            generation_variant.prompt_pack_json = legacy_prompt_pack
+            generation_variant.prompt_pack.prompt_pack_json = legacy_prompt_pack
+            db.commit()
+            request = VideoRegenerationService(db).request(
+                video_job_id=output.video_job_id,
+                scene_number=1,
+                reason="product_identity_mismatch",
+                human_feedback="Generated bottle cap/dropper became black; label became red; keep reference packaging.",
+            )
+            request = VideoRegenerationService(db).build_prompt_pack(request.id)
+            prompt_pack = db.get(models.PromptPack, request.new_prompt_pack_id)
+
+        assert prompt_pack.prompt_pack_json["product_lock_mode"] == "reference_i2v"
+        assert prompt_pack.provider_payload_json["product_lock_mode"] == "reference_i2v"
+        first_scene = prompt_pack.prompt_pack_json["scene_prompts"][0]
+        assert "Product identity lock rules" in first_scene["prompt_text"]
+        assert "Preserve white label if the approved reference has a white label." in first_scene["prompt_text"]
+
+
 def test_regeneration_real_run_requires_spend_gates(monkeypatch):
     enable_real_smoke_env(monkeypatch, allow_spend="false")
     install_fake_runway_provider(monkeypatch)
@@ -2060,6 +2143,48 @@ def test_regeneration_real_run_requires_spend_gates(monkeypatch):
             )
             with pytest.raises(ProviderConfigurationError, match="QVF_ALLOW_REAL_SPEND=true"):
                 VideoRegenerationService(db).run_real(request.id, explicit_real_run=True)
+
+
+def test_regeneration_real_run_reuses_existing_queued_video_job(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Regeneration Reuse Queued Job Variant")
+
+        with SessionLocal() as db:
+            variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+            video_job = GeneratorVideoService(db).create_video_job_from_prompt_pack(
+                variant.prompt_pack_id,
+                "runway",
+                max_scenes=1,
+                full_video=False,
+                apply_safety_limits=True,
+            )
+            variant.video_job_id = video_job.id
+            db.commit()
+            request = VideoRegenerationService(db).request(
+                video_job_id=video_job.id,
+                scene_number=1,
+                reason="product_identity_mismatch",
+                human_feedback="Keep reference packaging.",
+            )
+            request = VideoRegenerationService(db).build_prompt_pack(request.id)
+            queued_job = GeneratorVideoService(db).create_video_job_from_prompt_pack(
+                request.new_prompt_pack_id,
+                "runway",
+                max_scenes=1,
+                full_video=False,
+                apply_safety_limits=True,
+            )
+            request.new_video_job_id = queued_job.id
+            db.commit()
+            request = VideoRegenerationService(db).run_real(request.id, explicit_real_run=True)
+            regenerated_variant = db.query(models.VideoGenerationVariant).filter_by(prompt_pack_id=request.new_prompt_pack_id).one()
+            jobs_for_prompt = db.query(models.VideoJob).filter_by(script_variant_id=queued_job.script_variant_id).all()
+
+        assert request.new_video_job_id == queued_job.id
+        assert regenerated_variant.video_job_id == queued_job.id
+        assert [job.id for job in jobs_for_prompt].count(queued_job.id) == 1
 
 
 def test_packshot_overlay_mode_uses_real_asset():
