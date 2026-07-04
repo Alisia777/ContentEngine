@@ -22,6 +22,7 @@ from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.errors import CreativeSpecError
 from app.creative.types import CreativeSpec
 from app.database import get_db
+from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
 from app.intelligence.csv_imports import import_csv_text
@@ -41,6 +42,7 @@ from app.variants.variant_selector import VariantSelector
 from app.video_generator.errors import VideoGeneratorError
 from app.video_generator.generator import VideoGenerator
 from app.video_generator.real_smoke_runner import RealSmokeRunner
+from app.workflows.working_video_generator import WorkingVideoGenerator
 from app.services.script_engine import ScriptEngine
 from app.services.video_engine import VideoEngine
 from app.services.publishing_engine import PublishingEngine
@@ -171,6 +173,26 @@ class VariantRealSmokeRequest(BaseModel):
     allow_real_spend: bool = False
     max_scenes: int = 1
     full_video: bool = False
+
+
+class WorkingVideoPrepareRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    duration_seconds: int = 15
+    variant_count: int = 5
+
+
+class WorkingVideoPromptOnlyRequest(BaseModel):
+    selected_variant_id: int
+    video_provider: str = "runway"
+
+
+class WorkingVideoRealSmokeRequest(BaseModel):
+    selected_variant_id: int
+    video_provider: str = "runway"
+    real_run: bool = False
+    allow_real_spend: bool = False
+    max_scenes: int = 1
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -804,6 +826,53 @@ def score_variant_real_smoke(video_job_id: int, db: Session = Depends(get_db)):
     try:
         return RealSmokeRunner(db).score(video_job_id).model_dump(mode="json")
     except (VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/working-video/prepare")
+def prepare_working_video(payload: WorkingVideoPrepareRequest, db: Session = Depends(get_db)):
+    try:
+        return WorkingVideoGenerator(db).prepare(
+            payload.product_id,
+            payload.platform,
+            payload.duration_seconds,
+            payload.variant_count,
+        ).model_dump(mode="json")
+    except (DemandError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/working-video/prompt-only")
+def working_video_prompt_only(payload: WorkingVideoPromptOnlyRequest, db: Session = Depends(get_db)):
+    try:
+        return WorkingVideoGenerator(db).run_prompt_only(
+            payload.selected_variant_id,
+            provider=payload.video_provider,
+        ).model_dump(mode="json")
+    except (DemandError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/working-video/real-smoke")
+def working_video_real_smoke(payload: WorkingVideoRealSmokeRequest, db: Session = Depends(get_db)):
+    if not payload.real_run:
+        raise HTTPException(status_code=400, detail="Working video real smoke requires explicit real_run=true.")
+    try:
+        return WorkingVideoGenerator(db).run_real_smoke(
+            payload.selected_variant_id,
+            provider=payload.video_provider,
+            allow_real_spend=payload.allow_real_spend,
+            max_scenes=payload.max_scenes,
+        ).model_dump(mode="json")
+    except (DemandError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/working-video/status/{selected_variant_id}")
+def working_video_status(selected_variant_id: int, db: Session = Depends(get_db)):
+    try:
+        return WorkingVideoGenerator(db).status(selected_variant_id).model_dump(mode="json")
+    except (DemandError, VideoGeneratorError, IntelligenceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

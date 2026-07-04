@@ -212,6 +212,52 @@ Paid manual acceptance uses the same command after `QVF_GENERATION_MODE=real`, `
 
 Full runbook: `docs/REAL_SMOKE_FROM_VARIANT.md`.
 
+## Run the Working Generator
+
+Sprint 08 connects the demand generator to the selected-variant video generator:
+
+```text
+Product data + marketplace/content signals
+-> Demand Hypothesis
+-> CreativeSpec
+-> Selected CreativeVariant
+-> Product References
+-> PromptPack
+-> prompt-only or spend-gated one-scene smoke
+```
+
+The main guided page is `/working-video-generator`.
+
+End-to-end prompt-only acceptance:
+
+```bash
+python scripts/import_sample_data.py
+python scripts/prepare_working_video.py --product-id 1 --platform "Instagram Reels" --duration 15 --variant-count 5
+```
+
+Copy the actual `Selected Variant ID` printed by `prepare_working_video.py`, then run:
+
+```bash
+python scripts/run_working_video.py --selected-variant-id <printed_id> --build-prompts-only
+```
+
+Before paid real smoke, attach a real product reference image and check references:
+
+```bash
+python scripts/attach_product_asset.py --product-id 1 --file "C:\path\to\real_packshot.png" --asset-type packshot --primary
+python scripts/check_product_references.py --product-id 1 --provider runway
+```
+
+When `QVF_GENERATION_MODE=real`, `QVF_ALLOW_REAL_SPEND=true`, `QVF_VIDEO_PROVIDER=runway`, and `RUNWAYML_API_SECRET` are configured, run one-scene real smoke with the actual selected variant id:
+
+```bash
+python scripts/run_working_video.py --selected-variant-id <printed_id> --video-provider runway --real-run --max-scenes 1
+```
+
+The real-smoke command reuses Sprint 07 gates and does not bypass spend controls.
+
+Docs: `docs/DEMAND_GENERATOR.md` and `docs/WORKING_VIDEO_GENERATOR.md`.
+
 ## Docker Compose
 
 ```bash

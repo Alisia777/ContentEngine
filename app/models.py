@@ -36,6 +36,7 @@ class Product(Base, TimestampMixin):
     publishing_packages = relationship("PublishingPackage", back_populates="product")
     creative_specs = relationship("VideoCreativeSpecRecord", back_populates="product")
     asset_kits = relationship("ProductAssetKit", back_populates="product")
+    demand_hypotheses = relationship("DemandHypothesisRecord", back_populates="product")
 
 
 class BrandGuide(Base, TimestampMixin):
@@ -417,6 +418,26 @@ class CreativeIntelligencePackRecord(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
     product = relationship("Product")
+
+
+class DemandHypothesisRecord(Base, TimestampMixin):
+    __tablename__ = "demand_hypothesis_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    need_type = Column(String(120), nullable=False, index=True)
+    buyer_need = Column(Text, nullable=False)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=True, index=True)
+    hypothesis_json = Column(JSON, default=dict, nullable=False)
+    signals_json = Column(JSON, default=dict, nullable=False)
+    validation_report_json = Column(JSON, default=dict, nullable=False)
+    source_summary_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product", back_populates="demand_hypotheses")
+    creative_spec = relationship("VideoCreativeSpecRecord")
 
 
 class ScriptBrief(Base):

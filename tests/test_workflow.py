@@ -27,6 +27,9 @@ from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.hook_strategy import HookStrategySelector
 from app.creative.types import CreativeSpec
 from app.database import Base, SessionLocal, engine
+from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
+from app.demand.demand_validator import DemandValidator
+from app.demand.types import DemandHypothesis
 from app.engine import VideoFactoryEngine
 from app.intelligence.errors import ClaimValidationError, ProviderConfigurationError
 from app.intelligence.generation_runner import GeneratorRunService
@@ -55,6 +58,7 @@ from app.variants.variant_scorer import VariantScorer
 from app.variants.variant_selector import VariantSelector
 from app.video_generator.generator import VideoGenerator
 from app.video_generator.real_smoke_runner import RealSmokeRunner
+from app.workflows.working_video_generator import WorkingVideoGenerator
 
 
 @pytest.fixture(autouse=True)
@@ -355,6 +359,44 @@ def prepare_ready_variant(
         storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
         bundle = ProviderReferenceBundleBuilder(db).build(product_id, provider="runway")
     return product_id, spec_id, selected_variant_id, bundle.id
+
+
+def prepare_working_video_product(
+    api: TestClient,
+    title: str = "Working Video Product",
+    *,
+    images: list[str] | None = None,
+    ctr: float = 0.035,
+    conversion_rate: float = 0.02,
+    returns_rate: float = 0.04,
+    stock_qty: int = 80,
+    days_of_stock: float = 20,
+    competitor_price: float | None = None,
+    with_signals: bool = True,
+) -> int:
+    product_id = create_product(
+        api,
+        title=title,
+        images=images
+        or [
+            "https://example.com/packshot_front.jpg",
+            "https://example.com/label_closeup.png",
+            "https://example.com/lifestyle_use.jpg",
+        ],
+    )
+    create_guide(api)
+    create_template(api)
+    if with_signals:
+        add_generator_snapshots(
+            product_sku(api, product_id),
+            ctr=ctr,
+            conversion_rate=conversion_rate,
+            stock_qty=stock_qty,
+            days_of_stock=days_of_stock,
+            returns_rate=returns_rate,
+            competitor_price=competitor_price,
+        )
+    return product_id
 
 
 def install_fake_runway_provider(monkeypatch) -> list[int]:
@@ -1875,3 +1917,254 @@ def test_video_generator_ui_shows_real_smoke_eligibility(monkeypatch):
         assert str(selected_variant_id) in response.text
         assert "Runway key" in response.text
         assert "test-runway-key" not in response.text
+
+
+def test_demand_generator_low_ctr_selects_awareness_need():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Low CTR Demand Product", ctr=0.01, conversion_rate=0.08)
+
+        with SessionLocal() as db:
+            record = DemandHypothesisBuilder(db).build_for_product(product_id)
+
+        hypothesis = record.hypothesis_json
+        assert hypothesis["need_type"] == "awareness_need"
+        assert "low_ctr" in hypothesis["performance_flags"]
+        assert "curiosity_gap" in hypothesis["recommended_hook_types"]
+        assert hypothesis["source_refs"]
+
+
+def test_demand_generator_low_conversion_selects_trust_need():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Low Conversion Demand Product", ctr=0.04, conversion_rate=0.01)
+
+        with SessionLocal() as db:
+            record = DemandHypothesisBuilder(db).build_for_product(product_id)
+
+        hypothesis = record.hypothesis_json
+        assert hypothesis["need_type"] == "trust_and_clarity_need"
+        assert "low_conversion" in hypothesis["performance_flags"]
+        assert "objection_handling" in hypothesis["recommended_hook_types"]
+
+
+def test_demand_generator_high_returns_selects_expectation_need():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Returns Demand Product", conversion_rate=0.08, returns_rate=0.12)
+
+        with SessionLocal() as db:
+            record = DemandHypothesisBuilder(db).build_for_product(product_id)
+
+        hypothesis = record.hypothesis_json
+        assert hypothesis["need_type"] == "expectation_setting_need"
+        assert "high_returns" in hypothesis["performance_flags"]
+        assert "expectation_setting" in hypothesis["recommended_hook_types"]
+
+
+def test_demand_generator_competitor_price_pressure_selects_value_need():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Price Pressure Demand Product", conversion_rate=0.08, competitor_price=100)
+
+        with SessionLocal() as db:
+            record = DemandHypothesisBuilder(db).build_for_product(product_id)
+
+        hypothesis = record.hypothesis_json
+        assert hypothesis["need_type"] == "comparison_value_need"
+        assert "competitor_price_pressure" in hypothesis["market_risks"]
+        assert "comparison" in hypothesis["recommended_hook_types"]
+
+
+def test_demand_generator_stock_risk_blocks_aggressive_direction():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Stock Risk Demand Product", conversion_rate=0.08, stock_qty=3, days_of_stock=3)
+
+        with SessionLocal() as db:
+            record = DemandHypothesisBuilder(db).build_for_product(product_id)
+
+        hypothesis = record.hypothesis_json
+        assert hypothesis["need_type"] == "soft_education_need"
+        assert hypothesis["stock_risk"] == "low_stock"
+        assert "no_aggressive_promo" in hypothesis["recommended_hook_types"]
+        assert "buy now" not in json.dumps(hypothesis).lower()
+
+
+def test_demand_generator_no_strong_data_uses_simple_intro():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="No Data Demand Product", with_signals=False)
+
+        with SessionLocal() as db:
+            record = DemandHypothesisBuilder(db).build_for_product(product_id)
+
+        hypothesis = record.hypothesis_json
+        assert hypothesis["need_type"] == "simple_use_case_introduction"
+        assert "no_strong_data" in hypothesis["performance_flags"]
+        assert "use_case_demo" in hypothesis["recommended_hook_types"]
+
+
+def test_demand_validator_blocks_unsafe_promises_and_missing_proof():
+    hypothesis = DemandHypothesis(
+        product_id=1,
+        sku="SKU-DEMAND-VALIDATOR",
+        product_title="Validator Product",
+        need_type="trust_and_clarity_need",
+        buyer_need="Need proof.",
+        trigger_situation="Buyer hesitates.",
+        pain_point="Unclear proof.",
+        objection="will it work?",
+        safe_promise="Guaranteed medical treatment result",
+        unsafe_promises_blocked=[],
+        proof_required=[],
+        recommended_hook_types=["trust_builder"],
+        recommended_first_frame="Show the product.",
+        source_refs=[],
+        reasoning="Test",
+    )
+
+    report = DemandValidator().validate(hypothesis, forbidden_claims=["medical treatment"])
+
+    assert report.valid is False
+    assert report.status == "blocked"
+    assert "missing_source_backed_proof" in report.missing_data
+    assert report.real_video_eligible is False
+
+
+def test_demand_validator_marks_blocked_references_real_ineligible():
+    hypothesis = DemandHypothesis(
+        product_id=1,
+        sku="SKU-DEMAND-REFS",
+        product_title="Reference Product",
+        need_type="awareness_need",
+        buyer_need="Need awareness.",
+        trigger_situation="Buyer scrolls.",
+        pain_point="Too generic.",
+        objection="why this?",
+        safe_promise="Source-backed product fit",
+        proof_required=["Source-backed product fit"],
+        recommended_hook_types=["curiosity_gap"],
+        recommended_first_frame="Show the product.",
+        source_refs=["product_field:description"],
+        reasoning="Test",
+    )
+
+    report = DemandValidator().validate(
+        hypothesis,
+        reference_readiness_status="blocked",
+        reference_blockers=["missing_approved_primary_reference"],
+    )
+
+    assert report.valid is True
+    assert report.status == "ready"
+    assert report.real_video_eligible is False
+    assert "missing_approved_primary_reference" in report.blockers
+
+
+def test_creative_spec_builder_builds_from_demand_hypothesis():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Demand Spec Product", ctr=0.01, conversion_rate=0.08)
+
+        with SessionLocal() as db:
+            demand = DemandHypothesisBuilder(db).build_for_product(product_id)
+            spec = CreativeSpecBuilder(db).build_from_demand(
+                demand.id,
+                platform="Instagram Reels",
+                duration_seconds=15,
+            )
+
+        assert spec.status == "ready"
+        assert spec.spec_json["source_map"]["demand_hypothesis_id"] == demand.id
+        assert spec.spec_json["hook_type"] in {"curiosity_gap", "benefit_first_frame", "contradiction"}
+
+
+def test_working_video_prepare_returns_selected_variant_prompt_pack_without_paid_call(monkeypatch):
+    def fail_if_provider_created(*args, **kwargs):
+        raise AssertionError("prepare() must not instantiate a video provider.")
+
+    monkeypatch.setattr("app.intelligence.video_generator.RunwayVideoProvider", fail_if_provider_created)
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Working Prepare Product")
+
+        with SessionLocal() as db:
+            result = WorkingVideoGenerator(db).prepare(product_id, "Instagram Reels", 15, 5)
+
+        assert result.buyer_need
+        assert result.selected_variant_id
+        assert result.prompt_pack_id
+        assert result.prompt_pack["creative_variant_id"] == result.selected_variant_id
+        assert result.real_smoke_eligible is False
+        assert any(blocker.startswith("reference:") for blocker in result.real_smoke_blockers)
+        assert "spend_gate:QVF_GENERATION_MODE=real" in result.real_smoke_blockers
+
+
+def test_working_video_prompt_only_from_selected_variant():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Working Prompt Product")
+
+        with SessionLocal() as db:
+            prepared = WorkingVideoGenerator(db).prepare(product_id, "Instagram Reels", 15, 5)
+            prompt_only = WorkingVideoGenerator(db).run_prompt_only(prepared.selected_variant_id)
+
+        assert prompt_only.prompt_pack_id
+        assert prompt_only.selected_variant_id == prepared.selected_variant_id
+        assert prompt_only.prompt_pack["reference_readiness_status"] in {"blocked", "ready"}
+
+
+def test_working_video_real_smoke_reuses_sprint_07_gates(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "mock")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "false")
+    monkeypatch.delenv("RUNWAYML_API_SECRET", raising=False)
+    get_settings.cache_clear()
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Working Real Smoke Gate Product")
+
+        with SessionLocal() as db:
+            prepared = WorkingVideoGenerator(db).prepare(product_id, "Instagram Reels", 15, 5)
+            with pytest.raises(ProviderConfigurationError, match="QVF_GENERATION_MODE=real"):
+                WorkingVideoGenerator(db).run_real_smoke(
+                    prepared.selected_variant_id,
+                    provider="runway",
+                    allow_real_spend=True,
+                )
+
+
+def test_working_video_api_prepare_and_status():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Working API Product")
+
+        response = api.post(
+            "/api/working-video/prepare",
+            json={"product_id": product_id, "platform": "Instagram Reels", "duration_seconds": 15, "variant_count": 5},
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        status = api.get(f"/api/working-video/status/{payload['selected_variant_id']}")
+
+        assert payload["buyer_need"]
+        assert payload["selected_variant_id"]
+        assert payload["prompt_pack_id"]
+        assert status.status_code == 200, status.text
+        assert status.json()["selected_variant_id"] == payload["selected_variant_id"]
+
+
+def test_working_video_ui_shows_primary_guided_page():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Working UI Product")
+
+        response = api.post(
+            "/working-video-generator/run",
+            data={
+                "action": "prepare",
+                "product_id": str(product_id),
+                "platform": "Instagram Reels",
+                "duration": "15",
+                "variant_count": "5",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert "Working Video Generator" in response.text
+        assert "buyer_need" in response.text
+        assert "safe_promise" in response.text
+        assert "selected_variant_id" in response.text
+        assert "prompt_pack_id" in response.text
+        assert "real_smoke_eligible" in response.text
+        assert "missing references / spend gate blockers" in response.text
+        assert "Prompt Pack" in response.text
+        assert "Run real one-scene smoke" in response.text
