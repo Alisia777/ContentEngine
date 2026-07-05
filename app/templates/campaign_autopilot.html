@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Campaign Autopilot</p>
+    <h1>40 SKU -> 350 Videos -> Distribution Plan</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">{{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Campaign Setup</span>
+  <span>Product Matrix</span>
+  <span>Campaign State</span>
+  <span>SKU Actions</span>
+  <span>Distribution Plan</span>
+  <span>Performance</span>
+</section>
+
+<section class="panel">
+  <h2>Campaign Setup</h2>
+  <form action="/campaign-autopilot/import-matrix" method="post" enctype="multipart/form-data" class="form-grid">
+    <label>Import product matrix
+      <input type="file" name="file" accept=".csv" required>
+    </label>
+    <div class="actions"><button type="submit">Import Matrix</button></div>
+  </form>
+  <form action="/campaign-autopilot/campaigns/create" method="post" class="form-grid">
+    <label>Imported matrix
+      <select name="import_id" required>
+        {% for item in imports %}
+          <option value="{{ item.id }}">#{{ item.id }} · {{ item.source_file }} · {{ item.imported_count }} SKU</option>
+        {% else %}
+          <option value="">No imports yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Name
+      <input name="name" value="Bombar Launch Wave 1">
+    </label>
+    <label>Brand
+      <input name="brand" value="Bombar">
+    </label>
+    <label>Target videos
+      <input name="target_video_count" type="number" value="350" min="1">
+    </label>
+    <label>Target destinations
+      <input name="target_destination_count" type="number" value="120" min="1">
+    </label>
+    <div class="actions"><button type="submit">Create Campaign</button></div>
+  </form>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Products</th><th>Targets</th></tr></thead>
+    <tbody>
+      {% for campaign in campaigns %}
+        <tr>
+          <td><a href="/campaign-autopilot?campaign_id={{ campaign.id }}">#{{ campaign.id }}</a></td>
+          <td>{{ campaign.name }}</td>
+          <td>{{ campaign.status }}</td>
+          <td>{{ campaign.product_ids_json|length }}</td>
+          <td>{{ campaign.target_video_count }} / {{ campaign.target_destination_count }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No campaigns yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if selected_campaign %}
+<section class="panel">
+  <h2>Product Matrix</h2>
+  <div class="actions">
+    <form action="/campaign-autopilot/campaigns/{{ selected_campaign.id }}/prepare" method="post">
+      <button type="submit">Prepare Campaign</button>
+    </form>
+    <form action="/campaign-autopilot/campaigns/{{ selected_campaign.id }}/prompt-only" method="post">
+      <button type="submit" class="secondary">Run Prompt-Only</button>
+    </form>
+    <form action="/campaign-autopilot/campaigns/{{ selected_campaign.id }}/distribution-plan" method="post">
+      <button type="submit" class="secondary">Generate Distribution Plan</button>
+    </form>
+  </div>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>Product</th><th>Priority</th><th>Photos</th><th>Warnings</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for row in matrix_rows %}
+        <tr>
+          <td>{{ row.sku }}</td>
+          <td>{{ row.product_name }}</td>
+          <td>{{ row.priority }}</td>
+          <td>{{ row.photo_urls_json|length }}</td>
+          <td>{{ row.warnings_json|join(", ") }}</td>
+          <td>{{ row.status }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No matrix rows linked to this campaign.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Campaign State</h2>
+  {% if state %}
+    <div class="metric-grid">
+      <div class="metric"><strong>{{ state.sku_coverage.total_sku }}</strong><span>SKU</span></div>
+      <div class="metric"><strong>{{ state.prompt_ready_count }}</strong><span>prompt ready</span></div>
+      <div class="metric"><strong>{{ state.real_smoke_ready_count }}</strong><span>real smoke ready</span></div>
+      <div class="metric"><strong>{{ state.blocked_count }}</strong><span>blocked</span></div>
+      <div class="metric"><strong>{{ state.needs_human_review }}</strong><span>needs review</span></div>
+      <div class="metric"><strong>{{ state.publishing_ready_count }}</strong><span>publishing ready</span></div>
+    </div>
+    <table class="table">
+      <thead><tr><th>Blocker</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for item in state.blockers_by_type %}
+          <tr><td>{{ item.blocker }}</td><td>{{ item.count }}</td></tr>
+        {% else %}
+          <tr><td colspan="2">No blockers recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>SKU Action Table</h2>
+  <table class="table">
+    <thead>
+      <tr><th>SKU</th><th>Next action</th><th>Content runs</th><th>Prompt packs</th><th>Approved videos</th><th>Blockers</th></tr>
+    </thead>
+    <tbody>
+      {% for item in campaign_products %}
+        <tr>
+          <td>{{ item.sku }}</td>
+          <td>{{ (item.next_actions_json or [{}])[0].get("action", "inspect") }}</td>
+          <td>{{ item.content_run_ids_json|length }}</td>
+          <td>{{ item.prompt_ready_count }}</td>
+          <td>{{ item.approved_video_count }}</td>
+          <td>{{ item.blockers_json|join(", ") }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No CampaignProduct rows yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Distribution Plan</h2>
+  {% if distribution_plan %}
+    <div class="metric-grid">
+      <div class="metric"><strong>{{ distribution_plan.scheduled_slots }}</strong><span>planned slots</span></div>
+      <div class="metric"><strong>{{ distribution_plan.total_slots }}</strong><span>capacity</span></div>
+      <div class="metric"><strong>{{ distribution_plan.target_destination_count }}</strong><span>target destinations</span></div>
+    </div>
+    <pre>{{ distribution_plan|tojson(indent=2) }}</pre>
+  {% else %}
+    <p class="muted">No distribution plan yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Performance</h2>
+  {% if report %}
+    <div class="metric-grid">
+      <div class="metric"><strong>{{ report.performance.metric_count }}</strong><span>imported stats</span></div>
+      <div class="metric"><strong>{{ report.performance.best_sku or "none" }}</strong><span>best SKU</span></div>
+      <div class="metric"><strong>{{ report.performance.best_hook or "none" }}</strong><span>best hook</span></div>
+    </div>
+    <table class="table">
+      <thead><tr><th>Recommendation</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for item in report.performance.recommendations %}
+          <tr><td>{{ item.action }}</td><td>{{ item.reason }}</td></tr>
+        {% else %}
+          <tr><td colspan="2">No performance recommendations yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

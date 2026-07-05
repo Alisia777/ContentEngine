@@ -867,3 +867,119 @@ class ContentPerformanceMetric(Base):
     product = relationship("Product")
     creative_variant = relationship("CreativeVariant")
     video_job = relationship("VideoJob")
+
+
+class Campaign(Base, TimestampMixin):
+    __tablename__ = "campaigns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(160), nullable=False, index=True)
+    brand = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+    source_type = Column(String(80), nullable=False, default="manual_selection", index=True)
+    product_ids_json = Column(JSON, default=list, nullable=False)
+    target_video_count = Column(Integer, nullable=False, default=350)
+    target_destination_count = Column(Integer, nullable=False, default=120)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    strategy_json = Column(JSON, default=dict, nullable=False)
+    summary_json = Column(JSON, default=dict, nullable=False)
+
+    products = relationship("CampaignProduct", back_populates="campaign", cascade="all, delete-orphan")
+    runs = relationship("CampaignRun", back_populates="campaign", cascade="all, delete-orphan")
+    distribution_plans = relationship("CampaignDistributionPlan", back_populates="campaign", cascade="all, delete-orphan")
+
+
+class CampaignProduct(Base, TimestampMixin):
+    __tablename__ = "campaign_products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    target_video_count = Column(Integer, nullable=False, default=0)
+    target_prompt_count = Column(Integer, nullable=False, default=0)
+    target_real_smoke_count = Column(Integer, nullable=False, default=0)
+    content_run_ids_json = Column(JSON, default=list, nullable=False)
+    approved_video_count = Column(Integer, nullable=False, default=0)
+    prompt_ready_count = Column(Integer, nullable=False, default=0)
+    blocked_count = Column(Integer, nullable=False, default=0)
+    needs_review_count = Column(Integer, nullable=False, default=0)
+    status = Column(String(80), nullable=False, default="planned", index=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="products")
+    product = relationship("Product")
+
+
+class CampaignRun(Base, TimestampMixin):
+    __tablename__ = "campaign_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="created", index=True)
+    total_products = Column(Integer, nullable=False, default=0)
+    total_target_videos = Column(Integer, nullable=False, default=0)
+    total_content_runs = Column(Integer, nullable=False, default=0)
+    total_prompt_ready = Column(Integer, nullable=False, default=0)
+    total_real_smoke_ready = Column(Integer, nullable=False, default=0)
+    total_needs_review = Column(Integer, nullable=False, default=0)
+    total_blocked = Column(Integer, nullable=False, default=0)
+    total_approved = Column(Integer, nullable=False, default=0)
+    total_publishing_ready = Column(Integer, nullable=False, default=0)
+    summary_json = Column(JSON, default=dict, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="runs")
+
+
+class CampaignDistributionPlan(Base, TimestampMixin):
+    __tablename__ = "campaign_distribution_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+    target_destination_count = Column(Integer, nullable=False, default=0)
+    destination_ids_json = Column(JSON, default=list, nullable=False)
+    publishing_package_ids_json = Column(JSON, default=list, nullable=False)
+    total_slots = Column(Integer, nullable=False, default=0)
+    scheduled_slots = Column(Integer, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    plan_json = Column(JSON, default=dict, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="distribution_plans")
+
+
+class ProductMatrixImport(Base, TimestampMixin):
+    __tablename__ = "product_matrix_imports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_file = Column(String(500), nullable=False)
+    status = Column(String(80), nullable=False, default="imported", index=True)
+    imported_count = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+
+    rows = relationship("ProductMatrixRow", back_populates="matrix_import", cascade="all, delete-orphan")
+
+
+class ProductMatrixRow(Base, TimestampMixin):
+    __tablename__ = "product_matrix_rows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    import_id = Column(Integer, ForeignKey("product_matrix_imports.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    product_name = Column(String(255), nullable=False)
+    category = Column(String(120), nullable=True, index=True)
+    price = Column(Float, nullable=True)
+    stock_qty = Column(Integer, nullable=True)
+    product_url = Column(String(500), nullable=True)
+    photo_urls_json = Column(JSON, default=list, nullable=False)
+    priority = Column(Integer, nullable=False, default=1)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    status = Column(String(80), nullable=False, default="imported", index=True)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    matrix_import = relationship("ProductMatrixImport", back_populates="rows")

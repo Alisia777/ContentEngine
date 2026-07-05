@@ -11,6 +11,8 @@ from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
+from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
+from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -1166,6 +1168,98 @@ def warmup_plans_page(request: Request, db: Session = Depends(get_db)):
         "warmup_plans.html",
         {"request": request, "page_title": "Warm-up Plans", "plans": plans},
     )
+
+
+@router.get("/campaign-autopilot", response_class=HTMLResponse)
+def campaign_autopilot_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    imports = db.scalars(select(models.ProductMatrixImport).order_by(models.ProductMatrixImport.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    matrix_rows = []
+    campaign_products = []
+    state = None
+    report = None
+    distribution_plan = None
+    if selected_campaign:
+        source_import_id = (selected_campaign.strategy_json or {}).get("source_import_id")
+        if source_import_id:
+            matrix_rows = db.scalars(
+                select(models.ProductMatrixRow)
+                .where(models.ProductMatrixRow.import_id == source_import_id)
+                .order_by(models.ProductMatrixRow.id)
+            ).all()
+        campaign_products = db.scalars(
+            select(models.CampaignProduct)
+            .where(models.CampaignProduct.campaign_id == selected_campaign.id)
+            .order_by(models.CampaignProduct.id)
+        ).all()
+        try:
+            runner = CampaignRunner(db)
+            state = runner.inspect_campaign(selected_campaign.id)
+            report = runner.generate_campaign_report(selected_campaign.id)
+            distribution_plan = CampaignDistributionPlanner(db).latest_plan(selected_campaign.id)
+        except CampaignAutopilotDataError:
+            state = None
+    return templates.TemplateResponse(
+        "campaign_autopilot.html",
+        {
+            "request": request,
+            "page_title": "Campaign Autopilot",
+            "campaigns": campaigns,
+            "imports": imports,
+            "selected_campaign": selected_campaign,
+            "matrix_rows": matrix_rows,
+            "campaign_products": campaign_products,
+            "state": state,
+            "report": report,
+            "distribution_plan": distribution_plan,
+        },
+    )
+
+
+@router.post("/campaign-autopilot/import-matrix")
+async def campaign_autopilot_import_matrix(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    text = (await file.read()).decode("utf-8-sig")
+    result = ProductMatrixImporter(db).import_csv_text(text, source_file=file.filename or "product_matrix.csv")
+    return redirect(f"/campaign-autopilot?import_id={result.import_id}")
+
+
+@router.post("/campaign-autopilot/campaigns/create")
+def campaign_autopilot_create_campaign(
+    import_id: int = Form(...),
+    name: str = Form("Campaign Wave 1"),
+    brand: str = Form("Bombar"),
+    target_video_count: int = Form(350),
+    target_destination_count: int = Form(120),
+    db: Session = Depends(get_db),
+):
+    result = CampaignService(db).create_campaign(
+        name=name,
+        brand=brand,
+        import_id=import_id,
+        target_video_count=target_video_count,
+        target_destination_count=target_destination_count,
+        source_type="csv",
+    )
+    return redirect(f"/campaign-autopilot?campaign_id={result.campaign_id}")
+
+
+@router.post("/campaign-autopilot/campaigns/{campaign_id}/prepare")
+def campaign_autopilot_prepare(campaign_id: int, db: Session = Depends(get_db)):
+    CampaignRunner(db).prepare_campaign(campaign_id)
+    return redirect(f"/campaign-autopilot?campaign_id={campaign_id}")
+
+
+@router.post("/campaign-autopilot/campaigns/{campaign_id}/prompt-only")
+def campaign_autopilot_prompt_only(campaign_id: int, db: Session = Depends(get_db)):
+    CampaignRunner(db).run_prompt_only_for_ready_items(campaign_id)
+    return redirect(f"/campaign-autopilot?campaign_id={campaign_id}")
+
+
+@router.post("/campaign-autopilot/campaigns/{campaign_id}/distribution-plan")
+def campaign_autopilot_distribution_plan(campaign_id: int, db: Session = Depends(get_db)):
+    CampaignDistributionPlanner(db).generate_plan(campaign_id)
+    return redirect(f"/campaign-autopilot?campaign_id={campaign_id}")
 
 
 @router.get("/ui-counts")
