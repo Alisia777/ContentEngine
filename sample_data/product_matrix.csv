@@ -1,0 +1,5 @@
+sku,product_name,category,price,stock_qty,product_url,photo_1,photo_2,photo_3,priority
+BOMBAR-001,Acid Peel 30 ml,Skincare,799,120,https://example.com/products/bombar-001,https://example.com/packshot_001.png,,,5
+BOMBAR-002,Niacinamide Toner,Skincare,599,80,https://example.com/products/bombar-002,https://example.com/packshot_002.png,,,4
+BOMBAR-003,SPF Face Cream,Skincare,699,15,https://example.com/products/bombar-003,https://example.com/packshot_003.png,,,3
+BOMBAR-004,Hydrating Cream,Skincare,649,100,https://example.com/products/bombar-004,,,,2

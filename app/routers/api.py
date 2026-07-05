@@ -17,6 +17,8 @@ from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
+from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -210,6 +212,21 @@ class ContentFactoryRealSmokeRequest(BaseModel):
     provider: str = "runway"
     real_run: bool = False
     allow_real_spend: bool = False
+
+
+class CampaignCreateRequest(BaseModel):
+    name: str
+    brand: str = "Bombar"
+    import_id: int | None = None
+    product_ids: list[int] | None = None
+    target_video_count: int = 350
+    target_destination_count: int = 120
+    source_type: str | None = None
+
+
+class CampaignDistributionPlanRequest(BaseModel):
+    start_date: datetime | None = None
+    end_date: datetime | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1171,6 +1188,133 @@ def get_content_factory_recommendations(content_run_id: int, db: Session = Depen
 async def import_content_factory_stats_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
     text = (await file.read()).decode("utf-8-sig")
     return ContentStatsImporter(db).import_csv_text(text).model_dump(mode="json")
+
+
+@router.post("/campaigns/import-matrix")
+async def import_campaign_product_matrix(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    text = (await file.read()).decode("utf-8-sig")
+    return ProductMatrixImporter(db).import_csv_text(text, source_file=file.filename or "product_matrix.csv").model_dump(mode="json")
+
+
+@router.get("/campaigns/imports/{import_id}")
+def get_campaign_product_matrix_import(import_id: int, db: Session = Depends(get_db)):
+    matrix_import = get_or_404(db, models.ProductMatrixImport, import_id)
+    rows = db.scalars(
+        select(models.ProductMatrixRow)
+        .where(models.ProductMatrixRow.import_id == import_id)
+        .order_by(models.ProductMatrixRow.id)
+    ).all()
+    return {
+        "id": matrix_import.id,
+        "source_file": matrix_import.source_file,
+        "status": matrix_import.status,
+        "imported_count": matrix_import.imported_count,
+        "error_count": matrix_import.error_count,
+        "warnings": matrix_import.warnings_json or [],
+        "errors": matrix_import.errors_json or [],
+        "rows": [
+            {
+                "id": row.id,
+                "sku": row.sku,
+                "product_name": row.product_name,
+                "category": row.category,
+                "price": row.price,
+                "stock_qty": row.stock_qty,
+                "product_url": row.product_url,
+                "photo_urls": row.photo_urls_json or [],
+                "priority": row.priority,
+                "status": row.status,
+                "warnings": row.warnings_json or [],
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/campaigns")
+def create_campaign(payload: CampaignCreateRequest, db: Session = Depends(get_db)):
+    try:
+        return CampaignService(db).create_campaign(
+            name=payload.name,
+            brand=payload.brand,
+            import_id=payload.import_id,
+            product_ids=payload.product_ids,
+            target_video_count=payload.target_video_count,
+            target_destination_count=payload.target_destination_count,
+            source_type=payload.source_type,
+        ).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/campaigns")
+def list_campaigns(db: Session = Depends(get_db)):
+    return [item.model_dump(mode="json") for item in CampaignService(db).list_campaigns()]
+
+
+@router.get("/campaigns/{campaign_id}")
+def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignService(db).get(campaign_id).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/{campaign_id}/prepare")
+def prepare_campaign(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignRunner(db).prepare_campaign(campaign_id).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/{campaign_id}/run-prompt-only")
+def run_campaign_prompt_only(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignRunner(db).run_prompt_only_for_ready_items(campaign_id).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/state")
+def get_campaign_state(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignRunner(db).inspect_campaign(campaign_id).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/report")
+def get_campaign_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignRunner(db).generate_campaign_report(campaign_id).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/{campaign_id}/distribution-plan")
+def generate_campaign_distribution_plan(
+    campaign_id: int,
+    payload: CampaignDistributionPlanRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or CampaignDistributionPlanRequest()
+    try:
+        return CampaignDistributionPlanner(db).generate_plan(
+            campaign_id,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        ).model_dump(mode="json")
+    except CampaignAutopilotDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/distribution-plan")
+def get_campaign_distribution_plan(campaign_id: int, db: Session = Depends(get_db)):
+    plan = CampaignDistributionPlanner(db).latest_plan(campaign_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Campaign distribution plan not found")
+    return plan
 
 
 @router.post("/generator/intelligence/build")

@@ -309,6 +309,38 @@ python scripts/import_content_stats.py --csv sample_data/content_performance.csv
 
 Docs: `docs/AI_CONTENT_FACTORY_CABINET.md`, `docs/AI_CONTENT_RUNS.md`, and `docs/CONTENT_FACTORY_STATS.md`.
 
+## Campaign Autopilot
+
+v0.6.0 adds `/campaign-autopilot`, a campaign-scale layer above the AI Content Factory:
+
+```text
+Product Matrix
+-> Campaign
+-> target videos per SKU
+-> Content Autopilot runs
+-> prompt-ready / blocked / needs-review state
+-> approved publishing package backlog
+-> distribution plan
+-> calendar tasks
+-> performance feedback
+```
+
+Operator CLI:
+
+```bash
+python scripts/import_product_matrix.py --csv sample_data/product_matrix.csv
+python scripts/create_campaign.py --name "Bombar Launch Wave 1" --import-id 1 --target-videos 350 --target-destinations 120
+python scripts/prepare_campaign.py --campaign-id 1
+python scripts/campaign_state.py --campaign-id 1
+python scripts/run_campaign_prompt_only.py --campaign-id 1
+python scripts/campaign_report.py --campaign-id 1
+python scripts/generate_campaign_distribution_plan.py --campaign-id 1
+```
+
+Campaign Autopilot supports 40 SKU, 300-350 target videos, and 120 destinations without paid calls by default. It orchestrates the existing `ContentRunOrchestrator`; it does not replace the AI Content Factory, bypass approval gates, or publish unreviewed videos.
+
+Docs: `docs/CAMPAIGN_AUTOPILOT.md`, `docs/PRODUCT_MATRIX_IMPORT.md`, and `docs/CAMPAIGN_DISTRIBUTION_PLAN.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

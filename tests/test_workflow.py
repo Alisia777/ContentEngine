@@ -13,6 +13,7 @@ os.environ["QVF_MEDIA_ROOT"] = "test_media"
 import pytest
 import httpx
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app import models
 from app.assets.asset_kit_builder import AssetKitBuilder
@@ -21,6 +22,13 @@ from app.assets.asset_validator import AssetValidator
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.campaign_autopilot import (
+    CampaignDistributionPlanner,
+    CampaignRunner,
+    CampaignService,
+    ProductMatrixImporter,
+    TargetAllocator,
+)
 from app.config import get_settings
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -2996,3 +3004,300 @@ def test_content_run_does_not_auto_approve_visual_identity():
         assert review.status not in {"approved", "human_approved"}
         assert result.publishing_readiness["status"] != "ready"
         assert any("No computer vision" in note for note in review.review_json["notes"])
+
+
+def campaign_matrix_csv(row_count: int = 3, *, with_photos: bool = True) -> str:
+    rows = ["sku,product_name,category,price,stock_qty,product_url,photo_1,photo_2,photo_3,priority"]
+    for index in range(1, row_count + 1):
+        photo = f"https://example.com/product_{index}.png" if with_photos else ""
+        priority = 5 if index <= 5 else 1
+        stock = 8 if index % 10 == 0 else 80 + index
+        rows.append(
+            ",".join(
+                [
+                    f"CAMP-{index:03d}",
+                    f"Campaign Product {index}",
+                    "Skincare",
+                    str(500 + index),
+                    str(stock),
+                    f"https://example.com/campaign/{index}",
+                    photo,
+                    "",
+                    "",
+                    str(priority),
+                ]
+            )
+        )
+    return "\n".join(rows) + "\n"
+
+
+def campaign_fixture(
+    row_count: int = 3,
+    *,
+    target_videos: int = 12,
+    target_destinations: int = 4,
+    with_photos: bool = True,
+) -> int:
+    with SessionLocal() as db:
+        imported = ProductMatrixImporter(db).import_csv_text(campaign_matrix_csv(row_count, with_photos=with_photos))
+        campaign = CampaignService(db).create_campaign(
+            name="Campaign Autopilot Test",
+            brand="Bombar",
+            import_id=imported.import_id,
+            target_video_count=target_videos,
+            target_destination_count=target_destinations,
+            source_type="csv",
+        )
+        return campaign.campaign_id
+
+
+def add_campaign_destination(db, brand: str = "Bombar", daily_limit: int = 1, weekly_limit: int = 3) -> int:
+    destination = models.PublishingDestination(
+        brand=brand,
+        platform="Instagram Reels",
+        name=f"{brand} Reels",
+        handle=f"@{brand.lower()}",
+        status="ready",
+        posting_mode="manual",
+        auth_status="manual_only",
+        daily_limit=daily_limit,
+        weekly_limit=weekly_limit,
+        allowed_formats_json=["vertical_video"],
+    )
+    db.add(destination)
+    db.commit()
+    db.refresh(destination)
+    return destination.id
+
+
+def add_approved_campaign_package(db, product: models.Product) -> int:
+    template = db.scalar(select(models.CreativeTemplate).order_by(models.CreativeTemplate.id))
+    guide = db.scalar(select(models.BrandGuide).where(models.BrandGuide.brand == product.brand).order_by(models.BrandGuide.id))
+    script_job = models.ScriptJob(
+        product_id=product.id,
+        template_id=template.id,
+        brand_guide_id=guide.id,
+        status="script_approved",
+        input_payload_json={},
+        output_script_json={},
+        validation_report_json={},
+    )
+    db.add(script_job)
+    db.flush()
+    variant = models.ScriptVariant(
+        script_job_id=script_job.id,
+        variant_number=1,
+        creative_angle="campaign",
+        hook="Campaign hook",
+        key_message="Campaign message",
+        final_cta="Open product card",
+        full_script_json={},
+        status="script_approved",
+    )
+    db.add(variant)
+    db.flush()
+    video_job = models.VideoJob(
+        script_variant_id=variant.id,
+        provider="mock",
+        status="approved",
+        output_video_path=f"media/mock/{product.sku}.mp4",
+    )
+    db.add(video_job)
+    db.flush()
+    package = models.PublishingPackage(
+        video_job_id=video_job.id,
+        product_id=product.id,
+        brand=product.brand,
+        target_platform="Instagram Reels",
+        title=f"{product.title} launch",
+        description="Approved campaign package.",
+        hashtags_json=["#campaign"],
+        cta="Open product card",
+        product_url=product.product_url,
+        video_file_path=video_job.output_video_path,
+        review_status="approved",
+        status="approved",
+        metadata_json={"source": "test"},
+    )
+    db.add(package)
+    db.commit()
+    db.refresh(package)
+    return package.id
+
+
+def test_import_product_matrix_csv():
+    with client():
+        with SessionLocal() as db:
+            result = ProductMatrixImporter(db).import_csv_text(campaign_matrix_csv(2), source_file="matrix.csv")
+            rows = db.scalars(select(models.ProductMatrixRow).order_by(models.ProductMatrixRow.id)).all()
+
+        assert result.status == "imported"
+        assert result.imported_count == 2
+        assert rows[0].sku == "CAMP-001"
+
+
+def test_matrix_import_missing_photos_warns_not_fails():
+    with client():
+        with SessionLocal() as db:
+            result = ProductMatrixImporter(db).import_csv_text(campaign_matrix_csv(1, with_photos=False))
+            row = db.scalar(select(models.ProductMatrixRow))
+
+        assert result.imported_count == 1
+        assert result.error_count == 0
+        assert "missing_photo" in row.warnings_json
+        assert any("missing_photo" in warning for warning in result.warnings)
+
+
+def test_create_campaign_from_import():
+    with client():
+        campaign_id = campaign_fixture(row_count=3, target_videos=21, target_destinations=6)
+        with SessionLocal() as db:
+            campaign = db.get(models.Campaign, campaign_id)
+            products = db.scalars(select(models.CampaignProduct).where(models.CampaignProduct.campaign_id == campaign_id)).all()
+
+        assert campaign.source_type == "csv"
+        assert len(campaign.product_ids_json) == 3
+        assert len(products) == 3
+        assert sum(item.target_video_count for item in products) == 21
+
+
+def test_target_allocator_40_sku_350_videos():
+    with client():
+        campaign_id = campaign_fixture(row_count=40, target_videos=350, target_destinations=120)
+        with SessionLocal() as db:
+            allocation = TargetAllocator(db).allocate(campaign_id)
+            campaign_products = db.scalars(select(models.CampaignProduct).where(models.CampaignProduct.campaign_id == campaign_id)).all()
+
+        assert allocation.total_products == 40
+        assert allocation.total_target_videos == 350
+        assert max(item.target_video_count for item in campaign_products) >= 9
+        assert min(item.target_video_count for item in campaign_products) >= 1
+
+
+def test_campaign_prepare_creates_campaign_products():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=8, target_destinations=3)
+        with SessionLocal() as db:
+            result = CampaignRunner(db).prepare_campaign(campaign_id)
+            campaign_product = db.scalar(select(models.CampaignProduct).where(models.CampaignProduct.campaign_id == campaign_id))
+
+        assert result.total_products == 1
+        assert campaign_product.content_run_ids_json
+        assert result.total_content_runs >= 1
+
+
+def test_campaign_prepare_calls_content_autopilot_without_paid_provider(monkeypatch):
+    def fail_paid(*args, **kwargs):
+        raise AssertionError("Campaign prepare must not call paid real smoke.")
+
+    monkeypatch.setattr("app.content_factory.content_run_orchestrator.ContentRunOrchestrator.run_real_smoke", fail_paid)
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            result = CampaignRunner(db).prepare_campaign(campaign_id)
+            runs = db.scalars(select(models.ContentRun)).all()
+
+        assert result.total_content_runs >= 1
+        assert runs
+        assert all(run.video_job_id is None for run in runs)
+
+
+def test_campaign_state_counts_blockers_and_ready_items():
+    with client():
+        campaign_id = campaign_fixture(row_count=2, target_videos=6, target_destinations=2, with_photos=False)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            state = CampaignRunner(db).inspect_campaign(campaign_id)
+
+        assert state.sku_coverage["total_sku"] == 2
+        assert state.prompt_ready_count >= 1
+        assert state.blocked_count >= 1
+        assert state.next_actions_by_sku
+
+
+def test_campaign_prompt_only_runs_only_safe_actions(monkeypatch):
+    def fail_paid(*args, **kwargs):
+        raise AssertionError("Prompt-only campaign action must not call paid real smoke.")
+
+    monkeypatch.setattr("app.content_factory.content_run_orchestrator.ContentRunOrchestrator.run_real_smoke", fail_paid)
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            result = CampaignRunner(db).run_prompt_only_for_ready_items(campaign_id)
+
+        assert result.status == "prompt_only_complete"
+        assert result.total_prompt_ready >= 1
+
+
+def test_campaign_distribution_plan_requires_approved_packages():
+    with client():
+        campaign_id = campaign_fixture(row_count=2, target_videos=6, target_destinations=2)
+        with SessionLocal() as db:
+            add_campaign_destination(db)
+            plan = CampaignDistributionPlanner(db).generate_plan(campaign_id)
+
+        assert plan.status == "blocked"
+        assert "approved_packages_required" in plan.blockers
+        assert "not_enough_approved_packages" in plan.blockers
+
+
+def test_campaign_distribution_plan_respects_destination_limits():
+    with client():
+        campaign_id = campaign_fixture(row_count=2, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            campaign = db.get(models.Campaign, campaign_id)
+            product_ids = campaign.product_ids_json
+            products = db.scalars(select(models.Product).where(models.Product.id.in_(product_ids)).order_by(models.Product.id)).all()
+            for product in products:
+                add_approved_campaign_package(db, product)
+            add_campaign_destination(db, daily_limit=1, weekly_limit=2)
+            plan = CampaignDistributionPlanner(db).generate_plan(campaign_id)
+            tasks = db.scalars(select(models.PublishingTask).order_by(models.PublishingTask.id)).all()
+
+        assert plan.scheduled_slots == 2
+        assert plan.status in {"blocked", "planned"}
+        assert len(tasks) == 2
+        assert tasks[0].scheduled_at.date() != tasks[1].scheduled_at.date()
+
+
+def test_campaign_ui_renders_setup_state_and_actions():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=2, target_videos=6, target_destinations=2)
+        response = api.get(f"/campaign-autopilot?campaign_id={campaign_id}")
+
+        assert response.status_code == 200, response.text
+        assert "Campaign Setup" in response.text
+        assert "Product Matrix" in response.text
+        assert "Campaign State" in response.text
+        assert "SKU Action Table" in response.text
+        assert "Distribution Plan" in response.text
+        assert "Performance" in response.text
+
+
+def test_campaign_report_outputs_summary():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            report = CampaignRunner(db).generate_campaign_report(campaign_id)
+
+        assert report.campaign_id == campaign_id
+        assert report.state.sku_coverage["total_sku"] == 1
+        assert "content_run_count" in report.performance
+
+
+def test_campaign_no_external_account_registration_logic_exists():
+    root = Path(__file__).resolve().parents[1] / "app" / "campaign_autopilot"
+    source = "\n".join(path.read_text(encoding="utf-8").lower() for path in root.glob("*.py"))
+    banned_terms = [
+        "mass registration",
+        "register_account",
+        "temp_email",
+        "captcha",
+        "bypass",
+        "fake engagement",
+    ]
+
+    for term in banned_terms:
+        assert term not in source
