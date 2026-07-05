@@ -31,6 +31,14 @@ from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, 
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
 from app.campaign_execution.errors import CampaignExecutionDataError
+from app.campaign_performance import (
+    CampaignMetricsImporter,
+    CampaignPerformanceAggregator,
+    CampaignPerformanceReportService,
+    CampaignPerformanceScorer,
+    CampaignRecommendationEngine,
+)
+from app.campaign_performance.errors import CampaignPerformanceDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -1513,6 +1521,71 @@ def get_campaign_batch_report(batch_run_id: int, db: Session = Depends(get_db)):
     try:
         return BatchReporter(db).build_report(batch_run_id).model_dump(mode="json")
     except CampaignBatchDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-performance/{campaign_id}/import-csv")
+async def import_campaign_performance_csv(
+    campaign_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        csv_text = (await file.read()).decode("utf-8-sig")
+        return CampaignMetricsImporter(db).import_csv_text(
+            campaign_id,
+            csv_text,
+            source_file=file.filename or "campaign_performance.csv",
+        ).model_dump(mode="json")
+    except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-performance/{campaign_id}/summary")
+def get_campaign_performance_summary(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignPerformanceAggregator(db).summarize(campaign_id).model_dump(mode="json")
+    except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-performance/{campaign_id}/scores")
+def get_campaign_performance_scores(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in CampaignPerformanceScorer(db).latest_scores(campaign_id)]
+    except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-performance/{campaign_id}/recommendations")
+def get_campaign_performance_recommendations(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in CampaignRecommendationEngine(db).list_recommendations(campaign_id)]
+    except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-performance/recommendations/{recommendation_id}/accept")
+def accept_campaign_performance_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignRecommendationEngine(db).accept(recommendation_id).model_dump(mode="json")
+    except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-performance/recommendations/{recommendation_id}/reject")
+def reject_campaign_performance_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignRecommendationEngine(db).reject(recommendation_id).model_dump(mode="json")
+    except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-performance/{campaign_id}/report")
+def get_campaign_performance_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return CampaignPerformanceReportService(db).build_report(campaign_id).model_dump(mode="json")
+    except CampaignPerformanceDataError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 

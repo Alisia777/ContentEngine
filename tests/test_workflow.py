@@ -42,6 +42,13 @@ from app.campaign_autopilot import (
 )
 from app.campaign_batch import BatchExecutor, BatchReporter
 from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
+from app.campaign_performance import (
+    CampaignMetricsImporter,
+    CampaignPerformanceAggregator,
+    CampaignPerformanceReportService,
+    CampaignPerformanceScorer,
+    CampaignRecommendationEngine,
+)
 from app.config import get_settings
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -3223,6 +3230,55 @@ def add_batch_action(
     return action.id
 
 
+def add_campaign_published_task(db, campaign_id: int, final_url: str = "https://example.com/post/perf") -> tuple[models.Product, models.PublishingTask]:
+    campaign = db.get(models.Campaign, campaign_id)
+    product = db.get(models.Product, campaign.product_ids_json[0])
+    package_id = add_approved_campaign_package(db, product)
+    destination_id = add_campaign_destination(db, brand=campaign.brand)
+    task = models.PublishingTask(
+        publishing_package_id=package_id,
+        destination_id=destination_id,
+        platform="Instagram Reels",
+        status="published_manual",
+        scheduled_at=datetime.now(UTC).replace(tzinfo=None),
+        final_url=final_url,
+        operator_name="ops",
+        raw_response_json={"source": "test"},
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return product, task
+
+
+def performance_csv(rows: list[dict]) -> str:
+    columns = [
+        "campaign_id",
+        "sku",
+        "platform",
+        "posted_url",
+        "destination_name",
+        "creative_variant_id",
+        "period_start",
+        "period_end",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "clicks",
+        "orders",
+        "revenue",
+        "spend",
+        "watch_time_seconds",
+        "retention_rate",
+    ]
+    lines = [",".join(columns)]
+    for row in rows:
+        lines.append(",".join(str(row.get(column, "")) for column in columns))
+    return "\n".join(lines) + "\n"
+
+
 def test_import_product_matrix_csv():
     with client():
         with SessionLocal() as db:
@@ -3612,6 +3668,234 @@ def test_campaign_batch_ui_renders():
         assert "Safe Actions" in response.text
         assert "Dry Run" in response.text
         assert "Execute Safe Batch" in response.text
+
+
+def test_import_campaign_performance_csv():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            result = CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv(
+                    [
+                        {
+                            "sku": product.sku,
+                            "platform": "Instagram Reels",
+                            "posted_url": task.final_url,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-05",
+                            "views": 2000,
+                            "likes": 140,
+                            "comments": 20,
+                            "shares": 20,
+                            "saves": 20,
+                            "clicks": 120,
+                            "orders": 12,
+                            "revenue": 18000,
+                            "spend": 2400,
+                        }
+                    ]
+                ),
+            )
+            metric = db.scalar(select(models.CampaignPerformanceMetric))
+
+        assert result.imported_count == 1
+        assert result.error_count == 0
+        assert metric.sku == product.sku
+        assert metric.ctr == 0.06
+        assert metric.engagement_rate == 0.1
+
+
+def test_import_performance_missing_metrics_warns_not_fails():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product = db.get(models.Product, db.get(models.Campaign, campaign_id).product_ids_json[0])
+            result = CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv([{"sku": product.sku, "platform": "Instagram Reels", "posted_url": "https://example.com/post/missing"}]),
+            )
+
+        assert result.imported_count == 1
+        assert result.error_count == 0
+        assert any("missing_views" in warning for warning in result.warnings)
+        assert any("posted_url_not_matched_to_task" in warning for warning in result.warnings)
+
+
+def test_performance_links_metric_to_publishing_task_by_url():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/link-me")
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv(
+                    [
+                        {
+                            "sku": product.sku,
+                            "platform": "Instagram Reels",
+                            "posted_url": task.final_url,
+                            "views": 100,
+                            "clicks": 5,
+                            "orders": 1,
+                        }
+                    ]
+                ),
+            )
+            metric = db.scalar(select(models.CampaignPerformanceMetric))
+
+        assert metric.publishing_task_id == task.id
+        assert metric.destination_id == task.destination_id
+
+
+def test_performance_scores_sku_variant_destination():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv(
+                    [
+                        {
+                            "sku": product.sku,
+                            "platform": "Instagram Reels",
+                            "posted_url": task.final_url,
+                            "creative_variant_id": 777,
+                            "views": 1500,
+                            "likes": 100,
+                            "comments": 10,
+                            "shares": 10,
+                            "saves": 10,
+                            "clicks": 90,
+                            "orders": 9,
+                        }
+                    ]
+                ),
+            )
+            scores = CampaignPerformanceScorer(db).compute_scores(campaign_id)
+
+        entity_types = {score.entity_type for score in scores}
+        assert {"sku", "variant", "destination", "platform"}.issubset(entity_types)
+
+
+def test_recommendation_scale_variant_for_high_engagement():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv(
+                    [
+                        {
+                            "sku": product.sku,
+                            "platform": "Instagram Reels",
+                            "posted_url": task.final_url,
+                            "creative_variant_id": 1,
+                            "views": 2000,
+                            "likes": 150,
+                            "comments": 20,
+                            "shares": 20,
+                            "saves": 20,
+                            "clicks": 80,
+                            "orders": 8,
+                        }
+                    ]
+                ),
+            )
+            recommendations = CampaignRecommendationEngine(db).generate(campaign_id)
+
+        assert any(item.recommendation_type == "scale_variant" for item in recommendations)
+
+
+def test_recommendation_regenerate_for_high_views_low_clicks():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv([{"sku": product.sku, "platform": "Instagram Reels", "posted_url": task.final_url, "views": 2000, "clicks": 2, "orders": 0}]),
+            )
+            recommendations = CampaignRecommendationEngine(db).generate(campaign_id)
+
+        assert any(item.recommendation_type == "regenerate_variant" for item in recommendations)
+
+
+def test_recommendation_pause_destination_for_low_views():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv([{"sku": product.sku, "platform": "Instagram Reels", "posted_url": task.final_url, "views": 40, "clicks": 1, "orders": 0}]),
+            )
+            recommendations = CampaignRecommendationEngine(db).generate(campaign_id)
+
+        assert any(item.recommendation_type == "change_destination" for item in recommendations)
+
+
+def test_recommendation_import_stats_when_published_without_metrics():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/no-stats")
+            recommendations = CampaignRecommendationEngine(db).generate(campaign_id)
+
+        assert any(item.recommendation_type == "import_performance_stats" for item in recommendations)
+
+
+def test_performance_recommendations_create_action_queue_items():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv([{"sku": product.sku, "platform": "Instagram Reels", "posted_url": task.final_url, "views": 2000, "clicks": 2, "orders": 0}]),
+            )
+            CampaignRecommendationEngine(db).generate(campaign_id)
+            actions = db.scalars(select(models.CampaignActionQueueItem).where(models.CampaignActionQueueItem.campaign_id == campaign_id)).all()
+
+        assert any(action.action_type == "create_regeneration_request" for action in actions)
+        assert all(action.action_type != "run_real_smoke" for action in actions)
+
+
+def test_campaign_performance_ui_renders_summary_and_recommendations():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv([{"sku": product.sku, "platform": "Instagram Reels", "posted_url": task.final_url, "views": 2000, "clicks": 2, "orders": 0}]),
+            )
+            CampaignRecommendationEngine(db).generate(campaign_id)
+        response = api.get(f"/campaign-performance?campaign_id={campaign_id}")
+
+        assert response.status_code == 200, response.text
+        assert "Performance Loop" in response.text
+        assert "Campaign Summary" in response.text
+        assert "Recommendations" in response.text
+
+
+def test_campaign_performance_report_exports():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv([{"sku": product.sku, "platform": "Instagram Reels", "posted_url": task.final_url, "views": 40, "clicks": 1, "orders": 0}]),
+            )
+            report = CampaignPerformanceReportService(db).build_report(campaign_id)
+
+        assert report.summary.metric_count == 1
+        assert "metric_count" in report.summary_csv
+        assert report.recommendations
 
 
 def test_campaign_no_external_account_registration_logic_exists():

@@ -891,6 +891,10 @@ class Campaign(Base, TimestampMixin):
     execution_snapshots = relationship("CampaignExecutionSnapshot", back_populates="campaign", cascade="all, delete-orphan")
     action_queue_items = relationship("CampaignActionQueueItem", back_populates="campaign", cascade="all, delete-orphan")
     batch_runs = relationship("CampaignBatchRun", back_populates="campaign", cascade="all, delete-orphan")
+    performance_imports = relationship("CampaignPerformanceImport", back_populates="campaign", cascade="all, delete-orphan")
+    performance_metrics = relationship("CampaignPerformanceMetric", back_populates="campaign", cascade="all, delete-orphan")
+    performance_scores = relationship("CampaignPerformanceScore", back_populates="campaign", cascade="all, delete-orphan")
+    scaling_recommendations = relationship("CampaignScalingRecommendation", back_populates="campaign", cascade="all, delete-orphan")
 
 
 class CampaignProduct(Base, TimestampMixin):
@@ -1089,3 +1093,95 @@ class CampaignBatchItem(Base, TimestampMixin):
     batch_run = relationship("CampaignBatchRun", back_populates="items")
     action_queue_item = relationship("CampaignActionQueueItem")
     product = relationship("Product")
+
+
+class CampaignPerformanceImport(Base, TimestampMixin):
+    __tablename__ = "campaign_performance_imports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    source_file = Column(String(500), nullable=False)
+    status = Column(String(80), nullable=False, default="imported", index=True)
+    imported_count = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="performance_imports")
+
+
+class CampaignPerformanceMetric(Base):
+    __tablename__ = "campaign_performance_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    posted_url = Column(String(500), nullable=True, index=True)
+    period_start = Column(Date, nullable=True, index=True)
+    period_end = Column(Date, nullable=True, index=True)
+    views = Column(Integer, nullable=True)
+    likes = Column(Integer, nullable=True)
+    comments = Column(Integer, nullable=True)
+    shares = Column(Integer, nullable=True)
+    saves = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    orders = Column(Integer, nullable=True)
+    revenue = Column(Float, nullable=True)
+    spend = Column(Float, nullable=True)
+    ctr = Column(Float, nullable=True)
+    conversion_rate = Column(Float, nullable=True)
+    engagement_rate = Column(Float, nullable=True)
+    cost_per_view = Column(Float, nullable=True)
+    cost_per_click = Column(Float, nullable=True)
+    cost_per_order = Column(Float, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="performance_metrics")
+    product = relationship("Product")
+    content_run = relationship("ContentRun")
+    creative_variant = relationship("CreativeVariant")
+    publishing_task = relationship("PublishingTask")
+    destination = relationship("PublishingDestination")
+
+
+class CampaignPerformanceScore(Base, TimestampMixin):
+    __tablename__ = "campaign_performance_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    entity_type = Column(String(80), nullable=False, index=True)
+    entity_id = Column(String(160), nullable=True, index=True)
+    score_json = Column(JSON, default=dict, nullable=False)
+    status = Column(String(80), nullable=False, default="needs_data", index=True)
+    recommendation = Column(Text, nullable=True)
+    reasons_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="performance_scores")
+
+
+class CampaignScalingRecommendation(Base, TimestampMixin):
+    __tablename__ = "campaign_scaling_recommendations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    recommendation_type = Column(String(120), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    priority = Column(Integer, nullable=False, default=50, index=True)
+    expected_impact = Column(Text, nullable=True)
+    reasons_json = Column(JSON, default=list, nullable=False)
+    status = Column(String(80), nullable=False, default="proposed", index=True)
+
+    campaign = relationship("Campaign", back_populates="scaling_recommendations")
+    product = relationship("Product")
+    creative_variant = relationship("CreativeVariant")
+    destination = relationship("PublishingDestination")

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Campaign Performance</p>
+    <h1>Performance Loop</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }} / {{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Import Metrics</span>
+  <span>Aggregate</span>
+  <span>Score</span>
+  <span>Recommend</span>
+  <span>Queue Actions</span>
+</section>
+
+<section class="panel">
+  <h2>Import Metrics</h2>
+  <form action="/campaign-performance" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+  {% if selected_campaign %}
+    <form action="/campaign-performance/{{ selected_campaign.id }}/import-csv" method="post" enctype="multipart/form-data" class="form-grid">
+      <label>CSV file<input type="file" name="file" accept=".csv" required></label>
+      <div class="actions"><button type="submit">Import CSV</button></div>
+    </form>
+    <div class="actions">
+      <form action="/campaign-performance/{{ selected_campaign.id }}/generate-recommendations" method="post">
+        <button type="submit">Generate Recommendations</button>
+      </form>
+      <a class="button secondary" href="/campaign-execution?campaign_id={{ selected_campaign.id }}">Execution Control</a>
+      <a class="button secondary" href="/campaign-batch?campaign_id={{ selected_campaign.id }}">Batch Executor</a>
+    </div>
+  {% endif %}
+</section>
+
+{% if selected_campaign and summary %}
+<section class="panel">
+  <h2>Campaign Summary</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ summary.metric_count }}</strong><span>metrics</span></div>
+    <div class="metric"><strong>{{ summary.total_views }}</strong><span>views</span></div>
+    <div class="metric"><strong>{{ summary.total_clicks }}</strong><span>clicks</span></div>
+    <div class="metric"><strong>{{ summary.total_orders }}</strong><span>orders</span></div>
+    <div class="metric"><strong>{{ summary.avg_ctr or 0 }}</strong><span>avg CTR</span></div>
+    <div class="metric"><strong>{{ summary.avg_engagement_rate or 0 }}</strong><span>engagement</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>SKU Performance</h2>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>Views</th><th>Clicks</th><th>Orders</th><th>CTR</th><th>Engagement</th></tr></thead>
+    <tbody>
+      {% for row in summary.by_sku %}
+        <tr><td>{{ row.entity_id }}</td><td>{{ row.views }}</td><td>{{ row.clicks }}</td><td>{{ row.orders }}</td><td>{{ row.ctr }}</td><td>{{ row.engagement_rate }}</td></tr>
+      {% else %}
+        <tr><td colspan="6">No SKU metrics yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Variant / Hook Performance</h2>
+  <table class="table">
+    <thead><tr><th>Type</th><th>Entity</th><th>Status</th><th>Recommendation</th><th>Reasons</th></tr></thead>
+    <tbody>
+      {% for score in scores %}
+        {% if score.entity_type in ["variant", "hook"] %}
+          <tr><td>{{ score.entity_type }}</td><td>{{ score.entity_id }}</td><td>{{ score.status }}</td><td>{{ score.recommendation }}</td><td>{{ score.reasons|join(", ") }}</td></tr>
+        {% endif %}
+      {% else %}
+        <tr><td colspan="5">No score rows yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Destination Performance</h2>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Views</th><th>Clicks</th><th>Orders</th><th>Cost / Order</th></tr></thead>
+    <tbody>
+      {% for row in summary.by_destination %}
+        <tr><td>{{ row.entity_id }}</td><td>{{ row.views }}</td><td>{{ row.clicks }}</td><td>{{ row.orders }}</td><td>{{ row.cost_per_order }}</td></tr>
+      {% else %}
+        <tr><td colspan="5">No destination metrics yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Recommendations</h2>
+  <table class="table">
+    <thead><tr><th>Priority</th><th>Type</th><th>SKU</th><th>Status</th><th>Impact</th><th>Controls</th></tr></thead>
+    <tbody>
+      {% for item in recommendations %}
+        <tr>
+          <td>{{ item.priority }}</td>
+          <td>{{ item.recommendation_type }}</td>
+          <td>{{ item.sku or "-" }}</td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.expected_impact }}</td>
+          <td>
+            <form action="/campaign-performance/recommendations/{{ item.recommendation_id }}/accept" method="post"><button type="submit">Accept</button></form>
+            <form action="/campaign-performance/recommendations/{{ item.recommendation_id }}/reject" method="post"><button type="submit" class="secondary">Reject</button></form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No recommendations yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Export Report</h2>
+  {% if report %}
+    <pre>{{ report.model_dump(mode="json")|tojson(indent=2) }}</pre>
+    <h3>Summary CSV</h3>
+    <pre>{{ report.summary_csv }}</pre>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
