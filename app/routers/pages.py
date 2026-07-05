@@ -19,6 +19,9 @@ from app.bombar_launch import (
     LaunchPlanner,
 )
 from app.bombar_launch.errors import BombarLaunchDataError
+from app.campaign_batch import BatchExecutor, BatchReporter, BatchSelector
+from app.campaign_batch.errors import CampaignBatchDataError
+from app.campaign_batch.safety_gates import SAFE_BATCH_ACTIONS
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
@@ -1396,6 +1399,74 @@ def campaign_execution_resolve(action_id: int, db: Session = Depends(get_db)):
     if action:
         ActionQueueService(db).resolve(action_id)
     return redirect(f"/campaign-execution?campaign_id={campaign_id}" if campaign_id else "/campaign-execution")
+
+
+@router.get("/campaign-batch", response_class=HTMLResponse)
+def campaign_batch_page(
+    request: Request,
+    campaign_id: int | None = None,
+    action_type: str | None = None,
+    batch_run_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    selection = None
+    latest_runs = []
+    report = None
+    if selected_campaign:
+        try:
+            selection = BatchSelector(db).select_safe_actions(selected_campaign.id, action_type=action_type or None)
+        except CampaignBatchDataError:
+            selection = None
+        latest_runs = db.scalars(
+            select(models.CampaignBatchRun)
+            .where(models.CampaignBatchRun.campaign_id == selected_campaign.id)
+            .order_by(models.CampaignBatchRun.id.desc())
+        ).all()
+    if batch_run_id:
+        try:
+            report = BatchReporter(db).build_report(batch_run_id)
+        except CampaignBatchDataError:
+            report = None
+    elif latest_runs:
+        report = BatchReporter(db).build_report(latest_runs[0].id)
+    return templates.TemplateResponse(
+        "campaign_batch.html",
+        {
+            "request": request,
+            "page_title": "Campaign Batch",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "action_type": action_type or "",
+            "action_types": sorted(SAFE_BATCH_ACTIONS),
+            "selection": selection,
+            "latest_runs": latest_runs[:10],
+            "report": report,
+        },
+    )
+
+
+@router.post("/campaign-batch/{campaign_id}/dry-run")
+def campaign_batch_dry_run(
+    campaign_id: int,
+    action_type: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    result = BatchExecutor(db).dry_run(campaign_id, action_type=action_type or None)
+    action_query = f"&action_type={action_type}" if action_type else ""
+    return redirect(f"/campaign-batch?campaign_id={campaign_id}{action_query}&batch_run_id={result.batch_run_id}")
+
+
+@router.post("/campaign-batch/{campaign_id}/execute")
+def campaign_batch_execute(
+    campaign_id: int,
+    action_type: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    result = BatchExecutor(db).execute(campaign_id, action_type=action_type or None)
+    action_query = f"&action_type={action_type}" if action_type else ""
+    return redirect(f"/campaign-batch?campaign_id={campaign_id}{action_query}&batch_run_id={result.batch_run_id}")
 
 
 @router.post("/bombar-launch/import-matrix")

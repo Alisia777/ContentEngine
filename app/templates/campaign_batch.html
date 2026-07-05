@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Campaign Batch</p>
+    <h1>Campaign Batch Executor</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }} / {{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Action Queue</span>
+  <span>Safe Selection</span>
+  <span>Dry Run</span>
+  <span>Execute Batch</span>
+  <span>Result Log</span>
+</section>
+
+<section class="panel">
+  <h2>Batch Setup</h2>
+  <form action="/campaign-batch" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Action Type
+      <select name="action_type">
+        <option value="">All safe actions</option>
+        {% for item in action_types %}
+          <option value="{{ item }}" {% if item == action_type %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Preview</button></div>
+  </form>
+  {% if selected_campaign %}
+    <div class="actions">
+      <a class="button secondary" href="/campaign-execution?campaign_id={{ selected_campaign.id }}">Execution Control</a>
+      <a class="button secondary" href="/campaign-autopilot?campaign_id={{ selected_campaign.id }}">Campaign Core</a>
+    </div>
+  {% endif %}
+</section>
+
+{% if selected_campaign and selection %}
+<section class="panel">
+  <h2>Safe Actions</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ selection.safe_action_count }}</strong><span>safe selected</span></div>
+    <div class="metric"><strong>{{ selection.skipped_count }}</strong><span>skipped</span></div>
+  </div>
+  <div class="actions">
+    <form action="/campaign-batch/{{ selected_campaign.id }}/dry-run" method="post">
+      <input type="hidden" name="action_type" value="{{ action_type }}">
+      <button type="submit">Dry Run</button>
+    </form>
+    <form action="/campaign-batch/{{ selected_campaign.id }}/execute" method="post">
+      <input type="hidden" name="action_type" value="{{ action_type }}">
+      <button type="submit">Execute Safe Batch</button>
+    </form>
+  </div>
+  <table class="table">
+    <thead><tr><th>ID</th><th>SKU</th><th>Content Run</th><th>Action</th><th>Safe</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for item in selection.selected_actions %}
+        <tr>
+          <td>{{ item.action_id }}</td>
+          <td>{{ item.sku or "campaign" }}</td>
+          <td>{{ item.content_run_id or "-" }}</td>
+          <td>{{ item.action_type }}</td>
+          <td>yes</td>
+          <td>{{ item.reason }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No safe open actions match this filter.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Skipped Actions</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>SKU</th><th>Action</th><th>Skip Reason</th><th>Blockers</th></tr></thead>
+    <tbody>
+      {% for item in selection.skipped_actions %}
+        <tr>
+          <td>{{ item.action_id }}</td>
+          <td>{{ item.sku or "campaign" }}</td>
+          <td>{{ item.action_type }}</td>
+          <td>{{ item.skip_reason }}</td>
+          <td>{{ item.blockers|join(", ") }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No skipped open actions for this filter.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if latest_runs %}
+<section class="panel">
+  <h2>Batch Runs</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Status</th><th>Action</th><th>Dry Run</th><th>Selected</th><th>Executed</th><th>Skipped</th><th>Failed</th></tr></thead>
+    <tbody>
+      {% for run in latest_runs %}
+        <tr>
+          <td><a href="/campaign-batch?campaign_id={{ run.campaign_id }}&batch_run_id={{ run.id }}">{{ run.id }}</a></td>
+          <td>{{ run.status }}</td>
+          <td>{{ run.action_type or "all" }}</td>
+          <td>{{ "yes" if run.dry_run else "no" }}</td>
+          <td>{{ run.total_selected }}</td>
+          <td>{{ run.total_executed }}</td>
+          <td>{{ run.total_skipped }}</td>
+          <td>{{ run.total_failed }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if report %}
+<section class="panel">
+  <h2>Batch Report</h2>
+  <pre>{{ report.model_dump(mode="json")|tojson(indent=2) }}</pre>
+  <h3>Summary CSV</h3>
+  <pre>{{ report.summary_csv }}</pre>
+</section>
+{% endif %}
+{% endblock %}

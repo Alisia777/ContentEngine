@@ -25,6 +25,8 @@ from app.bombar_launch import (
     LaunchPlanner,
 )
 from app.bombar_launch.errors import BombarLaunchDataError
+from app.campaign_batch import BatchExecutor, BatchReporter, BatchSelector
+from app.campaign_batch.errors import CampaignBatchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
@@ -265,6 +267,10 @@ class BombarDestinationPackPatchRequest(BaseModel):
 
 class CampaignExecutionExecuteRequest(BaseModel):
     allow_paid: bool = False
+
+
+class CampaignBatchRequest(BaseModel):
+    action_type: str | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1457,6 +1463,56 @@ def get_campaign_execution_report(campaign_id: int, db: Session = Depends(get_db
     try:
         return ExecutionReportService(db).build_report(campaign_id).model_dump(mode="json")
     except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-batch/{campaign_id}/dry-run")
+def dry_run_campaign_batch(
+    campaign_id: int,
+    payload: CampaignBatchRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or CampaignBatchRequest()
+    try:
+        return BatchExecutor(db).dry_run(campaign_id, action_type=payload.action_type).model_dump(mode="json")
+    except CampaignBatchDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-batch/{campaign_id}/execute")
+def execute_campaign_batch(
+    campaign_id: int,
+    payload: CampaignBatchRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or CampaignBatchRequest()
+    try:
+        return BatchExecutor(db).execute(campaign_id, action_type=payload.action_type).model_dump(mode="json")
+    except CampaignBatchDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-batch/{campaign_id}/preview")
+def preview_campaign_batch(campaign_id: int, action_type: str | None = None, db: Session = Depends(get_db)):
+    try:
+        return BatchSelector(db).select_safe_actions(campaign_id, action_type=action_type).model_dump(mode="json")
+    except CampaignBatchDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-batch/runs/{batch_run_id}")
+def get_campaign_batch_run(batch_run_id: int, db: Session = Depends(get_db)):
+    try:
+        return BatchExecutor(db).get_run(batch_run_id).model_dump(mode="json")
+    except CampaignBatchDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-batch/runs/{batch_run_id}/report")
+def get_campaign_batch_report(batch_run_id: int, db: Session = Depends(get_db)):
+    try:
+        return BatchReporter(db).build_report(batch_run_id).model_dump(mode="json")
+    except CampaignBatchDataError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 

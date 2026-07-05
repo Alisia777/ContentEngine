@@ -399,6 +399,33 @@ The control center keeps Campaign Autopilot and Bombar as the source of campaign
 
 Docs: `docs/CAMPAIGN_EXECUTION_CONTROL_CENTER.md` and `docs/CAMPAIGN_ACTION_QUEUE.md`.
 
+## Campaign Batch Executor
+
+v0.8.0 adds `/campaign-batch`, a controlled batch executor for safe Campaign Execution actions:
+
+```text
+Campaign Execution action queue
+-> safe action selection
+-> dry run
+-> execute safe batch
+-> batch run/item result log
+-> refreshed execution snapshot
+-> JSON and CSV batch report
+```
+
+Operator CLI:
+
+```bash
+python scripts/campaign_batch_dry_run.py --campaign-id 1 --action-type run_prompt_only
+python scripts/campaign_batch_execute.py --campaign-id 1 --action-type run_prompt_only
+python scripts/campaign_batch_report.py --batch-run-id 1
+python scripts/campaign_batch_report.py --batch-run-id 1 --format csv
+```
+
+Batch execution uses the v0.7 action queue. It does not run paid providers, approve publishing packages, schedule live publishing, publish/manual upload, mark published, create external accounts, or execute human-required actions in bulk.
+
+Docs: `docs/CAMPAIGN_BATCH_EXECUTOR.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:
