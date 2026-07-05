@@ -309,6 +309,37 @@ python scripts/import_content_stats.py --csv sample_data/content_performance.csv
 
 Docs: `docs/AI_CONTENT_FACTORY_CABINET.md`, `docs/AI_CONTENT_RUNS.md`, and `docs/CONTENT_FACTORY_STATS.md`.
 
+## AI Content Factory Autopilot
+
+v0.5 adds `/content-autopilot` as the operating layer above content runs:
+
+```text
+Product / SKU
+-> ContentRun
+-> Autopilot state inspection
+-> Rules-based decision
+-> NextAction
+-> optional safe execution
+-> decision log
+-> dashboard queue
+```
+
+The autopilot inspects every SKU/content run and decides whether the next step is to prepare a content run, request a reference, add geometry lock, rebuild prompts, run prompt-only, request paid smoke, send to human review, request regeneration, create a publishing package, import stats, scale, or pause.
+
+Safe/no-paid actions can be executed automatically. Paid provider calls and publishing actions are blocked unless explicit gates are provided, and generated videos still require human review for visual identity, geometry, and final publishing approval.
+
+CLI:
+
+```bash
+python scripts/content_autopilot_run.py --product-id 1
+python scripts/content_autopilot_run.py --all-products
+python scripts/content_autopilot_state.py --product-id 1
+python scripts/content_autopilot_execute.py --decision-id 1
+python scripts/content_autopilot_queue.py
+```
+
+Docs: `docs/CONTENT_AUTOPILOT.md`, `docs/AUTOPILOT_DECISIONS.md`, and `docs/AUTOPILOT_QUEUE.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

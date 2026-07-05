@@ -17,6 +17,8 @@ from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.content_autopilot import ActionExecutor, AutopilotQueueService
+from app.content_autopilot.errors import ContentAutopilotError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -210,6 +212,18 @@ class ContentFactoryRealSmokeRequest(BaseModel):
     provider: str = "runway"
     real_run: bool = False
     allow_real_spend: bool = False
+
+
+class ContentAutopilotRunRequest(BaseModel):
+    product_id: int | None = None
+    all_products: bool = False
+    execute_safe: bool = False
+    allow_paid: bool = False
+
+
+class ContentAutopilotExecuteRequest(BaseModel):
+    allow_paid: bool = False
+    allow_publishing: bool = False
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1171,6 +1185,99 @@ def get_content_factory_recommendations(content_run_id: int, db: Session = Depen
 async def import_content_factory_stats_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
     text = (await file.read()).decode("utf-8-sig")
     return ContentStatsImporter(db).import_csv_text(text).model_dump(mode="json")
+
+
+@router.post("/content-autopilot/run")
+def run_content_autopilot(payload: ContentAutopilotRunRequest, db: Session = Depends(get_db)):
+    try:
+        product_ids = None if payload.all_products or payload.product_id is None else [payload.product_id]
+        return AutopilotQueueService(db).run(
+            product_ids=product_ids,
+            execute_safe=payload.execute_safe,
+            allow_paid=payload.allow_paid,
+        ).model_dump(mode="json")
+    except ContentAutopilotError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/content-autopilot/runs/{autopilot_run_id}")
+def get_content_autopilot_run(autopilot_run_id: int, db: Session = Depends(get_db)):
+    run = get_or_404(db, models.AutopilotRun, autopilot_run_id)
+    return {
+        "id": run.id,
+        "status": run.status,
+        "scope_type": run.scope_type,
+        "product_ids": run.product_ids_json,
+        "total_checked": run.total_checked,
+        "total_ready": run.total_ready,
+        "total_blocked": run.total_blocked,
+        "total_needs_human_review": run.total_needs_human_review,
+        "total_actions_executed": run.total_actions_executed,
+        "summary": run.summary_json,
+    }
+
+
+@router.get("/content-autopilot/dashboard")
+def get_content_autopilot_dashboard(db: Session = Depends(get_db)):
+    return AutopilotQueueService(db).dashboard().model_dump(mode="json")
+
+
+@router.get("/content-autopilot/queue")
+def get_content_autopilot_queue(db: Session = Depends(get_db)):
+    return {"queue": [AutopilotQueueService._queue_item_dict(item) for item in AutopilotQueueService(db).queue()]}
+
+
+@router.get("/content-autopilot/products/{product_id}/state")
+def get_content_autopilot_product_state(product_id: int, db: Session = Depends(get_db)):
+    try:
+        return AutopilotQueueService(db).state(product_id).model_dump(mode="json")
+    except ContentAutopilotError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/content-autopilot/products/{product_id}/decide")
+def decide_content_autopilot_product(product_id: int, db: Session = Depends(get_db)):
+    try:
+        decision = AutopilotQueueService(db).decide(product_id)
+        return {
+            "id": decision.id,
+            "product_id": decision.product_id,
+            "sku": decision.sku,
+            "content_run_id": decision.content_run_id,
+            "recommended_action": decision.recommended_action,
+            "status": decision.status,
+            "confidence_score": decision.confidence_score,
+            "human_review_required": decision.human_review_required,
+            "blockers": decision.blockers_json,
+            "reasons": decision.reasons_json,
+        }
+    except ContentAutopilotError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/content-autopilot/decisions/{decision_id}/execute")
+def execute_content_autopilot_decision(
+    decision_id: int,
+    payload: ContentAutopilotExecuteRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = payload or ContentAutopilotExecuteRequest()
+        return ActionExecutor(db).execute(
+            decision_id,
+            allow_paid=payload.allow_paid,
+            allow_publishing=payload.allow_publishing,
+        ).model_dump(mode="json")
+    except ContentAutopilotError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/content-autopilot/queue/{queue_item_id}/resolve")
+def resolve_content_autopilot_queue_item(queue_item_id: int, db: Session = Depends(get_db)):
+    try:
+        return AutopilotQueueService._queue_item_dict(AutopilotQueueService(db).resolve(queue_item_id))
+    except ContentAutopilotError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/generator/intelligence/build")

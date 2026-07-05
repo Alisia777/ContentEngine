@@ -867,3 +867,59 @@ class ContentPerformanceMetric(Base):
     product = relationship("Product")
     creative_variant = relationship("CreativeVariant")
     video_job = relationship("VideoJob")
+
+
+class AutopilotDecision(Base, TimestampMixin):
+    __tablename__ = "autopilot_decisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=True, index=True)
+    decision_type = Column(String(120), nullable=False, default="next_action", index=True)
+    recommended_action = Column(String(120), nullable=False, index=True)
+    confidence_score = Column(Float, nullable=False, default=0)
+    status = Column(String(80), nullable=False, default="recommended", index=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    reasons_json = Column(JSON, default=list, nullable=False)
+    inputs_json = Column(JSON, default=dict, nullable=False)
+    outputs_json = Column(JSON, default=dict, nullable=False)
+    human_review_required = Column(Boolean, default=False, nullable=False)
+    executed_at = Column(DateTime, nullable=True)
+
+    product = relationship("Product")
+    content_run = relationship("ContentRun")
+
+
+class AutopilotQueueItem(Base, TimestampMixin):
+    __tablename__ = "autopilot_queue_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=True, index=True)
+    queue_type = Column(String(120), nullable=False, index=True)
+    priority = Column(Integer, nullable=False, default=50, index=True)
+    status = Column(String(80), nullable=False, default="open", index=True)
+    recommended_action = Column(String(120), nullable=False, index=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    assigned_to = Column(String(160), nullable=True)
+    due_at = Column(DateTime, nullable=True)
+
+    product = relationship("Product")
+    content_run = relationship("ContentRun")
+
+
+class AutopilotRun(Base, TimestampMixin):
+    __tablename__ = "autopilot_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(80), nullable=False, default="completed", index=True)
+    scope_type = Column(String(80), nullable=False, default="all_products", index=True)
+    product_ids_json = Column(JSON, default=list, nullable=False)
+    total_checked = Column(Integer, nullable=False, default=0)
+    total_ready = Column(Integer, nullable=False, default=0)
+    total_blocked = Column(Integer, nullable=False, default=0)
+    total_needs_human_review = Column(Integer, nullable=False, default=0)
+    total_actions_executed = Column(Integer, nullable=False, default=0)
+    summary_json = Column(JSON, default=dict, nullable=False)

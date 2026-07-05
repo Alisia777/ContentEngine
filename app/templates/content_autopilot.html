@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Decision queue</p>
+      <h1>Content Autopilot</h1>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel"><p class="status">{{ error }}</p></section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Autopilot Overview</h2>
+    <div class="metric-grid">
+      <article class="metric"><strong>{{ dashboard.products_checked }}</strong><span>products checked</span></article>
+      <article class="metric"><strong>{{ dashboard.ready }}</strong><span>ready</span></article>
+      <article class="metric"><strong>{{ dashboard.blocked }}</strong><span>blocked</span></article>
+      <article class="metric"><strong>{{ dashboard.needs_human_review }}</strong><span>human review</span></article>
+      <article class="metric"><strong>{{ dashboard.publishing_ready }}</strong><span>publishing-ready</span></article>
+    </div>
+    <form action="/content-autopilot/run" method="post">
+      <div class="form-grid">
+        <label>Product
+          <select name="product_id">
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label><input type="checkbox" name="execute_safe" value="true"> Execute safe actions</label>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="run_product">Run selected SKU</button>
+        <button class="secondary" type="submit" name="action" value="run_all">Run all SKUs</button>
+        <button class="secondary" type="submit" name="action" value="state">Inspect state</button>
+        <button class="secondary" type="submit" name="action" value="decide">Decide</button>
+      </div>
+    </form>
+  </section>
+
+  {% if result %}
+    <section class="panel">
+      <h2>Autopilot Result</h2>
+      <pre>{{ result | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  {% if state %}
+    <section class="panel">
+      <h2>Product State</h2>
+      <div class="metric-grid">
+        <article class="metric"><strong>{{ state.sku }}</strong><span>SKU</span></article>
+        <article class="metric"><strong>{{ "yes" if state.has_demand else "no" }}</strong><span>demand</span></article>
+        <article class="metric"><strong>{{ "yes" if state.has_creative_spec else "no" }}</strong><span>creative</span></article>
+        <article class="metric"><strong>{{ state.reference_readiness.status }}</strong><span>reference</span></article>
+        <article class="metric"><strong>{{ state.geometry_readiness.status }}</strong><span>geometry</span></article>
+        <article class="metric"><strong>{{ state.video_status or "none" }}</strong><span>video</span></article>
+        <article class="metric"><strong>{{ "yes" if state.generation_report_exists else "no" }}</strong><span>report</span></article>
+        <article class="metric"><strong>{{ state.video_review_status or "none" }}</strong><span>review</span></article>
+        <article class="metric"><strong>{{ state.publishing_readiness.status }}</strong><span>publishing</span></article>
+        <article class="metric"><strong>{{ state.performance_data_status }}</strong><span>performance</span></article>
+      </div>
+      <p class="muted">Available actions</p>
+      <p>{{ state.available_actions | join(", ") if state.available_actions else "none" }}</p>
+      <p class="muted">Blockers</p>
+      <p>{{ state.blockers | join(", ") if state.blockers else "none" }}</p>
+    </section>
+  {% endif %}
+
+  <section class="grid">
+    <article class="card">
+      <h2>Top Blockers</h2>
+      {% for item in dashboard.top_blockers %}
+        <p>{{ item.blocker }}: {{ item.count }}</p>
+      {% else %}
+        <p>none</p>
+      {% endfor %}
+    </article>
+    <article class="card">
+      <h2>Next Actions</h2>
+      {% for item in dashboard.next_actions %}
+        <p>{{ item.action }}: {{ item.count }}</p>
+      {% else %}
+        <p>none</p>
+      {% endfor %}
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Decision Queue</h2>
+    <table class="table">
+      <thead><tr><th>Queue</th><th>SKU</th><th>Action</th><th>Priority</th><th>Blockers</th><th>Commands</th></tr></thead>
+      <tbody>
+        {% for item in queue_items %}
+          <tr>
+            <td>{{ item.queue_type }}</td>
+            <td>{{ item.sku }}</td>
+            <td>{{ item.recommended_action }}</td>
+            <td>{{ item.priority }}</td>
+            <td>{{ item.blockers_json | join(", ") if item.blockers_json else "none" }}</td>
+            <td>
+              <form action="/content-autopilot/run" method="post">
+                <input type="hidden" name="queue_item_id" value="{{ item.id }}">
+                <button class="secondary" type="submit" name="action" value="resolve">Resolve</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Human Review Queue</h2>
+    <table class="table">
+      <thead><tr><th>SKU</th><th>Action</th><th>Type</th><th>Blockers</th></tr></thead>
+      <tbody>
+        {% for item in dashboard.human_review_queue %}
+          <tr>
+            <td>{{ item.sku }}</td>
+            <td>{{ item.recommended_action }}</td>
+            <td>{{ item.queue_type }}</td>
+            <td>{{ item.blockers | join(", ") if item.blockers else "none" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Recent Decisions</h2>
+    <table class="table">
+      <thead><tr><th>ID</th><th>SKU</th><th>Action</th><th>Status</th><th>Execute</th></tr></thead>
+      <tbody>
+        {% for decision in decisions %}
+          <tr>
+            <td>#{{ decision.id }}</td>
+            <td>{{ decision.sku }}</td>
+            <td>{{ decision.recommended_action }}</td>
+            <td>{{ decision.status }}</td>
+            <td>
+              <form action="/content-autopilot/run" method="post">
+                <input type="hidden" name="decision_id" value="{{ decision.id }}">
+                <button class="secondary" type="submit" name="action" value="execute">Execute safe</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

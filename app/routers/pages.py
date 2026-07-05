@@ -11,6 +11,8 @@ from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
+from app.content_autopilot import ActionExecutor, AutopilotQueueService
+from app.content_autopilot.errors import ContentAutopilotError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -502,6 +504,84 @@ def content_factory_context(db: Session) -> dict:
             select(models.ContentPerformanceMetric).order_by(models.ContentPerformanceMetric.created_at.desc()).limit(20)
         ).all(),
         "dashboard": dashboard,
+    }
+
+
+@router.get("/content-autopilot", response_class=HTMLResponse)
+def content_autopilot_page(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "content_autopilot.html",
+        {
+            "request": request,
+            "page_title": "Content Autopilot",
+            "result": None,
+            "state": None,
+            "error": request.query_params.get("error"),
+            **content_autopilot_context(db),
+        },
+    )
+
+
+@router.post("/content-autopilot/run", response_class=HTMLResponse)
+def run_content_autopilot_page(
+    request: Request,
+    product_id: int = Form(0),
+    decision_id: str = Form(""),
+    queue_item_id: str = Form(""),
+    execute_safe: bool = Form(False),
+    action: str = Form("run_product"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    state = None
+    error = None
+    try:
+        service = AutopilotQueueService(db)
+        if action == "run_all":
+            result = service.run(execute_safe=execute_safe).model_dump(mode="json")
+        elif action == "run_product":
+            result = service.run(product_ids=[product_id], execute_safe=execute_safe).model_dump(mode="json")
+            state = service.state(product_id).model_dump(mode="json")
+        elif action == "state":
+            state = service.state(product_id).model_dump(mode="json")
+        elif action == "decide":
+            decision = service.decide(product_id)
+            result = {
+                "decision_id": decision.id,
+                "recommended_action": decision.recommended_action,
+                "status": decision.status,
+                "blockers": decision.blockers_json,
+                "reasons": decision.reasons_json,
+            }
+            state = service.state(product_id).model_dump(mode="json")
+        elif action == "execute":
+            result = ActionExecutor(db).execute(int(decision_id)).model_dump(mode="json")
+        elif action == "resolve":
+            result = AutopilotQueueService._queue_item_dict(service.resolve(int(queue_item_id)))
+    except (ContentAutopilotError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "content_autopilot.html",
+        {
+            "request": request,
+            "page_title": "Content Autopilot",
+            "result": result,
+            "state": state,
+            "error": error,
+            "selected_product_id": product_id,
+            **content_autopilot_context(db),
+        },
+    )
+
+
+def content_autopilot_context(db: Session) -> dict:
+    service = AutopilotQueueService(db)
+    dashboard = service.dashboard().model_dump(mode="json")
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "dashboard": dashboard,
+        "queue_items": service.queue(),
+        "decisions": db.scalars(select(models.AutopilotDecision).order_by(models.AutopilotDecision.id.desc()).limit(20)).all(),
     }
 
 

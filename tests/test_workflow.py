@@ -22,6 +22,7 @@ from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
 from app.config import get_settings
+from app.content_autopilot import ActionExecutor, AutopilotQueueService
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
@@ -2996,3 +2997,296 @@ def test_content_run_does_not_auto_approve_visual_identity():
         assert review.status not in {"approved", "human_approved"}
         assert result.publishing_readiness["status"] != "ready"
         assert any("No computer vision" in note for note in review.review_json["notes"])
+
+
+def fake_content_video(db, content_run_id: int, *, review_status: str = "needs_human_review", review_json: dict | None = None):
+    content_run = db.get(models.ContentRun, content_run_id)
+    generation_variant = db.get(models.VideoGenerationVariant, content_run.generation_variant_id)
+    output_path = Path("test_media") / f"autopilot_video_{content_run_id}.mp4"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"autopilot fake video bytes")
+    video_job = models.VideoJob(
+        script_variant_id=generation_variant.script_variant_id,
+        provider="mock",
+        status="video_generated",
+        output_video_path=output_path.as_posix(),
+    )
+    db.add(video_job)
+    db.flush()
+    generation_variant.video_job_id = video_job.id
+    generation_variant.final_video_path = output_path.as_posix()
+    content_run.video_job_id = video_job.id
+    review = models.VideoQualityReview(
+        creative_spec_id=generation_variant.creative_spec_id,
+        video_generation_variant_id=generation_variant.id,
+        video_job_id=video_job.id,
+        status=review_status,
+        score=0.7,
+        review_json=review_json or {"status": review_status, "notes": ["Metadata-only score."]},
+        warnings_json=[],
+    )
+    db.add(review)
+    db.commit()
+    return content_run, video_job, review
+
+
+def test_autopilot_state_detects_missing_demand():
+    with client() as api:
+        product_id = create_product(api, title="Autopilot Missing Demand Product")
+
+        with SessionLocal() as db:
+            state = AutopilotQueueService(db).state(product_id)
+
+        assert state.has_demand is False
+        assert state.generation_report_exists is False
+        assert "demand_missing" in state.blockers
+
+
+def test_autopilot_recommends_prepare_content_run():
+    with client() as api:
+        product_id = create_product(api, title="Autopilot Prepare Product")
+
+        with SessionLocal() as db:
+            decision = AutopilotQueueService(db).decide(product_id)
+            queue_item = db.query(models.AutopilotQueueItem).one()
+
+        assert decision.recommended_action == "prepare_content_run"
+        assert queue_item.recommended_action == "prepare_content_run"
+
+
+def test_autopilot_recommends_add_reference_when_missing():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Missing Reference Product")
+
+        with SessionLocal() as db:
+            ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            decision = AutopilotQueueService(db).decide(product_id)
+
+        assert decision.recommended_action == "add_product_reference"
+        assert "reference:missing_approved_primary_reference" in decision.blockers_json
+
+
+def test_autopilot_recommends_add_geometry_lock_when_missing():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Missing Geometry Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, result.id)
+            run_json = dict(content_run.run_json)
+            prompt_pack = dict(run_json["prompt_pack"])
+            prompt_pack.pop("product_geometry_spec", None)
+            prompt_pack.pop("product_geometry_rules", None)
+            prompt_pack.pop("product_scale_rules", None)
+            prompt_pack["scene_prompts"] = [
+                {**scene, "negative_prompt": "distorted product"}
+                for scene in prompt_pack.get("scene_prompts", [])
+            ]
+            run_json["prompt_pack"] = prompt_pack
+            run_json["reference_readiness"] = {"status": "ready", "blockers": [], "warnings": []}
+            content_run.run_json = run_json
+            content_run.blockers_json = []
+            db.commit()
+            decision = AutopilotQueueService(db).decide(product_id)
+
+        assert decision.recommended_action == "add_geometry_lock"
+        assert "geometry_lock_missing" in decision.blockers_json
+
+
+def test_autopilot_recommends_human_review_for_unverified_video():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Human Review Product")
+
+        with SessionLocal() as db:
+            prepared = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, prepared.id)
+            content_run.run_json = {
+                **content_run.run_json,
+                "reference_readiness": {"status": "ready", "blockers": [], "warnings": []},
+            }
+            content_run.blockers_json = []
+            db.commit()
+            fake_content_video(db, prepared.id)
+            decision = AutopilotQueueService(db).decide(product_id)
+
+        assert decision.recommended_action == "human_review"
+        assert decision.human_review_required is True
+
+
+def test_autopilot_recommends_regeneration_for_identity_mismatch():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Identity Mismatch Product")
+
+        with SessionLocal() as db:
+            prepared = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, prepared.id)
+            content_run.run_json = {
+                **content_run.run_json,
+                "reference_readiness": {"status": "ready", "blockers": [], "warnings": []},
+            }
+            content_run.blockers_json = []
+            db.commit()
+            fake_content_video(
+                db,
+                prepared.id,
+                review_json={"status": "needs_human_review", "issue": "product_identity_mismatch"},
+            )
+            decision = AutopilotQueueService(db).decide(product_id)
+
+        assert decision.recommended_action == "request_regeneration"
+        assert "product_identity_mismatch" in decision.blockers_json
+
+
+def test_autopilot_recommends_geometry_regeneration_for_geometry_mismatch():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Geometry Mismatch Product")
+
+        with SessionLocal() as db:
+            prepared = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, prepared.id)
+            content_run.run_json = {
+                **content_run.run_json,
+                "reference_readiness": {"status": "ready", "blockers": [], "warnings": []},
+            }
+            content_run.blockers_json = []
+            db.commit()
+            fake_content_video(
+                db,
+                prepared.id,
+                review_json={"status": "needs_human_review", "issue": "product_geometry_mismatch"},
+            )
+            decision = AutopilotQueueService(db).decide(product_id)
+
+        assert decision.recommended_action == "request_geometry_regeneration"
+        assert "product_geometry_mismatch" in decision.blockers_json
+
+
+def test_autopilot_blocks_paid_real_smoke_without_explicit_gate():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Paid Gate Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(
+                product_id,
+                url="https://example.com/packshot.png",
+                asset_type="packshot",
+                is_primary_reference=True,
+            )
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            decision = AutopilotQueueService(db).decide(product_id)
+            result = ActionExecutor(db).execute(decision.id)
+
+        assert decision.recommended_action == "run_real_smoke"
+        assert result.status == "blocked"
+        assert "paid_action_requires_explicit_gate" in result.blockers
+
+
+def test_autopilot_blocks_publishing_unapproved_video():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Publishing Gate Product")
+
+        with SessionLocal() as db:
+            prepared = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            decision = models.AutopilotDecision(
+                product_id=product_id,
+                sku=prepared.sku,
+                content_run_id=prepared.id,
+                recommended_action="schedule_publishing_task",
+                confidence_score=0.8,
+                status="recommended",
+                blockers_json=[],
+                reasons_json=["Package scheduling requires explicit approval."],
+                inputs_json={},
+                outputs_json={},
+                human_review_required=True,
+            )
+            db.add(decision)
+            db.commit()
+            db.refresh(decision)
+            result = ActionExecutor(db).execute(decision.id)
+
+        assert result.status == "blocked"
+        assert "publishing_action_requires_explicit_gate" in result.blockers
+
+
+def test_autopilot_creates_queue_items():
+    with client() as api:
+        product_id = create_product(api, title="Autopilot Queue Product")
+
+        with SessionLocal() as db:
+            result = AutopilotQueueService(db).run(product_ids=[product_id])
+            queue_item = db.query(models.AutopilotQueueItem).one()
+
+        assert result.total_checked == 1
+        assert queue_item.recommended_action == "prepare_content_run"
+        assert queue_item.status == "open"
+
+
+def test_autopilot_executes_safe_prompt_only_action():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot Prompt Execute Product")
+
+        with SessionLocal() as db:
+            prepared = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            decision = models.AutopilotDecision(
+                product_id=product_id,
+                sku=prepared.sku,
+                content_run_id=prepared.id,
+                recommended_action="run_prompt_only",
+                confidence_score=0.9,
+                status="recommended",
+                blockers_json=[],
+                reasons_json=["Prompt-only is a safe no-paid action."],
+                inputs_json={},
+                outputs_json={},
+                human_review_required=False,
+            )
+            db.add(decision)
+            db.commit()
+            db.refresh(decision)
+            result = ActionExecutor(db).execute(decision.id)
+
+        assert result.status == "executed"
+        assert result.executed is True
+        assert result.outputs["prompt_pack_id"]
+
+
+def test_autopilot_dashboard_renders_queue_and_blockers():
+    with client() as api:
+        product_id = create_product(api, title="Autopilot UI Product")
+        with SessionLocal() as db:
+            AutopilotQueueService(db).run(product_ids=[product_id])
+
+        response = api.get("/content-autopilot")
+
+        assert response.status_code == 200, response.text
+        assert "Content Autopilot" in response.text
+        assert "Autopilot Overview" in response.text
+        assert "Decision Queue" in response.text
+        assert "Human Review Queue" in response.text
+        assert "prepare_content_run" in response.text
+
+
+def test_autopilot_api_state_decide_execute_and_queue():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Autopilot API Product")
+
+        state = api.get(f"/api/content-autopilot/products/{product_id}/state")
+        decide = api.post(f"/api/content-autopilot/products/{product_id}/decide")
+
+        assert state.status_code == 200, state.text
+        assert decide.status_code == 200, decide.text
+        assert decide.json()["recommended_action"] == "prepare_content_run"
+
+        execute = api.post(f"/api/content-autopilot/decisions/{decide.json()['id']}/execute", json={})
+        queue_response = api.get("/api/content-autopilot/queue")
+        run_response = api.post("/api/content-autopilot/run", json={"product_id": product_id})
+
+        assert execute.status_code == 200, execute.text
+        assert execute.json()["executed"] is True
+        assert execute.json()["outputs"]["content_run_id"]
+        assert queue_response.status_code == 200, queue_response.text
+        assert "queue" in queue_response.json()
+        assert run_response.status_code == 200, run_response.text
+        assert run_response.json()["total_checked"] == 1
