@@ -26,6 +26,7 @@ from app.content_factory import ContentPerformanceService, ContentRunOrchestrato
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.hook_strategy import HookStrategySelector
+from app.creative.product_geometry import GEOMETRY_LOCK_PROMPT_LINES, GEOMETRY_NEGATIVE_TERMS
 from app.creative.types import CreativeSpec
 from app.database import Base, SessionLocal, engine
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
@@ -60,6 +61,7 @@ from app.variants.first_frame_builder import FirstFrameBuilder
 from app.variants.variant_scorer import VariantScorer
 from app.variants.variant_selector import VariantSelector
 from app.video_generator.generator import VideoGenerator
+from app.video_generator.regeneration_requests import RegenerationRequestService
 from app.video_generator.real_smoke_runner import RealSmokeRunner
 from app.workflows.working_video_generator import WorkingVideoGenerator
 
@@ -1501,6 +1503,20 @@ def test_creative_spec_has_first_frame_and_product_rules():
         assert any("hallucinate packaging" in rule.lower() for rule in spec.product_display_rules)
 
 
+def test_product_geometry_rules_added_to_creative_spec():
+    with client() as api:
+        _, _, spec = build_creative_spec_fixture(api, title="Geometry Spec Product")
+
+        assert spec.product_geometry_spec.geometry_lock_enabled is True
+        assert spec.product_geometry_spec.preserve_silhouette is True
+        assert spec.product_geometry_spec.preserve_height_width_ratio is True
+        assert spec.product_geometry_rules["preserve_reference_silhouette"] is True
+        assert spec.product_geometry_rules["preserve_cap_size_and_position"] is True
+        assert spec.product_scale_rules["product_should_occupy_percent_of_frame"] == "25-40%"
+        assert spec.product_scale_rules["product_scale_relative_to_hand"] == "natural cosmetic bottle scale"
+        assert spec.product_visibility_rules["product_face_label_visible"] is True
+
+
 def test_creative_spec_claims_have_source_refs():
     with client() as api:
         _, _, spec = build_creative_spec_fixture(api, title="Claim Ref Spec Product")
@@ -1543,6 +1559,35 @@ def test_prompt_pack_from_spec_contains_first_frame_requirements():
         assert first_scene["first_frame_requirements"]["product_visible_by_second"] <= 1.5
         assert first_scene["caption_text"]
         assert first_scene["product_accuracy_rules"]
+
+
+def test_prompt_pack_contains_geometry_lock_constraints():
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Geometry Prompt Product")
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        prompt_pack = generation_variant.prompt_pack_json
+        first_scene = prompt_pack["scene_prompts"][0]
+        for line in GEOMETRY_LOCK_PROMPT_LINES:
+            assert line in first_scene["prompt_text"]
+            assert line in first_scene["safety_constraints"]
+        assert prompt_pack["product_geometry_rules"]["preserve_reference_silhouette"] is True
+        assert prompt_pack["product_scale_rules"]["product_scale_relative_to_hand"] == "natural cosmetic bottle scale"
+        assert prompt_pack["product_visibility_rules"]["avoid_occluding_cap_or_label"] is True
+
+
+def test_negative_prompt_blocks_size_and_proportion_drift():
+    with client() as api:
+        _, _, _, selected_variant_id = build_variant_set_fixture(api, title="Geometry Negative Product")
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        negative_prompt = generation_variant.prompt_pack_json["scene_prompts"][0]["negative_prompt"]
+        for term in GEOMETRY_NEGATIVE_TERMS:
+            assert term in negative_prompt
 
 
 def test_prompt_pack_includes_reference_image_warning_when_missing():
@@ -1607,6 +1652,71 @@ def test_regenerate_scene_creates_new_prompt_for_one_scene_only():
         assert after[1] == before[1]
         assert after[3] == before[3]
         assert after[4] == before[4]
+
+
+def test_regeneration_request_accepts_product_geometry_mismatch():
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Geometry Request Product")
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_spec(spec_id, provider="mock")
+            video_job = models.VideoJob(
+                script_variant_id=generation_variant.script_variant_id,
+                provider="mock",
+                status="needs_human_review",
+            )
+            db.add(video_job)
+            db.flush()
+            generation_variant.video_job_id = video_job.id
+            db.commit()
+            request = RegenerationRequestService(db).create(
+                video_job_id=video_job.id,
+                scene_number=1,
+                reason="product_geometry_mismatch",
+                feedback="Product size/proportions drifted; preserve exact bottle silhouette.",
+            )
+
+        assert request.reason == "product_geometry_mismatch"
+        assert request.status == "requested"
+        assert request.video_generation_variant_id == generation_variant.id
+
+
+def test_regeneration_prompt_includes_geometry_corrections():
+    with client() as api:
+        _, spec_id, _ = build_creative_spec_fixture(api, title="Geometry Regeneration Product")
+
+        with SessionLocal() as db:
+            generation_variant = VideoGenerator(db).build_prompt_pack_from_spec(spec_id, provider="mock")
+            video_job = models.VideoJob(
+                script_variant_id=generation_variant.script_variant_id,
+                provider="mock",
+                status="needs_human_review",
+            )
+            db.add(video_job)
+            db.flush()
+            generation_variant.video_job_id = video_job.id
+            db.commit()
+            service = RegenerationRequestService(db)
+            request = service.create(
+                video_job_id=video_job.id,
+                scene_number=1,
+                reason="product_geometry_mismatch",
+                feedback=(
+                    "Product size/proportions drifted; preserve exact bottle silhouette, "
+                    "height-width ratio, cap/dropper size and label area."
+                ),
+            )
+            request = service.build_prompt_only(request.id)
+            changed_scene = request.prompt_only_output_json["scene_prompt"]
+            db.refresh(generation_variant)
+
+        assert request.status == "prompt_ready"
+        assert "Geometry correction" in changed_scene["prompt_text"]
+        assert "Keep the product the same size and proportions as the primary reference image." in changed_scene["prompt_text"]
+        assert "Preserve height-to-width ratio." in changed_scene["prompt_text"]
+        assert "changed product size" in changed_scene["negative_prompt"]
+        assert "wrong proportions" in changed_scene["negative_prompt"]
+        assert generation_variant.status == "prompt_pack_ready"
 
 
 def test_video_generator_api_build_spec_and_prompt_pack():
@@ -2218,6 +2328,24 @@ def test_variant_real_smoke_creates_quality_review_needs_human_review(monkeypatc
         assert review.review_json["score"] > 0
         assert output.quality_score == review.score
         assert any(check["key"] == "generation_report_exists" and check["passed"] for check in review.review_json["checks"])
+
+
+def test_geometry_lock_does_not_auto_approve_video(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    install_fake_runway_provider(monkeypatch)
+    with client() as api:
+        _, _, selected_variant_id, _ = prepare_ready_variant(api, title="Geometry Review Guard Variant")
+
+        with SessionLocal() as db:
+            output = RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+            review = db.get(models.VideoQualityReview, output.quality_review_id)
+            generation_variant = db.query(models.VideoGenerationVariant).filter_by(video_job_id=output.video_job_id).one()
+
+        assert review.status == "needs_human_review"
+        assert review.review_json["status"] == "needs_human_review"
+        assert review.status != "approved"
+        assert generation_variant.prompt_pack_json["product_geometry_rules"]["preserve_reference_silhouette"] is True
+        assert "Keep the product the same size and proportions as the primary reference image." in generation_variant.prompt_pack_json["scene_prompts"][0]["prompt_text"]
 
 
 def test_variant_real_smoke_cli_safe_failure_without_spend_gate():
