@@ -11,10 +11,15 @@ A `ContentRun` records one automated production pass for a product and platform.
 - creative variants
 - selected variant
 - prompt pack
+- product identity readiness
+- product geometry/scale readiness
+- publishing readiness
 - rules-based AI review precheck
 - blockers and next actions
 
 Prepare does not call paid video providers.
+
+The CLI and API output include buyer need, safe promise, selected variant, prompt pack, reference readiness, geometry readiness, human review requirement, blockers, and next actions.
 
 CLI:
 
@@ -35,3 +40,16 @@ API:
 - `GET /api/content-factory/runs/{id}/recommendations`
 
 AI review is metadata/rules-based and intentionally keeps visual identity and packaging correctness in human review.
+
+## Geometry-Aware Review
+
+`ContentRun` stores `geometry_readiness` in `run_json`. The readiness check requires:
+
+- product geometry rules
+- product scale rules
+- geometry lock enabled in the prompt pack
+- negative prompt terms that block product size and proportion drift
+
+Missing geometry data adds `geometry_lock_missing` and produces the `add_geometry_lock` recommendation. Explicit human feedback such as `product_geometry_mismatch` moves the run to `needs_regeneration` and produces `request_geometry_regeneration`.
+
+Publishing readiness is also tracked, but it does not become `ready` until a real output exists and review/approval gates are satisfied.

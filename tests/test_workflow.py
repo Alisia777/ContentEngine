@@ -2818,3 +2818,181 @@ def test_content_factory_api_prepare_dashboard_and_recommendations():
         assert dashboard.status_code == 200, dashboard.text
         assert recommendations.json()["recommendations"]
         assert dashboard.json()["total_runs"] == 1
+
+
+def test_content_run_ai_review_checks_geometry_lock():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Geometry Review Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            review = db.get(models.AIContentReview, result.ai_review_id)
+
+        check_keys = {check["key"] for check in review.review_json["checks"]}
+        assert "product_geometry_rules_present" in check_keys
+        assert "product_scale_rules_present" in check_keys
+        assert "negative_prompt_blocks_size_proportion_drift" in check_keys
+        assert result.geometry_readiness["status"] == "ready"
+        assert result.geometry_readiness["negative_prompt_blocks_geometry_drift"] is True
+
+
+def test_content_run_recommends_add_geometry_lock_when_missing():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Missing Geometry Product")
+
+        with SessionLocal() as db:
+            orchestrator = ContentRunOrchestrator(db)
+            result = orchestrator.prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, result.id)
+            run_json = dict(content_run.run_json)
+            prompt_pack = dict(run_json["prompt_pack"])
+            prompt_pack.pop("product_geometry_spec", None)
+            prompt_pack.pop("product_geometry_rules", None)
+            prompt_pack.pop("product_scale_rules", None)
+            prompt_pack["scene_prompts"] = [
+                {**scene, "negative_prompt": "distorted product"}
+                for scene in prompt_pack.get("scene_prompts", [])
+            ]
+            run_json["prompt_pack"] = prompt_pack
+            content_run.run_json = run_json
+            db.commit()
+            reviewed = orchestrator.review(result.id)
+
+        actions = {action.action for action in reviewed.next_actions}
+        assert "geometry_lock_missing" in reviewed.blockers
+        assert "add_geometry_lock" in actions
+        assert reviewed.geometry_readiness["status"] == "blocked"
+
+
+def test_content_run_recommends_geometry_regeneration_on_product_geometry_mismatch():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Geometry Mismatch Product")
+
+        with SessionLocal() as db:
+            orchestrator = ContentRunOrchestrator(db)
+            result = orchestrator.prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, result.id)
+            generation_variant = db.get(models.VideoGenerationVariant, result.generation_variant_id)
+            video_job = models.VideoJob(
+                script_variant_id=generation_variant.script_variant_id,
+                provider="mock",
+                status="needs_human_review",
+            )
+            db.add(video_job)
+            db.flush()
+            generation_variant.video_job_id = video_job.id
+            content_run.video_job_id = video_job.id
+            db.commit()
+            RegenerationRequestService(db).create(
+                video_job_id=video_job.id,
+                scene_number=1,
+                reason="product_geometry_mismatch",
+                feedback="Product size/proportions drifted; preserve exact bottle silhouette.",
+            )
+            reviewed = orchestrator.review(result.id)
+
+        actions = {action.action for action in reviewed.next_actions}
+        assert reviewed.status == "needs_regeneration"
+        assert "product_geometry_mismatch" in reviewed.blockers
+        assert "request_geometry_regeneration" in actions
+
+
+def test_content_factory_dashboard_counts_geometry_blockers():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Geometry Dashboard Product")
+
+        with SessionLocal() as db:
+            orchestrator = ContentRunOrchestrator(db)
+            result = orchestrator.prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, result.id)
+            generation_variant = db.get(models.VideoGenerationVariant, result.generation_variant_id)
+            video_job = models.VideoJob(
+                script_variant_id=generation_variant.script_variant_id,
+                provider="mock",
+                status="needs_human_review",
+            )
+            db.add(video_job)
+            db.flush()
+            generation_variant.video_job_id = video_job.id
+            content_run.video_job_id = video_job.id
+            db.commit()
+            RegenerationRequestService(db).create(
+                video_job_id=video_job.id,
+                scene_number=1,
+                reason="product_geometry_mismatch",
+                feedback="Product scale mismatch after generation.",
+            )
+            orchestrator.review(result.id)
+            dashboard = ContentPerformanceService(db).dashboard()
+
+        assert dashboard.needs_regeneration_runs == 1
+        assert dashboard.geometry_mismatch_blockers == 1
+
+
+def test_content_factory_ui_shows_geometry_readiness_and_next_actions():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory UI Geometry Product")
+        response = api.post(
+            "/content-factory/run",
+            data={
+                "action": "prepare",
+                "product_id": str(product_id),
+                "platform": "Instagram Reels",
+                "duration": "15",
+                "variant_count": "5",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert "buyer_need" in response.text
+        assert "safe_promise" in response.text
+        assert "Reference readiness" in response.text
+        assert "Geometry readiness" in response.text
+        assert "product identity blockers" in response.text
+        assert "geometry/scale blockers" in response.text
+        assert "Next action" in response.text
+
+
+def test_prepare_content_run_prints_geometry_status():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory CLI Geometry Product")
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/prepare_content_run.py",
+                "--product-id",
+                str(product_id),
+                "--platform",
+                "Instagram Reels",
+                "--duration",
+                "15",
+                "--variant-count",
+                "5",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "Buyer Need:" in result.stdout
+        assert "Safe Promise:" in result.stdout
+        assert "Reference Readiness:" in result.stdout
+        assert "Geometry Readiness:" in result.stdout
+        assert "Human Review Required:" in result.stdout
+
+
+def test_content_run_does_not_auto_approve_visual_identity():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory No Auto Approval Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            review = db.get(models.AIContentReview, result.ai_review_id)
+
+        assert result.human_review_required is True
+        assert review.status not in {"approved", "human_approved"}
+        assert result.publishing_readiness["status"] != "ready"
+        assert any("No computer vision" in note for note in review.review_json["notes"])

@@ -30,6 +30,19 @@ python scripts/regenerate_scene_from_feedback.py --regeneration-request-id 1 --b
 
 This does not call a paid provider. It updates the prompt pack for the affected scene and keeps the video in human-review flow.
 
+## Content Factory Integration
+
+`/content-factory` reads the geometry lock from the generated prompt pack and exposes it as `geometry_readiness`.
+
+The AI review checks:
+
+- `product_geometry_rules`
+- `product_scale_rules`
+- negative prompt blockers for size/proportion drift
+- human feedback or quality review signals with `product_geometry_mismatch`
+
+If geometry data is missing, the content run receives the blocker `geometry_lock_missing` and the next action `add_geometry_lock`. If human review reports size/proportion drift, the content run receives `product_geometry_mismatch`, moves to `needs_regeneration`, and recommends `request_geometry_regeneration`.
+
 ## Honesty Boundary
 
 This is prompt-level protection, not computer vision verification. The metadata score must not claim that visual product identity or geometry is correct. Generated videos still require manual approval before publishing.

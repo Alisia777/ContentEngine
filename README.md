@@ -289,6 +289,14 @@ SKU / product
 
 It automates creator logic while keeping humans in the approval and exception loop. It does not add external account creation, Telegram bot workflow, batch generation, approval bypasses, or auto-publishing of unreviewed videos.
 
+### AI Factory Control Loop
+
+`/content-factory` now acts as the automated control loop for one SKU at a time. A prepared run returns the demand hypothesis, safe promise, CreativeSpec, selected variant, prompt pack, reference readiness, geometry/scale readiness, AI review status, publishing readiness, and next recommended action.
+
+The AI review is rules-based and checks product identity constraints, Product Geometry / Scale Lock fields, negative prompt drift blockers, generated output metadata when a video exists, quality review status, and publishing package readiness. Missing geometry adds `geometry_lock_missing` and recommends `add_geometry_lock`. Human feedback about size/proportion drift adds `product_geometry_mismatch` and recommends `request_geometry_regeneration`.
+
+The system does not claim visual identity or packaging geometry verification without human review or a future computer-vision layer.
+
 CLI:
 
 ```bash

@@ -4,14 +4,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.content_factory.readiness import control_loop_readiness
 from app.content_factory.types import ContentNextAction
 
 
 RECOMMENDATION_ACTIONS = [
     "add_product_reference",
+    "add_geometry_lock",
     "run_prompt_only",
     "run_real_smoke",
     "request_regeneration",
+    "request_geometry_regeneration",
     "approve_for_publishing",
     "create_publishing_package",
     "import_performance_stats",
@@ -28,6 +31,8 @@ class RecommendationService:
         actions: list[ContentNextAction] = []
         run_json = content_run.run_json or {}
         readiness = run_json.get("reference_readiness") or {}
+        control_readiness = control_loop_readiness(self.db, content_run)
+        geometry = control_readiness["geometry_readiness"]
         blockers = set(content_run.blockers_json or [])
         latest_review = self._latest_review(content_run.id)
         latest_metric = self._latest_metric(content_run)
@@ -42,6 +47,20 @@ class RecommendationService:
                 )
             )
 
+        if geometry.get("status") != "ready" or "geometry_lock_missing" in blockers:
+            actions.append(
+                ContentNextAction(
+                    action="add_geometry_lock",
+                    priority=15,
+                    reason="Product geometry and scale lock must be present before real provider generation.",
+                    payload={
+                        "content_run_id": content_run.id,
+                        "creative_spec_id": content_run.creative_spec_id,
+                        "missing_fields": geometry.get("missing_fields") or [],
+                    },
+                )
+            )
+
         if content_run.selected_variant_id:
             actions.append(
                 ContentNextAction(
@@ -52,13 +71,28 @@ class RecommendationService:
                 )
             )
 
-        if content_run.prompt_pack_id and readiness.get("status") == "ready" and not content_run.video_job_id:
+        if (
+            content_run.prompt_pack_id
+            and readiness.get("status") == "ready"
+            and geometry.get("status") == "ready"
+            and not content_run.video_job_id
+        ):
             actions.append(
                 ContentNextAction(
                     action="run_real_smoke",
                     priority=30,
                     reason="Prompt pack and approved references are ready for one-scene spend-gated smoke.",
                     payload={"content_run_id": content_run.id, "provider": "runway", "max_scenes": 1},
+                )
+            )
+
+        if "product_geometry_mismatch" in blockers or (latest_review and latest_review.status == "needs_regeneration"):
+            actions.append(
+                ContentNextAction(
+                    action="request_geometry_regeneration",
+                    priority=35,
+                    reason="Human review or quality metadata indicates product size/proportion drift.",
+                    payload={"content_run_id": content_run.id, "review_id": latest_review.id if latest_review else None},
                 )
             )
 

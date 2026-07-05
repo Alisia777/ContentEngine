@@ -22,6 +22,9 @@ def main() -> int:
     print(f"Prompt-ready: {dashboard.prompt_ready_runs}")
     print(f"Real-smoke ready: {dashboard.real_smoke_ready_runs}")
     print(f"Human review queue: {dashboard.human_review_queue}")
+    print(f"Needs regeneration: {dashboard.needs_regeneration_runs}")
+    print(f"Geometry mismatch blockers: {dashboard.geometry_mismatch_blockers}")
+    print(f"Publishing-ready: {dashboard.publishing_ready_runs}")
     print(f"Performance rows: {dashboard.performance_metric_count}")
     if dashboard.top_blockers:
         print("Top blockers: " + ", ".join(f"{item['blocker']}={item['count']}" for item in dashboard.top_blockers))

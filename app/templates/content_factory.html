@@ -18,6 +18,9 @@
       <article class="metric"><strong>{{ dashboard.prompt_ready_runs }}</strong><span>prompt-ready</span></article>
       <article class="metric"><strong>{{ dashboard.real_smoke_ready_runs }}</strong><span>real-smoke ready</span></article>
       <article class="metric"><strong>{{ dashboard.human_review_queue }}</strong><span>human review</span></article>
+      <article class="metric"><strong>{{ dashboard.needs_regeneration_runs }}</strong><span>needs regeneration</span></article>
+      <article class="metric"><strong>{{ dashboard.geometry_mismatch_blockers }}</strong><span>geometry mismatch</span></article>
+      <article class="metric"><strong>{{ dashboard.publishing_ready_runs }}</strong><span>publishing-ready</span></article>
     </div>
   </section>
 
@@ -71,6 +74,10 @@
         <p>#{{ result.id }} / {{ result.status }}</p>
         <p class="muted">SKU</p>
         <p>{{ result.sku }}</p>
+        <p class="muted">buyer_need</p>
+        <p>{{ result.buyer_need or result.run.buyer_need or "none" }}</p>
+        <p class="muted">safe_promise</p>
+        <p>{{ result.safe_promise or result.run.safe_promise or "none" }}</p>
         <p class="muted">Selected variant</p>
         <p>#{{ result.selected_variant_id or "none" }}</p>
       </article>
@@ -80,6 +87,42 @@
         <p>CreativeSpec: #{{ result.creative_spec_id or "none" }}</p>
         <p>PromptPack: #{{ result.prompt_pack_id or "none" }}</p>
         <p>AI review: #{{ result.ai_review_id or "none" }}</p>
+        <p>Review status: {{ result.ai_review_status or result.run.review_status or "unknown" }}</p>
+        <p>Human review required: {{ result.human_review_required }}</p>
+        <p>Next action: {{ result.next_action or result.run.next_action or "none" }}</p>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Reference readiness</h2>
+        <p class="muted">status</p>
+        <p>{{ result.reference_readiness.status or result.run.reference_readiness.status or "unknown" }}</p>
+        <p class="muted">blockers</p>
+        <p>{{ (result.reference_readiness.blockers or result.run.reference_readiness.blockers or []) | join(", ") or "none" }}</p>
+      </article>
+      <article class="card">
+        <h2>Geometry readiness</h2>
+        <p class="muted">status</p>
+        <p>{{ result.geometry_readiness.status or result.run.geometry_readiness.status or "unknown" }}</p>
+        <p class="muted">geometry/scale blockers</p>
+        <p>{{ (result.run.geometry_scale_blockers or []) | join(", ") or "none" }}</p>
+        <p class="muted">negative prompt drift blockers</p>
+        <p>{{ result.run.geometry_readiness.negative_prompt_blocks_geometry_drift }}</p>
+      </article>
+      <article class="card">
+        <h2>Product identity</h2>
+        <p class="muted">status</p>
+        <p>{{ result.product_identity_readiness.status or result.run.product_identity_readiness.status or "unknown" }}</p>
+        <p class="muted">product identity blockers</p>
+        <p>{{ (result.run.product_identity_blockers or []) | join(", ") or "none" }}</p>
+      </article>
+      <article class="card">
+        <h2>Publishing readiness</h2>
+        <p class="muted">status</p>
+        <p>{{ result.publishing_readiness.status or result.run.publishing_readiness.status or "unknown" }}</p>
+        <p class="muted">blockers</p>
+        <p>{{ (result.publishing_readiness.blockers or result.run.publishing_readiness.blockers or []) | join(", ") or "none" }}</p>
       </article>
     </section>
 

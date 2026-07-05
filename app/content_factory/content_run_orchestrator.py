@@ -8,6 +8,7 @@ from app.content_factory.agent_registry import ContentAgentRegistry
 from app.content_factory.ai_review_service import AIContentReviewService
 from app.content_factory.assignment_service import ContentAssignmentService
 from app.content_factory.errors import ContentFactoryDataError
+from app.content_factory.readiness import control_loop_readiness
 from app.content_factory.recommendation_service import RecommendationService
 from app.content_factory.types import ContentNextAction, ContentRunResult
 from app.demand.errors import DemandError
@@ -198,6 +199,24 @@ class ContentRunOrchestrator:
             "real_smoke_eligible": result.real_smoke_eligible,
             "provider_status": result.provider_status,
         }
+        readiness = control_loop_readiness(self.db, content_run)
+        content_run.run_json = {
+            **content_run.run_json,
+            **readiness,
+            "ai_factory_control_loop": True,
+            "review_status": None,
+            "human_review_required": True,
+            "next_action": None,
+        }
+        content_run.blockers_json = list(
+            dict.fromkeys(
+                [
+                    *blockers,
+                    *readiness["product_identity_blockers"],
+                    *readiness["geometry_scale_blockers"],
+                ]
+            )
+        )
         self.db.commit()
         self.db.refresh(content_run)
 
@@ -250,6 +269,11 @@ class ContentRunOrchestrator:
     def _sync_recommendations(self, content_run: models.ContentRun) -> list[ContentNextAction]:
         actions = self.recommendations.recommend(content_run)
         content_run.next_actions_json = [action.model_dump(mode="json") for action in actions]
+        run_json = content_run.run_json or {}
+        content_run.run_json = {
+            **run_json,
+            "next_action": actions[0].action if actions else None,
+        }
         self.db.commit()
         self.db.refresh(content_run)
         return actions
@@ -280,6 +304,15 @@ class ContentRunOrchestrator:
             next_actions=actions,
             warnings=content_run.warnings_json or [],
             run=content_run.run_json or {},
+            buyer_need=(content_run.run_json or {}).get("buyer_need"),
+            safe_promise=(content_run.run_json or {}).get("safe_promise"),
+            reference_readiness=(content_run.run_json or {}).get("reference_readiness") or {},
+            geometry_readiness=(content_run.run_json or {}).get("geometry_readiness") or {},
+            product_identity_readiness=(content_run.run_json or {}).get("product_identity_readiness") or {},
+            publishing_readiness=(content_run.run_json or {}).get("publishing_readiness") or {},
+            ai_review_status=(content_run.run_json or {}).get("review_status"),
+            human_review_required=(content_run.run_json or {}).get("human_review_required"),
+            next_action=(content_run.run_json or {}).get("next_action"),
         )
 
     def _run(self, content_run_id: int) -> models.ContentRun:

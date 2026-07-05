@@ -35,6 +35,15 @@ class ContentRunResult(BaseModel):
     next_actions: list[ContentNextAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     run: dict[str, Any] = Field(default_factory=dict)
+    buyer_need: str | None = None
+    safe_promise: str | None = None
+    reference_readiness: dict[str, Any] = Field(default_factory=dict)
+    geometry_readiness: dict[str, Any] = Field(default_factory=dict)
+    product_identity_readiness: dict[str, Any] = Field(default_factory=dict)
+    publishing_readiness: dict[str, Any] = Field(default_factory=dict)
+    ai_review_status: str | None = None
+    human_review_required: bool | None = None
+    next_action: str | None = None
 
 
 class AIReviewResult(BaseModel):
@@ -54,6 +63,9 @@ class ContentFactoryDashboard(BaseModel):
     prompt_ready_runs: int = 0
     real_smoke_ready_runs: int = 0
     human_review_queue: int = 0
+    needs_regeneration_runs: int = 0
+    geometry_mismatch_blockers: int = 0
+    publishing_ready_runs: int = 0
     performance_metric_count: int = 0
     top_blockers: list[dict[str, Any]] = Field(default_factory=list)
     recent_runs: list[dict[str, Any]] = Field(default_factory=list)

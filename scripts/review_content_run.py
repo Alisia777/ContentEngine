@@ -34,7 +34,11 @@ def main() -> int:
     print(f"Content Run ID: {result.id}")
     print(f"Status: {result.status}")
     print(f"AI Review ID: {result.ai_review_id}")
-    print("Human review required.")
+    print(f"Reference Readiness: {result.reference_readiness.get('status', 'unknown')}")
+    print(f"Geometry Readiness: {result.geometry_readiness.get('status', 'unknown')}")
+    print(f"Publishing Readiness: {result.publishing_readiness.get('status', 'unknown')}")
+    print(f"Human Review Required: {result.human_review_required}")
+    print("Blockers: " + (", ".join(result.blockers) if result.blockers else "none"))
     print("Next Actions: " + (", ".join(action.action for action in result.next_actions) if result.next_actions else "none"))
     return 0
 
