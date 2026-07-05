@@ -1,0 +1,4 @@
+campaign_id,sku,platform,posted_url,destination_name,creative_variant_id,period_start,period_end,views,likes,comments,shares,saves,clicks,orders,revenue,spend,watch_time_seconds,retention_rate
+1,BOMBAR-001,Instagram Reels,https://example.com/posts/bombar-001,Bombar Reels,1,2026-07-01,2026-07-05,2000,150,20,30,40,120,12,18000,2400,5400,0.42
+1,BOMBAR-002,Instagram Reels,https://example.com/posts/bombar-002,Bombar Reels,2,2026-07-01,2026-07-05,1800,15,3,2,5,4,0,0,900,1500,0.12
+1,BOMBAR-003,TikTok,https://example.com/posts/bombar-003,Bombar TikTok,3,2026-07-01,2026-07-05,50,1,0,0,0,1,0,0,200,100,0.08

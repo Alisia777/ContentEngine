@@ -26,6 +26,14 @@ from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, 
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
 from app.campaign_execution.errors import CampaignExecutionDataError
+from app.campaign_performance import (
+    CampaignMetricsImporter,
+    CampaignPerformanceAggregator,
+    CampaignPerformanceReportService,
+    CampaignPerformanceScorer,
+    CampaignRecommendationEngine,
+)
+from app.campaign_performance.errors import CampaignPerformanceDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -1467,6 +1475,69 @@ def campaign_batch_execute(
     result = BatchExecutor(db).execute(campaign_id, action_type=action_type or None)
     action_query = f"&action_type={action_type}" if action_type else ""
     return redirect(f"/campaign-batch?campaign_id={campaign_id}{action_query}&batch_run_id={result.batch_run_id}")
+
+
+@router.get("/campaign-performance", response_class=HTMLResponse)
+def campaign_performance_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    summary = None
+    scores = []
+    recommendations = []
+    report = None
+    imports = []
+    if selected_campaign:
+        try:
+            summary = CampaignPerformanceAggregator(db).summarize(selected_campaign.id)
+            scores = CampaignPerformanceScorer(db).latest_scores(selected_campaign.id)
+            recommendations = CampaignRecommendationEngine(db).list_recommendations(selected_campaign.id)
+            report = CampaignPerformanceReportService(db).build_report(selected_campaign.id)
+            imports = db.scalars(
+                select(models.CampaignPerformanceImport)
+                .where(models.CampaignPerformanceImport.campaign_id == selected_campaign.id)
+                .order_by(models.CampaignPerformanceImport.id.desc())
+            ).all()
+        except CampaignPerformanceDataError:
+            summary = None
+    return templates.TemplateResponse(
+        "campaign_performance.html",
+        {
+            "request": request,
+            "page_title": "Campaign Performance",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "summary": summary,
+            "scores": scores,
+            "recommendations": recommendations,
+            "report": report,
+            "imports": imports[:10],
+        },
+    )
+
+
+@router.post("/campaign-performance/{campaign_id}/import-csv")
+async def campaign_performance_import_csv(campaign_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    csv_text = (await file.read()).decode("utf-8-sig")
+    CampaignMetricsImporter(db).import_csv_text(campaign_id, csv_text, source_file=file.filename or "campaign_performance.csv")
+    return redirect(f"/campaign-performance?campaign_id={campaign_id}")
+
+
+@router.post("/campaign-performance/{campaign_id}/generate-recommendations")
+def campaign_performance_generate_recommendations(campaign_id: int, db: Session = Depends(get_db)):
+    CampaignRecommendationEngine(db).generate(campaign_id)
+    return redirect(f"/campaign-performance?campaign_id={campaign_id}")
+
+
+@router.post("/campaign-performance/recommendations/{recommendation_id}/accept")
+def campaign_performance_accept_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+    result = CampaignRecommendationEngine(db).accept(recommendation_id)
+    return redirect(f"/campaign-performance?campaign_id={result.campaign_id}")
+
+
+@router.post("/campaign-performance/recommendations/{recommendation_id}/reject")
+def campaign_performance_reject_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+    result = CampaignRecommendationEngine(db).reject(recommendation_id)
+    return redirect(f"/campaign-performance?campaign_id={result.campaign_id}")
 
 
 @router.post("/bombar-launch/import-matrix")

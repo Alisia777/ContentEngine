@@ -426,6 +426,33 @@ Batch execution uses the v0.7 action queue. It does not run paid providers, appr
 
 Docs: `docs/CAMPAIGN_BATCH_EXECUTOR.md`.
 
+## Campaign Performance Loop
+
+v0.9.0 adds `/campaign-performance`, a manual metrics feedback loop for scaling decisions:
+
+```text
+published final URLs
+-> CSV metrics import
+-> campaign aggregation
+-> SKU / variant / hook / destination scores
+-> scale / pause / regenerate recommendations
+-> safe action queue items
+-> JSON and CSV report
+```
+
+Operator CLI:
+
+```bash
+python scripts/import_campaign_performance.py --campaign-id 1 --csv sample_data/campaign_performance.csv
+python scripts/campaign_performance_summary.py --campaign-id 1
+python scripts/campaign_performance_recommendations.py --campaign-id 1
+python scripts/campaign_performance_report.py --campaign-id 1
+```
+
+The loop uses manual CSV import and `PublishingTask.final_url` links. It does not scrape platforms, require external API credentials, auto-publish, bypass approvals, run paid providers, or create external accounts.
+
+Docs: `docs/CAMPAIGN_PERFORMANCE_LOOP.md`, `docs/CAMPAIGN_METRICS_IMPORT.md`, and `docs/SCALING_RECOMMENDATIONS.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:
