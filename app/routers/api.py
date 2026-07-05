@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,14 @@ from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.bombar_launch import (
+    BombarMatrixImporter,
+    DestinationSetupPlanner,
+    DistributionAllocator,
+    LaunchDashboardService,
+    LaunchPlanner,
+)
+from app.bombar_launch.errors import BombarLaunchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
@@ -227,6 +235,30 @@ class CampaignCreateRequest(BaseModel):
 class CampaignDistributionPlanRequest(BaseModel):
     start_date: datetime | None = None
     end_date: datetime | None = None
+
+
+class BombarCampaignCreateRequest(BaseModel):
+    import_id: int
+    name: str | None = None
+    brand: str = "Bombar"
+    target_video_count: int = 350
+    target_destination_count: int = 120
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+
+
+class BombarCampaignPrepareRequest(BaseModel):
+    platform: str = "Instagram Reels"
+    duration_seconds: int = 15
+    variant_count: int | None = None
+
+
+class BombarDestinationPackPatchRequest(BaseModel):
+    status: str | None = None
+    suggested_name: str | None = None
+    suggested_handle: str | None = None
+    bio_text: str | None = None
+    avatar_asset_path: str | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1231,6 +1263,53 @@ def get_campaign_product_matrix_import(import_id: int, db: Session = Depends(get
     }
 
 
+@router.post("/bombar/import-matrix")
+async def import_bombar_matrix(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    data = await file.read()
+    filename = file.filename or "bombar_matrix.csv"
+    try:
+        importer = BombarMatrixImporter(db)
+        if filename.lower().endswith(".xlsx"):
+            return importer.import_xlsx_bytes(data, source_file=filename).model_dump(mode="json")
+        return importer.import_csv_text(data.decode("utf-8-sig"), source_file=filename).model_dump(mode="json")
+    except BombarLaunchDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/bombar/imports/{import_id}")
+def get_bombar_import(import_id: int, db: Session = Depends(get_db)):
+    product_import = get_or_404(db, models.ProductMatrixImport, import_id)
+    rows = db.scalars(
+        select(models.ProductMatrixRow)
+        .where(models.ProductMatrixRow.import_id == import_id)
+        .order_by(models.ProductMatrixRow.id)
+    ).all()
+    return {
+        "id": product_import.id,
+        "source_file": product_import.source_file,
+        "status": product_import.status,
+        "imported_count": product_import.imported_count,
+        "warnings": product_import.warnings_json or [],
+        "errors": product_import.errors_json or [],
+        "rows": [
+            {
+                "id": row.id,
+                "sku": row.sku,
+                "product_name": row.product_name,
+                "category": row.category,
+                "price": row.price,
+                "margin": ((row.raw_json or {}).get("bombar") or {}).get("margin"),
+                "stock_qty": row.stock_qty,
+                "product_url": row.product_url,
+                "photo_urls": row.photo_urls_json or [],
+                "status": row.status,
+                "warnings": row.warnings_json or [],
+            }
+            for row in rows
+        ],
+    }
+
+
 @router.post("/campaigns")
 def create_campaign(payload: CampaignCreateRequest, db: Session = Depends(get_db)):
     try:
@@ -1315,6 +1394,155 @@ def get_campaign_distribution_plan(campaign_id: int, db: Session = Depends(get_d
     if not plan:
         raise HTTPException(status_code=404, detail="Campaign distribution plan not found")
     return plan
+
+
+@router.post("/bombar/campaigns")
+def create_bombar_campaign(payload: BombarCampaignCreateRequest, db: Session = Depends(get_db)):
+    try:
+        return LaunchPlanner(db).create_campaign(
+            payload.import_id,
+            name=payload.name,
+            brand=payload.brand,
+            target_video_count=payload.target_video_count,
+            target_destination_count=payload.target_destination_count,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        ).model_dump(mode="json")
+    except BombarLaunchDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/bombar/campaigns")
+def list_bombar_campaigns(db: Session = Depends(get_db)):
+    campaigns = db.scalars(
+        select(models.Campaign)
+        .where(models.Campaign.source_type == "bombar_matrix")
+        .order_by(models.Campaign.id.desc())
+    ).all()
+    return [
+        {
+            "id": campaign.id,
+            "linked_campaign_id": campaign.id,
+            "name": campaign.name,
+            "brand": campaign.brand,
+            "status": campaign.status,
+            "product_count": len(campaign.product_ids_json or []),
+            "target_video_count": campaign.target_video_count,
+            "target_destination_count": campaign.target_destination_count,
+        }
+        for campaign in campaigns
+    ]
+
+
+@router.get("/bombar/campaigns/{campaign_id}")
+def get_bombar_campaign(campaign_id: int, db: Session = Depends(get_db)):
+    campaign = get_or_404(db, models.Campaign, campaign_id)
+    return {
+        "id": campaign.id,
+        "linked_campaign_id": campaign.id,
+        "name": campaign.name,
+        "brand": campaign.brand,
+        "status": campaign.status,
+        "product_ids": campaign.product_ids_json or [],
+        "target_video_count": campaign.target_video_count,
+        "target_destination_count": campaign.target_destination_count,
+        "strategy": campaign.strategy_json or {},
+    }
+
+
+@router.post("/bombar/campaigns/{campaign_id}/prepare-content")
+def prepare_bombar_content(
+    campaign_id: int,
+    payload: BombarCampaignPrepareRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or BombarCampaignPrepareRequest()
+    try:
+        return LaunchPlanner(db).prepare_content(
+            campaign_id,
+            platform=payload.platform,
+            duration_seconds=payload.duration_seconds,
+            variant_count=payload.variant_count,
+        )
+    except BombarLaunchDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/bombar/campaigns/{campaign_id}/generate-destination-packs")
+def generate_bombar_destination_packs(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in DestinationSetupPlanner(db).generate(campaign_id)]
+    except BombarLaunchDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/bombar/campaigns/{campaign_id}/generate-distribution-plan")
+def generate_bombar_distribution_plan(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return DistributionAllocator(db).generate_plan(campaign_id).model_dump(mode="json")
+    except BombarLaunchDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/bombar/campaigns/{campaign_id}/dashboard")
+def get_bombar_dashboard(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return LaunchDashboardService(db).dashboard(campaign_id).model_dump(mode="json")
+    except BombarLaunchDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/bombar/destination-packs")
+def list_bombar_destination_packs(campaign_id: int | None = None, db: Session = Depends(get_db)):
+    query = select(models.DestinationSetupPack).order_by(models.DestinationSetupPack.id.desc())
+    if campaign_id is not None:
+        query = query.where(models.DestinationSetupPack.campaign_id == campaign_id)
+    packs = db.scalars(query).all()
+    return [
+        {
+            "id": pack.id,
+            "campaign_id": pack.campaign_id,
+            "product_id": pack.product_id,
+            "sku": pack.sku,
+            "platform": pack.platform,
+            "suggested_name": pack.suggested_name,
+            "suggested_handle": pack.suggested_handle,
+            "status": pack.status,
+            "content_pillars": pack.content_pillars_json or [],
+            "first_posts": pack.first_posts_json or [],
+            "setup_checklist": pack.setup_checklist_json or [],
+        }
+        for pack in packs
+    ]
+
+
+@router.patch("/bombar/destination-packs/{pack_id}")
+def patch_bombar_destination_pack(
+    pack_id: int,
+    payload: BombarDestinationPackPatchRequest,
+    db: Session = Depends(get_db),
+):
+    pack = get_or_404(db, models.DestinationSetupPack, pack_id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(pack, field, value)
+    db.commit()
+    db.refresh(pack)
+    return {"id": pack.id, "status": pack.status, "suggested_handle": pack.suggested_handle}
+
+
+@router.post("/bombar/publishing-tasks/{task_id}/mark-done")
+def mark_bombar_publishing_task_done(
+    task_id: int,
+    payload: dict[str, Any],
+    db: Session = Depends(get_db),
+):
+    task = get_or_404(db, models.PublishingTask, task_id)
+    task.status = "done"
+    task.final_url = payload.get("final_url")
+    task.raw_response_json = {**(task.raw_response_json or {}), "bombar_manual_upload": payload.get("stats", {})}
+    db.commit()
+    db.refresh(task)
+    return {"id": task.id, "status": task.status, "final_url": task.final_url, "stats": task.raw_response_json}
 
 
 @router.post("/generator/intelligence/build")

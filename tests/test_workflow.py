@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import subprocess
 import sys
+import zipfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
 os.environ["QVF_MEDIA_ROOT"] = "test_media"
@@ -22,6 +25,14 @@ from app.assets.asset_validator import AssetValidator
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.bombar_launch import (
+    BombarMatrixImporter,
+    DestinationSetupPlanner,
+    DistributionAllocator,
+    LaunchDashboardService,
+    LaunchPlanner,
+    ProfilePackBuilder,
+)
 from app.campaign_autopilot import (
     CampaignDistributionPlanner,
     CampaignRunner,
@@ -3051,6 +3062,66 @@ def campaign_fixture(
         return campaign.campaign_id
 
 
+def bombar_csv(row_count: int = 3, *, with_photos: bool = True) -> str:
+    rows = ["sku,product_name,category,price,margin,stock_qty,product_url,photo_1,photo_2,photo_3"]
+    for index in range(1, row_count + 1):
+        photo = f"https://example.com/packshot_{index}.png" if with_photos else ""
+        rows.append(
+            ",".join(
+                [
+                    f"BOMBAR-{index:03d}",
+                    f"Bombar Product {index}",
+                    "Skincare",
+                    str(700 + index),
+                    "0.42",
+                    str(80 + index),
+                    f"https://example.com/products/{index}",
+                    photo,
+                    "",
+                    "",
+                ]
+            )
+        )
+    return "\n".join(rows) + "\n"
+
+
+def bombar_xlsx_bytes(rows: list[list[str]]) -> bytes:
+    sheet_rows = []
+    for row_index, row in enumerate(rows, start=1):
+        cells = []
+        for col_index, value in enumerate(row):
+            column = chr(ord("A") + col_index)
+            cells.append(f'<c r="{column}{row_index}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>')
+        sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData></worksheet>'
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buffer.getvalue()
+
+
+def create_bombar_campaign_fixture(
+    row_count: int = 3,
+    *,
+    target_videos: int = 12,
+    target_destinations: int = 4,
+    with_photos: bool = True,
+) -> int:
+    with SessionLocal() as db:
+        imported = BombarMatrixImporter(db).import_csv_text(bombar_csv(row_count, with_photos=with_photos))
+        campaign = LaunchPlanner(db).create_campaign(
+            imported.import_id,
+            name="Bombar Test Campaign",
+            target_video_count=target_videos,
+            target_destination_count=target_destinations,
+        )
+        return campaign.campaign_id
+
+
 def add_campaign_destination(db, brand: str = "Bombar", daily_limit: int = 1, weekly_limit: int = 3) -> int:
     destination = models.PublishingDestination(
         brand=brand,
@@ -3296,6 +3367,182 @@ def test_campaign_no_external_account_registration_logic_exists():
         "temp_email",
         "captcha",
         "bypass",
+        "fake engagement",
+    ]
+
+    for term in banned_terms:
+        assert term not in source
+
+
+def test_bombar_import_maps_to_product_matrix_import():
+    with client():
+        with SessionLocal() as db:
+            result = BombarMatrixImporter(db).import_csv_text(bombar_csv(2), source_file="bombar.csv")
+            matrix_import = db.get(models.ProductMatrixImport, result.import_id)
+            rows = db.scalars(select(models.ProductMatrixRow).order_by(models.ProductMatrixRow.id)).all()
+
+        assert result.status == "imported"
+        assert matrix_import is not None
+        assert matrix_import.source_file == "bombar.csv"
+        assert len(rows) == 2
+        assert rows[0].sku == "BOMBAR-001"
+        assert rows[0].raw_json["source_adapter"] == "bombar_launch"
+        assert rows[0].raw_json["bombar"]["margin"] == 0.42
+
+
+def test_bombar_matrix_import_xlsx_maps_to_product_matrix_import():
+    with client():
+        rows = [
+            ["sku", "product_name", "category", "price", "margin", "stock_qty", "product_url", "photo_1"],
+            ["BOMBAR-XLSX-1", "XLSX Product", "Skincare", "799", "0.4", "40", "https://example.com/p", "https://example.com/packshot.png"],
+        ]
+        with SessionLocal() as db:
+            result = BombarMatrixImporter(db).import_xlsx_bytes(bombar_xlsx_bytes(rows), source_file="bombar.xlsx")
+            row = db.scalar(select(models.ProductMatrixRow))
+
+        assert result.status == "imported"
+        assert result.imported_count == 1
+        assert result.errors == []
+        assert row.raw_json["source_adapter"] == "bombar_launch"
+
+
+def test_bombar_import_missing_photos_creates_generic_warning():
+    with client():
+        with SessionLocal() as db:
+            result = BombarMatrixImporter(db).import_csv_text(bombar_csv(1, with_photos=False))
+            row = db.scalar(select(models.ProductMatrixRow))
+
+        assert result.imported_count == 1
+        assert any("missing_photo" in warning for warning in result.warnings)
+        assert row.status == "imported_with_warnings"
+        assert "missing_photo" in row.warnings_json
+
+
+def test_bombar_campaign_uses_campaign_autopilot_core():
+    with client():
+        campaign_id = create_bombar_campaign_fixture(row_count=40, target_videos=350, target_destinations=120)
+        with SessionLocal() as db:
+            campaign = db.get(models.Campaign, campaign_id)
+            campaign_products = db.scalars(
+                select(models.CampaignProduct).where(models.CampaignProduct.campaign_id == campaign_id)
+            ).all()
+
+        assert campaign is not None
+        assert campaign.source_type == "bombar_matrix"
+        assert campaign.strategy_json["adapter"] == "bombar_launch"
+        assert len(campaign.product_ids_json) == 40
+        assert len(campaign_products) == 40
+        assert campaign.target_video_count == 350
+        assert campaign.target_destination_count == 120
+
+
+def test_bombar_prepare_content_calls_campaign_runner(monkeypatch):
+    called = {}
+    original = CampaignRunner.prepare_campaign
+
+    def spy(self, campaign_id):
+        called["campaign_id"] = campaign_id
+        return original(self, campaign_id)
+
+    monkeypatch.setattr("app.bombar_launch.launch_planner.CampaignRunner.prepare_campaign", spy)
+    with client():
+        campaign_id = create_bombar_campaign_fixture(row_count=1, target_videos=8, target_destinations=3)
+        with SessionLocal() as db:
+            result = LaunchPlanner(db).prepare_content(campaign_id, variant_count=3)
+            campaign_run = db.get(models.CampaignRun, result["campaign_run_id"])
+
+        assert called["campaign_id"] == campaign_id
+        assert result["delegated_to"] == "CampaignRunner"
+        assert result["prepared_count"] >= 1
+        assert campaign_run is not None
+
+
+def test_destination_setup_pack_generates_generic_destinations():
+    with client():
+        campaign_id = create_bombar_campaign_fixture(row_count=2, target_videos=8, target_destinations=5)
+        with SessionLocal() as db:
+            packs = DestinationSetupPlanner(db).generate(campaign_id)
+            pack = db.get(models.DestinationSetupPack, packs[0].pack_id)
+            destinations = db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.id)).all()
+            accounts = db.scalars(select(models.PublishingAccount)).all()
+
+        assert len(packs) == 5
+        assert pack.campaign_id == campaign_id
+        assert pack.suggested_name
+        assert pack.setup_checklist_json
+        assert len(destinations) == 5
+        assert all(destination.status == "draft" for destination in destinations)
+        assert accounts == []
+
+
+def test_profile_pack_builder_creates_first_posts_plan():
+    with client() as api:
+        product_id = create_product(api, title="Bombar Profile Product")
+        with SessionLocal() as db:
+            product = db.get(models.Product, product_id)
+            profile = ProfilePackBuilder().build(product, platform="Instagram Reels", index=1)
+
+        assert profile["handle_options"]
+        assert len(profile["first_posts"]) == 9
+        assert profile["posting_rules"]
+        assert profile["link_cta_strategy"]["primary_cta"]
+
+
+def test_bombar_distribution_plan_uses_generic_campaign_distribution_plan():
+    with client():
+        campaign_id = create_bombar_campaign_fixture(row_count=3, target_videos=10, target_destinations=4)
+        with SessionLocal() as db:
+            plan = DistributionAllocator(db).generate_plan(campaign_id)
+            generic_plan = db.get(models.CampaignDistributionPlan, plan.plan_id)
+            legacy_model_exists = hasattr(models, "LaunchDistributionPlan")
+
+        assert generic_plan is not None
+        assert plan.plan["delegated_to"] == "CampaignDistributionPlanner"
+        assert plan.total_video_targets == 10
+        assert plan.total_destinations == 4
+        assert "approved_packages_required" in plan.blockers
+        assert legacy_model_exists is False
+
+
+def test_bombar_launch_dashboard_links_campaign_state():
+    with client() as api:
+        campaign_id = create_bombar_campaign_fixture(row_count=2, target_videos=6, target_destinations=3)
+        with SessionLocal() as db:
+            LaunchPlanner(db).prepare_content(campaign_id)
+            DestinationSetupPlanner(db).generate(campaign_id)
+            dashboard = LaunchDashboardService(db).dashboard(campaign_id)
+        response = api.get(f"/bombar-launch?campaign_id={campaign_id}")
+
+        assert dashboard.linked_campaign_id == campaign_id
+        assert dashboard.campaign_state["campaign_id"] == campaign_id
+        assert dashboard.campaign_report["campaign_id"] == campaign_id
+        assert response.status_code == 200, response.text
+        assert "Linked Campaign ID" in response.text
+        assert "Launch Dashboard" in response.text
+
+
+def test_no_duplicate_campaign_core_models_created_by_bombar():
+    assert not hasattr(models, "LaunchCampaign")
+    assert not hasattr(models, "LaunchDistributionPlan")
+    assert not hasattr(models, "LaunchTask")
+    assert not hasattr(models, "BombarProductImport")
+    assert not hasattr(models, "BombarProductRow")
+    assert hasattr(models, "Campaign")
+    assert hasattr(models, "ProductMatrixImport")
+    assert hasattr(models, "CampaignDistributionPlan")
+
+
+def test_bombar_adapter_does_not_create_external_accounts():
+    root = Path(__file__).resolve().parents[1] / "app" / "bombar_launch"
+    source = "\n".join(path.read_text(encoding="utf-8").lower() for path in root.glob("*.py"))
+    banned_terms = [
+        "proxy",
+        "anti_detect",
+        "anti-detect",
+        "temp_email",
+        "captcha",
+        "register_account",
+        "mass_registration",
         "fake engagement",
     ]
 

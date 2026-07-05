@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Bombar</p>
+    <h1>Launch Autopilot</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }} / {{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Matrix Import</span>
+  <span>Campaign Builder</span>
+  <span>Content Preparation</span>
+  <span>Destination Setup</span>
+  <span>Distribution Plan</span>
+  <span>Launch Dashboard</span>
+</section>
+
+<section class="panel">
+  <h2>Matrix Import</h2>
+  <form action="/bombar-launch/import-matrix" method="post" enctype="multipart/form-data" class="form-grid">
+    <label>CSV/XLSX file
+      <input type="file" name="file" accept=".csv,.xlsx" required>
+    </label>
+    <label>Recent imports
+      <select name="existing_import_id" disabled>
+        {% for item in imports %}
+          <option>#{{ item.id }} - {{ item.status }} - {{ item.imported_count }} rows</option>
+        {% else %}
+          <option>No imports yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions">
+      <button type="submit">Import Matrix</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Campaign Builder</h2>
+  <form action="/bombar-launch/campaigns/create" method="post" class="form-grid">
+    <label>Import
+      <select name="import_id" required>
+        {% for item in imports %}
+          <option value="{{ item.id }}">#{{ item.id }} - {{ item.source_file }} - {{ item.imported_count }} SKU</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Name
+      <input name="name" value="Bombar Launch Wave 1">
+    </label>
+    <label>Brand
+      <input name="brand" value="Bombar">
+    </label>
+    <label>Target videos
+      <input name="target_video_count" type="number" value="350" min="1">
+    </label>
+    <label>Target destinations
+      <input name="target_destination_count" type="number" value="120" min="1">
+    </label>
+    <div class="actions">
+      <button type="submit">Create Campaign</button>
+    </div>
+  </form>
+  {% if campaigns %}
+    <table class="table">
+      <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Products</th><th>Targets</th></tr></thead>
+      <tbody>
+        {% for campaign in campaigns %}
+          <tr>
+            <td><a href="/bombar-launch?campaign_id={{ campaign.id }}">#{{ campaign.id }}</a></td>
+            <td>{{ campaign.name }}</td>
+            <td>{{ campaign.status }}</td>
+            <td>{{ campaign.product_ids_json|length }}</td>
+            <td>{{ campaign.target_video_count }} videos / {{ campaign.target_destination_count }} destinations</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+{% if selected_campaign %}
+<section class="panel">
+  <h2>Content Preparation</h2>
+  <p>Linked Campaign ID: #{{ selected_campaign.id }}</p>
+  <div class="actions">
+    <form action="/bombar-launch/campaigns/{{ selected_campaign.id }}/prepare-content" method="post">
+      <button type="submit">Prepare Content</button>
+    </form>
+    <form action="/bombar-launch/campaigns/{{ selected_campaign.id }}/destination-packs" method="post">
+      <button type="submit" class="secondary">Generate Destination Packs</button>
+    </form>
+    <form action="/bombar-launch/campaigns/{{ selected_campaign.id }}/distribution-plan" method="post">
+      <button type="submit" class="secondary">Generate Distribution Plan</button>
+    </form>
+  </div>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>Product</th><th>Status</th><th>Warnings</th><th>References</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.sku }}</td>
+          <td>{{ row.product_name }}</td>
+          <td>{{ row.status }}</td>
+          <td>{{ row.warnings_json|join(", ") }}</td>
+          <td>{{ row.photo_urls_json|length }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No matrix rows linked to this campaign.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Destination Setup</h2>
+  <table class="table">
+    <thead><tr><th>Platform</th><th>SKU</th><th>Name</th><th>Handle</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for pack in destination_packs[:12] %}
+        <tr>
+          <td>{{ pack.platform }}</td>
+          <td>{{ pack.sku }}</td>
+          <td>{{ pack.suggested_name }}</td>
+          <td>{{ pack.suggested_handle }}</td>
+          <td>{{ pack.status }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No destination setup packs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Distribution Plan</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ selected_campaign.target_video_count }}</strong><span>target videos</span></div>
+    <div class="metric"><strong>{{ selected_campaign.target_destination_count }}</strong><span>target destinations</span></div>
+    <div class="metric"><strong>{{ publishing_tasks|length }}</strong><span>publishing tasks</span></div>
+  </div>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Status</th><th>Slots</th><th>Blockers</th><th>Warnings</th></tr></thead>
+    <tbody>
+      {% for plan in distribution_plans %}
+        <tr>
+          <td>#{{ plan.id }}</td>
+          <td>{{ plan.status }}</td>
+          <td>{{ plan.scheduled_slots }} / {{ plan.total_slots }}</td>
+          <td>{{ plan.blockers_json|join(", ") }}</td>
+          <td>{{ plan.warnings_json|join(", ") }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No distribution plan yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Launch Dashboard</h2>
+  {% if dashboard %}
+    <div class="metric-grid">
+      <div class="metric"><strong>{{ dashboard.linked_campaign_id }}</strong><span>campaign</span></div>
+      <div class="metric"><strong>{{ dashboard.ready_sku }}</strong><span>ready SKU</span></div>
+      <div class="metric"><strong>{{ dashboard.blocked_sku }}</strong><span>blocked SKU</span></div>
+      <div class="metric"><strong>{{ dashboard.needs_reference }}</strong><span>needs reference</span></div>
+      <div class="metric"><strong>{{ dashboard.needs_review }}</strong><span>needs review</span></div>
+      <div class="metric"><strong>{{ dashboard.ready_for_publishing }}</strong><span>publishing ready</span></div>
+      <div class="metric"><strong>{{ dashboard.destination_packs }}</strong><span>destination packs</span></div>
+    </div>
+    <table class="table">
+      <thead><tr><th>Top blocker</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for item in dashboard.top_blockers %}
+          <tr><td>{{ item.blocker }}</td><td>{{ item.count }}</td></tr>
+        {% else %}
+          <tr><td colspan="2">No blockers recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <table class="table">
+      <thead><tr><th>Next action</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for item in dashboard.next_actions %}
+          <tr><td>{{ item.action }}</td><td>{{ item.reason }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

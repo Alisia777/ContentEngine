@@ -341,6 +341,35 @@ Campaign Autopilot supports 40 SKU, 300-350 target videos, and 120 destinations 
 
 Docs: `docs/CAMPAIGN_AUTOPILOT.md`, `docs/PRODUCT_MATRIX_IMPORT.md`, and `docs/CAMPAIGN_DISTRIBUTION_PLAN.md`.
 
+## Bombar Launch Adapter
+
+`/bombar-launch` is a Bombar-specific adapter on top of Campaign Autopilot:
+
+```text
+Bombar matrix
+-> ProductMatrixImport
+-> Campaign
+-> CampaignRunner content preparation
+-> destination setup packs
+-> CampaignDistributionPlanner
+-> dashboard linked to Campaign state/report
+```
+
+Operator CLI:
+
+```bash
+python scripts/import_bombar_matrix.py --file data/bombar_matrix.xlsx
+python scripts/create_bombar_campaign.py --import-id 1 --target-videos 350 --target-destinations 120
+python scripts/prepare_bombar_content.py --campaign-id 1
+python scripts/generate_destination_setup_packs.py --campaign-id 1
+python scripts/generate_bombar_distribution_plan.py --campaign-id 1
+python scripts/bombar_launch_dashboard.py --campaign-id 1
+```
+
+The adapter supports 40 SKU, 300-350 target videos, and 120 destination setup packs while keeping Campaign Autopilot as the single campaign core. It does not create external platform accounts, use proxy/anti-detect logic, bypass approvals, or publish unreviewed videos.
+
+Docs: `docs/BOMBAR_LAUNCH_AUTOPILOT.md`, `docs/BOMBAR_MATRIX_FORMAT.md`, and `docs/DESTINATION_SETUP_PACKS.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

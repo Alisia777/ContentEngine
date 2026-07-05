@@ -11,6 +11,14 @@ from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
+from app.bombar_launch import (
+    BombarMatrixImporter,
+    DestinationSetupPlanner,
+    DistributionAllocator,
+    LaunchDashboardService,
+    LaunchPlanner,
+)
+from app.bombar_launch.errors import BombarLaunchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
@@ -1217,6 +1225,72 @@ def campaign_autopilot_page(request: Request, campaign_id: int | None = None, db
     )
 
 
+@router.get("/bombar-launch", response_class=HTMLResponse)
+def bombar_launch_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(
+        select(models.Campaign)
+        .where(models.Campaign.source_type == "bombar_matrix")
+        .order_by(models.Campaign.id.desc())
+    ).all()
+    imports = db.scalars(select(models.ProductMatrixImport).order_by(models.ProductMatrixImport.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    rows = []
+    dashboard = None
+    destination_packs = []
+    distribution_plans = []
+    publishing_tasks = []
+    if selected_campaign:
+        source_import_id = (selected_campaign.strategy_json or {}).get("source_import_id")
+        if source_import_id:
+            rows = db.scalars(
+                select(models.ProductMatrixRow)
+                .where(models.ProductMatrixRow.import_id == source_import_id)
+                .order_by(models.ProductMatrixRow.id)
+            ).all()
+        try:
+            dashboard = LaunchDashboardService(db).dashboard(selected_campaign.id)
+        except BombarLaunchDataError:
+            dashboard = None
+        destination_packs = db.scalars(
+            select(models.DestinationSetupPack)
+            .where(models.DestinationSetupPack.campaign_id == selected_campaign.id)
+            .order_by(models.DestinationSetupPack.id)
+        ).all()
+        distribution_plans = db.scalars(
+            select(models.CampaignDistributionPlan)
+            .where(models.CampaignDistributionPlan.campaign_id == selected_campaign.id)
+            .order_by(models.CampaignDistributionPlan.id.desc())
+        ).all()
+        latest_plan = distribution_plans[0] if distribution_plans else None
+        if latest_plan:
+            destination_ids = latest_plan.destination_ids_json or []
+            package_ids = latest_plan.publishing_package_ids_json or []
+            if destination_ids and package_ids:
+                publishing_tasks = db.scalars(
+                    select(models.PublishingTask)
+                    .where(
+                        models.PublishingTask.destination_id.in_(destination_ids),
+                        models.PublishingTask.publishing_package_id.in_(package_ids),
+                    )
+                    .order_by(models.PublishingTask.id.desc())
+                ).all()
+    return templates.TemplateResponse(
+        "bombar_launch.html",
+        {
+            "request": request,
+            "page_title": "Bombar Launch Autopilot",
+            "campaigns": campaigns,
+            "imports": imports,
+            "selected_campaign": selected_campaign,
+            "rows": rows,
+            "dashboard": dashboard,
+            "destination_packs": destination_packs,
+            "distribution_plans": distribution_plans,
+            "publishing_tasks": publishing_tasks,
+        },
+    )
+
+
 @router.post("/campaign-autopilot/import-matrix")
 async def campaign_autopilot_import_matrix(file: UploadFile = File(...), db: Session = Depends(get_db)):
     text = (await file.read()).decode("utf-8-sig")
@@ -1260,6 +1334,55 @@ def campaign_autopilot_prompt_only(campaign_id: int, db: Session = Depends(get_d
 def campaign_autopilot_distribution_plan(campaign_id: int, db: Session = Depends(get_db)):
     CampaignDistributionPlanner(db).generate_plan(campaign_id)
     return redirect(f"/campaign-autopilot?campaign_id={campaign_id}")
+
+
+@router.post("/bombar-launch/import-matrix")
+async def bombar_launch_import_matrix(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    data = await file.read()
+    filename = file.filename or "bombar_matrix.csv"
+    importer = BombarMatrixImporter(db)
+    if filename.lower().endswith(".xlsx"):
+        result = importer.import_xlsx_bytes(data, source_file=filename)
+    else:
+        result = importer.import_csv_text(data.decode("utf-8-sig"), source_file=filename)
+    return redirect(f"/bombar-launch?import_id={result.import_id}")
+
+
+@router.post("/bombar-launch/campaigns/create")
+def bombar_launch_create_campaign(
+    import_id: int = Form(...),
+    name: str = Form(""),
+    brand: str = Form("Bombar"),
+    target_video_count: int = Form(350),
+    target_destination_count: int = Form(120),
+    db: Session = Depends(get_db),
+):
+    result = LaunchPlanner(db).create_campaign(
+        import_id,
+        name=name or None,
+        brand=brand,
+        target_video_count=target_video_count,
+        target_destination_count=target_destination_count,
+    )
+    return redirect(f"/bombar-launch?campaign_id={result.campaign_id}")
+
+
+@router.post("/bombar-launch/campaigns/{campaign_id}/prepare-content")
+def bombar_launch_prepare_content(campaign_id: int, db: Session = Depends(get_db)):
+    LaunchPlanner(db).prepare_content(campaign_id)
+    return redirect(f"/bombar-launch?campaign_id={campaign_id}")
+
+
+@router.post("/bombar-launch/campaigns/{campaign_id}/destination-packs")
+def bombar_launch_destination_packs(campaign_id: int, db: Session = Depends(get_db)):
+    DestinationSetupPlanner(db).generate(campaign_id)
+    return redirect(f"/bombar-launch?campaign_id={campaign_id}")
+
+
+@router.post("/bombar-launch/campaigns/{campaign_id}/distribution-plan")
+def bombar_launch_distribution_plan(campaign_id: int, db: Session = Depends(get_db)):
+    DistributionAllocator(db).generate_plan(campaign_id)
+    return redirect(f"/bombar-launch?campaign_id={campaign_id}")
 
 
 @router.get("/ui-counts")
