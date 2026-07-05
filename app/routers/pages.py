@@ -21,6 +21,8 @@ from app.bombar_launch import (
 from app.bombar_launch.errors import BombarLaunchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
+from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
+from app.campaign_execution.errors import CampaignExecutionDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -1334,6 +1336,66 @@ def campaign_autopilot_prompt_only(campaign_id: int, db: Session = Depends(get_d
 def campaign_autopilot_distribution_plan(campaign_id: int, db: Session = Depends(get_db)):
     CampaignDistributionPlanner(db).generate_plan(campaign_id)
     return redirect(f"/campaign-autopilot?campaign_id={campaign_id}")
+
+
+@router.get("/campaign-execution", response_class=HTMLResponse)
+def campaign_execution_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    snapshot = None
+    actions = []
+    report = None
+    campaign_products = []
+    if selected_campaign:
+        campaign_products = db.scalars(
+            select(models.CampaignProduct)
+            .where(models.CampaignProduct.campaign_id == selected_campaign.id)
+            .order_by(models.CampaignProduct.id)
+        ).all()
+        try:
+            snapshot = ExecutionStateService(db).latest_snapshot(selected_campaign.id)
+            actions = ActionQueueService(db).refresh_actions(selected_campaign.id)
+            report = ExecutionReportService(db).build_report(selected_campaign.id)
+        except CampaignExecutionDataError:
+            snapshot = None
+    return templates.TemplateResponse(
+        "campaign_execution.html",
+        {
+            "request": request,
+            "page_title": "Campaign Execution",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "snapshot": snapshot,
+            "actions": actions,
+            "report": report,
+            "campaign_products": campaign_products,
+        },
+    )
+
+
+@router.post("/campaign-execution/{campaign_id}/refresh")
+def campaign_execution_refresh(campaign_id: int, db: Session = Depends(get_db)):
+    ExecutionStateService(db).refresh_snapshot(campaign_id)
+    ActionQueueService(db).refresh_actions(campaign_id)
+    return redirect(f"/campaign-execution?campaign_id={campaign_id}")
+
+
+@router.post("/campaign-execution/actions/{action_id}/execute")
+def campaign_execution_execute(action_id: int, db: Session = Depends(get_db)):
+    action = db.get(models.CampaignActionQueueItem, action_id)
+    campaign_id = action.campaign_id if action else None
+    if action:
+        ActionQueueService(db).execute(action_id)
+    return redirect(f"/campaign-execution?campaign_id={campaign_id}" if campaign_id else "/campaign-execution")
+
+
+@router.post("/campaign-execution/actions/{action_id}/resolve")
+def campaign_execution_resolve(action_id: int, db: Session = Depends(get_db)):
+    action = db.get(models.CampaignActionQueueItem, action_id)
+    campaign_id = action.campaign_id if action else None
+    if action:
+        ActionQueueService(db).resolve(action_id)
+    return redirect(f"/campaign-execution?campaign_id={campaign_id}" if campaign_id else "/campaign-execution")
 
 
 @router.post("/bombar-launch/import-matrix")

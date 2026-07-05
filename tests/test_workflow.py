@@ -40,6 +40,7 @@ from app.campaign_autopilot import (
     ProductMatrixImporter,
     TargetAllocator,
 )
+from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
 from app.config import get_settings
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -3356,6 +3357,123 @@ def test_campaign_report_outputs_summary():
         assert report.campaign_id == campaign_id
         assert report.state.sku_coverage["total_sku"] == 1
         assert "content_run_count" in report.performance
+
+
+def test_execution_snapshot_counts_campaign_state():
+    with client():
+        campaign_id = campaign_fixture(row_count=2, target_videos=6, target_destinations=2, with_photos=False)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            snapshot = ExecutionStateService(db).refresh_snapshot(campaign_id)
+
+        blocker_names = {item["blocker"] for item in snapshot.blockers}
+        assert snapshot.total_sku == 2
+        assert snapshot.prompt_ready_count >= 1
+        assert snapshot.blocked_sku >= 1
+        assert "missing_references" in blocker_names
+
+
+def test_execution_queue_deduplicates_actions():
+    with client():
+        campaign_id = campaign_fixture(row_count=2, target_videos=6, target_destinations=2, with_photos=False)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            service = ActionQueueService(db)
+            first = service.refresh_actions(campaign_id)
+            second = service.refresh_actions(campaign_id)
+
+        keys = [(item.sku, item.content_run_id, item.action_type) for item in second]
+        assert len(second) == len(first)
+        assert len(keys) == len(set(keys))
+
+
+def test_execution_blocks_paid_action_without_gate():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            action = models.CampaignActionQueueItem(
+                campaign_id=campaign_id,
+                action_type="run_real_smoke",
+                priority=1,
+                status="open",
+                blockers_json=["paid_provider_gate"],
+                safe_to_execute=False,
+                requires_human=False,
+            )
+            db.add(action)
+            db.commit()
+            result = ActionQueueService(db).execute(action.id)
+
+        assert result.executed is False
+        assert result.status == "blocked"
+        assert "paid_action_requires_gate" in result.artifacts["blockers"]
+
+
+def test_execution_blocks_publishing_unapproved_video():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            action = models.CampaignActionQueueItem(
+                campaign_id=campaign_id,
+                action_type="schedule_distribution",
+                priority=1,
+                status="open",
+                blockers_json=[],
+                safe_to_execute=True,
+                requires_human=False,
+            )
+            db.add(action)
+            db.commit()
+            result = ActionQueueService(db).execute(action.id)
+
+        assert result.executed is False
+        assert result.status == "blocked"
+        assert "approved_video_required" in result.artifacts["blockers"]
+
+
+def test_execution_action_queue_contains_missing_reference():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2, with_photos=False)
+        with SessionLocal() as db:
+            actions = ActionQueueService(db).refresh_actions(campaign_id)
+
+        assert any(action.action_type == "add_reference" for action in actions)
+
+
+def test_execution_action_queue_contains_human_review():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            actions = ActionQueueService(db).refresh_actions(campaign_id)
+
+        assert any(action.action_type == "human_review" for action in actions)
+
+
+def test_execution_report_exports_summary():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            CampaignRunner(db).prepare_campaign(campaign_id)
+            report = ExecutionReportService(db).build_report(campaign_id)
+
+        assert report.summary["total_sku"] == 1
+        assert "open_action_count" in report.summary
+        assert "total_sku" in report.summary_csv
+        assert "open_action_count" in report.summary_csv
+
+
+def test_campaign_execution_ui_renders():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        response = api.get(f"/campaign-execution?campaign_id={campaign_id}")
+
+        assert response.status_code == 200, response.text
+        assert "Execution Control Center" in response.text
+        assert "Action Queue" in response.text
+        assert "SKU Table" in response.text
+        assert "Summary JSON" in response.text
+        assert "Summary CSV" in response.text
 
 
 def test_campaign_no_external_account_registration_logic_exists():

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Campaign Execution</p>
+    <h1>Execution Control Center</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }} / {{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Overview</span>
+  <span>Blockers</span>
+  <span>Action Queue</span>
+  <span>SKU State</span>
+  <span>Report</span>
+</section>
+
+<section class="panel">
+  <h2>Campaign Overview</h2>
+  <form action="/campaign-execution" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+  {% if selected_campaign %}
+    <div class="actions">
+      <form action="/campaign-execution/{{ selected_campaign.id }}/refresh" method="post">
+        <button type="submit">Refresh Snapshot</button>
+      </form>
+      <a class="button secondary" href="/campaign-autopilot?campaign_id={{ selected_campaign.id }}">Campaign Core</a>
+      {% if selected_campaign.source_type == "bombar_matrix" %}
+        <a class="button secondary" href="/bombar-launch?campaign_id={{ selected_campaign.id }}">Bombar Launch</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+
+{% if selected_campaign and snapshot %}
+<section class="panel">
+  <h2>Overview</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ snapshot.total_sku }}</strong><span>total SKU</span></div>
+    <div class="metric"><strong>{{ snapshot.ready_sku }}</strong><span>ready</span></div>
+    <div class="metric"><strong>{{ snapshot.blocked_sku }}</strong><span>blocked</span></div>
+    <div class="metric"><strong>{{ snapshot.prompt_ready_count }}</strong><span>prompt-ready</span></div>
+    <div class="metric"><strong>{{ snapshot.needs_review_count }}</strong><span>review</span></div>
+    <div class="metric"><strong>{{ snapshot.approved_video_count }}</strong><span>approved</span></div>
+    <div class="metric"><strong>{{ snapshot.publishing_package_ready_count }}</strong><span>publishing-ready</span></div>
+    <div class="metric"><strong>{{ snapshot.distribution_task_ready_count }}</strong><span>distribution-ready</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Blockers</h2>
+  <table class="table">
+    <thead><tr><th>Blocker</th><th>Count</th></tr></thead>
+    <tbody>
+      {% for item in snapshot.blockers %}
+        <tr><td>{{ item.blocker }}</td><td>{{ item.count }}</td></tr>
+      {% else %}
+        <tr><td colspan="2">No blockers recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Action Queue</h2>
+  <table class="table">
+    <thead><tr><th>Priority</th><th>SKU</th><th>Action</th><th>Status</th><th>Safe</th><th>Human</th><th>Reason</th><th>Controls</th></tr></thead>
+    <tbody>
+      {% for action in actions %}
+        <tr>
+          <td>{{ action.priority }}</td>
+          <td>{{ action.sku or "campaign" }}</td>
+          <td>{{ action.action_type }}</td>
+          <td>{{ action.status }}</td>
+          <td>{{ "yes" if action.safe_to_execute else "no" }}</td>
+          <td>{{ "yes" if action.requires_human else "no" }}</td>
+          <td>{{ action.reason }}</td>
+          <td>
+            <form action="/campaign-execution/actions/{{ action.action_id }}/execute" method="post">
+              <button type="submit">Execute</button>
+            </form>
+            <form action="/campaign-execution/actions/{{ action.action_id }}/resolve" method="post">
+              <button type="submit" class="secondary">Resolve</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">No open actions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>SKU Table</h2>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>State</th><th>Next action</th><th>Content runs</th><th>Blocker</th><th>Links</th></tr></thead>
+    <tbody>
+      {% for item in campaign_products %}
+        <tr>
+          <td>{{ item.sku }}</td>
+          <td>{{ item.status }}</td>
+          <td>{{ (item.next_actions_json or [{}])[0].get("action", "inspect") }}</td>
+          <td>{{ item.content_run_ids_json|length }}</td>
+          <td>{{ item.blockers_json|join(", ") }}</td>
+          <td><a href="/campaign-autopilot?campaign_id={{ selected_campaign.id }}">campaign</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No CampaignProduct rows yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Report</h2>
+  {% if report %}
+    <h3>Summary JSON</h3>
+    <pre>{{ report.model_dump(mode="json")|tojson(indent=2) }}</pre>
+    <h3>Summary CSV</h3>
+    <pre>{{ report.summary_csv }}</pre>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
