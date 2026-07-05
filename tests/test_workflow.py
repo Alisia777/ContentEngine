@@ -40,6 +40,7 @@ from app.campaign_autopilot import (
     ProductMatrixImporter,
     TargetAllocator,
 )
+from app.campaign_batch import BatchExecutor, BatchReporter
 from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
 from app.config import get_settings
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
@@ -3197,6 +3198,31 @@ def add_approved_campaign_package(db, product: models.Product) -> int:
     return package.id
 
 
+def add_batch_action(
+    db,
+    campaign_id: int,
+    action_type: str = "run_prompt_only",
+    *,
+    safe: bool = True,
+    requires_human: bool = False,
+    blockers: list[str] | None = None,
+) -> int:
+    action = models.CampaignActionQueueItem(
+        campaign_id=campaign_id,
+        action_type=action_type,
+        priority=5,
+        status="open",
+        reason="test batch action",
+        blockers_json=blockers or [],
+        safe_to_execute=safe,
+        requires_human=requires_human,
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action.id
+
+
 def test_import_product_matrix_csv():
     with client():
         with SessionLocal() as db:
@@ -3474,6 +3500,118 @@ def test_campaign_execution_ui_renders():
         assert "SKU Table" in response.text
         assert "Summary JSON" in response.text
         assert "Summary CSV" in response.text
+
+
+def test_batch_dry_run_selects_safe_actions():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            action_id = add_batch_action(db, campaign_id, "run_prompt_only")
+            result = BatchExecutor(db).dry_run(campaign_id, action_type="run_prompt_only")
+            item = db.scalar(select(models.CampaignBatchItem).where(models.CampaignBatchItem.batch_run_id == result.batch_run_id))
+
+        assert result.status == "dry_run"
+        assert result.selected_action_ids == [action_id]
+        assert result.total_selected == 1
+        assert result.total_executed == 0
+        assert item.status == "would_execute"
+
+
+def test_batch_executor_blocks_paid_actions():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_batch_action(db, campaign_id, "run_real_smoke", blockers=["paid_provider_gate"])
+            result = BatchExecutor(db).execute(campaign_id, action_type="run_real_smoke")
+
+        assert result.status == "blocked"
+        assert result.total_selected == 0
+        assert result.total_skipped == 1
+        assert any("unsafe_action:run_real_smoke" in warning for warning in result.warnings)
+
+
+def test_batch_executor_blocks_publishing_approval():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_batch_action(db, campaign_id, "approve_publishing_package")
+            result = BatchExecutor(db).execute(campaign_id, action_type="approve_publishing_package")
+
+        assert result.status == "blocked"
+        assert result.total_selected == 0
+        assert result.total_skipped == 1
+        assert any("unsafe_action:approve_publishing_package" in warning for warning in result.warnings)
+
+
+def test_batch_executor_runs_prompt_only_actions():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            action_id = add_batch_action(db, campaign_id, "run_prompt_only")
+            result = BatchExecutor(db).execute(campaign_id, action_type="run_prompt_only")
+            action = db.get(models.CampaignActionQueueItem, action_id)
+
+        assert result.status == "completed"
+        assert result.total_executed == 1
+        assert action.status == "done"
+
+
+def test_batch_executor_creates_result_log():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_batch_action(db, campaign_id, "run_prompt_only")
+            result = BatchExecutor(db).execute(campaign_id, action_type="run_prompt_only")
+            batch = db.get(models.CampaignBatchRun, result.batch_run_id)
+            items = db.scalars(select(models.CampaignBatchItem).where(models.CampaignBatchItem.batch_run_id == result.batch_run_id)).all()
+
+        assert batch.total_executed == 1
+        assert batch.results_json
+        assert len(items) == 1
+        assert items[0].status == "done"
+
+
+def test_batch_report_exports_summary():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_batch_action(db, campaign_id, "run_prompt_only")
+            result = BatchExecutor(db).dry_run(campaign_id, action_type="run_prompt_only")
+            report = BatchReporter(db).build_report(result.batch_run_id)
+
+        assert report.summary["batch_run_id"] == result.batch_run_id
+        assert "total_selected" in report.summary_csv
+        assert "batch_run_id" in report.summary_csv
+
+
+def test_campaign_execution_snapshot_updates_after_batch():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_batch_action(db, campaign_id, "run_prompt_only")
+            BatchExecutor(db).execute(campaign_id, action_type="run_prompt_only")
+            snapshot = db.scalar(
+                select(models.CampaignExecutionSnapshot)
+                .where(models.CampaignExecutionSnapshot.campaign_id == campaign_id)
+                .order_by(models.CampaignExecutionSnapshot.id.desc())
+            )
+
+        assert snapshot is not None
+        assert snapshot.total_sku == 1
+
+
+def test_campaign_batch_ui_renders():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_batch_action(db, campaign_id, "run_prompt_only")
+        response = api.get(f"/campaign-batch?campaign_id={campaign_id}&action_type=run_prompt_only")
+
+        assert response.status_code == 200, response.text
+        assert "Campaign Batch Executor" in response.text
+        assert "Safe Actions" in response.text
+        assert "Dry Run" in response.text
+        assert "Execute Safe Batch" in response.text
 
 
 def test_campaign_no_external_account_registration_logic_exists():

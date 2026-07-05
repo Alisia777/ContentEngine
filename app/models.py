@@ -890,6 +890,7 @@ class Campaign(Base, TimestampMixin):
     distribution_plans = relationship("CampaignDistributionPlan", back_populates="campaign", cascade="all, delete-orphan")
     execution_snapshots = relationship("CampaignExecutionSnapshot", back_populates="campaign", cascade="all, delete-orphan")
     action_queue_items = relationship("CampaignActionQueueItem", back_populates="campaign", cascade="all, delete-orphan")
+    batch_runs = relationship("CampaignBatchRun", back_populates="campaign", cascade="all, delete-orphan")
 
 
 class CampaignProduct(Base, TimestampMixin):
@@ -1049,3 +1050,42 @@ class CampaignActionQueueItem(Base, TimestampMixin):
     campaign = relationship("Campaign", back_populates="action_queue_items")
     product = relationship("Product")
     content_run = relationship("ContentRun")
+
+
+class CampaignBatchRun(Base, TimestampMixin):
+    __tablename__ = "campaign_batch_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="created", index=True)
+    action_type = Column(String(120), nullable=True, index=True)
+    dry_run = Column(Boolean, default=True, nullable=False, index=True)
+    selected_action_ids_json = Column(JSON, default=list, nullable=False)
+    total_selected = Column(Integer, nullable=False, default=0)
+    total_executed = Column(Integer, nullable=False, default=0)
+    total_skipped = Column(Integer, nullable=False, default=0)
+    total_failed = Column(Integer, nullable=False, default=0)
+    results_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="batch_runs")
+    items = relationship("CampaignBatchItem", back_populates="batch_run", cascade="all, delete-orphan")
+
+
+class CampaignBatchItem(Base, TimestampMixin):
+    __tablename__ = "campaign_batch_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_run_id = Column(Integer, ForeignKey("campaign_batch_runs.id"), nullable=False, index=True)
+    action_queue_item_id = Column(Integer, ForeignKey("campaign_action_queue_items.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    action_type = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="created", index=True)
+    result_json = Column(JSON, default=dict, nullable=False)
+    error_message = Column(Text, nullable=True)
+
+    batch_run = relationship("CampaignBatchRun", back_populates="items")
+    action_queue_item = relationship("CampaignActionQueueItem")
+    product = relationship("Product")
