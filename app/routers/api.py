@@ -17,6 +17,8 @@ from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
+from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.errors import CreativeSpecError
@@ -195,6 +197,19 @@ class WorkingVideoRealSmokeRequest(BaseModel):
     real_run: bool = False
     allow_real_spend: bool = False
     max_scenes: int = 1
+
+
+class ContentFactoryPrepareRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    duration_seconds: int = 15
+    variant_count: int = 5
+
+
+class ContentFactoryRealSmokeRequest(BaseModel):
+    provider: str = "runway"
+    real_run: bool = False
+    allow_real_spend: bool = False
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1076,6 +1091,86 @@ def working_video_status(selected_variant_id: int, db: Session = Depends(get_db)
         return WorkingVideoGenerator(db).status(selected_variant_id).model_dump(mode="json")
     except (DemandError, VideoGeneratorError, IntelligenceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/content-factory/runs/prepare")
+def prepare_content_factory_run(payload: ContentFactoryPrepareRequest, db: Session = Depends(get_db)):
+    try:
+        return ContentRunOrchestrator(db).prepare_content_run(
+            payload.product_id,
+            payload.platform,
+            payload.duration_seconds,
+            payload.variant_count,
+        ).model_dump(mode="json")
+    except (ContentFactoryError, DemandError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/content-factory/runs/{content_run_id}/prompt-only")
+def content_factory_prompt_only(content_run_id: int, db: Session = Depends(get_db)):
+    try:
+        return ContentRunOrchestrator(db).run_prompt_only(content_run_id).model_dump(mode="json")
+    except (ContentFactoryError, DemandError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/content-factory/runs/{content_run_id}/real-smoke")
+def content_factory_real_smoke(
+    content_run_id: int,
+    payload: ContentFactoryRealSmokeRequest,
+    db: Session = Depends(get_db),
+):
+    if not payload.real_run:
+        raise HTTPException(status_code=400, detail="Content factory real smoke requires explicit real_run=true.")
+    try:
+        return ContentRunOrchestrator(db).run_real_smoke(
+            content_run_id,
+            provider=payload.provider,
+            allow_real_spend=payload.allow_real_spend,
+        ).model_dump(mode="json")
+    except (ContentFactoryError, DemandError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/content-factory/runs/{content_run_id}/review")
+def review_content_factory_run(content_run_id: int, db: Session = Depends(get_db)):
+    try:
+        return ContentRunOrchestrator(db).review(content_run_id).model_dump(mode="json")
+    except ContentFactoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/content-factory/runs/{content_run_id}")
+def get_content_factory_run(content_run_id: int, db: Session = Depends(get_db)):
+    try:
+        return ContentRunOrchestrator(db).get(content_run_id).model_dump(mode="json")
+    except ContentFactoryError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/content-factory/dashboard")
+def get_content_factory_dashboard(db: Session = Depends(get_db)):
+    return ContentPerformanceService(db).dashboard().model_dump(mode="json")
+
+
+@router.get("/content-factory/runs/{content_run_id}/recommendations")
+def get_content_factory_recommendations(content_run_id: int, db: Session = Depends(get_db)):
+    try:
+        return {
+            "content_run_id": content_run_id,
+            "recommendations": [
+                item.model_dump(mode="json")
+                for item in ContentRunOrchestrator(db).recommend_next_action(content_run_id)
+            ],
+        }
+    except ContentFactoryError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/content-factory/stats/import-csv")
+async def import_content_factory_stats_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    text = (await file.read()).decode("utf-8-sig")
+    return ContentStatsImporter(db).import_csv_text(text).model_dump(mode="json")
 
 
 @router.post("/generator/intelligence/build")

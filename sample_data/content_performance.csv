@@ -1,0 +1,3 @@
+content_run_id,product_id,sku,platform,creative_variant_id,video_job_id,metric_date,impressions,views,clicks,orders,revenue,spend,ctr,conversion_rate,watch_time_seconds,retention_rate
+,1,SKU-1001,Instagram Reels,,,2026-07-05,12000,8200,360,18,54000,9000,,0.05,132000,0.42
+,1,SKU-1001,TikTok,,,2026-07-05,9000,6100,92,1,3000,6500,,0.0109,61000,0.18

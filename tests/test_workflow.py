@@ -22,6 +22,7 @@ from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
 from app.config import get_settings
+from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.hook_strategy import HookStrategySelector
@@ -2513,3 +2514,179 @@ def test_working_video_ui_shows_primary_guided_page():
         assert "missing references / spend gate blockers" in response.text
         assert "Prompt Pack" in response.text
         assert "Run real one-scene smoke" in response.text
+
+
+def test_prepare_content_run_creates_demand_spec_variant_prompt_pack():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Prepare Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            content_run = db.get(models.ContentRun, result.id)
+            assignment_count = db.query(models.ContentAssignment).filter_by(content_run_id=result.id).count()
+
+        assert result.demand_hypothesis_id
+        assert result.creative_spec_id
+        assert result.selected_variant_id
+        assert result.generation_variant_id
+        assert result.prompt_pack_id
+        assert result.ai_review_id
+        assert content_run is not None
+        assert assignment_count >= 5
+
+
+def test_prepare_content_run_does_not_call_paid_provider(monkeypatch):
+    def fail_if_video_job_is_created(*args, **kwargs):
+        raise AssertionError("prepare_content_run must not create or start paid video jobs.")
+
+    monkeypatch.setattr(
+        "app.video_generator.generator.GeneratorVideoService.create_video_job_from_prompt_pack",
+        fail_if_video_job_is_created,
+    )
+    monkeypatch.setattr(
+        "app.workflows.working_video_generator.RealSmokeRunner.run_from_variant",
+        fail_if_video_job_is_created,
+    )
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory No Provider Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+
+        assert result.prompt_pack_id
+        assert result.video_job_id is None
+
+
+def test_content_run_review_requires_human_when_visual_identity_unverified():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Review Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            review = db.get(models.AIContentReview, result.ai_review_id)
+
+        assert review.status == "needs_human_review"
+        assert review.human_review_required is True
+        assert any("No computer vision" in note for note in review.review_json["notes"])
+        assert all(check["check_type"] == "metadata" for check in review.review_json["checks"])
+
+
+def test_content_run_recommendation_add_reference_when_missing():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Missing Reference Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+
+        actions = {action.action for action in result.next_actions}
+        assert "add_product_reference" in actions
+        assert any(blocker.startswith("reference:") for blocker in result.blockers)
+
+
+def test_content_run_recommendation_real_smoke_when_ready():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Ready Reference Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(
+                product_id,
+                url="https://example.com/packshot.png",
+                asset_type="packshot",
+                is_primary_reference=True,
+            )
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+
+        actions = {action.action for action in result.next_actions}
+        assert "run_real_smoke" in actions
+        assert "add_product_reference" not in actions
+        assert result.run["reference_readiness"]["status"] == "ready"
+
+
+def test_content_run_prompt_only_never_calls_video_provider(monkeypatch):
+    def fail_if_video_job_is_created(*args, **kwargs):
+        raise AssertionError("content prompt-only must not create or start video jobs.")
+
+    monkeypatch.setattr(
+        "app.video_generator.generator.GeneratorVideoService.create_video_job_from_prompt_pack",
+        fail_if_video_job_is_created,
+    )
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Prompt Only Product")
+
+        with SessionLocal() as db:
+            orchestrator = ContentRunOrchestrator(db)
+            prepared = orchestrator.prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            prompt_only = orchestrator.run_prompt_only(prepared.id)
+
+        assert prompt_only.status == "prompt_ready"
+        assert prompt_only.prompt_pack_id
+        assert prompt_only.video_job_id is None
+
+
+def test_content_stats_import_csv():
+    csv_text = (
+        "content_run_id,product_id,sku,platform,metric_date,impressions,views,clicks,orders,revenue,spend,retention_rate\n"
+        ",,SKU-FACTORY,Instagram Reels,2026-07-05,1000,800,40,4,12000,3000,0.41\n"
+    )
+    with client():
+        with SessionLocal() as db:
+            result = ContentStatsImporter(db).import_csv_text(csv_text)
+            metric = db.query(models.ContentPerformanceMetric).one()
+
+        assert result.imported_count == 1
+        assert result.error_count == 0
+        assert metric.platform == "Instagram Reels"
+        assert metric.ctr == 0.04
+        assert metric.conversion_rate == 0.1
+
+
+def test_content_factory_dashboard_counts_runs_and_blockers():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory Dashboard Product")
+
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+            ContentStatsImporter(db).import_csv_text(
+                "content_run_id,product_id,sku,platform,metric_date,views,clicks,orders\n"
+                f"{result.id},{product_id},{result.sku},Instagram Reels,2026-07-05,1000,20,1\n"
+            )
+            dashboard = ContentPerformanceService(db).dashboard()
+
+        assert dashboard.total_runs == 1
+        assert dashboard.prompt_ready_runs == 1
+        assert dashboard.human_review_queue >= 1
+        assert dashboard.performance_metric_count == 1
+        assert dashboard.top_blockers
+
+
+def test_content_factory_ui_renders_main_workspace():
+    with client() as api:
+        response = api.get("/content-factory")
+
+        assert response.status_code == 200
+        assert "AI Content Factory" in response.text
+        assert "Factory Overview" in response.text
+        assert "Run Builder" in response.text
+        assert "AI Review Queue" in response.text
+        assert "Performance" in response.text
+
+
+def test_content_factory_api_prepare_dashboard_and_recommendations():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Factory API Product")
+
+        prepare_response = api.post(
+            "/api/content-factory/runs/prepare",
+            json={"product_id": product_id, "platform": "Instagram Reels", "duration_seconds": 15, "variant_count": 5},
+        )
+        assert prepare_response.status_code == 200, prepare_response.text
+        content_run_id = prepare_response.json()["id"]
+
+        recommendations = api.get(f"/api/content-factory/runs/{content_run_id}/recommendations")
+        dashboard = api.get("/api/content-factory/dashboard")
+
+        assert recommendations.status_code == 200, recommendations.text
+        assert dashboard.status_code == 200, dashboard.text
+        assert recommendations.json()["recommendations"]
+        assert dashboard.json()["total_runs"] == 1

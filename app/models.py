@@ -37,6 +37,7 @@ class Product(Base, TimestampMixin):
     creative_specs = relationship("VideoCreativeSpecRecord", back_populates="product")
     asset_kits = relationship("ProductAssetKit", back_populates="product")
     demand_hypotheses = relationship("DemandHypothesisRecord", back_populates="product")
+    content_runs = relationship("ContentRun", back_populates="product")
 
 
 class BrandGuide(Base, TimestampMixin):
@@ -726,4 +727,123 @@ class VideoQualityReview(Base, TimestampMixin):
 
     creative_spec = relationship("VideoCreativeSpecRecord")
     generation_variant = relationship("VideoGenerationVariant", back_populates="quality_reviews")
+    video_job = relationship("VideoJob")
+
+
+class ContentAgentProfile(Base, TimestampMixin):
+    __tablename__ = "content_agent_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_key = Column(String(120), unique=True, nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    agent_type = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    provider = Column(String(120), nullable=False, default="rules")
+    model_name = Column(String(160), nullable=True)
+    capabilities_json = Column(JSON, default=list, nullable=False)
+    config_json = Column(JSON, default=dict, nullable=False)
+    notes = Column(Text, nullable=True)
+
+    assignments = relationship("ContentAssignment", back_populates="agent_profile")
+
+
+class ContentRun(Base, TimestampMixin):
+    __tablename__ = "content_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    duration_seconds = Column(Integer, nullable=False, default=15)
+    variant_count = Column(Integer, nullable=False, default=5)
+    status = Column(String(80), nullable=False, default="created", index=True)
+    demand_hypothesis_id = Column(Integer, ForeignKey("demand_hypothesis_records.id"), nullable=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=True, index=True)
+    asset_kit_id = Column(Integer, ForeignKey("product_asset_kits.id"), nullable=True, index=True)
+    creative_variant_set_id = Column(Integer, ForeignKey("creative_variant_sets.id"), nullable=True, index=True)
+    selected_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    latest_ai_review_id = Column(Integer, nullable=True, index=True)
+    run_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product", back_populates="content_runs")
+    demand_hypothesis = relationship("DemandHypothesisRecord")
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    asset_kit = relationship("ProductAssetKit")
+    creative_variant_set = relationship("CreativeVariantSet")
+    selected_variant = relationship("CreativeVariant")
+    generation_variant = relationship("VideoGenerationVariant")
+    prompt_pack = relationship("PromptPack")
+    video_job = relationship("VideoJob")
+    assignments = relationship("ContentAssignment", back_populates="content_run", cascade="all, delete-orphan")
+    ai_reviews = relationship("AIContentReview", back_populates="content_run", cascade="all, delete-orphan")
+    performance_metrics = relationship("ContentPerformanceMetric", back_populates="content_run")
+
+
+class ContentAssignment(Base, TimestampMixin):
+    __tablename__ = "content_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=False, index=True)
+    agent_profile_id = Column(Integer, ForeignKey("content_agent_profiles.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    assignment_type = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="pending", index=True)
+    input_json = Column(JSON, default=dict, nullable=False)
+    output_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    content_run = relationship("ContentRun", back_populates="assignments")
+    agent_profile = relationship("ContentAgentProfile", back_populates="assignments")
+    product = relationship("Product")
+
+
+class AIContentReview(Base, TimestampMixin):
+    __tablename__ = "ai_content_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="needs_human_review", index=True)
+    score = Column(Float, nullable=False, default=0)
+    human_review_required = Column(Boolean, default=True, nullable=False)
+    review_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    content_run = relationship("ContentRun", back_populates="ai_reviews")
+
+
+class ContentPerformanceMetric(Base):
+    __tablename__ = "content_performance_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    metric_date = Column(Date, nullable=True, index=True)
+    impressions = Column(Integer, nullable=True)
+    views = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    orders = Column(Integer, nullable=True)
+    revenue = Column(Float, nullable=True)
+    spend = Column(Float, nullable=True)
+    ctr = Column(Float, nullable=True)
+    conversion_rate = Column(Float, nullable=True)
+    watch_time_seconds = Column(Float, nullable=True)
+    retention_rate = Column(Float, nullable=True)
+    status = Column(String(80), nullable=False, default="imported", index=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    content_run = relationship("ContentRun", back_populates="performance_metrics")
+    product = relationship("Product")
+    creative_variant = relationship("CreativeVariant")
     video_job = relationship("VideoJob")

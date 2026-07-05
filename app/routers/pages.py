@@ -11,6 +11,8 @@ from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
+from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
+from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
 from app.database import get_db
@@ -420,6 +422,86 @@ def working_video_context(db: Session) -> dict:
             and status["allow_real_spend"]
             and status["runway_api_secret_configured"]
         ),
+    }
+
+
+@router.get("/content-factory", response_class=HTMLResponse)
+def content_factory_page(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "content_factory.html",
+        {
+            "request": request,
+            "page_title": "AI Content Factory",
+            "result": None,
+            "error": request.query_params.get("error"),
+            **content_factory_context(db),
+        },
+    )
+
+
+@router.post("/content-factory/run", response_class=HTMLResponse)
+def run_content_factory_page(
+    request: Request,
+    product_id: int = Form(0),
+    platform: str = Form("Instagram Reels"),
+    duration: int = Form(15),
+    variant_count: int = Form(5),
+    content_run_id: str = Form(""),
+    action: str = Form("prepare"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    error = None
+    try:
+        orchestrator = ContentRunOrchestrator(db)
+        if action == "prepare":
+            result = orchestrator.prepare_content_run(product_id, platform, duration, variant_count).model_dump(mode="json")
+        elif action == "prompt_only":
+            result = orchestrator.run_prompt_only(int(content_run_id)).model_dump(mode="json")
+        elif action == "review":
+            result = orchestrator.review(int(content_run_id)).model_dump(mode="json")
+    except (ContentFactoryError, DemandError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "content_factory.html",
+        {
+            "request": request,
+            "page_title": "AI Content Factory",
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_platform": platform,
+            "selected_duration": duration,
+            "selected_variant_count": variant_count,
+            "selected_content_run_id": int(content_run_id) if content_run_id else None,
+            **content_factory_context(db),
+        },
+    )
+
+
+@router.post("/content-factory/stats/import")
+async def import_content_factory_stats_ui(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    text = (await file.read()).decode("utf-8-sig")
+    result = ContentStatsImporter(db).import_csv_text(text)
+    if result.error_count:
+        return redirect(f"/content-factory?error=Imported {result.imported_count} rows with {result.error_count} errors")
+    return redirect("/content-factory")
+
+
+def content_factory_context(db: Session) -> dict:
+    dashboard = ContentPerformanceService(db).dashboard().model_dump(mode="json")
+    runs = db.scalars(select(models.ContentRun).order_by(models.ContentRun.created_at.desc()).limit(20)).all()
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "content_runs": runs,
+        "ai_reviews": db.scalars(select(models.AIContentReview).order_by(models.AIContentReview.created_at.desc()).limit(20)).all(),
+        "performance_metrics": db.scalars(
+            select(models.ContentPerformanceMetric).order_by(models.ContentPerformanceMetric.created_at.desc()).limit(20)
+        ).all(),
+        "dashboard": dashboard,
     }
 
 
