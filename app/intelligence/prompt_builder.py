@@ -4,6 +4,11 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.config import get_settings
+from app.creative.product_geometry import (
+    GEOMETRY_LOCK_PROMPT_LINES,
+    geometry_lock_prompt_text,
+    geometry_negative_prompt,
+)
 from app.intelligence.errors import MissingGeneratorDataError
 from app.intelligence.types import PromptPackOutput, PromptSceneOutput
 
@@ -55,8 +60,13 @@ class PromptPackBuilder:
                 PromptSceneOutput(
                     scene_number=scene.scene_number,
                     duration_seconds=duration,
-                    prompt_text=scene.video_prompt or scene.visual_description or "",
-                    negative_prompt=scene.negative_prompt or "distorted product, unsupported claims, low quality",
+                    prompt_text=(
+                        f"{scene.video_prompt or scene.visual_description or ''} "
+                        f"Product geometry lock: {geometry_lock_prompt_text()}"
+                    ).strip(),
+                    negative_prompt=geometry_negative_prompt(
+                        scene.negative_prompt or "distorted product, unsupported claims, low quality"
+                    ),
                     reference_images=variant.script_job.product.images_json or [],
                     camera_motion="slow push-in with stable product framing",
                     style="realistic 9:16 marketplace product video",
@@ -64,6 +74,7 @@ class PromptPackBuilder:
                         "do not alter product shape",
                         "do not add unsupported claims",
                         "keep labels and packaging believable",
+                        *GEOMETRY_LOCK_PROMPT_LINES,
                     ],
                 )
             )

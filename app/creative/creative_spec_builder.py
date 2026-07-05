@@ -6,9 +6,14 @@ from sqlalchemy.orm import Session
 from app import models
 from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.hook_strategy import HookStrategySelector
+from app.creative.product_geometry import (
+    default_product_geometry_rules,
+    default_product_scale_rules,
+    default_product_visibility_rules,
+)
 from app.creative.quality_rubric import default_quality_rubric
 from app.creative.scene_plan_builder import ScenePlanBuilder
-from app.creative.types import CreativeSpec, FirstFrameSpec
+from app.creative.types import CreativeSpec, FirstFrameSpec, ProductGeometrySpec
 from app.demand.demand_to_creative_mapper import DemandToCreativeMapper
 from app.demand.types import DemandHypothesis
 from app.intelligence.errors import MissingGeneratorDataError
@@ -51,6 +56,11 @@ class CreativeSpecBuilder:
             "Do not hallucinate packaging, labels, colors, or product shape.",
             "Keep product visible, well-lit, and not distorted.",
         ]
+        product_geometry_spec = ProductGeometrySpec(
+            product_id=product.id,
+            sku=product.sku,
+            primary_reference_asset_id=self._primary_reference_asset_id(product.id),
+        )
         first_frame = FirstFrameSpec(
             visual_hook=f"{product.title} large in hand or on a clean surface, visible immediately.",
             text_overlay=selected_hook.hook_text[:90],
@@ -89,6 +99,10 @@ class CreativeSpecBuilder:
             voiceover=[scene.voiceover for scene in scenes],
             visual_style=brand_guide.visual_style if brand_guide and brand_guide.visual_style else "Clean realistic marketplace product video.",
             product_display_rules=product_display_rules,
+            product_geometry_spec=product_geometry_spec,
+            product_geometry_rules=default_product_geometry_rules(),
+            product_scale_rules=default_product_scale_rules(),
+            product_visibility_rules=default_product_visibility_rules(),
             must_include=[fact.fact for fact in pack.product_facts[:3]],
             must_avoid=list(dict.fromkeys(["medical claims", "treatment claims", "guaranteed result"] + (brand_guide.forbidden_claims_json if brand_guide else []) + warnings)),
             allowed_claims=pack.allowed_claims,
@@ -169,6 +183,11 @@ class CreativeSpecBuilder:
             "Do not hallucinate packaging, labels, colors, or product shape.",
             "Keep product visible, well-lit, and not distorted.",
         ]
+        product_geometry_spec = ProductGeometrySpec(
+            product_id=product.id,
+            sku=product.sku,
+            primary_reference_asset_id=self._primary_reference_asset_id(product.id),
+        )
         first_frame = mapper.first_frame(product, hypothesis, selected_hook)
         cta = (brand_guide.allowed_cta_json or ["Open the product card"])[0] if brand_guide else "Open the product card"
         if hypothesis.stock_risk:
@@ -202,6 +221,10 @@ class CreativeSpecBuilder:
             voiceover=[scene.voiceover for scene in scenes],
             visual_style=brand_guide.visual_style if brand_guide and brand_guide.visual_style else "Clean realistic marketplace product video.",
             product_display_rules=product_display_rules,
+            product_geometry_spec=product_geometry_spec,
+            product_geometry_rules=default_product_geometry_rules(),
+            product_scale_rules=default_product_scale_rules(),
+            product_visibility_rules=default_product_visibility_rules(),
             must_include=[hypothesis.safe_promise],
             must_avoid=list(
                 dict.fromkeys(
@@ -250,3 +273,11 @@ class CreativeSpecBuilder:
         self.db.commit()
         self.db.refresh(record)
         return record
+
+    def _primary_reference_asset_id(self, product_id: int) -> int | None:
+        asset = self.db.scalar(
+            select(models.ProductAsset)
+            .where(models.ProductAsset.product_id == product_id, models.ProductAsset.is_primary_reference.is_(True))
+            .order_by(models.ProductAsset.id.desc())
+        )
+        return asset.id if asset else None

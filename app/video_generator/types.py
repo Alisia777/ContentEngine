@@ -17,6 +17,9 @@ class SpecPromptScene(BaseModel):
     composition: str
     lighting: str
     product_accuracy_rules: list[str] = Field(default_factory=list)
+    product_geometry_rules: dict[str, Any] = Field(default_factory=dict)
+    product_scale_rules: dict[str, Any] = Field(default_factory=dict)
+    product_visibility_rules: dict[str, Any] = Field(default_factory=dict)
     caption_text: str
     voiceover_text: str
     provider_params: dict[str, Any] = Field(default_factory=dict)
