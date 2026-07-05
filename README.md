@@ -271,6 +271,44 @@ The real-smoke command reuses Sprint 07 gates and does not bypass spend controls
 
 Docs: `docs/DEMAND_GENERATOR.md` and `docs/WORKING_VIDEO_GENERATOR.md`.
 
+## AI Content Factory Cabinet
+
+v0.4 adds `/content-factory` as the AI-led production workspace:
+
+```text
+SKU / product
+-> AI Demand Agent
+-> AI Creative Brief Agent
+-> AI Variant Agent
+-> AI Video Agent
+-> AI Review Agent
+-> AI Publishing Prep Agent
+-> Performance Analytics
+-> Next Action Recommendations
+```
+
+It automates creator logic while keeping humans in the approval and exception loop. It does not add external account creation, Telegram bot workflow, batch generation, approval bypasses, or auto-publishing of unreviewed videos.
+
+### AI Factory Control Loop
+
+`/content-factory` now acts as the automated control loop for one SKU at a time. A prepared run returns the demand hypothesis, safe promise, CreativeSpec, selected variant, prompt pack, reference readiness, geometry/scale readiness, AI review status, publishing readiness, and next recommended action.
+
+The AI review is rules-based and checks product identity constraints, Product Geometry / Scale Lock fields, negative prompt drift blockers, generated output metadata when a video exists, quality review status, and publishing package readiness. Missing geometry adds `geometry_lock_missing` and recommends `add_geometry_lock`. Human feedback about size/proportion drift adds `product_geometry_mismatch` and recommends `request_geometry_regeneration`.
+
+The system does not claim visual identity or packaging geometry verification without human review or a future computer-vision layer.
+
+CLI:
+
+```bash
+python scripts/prepare_content_run.py --product-id 1 --platform "Instagram Reels" --duration 15 --variant-count 5
+python scripts/run_content_prompt_only.py --content-run-id 1
+python scripts/review_content_run.py --content-run-id 1
+python scripts/content_factory_dashboard.py
+python scripts/import_content_stats.py --csv sample_data/content_performance.csv
+```
+
+Docs: `docs/AI_CONTENT_FACTORY_CABINET.md`, `docs/AI_CONTENT_RUNS.md`, and `docs/CONTENT_FACTORY_STATS.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

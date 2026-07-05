@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">AI production loop</p>
+      <h1>AI Content Factory</h1>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel"><p class="status">{{ error }}</p></section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Factory Overview</h2>
+    <div class="metric-grid">
+      <article class="metric"><strong>{{ dashboard.total_runs }}</strong><span>runs</span></article>
+      <article class="metric"><strong>{{ dashboard.prompt_ready_runs }}</strong><span>prompt-ready</span></article>
+      <article class="metric"><strong>{{ dashboard.real_smoke_ready_runs }}</strong><span>real-smoke ready</span></article>
+      <article class="metric"><strong>{{ dashboard.human_review_queue }}</strong><span>human review</span></article>
+      <article class="metric"><strong>{{ dashboard.needs_regeneration_runs }}</strong><span>needs regeneration</span></article>
+      <article class="metric"><strong>{{ dashboard.geometry_mismatch_blockers }}</strong><span>geometry mismatch</span></article>
+      <article class="metric"><strong>{{ dashboard.publishing_ready_runs }}</strong><span>publishing-ready</span></article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Run Builder</h2>
+    <form action="/content-factory/run" method="post">
+      <input type="hidden" name="action" value="prepare">
+      <div class="form-grid">
+        <label>Product
+          <select name="product_id" required>
+            {% for product in products %}
+              <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Platform<input name="platform" value="{{ selected_platform or 'Instagram Reels' }}" required></label>
+        <label>Duration<input name="duration" type="number" min="5" max="60" value="{{ selected_duration or 15 }}" required></label>
+        <label>Variants<input name="variant_count" type="number" min="1" max="12" value="{{ selected_variant_count or 5 }}" required></label>
+      </div>
+      <div class="actions"><button type="submit">Prepare content run</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Run Actions</h2>
+    <form action="/content-factory/run" method="post">
+      <div class="form-grid">
+        <label>Content run
+          <select name="content_run_id">
+            {% if result and result.id %}
+              <option value="{{ result.id }}" selected>#{{ result.id }} / {{ result.status }}</option>
+            {% endif %}
+            {% for run in content_runs %}
+              <option value="{{ run.id }}" {% if selected_content_run_id == run.id %}selected{% endif %}>#{{ run.id }} / {{ run.product.sku if run.product else run.product_id }} / {{ run.status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="prompt_only" {% if not result and not content_runs %}disabled{% endif %}>Run prompt-only</button>
+        <button class="secondary" type="submit" name="action" value="review" {% if not result and not content_runs %}disabled{% endif %}>Run AI review</button>
+      </div>
+    </form>
+  </section>
+
+  {% if result %}
+    <section class="grid">
+      <article class="card">
+        <h2>Current Run</h2>
+        <p class="muted">content_run_id</p>
+        <p>#{{ result.id }} / {{ result.status }}</p>
+        <p class="muted">SKU</p>
+        <p>{{ result.sku }}</p>
+        <p class="muted">buyer_need</p>
+        <p>{{ result.buyer_need or result.run.buyer_need or "none" }}</p>
+        <p class="muted">safe_promise</p>
+        <p>{{ result.safe_promise or result.run.safe_promise or "none" }}</p>
+        <p class="muted">Selected variant</p>
+        <p>#{{ result.selected_variant_id or "none" }}</p>
+      </article>
+      <article class="card">
+        <h2>Artifacts</h2>
+        <p>Demand: #{{ result.demand_hypothesis_id or "none" }}</p>
+        <p>CreativeSpec: #{{ result.creative_spec_id or "none" }}</p>
+        <p>PromptPack: #{{ result.prompt_pack_id or "none" }}</p>
+        <p>AI review: #{{ result.ai_review_id or "none" }}</p>
+        <p>Review status: {{ result.ai_review_status or result.run.review_status or "unknown" }}</p>
+        <p>Human review required: {{ result.human_review_required }}</p>
+        <p>Next action: {{ result.next_action or result.run.next_action or "none" }}</p>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Reference readiness</h2>
+        <p class="muted">status</p>
+        <p>{{ result.reference_readiness.status or result.run.reference_readiness.status or "unknown" }}</p>
+        <p class="muted">blockers</p>
+        <p>{{ (result.reference_readiness.blockers or result.run.reference_readiness.blockers or []) | join(", ") or "none" }}</p>
+      </article>
+      <article class="card">
+        <h2>Geometry readiness</h2>
+        <p class="muted">status</p>
+        <p>{{ result.geometry_readiness.status or result.run.geometry_readiness.status or "unknown" }}</p>
+        <p class="muted">geometry/scale blockers</p>
+        <p>{{ (result.run.geometry_scale_blockers or []) | join(", ") or "none" }}</p>
+        <p class="muted">negative prompt drift blockers</p>
+        <p>{{ result.run.geometry_readiness.negative_prompt_blocks_geometry_drift }}</p>
+      </article>
+      <article class="card">
+        <h2>Product identity</h2>
+        <p class="muted">status</p>
+        <p>{{ result.product_identity_readiness.status or result.run.product_identity_readiness.status or "unknown" }}</p>
+        <p class="muted">product identity blockers</p>
+        <p>{{ (result.run.product_identity_blockers or []) | join(", ") or "none" }}</p>
+      </article>
+      <article class="card">
+        <h2>Publishing readiness</h2>
+        <p class="muted">status</p>
+        <p>{{ result.publishing_readiness.status or result.run.publishing_readiness.status or "unknown" }}</p>
+        <p class="muted">blockers</p>
+        <p>{{ (result.publishing_readiness.blockers or result.run.publishing_readiness.blockers or []) | join(", ") or "none" }}</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Next Action Recommendations</h2>
+      <table class="table">
+        <thead><tr><th>Action</th><th>Priority</th><th>Reason</th></tr></thead>
+        <tbody>
+          {% for action in result.next_actions %}
+            <tr><td>{{ action.action }}</td><td>{{ action.priority }}</td><td>{{ action.reason }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Blockers</h2>
+      <p>{{ result.blockers | join(", ") if result.blockers else "none" }}</p>
+      <pre>{{ result.run | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>AI Review Queue</h2>
+    <table class="table">
+      <thead><tr><th>Review</th><th>Run</th><th>Status</th><th>Human review</th><th>Score</th></tr></thead>
+      <tbody>
+        {% for review in ai_reviews %}
+          <tr>
+            <td>#{{ review.id }}</td>
+            <td>#{{ review.content_run_id }}</td>
+            <td>{{ review.status }}</td>
+            <td>{{ "required" if review.human_review_required else "not required" }}</td>
+            <td>{{ review.score }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Performance</h2>
+    <div class="metric-grid">
+      <article class="metric"><strong>{{ dashboard.performance_summary.views }}</strong><span>views</span></article>
+      <article class="metric"><strong>{{ dashboard.performance_summary.clicks }}</strong><span>clicks</span></article>
+      <article class="metric"><strong>{{ dashboard.performance_summary.orders }}</strong><span>orders</span></article>
+      <article class="metric"><strong>{{ dashboard.performance_summary.ctr }}</strong><span>ctr</span></article>
+    </div>
+    <form action="/content-factory/stats/import" method="post" enctype="multipart/form-data">
+      <div class="form-grid">
+        <label>CSV file<input type="file" name="file" accept=".csv" required></label>
+      </div>
+      <div class="actions"><button type="submit">Import stats</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Recent Runs</h2>
+    <table class="table">
+      <thead><tr><th>Run</th><th>SKU</th><th>Status</th><th>Prompt</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for run in content_runs %}
+          <tr>
+            <td>#{{ run.id }}</td>
+            <td>{{ run.product.sku if run.product else run.product_id }}</td>
+            <td>{{ run.status }}</td>
+            <td>#{{ run.prompt_pack_id or "none" }}</td>
+            <td>
+              {% for action in run.next_actions_json[:3] %}
+                {{ action.action }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
