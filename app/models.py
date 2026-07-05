@@ -710,6 +710,7 @@ class VideoGenerationVariant(Base, TimestampMixin):
     script_variant = relationship("ScriptVariant")
     video_job = relationship("VideoJob")
     quality_reviews = relationship("VideoQualityReview", back_populates="generation_variant")
+    regeneration_requests = relationship("SceneRegenerationRequest", back_populates="generation_variant")
 
 
 class VideoQualityReview(Base, TimestampMixin):
@@ -727,3 +728,22 @@ class VideoQualityReview(Base, TimestampMixin):
     creative_spec = relationship("VideoCreativeSpecRecord")
     generation_variant = relationship("VideoGenerationVariant", back_populates="quality_reviews")
     video_job = relationship("VideoJob")
+
+
+class SceneRegenerationRequest(Base, TimestampMixin):
+    __tablename__ = "scene_regeneration_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=False, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=False, index=True)
+    scene_number = Column(Integer, nullable=False, index=True)
+    reason = Column(String(120), nullable=False, index=True)
+    feedback = Column(Text, nullable=False)
+    status = Column(String(80), nullable=False, default="requested", index=True)
+    request_json = Column(JSON, default=dict, nullable=False)
+    prompt_only_output_json = Column(JSON, default=dict, nullable=False)
+
+    video_job = relationship("VideoJob")
+    generation_variant = relationship("VideoGenerationVariant", back_populates="regeneration_requests")
+    creative_spec = relationship("VideoCreativeSpecRecord")

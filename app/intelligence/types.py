@@ -96,6 +96,9 @@ class PromptSceneOutput(BaseModel):
     camera_motion: str = "slow product-focused movement"
     style: str = "realistic vertical marketplace product video"
     safety_constraints: list[str] = Field(default_factory=list)
+    product_geometry_rules: dict[str, Any] = Field(default_factory=dict)
+    product_scale_rules: dict[str, Any] = Field(default_factory=dict)
+    product_visibility_rules: dict[str, Any] = Field(default_factory=dict)
 
 
 class PromptPackOutput(BaseModel):

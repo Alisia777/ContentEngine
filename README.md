@@ -212,6 +212,19 @@ Paid manual acceptance uses the same command after `QVF_GENERATION_MODE=real`, `
 
 Full runbook: `docs/REAL_SMOKE_FROM_VARIANT.md`.
 
+## Product Geometry / Scale Lock
+
+v0.2.1 adds prompt-level protection against product size and proportion drift. `VideoCreativeSpec` and selected-variant prompt packs now include product geometry, scale, and visibility rules, plus negative prompts for changed product size, wrong proportions, stretched/squashed bottle, oversized/miniature product, changed silhouette, wrong cap size, and label area changes.
+
+Human feedback can request a prompt-only scene fix:
+
+```bash
+python scripts/request_regeneration.py --video-job-id 11 --scene-number 1 --reason product_geometry_mismatch --feedback "Product size/proportions drifted; preserve exact bottle silhouette, height-width ratio, cap/dropper size and label area."
+python scripts/regenerate_scene_from_feedback.py --regeneration-request-id 1 --build-prompts-only
+```
+
+This is not visual identity verification. It improves provider instructions and regeneration prompts, while generated videos still require manual approval before publishing.
+
 ## Run the Working Generator
 
 Sprint 08 connects the demand generator to the selected-variant video generator:

@@ -7,6 +7,11 @@ from app import models
 from app.assets.errors import AssetKitError
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.config import get_settings
+from app.creative.product_geometry import (
+    GEOMETRY_LOCK_PROMPT_LINES,
+    geometry_lock_prompt_text,
+    geometry_negative_prompt,
+)
 from app.creative.types import CreativeSpec
 from app.intelligence.errors import ProviderConfigurationError
 from app.intelligence.types import PromptPackOutput, PromptSceneOutput
@@ -113,7 +118,11 @@ class VideoGenerator:
                 "reference_images": reference_images,
                 "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
                 "provider_reference_bundle": provider_reference_bundle,
-                "product_accuracy_rules": spec.product_display_rules,
+                "product_accuracy_rules": self._product_accuracy_rules(spec),
+                "product_geometry_spec": spec.product_geometry_spec.model_dump(mode="json"),
+                "product_geometry_rules": spec.product_geometry_rules,
+                "product_scale_rules": spec.product_scale_rules,
+                "product_visibility_rules": spec.product_visibility_rules,
                 "overlay_text": first_frame.get("text_overlay"),
                 "scene_pacing": creative_variant.pacing_json,
                 "selected_cta": creative_variant.cta_framing,
@@ -139,6 +148,10 @@ class VideoGenerator:
                 "reference_images": reference_images,
                 "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
                 "provider_reference_bundle": provider_reference_bundle,
+                "product_geometry_spec": spec.product_geometry_spec.model_dump(mode="json"),
+                "product_geometry_rules": spec.product_geometry_rules,
+                "product_scale_rules": spec.product_scale_rules,
+                "product_visibility_rules": spec.product_visibility_rules,
                 "aspect_ratio": spec.aspect_ratio,
                 "duration_seconds": prompt_output.duration_seconds,
                 "asset_references": reference_images or creative_variant.asset_refs_json,
@@ -220,8 +233,20 @@ class VideoGenerator:
     def score(self, generation_variant_id: int) -> models.VideoQualityReview:
         return QualityScorer(self.db).score(self._variant(generation_variant_id))
 
-    def regenerate_scene(self, generation_variant_id: int, scene_number: int) -> dict:
-        return SceneRegenerator(self.db).regenerate_scene(self._variant(generation_variant_id), scene_number)
+    def regenerate_scene(
+        self,
+        generation_variant_id: int,
+        scene_number: int,
+        *,
+        reason: str | None = None,
+        feedback: str | None = None,
+    ) -> dict:
+        return SceneRegenerator(self.db).regenerate_scene(
+            self._variant(generation_variant_id),
+            scene_number,
+            reason=reason,
+            feedback=feedback,
+        )
 
     def _create_execution_variant(self, spec_record: models.VideoCreativeSpecRecord, spec: CreativeSpec) -> models.ScriptVariant:
         product = self.db.get(models.Product, spec.product_id)
@@ -269,7 +294,9 @@ class VideoGenerator:
                     voiceover=scene.voiceover,
                     caption=scene.caption,
                     video_prompt=scene.visual,
-                    negative_prompt="distorted product, changed packaging, unsupported claims, low quality",
+                    negative_prompt=geometry_negative_prompt(
+                        "distorted product, changed packaging, unsupported claims, low quality"
+                    ),
                     source_fields_json=scene.claim_refs,
                 )
             )
@@ -336,7 +363,7 @@ class VideoGenerator:
                     voiceover=scene.get("voiceover"),
                     caption=scene.get("caption"),
                     video_prompt=self._variant_prompt_text(creative_variant, spec, scene),
-                    negative_prompt=(
+                    negative_prompt=geometry_negative_prompt(
                         "distorted product, changed packaging, fake labels, unsupported claims, "
                         "medical claims, unreadable text, low quality"
                     ),
@@ -384,7 +411,7 @@ class VideoGenerator:
                     scene_number=int(scene.get("scene_number") or 1),
                     duration_seconds=max(1, int(scene.get("duration_seconds") or 1)),
                     prompt_text=self._variant_prompt_text(creative_variant, spec, scene),
-                    negative_prompt=(
+                    negative_prompt=geometry_negative_prompt(
                         "distorted product, changed packaging, fake labels, unsupported claims, "
                         "medical claims, unreadable text, low quality"
                     ),
@@ -396,7 +423,11 @@ class VideoGenerator:
                         "do not alter product shape, packaging, color, or label",
                         "use only source-backed claims",
                         "keep overlay text readable and clear of packaging",
+                        *GEOMETRY_LOCK_PROMPT_LINES,
                     ],
+                    product_geometry_rules=spec.product_geometry_rules,
+                    product_scale_rules=spec.product_scale_rules,
+                    product_visibility_rules=spec.product_visibility_rules,
                 )
             )
         return prompts
@@ -415,8 +446,13 @@ class VideoGenerator:
             f"{first_frame_text}Scene role: {scene.get('role')}. {scene.get('visual')} "
             f"Caption: {scene.get('caption')}. Voiceover: {scene.get('voiceover')}. "
             f"Scene pacing: {creative_variant.pacing_json}. CTA framing: {creative_variant.cta_framing}. "
-            f"Product accuracy rules: {'; '.join(spec.product_display_rules)}"
+            f"Product accuracy rules: {'; '.join(VideoGenerator._product_accuracy_rules(spec))}. "
+            f"Product geometry lock: {geometry_lock_prompt_text()}"
         )
+
+    @staticmethod
+    def _product_accuracy_rules(spec: CreativeSpec) -> list[str]:
+        return list(dict.fromkeys(spec.product_display_rules + GEOMETRY_LOCK_PROMPT_LINES))
 
     @staticmethod
     def _video_job(generation_variant: models.VideoGenerationVariant) -> models.VideoJob:
