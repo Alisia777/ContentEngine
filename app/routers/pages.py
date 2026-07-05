@@ -41,6 +41,8 @@ from app.creative.errors import CreativeSpecError
 from app.database import get_db
 from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
+from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
+from app.factory_os.errors import FactoryOSError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
 from app.intelligence.generation_runner import GeneratorRunService
@@ -1538,6 +1540,55 @@ def campaign_performance_accept_recommendation(recommendation_id: int, db: Sessi
 def campaign_performance_reject_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
     result = CampaignRecommendationEngine(db).reject(recommendation_id)
     return redirect(f"/campaign-performance?campaign_id={result.campaign_id}")
+
+
+@router.get("/factory-os", response_class=HTMLResponse)
+def factory_os_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    health = FactoryHealthCheck(db).run()
+    report = None
+    runbook = None
+    if selected_campaign:
+        try:
+            report = FactoryAcceptanceReportService(db).build(selected_campaign.id)
+            runbook = FactoryRunbookService(db).build(selected_campaign.id)
+        except FactoryOSError:
+            report = None
+            runbook = None
+    return templates.TemplateResponse(
+        "factory_os.html",
+        {
+            "request": request,
+            "page_title": "Factory OS",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "health": health,
+            "report": report,
+            "runbook": runbook,
+        },
+    )
+
+
+@router.post("/factory-os/prompt-only-launch")
+def factory_os_prompt_only_launch(
+    matrix_path: str = Form("sample_data/product_matrix.csv"),
+    campaign_name: str = Form("Demo Launch"),
+    brand: str = Form("Factory OS"),
+    target_videos: int = Form(350),
+    target_destinations: int = Form(120),
+    performance_csv_path: str = Form("sample_data/campaign_performance.csv"),
+    db: Session = Depends(get_db),
+):
+    result = FactoryLaunchWorkflow(db).run_prompt_only_launch(
+        matrix_path,
+        campaign_name,
+        target_videos,
+        target_destinations,
+        brand=brand,
+        performance_csv_path=performance_csv_path or None,
+    )
+    return redirect(f"/factory-os?campaign_id={result.campaign_id}")
 
 
 @router.post("/bombar-launch/import-matrix")

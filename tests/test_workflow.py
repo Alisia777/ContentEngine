@@ -61,6 +61,7 @@ from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
 from app.demand.types import DemandHypothesis
 from app.engine import VideoFactoryEngine
+from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.intelligence.errors import ClaimValidationError, ProviderConfigurationError
 from app.intelligence.generation_runner import GeneratorRunService
 from app.intelligence.insight_builder import CreativeIntelligenceBuilder
@@ -3896,6 +3897,101 @@ def test_campaign_performance_report_exports():
         assert report.summary.metric_count == 1
         assert "metric_count" in report.summary_csv
         assert report.recommendations
+
+
+def run_factory_launch(db, *, target_videos: int = 8, target_destinations: int = 2):
+    return FactoryLaunchWorkflow(db).run_prompt_only_launch(
+        Path("sample_data/product_matrix.csv"),
+        "Factory OS Test Launch",
+        target_videos,
+        target_destinations,
+        brand="Factory OS",
+        performance_csv_path=Path("sample_data/campaign_performance.csv"),
+    )
+
+
+def test_factory_health_check_reports_modules():
+    with client():
+        with SessionLocal() as db:
+            health = FactoryHealthCheck(db).run()
+
+    names = {item["name"] for item in health.checks}
+    assert health.overall_status == "ready"
+    assert {"db", "media_dir", "campaign_autopilot", "batch_executor", "performance_loop"}.issubset(names)
+    assert "runway_api_secret_configured" in health.provider_keys
+
+
+def test_factory_prompt_only_launch_imports_matrix_and_creates_campaign():
+    with client():
+        with SessionLocal() as db:
+            result = run_factory_launch(db)
+            campaign = db.get(models.Campaign, result.campaign_id)
+
+    assert result.import_id
+    assert campaign is not None
+    assert campaign.source_type == "factory_os_prompt_only"
+    assert result.acceptance_report.total_sku == 4
+
+
+def test_factory_prompt_only_launch_runs_safe_batch_only():
+    with client():
+        with SessionLocal() as db:
+            result = run_factory_launch(db)
+            batch_items = db.scalars(select(models.CampaignBatchItem)).all()
+
+    assert any(step["step"] == "dry_run_safe_batch" for step in result.steps)
+    assert all(item.action_type not in {"run_real_smoke", "publish", "schedule_live_publishing"} for item in batch_items)
+
+
+def test_factory_prompt_only_launch_makes_no_paid_calls():
+    with client():
+        with SessionLocal() as db:
+            result = run_factory_launch(db)
+
+    assert result.acceptance_report.paid_calls_made == 0
+
+
+def test_factory_acceptance_report_contains_campaign_metrics():
+    with client():
+        with SessionLocal() as db:
+            result = run_factory_launch(db)
+            report = FactoryAcceptanceReportService(db).build(result.campaign_id)
+
+    assert report.content_runs_created >= 1
+    assert report.prompt_packs_created >= 1
+    assert report.performance_metrics_imported == 3
+    assert report.recommendations_generated >= 1
+
+
+def test_factory_acceptance_report_lists_blockers_and_next_actions():
+    with client():
+        with SessionLocal() as db:
+            result = run_factory_launch(db, target_destinations=120)
+            report = FactoryAcceptanceReportService(db).build(result.campaign_id)
+
+    blocker_names = {item.get("blocker") for item in report.blockers}
+    assert "destination_capacity_below_target" in blocker_names
+    assert report.next_manual_actions
+
+
+def test_factory_os_ui_renders_health_and_launch():
+    with client() as api:
+        response = api.get("/factory-os")
+
+    assert response.status_code == 200, response.text
+    assert "System Health" in response.text
+    assert "Prompt-only Launch" in response.text
+
+
+def test_factory_runbook_outputs_next_manual_steps():
+    with client():
+        with SessionLocal() as db:
+            result = run_factory_launch(db)
+            runbook = FactoryRunbookService(db).build(result.campaign_id)
+
+    steps = {item["step"] for item in runbook.next_manual_steps}
+    assert "keep_paid_and_publishing_gates_closed" in steps
+    assert any("factory_acceptance_report.py" in command for command in runbook.commands)
 
 
 def test_campaign_no_external_account_registration_logic_exists():

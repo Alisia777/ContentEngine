@@ -453,6 +453,35 @@ The loop uses manual CSV import and `PublishingTask.final_url` links. It does no
 
 Docs: `docs/CAMPAIGN_PERFORMANCE_LOOP.md`, `docs/CAMPAIGN_METRICS_IMPORT.md`, and `docs/SCALING_RECOMMENDATIONS.md`.
 
+## v1 AI Content Factory Operating System
+
+v1 adds `/factory-os`, one operator workflow that connects the existing modules end to end:
+
+```text
+product matrix
+-> campaign
+-> content autopilot
+-> execution snapshot
+-> safe prompt-only batch
+-> distribution plan
+-> performance import
+-> scaling recommendations
+-> acceptance report and runbook
+```
+
+Operator CLI:
+
+```bash
+python scripts/factory_health_check.py
+python scripts/factory_prompt_only_launch.py --matrix sample_data/product_matrix.csv --campaign-name "Demo Launch" --target-videos 350 --target-destinations 120
+python scripts/factory_acceptance_report.py --campaign-id 1
+python scripts/factory_runbook.py --campaign-id 1
+```
+
+Factory OS does not scrape platforms, create external accounts, run paid providers, auto-publish, or bypass human review gates.
+
+Docs: `docs/FACTORY_OS.md`, `docs/FACTORY_ACCEPTANCE_RUNBOOK.md`, and `docs/V1_PROMPT_ONLY_LAUNCH.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

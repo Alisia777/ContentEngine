@@ -49,6 +49,8 @@ from app.database import get_db
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
+from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
+from app.factory_os.errors import FactoryOSError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
 from app.intelligence.generation_runner import GeneratorRunArtifacts, GeneratorRunService
@@ -279,6 +281,15 @@ class CampaignExecutionExecuteRequest(BaseModel):
 
 class CampaignBatchRequest(BaseModel):
     action_type: str | None = None
+
+
+class FactoryPromptOnlyLaunchRequest(BaseModel):
+    matrix_path: str
+    campaign_name: str = "Demo Launch"
+    target_videos: int = 350
+    target_destinations: int = 120
+    brand: str = "Factory OS"
+    performance_csv_path: str | None = "sample_data/campaign_performance.csv"
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1586,6 +1597,42 @@ def get_campaign_performance_report(campaign_id: int, db: Session = Depends(get_
     try:
         return CampaignPerformanceReportService(db).build_report(campaign_id).model_dump(mode="json")
     except CampaignPerformanceDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/factory-os/health")
+def get_factory_os_health(db: Session = Depends(get_db)):
+    return FactoryHealthCheck(db).run().model_dump(mode="json")
+
+
+@router.post("/factory-os/prompt-only-launch")
+def run_factory_prompt_only_launch(payload: FactoryPromptOnlyLaunchRequest, db: Session = Depends(get_db)):
+    try:
+        return FactoryLaunchWorkflow(db).run_prompt_only_launch(
+            payload.matrix_path,
+            payload.campaign_name,
+            payload.target_videos,
+            payload.target_destinations,
+            brand=payload.brand,
+            performance_csv_path=payload.performance_csv_path,
+        ).model_dump(mode="json")
+    except FactoryOSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/factory-os/campaigns/{campaign_id}/acceptance-report")
+def get_factory_acceptance_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return FactoryAcceptanceReportService(db).build(campaign_id).model_dump(mode="json")
+    except FactoryOSError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/factory-os/campaigns/{campaign_id}/runbook")
+def get_factory_runbook(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return FactoryRunbookService(db).build(campaign_id).model_dump(mode="json")
+    except FactoryOSError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
