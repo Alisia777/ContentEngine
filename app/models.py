@@ -983,3 +983,25 @@ class ProductMatrixRow(Base, TimestampMixin):
     warnings_json = Column(JSON, default=list, nullable=False)
 
     matrix_import = relationship("ProductMatrixImport", back_populates="rows")
+
+
+class DestinationSetupPack(Base, TimestampMixin):
+    __tablename__ = "destination_setup_packs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    destination_type = Column(String(120), nullable=False, default="owned_media", index=True)
+    platform = Column(String(120), nullable=False, default="Instagram Reels", index=True)
+    suggested_name = Column(String(160), nullable=False)
+    suggested_handle = Column(String(160), nullable=False)
+    bio_text = Column(Text, nullable=True)
+    avatar_asset_path = Column(String(500), nullable=True)
+    content_pillars_json = Column(JSON, default=list, nullable=False)
+    first_posts_json = Column(JSON, default=list, nullable=False)
+    setup_checklist_json = Column(JSON, default=list, nullable=False)
+    status = Column(String(80), nullable=False, default="needs_manual_setup", index=True)
+
+    campaign = relationship("Campaign")
+    product = relationship("Product")
