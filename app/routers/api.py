@@ -27,6 +27,8 @@ from app.bombar_launch import (
 from app.bombar_launch.errors import BombarLaunchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
 from app.campaign_autopilot.errors import CampaignAutopilotDataError
+from app.campaign_execution import ActionQueueService, ExecutionReportService, ExecutionStateService
+from app.campaign_execution.errors import CampaignExecutionDataError
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
@@ -259,6 +261,10 @@ class BombarDestinationPackPatchRequest(BaseModel):
     suggested_handle: str | None = None
     bio_text: str | None = None
     avatar_asset_path: str | None = None
+
+
+class CampaignExecutionExecuteRequest(BaseModel):
+    allow_paid: bool = False
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1394,6 +1400,64 @@ def get_campaign_distribution_plan(campaign_id: int, db: Session = Depends(get_d
     if not plan:
         raise HTTPException(status_code=404, detail="Campaign distribution plan not found")
     return plan
+
+
+@router.get("/campaign-execution/{campaign_id}/snapshot")
+def get_campaign_execution_snapshot(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return ExecutionStateService(db).latest_snapshot(campaign_id).model_dump(mode="json")
+    except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-execution/{campaign_id}/refresh")
+def refresh_campaign_execution(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        snapshot = ExecutionStateService(db).refresh_snapshot(campaign_id)
+        actions = ActionQueueService(db).refresh_actions(campaign_id)
+        return {
+            "snapshot": snapshot.model_dump(mode="json"),
+            "actions": [item.model_dump(mode="json") for item in actions],
+        }
+    except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/campaign-execution/{campaign_id}/actions")
+def list_campaign_execution_actions(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in ActionQueueService(db).list_actions(campaign_id)]
+    except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-execution/actions/{action_id}/execute")
+def execute_campaign_execution_action(
+    action_id: int,
+    payload: CampaignExecutionExecuteRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or CampaignExecutionExecuteRequest()
+    try:
+        return ActionQueueService(db).execute(action_id, allow_paid=payload.allow_paid).model_dump(mode="json")
+    except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/campaign-execution/actions/{action_id}/resolve")
+def resolve_campaign_execution_action(action_id: int, db: Session = Depends(get_db)):
+    try:
+        return ActionQueueService(db).resolve(action_id).model_dump(mode="json")
+    except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/campaign-execution/{campaign_id}/report")
+def get_campaign_execution_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return ExecutionReportService(db).build_report(campaign_id).model_dump(mode="json")
+    except CampaignExecutionDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/bombar/campaigns")

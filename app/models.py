@@ -888,6 +888,8 @@ class Campaign(Base, TimestampMixin):
     products = relationship("CampaignProduct", back_populates="campaign", cascade="all, delete-orphan")
     runs = relationship("CampaignRun", back_populates="campaign", cascade="all, delete-orphan")
     distribution_plans = relationship("CampaignDistributionPlan", back_populates="campaign", cascade="all, delete-orphan")
+    execution_snapshots = relationship("CampaignExecutionSnapshot", back_populates="campaign", cascade="all, delete-orphan")
+    action_queue_items = relationship("CampaignActionQueueItem", back_populates="campaign", cascade="all, delete-orphan")
 
 
 class CampaignProduct(Base, TimestampMixin):
@@ -1005,3 +1007,45 @@ class DestinationSetupPack(Base, TimestampMixin):
 
     campaign = relationship("Campaign")
     product = relationship("Product")
+
+
+class CampaignExecutionSnapshot(Base, TimestampMixin):
+    __tablename__ = "campaign_execution_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="created", index=True)
+    total_sku = Column(Integer, nullable=False, default=0)
+    ready_sku = Column(Integer, nullable=False, default=0)
+    blocked_sku = Column(Integer, nullable=False, default=0)
+    prompt_ready_count = Column(Integer, nullable=False, default=0)
+    real_smoke_ready_count = Column(Integer, nullable=False, default=0)
+    needs_review_count = Column(Integer, nullable=False, default=0)
+    approved_video_count = Column(Integer, nullable=False, default=0)
+    publishing_package_ready_count = Column(Integer, nullable=False, default=0)
+    distribution_task_ready_count = Column(Integer, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="execution_snapshots")
+
+
+class CampaignActionQueueItem(Base, TimestampMixin):
+    __tablename__ = "campaign_action_queue_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=True, index=True)
+    action_type = Column(String(120), nullable=False, index=True)
+    priority = Column(Integer, nullable=False, default=50, index=True)
+    status = Column(String(80), nullable=False, default="open", index=True)
+    reason = Column(Text, nullable=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    safe_to_execute = Column(Boolean, default=False, nullable=False)
+    requires_human = Column(Boolean, default=True, nullable=False)
+
+    campaign = relationship("Campaign", back_populates="action_queue_items")
+    product = relationship("Product")
+    content_run = relationship("ContentRun")

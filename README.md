@@ -370,6 +370,35 @@ The adapter supports 40 SKU, 300-350 target videos, and 120 destination setup pa
 
 Docs: `docs/BOMBAR_LAUNCH_AUTOPILOT.md`, `docs/BOMBAR_MATRIX_FORMAT.md`, and `docs/DESTINATION_SETUP_PACKS.md`.
 
+## Campaign Execution Control Center
+
+v0.7.0 adds `/campaign-execution`, the execution dashboard above Campaign Autopilot:
+
+```text
+Campaign
+-> execution snapshot
+-> exact SKU blockers
+-> deduplicated action queue
+-> safe execution / human task resolution
+-> publishing readiness
+-> distribution readiness
+-> JSON and CSV report summary
+```
+
+Operator CLI:
+
+```bash
+python scripts/campaign_execution_snapshot.py --campaign-id 1
+python scripts/campaign_execution_refresh.py --campaign-id 1
+python scripts/campaign_execution_actions.py --campaign-id 1
+python scripts/campaign_execution_report.py --campaign-id 1
+python scripts/campaign_execution_report.py --campaign-id 1 --format csv
+```
+
+The control center keeps Campaign Autopilot and Bombar as the source of campaign state. It does not create platform accounts, bypass paid gates, publish unapproved videos, or run paid provider calls in tests.
+
+Docs: `docs/CAMPAIGN_EXECUTION_CONTROL_CENTER.md` and `docs/CAMPAIGN_ACTION_QUEUE.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:
