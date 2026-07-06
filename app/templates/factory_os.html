@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Factory OS</p>
+    <h1>AI Content Factory OS</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }} / {{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Matrix</span>
+  <span>Campaign</span>
+  <span>Prompt Batch</span>
+  <span>Distribution</span>
+  <span>Performance</span>
+  <span>Runbook</span>
+</section>
+
+<section class="panel">
+  <h2>System Health</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ health.overall_status }}</strong><span>overall</span></div>
+    <div class="metric"><strong>{{ "yes" if health.provider_keys.openai_api_key_configured else "no" }}</strong><span>OpenAI key</span></div>
+    <div class="metric"><strong>{{ "yes" if health.provider_keys.runway_api_secret_configured else "no" }}</strong><span>Runway key</span></div>
+    <div class="metric"><strong>{{ "on" if health.safety_gates.paid_provider_calls_default_blocked else "off" }}</strong><span>paid gate</span></div>
+  </div>
+  <table class="table">
+    <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for check in health.checks %}
+        <tr><td>{{ check.name }}</td><td>{{ check.status }}</td><td>{{ check.detail or check.path or "-" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Prompt-only Launch</h2>
+  <form action="/factory-os/prompt-only-launch" method="post" class="form-grid">
+    <label>Matrix path<input type="text" name="matrix_path" value="sample_data/product_matrix.csv"></label>
+    <label>Campaign name<input type="text" name="campaign_name" value="Demo Launch"></label>
+    <label>Brand<input type="text" name="brand" value="Factory OS"></label>
+    <label>Target videos<input type="number" name="target_videos" value="350" min="1"></label>
+    <label>Target destinations<input type="number" name="target_destinations" value="120" min="1"></label>
+    <label>Performance CSV<input type="text" name="performance_csv_path" value="sample_data/campaign_performance.csv"></label>
+    <div class="actions"><button type="submit">Run Prompt-only Launch</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Campaign E2E Status</h2>
+  <form action="/factory-os" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+  {% if selected_campaign %}
+    <div class="actions">
+      <a class="button secondary" href="/campaign-execution?campaign_id={{ selected_campaign.id }}">Execution</a>
+      <a class="button secondary" href="/campaign-batch?campaign_id={{ selected_campaign.id }}">Batch</a>
+      <a class="button secondary" href="/campaign-performance?campaign_id={{ selected_campaign.id }}">Performance</a>
+    </div>
+  {% endif %}
+</section>
+
+{% if report %}
+<section class="panel">
+  <h2>Acceptance Report</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ report.total_sku }}</strong><span>SKU</span></div>
+    <div class="metric"><strong>{{ report.content_runs_created }}</strong><span>content runs</span></div>
+    <div class="metric"><strong>{{ report.prompt_packs_created }}</strong><span>prompt packs</span></div>
+    <div class="metric"><strong>{{ report.batch_actions_executed }}</strong><span>batch executed</span></div>
+    <div class="metric"><strong>{{ report.performance_metrics_imported }}</strong><span>metrics</span></div>
+    <div class="metric"><strong>{{ report.paid_calls_made }}</strong><span>paid calls</span></div>
+  </div>
+  <table class="table">
+    <thead><tr><th>Distribution</th><th>Draft Packages</th><th>Approved Packages</th><th>Recommendations</th><th>Unsafe Blocked</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{{ report.distribution_plan_status }}</td>
+        <td>{{ report.publishing_packages_draft }}</td>
+        <td>{{ report.publishing_packages_approved }}</td>
+        <td>{{ report.recommendations_generated }}</td>
+        <td>{{ report.unsafe_actions_blocked }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Blockers</h3>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>Blocker</th><th>Source</th></tr></thead>
+    <tbody>
+      {% for blocker in report.blockers %}
+        <tr><td>{{ blocker.sku or "-" }}</td><td>{{ blocker.blocker }}</td><td>{{ blocker.source or "-" }}</td></tr>
+      {% else %}
+        <tr><td colspan="3">No blockers recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Runbook / Next Actions</h2>
+  {% if runbook %}
+    <table class="table">
+      <thead><tr><th>Step</th><th>Reason</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for step in runbook.next_manual_steps %}
+          <tr><td>{{ step.step }}</td><td>{{ step.reason }}</td><td>{{ step.count or "-" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <h3>Commands</h3>
+    <pre>{{ runbook.commands|join("\n") }}</pre>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
