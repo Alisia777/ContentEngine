@@ -91,6 +91,7 @@ from app.participant_portal import (
 )
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
+from app.training_academy import CurriculumService, ProgressService, QuizService, TrainingAcademyError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -2069,6 +2070,65 @@ def participant_portal_mark_paid(payout_id: int, participant_id: int = Form(...)
     except ParticipantPortalError as exc:
         return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
     return redirect(f"/participant-portal?participant_id={participant_id}")
+
+
+@router.get("/training-academy", response_class=HTMLResponse)
+def training_academy_page(
+    request: Request,
+    participant_id: int | None = None,
+    course_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    curriculum = CurriculumService(db)
+    if not curriculum.list_courses():
+        curriculum.seed_defaults()
+    courses = curriculum.list_courses()
+    selected_course = curriculum.get_course(course_id) if course_id else (courses[0] if courses else None)
+    participants = ParticipantService(db).list()
+    selected_participant = ParticipantService(db).get(participant_id) if participant_id else (participants[0] if participants else None)
+    progress = None
+    if selected_participant:
+        progress = ProgressService(db).progress(selected_participant.id).model_dump(mode="json")
+    return templates.TemplateResponse(
+        "training_academy.html",
+        {
+            "request": request,
+            "page_title": "Training Academy",
+            "courses": courses,
+            "selected_course": selected_course,
+            "selected_course_payload": curriculum.course_payload(selected_course) if selected_course else None,
+            "participants": participants,
+            "selected_participant": selected_participant,
+            "progress": progress,
+            "error": request.query_params.get("error"),
+            "notice": request.query_params.get("notice"),
+        },
+    )
+
+
+@router.post("/training-academy/courses/{course_id}/start")
+def training_academy_start_course(course_id: int, participant_id: int = Form(...), db: Session = Depends(get_db)):
+    try:
+        attempt = ProgressService(db).start_course(participant_id=participant_id, course_id=course_id)
+    except TrainingAcademyError as exc:
+        return redirect(f"/training-academy?participant_id={participant_id}&course_id={course_id}&error={exc}")
+    return redirect(f"/training-academy?participant_id={participant_id}&course_id={course_id}&notice=started_attempt_{attempt.id}")
+
+
+@router.post("/training-academy/quizzes/{quiz_id}/submit")
+async def training_academy_submit_quiz(quiz_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    participant_id = int(str(form.get("participant_id") or "0"))
+    course_id = int(str(form.get("course_id") or "0"))
+    answers = {key.removeprefix("answer_"): value for key, value in form.items() if key.startswith("answer_")}
+    try:
+        result = QuizService(db).submit(participant_id=participant_id, quiz_id=quiz_id, answers=answers)
+    except TrainingAcademyError as exc:
+        return redirect(f"/training-academy?participant_id={participant_id}&course_id={course_id}&error={exc}")
+    status = "certified" if result.passed else "failed"
+    return redirect(
+        f"/training-academy?participant_id={participant_id}&course_id={course_id}&notice=quiz_{status}_score_{result.score:.2f}"
+    )
 
 
 @router.post("/campaign-autopilot/import-matrix")

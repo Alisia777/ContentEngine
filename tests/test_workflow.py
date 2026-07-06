@@ -125,6 +125,8 @@ from app.participant_portal.errors import ParticipantPortalDataError
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
 from app.services.video_assembly import VideoAssemblyService
+from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService
+from app.training_academy.errors import TrainingAcademyDataError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.first_frame_builder import FirstFrameBuilder
 from app.variants.variant_scorer import VariantScorer
@@ -6181,3 +6183,188 @@ def test_human_operating_rules_docs_exist():
 
     for doc in docs:
         assert Path(doc).exists()
+
+
+def test_training_courses_seeded():
+    with client():
+        with SessionLocal() as db:
+            courses = CurriculumService(db).seed_defaults()
+
+    assert {course.code for course in courses} == {
+        "creator_basics",
+        "publisher_basics",
+        "metrics_basics",
+        "payout_basics",
+        "reviewer_basics",
+    }
+
+
+def test_training_course_has_lessons_and_quiz():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            course = CurriculumService(db).get_course_by_code("publisher_basics")
+            lesson_count = len(course.lessons)
+            quiz_count = len(course.quizzes)
+            has_question = any(question["id"] == "publish_needs_review" for question in course.quizzes[0].questions_json)
+
+    assert lesson_count > 0
+    assert quiz_count > 0
+    assert has_question
+
+
+def test_participant_can_start_course():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Training Starter", role="publisher")
+            course = CurriculumService(db).get_course_by_code("publisher_basics")
+            attempt = ProgressService(db).start_course(participant_id=participant.id, course_id=course.id)
+
+    assert attempt.status == "started"
+    assert attempt.participant_id == participant.id
+    assert attempt.course_id == course.id
+
+
+def test_quiz_pass_creates_certification():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Certified Publisher", role="publisher")
+            quiz = QuizService(db).get_for_course_code("publisher_basics")
+            result = QuizService(db).submit(
+                participant_id=participant.id,
+                quiz_id=quiz.id,
+                answers={
+                    "publish_needs_review": "no",
+                    "post_link": "tracking_link",
+                    "post_back_reference": "final_url",
+                },
+            )
+            certified = CertificationService(db).has_certification(participant.id, "publisher_basics")
+
+    assert result.passed is True
+    assert result.certification_id is not None
+    assert certified is True
+
+
+def test_quiz_fail_does_not_certify():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Needs Training", role="publisher")
+            quiz = QuizService(db).get_for_course_code("publisher_basics")
+            result = QuizService(db).submit(
+                participant_id=participant.id,
+                quiz_id=quiz.id,
+                answers={
+                    "publish_needs_review": "yes",
+                    "post_link": "direct_product_url",
+                    "post_back_reference": "caption",
+                },
+            )
+            certified = CertificationService(db).has_certification(participant.id, "publisher_basics")
+
+    assert result.passed is False
+    assert result.certification_id is None
+    assert certified is False
+
+
+def test_publisher_gate_requires_training_when_enabled():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Gate Publisher", role="publisher")
+            advisory = CertificationService(db).evaluate_gate(participant.id, "publishing", strict=False)
+            with pytest.raises(TrainingAcademyDataError):
+                CertificationService(db).evaluate_gate(participant.id, "publishing", strict=True)
+            quiz = QuizService(db).get_for_course_code("publisher_basics")
+            QuizService(db).submit(
+                participant_id=participant.id,
+                quiz_id=quiz.id,
+                answers={
+                    "publish_needs_review": "no",
+                    "post_link": "tracking_link",
+                    "post_back_reference": "publishing_task",
+                },
+            )
+            passed = CertificationService(db).evaluate_gate(participant.id, "publishing", strict=True)
+
+    assert advisory["status"] == "advisory"
+    assert passed["status"] == "passed"
+
+
+def test_metrics_gate_requires_training_when_enabled():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Metrics Trainee", role="operator")
+            with pytest.raises(TrainingAcademyDataError):
+                CertificationService(db).evaluate_gate(participant.id, "metrics_submission", strict=True)
+            quiz = QuizService(db).get_for_course_code("metrics_basics")
+            result = QuizService(db).submit(
+                participant_id=participant.id,
+                quiz_id=quiz.id,
+                answers={
+                    "missing_traceability": "unmatched warning",
+                    "tracking_vs_final_url": "tracking_link",
+                },
+            )
+            gate = CertificationService(db).evaluate_gate(participant.id, "metrics_submission", strict=True)
+
+    assert result.passed is True
+    assert gate["course_code"] == "metrics_basics"
+    assert gate["status"] == "passed"
+
+
+def test_training_academy_ui_renders():
+    with client() as api:
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Academy UI", role="creator")
+        response = api.get(f"/training-academy?participant_id={participant.id}")
+
+    assert response.status_code == 200, response.text
+    assert "Training Academy" in response.text
+    assert "Course Catalog" in response.text
+    assert "Quiz / Certification Test" in response.text
+    assert "Creator Basics" in response.text
+
+
+def test_training_api_flow_does_not_expose_answers():
+    with client() as api:
+        participant_response = api.post("/api/participant-portal/participants", json={"display_name": "API Trainee", "role": "publisher"})
+        assert participant_response.status_code == 200, participant_response.text
+        participant_id = participant_response.json()["id"]
+        courses_response = api.get("/api/training/courses")
+        assert courses_response.status_code == 200, courses_response.text
+        assert "correct_answers" not in courses_response.text
+        publisher_course = next(course for course in courses_response.json() if course["code"] == "publisher_basics")
+        start_response = api.post(f"/api/training/courses/{publisher_course['id']}/start", json={"participant_id": participant_id})
+        assert start_response.status_code == 200, start_response.text
+        quiz_id = publisher_course["quizzes"][0]["id"]
+        quiz_response = api.post(
+            f"/api/training/quizzes/{quiz_id}/submit",
+            json={
+                "participant_id": participant_id,
+                "answers": {
+                    "publish_needs_review": "no",
+                    "post_link": "tracking_link",
+                    "post_back_reference": "final_url",
+                },
+            },
+        )
+        progress_response = api.get(f"/api/training/participants/{participant_id}/progress")
+
+    assert quiz_response.status_code == 200, quiz_response.text
+    assert quiz_response.json()["passed"] is True
+    assert progress_response.status_code == 200, progress_response.text
+    assert any(cert["course_code"] == "publisher_basics" for cert in progress_response.json()["certifications"])
+
+
+def test_participant_portal_links_training():
+    with client() as api:
+        response = api.get("/participant-portal")
+
+    assert response.status_code == 200, response.text
+    assert "/training-academy" in response.text
+    assert "role courses, quizzes and certifications" in response.text

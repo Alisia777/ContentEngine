@@ -1391,6 +1391,91 @@ class ParticipantProfile(Base, TimestampMixin):
     assignments = relationship("ParticipantAssignment", back_populates="participant", cascade="all, delete-orphan")
     submissions = relationship("ParticipantSubmission", back_populates="participant", cascade="all, delete-orphan")
     payout_entries = relationship("PayoutLedgerEntry", back_populates="participant")
+    training_attempts = relationship("TrainingAttempt", back_populates="participant", cascade="all, delete-orphan")
+    certifications = relationship("ParticipantCertification", back_populates="participant", cascade="all, delete-orphan")
+
+
+class TrainingCourse(Base, TimestampMixin):
+    __tablename__ = "training_courses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(120), unique=True, nullable=False, index=True)
+    title = Column(String(160), nullable=False)
+    role = Column(String(80), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    summary = Column(Text, nullable=True)
+    sort_order = Column(Integer, nullable=False, default=100, index=True)
+    learning_path_json = Column(JSON, default=list, nullable=False)
+    checklist_json = Column(JSON, default=list, nullable=False)
+
+    lessons = relationship("TrainingLesson", back_populates="course", cascade="all, delete-orphan")
+    quizzes = relationship("TrainingQuiz", back_populates="course", cascade="all, delete-orphan")
+    attempts = relationship("TrainingAttempt", back_populates="course", cascade="all, delete-orphan")
+    certifications = relationship("ParticipantCertification", back_populates="course", cascade="all, delete-orphan")
+
+
+class TrainingLesson(Base, TimestampMixin):
+    __tablename__ = "training_lessons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("training_courses.id"), nullable=False, index=True)
+    code = Column(String(120), nullable=False, index=True)
+    title = Column(String(160), nullable=False)
+    body = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=100, index=True)
+    checklist_json = Column(JSON, default=list, nullable=False)
+    examples_json = Column(JSON, default=list, nullable=False)
+
+    course = relationship("TrainingCourse", back_populates="lessons")
+
+
+class TrainingQuiz(Base, TimestampMixin):
+    __tablename__ = "training_quizzes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("training_courses.id"), nullable=False, index=True)
+    code = Column(String(120), nullable=False, index=True)
+    title = Column(String(160), nullable=False)
+    passing_score = Column(Float, nullable=False, default=0.8)
+    questions_json = Column(JSON, default=list, nullable=False)
+
+    course = relationship("TrainingCourse", back_populates="quizzes")
+    attempts = relationship("TrainingAttempt", back_populates="quiz", cascade="all, delete-orphan")
+
+
+class TrainingAttempt(Base, TimestampMixin):
+    __tablename__ = "training_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("training_courses.id"), nullable=False, index=True)
+    quiz_id = Column(Integer, ForeignKey("training_quizzes.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="started", index=True)
+    score = Column(Float, nullable=False, default=0)
+    passed = Column(Boolean, default=False, nullable=False, index=True)
+    answers_json = Column(JSON, default=dict, nullable=False)
+    result_json = Column(JSON, default=dict, nullable=False)
+
+    participant = relationship("ParticipantProfile", back_populates="training_attempts")
+    course = relationship("TrainingCourse", back_populates="attempts")
+    quiz = relationship("TrainingQuiz", back_populates="attempts")
+
+
+class ParticipantCertification(Base, TimestampMixin):
+    __tablename__ = "participant_certifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("training_courses.id"), nullable=False, index=True)
+    attempt_id = Column(Integer, ForeignKey("training_attempts.id"), nullable=True, index=True)
+    course_code = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="certified", index=True)
+    issued_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+
+    participant = relationship("ParticipantProfile", back_populates="certifications")
+    course = relationship("TrainingCourse", back_populates="certifications")
+    attempt = relationship("TrainingAttempt")
 
 
 class ParticipantDestinationLink(Base, TimestampMixin):

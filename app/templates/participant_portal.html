@@ -31,7 +31,7 @@
     <div class="metric"><strong>5</strong><span>Upload stats with posted_url or tracking_slug.</span></div>
     <div class="metric"><strong>6</strong><span>Payouts use traceable tasks and metrics.</span></div>
   </div>
-  <p class="muted"><a href="/training-academy">Training Academy</a> will hold role courses and certification. Current rules are in docs/HUMAN_OPERATING_RULES.md.</p>
+  <p class="muted"><a href="/training-academy{% if selected_participant %}?participant_id={{ selected_participant.id }}{% endif %}">Training Academy</a> holds role courses, quizzes and certifications. Current rules are in docs/HUMAN_OPERATING_RULES.md.</p>
 </section>
 
 {% if error %}

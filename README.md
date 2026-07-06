@@ -718,6 +718,32 @@ Participant Portal shows a "How to work" block, assignment brief cards include a
 
 Docs: `docs/HUMAN_OPERATING_RULES.md`, `docs/PUBLISHING_RULES_FOR_PARTICIPANTS.md`, `docs/METRICS_SUBMISSION_RULES.md`, and `docs/PAYOUT_RULES_FOR_PARTICIPANTS.md`.
 
+## v1.9 Training Academy
+
+v1.9 adds `/training-academy`, an in-product onboarding layer for creators, publishers, operators, reviewers, partners, and admins:
+
+```text
+role course
+-> lessons / checklists / examples
+-> quiz attempt
+-> certification
+-> advisory or strict gate
+```
+
+Default courses cover Creator Basics, Publisher Basics, Metrics Basics, Payout Basics, and Reviewer Basics. The academy links back into Participant Portal, Metrics Intake, Publishing, and Destination Control Tower.
+
+Operator CLI:
+
+```bash
+python scripts/seed_training_academy.py
+python scripts/training_progress.py --participant-id 1
+python scripts/submit_training_quiz.py --participant-id 1 --course-code metrics_basics --answers sample_data/training_answers.json
+```
+
+Training gates are advisory by default: publishing recommends `publisher_basics`, metrics submission recommends `metrics_basics`, and reviewer approval recommends `reviewer_basics`. Strict mode is available in the service layer for workflows that need to block uncertified actions.
+
+Docs: `docs/TRAINING_ACADEMY.md`, `docs/PUBLISHER_TRAINING.md`, `docs/METRICS_TRAINING.md`, and `docs/PAYOUT_TRAINING.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:
