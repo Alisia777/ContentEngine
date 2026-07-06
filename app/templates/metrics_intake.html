@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">v1.8</p>
+      <h1>Metrics Intake</h1>
+    </div>
+    <form method="get" action="/metrics-intake" class="inline-form">
+      <label>
+        Campaign
+        <select name="campaign_id">
+          {% for campaign in campaigns %}
+            <option value="{{ campaign.id }}" {% if campaign.id == selected_campaign_id %}selected{% endif %}>#{{ campaign.id }} {{ campaign.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Open</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Platform Matrix</h2>
+  <table>
+    <thead><tr><th>Platform</th><th>Official Path</th><th>Fallback</th><th>Identity</th><th>Metrics</th></tr></thead>
+    <tbody>
+      {% for item in platform_matrix %}
+        <tr>
+          <td>{{ item.platform }}</td>
+          <td>{{ item.official_connector_types | join(", ") or "none" }}</td>
+          <td>{{ item.fallback_source_types | join(", ") }}</td>
+          <td>{{ item.required_identity_columns | join(", ") }}</td>
+          <td>{{ item.supported_metric_columns | join(", ") }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="grid two">
+  <article class="panel">
+    <h2>Sources</h2>
+    <form method="post" action="/metrics-intake/sources" class="stacked-form">
+      <input type="hidden" name="campaign_id" value="{{ selected_campaign_id or '' }}">
+      <label>Name <input name="name" placeholder="Facebook weekly CSV"></label>
+      <label>Type
+        <select name="source_type">
+          <option value="manual_csv">manual_csv</option>
+          <option value="partner_report">partner_report</option>
+          <option value="official_api">official_api</option>
+          <option value="marketplace_csv">marketplace_csv</option>
+        </select>
+      </label>
+      <label>Platform <input name="platform" value="facebook"></label>
+      <label>Connection ID <input name="connection_id" type="number"></label>
+      <label>Credential Ref <input name="credential_ref" placeholder="META_FACEBOOK_TOKEN_REF"></label>
+      <button type="submit">Add Source</button>
+    </form>
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Platform</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for source in sources %}
+          <tr><td>{{ source.id }}</td><td>{{ source.name }}</td><td>{{ source.source_type }}</td><td>{{ source.platform }}</td><td>{{ source.status }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel">
+    <h2>Tracking Links</h2>
+    <form method="post" action="/metrics-intake/tracking-links" class="stacked-form">
+      <input type="hidden" name="campaign_id" value="{{ selected_campaign_id or '' }}">
+      <label>Publishing Task
+        <select name="publishing_task_id">
+          {% for task in tasks %}
+            <option value="{{ task.id }}">#{{ task.id }} {{ task.platform }} {{ task.final_url or task.status }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Target URL <input name="target_url" placeholder="https://marketplace.example/product"></label>
+      <label>Participant ID <input name="participant_id" type="number"></label>
+      <button type="submit">Create Link</button>
+    </form>
+    <table>
+      <thead><tr><th>Slug</th><th>Task</th><th>SKU</th><th>Target</th></tr></thead>
+      <tbody>
+        {% for link in links %}
+          <tr>
+            <td><code>/r/{{ link.slug }}</code></td>
+            <td>{{ link.publishing_task_id or "-" }}</td>
+            <td>{{ link.sku or "-" }}</td>
+            <td>{{ link.target_url }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</section>
+
+<section class="grid two">
+  <article class="panel">
+    <h2>CSV Imports</h2>
+    <p class="muted">Required identity: posted_url or tracking_slug for social posts; SKU + period is allowed for marketplace conversion reports.</p>
+    <p class="muted">Normalized columns: platform, destination_id, posted_url, tracking_slug, campaign_id, product_id, sku, creative_variant_id, participant_id, period_start, period_end, views, reach, impressions, engagements, likes, comments, shares, saves, clicks, orders, revenue, spend, watch_time_seconds, retention_rate, source_type, match_confidence, warnings.</p>
+    <form method="post" action="/metrics-intake/import-csv" class="stacked-form">
+      <input type="hidden" name="campaign_id" value="{{ selected_campaign_id or '' }}">
+      <label>Source
+        <select name="source_id">
+          <option value="">manual_csv</option>
+          {% for source in sources %}
+            <option value="{{ source.id }}">#{{ source.id }} {{ source.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>CSV
+        <textarea name="csv_text" rows="8" placeholder="platform,destination_handle,posted_url,tracking_slug,sku,period_start,period_end,views,reach,impressions,likes,comments,shares,saves,clicks,orders,revenue,spend"></textarea>
+      </label>
+      <button type="submit">Import CSV</button>
+    </form>
+  </article>
+
+  <article class="panel">
+    <h2>Attribution</h2>
+    <table>
+      <thead><tr><th>Batch</th><th>Status</th><th>Rows</th><th>Matched</th><th>Unmatched</th><th></th></tr></thead>
+      <tbody>
+        {% for batch in batches %}
+          <tr>
+            <td>#{{ batch.id }}</td>
+            <td>{{ batch.status }}</td>
+            <td>{{ batch.imported_count }}</td>
+            <td>{{ batch.matched_count }}</td>
+            <td>{{ batch.unmatched_count }}</td>
+            <td>
+              <form method="post" action="/metrics-intake/batches/{{ batch.id }}/attribute">
+                <input type="hidden" name="campaign_id" value="{{ selected_campaign_id or '' }}">
+                <button type="submit">Attribute</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</section>
+
+<section class="grid two">
+  <article class="panel">
+    <h2>Funnel</h2>
+    {% if funnel %}
+      <div class="metrics-grid">
+        <div><strong>{{ funnel.totals.views }}</strong><span>Views</span></div>
+        <div><strong>{{ funnel.totals.clicks }}</strong><span>Clicks</span></div>
+        <div><strong>{{ funnel.totals.orders }}</strong><span>Orders</span></div>
+        <div><strong>{{ funnel.totals.revenue }}</strong><span>Revenue</span></div>
+        <div><strong>{{ funnel.totals.ctr or "-" }}</strong><span>CTR</span></div>
+        <div><strong>{{ funnel.totals.conversion_rate or "-" }}</strong><span>Conversion</span></div>
+      </div>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <h2>Unmatched Rows</h2>
+    <table>
+      <thead><tr><th>Batch</th><th>Row</th><th>SKU</th><th>Posted URL</th><th>Warning</th></tr></thead>
+      <tbody>
+        {% for row in unmatched %}
+          <tr>
+            <td>{{ row.batch_id }}</td>
+            <td>{{ row._row_number or "-" }}</td>
+            <td>{{ row.sku or "-" }}</td>
+            <td>{{ row.posted_url or "-" }}</td>
+            <td>{{ row.warning }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</section>
+{% endblock %}

@@ -379,6 +379,133 @@ class DestinationConnectionAudit(Base):
     connection = relationship("DestinationConnection")
 
 
+class MetricsSource(Base, TimestampMixin):
+    __tablename__ = "metrics_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(160), nullable=False, index=True)
+    source_type = Column(String(80), nullable=False, default="manual_csv", index=True)
+    platform = Column(String(120), nullable=False, default="other", index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    connection_id = Column(Integer, ForeignKey("destination_connections.id"), nullable=True, index=True)
+    settings_json = Column(JSON, default=dict, nullable=False)
+
+    connection = relationship("DestinationConnection")
+
+
+class TrackingLink(Base, TimestampMixin):
+    __tablename__ = "tracking_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(80), unique=True, nullable=False, index=True)
+    target_url = Column(String(500), nullable=False)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+
+    campaign = relationship("Campaign")
+    publishing_task = relationship("PublishingTask")
+    destination = relationship("PublishingDestination")
+    product = relationship("Product")
+    creative_variant = relationship("CreativeVariant")
+    participant = relationship("ParticipantProfile")
+    clicks = relationship("TrackingClick", back_populates="tracking_link", cascade="all, delete-orphan")
+
+
+class TrackingClick(Base):
+    __tablename__ = "tracking_clicks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_link_id = Column(Integer, ForeignKey("tracking_links.id"), nullable=False, index=True)
+    clicked_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=True, index=True)
+    referrer = Column(String(500), nullable=True)
+    user_agent_hash = Column(String(128), nullable=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+
+    tracking_link = relationship("TrackingLink", back_populates="clicks")
+    campaign = relationship("Campaign")
+    publishing_task = relationship("PublishingTask")
+    destination = relationship("PublishingDestination")
+
+
+class MetricsIntakeBatch(Base, TimestampMixin):
+    __tablename__ = "metrics_intake_batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_id = Column(Integer, ForeignKey("metrics_sources.id"), nullable=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    source_type = Column(String(80), nullable=False, default="manual_csv", index=True)
+    status = Column(String(80), nullable=False, default="imported", index=True)
+    imported_count = Column(Integer, nullable=False, default=0)
+    matched_count = Column(Integer, nullable=False, default=0)
+    unmatched_count = Column(Integer, nullable=False, default=0)
+    warning_count = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+    rows_json = Column(JSON, default=list, nullable=False)
+    unmatched_rows_json = Column(JSON, default=list, nullable=False)
+
+    source = relationship("MetricsSource")
+    campaign = relationship("Campaign")
+
+
+class FunnelSnapshot(Base):
+    __tablename__ = "funnel_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=True, index=True)
+    period_start = Column(Date, nullable=True, index=True)
+    period_end = Column(Date, nullable=True, index=True)
+    views = Column(Integer, nullable=False, default=0)
+    reach = Column(Integer, nullable=False, default=0)
+    impressions = Column(Integer, nullable=False, default=0)
+    engagements = Column(Integer, nullable=False, default=0)
+    clicks = Column(Integer, nullable=False, default=0)
+    orders = Column(Integer, nullable=False, default=0)
+    revenue = Column(Float, nullable=False, default=0)
+    returns_count = Column(Integer, nullable=False, default=0)
+    ctr = Column(Float, nullable=True)
+    conversion_rate = Column(Float, nullable=True)
+    revenue_per_view = Column(Float, nullable=True)
+    revenue_per_click = Column(Float, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    campaign = relationship("Campaign")
+    product = relationship("Product")
+    creative_variant = relationship("CreativeVariant")
+    destination = relationship("PublishingDestination")
+    participant = relationship("ParticipantProfile")
+
+
+class AttributionRule(Base, TimestampMixin):
+    __tablename__ = "attribution_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(160), nullable=False, index=True)
+    rule_type = Column(String(80), nullable=False, default="final_url", index=True)
+    priority = Column(Integer, nullable=False, default=100, index=True)
+    settings_json = Column(JSON, default=dict, nullable=False)
+    status = Column(String(80), nullable=False, default="active", index=True)
+
+
 class PublishingTask(Base, TimestampMixin):
     __tablename__ = "publishing_tasks"
 

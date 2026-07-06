@@ -69,6 +69,16 @@ from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
 from app.launch_operations import LaunchReadinessService, LaunchReportService
 from app.launch_operations.errors import LaunchOperationsError
+from app.metrics_intake import (
+    AttributionService,
+    CSVImporter,
+    ClickTracker,
+    FunnelService,
+    MetricsIntakeError,
+    MetricsSourceRegistry,
+    PlatformMetricsMatrix,
+    TrackingLinkService,
+)
 from app.participant_portal import (
     AssignmentPortalService,
     OnboardingService,
@@ -103,6 +113,20 @@ router = APIRouter(tags=["pages"])
 
 def redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=303)
+
+
+@router.get("/r/{slug}")
+def tracking_redirect(slug: str, request: Request, db: Session = Depends(get_db)):
+    try:
+        link, _ = ClickTracker(db).record(
+            slug,
+            referrer=request.headers.get("referer"),
+            user_agent=request.headers.get("user-agent"),
+            metadata={"path": request.url.path},
+        )
+    except MetricsIntakeError:
+        return redirect("/metrics-intake?error=tracking_link_not_found")
+    return RedirectResponse(link.target_url, status_code=307)
 
 
 @router.get("/products", response_class=HTMLResponse)
@@ -1734,6 +1758,103 @@ def destination_control_tower_action_ui(row_id: int, campaign_id: int = Form(...
     except DestinationControlTowerError as exc:
         return redirect(f"/destination-control-tower?campaign_id={campaign_id}&error={exc}")
     return redirect(f"/destination-control-tower?campaign_id={campaign_id}&notice={result['action']}_{result['status']}")
+
+
+@router.get("/metrics-intake", response_class=HTMLResponse)
+def metrics_intake_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign_id = campaign_id or (campaigns[0].id if campaigns else None)
+    sources = MetricsSourceRegistry(db).list()
+    links = TrackingLinkService(db).list(campaign_id=selected_campaign_id)
+    batches = db.scalars(select(models.MetricsIntakeBatch).order_by(models.MetricsIntakeBatch.id.desc()).limit(20)).all()
+    tasks = db.scalars(select(models.PublishingTask).order_by(models.PublishingTask.id.desc()).limit(50)).all()
+    funnel = FunnelService(db).campaign_funnel(selected_campaign_id) if selected_campaign_id else None
+    unmatched = FunnelService(db).unmatched_rows(selected_campaign_id)
+    platform_matrix = PlatformMetricsMatrix.all_configs()
+    return templates.TemplateResponse(
+        "metrics_intake.html",
+        {
+            "request": request,
+            "page_title": "Metrics Intake",
+            "campaigns": campaigns,
+            "selected_campaign_id": selected_campaign_id,
+            "sources": sources,
+            "links": links,
+            "batches": batches,
+            "tasks": tasks,
+            "funnel": funnel,
+            "unmatched": unmatched,
+            "platform_matrix": platform_matrix,
+        },
+    )
+
+
+@router.post("/metrics-intake/sources")
+def metrics_intake_create_source(
+    name: str = Form(...),
+    source_type: str = Form("manual_csv"),
+    platform: str = Form("facebook"),
+    connection_id: int | None = Form(None),
+    credential_ref: str | None = Form(None),
+    campaign_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    settings = {"credential_ref": credential_ref} if credential_ref else {}
+    try:
+        MetricsSourceRegistry(db).create(
+            name=name,
+            source_type=source_type,
+            platform=platform,
+            connection_id=connection_id,
+            settings_json=settings,
+        )
+    except MetricsIntakeError as exc:
+        return redirect(f"/metrics-intake?campaign_id={campaign_id or ''}&error={exc}")
+    return redirect(f"/metrics-intake?campaign_id={campaign_id}" if campaign_id else "/metrics-intake")
+
+
+@router.post("/metrics-intake/tracking-links")
+def metrics_intake_create_tracking_link(
+    publishing_task_id: int = Form(...),
+    target_url: str | None = Form(None),
+    campaign_id: int | None = Form(None),
+    participant_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        TrackingLinkService(db).create_for_task(
+            publishing_task_id,
+            target_url=target_url,
+            campaign_id=campaign_id,
+            participant_id=participant_id,
+        )
+    except MetricsIntakeError as exc:
+        return redirect(f"/metrics-intake?campaign_id={campaign_id or ''}&error={exc}")
+    return redirect(f"/metrics-intake?campaign_id={campaign_id}" if campaign_id else "/metrics-intake")
+
+
+@router.post("/metrics-intake/import-csv")
+def metrics_intake_import_csv(
+    csv_text: str = Form(...),
+    source_id: int | None = Form(None),
+    campaign_id: int | None = Form(None),
+    source_type: str = Form("manual_csv"),
+    db: Session = Depends(get_db),
+):
+    try:
+        CSVImporter(db).import_csv_text(csv_text, source_id=source_id, campaign_id=campaign_id, source_type=source_type)
+    except MetricsIntakeError as exc:
+        return redirect(f"/metrics-intake?campaign_id={campaign_id or ''}&error={exc}")
+    return redirect(f"/metrics-intake?campaign_id={campaign_id}" if campaign_id else "/metrics-intake")
+
+
+@router.post("/metrics-intake/batches/{batch_id}/attribute")
+def metrics_intake_attribute_batch(batch_id: int, campaign_id: int | None = Form(None), db: Session = Depends(get_db)):
+    try:
+        AttributionService(db).attribute_batch(batch_id)
+    except MetricsIntakeError as exc:
+        return redirect(f"/metrics-intake?campaign_id={campaign_id or ''}&error={exc}")
+    return redirect(f"/metrics-intake?campaign_id={campaign_id}" if campaign_id else "/metrics-intake")
 
 
 @router.get("/participant-portal", response_class=HTMLResponse)

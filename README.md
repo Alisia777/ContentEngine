@@ -673,6 +673,34 @@ Open `/participant-portal` for onboarding, briefs, channels, submissions, stats,
 
 Docs: `docs/PARTICIPANT_PORTAL.md`, `docs/CREATOR_BRIEF_CARDS.md`, `docs/PARTICIPANT_STATS.md`, and `docs/PAYOUT_LEDGER.md`.
 
+## v1.8 Metrics Intake & Attribution
+
+v1.8 adds the metrics intake layer that makes stats traceable from a published post back to campaign, SKU, destination, participant, payouts, and recommendations:
+
+```text
+PublishingTask / final_url
+-> TrackingLink
+-> click tracking
+-> CSV/manual/API metrics
+-> attribution
+-> FunnelSnapshot
+-> CampaignPerformanceMetric
+-> Participant dashboard
+```
+
+Operator CLI:
+
+```bash
+python scripts/create_tracking_links.py --campaign-id 1
+python scripts/import_metrics_csv.py --csv sample_data/metrics_intake.csv --campaign-id 1
+python scripts/attribute_metrics_batch.py --batch-id 1
+python scripts/funnel_snapshot.py --campaign-id 1
+```
+
+Open `/metrics-intake` for the platform matrix, sources, tracking links, CSV imports, attribution, funnel snapshots, and unmatched rows. Facebook, Instagram, YouTube, TikTok, Telegram, VK, marketplace, and partner-slot data can come from official connectors when authorized, or from CSV/manual/partner reports. ContentEngine does not scrape platforms, use unofficial login, store raw tokens, bypass OAuth, or call real external APIs in tests.
+
+Docs: `docs/METRICS_INTAKE_ATTRIBUTION.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

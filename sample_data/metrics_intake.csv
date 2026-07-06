@@ -1,0 +1,2 @@
+platform,destination_handle,posted_url,tracking_slug,sku,period_start,period_end,views,reach,impressions,likes,comments,shares,saves,clicks,orders,revenue,spend
+facebook,@account,https://facebook.com/example-post,,SKU001,2026-07-01,2026-07-07,12000,9000,15000,300,24,18,0,410,12,35000,0
