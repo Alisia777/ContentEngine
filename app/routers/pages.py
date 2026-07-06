@@ -19,6 +19,8 @@ from app.bombar_launch import (
     LaunchPlanner,
 )
 from app.bombar_launch.errors import BombarLaunchDataError
+from app.bombar_production import BombarProductionDryRunService
+from app.bombar_production.errors import BombarProductionError
 from app.campaign_batch import BatchExecutor, BatchReporter, BatchSelector
 from app.campaign_batch.errors import CampaignBatchDataError
 from app.campaign_batch.safety_gates import SAFE_BATCH_ACTIONS
@@ -1304,6 +1306,50 @@ def bombar_launch_page(request: Request, campaign_id: int | None = None, db: Ses
             "publishing_tasks": publishing_tasks,
         },
     )
+
+
+@router.get("/bombar-production-dry-run", response_class=HTMLResponse)
+def bombar_production_dry_run_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(
+        select(models.Campaign)
+        .where(models.Campaign.source_type == "bombar_production_dry_run")
+        .order_by(models.Campaign.id.desc())
+    ).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    report = None
+    if selected_campaign:
+        try:
+            report = BombarProductionDryRunService(db).build_report(selected_campaign.id)
+        except BombarProductionError:
+            report = None
+    return templates.TemplateResponse(
+        "bombar_production_dry_run.html",
+        {
+            "request": request,
+            "page_title": "Bombar Production Dry Run",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "report": report,
+        },
+    )
+
+
+@router.post("/bombar-production-dry-run")
+def bombar_production_dry_run_submit(
+    matrix_path: str = Form("sample_data/bombar_matrix.csv"),
+    campaign_name: str = Form("Bombar Production Dry Run"),
+    target_videos: int = Form(350),
+    target_destinations: int = Form(120),
+    reports_dir: str = Form("reports"),
+    db: Session = Depends(get_db),
+):
+    result = BombarProductionDryRunService(db, reports_dir=reports_dir).run(
+        matrix_path,
+        target_videos=target_videos,
+        target_destinations=target_destinations,
+        campaign_name=campaign_name,
+    )
+    return redirect(f"/bombar-production-dry-run?campaign_id={result.campaign_id}")
 
 
 @router.post("/campaign-autopilot/import-matrix")

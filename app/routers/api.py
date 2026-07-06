@@ -25,6 +25,8 @@ from app.bombar_launch import (
     LaunchPlanner,
 )
 from app.bombar_launch.errors import BombarLaunchDataError
+from app.bombar_production import BombarProductionDryRunService
+from app.bombar_production.errors import BombarProductionError
 from app.campaign_batch import BatchExecutor, BatchReporter, BatchSelector
 from app.campaign_batch.errors import CampaignBatchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
@@ -290,6 +292,14 @@ class FactoryPromptOnlyLaunchRequest(BaseModel):
     target_destinations: int = 120
     brand: str = "Factory OS"
     performance_csv_path: str | None = "sample_data/campaign_performance.csv"
+
+
+class BombarProductionDryRunRequest(BaseModel):
+    matrix_path: str
+    campaign_name: str = "Bombar Production Dry Run"
+    target_videos: int = 350
+    target_destinations: int = 120
+    reports_dir: str = "reports"
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1633,6 +1643,27 @@ def get_factory_runbook(campaign_id: int, db: Session = Depends(get_db)):
     try:
         return FactoryRunbookService(db).build(campaign_id).model_dump(mode="json")
     except FactoryOSError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/bombar-production-dry-run")
+def run_bombar_production_dry_run(payload: BombarProductionDryRunRequest, db: Session = Depends(get_db)):
+    try:
+        return BombarProductionDryRunService(db, reports_dir=payload.reports_dir).run(
+            payload.matrix_path,
+            target_videos=payload.target_videos,
+            target_destinations=payload.target_destinations,
+            campaign_name=payload.campaign_name,
+        ).model_dump(mode="json")
+    except BombarProductionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/bombar-production-dry-run/{campaign_id}/report")
+def get_bombar_production_dry_run_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return BombarProductionDryRunService(db).build_report(campaign_id).model_dump(mode="json")
+    except BombarProductionError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
