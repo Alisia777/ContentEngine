@@ -482,6 +482,30 @@ Factory OS does not scrape platforms, create external accounts, run paid provide
 
 Docs: `docs/FACTORY_OS.md`, `docs/FACTORY_ACCEPTANCE_RUNBOOK.md`, and `docs/V1_PROMPT_ONLY_LAUNCH.md`.
 
+## v1.1 Bombar Production Dry Run
+
+v1.1 adds `/bombar-production-dry-run`, an operator checkpoint for running a real-style Bombar CSV/XLSX matrix through the no-paid Factory OS path:
+
+```text
+Bombar matrix
+-> strict matrix validation
+-> Factory OS prompt-only launch
+-> production readiness report
+-> blockers by SKU
+-> next actions
+-> JSON/CSV/XLSX exports
+```
+
+Operator CLI:
+
+```bash
+python scripts/bombar_production_dry_run.py --matrix path/to/bombar_matrix.xlsx --target-videos 350 --target-destinations 120
+```
+
+The dry run reports imported SKU, ready/blocked SKU, prompt packs, missing references, missing price, missing stock, approved packages, distribution blockers, next actions, and report paths. It does not call paid providers, register external accounts, auto-publish, or bypass approval gates.
+
+Docs: `docs/BOMBAR_PRODUCTION_DRY_RUN.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

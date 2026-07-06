@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Bombar</p>
+    <h1>Production Dry Run</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }} / {{ selected_campaign.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Matrix</span>
+  <span>Validation</span>
+  <span>Prompt-only Batch</span>
+  <span>Readiness</span>
+  <span>Runbook</span>
+</section>
+
+<section class="panel">
+  <h2>Run Dry Run</h2>
+  <form action="/bombar-production-dry-run" method="post" class="form-grid">
+    <label>Matrix path<input type="text" name="matrix_path" value="sample_data/bombar_matrix.csv"></label>
+    <label>Campaign name<input type="text" name="campaign_name" value="Bombar Production Dry Run"></label>
+    <label>Target videos<input type="number" name="target_videos" value="350" min="1"></label>
+    <label>Target destinations<input type="number" name="target_destinations" value="120" min="1"></label>
+    <label>Reports dir<input type="text" name="reports_dir" value="reports"></label>
+    <div class="actions"><button type="submit">Run Dry Run</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Dry Run Campaign</h2>
+  <form action="/bombar-production-dry-run" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No dry runs yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+</section>
+
+{% if report %}
+<section class="panel">
+  <h2>Production Readiness</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ report.imported_sku_count }}</strong><span>imported SKU</span></div>
+    <div class="metric"><strong>{{ report.ready_sku_count }}</strong><span>ready SKU</span></div>
+    <div class="metric"><strong>{{ report.blocked_sku_count }}</strong><span>blocked SKU</span></div>
+    <div class="metric"><strong>{{ report.prompt_pack_count }}</strong><span>prompt packs</span></div>
+    <div class="metric"><strong>{{ report.missing_references_count }}</strong><span>missing refs</span></div>
+    <div class="metric"><strong>{{ report.missing_price_count }}</strong><span>missing price</span></div>
+    <div class="metric"><strong>{{ report.missing_stock_count }}</strong><span>missing stock</span></div>
+    <div class="metric"><strong>{{ report.paid_calls_made }}</strong><span>paid calls</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>SKU Readiness</h2>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>Status</th><th>Refs</th><th>Price</th><th>Stock</th><th>Prompts</th><th>Packages</th><th>Next Action</th></tr></thead>
+    <tbody>
+      {% for row in report.sku_readiness %}
+        <tr>
+          <td>{{ row.sku }}</td>
+          <td>{{ row.status }}</td>
+          <td>{{ "yes" if row.has_reference else "no" }}</td>
+          <td>{{ "yes" if row.has_price else "no" }}</td>
+          <td>{{ "yes" if row.has_stock else "no" }}</td>
+          <td>{{ row.prompt_pack_count }}</td>
+          <td>{{ row.approved_package_count }}</td>
+          <td>{{ row.next_actions[0].action if row.next_actions else "-" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">No SKU rows.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Blockers</h2>
+  <table class="table">
+    <thead><tr><th>SKU</th><th>Source</th><th>Blocker</th></tr></thead>
+    <tbody>
+      {% for sku, blockers in report.blockers_by_sku.items() %}
+        {% for blocker in blockers %}
+          <tr><td>{{ sku }}</td><td>{{ blocker.source }}</td><td>{{ blocker.blocker }}</td></tr>
+        {% endfor %}
+      {% endfor %}
+      {% for blocker in report.distribution_blockers %}
+        <tr><td>campaign</td><td>{{ blocker.source }}</td><td>{{ blocker.blocker }}</td></tr>
+      {% endfor %}
+      {% if not report.blockers_by_sku and not report.distribution_blockers %}
+        <tr><td colspan="3">No blockers recorded.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Next Actions</h2>
+  <table class="table">
+    <thead><tr><th>Scope</th><th>Action</th><th>Reason</th><th>Count</th></tr></thead>
+    <tbody>
+      {% for action in report.next_actions %}
+        <tr><td>{{ action.scope }}</td><td>{{ action.action }}</td><td>{{ action.reason }}</td><td>{{ action.count or "-" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Report Paths</h2>
+  <table class="table">
+    <thead><tr><th>Format</th><th>Path</th></tr></thead>
+    <tbody>
+      {% for key, path in report.report_paths.items() %}
+        <tr><td>{{ key }}</td><td>{{ path }}</td></tr>
+      {% else %}
+        <tr><td colspan="2">Report files are generated when the dry run is launched.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

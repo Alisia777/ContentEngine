@@ -33,6 +33,7 @@ from app.bombar_launch import (
     LaunchPlanner,
     ProfilePackBuilder,
 )
+from app.bombar_production import BombarMatrixValidator, BombarProductionDryRunService
 from app.campaign_autopilot import (
     CampaignDistributionPlanner,
     CampaignRunner,
@@ -4184,3 +4185,110 @@ def test_bombar_adapter_does_not_create_external_accounts():
 
     for term in banned_terms:
         assert term not in source
+
+
+def test_bombar_production_dry_run_validates_matrix(tmp_path):
+    matrix = tmp_path / "bombar_matrix.csv"
+    matrix.write_text(
+        "\n".join(
+            [
+                "sku,product_name,category,price,margin,stock_qty,product_url,photo_1,photo_2,photo_3",
+                "BOMBAR-OK,Ready Product,Skincare,790,0.42,50,https://example.com/p,https://example.com/p.png,,",
+                "BOMBAR-GAPS,Gap Product,Skincare,,0.42,,https://example.com/g,,,",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    validation = BombarMatrixValidator().validate_path(matrix)
+
+    assert validation.row_count == 2
+    assert validation.valid_row_count == 2
+    assert validation.missing_photo_count == 1
+    assert validation.missing_price_count == 1
+    assert validation.missing_stock_count == 1
+    assert "row_3:missing_photo" in validation.warnings
+
+    xlsx = tmp_path / "bombar_matrix.xlsx"
+    xlsx.write_bytes(
+        bombar_xlsx_bytes(
+            [
+                ["sku", "product_name", "category", "price", "margin", "stock_qty", "product_url", "photo_1"],
+                ["BOMBAR-XLSX", "XLSX Product", "Skincare", "790", "0.42", "50", "https://example.com/x", "https://example.com/x.png"],
+            ]
+        )
+    )
+    xlsx_validation = BombarMatrixValidator().validate_path(xlsx)
+    assert xlsx_validation.row_count == 1
+    assert xlsx_validation.valid_row_count == 1
+
+
+def test_bombar_production_dry_run_outputs_blockers(tmp_path):
+    matrix = tmp_path / "bombar_missing_refs.csv"
+    matrix.write_text(bombar_csv(2, with_photos=False), encoding="utf-8")
+
+    with client():
+        with SessionLocal() as db:
+            result = BombarProductionDryRunService(db, reports_dir=tmp_path / "reports").run(
+                matrix,
+                target_videos=4,
+                target_destinations=2,
+            )
+
+    assert result.imported_sku_count == 2
+    assert result.blocked_sku_count == 2
+    assert result.missing_references_count == 2
+    assert "BOMBAR-001" in result.blockers_by_sku
+    assert any(item["blocker"] == "missing_reference" for item in result.blockers_by_sku["BOMBAR-001"])
+
+
+def test_bombar_production_dry_run_makes_no_paid_calls(tmp_path):
+    matrix = tmp_path / "bombar_ready.csv"
+    matrix.write_text(bombar_csv(1), encoding="utf-8")
+
+    with client():
+        with SessionLocal() as db:
+            result = BombarProductionDryRunService(db, reports_dir=tmp_path / "reports").run(
+                matrix,
+                target_videos=2,
+                target_destinations=1,
+            )
+            batch_items = db.scalars(select(models.CampaignBatchItem)).all()
+
+    assert result.paid_calls_made == 0
+    assert result.safe_mode["paid_provider_calls"] is False
+    assert all(item.action_type != "run_real_smoke" or item.status != "done" for item in batch_items)
+
+
+def test_bombar_production_report_exports_csv_json(tmp_path):
+    matrix = tmp_path / "bombar_ready.csv"
+    matrix.write_text(bombar_csv(1), encoding="utf-8")
+
+    with client():
+        with SessionLocal() as db:
+            result = BombarProductionDryRunService(db, reports_dir=tmp_path / "reports").run(
+                matrix,
+                target_videos=2,
+                target_destinations=1,
+            )
+
+    paths = {key: Path(value) for key, value in result.report_paths.items()}
+    assert paths["json"].exists()
+    assert paths["readiness_csv"].exists()
+    assert paths["blockers_csv"].exists()
+    assert paths["next_actions_csv"].exists()
+    assert paths["xlsx"].exists()
+    payload = json.loads(paths["json"].read_text(encoding="utf-8"))
+    assert payload["campaign_id"] == result.campaign_id
+    assert payload["paid_calls_made"] == 0
+    assert "sku,status,product_name" in paths["readiness_csv"].read_text(encoding="utf-8")
+
+
+def test_bombar_dry_run_ui_renders():
+    with client() as api:
+        response = api.get("/bombar-production-dry-run")
+
+    assert response.status_code == 200, response.text
+    assert "Production Dry Run" in response.text
+    assert "Run Dry Run" in response.text
