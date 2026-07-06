@@ -21,6 +21,19 @@
   <span>Recommendations</span>
 </section>
 
+<section class="panel">
+  <h2>How to work</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>1</strong><span>Work only through an assignment.</span></div>
+    <div class="metric"><strong>2</strong><span>Publish only approved video.</span></div>
+    <div class="metric"><strong>3</strong><span>Use the tracking_link in the post.</span></div>
+    <div class="metric"><strong>4</strong><span>Submit final_url after publication.</span></div>
+    <div class="metric"><strong>5</strong><span>Upload stats with posted_url or tracking_slug.</span></div>
+    <div class="metric"><strong>6</strong><span>Payouts use traceable tasks and metrics.</span></div>
+  </div>
+  <p class="muted"><a href="/training-academy">Training Academy</a> will hold role courses and certification. Current rules are in docs/HUMAN_OPERATING_RULES.md.</p>
+</section>
+
 {% if error %}
   <section class="panel"><strong>Error:</strong> {{ error }}</section>
 {% endif %}
@@ -171,6 +184,9 @@
         <tr><th>Must include</th><td>{{ assignment.brief_json.must_include|join(", ") }}</td></tr>
         <tr><th>Must avoid</th><td>{{ assignment.brief_json.must_avoid|join(", ") }}</td></tr>
         <tr><th>Format</th><td>{{ assignment.brief_json.output_format.platform or "-" }} / {{ assignment.brief_json.output_format.aspect_ratio or "-" }}</td></tr>
+        <tr><th>Tracking link</th><td>{{ assignment.brief_json.tracking_link or "missing" }}</td></tr>
+        <tr><th>Publish checklist</th><td>{{ (assignment.brief_json.publish_checklist or [])|join(", ") }}</td></tr>
+        <tr><th>Publish warnings</th><td>{{ (assignment.brief_json.publish_warnings or [])|join(", ") }}</td></tr>
         <tr><th>Checklist</th><td>{{ assignment.brief_json.review_checklist|join(", ") }}</td></tr>
       </tbody>
     </table>
@@ -203,6 +219,8 @@
 
 <section class="panel">
   <h2>My Stats</h2>
+  <p class="muted">CSV columns: participant_name, platform, destination_handle, posted_url, tracking_slug, sku, period_start, period_end, views, reach, impressions, likes, comments, shares, saves, clicks, orders, revenue, spend.</p>
+  <p class="muted">A stats row must include posted_url or tracking_slug. Marketplace rows may use SKU + period for approximate conversion attribution.</p>
   {% if stats %}
     <div class="metric-grid">
       <div class="metric"><strong>{{ stats.assignments_total }}</strong><span>assignments</span></div>
@@ -220,6 +238,7 @@
 
 <section class="panel">
   <h2>My Payouts</h2>
+  <p class="muted">Statuses: pending means calculated, approved/payable means ready for manual payment workflow, paid means operator marked it paid, disputed means review is needed. Real payments are never executed automatically.</p>
   <form action="/participant-portal/payout-rules" method="post" class="form-grid">
     <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
     <label>Name<input name="name" required></label>

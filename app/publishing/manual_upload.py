@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -44,16 +45,28 @@ class ManualUploadProvider:
         self.db.refresh(task)
         return task
 
-    @staticmethod
-    def payload(task: models.PublishingTask) -> dict:
+    def payload(self, task: models.PublishingTask) -> dict:
         package = task.publishing_package
         destination = task.destination
+        tracking_link = self.db.scalar(
+            select(models.TrackingLink)
+            .where(models.TrackingLink.publishing_task_id == task.id)
+            .order_by(models.TrackingLink.id.desc())
+        )
+        warnings = []
+        if not tracking_link:
+            warnings.append("tracking_link_missing")
+        if package.product_url and (not tracking_link or package.product_url == tracking_link.target_url):
+            warnings.append("use_tracking_link_in_post_not_direct_product_url")
         return {
             "video_file_path": package.video_file_path,
             "title": package.title,
             "description": package.description,
             "hashtags": package.hashtags_json,
             "cta": package.cta,
+            "tracking_link": f"/r/{tracking_link.slug}" if tracking_link else None,
+            "tracking_target_url": tracking_link.target_url if tracking_link else None,
+            "warnings": warnings,
             "destination": {
                 "platform": destination.platform,
                 "name": destination.name,

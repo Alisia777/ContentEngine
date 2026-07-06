@@ -7,6 +7,22 @@
     </div>
   </section>
 
+  {% if error %}
+    <section class="panel danger-panel"><strong>{{ error }}</strong></section>
+  {% endif %}
+
+  {% if warnings %}
+    <section class="panel danger-panel">
+      <h2>Publication incomplete</h2>
+      <p>Every published task needs a tracking link in the post and the final platform URL saved back to ContentEngine.</p>
+      <ul>
+        {% for warning in warnings %}
+          <li>{{ warning }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
   <section class="grid">
     <article class="card">
       <h2>Asset</h2>
@@ -14,11 +30,23 @@
       <p><strong>Destination:</strong> {{ task.destination.platform }} / {{ task.destination.name }}</p>
       <p><strong>Scheduled:</strong> {{ task.scheduled_at }}</p>
       <p><strong>Final URL:</strong> {{ task.final_url or "not published" }}</p>
+      <p><strong>Tracking link:</strong> {% if tracking_link %}/r/{{ tracking_link.slug }}{% else %}not created{% endif %}</p>
       <div class="actions">
         <form action="/publishing/tasks/{{ task.id }}/run" method="post">
           <button type="submit">Prepare manual upload</button>
         </form>
       </div>
+    </article>
+    <article class="card">
+      <h2>Publish Checklist</h2>
+      <ul>
+        <li>Video approved.</li>
+        <li>Assignment exists.</li>
+        <li>Destination is linked.</li>
+        <li>Tracking link is used in the post instead of a direct product URL.</li>
+        <li>Final URL is submitted after publication.</li>
+        <li>Metrics will be uploaded with posted_url or tracking_slug.</li>
+      </ul>
     </article>
     <article class="card">
       <h2>Metadata</h2>
