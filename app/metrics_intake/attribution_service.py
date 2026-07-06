@@ -65,11 +65,16 @@ class AttributionService:
     def _match(self, row: dict[str, Any], *, default_campaign_id: int | None) -> dict[str, Any]:
         task = self._task_by_id(row.get("publishing_task_id"))
         link = None
+        match_method = "publishing_task_id" if task else None
         if not task:
             link = self._tracking_link(row.get("tracking_slug"))
             task = link.publishing_task if link else None
+            if link:
+                match_method = "tracking_slug"
         if not task:
             task = self._task_by_url(row.get("posted_url"))
+            if task:
+                match_method = "final_url"
         destination = task.destination if task else None
         if not destination:
             destination = self._destination_by_handle(row.get("destination_handle"), row.get("platform"))
@@ -78,6 +83,8 @@ class AttributionService:
             product = task.publishing_package.product or product
         if not task and destination and product:
             task = self._task_by_destination_sku(destination.id, product.sku)
+            if task:
+                match_method = "destination_sku_period"
         assignment = self._assignment(task.id if task else None, destination.id if destination else None)
         campaign_id = (
             self._int(row.get("campaign_id"))
@@ -113,6 +120,8 @@ class AttributionService:
             "campaign_id": campaign_id,
             "participant_id": participant_id,
             "creative_variant_id": creative_variant_id,
+            "match_method": match_method or "manual_mapping",
+            "match_confidence": self._match_confidence(match_method),
         }
 
     def _upsert_destination_metric(
@@ -167,9 +176,14 @@ class AttributionService:
             "source": "metrics_intake",
             "batch_id": batch.id,
             "tracking_link_id": link.id if link else None,
+            "match_method": match["match_method"],
+            "match_confidence": match["match_confidence"],
+            "source_type": batch.source_type,
+            "warnings": row.get("warnings") or [],
             "reach": self._int(row.get("reach")) or 0,
             "impressions": self._int(row.get("impressions")) or 0,
         }
+        metric.raw_json["match_confidence"] = match["match_confidence"]
         if not existing:
             self.db.add(metric)
             self.db.flush()
@@ -202,7 +216,14 @@ class AttributionService:
             orders=metric.orders or 0,
             revenue=metric.revenue or 0,
             returns_count=self._int(row.get("returns_count")) or 0,
-            raw={"metrics_intake_batch_id": batch.id, "destination_metric_id": metric.id, **dict(row)},
+            raw={
+                "metrics_intake_batch_id": batch.id,
+                "destination_metric_id": metric.id,
+                "match_method": match["match_method"],
+                "match_confidence": match["match_confidence"],
+                "source_type": batch.source_type,
+                **dict(row),
+            },
             platform=metric.platform,
             posted_url=metric.posted_url,
             publishing_task_id=metric.publishing_task_id,
@@ -352,3 +373,13 @@ class AttributionService:
         if numerator is None or not denominator:
             return None
         return round(float(numerator) / float(denominator), 4)
+
+    @staticmethod
+    def _match_confidence(match_method: str | None) -> float:
+        if match_method in {"publishing_task_id", "tracking_slug"}:
+            return 1.0
+        if match_method == "final_url":
+            return 0.95
+        if match_method == "destination_sku_period":
+            return 0.65
+        return 0.5

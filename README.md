@@ -697,7 +697,7 @@ python scripts/attribute_metrics_batch.py --batch-id 1
 python scripts/funnel_snapshot.py --campaign-id 1
 ```
 
-Open `/metrics-intake` for sources, tracking links, CSV imports, attribution, funnel snapshots, and unmatched rows. Facebook and other platform data can come from official connectors when authorized, or from CSV/manual/partner reports. ContentEngine does not scrape Facebook, use unofficial login, store raw tokens, bypass OAuth, or call real external APIs in tests.
+Open `/metrics-intake` for the platform matrix, sources, tracking links, CSV imports, attribution, funnel snapshots, and unmatched rows. Facebook, Instagram, YouTube, TikTok, Telegram, VK, marketplace, and partner-slot data can come from official connectors when authorized, or from CSV/manual/partner reports. ContentEngine does not scrape platforms, use unofficial login, store raw tokens, bypass OAuth, or call real external APIs in tests.
 
 Docs: `docs/METRICS_INTAKE_ATTRIBUTION.md`.
 

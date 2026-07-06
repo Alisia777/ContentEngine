@@ -76,6 +76,7 @@ from app.metrics_intake import (
     FunnelService,
     MetricsIntakeError,
     MetricsSourceRegistry,
+    PlatformMetricsMatrix,
     TrackingLinkService,
 )
 from app.participant_portal import (
@@ -1769,6 +1770,7 @@ def metrics_intake_page(request: Request, campaign_id: int | None = None, db: Se
     tasks = db.scalars(select(models.PublishingTask).order_by(models.PublishingTask.id.desc()).limit(50)).all()
     funnel = FunnelService(db).campaign_funnel(selected_campaign_id) if selected_campaign_id else None
     unmatched = FunnelService(db).unmatched_rows(selected_campaign_id)
+    platform_matrix = PlatformMetricsMatrix.all_configs()
     return templates.TemplateResponse(
         "metrics_intake.html",
         {
@@ -1782,6 +1784,7 @@ def metrics_intake_page(request: Request, campaign_id: int | None = None, db: Se
             "tasks": tasks,
             "funnel": funnel,
             "unmatched": unmatched,
+            "platform_matrix": platform_matrix,
         },
     )
 

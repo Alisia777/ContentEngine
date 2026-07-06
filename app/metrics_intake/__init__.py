@@ -3,6 +3,8 @@ from app.metrics_intake.click_tracker import ClickTracker
 from app.metrics_intake.csv_importer import CSVImporter
 from app.metrics_intake.errors import MetricsIntakeDataError, MetricsIntakeError
 from app.metrics_intake.funnel_service import FunnelService
+from app.metrics_intake.official_connectors import OfficialConnectorGateway
+from app.metrics_intake.platform_matrix import NORMALIZED_METRIC_COLUMNS, PlatformMetricsMatrix
 from app.metrics_intake.source_registry import MetricsSourceRegistry
 from app.metrics_intake.tracking_link_service import TrackingLinkService
 
@@ -14,5 +16,8 @@ __all__ = [
     "MetricsIntakeDataError",
     "MetricsIntakeError",
     "MetricsSourceRegistry",
+    "NORMALIZED_METRIC_COLUMNS",
+    "OfficialConnectorGateway",
+    "PlatformMetricsMatrix",
     "TrackingLinkService",
 ]

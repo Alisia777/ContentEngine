@@ -89,6 +89,8 @@ from app.metrics_intake import (
     FunnelService,
     MetricsIntakeError,
     MetricsSourceRegistry,
+    OfficialConnectorGateway,
+    PlatformMetricsMatrix,
     TrackingLinkService,
 )
 from app.participant_portal import (
@@ -3169,6 +3171,27 @@ def create_metrics_source(payload: MetricsSourceCreateRequest, db: Session = Dep
 def list_metrics_sources(platform: str | None = None, source_type: str | None = None, db: Session = Depends(get_db)):
     sources = MetricsSourceRegistry(db).list(platform=platform, source_type=source_type)
     return [metrics_source_payload(source) for source in sources]
+
+
+@router.get("/metrics-intake/platform-matrix")
+def get_metrics_platform_matrix():
+    return [
+        {
+            "platform": config.platform,
+            "official_connector_types": config.official_connector_types,
+            "fallback_source_types": config.fallback_source_types,
+            "required_identity_columns": config.required_identity_columns,
+            "supported_metric_columns": config.supported_metric_columns,
+            "conversion_source": config.conversion_source,
+            "notes": config.notes,
+        }
+        for config in PlatformMetricsMatrix.all_configs()
+    ]
+
+
+@router.get("/metrics-intake/destinations/{destination_id}/official-readiness")
+def get_metrics_official_readiness(destination_id: int, platform: str | None = None, db: Session = Depends(get_db)):
+    return OfficialConnectorGateway(db).readiness(destination_id, platform=platform)
 
 
 @router.post("/metrics-intake/tracking-links")

@@ -115,6 +115,8 @@ from app.metrics_intake import (
     FunnelService,
     MetricsIntakeDataError,
     MetricsSourceRegistry,
+    OfficialConnectorGateway,
+    PlatformMetricsMatrix,
     TrackingLinkService,
 )
 from app.publishing import MockUploadProvider
@@ -5733,6 +5735,85 @@ def test_metrics_csv_import_facebook_rows():
     assert result.warning_count == 0
 
 
+@pytest.mark.parametrize(
+    ("platform", "source_type", "expected_platform"),
+    [
+        ("facebook", "manual_csv", "facebook"),
+        ("instagram", "manual_csv", "instagram"),
+        ("youtube", "manual_csv", "youtube"),
+        ("tiktok", "manual_csv", "tiktok"),
+        ("telegram", "manual_csv", "telegram"),
+        ("vk", "manual_csv", "vk"),
+        ("ozon", "marketplace_csv", "ozon"),
+        ("wb", "marketplace_csv", "wb"),
+        ("partner", "partner_report", "partner"),
+    ],
+)
+def test_platform_metrics_csv_paths_normalize_schema(platform: str, source_type: str, expected_platform: str):
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url=f"https://example.com/{platform}/post")
+            row = {
+                "platform": platform,
+                "destination_handle": task.destination.handle,
+                "posted_url": task.final_url if platform not in {"ozon", "wb"} else "",
+                "tracking_slug": "",
+                "sku": product.sku,
+                "period_start": "2026-07-01",
+                "period_end": "2026-07-07",
+                "views": 900 if platform not in {"ozon", "wb"} else "",
+                "reach": 700 if platform not in {"ozon", "wb"} else "",
+                "impressions": 1000 if platform not in {"ozon", "wb"} else "",
+                "likes": 40 if platform not in {"ozon", "wb"} else "",
+                "comments": 5 if platform not in {"ozon", "wb"} else "",
+                "shares": 3 if platform not in {"ozon", "wb"} else "",
+                "saves": 2 if platform not in {"ozon", "wb"} else "",
+                "clicks": 30,
+                "orders": 2,
+                "revenue": 3000,
+            }
+            batch = CSVImporter(db).import_csv_text(metrics_intake_csv([row]), campaign_id=campaign_id, source_type=source_type)
+            stored_batch = db.get(models.MetricsIntakeBatch, batch.batch_id)
+
+    normalized = stored_batch.rows_json[0]
+    assert normalized["platform"] == expected_platform
+    assert normalized["source_type"] == source_type
+    assert "match_confidence" in normalized
+    assert "warnings" in normalized
+
+
+def test_platform_metrics_matrix_lists_all_required_platforms():
+    platforms = {config.platform for config in PlatformMetricsMatrix.all_configs()}
+
+    assert {"facebook", "instagram", "youtube", "tiktok", "telegram", "vk", "ozon", "wb", "partner"}.issubset(platforms)
+    assert PlatformMetricsMatrix.config("youtube_shorts").official_connector_types == ["youtube_oauth", "youtube_analytics"]
+
+
+def test_official_connector_gateway_is_gated_by_auth_status():
+    with client():
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            destination = db.get(models.PublishingDestination, destination_id)
+            destination.platform = "facebook"
+            db.add(
+                models.DestinationConnection(
+                    destination_id=destination_id,
+                    platform="facebook",
+                    connection_type="meta_oauth",
+                    status="connected",
+                    auth_status="needs_auth",
+                    credential_ref="META_FACEBOOK_TOKEN_REF",
+                )
+            )
+            db.commit()
+            readiness = OfficialConnectorGateway(db).readiness(destination_id)
+
+    assert readiness["ready"] is False
+    assert "oauth_or_token_not_valid" in readiness["blockers"]
+    assert "manual_csv" in readiness["fallbacks"]
+
+
 def test_metrics_import_matches_by_final_url():
     with client():
         campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
@@ -5918,6 +5999,45 @@ def test_participant_dashboard_uses_funnel_metrics():
     assert stats["views_total"] == 700
     assert stats["clicks_total"] == 35
     assert stats["orders_total"] == 3
+
+
+def test_payout_ledger_uses_metrics_intake_orders():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Metrics CPA", role="partner")
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://facebook.com/post/metrics-payout")
+            OnboardingService(db).link_destination(participant.id, task.destination_id, relationship_type="owner")
+            rule = PayoutService(db).create_rule(name="Metrics intake CPA", payout_type="cpa", amount_fixed=250)
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                payout_rule_id=rule.id,
+                assignment_type="publish_video",
+            )
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 1000,
+                            "clicks": 60,
+                            "orders": 4,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            AttributionService(db).attribute_batch(batch.batch_id)
+            entry = PayoutService(db).calculate_for_assignment(assignment.id)
+
+    assert entry.amount == 1000
+    assert entry.reason == "orders_metric_cpa"
 
 
 def test_no_raw_tokens_or_unofficial_login_paths():

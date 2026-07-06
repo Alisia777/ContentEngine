@@ -21,6 +21,24 @@
   </div>
 </section>
 
+<section class="panel">
+  <h2>Platform Matrix</h2>
+  <table>
+    <thead><tr><th>Platform</th><th>Official Path</th><th>Fallback</th><th>Identity</th><th>Metrics</th></tr></thead>
+    <tbody>
+      {% for item in platform_matrix %}
+        <tr>
+          <td>{{ item.platform }}</td>
+          <td>{{ item.official_connector_types | join(", ") or "none" }}</td>
+          <td>{{ item.fallback_source_types | join(", ") }}</td>
+          <td>{{ item.required_identity_columns | join(", ") }}</td>
+          <td>{{ item.supported_metric_columns | join(", ") }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
 <section class="grid two">
   <article class="panel">
     <h2>Sources</h2>
@@ -84,6 +102,8 @@
 <section class="grid two">
   <article class="panel">
     <h2>CSV Imports</h2>
+    <p class="muted">Required identity: posted_url or tracking_slug for social posts; SKU + period is allowed for marketplace conversion reports.</p>
+    <p class="muted">Normalized columns: platform, destination_id, posted_url, tracking_slug, campaign_id, product_id, sku, creative_variant_id, participant_id, period_start, period_end, views, reach, impressions, engagements, likes, comments, shares, saves, clicks, orders, revenue, spend, watch_time_seconds, retention_rate, source_type, match_confidence, warnings.</p>
     <form method="post" action="/metrics-intake/import-csv" class="stacked-form">
       <input type="hidden" name="campaign_id" value="{{ selected_campaign_id or '' }}">
       <label>Source

@@ -40,6 +40,55 @@ platform,destination_handle,posted_url,tracking_slug,sku,period_start,period_end
 facebook,@account,https://facebook.com/example,abc123,SKU001,2026-07-01,2026-07-07,12000,9000,15000,300,24,18,0,410,12,35000,0
 ```
 
+## Normalized Schema
+
+Every source is normalized into one metric row shape:
+
+```text
+platform
+destination_id
+posted_url
+tracking_slug
+campaign_id
+product_id
+sku
+creative_variant_id
+participant_id
+period_start
+period_end
+views
+reach
+impressions
+engagements
+likes
+comments
+shares
+saves
+clicks
+orders
+revenue
+spend
+watch_time_seconds
+retention_rate
+source_type
+match_confidence
+warnings
+```
+
+## Platform Matrix
+
+| Platform | Official path | Fallback | Always use |
+| --- | --- | --- | --- |
+| Facebook / Instagram | Meta OAuth / business assets | CSV/manual/partner report | final URL + tracking link |
+| YouTube Shorts | YouTube Analytics OAuth | CSV/manual | final URL + tracking link |
+| TikTok | official API/scopes when authorized | CSV/manual/partner report | final URL + tracking link |
+| Telegram | bot/admin data when available | CSV/manual | final URL + tracking link |
+| VK | official VK API token/permissions | CSV/manual | final URL + tracking link |
+| Ozon / WB | seller API/reports | marketplace CSV | SKU + period + tracking/UTM/coupon when available |
+| Partner slots | partner report | manual CSV | final URL + tracking link |
+
+Official connectors are gated by `DestinationConnection.auth_status` and `credential_ref`. A configured source stores only the reference name, never the raw token.
+
 ## Matching Priority
 
 Metrics rows are matched by:
@@ -50,7 +99,7 @@ Metrics rows are matched by:
 4. `destination_handle + sku + period`
 5. manual mapping or coupon rules in later iterations
 
-Unmatched rows are saved as warnings, not fatal errors.
+Social rows without `posted_url`, `tracking_slug`, or `publishing_task_id` become unmatched warnings. Marketplace conversion rows may match approximately by SKU and period.
 
 ## Safety Boundaries
 

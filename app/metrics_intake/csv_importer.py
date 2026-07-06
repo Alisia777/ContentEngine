@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.metrics_intake.errors import MetricsIntakeDataError
+from app.metrics_intake.platform_matrix import PlatformMetricsMatrix
 from app.metrics_intake.source_registry import MetricsSourceRegistry
 from app.metrics_intake.types import MetricsBatchResult
 
@@ -39,6 +40,8 @@ class CSVImporter:
             clean = {str(key or "").strip(): self._text(value) for key, value in row.items() if key}
             if not any(clean.values()):
                 continue
+            effective_source_type = source.source_type if source else source_type
+            clean = PlatformMetricsMatrix.normalize_row(clean, source_type=effective_source_type)
             row_warnings = self._row_warnings(clean)
             warnings.extend(f"row_{row_number}:{warning}" for warning in row_warnings)
             clean["_row_number"] = row_number
@@ -70,10 +73,18 @@ class CSVImporter:
         warnings: list[str] = []
         if not any(row.get(column) for column in IDENTITY_COLUMNS):
             warnings.append("missing_attribution_identity")
+        if (
+            row.get("platform") not in {"ozon", "wb", "marketplace"}
+            and not row.get("posted_url")
+            and not row.get("tracking_slug")
+            and not row.get("publishing_task_id")
+        ):
+            warnings.append("missing_posted_url_or_tracking_slug")
         if not row.get("platform"):
             warnings.append("missing_platform")
         if not row.get("period_start") or not row.get("period_end"):
             warnings.append("missing_period")
+        warnings.extend(str(warning) for warning in row.get("warnings") or [] if warning not in warnings)
         return warnings
 
     @staticmethod
