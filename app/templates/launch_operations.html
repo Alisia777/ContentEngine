@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Launch Operations</p>
+    <h1>Quality x Scale x Accounts</h1>
+  </div>
+  {% if report %}
+    <span class="status">{{ report.readiness.status }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Campaign</span>
+  <span>Quality</span>
+  <span>Capacity</span>
+  <span>Distribution</span>
+  <span>Runbook</span>
+</section>
+
+<section class="panel">
+  <h2>Campaign</h2>
+  <form action="/launch-operations" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+  {% if selected_campaign %}
+    <div class="actions">
+      <form action="/launch-operations/{{ selected_campaign.id }}/refresh" method="post"><button type="submit">Refresh Readiness</button></form>
+      <form action="/launch-operations/{{ selected_campaign.id }}/export-runbook" method="post"><button type="submit" class="secondary">Export Runbook</button></form>
+    </div>
+  {% endif %}
+</section>
+
+{% if report %}
+<section class="panel">
+  <h2>Launch Overview</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ report.readiness.total_sku }}</strong><span>SKU</span></div>
+    <div class="metric"><strong>{{ report.readiness.target_videos }}</strong><span>target videos</span></div>
+    <div class="metric"><strong>{{ report.readiness.prompt_ready_count }}</strong><span>prompt-ready</span></div>
+    <div class="metric"><strong>{{ report.readiness.real_video_count }}</strong><span>real videos</span></div>
+    <div class="metric"><strong>{{ report.readiness.approved_video_count }}</strong><span>approved videos</span></div>
+    <div class="metric"><strong>{{ report.readiness.needs_human_review_count }}</strong><span>needs review</span></div>
+    <div class="metric"><strong>{{ report.readiness.needs_regeneration_count }}</strong><span>regenerate</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.capacity_gap }}</strong><span>capacity gap</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Quality Gates</h2>
+  <table class="table">
+    <thead><tr><th>Video</th><th>SKU</th><th>Identity</th><th>Geometry</th><th>Review</th><th>Publishing</th><th>Required Fixes</th></tr></thead>
+    <tbody>
+      {% for gate in report.quality_gates %}
+        <tr>
+          <td>{{ gate.video_job_id or "-" }}</td>
+          <td>{{ gate.sku or "-" }}</td>
+          <td>{{ gate.product_identity_status }}</td>
+          <td>{{ gate.geometry_status }}</td>
+          <td>{{ gate.quality_review_status }}</td>
+          <td>{{ "yes" if gate.publishing_allowed else "no" }}</td>
+          <td>{{ gate.required_fixes[0].action if gate.required_fixes else "-" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No quality gates yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Destination Capacity</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ report.destination_capacity.total_destinations }}</strong><span>total destinations</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.active_destinations }}</strong><span>active</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.manual_destinations }}</strong><span>manual</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.api_ready_destinations }}</strong><span>API ready</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.daily_capacity }}</strong><span>daily capacity</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.weekly_capacity }}</strong><span>weekly capacity</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.required_slots }}</strong><span>required slots</span></div>
+    <div class="metric"><strong>{{ report.destination_capacity.capacity_gap }}</strong><span>gap</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Launch Action Plan</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ report.action_plan.safe_action_count }}</strong><span>safe</span></div>
+    <div class="metric"><strong>{{ report.action_plan.human_action_count }}</strong><span>human</span></div>
+    <div class="metric"><strong>{{ report.action_plan.paid_action_count }}</strong><span>paid</span></div>
+    <div class="metric"><strong>{{ report.action_plan.publishing_action_count }}</strong><span>publishing</span></div>
+  </div>
+  <table class="table">
+    <thead><tr><th>Type</th><th>Action</th><th>Scope</th><th>SKU</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for action in report.action_plan.actions %}
+        <tr><td>{{ action.action_type }}</td><td>{{ action.action }}</td><td>{{ action.scope }}</td><td>{{ action.sku or "-" }}</td><td>{{ action.reason }}</td></tr>
+      {% else %}
+        <tr><td colspan="5">No actions required.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Operator Runbook</h2>
+  <table class="table">
+    <thead><tr><th>Source</th><th>Blocker</th><th>SKU</th></tr></thead>
+    <tbody>
+      {% for blocker in report.readiness.blockers %}
+        <tr><td>{{ blocker.source or "-" }}</td><td>{{ blocker.blocker }}</td><td>{{ blocker.sku or "-" }}</td></tr>
+      {% else %}
+        <tr><td colspan="3">No launch blockers.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

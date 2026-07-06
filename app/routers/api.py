@@ -62,6 +62,14 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.launch_operations import (
+    DestinationCapacityService,
+    LaunchActionPlanner,
+    LaunchReadinessService,
+    LaunchReportService,
+    QualityGateService,
+)
+from app.launch_operations.errors import LaunchOperationsError
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
@@ -1664,6 +1672,63 @@ def get_bombar_production_dry_run_report(campaign_id: int, db: Session = Depends
     try:
         return BombarProductionDryRunService(db).build_report(campaign_id).model_dump(mode="json")
     except BombarProductionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/launch-operations/campaigns/{campaign_id}/readiness")
+def get_launch_readiness(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return LaunchReadinessService(db).latest_or_refresh(campaign_id).model_dump(mode="json")
+    except LaunchOperationsError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/launch-operations/campaigns/{campaign_id}/refresh")
+def refresh_launch_readiness(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return LaunchReadinessService(db).refresh(campaign_id).model_dump(mode="json")
+    except LaunchOperationsError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/launch-operations/campaigns/{campaign_id}/quality-gates")
+def get_launch_quality_gates(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        gates = QualityGateService(db).list_latest(campaign_id)
+        return [gate.model_dump(mode="json") for gate in gates]
+    except LaunchOperationsError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/launch-operations/campaigns/{campaign_id}/destination-capacity")
+def get_launch_destination_capacity(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return DestinationCapacityService(db).latest_or_refresh(campaign_id).model_dump(mode="json")
+    except LaunchOperationsError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/launch-operations/campaigns/{campaign_id}/action-plan")
+def get_launch_action_plan(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return LaunchActionPlanner(db).latest_or_refresh(campaign_id).model_dump(mode="json")
+    except LaunchOperationsError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/launch-operations/campaigns/{campaign_id}/report")
+def get_launch_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return LaunchReportService(db).build(campaign_id).model_dump(mode="json")
+    except LaunchOperationsError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/launch-operations/campaigns/{campaign_id}/export-runbook")
+def export_launch_runbook(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return LaunchReportService(db).export_runbook(campaign_id).model_dump(mode="json")
+    except LaunchOperationsError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 

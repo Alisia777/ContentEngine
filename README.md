@@ -506,6 +506,35 @@ The dry run reports imported SKU, ready/blocked SKU, prompt packs, missing refer
 
 Docs: `docs/BOMBAR_PRODUCTION_DRY_RUN.md`.
 
+## v1.2 Launch Operations Hub
+
+v1.2 adds `/launch-operations`, one control layer for campaign launch readiness:
+
+```text
+campaign
+-> quality gates
+-> approved video readiness
+-> destination capacity
+-> distribution readiness
+-> launch blockers
+-> action plan
+-> operator runbook export
+```
+
+Operator CLI:
+
+```bash
+python scripts/launch_readiness.py --campaign-id 1
+python scripts/launch_quality_gates.py --campaign-id 1
+python scripts/launch_destination_capacity.py --campaign-id 1
+python scripts/launch_action_plan.py --campaign-id 1
+python scripts/export_launch_runbook.py --campaign-id 1
+```
+
+Launch Operations separates safe, human, paid, and publishing actions. It does not auto-publish unreviewed videos, create external social accounts, bypass approvals, or run paid providers in tests.
+
+Docs: `docs/LAUNCH_OPERATIONS_HUB.md`, `docs/LAUNCH_READINESS.md`, `docs/DESTINATION_CAPACITY.md`, and `docs/QUALITY_GATES.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:
