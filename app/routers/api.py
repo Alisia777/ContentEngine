@@ -83,6 +83,14 @@ from app.launch_operations import (
     QualityGateService,
 )
 from app.launch_operations.errors import LaunchOperationsError
+from app.metrics_intake import (
+    AttributionService,
+    CSVImporter,
+    FunnelService,
+    MetricsIntakeError,
+    MetricsSourceRegistry,
+    TrackingLinkService,
+)
 from app.participant_portal import (
     AssignmentPortalService,
     OnboardingService,
@@ -454,6 +462,31 @@ class PayoutRuleCreateRequest(BaseModel):
     currency: str = "RUB"
     percent_revenue: float | None = None
     conditions: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetricsSourceCreateRequest(BaseModel):
+    name: str
+    source_type: str = "manual_csv"
+    platform: str = "other"
+    connection_id: int | None = None
+    status: str = "active"
+    settings_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrackingLinkCreateRequest(BaseModel):
+    publishing_task_id: int
+    target_url: str | None = None
+    campaign_id: int | None = None
+    participant_id: int | None = None
+    slug: str | None = None
+
+
+class MetricsCSVImportRequest(BaseModel):
+    csv_text: str
+    source_id: int | None = None
+    campaign_id: int | None = None
+    source_type: str = "manual_csv"
+    source_name: str | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -3088,6 +3121,116 @@ def get_participant_dashboard(participant_id: int, campaign_id: int | None = Non
         }
     except ParticipantPortalError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def metrics_source_payload(source: models.MetricsSource) -> dict[str, Any]:
+    return {
+        "id": source.id,
+        "name": source.name,
+        "source_type": source.source_type,
+        "platform": source.platform,
+        "status": source.status,
+        "connection_id": source.connection_id,
+        "settings_json": source.settings_json,
+        "created_at": source.created_at,
+        "updated_at": source.updated_at,
+    }
+
+
+def tracking_link_payload(link: models.TrackingLink) -> dict[str, Any]:
+    return {
+        "id": link.id,
+        "slug": link.slug,
+        "target_url": link.target_url,
+        "redirect_url": f"https://our-domain.com/r/{link.slug}",
+        "campaign_id": link.campaign_id,
+        "publishing_task_id": link.publishing_task_id,
+        "destination_id": link.destination_id,
+        "product_id": link.product_id,
+        "sku": link.sku,
+        "creative_variant_id": link.creative_variant_id,
+        "participant_id": link.participant_id,
+        "status": link.status,
+        "created_at": link.created_at,
+        "updated_at": link.updated_at,
+    }
+
+
+@router.post("/metrics-intake/sources")
+def create_metrics_source(payload: MetricsSourceCreateRequest, db: Session = Depends(get_db)):
+    try:
+        source = MetricsSourceRegistry(db).create(**payload.model_dump())
+        return metrics_source_payload(source)
+    except MetricsIntakeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/metrics-intake/sources")
+def list_metrics_sources(platform: str | None = None, source_type: str | None = None, db: Session = Depends(get_db)):
+    sources = MetricsSourceRegistry(db).list(platform=platform, source_type=source_type)
+    return [metrics_source_payload(source) for source in sources]
+
+
+@router.post("/metrics-intake/tracking-links")
+def create_tracking_link(payload: TrackingLinkCreateRequest, db: Session = Depends(get_db)):
+    try:
+        link = TrackingLinkService(db).create_for_task(**payload.model_dump())
+        return tracking_link_payload(link)
+    except MetricsIntakeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/metrics-intake/tracking-links")
+def list_tracking_links(campaign_id: int | None = None, publishing_task_id: int | None = None, db: Session = Depends(get_db)):
+    links = TrackingLinkService(db).list(campaign_id=campaign_id, publishing_task_id=publishing_task_id)
+    return [tracking_link_payload(link) for link in links]
+
+
+@router.post("/metrics-intake/import-csv")
+def import_metrics_csv(payload: MetricsCSVImportRequest, db: Session = Depends(get_db)):
+    try:
+        result = CSVImporter(db).import_csv_text(**payload.model_dump())
+        return result.model_dump(mode="json")
+    except MetricsIntakeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/metrics-intake/batches/{batch_id}")
+def get_metrics_batch(batch_id: int, db: Session = Depends(get_db)):
+    batch = get_or_404(db, models.MetricsIntakeBatch, batch_id)
+    return {
+        "id": batch.id,
+        "source_id": batch.source_id,
+        "campaign_id": batch.campaign_id,
+        "source_type": batch.source_type,
+        "status": batch.status,
+        "imported_count": batch.imported_count,
+        "matched_count": batch.matched_count,
+        "unmatched_count": batch.unmatched_count,
+        "warning_count": batch.warning_count,
+        "error_count": batch.error_count,
+        "warnings": batch.warnings_json,
+        "errors": batch.errors_json,
+        "unmatched_rows": batch.unmatched_rows_json,
+    }
+
+
+@router.post("/metrics-intake/attribute-batch/{batch_id}")
+def attribute_metrics_batch(batch_id: int, db: Session = Depends(get_db)):
+    try:
+        return AttributionService(db).attribute_batch(batch_id).model_dump(mode="json")
+    except MetricsIntakeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/metrics-intake/campaigns/{campaign_id}/funnel")
+def get_campaign_funnel(campaign_id: int, db: Session = Depends(get_db)):
+    return FunnelService(db).campaign_funnel(campaign_id)
+
+
+@router.get("/metrics-intake/campaigns/{campaign_id}/unmatched")
+def get_campaign_unmatched_rows(campaign_id: int, db: Session = Depends(get_db)):
+    return {"campaign_id": campaign_id, "unmatched_rows": FunnelService(db).unmatched_rows(campaign_id)}
 
 
 @router.post("/exports")

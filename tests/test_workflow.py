@@ -109,6 +109,14 @@ from app.intelligence.types import (
 from app.intelligence.validators import validate_script_claim_refs
 from app.launch_operations import DestinationCapacityService, LaunchActionPlanner, LaunchReadinessService, LaunchReportService, QualityGateService
 from app.main import app
+from app.metrics_intake import (
+    AttributionService,
+    CSVImporter,
+    FunnelService,
+    MetricsIntakeDataError,
+    MetricsSourceRegistry,
+    TrackingLinkService,
+)
 from app.publishing import MockUploadProvider
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
@@ -3335,6 +3343,34 @@ def destination_metrics_csv(rows: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def metrics_intake_csv(rows: list[dict]) -> str:
+    columns = [
+        "platform",
+        "destination_handle",
+        "posted_url",
+        "tracking_slug",
+        "publishing_task_id",
+        "sku",
+        "period_start",
+        "period_end",
+        "views",
+        "reach",
+        "impressions",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "clicks",
+        "orders",
+        "revenue",
+        "spend",
+    ]
+    lines = [",".join(columns)]
+    for row in rows:
+        lines.append(",".join(str(row.get(column, "")) for column in columns))
+    return "\n".join(lines) + "\n"
+
+
 def test_import_product_matrix_csv():
     with client():
         with SessionLocal() as db:
@@ -5635,3 +5671,286 @@ def test_no_raw_payment_or_secret_values_rendered():
     assert response.status_code == 200
     assert "bank_secret_token_should_not_render" not in response.text
     assert "card_number" not in response.text
+
+
+def test_create_tracking_link_for_publishing_task():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://market.example/p/track")
+            link = TrackingLinkService(db).create_for_task(task.id, campaign_id=campaign_id)
+
+    assert link.publishing_task_id == task.id
+    assert link.campaign_id == campaign_id
+    assert link.sku == product.sku
+    assert link.slug.startswith(f"pt{task.id}-")
+
+
+def test_tracking_redirect_records_click():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://market.example/p/click")
+            link = TrackingLinkService(db).create_for_task(task.id, campaign_id=campaign_id)
+            slug = link.slug
+        response = api.get(f"/r/{slug}", follow_redirects=False, headers={"user-agent": "test-browser/raw"})
+        with SessionLocal() as db:
+            click = db.scalar(select(models.TrackingClick))
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "https://market.example/p/click"
+    assert click.tracking_link_id == link.id
+    assert click.user_agent_hash
+    assert click.user_agent_hash != "test-browser/raw"
+
+
+def test_metrics_csv_import_facebook_rows():
+    with client():
+        with SessionLocal() as db:
+            source = MetricsSourceRegistry(db).create(name="FB manual", source_type="manual_csv", platform="facebook")
+            result = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": "facebook",
+                            "destination_handle": "@account",
+                            "posted_url": "https://facebook.com/post/1",
+                            "sku": "SKU001",
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 12000,
+                            "reach": 9000,
+                            "impressions": 15000,
+                        }
+                    ]
+                ),
+                source_id=source.id,
+                source_type="manual_csv",
+            )
+
+    assert result.imported_count == 1
+    assert result.source_type == "manual_csv"
+    assert result.warning_count == 0
+
+
+def test_metrics_import_matches_by_final_url():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://facebook.com/post/final-url")
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": task.platform,
+                            "destination_handle": task.destination.handle,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 1000,
+                            "clicks": 50,
+                            "orders": 5,
+                            "revenue": 7500,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            result = AttributionService(db).attribute_batch(batch.batch_id)
+            metric = db.scalar(select(models.DestinationPostMetric))
+            snapshot = db.scalar(select(models.FunnelSnapshot))
+
+    assert result.matched_count == 1
+    assert metric.publishing_task_id == task.id
+    assert metric.destination_id == task.destination_id
+    assert snapshot.clicks == 50
+
+
+def test_metrics_import_matches_by_tracking_slug():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://market.example/p/slug")
+            link = TrackingLinkService(db).create_for_task(task.id, campaign_id=campaign_id)
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": task.platform,
+                            "tracking_slug": link.slug,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 2000,
+                            "clicks": 120,
+                            "orders": 6,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            result = AttributionService(db).attribute_batch(batch.batch_id)
+            metric = db.scalar(select(models.DestinationPostMetric))
+
+    assert result.matched_count == 1
+    assert metric.publishing_task_id == task.id
+    assert metric.posted_url == task.final_url
+    assert metric.clicks == 120
+
+
+def test_metrics_import_unmatched_row_warns_not_fails():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": "facebook",
+                            "posted_url": "https://facebook.com/post/not-known",
+                            "sku": "UNKNOWN-SKU",
+                            "views": 10,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            result = AttributionService(db).attribute_batch(batch.batch_id)
+
+    assert result.status == "unmatched"
+    assert result.unmatched_count == 1
+    assert result.warning_count >= 1
+
+
+def test_funnel_snapshot_computes_ctr_and_conversion():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://facebook.com/post/funnel")
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "views": 100,
+                            "clicks": 5,
+                            "orders": 1,
+                            "revenue": 250,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            AttributionService(db).attribute_batch(batch.batch_id)
+            snapshot = db.scalar(select(models.FunnelSnapshot))
+
+    assert snapshot.ctr == 0.05
+    assert snapshot.conversion_rate == 0.2
+    assert snapshot.revenue_per_click == 50
+    assert snapshot.revenue_per_view == 2.5
+
+
+def test_funnel_metrics_feed_campaign_performance():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://facebook.com/post/performance-feed")
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "views": 500,
+                            "clicks": 25,
+                            "orders": 2,
+                            "revenue": 3200,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            AttributionService(db).attribute_batch(batch.batch_id)
+            metric = db.scalar(select(models.CampaignPerformanceMetric))
+
+    assert metric.campaign_id == campaign_id
+    assert metric.publishing_task_id == task.id
+    assert metric.views == 500
+    assert metric.ctr == 0.05
+
+
+def test_participant_dashboard_uses_funnel_metrics():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Funnel Owner", role="partner")
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://facebook.com/post/participant-funnel")
+            OnboardingService(db).link_destination(participant.id, task.destination_id, relationship_type="owner")
+            AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                assignment_type="publish_video",
+            )
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "views": 700,
+                            "clicks": 35,
+                            "orders": 3,
+                            "revenue": 4500,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            AttributionService(db).attribute_batch(batch.batch_id)
+            stats = ParticipantMetricsService(db).dashboard_stats(participant.id, campaign_id=campaign_id)
+
+    assert stats["views_total"] == 700
+    assert stats["clicks_total"] == 35
+    assert stats["orders_total"] == 3
+
+
+def test_no_raw_tokens_or_unofficial_login_paths():
+    with client():
+        with SessionLocal() as db:
+            source = MetricsSourceRegistry(db).create(
+                name="Meta official",
+                source_type="official_api",
+                platform="facebook",
+                settings_json={"credential_ref": "META_FACEBOOK_TOKEN_REF"},
+            )
+            with pytest.raises(MetricsIntakeDataError):
+                MetricsSourceRegistry(db).create(
+                    name="Unsafe",
+                    source_type="official_api",
+                    platform="facebook",
+                    settings_json={"access_token": "raw-token"},
+                )
+
+    payload = json.dumps(source.settings_json)
+    assert "raw-token" not in payload
+    assert "password" not in payload
+    assert "cookie" not in payload
+
+
+def test_metrics_intake_ui_renders():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        response = api.get(f"/metrics-intake?campaign_id={campaign_id}")
+
+    assert response.status_code == 200, response.text
+    assert "Metrics Intake" in response.text
+    assert "Sources" in response.text
+    assert "Tracking Links" in response.text
+    assert "CSV Imports" in response.text
+    assert "Unmatched Rows" in response.text
