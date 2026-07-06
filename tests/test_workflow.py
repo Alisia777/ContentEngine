@@ -60,6 +60,12 @@ from app.creative.types import CreativeSpec
 from app.database import Base, SessionLocal, engine
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupDataError
+from app.destination_crm import (
+    DestinationCRMCampaignCapacityService,
+    DestinationHealthService,
+    DestinationReadinessService,
+    DestinationWarmupService,
+)
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
 from app.demand.types import DemandHypothesis
@@ -4766,3 +4772,132 @@ def test_destination_setup_api_flow_creates_destination():
     assert destination_response.status_code == 200, destination_response.text
     assert destination_response.json()["status"] == "active"
     assert destination_response.json()["posting_mode"] == "manual"
+
+
+def test_destination_readiness_active_manual_ready():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            destination = add_launch_destination(db, weekly_limit=3)
+            result = DestinationReadinessService(db).refresh(destination.id, campaign_id=campaign_id)
+
+    assert result.status == "ready"
+    assert result.manual_ready is True
+    assert result.remaining_weekly_capacity == 3
+
+
+def test_destination_readiness_api_requires_token_valid():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            destination = add_launch_destination(db, posting_mode="api", auth_status="token_expired", weekly_limit=3)
+            blocked = DestinationReadinessService(db).refresh(destination.id, campaign_id=campaign_id)
+            destination.auth_status = "token_valid"
+            db.commit()
+            ready = DestinationReadinessService(db).refresh(destination.id, campaign_id=campaign_id)
+
+    assert blocked.status == "blocked"
+    assert any(blocker["blocker"] == "api_destination_requires_token_valid" for blocker in blocked.blockers)
+    assert ready.status == "ready"
+    assert ready.api_ready is True
+
+
+def test_destination_readiness_paused_not_ready():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            destination = add_launch_destination(db, status="paused", weekly_limit=3)
+            result = DestinationReadinessService(db).refresh(destination.id, campaign_id=campaign_id)
+
+    assert result.status == "blocked"
+    assert any(blocker["blocker"] == "destination_not_active" for blocker in result.blockers)
+
+
+def test_warmup_phase_reduces_capacity():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=6, target_destinations=1)
+        with SessionLocal() as db:
+            destination = add_launch_destination(db, daily_limit=3, weekly_limit=10)
+            DestinationWarmupService(db).create_or_update(destination.id, current_phase="phase_1_soft_start")
+            result = DestinationReadinessService(db).refresh(destination.id, campaign_id=campaign_id)
+
+    assert result.warmup_phase == "phase_1_soft_start"
+    assert result.daily_limit == 1
+    assert result.weekly_limit == 7
+
+
+def test_campaign_capacity_counts_ready_destinations():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=5, target_destinations=2)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=3)
+            add_launch_destination(db, weekly_limit=2)
+            capacity = DestinationCRMCampaignCapacityService(db).calculate(campaign_id)
+
+    assert capacity.ready_destinations == 2
+    assert capacity.manual_ready_destinations == 2
+    assert capacity.available_weekly_capacity == 5
+    assert capacity.capacity_gap == 0
+
+
+def test_campaign_capacity_flags_gap():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=10, target_destinations=2)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=2)
+            capacity = DestinationCRMCampaignCapacityService(db).calculate(campaign_id)
+
+    assert capacity.capacity_gap == 8
+    assert any(blocker["blocker"] == "capacity_gap" for blocker in capacity.blockers)
+
+
+def test_destination_health_uses_recent_tasks():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            db.add(
+                models.CampaignPerformanceMetric(
+                    campaign_id=campaign_id,
+                    product_id=product.id,
+                    sku=product.sku,
+                    publishing_task_id=task.id,
+                    destination_id=task.destination_id,
+                    platform=task.platform,
+                    posted_url=task.final_url,
+                    views=1000,
+                    engagement_rate=0.12,
+                    raw_json={},
+                )
+            )
+            db.add(
+                models.PublishingTask(
+                    publishing_package_id=task.publishing_package_id,
+                    destination_id=task.destination_id,
+                    platform=task.platform,
+                    status="failed",
+                    scheduled_at=datetime.now(UTC).replace(tzinfo=None),
+                    error_message="manual upload failed",
+                    raw_response_json={},
+                )
+            )
+            db.commit()
+            health = DestinationHealthService(db).refresh(task.destination_id)
+
+    assert health.recent_task_count == 2
+    assert health.failed_task_count == 1
+    assert health.avg_views == 1000
+    assert health.avg_engagement_rate == 0.12
+    assert any(blocker["blocker"] == "failed_publishing_tasks" for blocker in health.blockers)
+
+
+def test_destination_crm_ui_renders_readiness_and_capacity():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=3)
+        response = api.get(f"/destination-crm?campaign_id={campaign_id}")
+
+    assert response.status_code == 200, response.text
+    assert "Destination Readiness CRM" in response.text
+    assert "Capacity by Campaign" in response.text
