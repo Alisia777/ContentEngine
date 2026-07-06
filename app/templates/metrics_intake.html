@@ -105,6 +105,8 @@
     <h2>CSV Imports</h2>
     <p class="muted">Required identity: posted_url or tracking_slug for social posts; SKU + period is allowed for marketplace conversion reports.</p>
     <p class="muted">Normalized columns: platform, destination_id, posted_url, tracking_slug, campaign_id, product_id, sku, creative_variant_id, participant_id, period_start, period_end, views, reach, impressions, engagements, likes, comments, shares, saves, clicks, orders, revenue, spend, watch_time_seconds, retention_rate, source_type, match_confidence, warnings.</p>
+    <p class="muted">Platform CSV examples: facebook_metrics.csv, instagram_reels_metrics.csv, youtube_shorts_metrics.csv, tiktok_metrics.csv, telegram_metrics.csv, vk_metrics.csv, marketplace_conversion.csv, partner_report.csv.</p>
+    <p class="muted">Common mistakes: missing posted_url/tracking_slug, missing period, wrong SKU, direct product URL instead of tracking_link, marketplace orders submitted as social views, or manual numbers without source report.</p>
     <form method="post" action="/metrics-intake/import-csv" class="stacked-form">
       <input type="hidden" name="campaign_id" value="{{ selected_campaign_id or '' }}">
       <label>Source

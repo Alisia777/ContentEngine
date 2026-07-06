@@ -24,6 +24,10 @@ Open:
 The page shows:
 
 - course catalog;
+- "I have zero experience" start flow;
+- earning tracks;
+- platform playbooks;
+- scenario simulator;
 - role-based learning path;
 - lesson viewer;
 - quiz/test form;
@@ -42,6 +46,41 @@ Default courses are seeded by code:
 - `reviewer_basics`
 
 Each course has lessons, checklists, examples, a quiz, and a passing score.
+
+## Beginner Earning Tracks
+
+Training Academy explains how a newcomer can earn inside ContentEngine:
+
+- Publisher / Placement Operator: publish approved videos and return final URLs.
+- Metrics Operator: submit valid platform or marketplace reports.
+- Reviewer Assistant: make correct approve/reject/regenerate decisions.
+- Creator / Editor: create or fix videos from brief cards.
+- Channel / Destination Owner: run owned destinations and submit placement proof.
+
+Each track explains daily work, required proof, rejection reasons, payout blockers, and required certifications.
+
+## Platform Playbooks
+
+Platform playbooks cover Instagram/Reels, Facebook, YouTube Shorts, TikTok, Telegram, VK, marketplace metrics, and partner slots.
+
+Each playbook answers:
+
+1. What should I do on this platform?
+2. What data must I submit?
+3. What happens if links or stats are submitted incorrectly?
+
+See `docs/PLATFORM_PLAYBOOKS.md`.
+
+## Scenario Simulator
+
+Scenario simulator covers common mistakes before real work:
+
+- publish approved Reel;
+- submit Facebook stats;
+- YouTube Shorts stats;
+- TikTok task;
+- product identity review;
+- payout without final URL.
 
 ## CLI
 

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.training_academy.academy_catalog import PLATFORM_PLAYBOOKS
 from app.training_academy.certification_service import CertificationService, GATE_COURSE_BY_ACTION
 from app.training_academy.curriculum_service import CurriculumService
 from app.training_academy.errors import TrainingAcademyDataError
@@ -37,8 +38,10 @@ class ProgressService:
             .where(models.TrainingAttempt.participant_id == participant_id)
             .order_by(models.TrainingAttempt.created_at.desc(), models.TrainingAttempt.id.desc())
         ).all()
-        certifications = CertificationService(self.db).list_certifications(participant_id)
+        cert_service = CertificationService(self.db)
+        certifications = cert_service.list_certifications(participant_id)
         certification_codes = {cert.course_code for cert in certifications if cert.status == "certified"}
+        certified_badges = cert_service.certified_badges(participant_id)
         latest_attempt_by_course: dict[int, models.TrainingAttempt] = {}
         for attempt in attempts:
             latest_attempt_by_course.setdefault(attempt.course_id, attempt)
@@ -56,12 +59,16 @@ class ProgressService:
                     else (latest.status if latest else "not_started"),
                     "latest_score": latest.score if latest else None,
                     "certified": course.code in certification_codes,
+                    "badge": cert_service.badge_for_course(course.code),
                 }
             )
         gate_payload = {}
-        cert_service = CertificationService(self.db)
         for action in GATE_COURSE_BY_ACTION:
             gate_payload[action] = cert_service.evaluate_gate(participant_id, action, strict=False)
+        platform_payload = {
+            playbook["platform"]: cert_service.platform_readiness(participant_id, playbook["platform"], strict=False)
+            for playbook in PLATFORM_PLAYBOOKS
+        }
         return TrainingProgressResult(
             participant_id=participant_id,
             courses=course_payloads,
@@ -70,11 +77,13 @@ class ProgressService:
                     "id": cert.id,
                     "course_id": cert.course_id,
                     "course_code": cert.course_code,
+                    "badge": cert_service.badge_for_course(cert.course_code),
                     "status": cert.status,
                     "issued_at": cert.issued_at,
                     "expires_at": cert.expires_at,
                 }
                 for cert in certifications
             ],
-            gates=gate_payload,
+            gates={**gate_payload, "platforms": platform_payload},
+            badges=certified_badges,
         )

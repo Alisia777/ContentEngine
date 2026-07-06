@@ -105,7 +105,8 @@ from app.participant_portal import (
 )
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
-from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, TrainingAcademyError
+from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService, TrainingAcademyError
+from app.training_academy.academy_catalog import BEGINNER_TRACKS, PLATFORM_PLAYBOOKS
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -498,6 +499,10 @@ class TrainingStartRequest(BaseModel):
 
 class TrainingQuizSubmitRequest(BaseModel):
     participant_id: int
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrainingScenarioSubmitRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -3334,6 +3339,37 @@ def get_training_certifications(participant_id: int, db: Session = Depends(get_d
             }
             for cert in certifications
         ]
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/training/beginner-tracks")
+def get_training_beginner_tracks():
+    return BEGINNER_TRACKS
+
+
+@router.get("/training/platform-playbooks")
+def get_training_platform_playbooks():
+    return PLATFORM_PLAYBOOKS
+
+
+@router.get("/training/scenarios")
+def get_training_scenarios():
+    return ScenarioService().list_scenarios()
+
+
+@router.post("/training/scenarios/{scenario_code}/submit")
+def submit_training_scenario(scenario_code: str, payload: TrainingScenarioSubmitRequest):
+    try:
+        return ScenarioService().evaluate(scenario_code, payload.answers)
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/training/participants/{participant_id}/platform-readiness")
+def get_training_platform_readiness(participant_id: int, platform: str, strict: bool = False, db: Session = Depends(get_db)):
+    try:
+        return CertificationService(db).platform_readiness(participant_id, platform, strict=strict)
     except TrainingAcademyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

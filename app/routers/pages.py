@@ -91,7 +91,8 @@ from app.participant_portal import (
 )
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
-from app.training_academy import CurriculumService, ProgressService, QuizService, TrainingAcademyError
+from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService, TrainingAcademyError
+from app.training_academy.academy_catalog import BEGINNER_TRACKS, PLATFORM_PLAYBOOKS
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -1893,6 +1894,8 @@ def participant_portal_page(request: Request, participant_id: int | None = None,
     payout_summary = {"entries": [], "totals": {}, "total": 0}
     recommendations = []
     setup_steps = []
+    training_progress = None
+    platform_readiness = {}
     error = request.query_params.get("error")
     notice = request.query_params.get("notice")
     if selected_participant:
@@ -1908,6 +1911,15 @@ def participant_portal_page(request: Request, participant_id: int | None = None,
             payout_summary = PayoutService(db).summary(selected_participant.id)
             recommendations = RecommendationService(db).recommendations(selected_participant.id)
             setup_steps = OnboardingService(db).setup_steps(selected_participant.id)
+            curriculum = CurriculumService(db)
+            if not curriculum.list_courses():
+                curriculum.seed_defaults()
+            training_progress = ProgressService(db).progress(selected_participant.id).model_dump(mode="json")
+            cert_service = CertificationService(db)
+            platform_readiness = {
+                link.destination_id: cert_service.platform_readiness(selected_participant.id, link.destination.platform)
+                for link in links
+            }
         except ParticipantPortalError as exc:
             error = str(exc)
     return templates.TemplateResponse(
@@ -1928,6 +1940,8 @@ def participant_portal_page(request: Request, participant_id: int | None = None,
             "payout_summary": payout_summary,
             "recommendations": recommendations,
             "setup_steps": setup_steps,
+            "training_progress": training_progress,
+            "platform_readiness": platform_readiness,
             "error": error,
             "notice": notice,
         },
@@ -2100,6 +2114,9 @@ def training_academy_page(
             "participants": participants,
             "selected_participant": selected_participant,
             "progress": progress,
+            "beginner_tracks": BEGINNER_TRACKS,
+            "platform_playbooks": PLATFORM_PLAYBOOKS,
+            "scenarios": ScenarioService().list_scenarios(),
             "error": request.query_params.get("error"),
             "notice": request.query_params.get("notice"),
         },

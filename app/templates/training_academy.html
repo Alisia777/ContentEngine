@@ -19,6 +19,49 @@
 {% endif %}
 
 <section class="panel">
+  <h2>Scenario Simulator</h2>
+  <p class="muted">Practice common failure points before real work: missing final_url, wrong link, wrong destination, unmatched CSV rows, product identity drift, and payout blockers.</p>
+  <div class="metric-grid">
+    {% for scenario in scenarios %}
+      <div class="metric">
+        <strong>{{ scenario.title }}</strong>
+        <span>{{ scenario.prompt }}</span>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>I Have Zero Experience - Where Do I Start?</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>1</strong><span>Choose how you want to earn.</span></div>
+    <div class="metric"><strong>2</strong><span>Complete the role course.</span></div>
+    <div class="metric"><strong>3</strong><span>Complete the platform playbook.</span></div>
+    <div class="metric"><strong>4</strong><span>Pass the quiz and get the badge.</span></div>
+    <div class="metric"><strong>5</strong><span>Take an assignment and follow the checklist.</span></div>
+    <div class="metric"><strong>6</strong><span>Submit proof: file, final_url, or metrics.</span></div>
+  </div>
+  <p class="muted">Payable work is traceable work: assignment, approved video, tracking_link, final_url, metrics, review status, and payout rule must live inside ContentEngine.</p>
+</section>
+
+<section class="panel">
+  <h2>How to Earn</h2>
+  <table class="table compact">
+    <thead><tr><th>Track</th><th>How it earns</th><th>Must submit</th><th>Required badges</th></tr></thead>
+    <tbody>
+      {% for track in beginner_tracks %}
+        <tr>
+          <td>{{ track.title }}</td>
+          <td>{{ track.earning }}</td>
+          <td>{{ track.must_submit|join(", ") }}</td>
+          <td>{{ track.required_badges|join(", ") }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
   <div class="section-heading">
     <div>
       <h2>Participant Progress</h2>
@@ -43,6 +86,16 @@
     </form>
   </div>
   {% if progress %}
+    <h3>Certification Badges</h3>
+    {% if progress.badges %}
+      <div class="workflow">
+        {% for badge in progress.badges %}
+          <span>{{ badge }}</span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No badges yet. Start with a role course and then the platform you want to work on.</p>
+    {% endif %}
     <div class="metric-grid">
       {% for course in progress.courses %}
         <div class="metric">
@@ -55,11 +108,28 @@
       <thead><tr><th>Gate</th><th>Course</th><th>Status</th><th>Message</th></tr></thead>
       <tbody>
         {% for action, gate in progress.gates.items() %}
+          {% if action != "platforms" %}
+            <tr>
+              <td>{{ action }}</td>
+              <td>{{ gate.course_code }}</td>
+              <td>{{ gate.status }}</td>
+              <td>{{ gate.message }}</td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    <h3>Can I Work With This Platform?</h3>
+    <table class="table compact">
+      <thead><tr><th>Platform</th><th>Required course</th><th>Badge</th><th>Status</th><th>Message</th></tr></thead>
+      <tbody>
+        {% for platform, readiness in progress.gates.platforms.items() %}
           <tr>
-            <td>{{ action }}</td>
-            <td>{{ gate.course_code }}</td>
-            <td>{{ gate.status }}</td>
-            <td>{{ gate.message }}</td>
+            <td>{{ platform }}</td>
+            <td>{{ readiness.course_code or "-" }}</td>
+            <td>{{ readiness.badge or "-" }}</td>
+            <td>{{ readiness.status }}</td>
+            <td>{{ readiness.message }}</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -67,6 +137,23 @@
   {% else %}
     <p class="muted">Create or select a participant to track certifications.</p>
   {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Platform Playbooks</h2>
+  <table class="table compact">
+    <thead><tr><th>Platform</th><th>What to do</th><th>Required metrics</th><th>Do not</th></tr></thead>
+    <tbody>
+      {% for playbook in platform_playbooks %}
+        <tr>
+          <td>{{ playbook.platform }}</td>
+          <td>{{ playbook.rules|join(" ") }}</td>
+          <td>{{ playbook.metrics|join(", ") }}</td>
+          <td>{{ playbook.dont|join(" ") }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </section>
 
 <section class="grid two">
