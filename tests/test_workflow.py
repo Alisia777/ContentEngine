@@ -75,6 +75,15 @@ from app.destination_connectors import (
     YouTubeAnalyticsConnector,
 )
 from app.destination_control_tower import DestinationControlReportService, TowerService
+from app.participant_portal import (
+    AssignmentPortalService,
+    OnboardingService,
+    ParticipantMetricsService,
+    ParticipantService,
+    PayoutService,
+    RecommendationService,
+    SubmissionService,
+)
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
 from app.demand.types import DemandHypothesis
@@ -5385,3 +5394,244 @@ def test_destination_control_report_exports():
     assert report.snapshot.campaign_id == campaign_id
     assert "Destination Control Tower Campaign" in report.markdown
     assert "| Platform | Destination | Readiness |" in report.markdown
+
+
+def test_create_participant_profile():
+    with client():
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(
+                display_name="Creator One",
+                role="creator",
+                platforms=["reels", "shorts"],
+            )
+
+    assert participant.id
+    assert participant.role == "creator"
+    assert participant.platforms_json == ["reels", "shorts"]
+
+
+def test_link_participant_to_destination():
+    with client():
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Partner One", role="partner")
+            destination_id = add_campaign_destination(db)
+            link = OnboardingService(db).link_destination(participant.id, destination_id, relationship_type="owner")
+
+    assert link.participant_id == participant.id
+    assert link.destination_id == destination_id
+    assert link.relationship_type == "owner"
+
+
+def test_assignment_brief_contains_video_tz():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Creator Brief", role="creator")
+            product, content_run, _, _ = add_launch_video_fixture(db, campaign_id, create_package=True)
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                content_run_id=content_run.id,
+                assignment_type="create_video",
+            )
+
+    assert assignment.brief_json["sku"] == product.sku
+    assert "buyer_need" in assignment.brief_json
+    assert "safe_promise" in assignment.brief_json
+    assert "first_frame_logic" in assignment.brief_json
+    assert "must_avoid" in assignment.brief_json
+    assert "review_checklist" in assignment.brief_json
+
+
+def test_participant_submission_from_external_url():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Submitter", role="creator")
+            _, content_run, _, _ = add_launch_video_fixture(db, campaign_id, create_package=True)
+            assignment = AssignmentPortalService(db).create_assignment(participant_id=participant.id, campaign_id=campaign_id, content_run_id=content_run.id)
+            submission = SubmissionService(db).submit(assignment_id=assignment.id, external_url="https://example.com/video.mp4")
+            assignment_status = db.get(models.ParticipantAssignment, assignment.id).status
+
+    assert submission.external_url == "https://example.com/video.mp4"
+    assert submission.review_status == "needs_review"
+    assert assignment_status == "submitted"
+
+
+def test_participant_metrics_aggregate_from_destination_post_metrics():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Metrics Owner", role="partner")
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/participant-metrics")
+            OnboardingService(db).link_destination(participant.id, task.destination_id, relationship_type="owner")
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 1500,
+                            "clicks": 45,
+                            "orders": 4,
+                            "revenue": 6000,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            stats = ParticipantMetricsService(db).refresh(participant.id, campaign_id=campaign_id)
+
+    assert stats.views_total == 1500
+    assert stats.clicks_total == 45
+    assert stats.orders_total == 4
+    assert stats.revenue_total == 6000
+
+
+def test_participant_dashboard_shows_channels_stats_and_recommendations():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Dashboard User", role="creator")
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/dashboard")
+            OnboardingService(db).link_destination(participant.id, task.destination_id, relationship_type="creator")
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                assignment_type="publish_video",
+            )
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "views": 900,
+                            "clicks": 20,
+                            "orders": 1,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            stats = ParticipantMetricsService(db).dashboard_stats(participant.id, campaign_id=campaign_id)
+            recommendations = RecommendationService(db).recommendations(participant.id)
+
+    assert stats["views_total"] == 900
+    assert stats["assignments_total"] == 1
+    assert any(item["action"] in {"submit_video", "scale_channel", "monitor"} for item in recommendations)
+
+
+def test_payout_rule_per_published_post_creates_ledger_entry():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Paid Creator", role="creator")
+            rule = PayoutService(db).create_rule(name="Post fixed", payout_type="per_published_post", amount_fixed=1200)
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/payout-fixed")
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                payout_rule_id=rule.id,
+                assignment_type="publish_video",
+            )
+            entry = PayoutService(db).calculate_for_assignment(assignment.id)
+
+    assert entry.amount == 1200
+    assert entry.status == "pending"
+    assert entry.reason == "per_published_post"
+
+
+def test_payout_rule_cpa_uses_orders_metric():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="CPA Creator", role="partner")
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/payout-cpa")
+            OnboardingService(db).link_destination(participant.id, task.destination_id, relationship_type="partner")
+            rule = PayoutService(db).create_rule(name="CPA", payout_type="cpa", amount_fixed=300)
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                payout_rule_id=rule.id,
+                assignment_type="publish_video",
+            )
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "views": 800,
+                            "clicks": 50,
+                            "orders": 3,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            entry = PayoutService(db).calculate_for_assignment(assignment.id)
+
+    assert entry.amount == 900
+    assert entry.reason == "orders_metric_cpa"
+
+
+def test_payout_mark_paid_is_manual_only():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Manual Pay", role="creator")
+            rule = PayoutService(db).create_rule(name="Fixed", payout_type="per_video", amount_fixed=500)
+            assignment = AssignmentPortalService(db).create_assignment(participant_id=participant.id, campaign_id=campaign_id, payout_rule_id=rule.id)
+            entry = PayoutService(db).calculate_for_assignment(assignment.id)
+            paid = PayoutService(db).mark_paid(entry.id)
+
+    assert paid.status == "paid"
+    assert paid.amount == 500
+
+
+def test_participant_portal_ui_renders_briefs_channels_stats_payouts():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="UI Participant", role="creator", platforms=["reels"])
+            destination_id = add_campaign_destination(db)
+            OnboardingService(db).link_destination(participant.id, destination_id)
+            _, content_run, _, _ = add_launch_video_fixture(db, campaign_id, create_package=True)
+            AssignmentPortalService(db).create_assignment(participant_id=participant.id, campaign_id=campaign_id, content_run_id=content_run.id)
+        response = api.get(f"/participant-portal?participant_id={participant.id}")
+
+    assert response.status_code == 200, response.text
+    assert "Participant Portal" in response.text
+    assert "My Briefs / Assignments" in response.text
+    assert "My Channels" in response.text
+    assert "My Payouts" in response.text
+
+
+def test_no_raw_payment_or_secret_values_rendered():
+    with client() as api:
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(
+                display_name="Secret Check",
+                role="creator",
+                notes="bank_secret_token_should_not_render",
+            )
+        response = api.get(f"/participant-portal?participant_id={participant.id}")
+
+    assert response.status_code == 200
+    assert "bank_secret_token_should_not_render" not in response.text
+    assert "card_number" not in response.text

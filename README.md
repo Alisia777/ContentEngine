@@ -643,6 +643,36 @@ Open `/destination-control-tower` for the campaign overview, destination table, 
 
 Docs: `docs/DESTINATION_CONTROL_TOWER.md` and `docs/DESTINATION_CONTROL_STATUSES.md`.
 
+## v1.7 Participant Portal
+
+v1.7 adds a personal workspace for creators, publishers, partners, reviewers, and operators:
+
+```text
+participant
+-> linked destinations
+-> assigned brief cards
+-> submissions
+-> publishing status
+-> metrics
+-> payout ledger
+-> recommendations
+```
+
+Operator CLI:
+
+```bash
+python scripts/add_participant.py --name "Creator One" --role creator --platforms reels,shorts
+python scripts/link_participant_destination.py --participant-id 1 --destination-id 1 --relationship owner
+python scripts/create_participant_assignment.py --participant-id 1 --content-run-id 1 --assignment-type create_video
+python scripts/participant_dashboard.py --participant-id 1
+python scripts/participant_payouts.py --participant-id 1
+python scripts/participant_recommendations.py --participant-id 1
+```
+
+Open `/participant-portal` for onboarding, briefs, channels, submissions, stats, payout ledger, and recommendations. The portal does not execute real payments, store payout secrets, create external accounts, or bypass publishing/review gates.
+
+Docs: `docs/PARTICIPANT_PORTAL.md`, `docs/CREATOR_BRIEF_CARDS.md`, `docs/PARTICIPANT_STATS.md`, and `docs/PAYOUT_LEDGER.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

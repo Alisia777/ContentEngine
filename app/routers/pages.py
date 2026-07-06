@@ -69,6 +69,16 @@ from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
 from app.launch_operations import LaunchReadinessService, LaunchReportService
 from app.launch_operations.errors import LaunchOperationsError
+from app.participant_portal import (
+    AssignmentPortalService,
+    OnboardingService,
+    ParticipantMetricsService,
+    ParticipantPortalError,
+    ParticipantService,
+    PayoutService,
+    RecommendationService,
+    SubmissionService,
+)
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
@@ -1724,6 +1734,200 @@ def destination_control_tower_action_ui(row_id: int, campaign_id: int = Form(...
     except DestinationControlTowerError as exc:
         return redirect(f"/destination-control-tower?campaign_id={campaign_id}&error={exc}")
     return redirect(f"/destination-control-tower?campaign_id={campaign_id}&notice={result['action']}_{result['status']}")
+
+
+@router.get("/participant-portal", response_class=HTMLResponse)
+def participant_portal_page(request: Request, participant_id: int | None = None, db: Session = Depends(get_db)):
+    participants = ParticipantService(db).list()
+    selected_participant = ParticipantService(db).get(participant_id) if participant_id else (participants[0] if participants else None)
+    destinations = db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.platform, models.PublishingDestination.id)).all()
+    content_runs = db.scalars(select(models.ContentRun).order_by(models.ContentRun.id.desc()).limit(25)).all()
+    publishing_tasks = db.scalars(select(models.PublishingTask).order_by(models.PublishingTask.id.desc()).limit(25)).all()
+    payout_rules = db.scalars(select(models.PayoutRule).order_by(models.PayoutRule.id)).all()
+    links = []
+    assignments = []
+    submissions = []
+    stats = None
+    payout_summary = {"entries": [], "totals": {}, "total": 0}
+    recommendations = []
+    setup_steps = []
+    error = request.query_params.get("error")
+    notice = request.query_params.get("notice")
+    if selected_participant:
+        try:
+            links = OnboardingService(db).destinations(selected_participant.id)
+            assignments = AssignmentPortalService(db).list_assignments(selected_participant.id)
+            submissions = db.scalars(
+                select(models.ParticipantSubmission)
+                .where(models.ParticipantSubmission.participant_id == selected_participant.id)
+                .order_by(models.ParticipantSubmission.id.desc())
+            ).all()
+            stats = ParticipantMetricsService(db).dashboard_stats(selected_participant.id)
+            payout_summary = PayoutService(db).summary(selected_participant.id)
+            recommendations = RecommendationService(db).recommendations(selected_participant.id)
+            setup_steps = OnboardingService(db).setup_steps(selected_participant.id)
+        except ParticipantPortalError as exc:
+            error = str(exc)
+    return templates.TemplateResponse(
+        "participant_portal.html",
+        {
+            "request": request,
+            "page_title": "Participant Portal",
+            "participants": participants,
+            "selected_participant": selected_participant,
+            "destinations": destinations,
+            "content_runs": content_runs,
+            "publishing_tasks": publishing_tasks,
+            "payout_rules": payout_rules,
+            "links": links,
+            "assignments": assignments,
+            "submissions": submissions,
+            "stats": stats,
+            "payout_summary": payout_summary,
+            "recommendations": recommendations,
+            "setup_steps": setup_steps,
+            "error": error,
+            "notice": notice,
+        },
+    )
+
+
+@router.post("/participant-portal/participants")
+def participant_portal_create_participant(
+    display_name: str = Form(...),
+    role: str = Form("creator"),
+    email: str = Form(""),
+    telegram_handle: str = Form(""),
+    platforms: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        participant = ParticipantService(db).create(
+            display_name=display_name,
+            role=role,
+            email=email or None,
+            telegram_handle=telegram_handle or None,
+            platforms=[item.strip() for item in platforms.split(",") if item.strip()],
+            notes=notes or None,
+        )
+    except ParticipantPortalError as exc:
+        return redirect(f"/participant-portal?error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant.id}")
+
+
+@router.post("/participant-portal/participants/{participant_id}/link-destination")
+def participant_portal_link_destination(
+    participant_id: int,
+    destination_id: int = Form(...),
+    relationship_type: str = Form("creator"),
+    db: Session = Depends(get_db),
+):
+    try:
+        OnboardingService(db).link_destination(participant_id, destination_id, relationship_type=relationship_type)
+    except ParticipantPortalError as exc:
+        return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant_id}")
+
+
+@router.post("/participant-portal/assignments")
+def participant_portal_create_assignment(
+    participant_id: int = Form(...),
+    assignment_type: str = Form("create_video"),
+    campaign_id: str = Form(""),
+    content_run_id: str = Form(""),
+    creative_variant_id: str = Form(""),
+    publishing_task_id: str = Form(""),
+    payout_rule_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        AssignmentPortalService(db).create_assignment(
+            participant_id=participant_id,
+            assignment_type=assignment_type,
+            campaign_id=int(campaign_id) if campaign_id else None,
+            content_run_id=int(content_run_id) if content_run_id else None,
+            creative_variant_id=int(creative_variant_id) if creative_variant_id else None,
+            publishing_task_id=int(publishing_task_id) if publishing_task_id else None,
+            payout_rule_id=int(payout_rule_id) if payout_rule_id else None,
+        )
+    except (ParticipantPortalError, ValueError) as exc:
+        return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant_id}")
+
+
+@router.post("/participant-portal/submissions")
+def participant_portal_submit(
+    participant_id: int = Form(...),
+    assignment_id: int = Form(...),
+    external_url: str = Form(""),
+    file_path: str = Form(""),
+    final_post_url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        SubmissionService(db).submit(
+            assignment_id=assignment_id,
+            external_url=external_url or None,
+            file_path=file_path or None,
+            final_post_url=final_post_url or None,
+        )
+    except ParticipantPortalError as exc:
+        return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant_id}")
+
+
+@router.post("/participant-portal/submissions/{submission_id}/review")
+def participant_portal_review_submission(
+    submission_id: int,
+    participant_id: int = Form(...),
+    review_status: str = Form("approved"),
+    review_notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        SubmissionService(db).review(submission_id, review_status=review_status, review_notes=review_notes or None)
+    except ParticipantPortalError as exc:
+        return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant_id}")
+
+
+@router.post("/participant-portal/payout-rules")
+def participant_portal_create_payout_rule(
+    participant_id: int | None = Form(None),
+    name: str = Form(...),
+    payout_type: str = Form("per_video"),
+    amount_fixed: float | None = Form(None),
+    currency: str = Form("RUB"),
+    percent_revenue: float | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    PayoutService(db).create_rule(
+        name=name,
+        payout_type=payout_type,
+        amount_fixed=amount_fixed,
+        currency=currency,
+        percent_revenue=percent_revenue,
+    )
+    return redirect(f"/participant-portal?participant_id={participant_id}" if participant_id else "/participant-portal")
+
+
+@router.post("/participant-portal/assignments/{assignment_id}/calculate-payout")
+def participant_portal_calculate_payout(assignment_id: int, participant_id: int = Form(...), db: Session = Depends(get_db)):
+    try:
+        PayoutService(db).calculate_for_assignment(assignment_id)
+    except ParticipantPortalError as exc:
+        return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant_id}")
+
+
+@router.post("/participant-portal/payouts/{payout_id}/mark-paid")
+def participant_portal_mark_paid(payout_id: int, participant_id: int = Form(...), db: Session = Depends(get_db)):
+    try:
+        PayoutService(db).mark_paid(payout_id)
+    except ParticipantPortalError as exc:
+        return redirect(f"/participant-portal?participant_id={participant_id}&error={exc}")
+    return redirect(f"/participant-portal?participant_id={participant_id}")
 
 
 @router.post("/campaign-autopilot/import-matrix")

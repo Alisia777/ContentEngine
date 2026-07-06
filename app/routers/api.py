@@ -83,6 +83,16 @@ from app.launch_operations import (
     QualityGateService,
 )
 from app.launch_operations.errors import LaunchOperationsError
+from app.participant_portal import (
+    AssignmentPortalService,
+    OnboardingService,
+    ParticipantMetricsService,
+    ParticipantPortalError,
+    ParticipantService,
+    PayoutService,
+    RecommendationService,
+    SubmissionService,
+)
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
@@ -377,6 +387,73 @@ class DestinationConnectionPatchRequest(BaseModel):
 class DestinationConnectionSyncRequest(BaseModel):
     period_start: date | None = None
     period_end: date | None = None
+
+
+class ParticipantCreateRequest(BaseModel):
+    display_name: str
+    role: str = "creator"
+    email: str | None = None
+    telegram_handle: str | None = None
+    platforms: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class ParticipantPatchRequest(BaseModel):
+    display_name: str | None = None
+    role: str | None = None
+    email: str | None = None
+    telegram_handle: str | None = None
+    platforms: list[str] | None = None
+    status: str | None = None
+    notes: str | None = None
+
+
+class ParticipantDestinationLinkRequest(BaseModel):
+    destination_id: int
+    relationship_type: str = "creator"
+    permissions: list[str] = Field(default_factory=list)
+
+
+class ParticipantAssignmentCreateRequest(BaseModel):
+    participant_id: int
+    assignment_type: str = "create_video"
+    campaign_id: int | None = None
+    product_id: int | None = None
+    content_run_id: int | None = None
+    creative_variant_id: int | None = None
+    publishing_task_id: int | None = None
+    payout_rule_id: int | None = None
+    due_at: datetime | None = None
+    priority: int = 5
+
+
+class ParticipantAssignmentPatchRequest(BaseModel):
+    status: str | None = None
+    priority: int | None = None
+    due_at: datetime | None = None
+    payout_rule_id: int | None = None
+
+
+class ParticipantSubmissionCreateRequest(BaseModel):
+    assignment_id: int
+    file_path: str | None = None
+    external_url: str | None = None
+    final_post_url: str | None = None
+    video_job_id: int | None = None
+
+
+class ParticipantSubmissionReviewRequest(BaseModel):
+    review_status: str
+    review_notes: str | None = None
+
+
+class PayoutRuleCreateRequest(BaseModel):
+    name: str
+    payout_type: str = "per_video"
+    amount_fixed: float | None = None
+    currency: str = "RUB"
+    percent_revenue: float | None = None
+    conditions: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -2738,6 +2815,278 @@ def run_destination_control_row_action(row_id: int, db: Session = Depends(get_db
     try:
         return TowerService(db).apply_action(row_id)
     except DestinationControlTowerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def participant_payload(participant: models.ParticipantProfile) -> dict[str, Any]:
+    return {
+        "id": participant.id,
+        "display_name": participant.display_name,
+        "role": participant.role,
+        "email": participant.email,
+        "telegram_handle": participant.telegram_handle,
+        "status": participant.status,
+        "platforms": participant.platforms_json or [],
+        "notes": participant.notes,
+    }
+
+
+def participant_assignment_payload(assignment: models.ParticipantAssignment) -> dict[str, Any]:
+    return {
+        "id": assignment.id,
+        "participant_id": assignment.participant_id,
+        "campaign_id": assignment.campaign_id,
+        "product_id": assignment.product_id,
+        "sku": assignment.sku,
+        "content_run_id": assignment.content_run_id,
+        "creative_variant_id": assignment.creative_variant_id,
+        "publishing_task_id": assignment.publishing_task_id,
+        "assignment_type": assignment.assignment_type,
+        "status": assignment.status,
+        "priority": assignment.priority,
+        "due_at": assignment.due_at,
+        "brief": assignment.brief_json or {},
+        "payout_rule_id": assignment.payout_rule_id,
+    }
+
+
+def participant_submission_payload(submission: models.ParticipantSubmission) -> dict[str, Any]:
+    return {
+        "id": submission.id,
+        "participant_assignment_id": submission.participant_assignment_id,
+        "participant_id": submission.participant_id,
+        "video_job_id": submission.video_job_id,
+        "file_path": submission.file_path,
+        "external_url": submission.external_url,
+        "final_post_url": submission.final_post_url,
+        "status": submission.status,
+        "review_status": submission.review_status,
+        "review_notes": submission.review_notes,
+    }
+
+
+def payout_payload(entry: models.PayoutLedgerEntry) -> dict[str, Any]:
+    return {
+        "id": entry.id,
+        "participant_id": entry.participant_id,
+        "assignment_id": entry.assignment_id,
+        "submission_id": entry.submission_id,
+        "publishing_task_id": entry.publishing_task_id,
+        "campaign_id": entry.campaign_id,
+        "sku": entry.sku,
+        "payout_rule_id": entry.payout_rule_id,
+        "amount": entry.amount,
+        "currency": entry.currency,
+        "status": entry.status,
+        "reason": entry.reason,
+        "period_start": entry.period_start,
+        "period_end": entry.period_end,
+    }
+
+
+@router.post("/participant-portal/participants")
+def create_participant(payload: ParticipantCreateRequest, db: Session = Depends(get_db)):
+    try:
+        participant = ParticipantService(db).create(**payload.model_dump())
+        return participant_payload(participant)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/participants")
+def list_participants(db: Session = Depends(get_db)):
+    return [participant_payload(participant) for participant in ParticipantService(db).list()]
+
+
+@router.get("/participant-portal/participants/{participant_id}")
+def get_participant(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        return participant_payload(ParticipantService(db).get(participant_id))
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/participant-portal/participants/{participant_id}")
+def patch_participant(participant_id: int, payload: ParticipantPatchRequest, db: Session = Depends(get_db)):
+    try:
+        participant = ParticipantService(db).update(participant_id, **payload.model_dump(exclude_unset=True))
+        return participant_payload(participant)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/participant-portal/participants/{participant_id}/link-destination")
+def link_participant_destination(participant_id: int, payload: ParticipantDestinationLinkRequest, db: Session = Depends(get_db)):
+    try:
+        link = OnboardingService(db).link_destination(
+            participant_id,
+            payload.destination_id,
+            relationship_type=payload.relationship_type,
+            permissions=payload.permissions,
+        )
+        return {
+            "id": link.id,
+            "participant_id": link.participant_id,
+            "destination_id": link.destination_id,
+            "relationship_type": link.relationship_type,
+            "status": link.status,
+            "permissions": link.permissions_json,
+        }
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/participants/{participant_id}/destinations")
+def list_participant_destinations(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        return [
+            {
+                "id": link.id,
+                "participant_id": link.participant_id,
+                "destination_id": link.destination_id,
+                "destination_name": link.destination.name,
+                "platform": link.destination.platform,
+                "handle": link.destination.handle,
+                "relationship_type": link.relationship_type,
+                "status": link.status,
+                "permissions": link.permissions_json,
+            }
+            for link in OnboardingService(db).destinations(participant_id)
+        ]
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/participants/{participant_id}/assignments")
+def list_participant_assignments(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        return [participant_assignment_payload(item) for item in AssignmentPortalService(db).list_assignments(participant_id)]
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/participant-portal/assignments")
+def create_participant_assignment(payload: ParticipantAssignmentCreateRequest, db: Session = Depends(get_db)):
+    try:
+        assignment = AssignmentPortalService(db).create_assignment(**payload.model_dump())
+        return participant_assignment_payload(assignment)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/assignments/{assignment_id}")
+def get_participant_assignment(assignment_id: int, db: Session = Depends(get_db)):
+    try:
+        return participant_assignment_payload(AssignmentPortalService(db).get(assignment_id))
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/participant-portal/assignments/{assignment_id}")
+def patch_participant_assignment(assignment_id: int, payload: ParticipantAssignmentPatchRequest, db: Session = Depends(get_db)):
+    try:
+        assignment = AssignmentPortalService(db).update(assignment_id, **payload.model_dump(exclude_unset=True))
+        return participant_assignment_payload(assignment)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/participant-portal/submissions")
+def create_participant_submission(payload: ParticipantSubmissionCreateRequest, db: Session = Depends(get_db)):
+    try:
+        submission = SubmissionService(db).submit(**payload.model_dump())
+        return participant_submission_payload(submission)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/submissions/{submission_id}")
+def get_participant_submission(submission_id: int, db: Session = Depends(get_db)):
+    try:
+        return participant_submission_payload(SubmissionService(db).get(submission_id))
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/participant-portal/submissions/{submission_id}/review")
+def review_participant_submission(submission_id: int, payload: ParticipantSubmissionReviewRequest, db: Session = Depends(get_db)):
+    try:
+        submission = SubmissionService(db).review(
+            submission_id,
+            review_status=payload.review_status,
+            review_notes=payload.review_notes,
+        )
+        return participant_submission_payload(submission)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/participant-portal/payout-rules")
+def create_payout_rule(payload: PayoutRuleCreateRequest, db: Session = Depends(get_db)):
+    rule = PayoutService(db).create_rule(**payload.model_dump())
+    return {
+        "id": rule.id,
+        "name": rule.name,
+        "payout_type": rule.payout_type,
+        "amount_fixed": rule.amount_fixed,
+        "currency": rule.currency,
+        "percent_revenue": rule.percent_revenue,
+        "conditions": rule.conditions_json,
+    }
+
+
+@router.get("/participant-portal/participants/{participant_id}/payouts")
+def list_participant_payouts(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        summary = PayoutService(db).summary(participant_id)
+        return {
+            "entries": [payout_payload(entry) for entry in summary["entries"]],
+            "totals": summary["totals"],
+            "total": summary["total"],
+        }
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/participant-portal/payouts/{payout_id}/mark-paid")
+def mark_participant_payout_paid(payout_id: int, db: Session = Depends(get_db)):
+    try:
+        return payout_payload(PayoutService(db).mark_paid(payout_id))
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/participants/{participant_id}/performance")
+def get_participant_performance(participant_id: int, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    try:
+        return ParticipantMetricsService(db).dashboard_stats(participant_id, campaign_id=campaign_id)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/participants/{participant_id}/recommendations")
+def get_participant_recommendations(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        return RecommendationService(db).recommendations(participant_id)
+    except ParticipantPortalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/participant-portal/participants/{participant_id}/dashboard")
+def get_participant_dashboard(participant_id: int, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    try:
+        participant = ParticipantService(db).get(participant_id)
+        payouts = PayoutService(db).summary(participant_id)
+        return {
+            "participant": participant_payload(participant),
+            "setup_steps": OnboardingService(db).setup_steps(participant_id),
+            "destinations": list_participant_destinations(participant_id, db),
+            "assignments": list_participant_assignments(participant_id, db),
+            "stats": ParticipantMetricsService(db).dashboard_stats(participant_id, campaign_id=campaign_id),
+            "payouts": {"entries": [payout_payload(entry) for entry in payouts["entries"]], "totals": payouts["totals"], "total": payouts["total"]},
+            "recommendations": RecommendationService(db).recommendations(participant_id),
+        }
+    except ParticipantPortalError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
