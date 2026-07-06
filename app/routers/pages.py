@@ -54,6 +54,8 @@ from app.intelligence.safety import provider_key_status
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
 from app.intelligence.script_generator import GeneratorScriptService
 from app.intelligence.video_generator import GeneratorVideoService
+from app.launch_operations import LaunchReadinessService, LaunchReportService
+from app.launch_operations.errors import LaunchOperationsError
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
@@ -1350,6 +1352,40 @@ def bombar_production_dry_run_submit(
         campaign_name=campaign_name,
     )
     return redirect(f"/bombar-production-dry-run?campaign_id={result.campaign_id}")
+
+
+@router.get("/launch-operations", response_class=HTMLResponse)
+def launch_operations_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    report = None
+    if selected_campaign:
+        try:
+            report = LaunchReportService(db).build(selected_campaign.id)
+        except LaunchOperationsError:
+            report = None
+    return templates.TemplateResponse(
+        "launch_operations.html",
+        {
+            "request": request,
+            "page_title": "Launch Operations",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "report": report,
+        },
+    )
+
+
+@router.post("/launch-operations/{campaign_id}/refresh")
+def launch_operations_refresh(campaign_id: int, db: Session = Depends(get_db)):
+    LaunchReadinessService(db).refresh(campaign_id)
+    return redirect(f"/launch-operations?campaign_id={campaign_id}")
+
+
+@router.post("/launch-operations/{campaign_id}/export-runbook")
+def launch_operations_export_runbook(campaign_id: int, db: Session = Depends(get_db)):
+    LaunchReportService(db).export_runbook(campaign_id)
+    return redirect(f"/launch-operations?campaign_id={campaign_id}")
 
 
 @router.post("/campaign-autopilot/import-matrix")

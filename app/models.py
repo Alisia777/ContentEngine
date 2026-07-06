@@ -1035,6 +1035,91 @@ class CampaignExecutionSnapshot(Base, TimestampMixin):
     campaign = relationship("Campaign", back_populates="execution_snapshots")
 
 
+class LaunchReadinessSnapshot(Base, TimestampMixin):
+    __tablename__ = "launch_readiness_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="blocked", index=True)
+    total_sku = Column(Integer, nullable=False, default=0)
+    target_videos = Column(Integer, nullable=False, default=0)
+    target_destinations = Column(Integer, nullable=False, default=0)
+    prompt_ready_count = Column(Integer, nullable=False, default=0)
+    real_video_count = Column(Integer, nullable=False, default=0)
+    approved_video_count = Column(Integer, nullable=False, default=0)
+    needs_human_review_count = Column(Integer, nullable=False, default=0)
+    needs_regeneration_count = Column(Integer, nullable=False, default=0)
+    publishing_package_ready_count = Column(Integer, nullable=False, default=0)
+    destination_total = Column(Integer, nullable=False, default=0)
+    destination_active_count = Column(Integer, nullable=False, default=0)
+    destination_capacity_total = Column(Integer, nullable=False, default=0)
+    distribution_task_ready_count = Column(Integer, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign")
+
+
+class LaunchQualityGate(Base, TimestampMixin):
+    __tablename__ = "launch_quality_gates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="blocked", index=True)
+    quality_review_status = Column(String(80), nullable=False, default="missing", index=True)
+    human_visual_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    product_identity_status = Column(String(80), nullable=False, default="unknown", index=True)
+    geometry_status = Column(String(80), nullable=False, default="unknown", index=True)
+    publishing_allowed = Column(Boolean, default=False, nullable=False, index=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign")
+    video_job = relationship("VideoJob")
+    creative_variant = relationship("CreativeVariant")
+    product = relationship("Product")
+
+
+class DestinationCapacitySnapshot(Base, TimestampMixin):
+    __tablename__ = "destination_capacity_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    total_destinations = Column(Integer, nullable=False, default=0)
+    active_destinations = Column(Integer, nullable=False, default=0)
+    manual_destinations = Column(Integer, nullable=False, default=0)
+    api_ready_destinations = Column(Integer, nullable=False, default=0)
+    daily_capacity = Column(Integer, nullable=False, default=0)
+    weekly_capacity = Column(Integer, nullable=False, default=0)
+    required_slots = Column(Integer, nullable=False, default=0)
+    capacity_gap = Column(Integer, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign")
+
+
+class LaunchActionPlan(Base, TimestampMixin):
+    __tablename__ = "launch_action_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="open", index=True)
+    action_count = Column(Integer, nullable=False, default=0)
+    safe_action_count = Column(Integer, nullable=False, default=0)
+    human_action_count = Column(Integer, nullable=False, default=0)
+    paid_action_count = Column(Integer, nullable=False, default=0)
+    publishing_action_count = Column(Integer, nullable=False, default=0)
+    actions_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign")
+
+
 class CampaignActionQueueItem(Base, TimestampMixin):
     __tablename__ = "campaign_action_queue_items"
 

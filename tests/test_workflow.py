@@ -81,6 +81,7 @@ from app.intelligence.types import (
     ScriptBriefOutput,
 )
 from app.intelligence.validators import validate_script_claim_refs
+from app.launch_operations import DestinationCapacityService, LaunchActionPlanner, LaunchReadinessService, LaunchReportService, QualityGateService
 from app.main import app
 from app.publishing import MockUploadProvider
 from app.providers.openai_llm import OpenAILLMProvider
@@ -4292,3 +4293,333 @@ def test_bombar_dry_run_ui_renders():
     assert response.status_code == 200, response.text
     assert "Production Dry Run" in response.text
     assert "Run Dry Run" in response.text
+
+
+def add_launch_video_fixture(
+    db,
+    campaign_id: int,
+    *,
+    review_status: str = "approved",
+    review_json: dict | None = None,
+    create_package: bool = False,
+    package_approved: bool = True,
+) -> tuple[models.Product, models.ContentRun, models.VideoJob, models.VideoQualityReview]:
+    campaign_product = db.scalar(select(models.CampaignProduct).where(models.CampaignProduct.campaign_id == campaign_id))
+    product = db.get(models.Product, campaign_product.product_id)
+    template = db.scalar(select(models.CreativeTemplate).order_by(models.CreativeTemplate.id))
+    guide = db.scalar(select(models.BrandGuide).where(models.BrandGuide.brand == product.brand).order_by(models.BrandGuide.id))
+    script_job = models.ScriptJob(
+        product_id=product.id,
+        template_id=template.id,
+        brand_guide_id=guide.id,
+        status="script_approved",
+        input_payload_json={},
+        output_script_json={},
+        validation_report_json={},
+    )
+    db.add(script_job)
+    db.flush()
+    script_variant = models.ScriptVariant(
+        script_job_id=script_job.id,
+        variant_number=1,
+        creative_angle="launch_ops",
+        hook="Launch ops hook",
+        key_message="Launch ops message",
+        final_cta="Open product card",
+        full_script_json={},
+        status="script_approved",
+    )
+    db.add(script_variant)
+    db.flush()
+    pack = models.CreativeIntelligencePackRecord(
+        product_id=product.id,
+        sku=product.sku,
+        status="ready",
+        pack_json={},
+        source_summary_json={},
+        warnings_json=[],
+    )
+    db.add(pack)
+    db.flush()
+    brief = models.ScriptBrief(
+        product_id=product.id,
+        intelligence_pack_id=pack.id,
+        status="ready",
+        objective="launch_ops",
+        creative_angle="campaign",
+        target_audience="operator",
+        brief_json={},
+        allowed_claims_json=[],
+        missing_data_json=[],
+        safety_warnings_json=[],
+    )
+    db.add(brief)
+    db.flush()
+    spec = models.VideoCreativeSpecRecord(
+        product_id=product.id,
+        intelligence_pack_id=pack.id,
+        script_brief_id=brief.id,
+        platform="Instagram Reels",
+        status="ready",
+        spec_json={"geometry_lock": "ready"},
+        hook_candidates_json=[],
+        validation_report_json={},
+        warnings_json=[],
+    )
+    db.add(spec)
+    db.flush()
+    video_job = models.VideoJob(
+        script_variant_id=script_variant.id,
+        provider="mock",
+        status="approved" if review_status == "approved" else "needs_human_review",
+        output_video_path=f"media/mock/{product.sku}-launch.mp4",
+    )
+    db.add(video_job)
+    db.flush()
+    generation_variant = models.VideoGenerationVariant(
+        creative_spec_id=spec.id,
+        script_variant_id=script_variant.id,
+        video_job_id=video_job.id,
+        provider="mock",
+        status="generated",
+        prompt_pack_json={},
+        provider_payload_json={},
+    )
+    db.add(generation_variant)
+    db.flush()
+    content_run = models.ContentRun(
+        product_id=product.id,
+        platform="Instagram Reels",
+        duration_seconds=15,
+        variant_count=1,
+        status="real_smoke_created",
+        creative_spec_id=spec.id,
+        generation_variant_id=generation_variant.id,
+        video_job_id=video_job.id,
+        run_json={"geometry_scale_blockers": []},
+        blockers_json=[],
+        next_actions_json=[],
+        warnings_json=[],
+    )
+    db.add(content_run)
+    db.flush()
+    campaign_product.content_run_ids_json = list(dict.fromkeys([*(campaign_product.content_run_ids_json or []), content_run.id]))
+    review_payload = {
+        "human_visual_status": "approved" if review_status == "approved" else "needs_review",
+        "product_identity_status": "ready",
+        "geometry_status": "ready",
+        **(review_json or {}),
+    }
+    review = models.VideoQualityReview(
+        creative_spec_id=spec.id,
+        video_generation_variant_id=generation_variant.id,
+        video_job_id=video_job.id,
+        status=review_status,
+        score=0.9 if review_status == "approved" else 0.4,
+        review_json=review_payload,
+        warnings_json=[],
+    )
+    db.add(review)
+    if create_package:
+        package = models.PublishingPackage(
+            video_job_id=video_job.id,
+            creative_variant_id=None,
+            product_id=product.id,
+            brand=product.brand,
+            target_platform="Instagram Reels",
+            title=f"{product.title} package",
+            description="Launch ops package.",
+            hashtags_json=["#launch"],
+            cta="Open product card",
+            product_url=product.product_url,
+            video_file_path=video_job.output_video_path,
+            review_status="approved" if package_approved else "needs_review",
+            status="approved" if package_approved else "draft",
+            metadata_json={},
+        )
+        db.add(package)
+    db.commit()
+    return product, content_run, video_job, review
+
+
+def add_launch_destination(db, *, brand: str = "Bombar", status: str = "active", posting_mode: str = "manual", auth_status: str = "manual_only", daily_limit: int = 1, weekly_limit: int = 3):
+    destination = models.PublishingDestination(
+        brand=brand,
+        platform="Instagram Reels",
+        name=f"{brand} {posting_mode} destination",
+        handle=f"@{brand.lower()}_{posting_mode}",
+        status=status,
+        posting_mode=posting_mode,
+        auth_status=auth_status,
+        daily_limit=daily_limit,
+        weekly_limit=weekly_limit,
+        allowed_formats_json=["vertical_video"],
+    )
+    db.add(destination)
+    db.commit()
+    return destination
+
+
+def test_launch_readiness_aggregates_campaign_quality_and_destinations():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=3, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_video_fixture(db, campaign_id, create_package=True)
+            add_launch_destination(db, weekly_limit=5)
+            result = LaunchReadinessService(db).refresh(campaign_id)
+
+    assert result.total_sku == 1
+    assert result.target_videos == 3
+    assert result.real_video_count == 1
+    assert result.approved_video_count == 1
+    assert result.destination_active_count == 1
+    assert result.destination_capacity_total == 5
+
+
+def test_quality_gate_blocks_needs_human_review_video():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_video_fixture(db, campaign_id, review_status="needs_human_review")
+            gates = QualityGateService(db).refresh(campaign_id)
+
+    assert gates[0].publishing_allowed is False
+    assert any(blocker["blocker"] == "needs_human_review" for blocker in gates[0].blockers)
+
+
+def test_quality_gate_blocks_geometry_mismatch():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_video_fixture(db, campaign_id, review_json={"geometry_status": "mismatch"})
+            gates = QualityGateService(db).refresh(campaign_id)
+
+    assert gates[0].publishing_allowed is False
+    assert any(blocker["blocker"] == "product_geometry_mismatch" for blocker in gates[0].blockers)
+
+
+def test_quality_gate_allows_approved_video_for_package():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_video_fixture(db, campaign_id)
+            gates = QualityGateService(db).refresh(campaign_id)
+
+    assert gates[0].publishing_allowed is True
+    assert gates[0].status == "allowed"
+
+
+def test_destination_capacity_counts_active_destinations():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            add_launch_destination(db, status="active", posting_mode="manual", auth_status="manual_only", weekly_limit=3)
+            add_launch_destination(db, status="active", posting_mode="api", auth_status="token_valid", weekly_limit=4)
+            add_launch_destination(db, status="paused", posting_mode="manual", auth_status="manual_only", weekly_limit=10)
+            capacity = DestinationCapacityService(db).refresh(campaign_id)
+
+    assert capacity.total_destinations == 3
+    assert capacity.active_destinations == 2
+    assert capacity.manual_destinations == 1
+    assert capacity.api_ready_destinations == 1
+    assert capacity.weekly_capacity == 7
+
+
+def test_destination_capacity_flags_capacity_gap():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=10, target_destinations=3)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=2)
+            capacity = DestinationCapacityService(db).refresh(campaign_id)
+
+    assert capacity.capacity_gap == 8
+    assert {blocker["blocker"] for blocker in capacity.blockers} >= {"destination_gap", "capacity_gap"}
+
+
+def test_action_plan_groups_safe_human_paid_publishing_actions():
+    with client():
+        campaign_id = campaign_fixture(row_count=2, target_videos=3, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_video_fixture(db, campaign_id, review_status="needs_human_review", create_package=True)
+            add_launch_destination(db, weekly_limit=5)
+            gates = QualityGateService(db).refresh(campaign_id)
+            capacity = DestinationCapacityService(db).refresh(campaign_id)
+            plan = LaunchActionPlanner(db).refresh(campaign_id, quality_gates=gates, capacity=capacity)
+
+    action_types = {action["action_type"] for action in plan.actions}
+    assert {"safe", "human", "paid", "publishing"}.issubset(action_types)
+    assert plan.human_action_count >= 1
+    assert plan.publishing_action_count >= 1
+
+
+def test_action_plan_recommends_add_destinations_when_capacity_gap():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=10, target_destinations=5)
+        with SessionLocal() as db:
+            gates = QualityGateService(db).refresh(campaign_id)
+            capacity = DestinationCapacityService(db).refresh(campaign_id)
+            plan = LaunchActionPlanner(db).refresh(campaign_id, quality_gates=gates, capacity=capacity)
+
+    assert any(action["action"] == "add_destinations" for action in plan.actions)
+
+
+def test_action_plan_recommends_regeneration_when_quality_failed():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            product, content_run, video_job, review = add_launch_video_fixture(db, campaign_id, review_status="needs_regeneration")
+            generation_variant = db.get(models.VideoGenerationVariant, content_run.generation_variant_id)
+            db.add(
+                models.SceneRegenerationRequest(
+                    video_job_id=video_job.id,
+                    video_generation_variant_id=generation_variant.id,
+                    creative_spec_id=generation_variant.creative_spec_id,
+                    scene_number=1,
+                    reason="product_geometry_mismatch",
+                    feedback="Regenerate scene.",
+                    status="requested",
+                    request_json={},
+                    prompt_only_output_json={},
+                )
+            )
+            db.commit()
+            gates = QualityGateService(db).refresh(campaign_id)
+            capacity = DestinationCapacityService(db).refresh(campaign_id)
+            plan = LaunchActionPlanner(db).refresh(campaign_id, quality_gates=gates, capacity=capacity)
+
+    assert any(action["action"] == "create_regeneration_requests" for action in plan.actions)
+
+
+def test_launch_runbook_exports_actions(tmp_path):
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            export = LaunchReportService(db, reports_dir=tmp_path).export_runbook(campaign_id)
+
+    assert Path(export.report_paths["json"]).exists()
+    assert Path(export.report_paths["csv"]).exists()
+    assert export.action_count >= 1
+
+
+def test_launch_operations_ui_renders():
+    with client() as api:
+        response = api.get("/launch-operations")
+
+    assert response.status_code == 200, response.text
+    assert "Launch Operations" in response.text
+    assert "Quality x Scale x Accounts" in response.text
+
+
+def test_launch_operations_does_not_auto_publish():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_video_fixture(db, campaign_id, create_package=True)
+            add_launch_destination(db)
+            before = db.query(models.PublishingTask).count()
+            LaunchReadinessService(db).refresh(campaign_id)
+            after = db.query(models.PublishingTask).count()
+            jobs = db.scalars(select(models.PublishingJob)).all()
+
+    assert before == after == 0
+    assert jobs == []
