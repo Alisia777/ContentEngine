@@ -69,3 +69,4 @@ class TrainingProgressResult(BaseModel):
     courses: list[dict[str, Any]] = Field(default_factory=list)
     certifications: list[dict[str, Any]] = Field(default_factory=list)
     gates: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    badges: list[str] = Field(default_factory=list)

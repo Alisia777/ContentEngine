@@ -125,7 +125,8 @@ from app.participant_portal.errors import ParticipantPortalDataError
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
 from app.services.video_assembly import VideoAssemblyService
-from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService
+from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService
+from app.training_academy.academy_catalog import BEGINNER_TRACKS, COURSE_BADGE_BY_CODE
 from app.training_academy.errors import TrainingAcademyDataError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -6190,13 +6191,13 @@ def test_training_courses_seeded():
         with SessionLocal() as db:
             courses = CurriculumService(db).seed_defaults()
 
-    assert {course.code for course in courses} == {
+    assert {
         "creator_basics",
         "publisher_basics",
         "metrics_basics",
         "payout_basics",
         "reviewer_basics",
-    }
+    }.issubset({course.code for course in courses})
 
 
 def test_training_course_has_lessons_and_quiz():
@@ -6368,3 +6369,259 @@ def test_participant_portal_links_training():
     assert response.status_code == 200, response.text
     assert "/training-academy" in response.text
     assert "role courses, quizzes and certifications" in response.text
+
+
+def test_beginner_tracks_seeded():
+    track_titles = {track["title"] for track in BEGINNER_TRACKS}
+
+    assert "Publisher / Placement Operator" in track_titles
+    assert "Metrics Operator" in track_titles
+    assert "Reviewer Assistant" in track_titles
+    assert "Creator / Editor" in track_titles
+    assert "Channel / Destination Owner" in track_titles
+
+
+def test_publisher_track_explains_final_url_tracking_link_payout():
+    publisher_track = next(track for track in BEGINNER_TRACKS if track["code"] == "publisher_operator_track")
+    serialized = json.dumps(publisher_track)
+
+    assert "tracking_link" in serialized
+    assert "final_url" in serialized
+    assert "payout" in serialized.lower()
+
+
+def test_metrics_operator_track_explains_csv_and_unmatched_rows():
+    metrics_track = next(track for track in BEGINNER_TRACKS if track["code"] == "metrics_operator_track")
+    serialized = json.dumps(metrics_track)
+
+    assert "CSV" in serialized or "csv" in serialized
+    assert "unmatched" in serialized
+    assert "posted_url" in serialized
+
+
+def test_reviewer_track_blocks_approving_identity_drift():
+    reviewer_track = next(track for track in BEGINNER_TRACKS if track["code"] == "reviewer_assistant_track")
+    serialized = json.dumps(reviewer_track)
+
+    assert "distorted product" in serialized
+    assert "regenerate" in serialized
+    assert "approves distorted product" in serialized
+
+
+def test_creator_track_explains_brief_and_product_constraints():
+    creator_track = next(track for track in BEGINNER_TRACKS if track["code"] == "creator_editor_track")
+    serialized = json.dumps(creator_track)
+
+    assert "brief" in serialized.lower()
+    assert "product identity" in serialized
+    assert "geometry" in serialized
+
+
+def test_channel_owner_track_explains_readiness_capacity_stats():
+    owner_track = next(track for track in BEGINNER_TRACKS if track["code"] == "destination_owner_track")
+    serialized = json.dumps(owner_track)
+
+    assert "readiness" in serialized
+    assert "capacity" in serialized
+    assert "stats" in serialized
+
+
+def test_training_platform_playbooks_seeded():
+    with client():
+        with SessionLocal() as db:
+            courses = CurriculumService(db).seed_defaults()
+            codes = {course.code for course in courses}
+
+    assert {
+        "instagram_reels_playbook",
+        "facebook_playbook",
+        "youtube_shorts_playbook",
+        "tiktok_playbook",
+        "telegram_playbook",
+        "vk_playbook",
+        "marketplace_metrics_playbook",
+        "partner_slot_playbook",
+    }.issubset(codes)
+
+
+def test_instagram_playbook_has_tracking_final_url_stats_lessons():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            course = CurriculumService(db).get_course_by_code("instagram_reels_playbook")
+            payload = CurriculumService(db).course_payload(course, include_answers=True)
+            serialized = json.dumps(payload)
+
+    assert "tracking_link" in serialized
+    assert "final_url" in serialized
+    assert "views" in serialized
+    assert "reach" in serialized
+
+
+def test_youtube_playbook_mentions_oauth_or_csv_fallback():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            course = CurriculumService(db).get_course_by_code("youtube_shorts_playbook")
+            payload = CurriculumService(db).course_payload(course, include_answers=True)
+            serialized = json.dumps(payload).lower()
+
+    assert "oauth" in serialized
+    assert "csv" in serialized
+    assert "watch_time" in serialized
+
+
+def test_tiktok_playbook_blocks_unofficial_scraping():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            course = CurriculumService(db).get_course_by_code("tiktok_playbook")
+            payload = CurriculumService(db).course_payload(course, include_answers=True)
+            serialized = json.dumps(payload).lower()
+
+    assert "unofficial" in serialized
+    assert "scraping" in serialized
+    assert "no" in serialized
+
+
+def test_marketplace_playbook_explains_orders_revenue_source():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            course = CurriculumService(db).get_course_by_code("marketplace_metrics_playbook")
+            payload = CurriculumService(db).course_payload(course, include_answers=True)
+            serialized = json.dumps(payload).lower()
+
+    assert "orders" in serialized
+    assert "revenue" in serialized
+    assert "source of truth" in serialized
+
+
+def test_platform_certification_badges_created():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Badge User", role="publisher")
+            quiz = QuizService(db).get_for_course_code("instagram_reels_playbook")
+            result = QuizService(db).submit(
+                participant_id=participant.id,
+                quiz_id=quiz.id,
+                answers={"instagram_link": "tracking_link", "instagram_final_url": "final_url"},
+            )
+            badges = CertificationService(db).certified_badges(participant.id)
+
+    assert result.passed is True
+    assert "instagram_reels_certified" in badges
+    assert COURSE_BADGE_BY_CODE["instagram_reels_playbook"] == "instagram_reels_certified"
+
+
+def test_strict_gate_blocks_assignment_without_platform_certification():
+    with client():
+        with SessionLocal() as db:
+            CurriculumService(db).seed_defaults()
+            participant = ParticipantService(db).create(display_name="Strict Platform", role="publisher")
+            with pytest.raises(TrainingAcademyDataError):
+                CertificationService(db).platform_readiness(participant.id, "Instagram Reels", strict=True)
+            quiz = QuizService(db).get_for_course_code("instagram_reels_playbook")
+            QuizService(db).submit(
+                participant_id=participant.id,
+                quiz_id=quiz.id,
+                answers={"instagram_link": "tracking_link", "instagram_final_url": "final_url"},
+            )
+            readiness = CertificationService(db).platform_readiness(participant.id, "Instagram Reels", strict=True)
+
+    assert readiness["status"] == "ready"
+    assert readiness["badge"] == "instagram_reels_certified"
+
+
+def test_zero_experience_start_page_renders():
+    with client() as api:
+        response = api.get("/training-academy")
+
+    assert response.status_code == 200, response.text
+    assert "I Have Zero Experience" in response.text
+    assert "How to Earn" in response.text
+    assert "Scenario Simulator" in response.text
+
+
+def test_earning_lesson_requires_assignment_final_url_metrics():
+    with client() as api:
+        response = api.get("/training-academy")
+
+    assert response.status_code == 200, response.text
+    assert "assignment" in response.text
+    assert "final_url" in response.text
+    assert "metrics" in response.text
+
+
+def test_scenario_publish_approved_reel_passes_with_final_url():
+    result = ScenarioService().evaluate(
+        "publish_approved_reel",
+        {
+            "video_status": "approved",
+            "link_used": "tracking_link",
+            "destination": "assigned",
+            "final_url": "provided",
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["status"] == "passed"
+
+
+def test_scenario_publish_without_final_url_fails():
+    result = ScenarioService().evaluate(
+        "publish_approved_reel",
+        {
+            "video_status": "approved",
+            "link_used": "tracking_link",
+            "destination": "assigned",
+        },
+    )
+
+    assert result["passed"] is False
+    assert any(failure["field"] == "final_url" for failure in result["failures"])
+
+
+def test_participant_portal_shows_how_to_earn_block():
+    with client() as api:
+        response = api.get("/participant-portal")
+
+    assert response.status_code == 200, response.text
+    assert "How to earn" in response.text
+    assert "Payout is blocked" in response.text
+
+
+def test_participant_portal_warns_missing_platform_training():
+    with client() as api:
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Platform Missing", role="publisher")
+            destination = models.PublishingDestination(
+                brand="Altea",
+                platform="Instagram Reels",
+                name="Altea IG",
+                handle="@altea",
+                status="active",
+                posting_mode="manual",
+                auth_status="manual_only",
+            )
+            db.add(destination)
+            db.commit()
+            db.refresh(destination)
+            OnboardingService(db).link_destination(participant.id, destination.id, relationship_type="publisher")
+        response = api.get(f"/participant-portal?participant_id={participant.id}")
+
+    assert response.status_code == 200, response.text
+    assert "training_recommended" in response.text
+    assert "instagram_reels_playbook" in response.text
+
+
+def test_metrics_intake_shows_platform_csv_examples():
+    with client() as api:
+        response = api.get("/metrics-intake")
+
+    assert response.status_code == 200, response.text
+    assert "facebook_metrics.csv" in response.text
+    assert "youtube_shorts_metrics.csv" in response.text
+    assert "marketplace_conversion.csv" in response.text
+    assert "Common mistakes" in response.text

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.training_academy.academy_catalog import BEGINNER_TRACK_COURSES, PLATFORM_PLAYBOOK_COURSES
 from app.training_academy.errors import TrainingAcademyDataError
 
 
@@ -276,6 +277,8 @@ DEFAULT_COURSES: list[dict[str, Any]] = [
         },
     },
 ]
+
+DEFAULT_COURSES.extend(BEGINNER_TRACK_COURSES + PLATFORM_PLAYBOOK_COURSES)
 
 
 class CurriculumService:

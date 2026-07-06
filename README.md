@@ -730,7 +730,28 @@ role course
 -> advisory or strict gate
 ```
 
-Default courses cover Creator Basics, Publisher Basics, Metrics Basics, Payout Basics, and Reviewer Basics. The academy links back into Participant Portal, Metrics Intake, Publishing, and Destination Control Tower.
+Default courses cover Creator Basics, Publisher Basics, Metrics Basics, Payout Basics, and Reviewer Basics. The expanded academy also includes a zero-experience start flow, earning tracks, platform playbooks, scenario simulator, and platform readiness badges.
+
+Beginner tracks:
+
+- Publisher / Placement Operator
+- Metrics Operator
+- Reviewer Assistant
+- Creator / Editor
+- Channel / Destination Owner
+
+Platform playbooks:
+
+- Instagram / Reels
+- Facebook
+- YouTube Shorts
+- TikTok
+- Telegram
+- VK
+- Ozon / Wildberries marketplace metrics
+- Partner slots
+
+Scenario simulator checks common failure points: publishing without final URL, using direct product URL instead of tracking link, wrong destination, unmatched CSV rows, product identity drift, and payout blockers.
 
 Operator CLI:
 
@@ -742,7 +763,7 @@ python scripts/submit_training_quiz.py --participant-id 1 --course-code metrics_
 
 Training gates are advisory by default: publishing recommends `publisher_basics`, metrics submission recommends `metrics_basics`, and reviewer approval recommends `reviewer_basics`. Strict mode is available in the service layer for workflows that need to block uncertified actions.
 
-Docs: `docs/TRAINING_ACADEMY.md`, `docs/PUBLISHER_TRAINING.md`, `docs/METRICS_TRAINING.md`, and `docs/PAYOUT_TRAINING.md`.
+Docs: `docs/TRAINING_ACADEMY.md`, `docs/PUBLISHER_TRAINING.md`, `docs/METRICS_TRAINING.md`, `docs/PAYOUT_TRAINING.md`, and `docs/PLATFORM_PLAYBOOKS.md`.
 
 ## Publishing Workflow
 

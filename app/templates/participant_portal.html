@@ -32,6 +32,21 @@
     <div class="metric"><strong>6</strong><span>Payouts use traceable tasks and metrics.</span></div>
   </div>
   <p class="muted"><a href="/training-academy{% if selected_participant %}?participant_id={{ selected_participant.id }}{% endif %}">Training Academy</a> holds role courses, quizzes and certifications. Current rules are in docs/HUMAN_OPERATING_RULES.md.</p>
+  {% if selected_participant and training_progress and not training_progress.badges %}
+    <p class="muted"><strong>Start here:</strong> no certifications yet. Open Training Academy, choose an earning role, pass the role quiz, then pass the playbook for the platform you want to work on.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>How to earn</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>Publisher</strong><span>Earn for traceable published posts with final_url and tracking_link.</span></div>
+    <div class="metric"><strong>Metrics</strong><span>Earn for valid reports that match posted_url or tracking_slug.</span></div>
+    <div class="metric"><strong>Reviewer</strong><span>Earn for correct approve/reject/regenerate decisions.</span></div>
+    <div class="metric"><strong>Creator</strong><span>Earn for approved videos and accepted revisions.</span></div>
+    <div class="metric"><strong>Owner</strong><span>Earn from placements, CPA, revenue share, or hybrid rules.</span></div>
+  </div>
+  <p class="muted">Payout is blocked when work has no assignment, no approval, no final_url, no matched metrics, wrong destination, or a direct product URL was used instead of tracking_link.</p>
 </section>
 
 {% if error %}
@@ -206,12 +221,28 @@
 <section class="panel">
   <h2>My Channels</h2>
   <table class="table">
-    <thead><tr><th>Destination</th><th>Platform</th><th>Handle</th><th>Relationship</th><th>Status</th></tr></thead>
+    <thead><tr><th>Destination</th><th>Platform</th><th>Handle</th><th>Relationship</th><th>Status</th><th>Training</th></tr></thead>
     <tbody>
       {% for link in links %}
-        <tr><td>{{ link.destination.name }}</td><td>{{ link.destination.platform }}</td><td>{{ link.destination.handle or "-" }}</td><td>{{ link.relationship_type }}</td><td>{{ link.status }}</td></tr>
+        {% set readiness = platform_readiness.get(link.destination_id) %}
+        <tr>
+          <td>{{ link.destination.name }}</td>
+          <td>{{ link.destination.platform }}</td>
+          <td>{{ link.destination.handle or "-" }}</td>
+          <td>{{ link.relationship_type }}</td>
+          <td>{{ link.status }}</td>
+          <td>
+            {% if readiness and not readiness.certified %}
+              {{ readiness.status }} - <a href="/training-academy?participant_id={{ selected_participant.id }}">{{ readiness.course_code }}</a>
+            {% elif readiness %}
+              {{ readiness.status }}
+            {% else %}
+              not_required
+            {% endif %}
+          </td>
+        </tr>
       {% else %}
-        <tr><td colspan="5">No linked channels.</td></tr>
+        <tr><td colspan="6">No linked channels.</td></tr>
       {% endfor %}
     </tbody>
   </table>
