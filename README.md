@@ -701,6 +701,23 @@ Open `/metrics-intake` for the platform matrix, sources, tracking links, CSV imp
 
 Docs: `docs/METRICS_INTAKE_ATTRIBUTION.md`.
 
+## Human Operating Rules
+
+Human-facing rules keep publishing, stats, payouts, and recommendations traceable:
+
+```text
+assignment
+-> approved video
+-> tracking link in post
+-> final URL saved
+-> metrics uploaded by posted_url/tracking_slug
+-> payout ledger
+```
+
+Participant Portal shows a "How to work" block, assignment brief cards include a publish checklist, Metrics Intake shows CSV column guidance, and Publishing Task pages warn when `final_url` or a tracking link is missing. `per_published_post` payouts require a traceable publishing task with `final_url`.
+
+Docs: `docs/HUMAN_OPERATING_RULES.md`, `docs/PUBLISHING_RULES_FOR_PARTICIPANTS.md`, `docs/METRICS_SUBMISSION_RULES.md`, and `docs/PAYOUT_RULES_FOR_PARTICIPANTS.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

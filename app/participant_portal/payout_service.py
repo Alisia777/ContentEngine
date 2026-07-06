@@ -92,7 +92,11 @@ class PayoutService:
         return entry
 
     def _amount(self, rule: models.PayoutRule, assignment: models.ParticipantAssignment) -> tuple[float, str]:
-        if rule.payout_type in {"per_video", "per_published_post", "per_approved_post"}:
+        if rule.payout_type == "per_published_post":
+            if not assignment.publishing_task or not assignment.publishing_task.final_url:
+                raise ParticipantPortalDataError("per_published_post payout requires a publishing task with final_url.")
+            return float(rule.amount_fixed or 0), rule.payout_type
+        if rule.payout_type in {"per_video", "per_approved_post"}:
             return float(rule.amount_fixed or 0), rule.payout_type
         metrics = ParticipantMetricsService(self.db).dashboard_stats(assignment.participant_id, campaign_id=assignment.campaign_id)
         if rule.payout_type == "cpa":

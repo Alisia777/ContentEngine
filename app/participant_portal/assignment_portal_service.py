@@ -102,6 +102,12 @@ class AssignmentPortalService:
         spec_json = creative_spec.spec_json if creative_spec else {}
         run_json = content_run.run_json if content_run else {}
         destination = publishing_task.destination if publishing_task else None
+        tracking_link = self._tracking_link(publishing_task.id) if publishing_task else None
+        publish_warnings = []
+        if publishing_task and not tracking_link:
+            publish_warnings.append("tracking_link_missing")
+        if publishing_task and not publishing_task.final_url:
+            publish_warnings.append("final_url_required_after_publication")
         return {
             "sku": product.sku if product else None,
             "product_title": product.title if product else None,
@@ -125,6 +131,17 @@ class AssignmentPortalService:
                 "platform": destination.platform if destination else None,
                 "handle": destination.handle if destination else None,
             },
+            "tracking_link": f"/r/{tracking_link.slug}" if tracking_link else None,
+            "tracking_target_url": tracking_link.target_url if tracking_link else None,
+            "publish_checklist": [
+                "video_approved",
+                "assignment_opened",
+                "destination_linked",
+                "tracking_link_used_in_post",
+                "final_url_submitted_after_publication",
+                "metrics_uploaded_with_posted_url_or_tracking_slug",
+            ],
+            "publish_warnings": publish_warnings,
             "review_checklist": spec_json.get("review_checklist")
             or ["product_identity_preserved", "safe_promise_only", "format_matches_destination", "no_forbidden_claims"],
             "payout_rule_id": payout_rule_id,
@@ -154,3 +171,10 @@ class AssignmentPortalService:
         if content_run and content_run.asset_kit:
             return content_run.asset_kit.provider_reference_bundle_json.get("reference_images", []) or content_run.asset_kit.assets_json
         return product.images_json if product else []
+
+    def _tracking_link(self, publishing_task_id: int) -> models.TrackingLink | None:
+        return self.db.scalar(
+            select(models.TrackingLink)
+            .where(models.TrackingLink.publishing_task_id == publishing_task_id)
+            .order_by(models.TrackingLink.id.desc())
+        )

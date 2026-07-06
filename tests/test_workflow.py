@@ -119,7 +119,9 @@ from app.metrics_intake import (
     PlatformMetricsMatrix,
     TrackingLinkService,
 )
-from app.publishing import MockUploadProvider
+from app.publishing import ManualUploadProvider, MockUploadProvider
+from app.publishing.errors import PublishingError
+from app.participant_portal.errors import ParticipantPortalDataError
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
 from app.services.video_assembly import VideoAssemblyService
@@ -6074,3 +6076,108 @@ def test_metrics_intake_ui_renders():
     assert "Tracking Links" in response.text
     assert "CSV Imports" in response.text
     assert "Unmatched Rows" in response.text
+
+
+def test_publishing_task_requires_final_url_for_published_status():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/final-required")
+            with pytest.raises(PublishingError):
+                ManualUploadProvider(db).mark_published(task, "", "operator")
+
+
+def test_payout_requires_final_url_for_published_post_rule():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Traceable Pay", role="creator")
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/remove-final")
+            task.final_url = None
+            db.commit()
+            rule = PayoutService(db).create_rule(name="Published post guarded", payout_type="per_published_post", amount_fixed=700)
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                payout_rule_id=rule.id,
+                assignment_type="publish_video",
+            )
+            with pytest.raises(ParticipantPortalDataError):
+                PayoutService(db).calculate_for_assignment(assignment.id)
+
+
+def test_metrics_import_requires_posted_url_or_tracking_slug():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://facebook.com/post/traceable")
+            batch = CSVImporter(db).import_csv_text(
+                metrics_intake_csv(
+                    [
+                        {
+                            "platform": "facebook",
+                            "destination_handle": task.destination.handle,
+                            "sku": product.sku,
+                            "views": 100,
+                            "clicks": 10,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            result = AttributionService(db).attribute_batch(batch.batch_id)
+
+    assert result.status == "unmatched"
+    assert result.unmatched_count == 1
+    assert result.unmatched_rows[0]["warning"] == "missing_posted_url_or_tracking_slug"
+
+
+def test_assignment_detail_shows_publish_checklist():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Checklist User", role="publisher")
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/checklist")
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                campaign_id=campaign_id,
+                publishing_task_id=task.id,
+                assignment_type="publish_video",
+            )
+        response = api.get(f"/participant-portal?participant_id={participant.id}")
+
+    assert response.status_code == 200
+    assert "Publish checklist" in response.text
+    assert "tracking_link_used_in_post" in response.text
+    assert assignment.id
+
+
+def test_participant_portal_shows_how_to_work_block():
+    with client() as api:
+        response = api.get("/participant-portal")
+
+    assert response.status_code == 200
+    assert "How to work" in response.text
+    assert "Use the tracking_link in the post" in response.text
+
+
+def test_metrics_intake_shows_csv_help():
+    with client() as api:
+        response = api.get("/metrics-intake")
+
+    assert response.status_code == 200
+    assert "Required identity" in response.text
+    assert "Normalized columns" in response.text
+
+
+def test_human_operating_rules_docs_exist():
+    docs = [
+        "docs/HUMAN_OPERATING_RULES.md",
+        "docs/PUBLISHING_RULES_FOR_PARTICIPANTS.md",
+        "docs/METRICS_SUBMISSION_RULES.md",
+        "docs/PAYOUT_RULES_FOR_PARTICIPANTS.md",
+    ]
+
+    for doc in docs:
+        assert Path(doc).exists()

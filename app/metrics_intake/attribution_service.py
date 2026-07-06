@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.metrics_intake.errors import MetricsIntakeDataError
 from app.metrics_intake.funnel_service import FunnelService
+from app.metrics_intake.platform_matrix import PlatformMetricsMatrix
 from app.metrics_intake.types import AttributionResult
 
 
@@ -63,6 +64,10 @@ class AttributionService:
         )
 
     def _match(self, row: dict[str, Any], *, default_campaign_id: int | None) -> dict[str, Any]:
+        platform = PlatformMetricsMatrix.normalize_platform(row.get("platform"))
+        traceable = bool(self._text(row.get("posted_url")) or self._text(row.get("tracking_slug")) or self._int(row.get("publishing_task_id")))
+        if platform not in {"ozon", "wb", "marketplace"} and not traceable:
+            return {"matched": False, "reason": "missing_posted_url_or_tracking_slug"}
         task = self._task_by_id(row.get("publishing_task_id"))
         link = None
         match_method = "publishing_task_id" if task else None

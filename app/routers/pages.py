@@ -963,9 +963,26 @@ def safe_publishing_task_page(task_id: int, request: Request, db: Session = Depe
     task = db.get(models.PublishingTask, task_id)
     if not task:
         return redirect("/publishing")
+    tracking_link = db.scalar(
+        select(models.TrackingLink)
+        .where(models.TrackingLink.publishing_task_id == task.id)
+        .order_by(models.TrackingLink.id.desc())
+    )
+    warnings = []
+    if not task.final_url:
+        warnings.append("final_url_missing")
+    if not tracking_link:
+        warnings.append("tracking_link_missing")
     return templates.TemplateResponse(
         "publishing_task.html",
-        {"request": request, "page_title": "Publishing Task", "task": task},
+        {
+            "request": request,
+            "page_title": "Publishing Task",
+            "task": task,
+            "tracking_link": tracking_link,
+            "warnings": warnings,
+            "error": request.query_params.get("error"),
+        },
     )
 
 
@@ -986,7 +1003,10 @@ def mark_safe_publishing_task_uploaded_ui(
 ):
     task = db.get(models.PublishingTask, task_id)
     if task:
-        ManualUploadProvider(db).mark_published(task, final_url, operator_name)
+        try:
+            ManualUploadProvider(db).mark_published(task, final_url, operator_name)
+        except PublishingError as exc:
+            return redirect(f"/publishing/tasks/{task_id}?error={exc}")
     return redirect(f"/publishing/tasks/{task_id}")
 
 
