@@ -1248,6 +1248,156 @@ class DestinationControlRow(Base, TimestampMixin):
     destination = relationship("PublishingDestination")
 
 
+class ParticipantProfile(Base, TimestampMixin):
+    __tablename__ = "participant_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    display_name = Column(String(160), nullable=False, index=True)
+    role = Column(String(80), nullable=False, default="creator", index=True)
+    email = Column(String(255), nullable=True, index=True)
+    telegram_handle = Column(String(160), nullable=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    platforms_json = Column(JSON, default=list, nullable=False)
+    notes = Column(Text, nullable=True)
+
+    destination_links = relationship("ParticipantDestinationLink", back_populates="participant", cascade="all, delete-orphan")
+    assignments = relationship("ParticipantAssignment", back_populates="participant", cascade="all, delete-orphan")
+    submissions = relationship("ParticipantSubmission", back_populates="participant", cascade="all, delete-orphan")
+    payout_entries = relationship("PayoutLedgerEntry", back_populates="participant")
+
+
+class ParticipantDestinationLink(Base, TimestampMixin):
+    __tablename__ = "participant_destination_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    relationship_type = Column(String(80), nullable=False, default="creator", index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    permissions_json = Column(JSON, default=list, nullable=False)
+
+    participant = relationship("ParticipantProfile", back_populates="destination_links")
+    destination = relationship("PublishingDestination")
+
+
+class ParticipantAssignment(Base, TimestampMixin):
+    __tablename__ = "participant_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    content_run_id = Column(Integer, ForeignKey("content_runs.id"), nullable=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    publishing_package_id = Column(Integer, ForeignKey("publishing_packages.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    assignment_type = Column(String(120), nullable=False, default="create_video", index=True)
+    status = Column(String(80), nullable=False, default="assigned", index=True)
+    priority = Column(Integer, nullable=False, default=5, index=True)
+    due_at = Column(DateTime, nullable=True, index=True)
+    brief_json = Column(JSON, default=dict, nullable=False)
+    payout_rule_id = Column(Integer, ForeignKey("payout_rules.id"), nullable=True, index=True)
+
+    participant = relationship("ParticipantProfile", back_populates="assignments")
+    campaign = relationship("Campaign")
+    product = relationship("Product")
+    content_run = relationship("ContentRun")
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    creative_variant = relationship("CreativeVariant")
+    prompt_pack = relationship("PromptPack")
+    publishing_package = relationship("PublishingPackage")
+    publishing_task = relationship("PublishingTask")
+    payout_rule = relationship("PayoutRule")
+    submissions = relationship("ParticipantSubmission", back_populates="assignment", cascade="all, delete-orphan")
+
+
+class ParticipantSubmission(Base, TimestampMixin):
+    __tablename__ = "participant_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_assignment_id = Column(Integer, ForeignKey("participant_assignments.id"), nullable=False, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    file_path = Column(String(500), nullable=True)
+    external_url = Column(String(500), nullable=True)
+    final_post_url = Column(String(500), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="submitted", index=True)
+    review_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    review_notes = Column(Text, nullable=True)
+
+    assignment = relationship("ParticipantAssignment", back_populates="submissions")
+    participant = relationship("ParticipantProfile", back_populates="submissions")
+    video_job = relationship("VideoJob")
+
+
+class PayoutRule(Base, TimestampMixin):
+    __tablename__ = "payout_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(160), nullable=False, index=True)
+    payout_type = Column(String(80), nullable=False, default="per_video", index=True)
+    amount_fixed = Column(Float, nullable=True)
+    currency = Column(String(20), nullable=False, default="RUB")
+    percent_revenue = Column(Float, nullable=True)
+    conditions_json = Column(JSON, default=dict, nullable=False)
+
+
+class PayoutLedgerEntry(Base, TimestampMixin):
+    __tablename__ = "payout_ledger_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    assignment_id = Column(Integer, ForeignKey("participant_assignments.id"), nullable=True, index=True)
+    submission_id = Column(Integer, ForeignKey("participant_submissions.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    payout_rule_id = Column(Integer, ForeignKey("payout_rules.id"), nullable=True, index=True)
+    amount = Column(Float, nullable=False, default=0)
+    currency = Column(String(20), nullable=False, default="RUB")
+    status = Column(String(80), nullable=False, default="pending", index=True)
+    reason = Column(Text, nullable=True)
+    period_start = Column(Date, nullable=True, index=True)
+    period_end = Column(Date, nullable=True, index=True)
+
+    participant = relationship("ParticipantProfile", back_populates="payout_entries")
+    assignment = relationship("ParticipantAssignment")
+    submission = relationship("ParticipantSubmission")
+    publishing_task = relationship("PublishingTask")
+    campaign = relationship("Campaign")
+    payout_rule = relationship("PayoutRule")
+
+
+class ParticipantMetricSnapshot(Base):
+    __tablename__ = "participant_metric_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    participant_id = Column(Integer, ForeignKey("participant_profiles.id"), nullable=False, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    period_start = Column(Date, nullable=True, index=True)
+    period_end = Column(Date, nullable=True, index=True)
+    assignments_total = Column(Integer, nullable=False, default=0)
+    submitted_total = Column(Integer, nullable=False, default=0)
+    approved_total = Column(Integer, nullable=False, default=0)
+    rejected_total = Column(Integer, nullable=False, default=0)
+    published_total = Column(Integer, nullable=False, default=0)
+    views_total = Column(Integer, nullable=False, default=0)
+    clicks_total = Column(Integer, nullable=False, default=0)
+    orders_total = Column(Integer, nullable=False, default=0)
+    revenue_total = Column(Float, nullable=False, default=0)
+    engagement_rate = Column(Float, nullable=True)
+    approval_rate = Column(Float, nullable=True)
+    payout_total = Column(Float, nullable=False, default=0)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    participant = relationship("ParticipantProfile")
+    campaign = relationship("Campaign")
+
+
 class DestinationSetupRequirement(Base, TimestampMixin):
     __tablename__ = "destination_setup_requirements"
 

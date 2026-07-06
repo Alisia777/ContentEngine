@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Participant Portal</p>
+    <h1>Briefs, Channels, Stats, Payouts</h1>
+  </div>
+  {% if selected_participant %}
+    <span class="status">#{{ selected_participant.id }} / {{ selected_participant.role }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Onboarding</span>
+  <span>Briefs</span>
+  <span>Submissions</span>
+  <span>Channels</span>
+  <span>Stats</span>
+  <span>Payouts</span>
+  <span>Recommendations</span>
+</section>
+
+{% if error %}
+  <section class="panel"><strong>Error:</strong> {{ error }}</section>
+{% endif %}
+{% if notice %}
+  <section class="panel"><strong>Status:</strong> {{ notice }}</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Participant Onboarding</h2>
+  <form action="/participant-portal" method="get" class="form-grid">
+    <label>Participant
+      <select name="participant_id">
+        {% for participant in participants %}
+          <option value="{{ participant.id }}" {% if selected_participant and participant.id == selected_participant.id %}selected{% endif %}>
+            #{{ participant.id }} - {{ participant.display_name }} - {{ participant.role }}
+          </option>
+        {% else %}
+          <option value="">No participants yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+  <form action="/participant-portal/participants" method="post" class="form-grid">
+    <label>Name<input name="display_name" required></label>
+    <label>Role
+      <select name="role">
+        <option value="creator">creator</option>
+        <option value="publisher">publisher</option>
+        <option value="partner">partner</option>
+        <option value="reviewer">reviewer</option>
+        <option value="operator">operator</option>
+        <option value="admin">admin</option>
+      </select>
+    </label>
+    <label>Email<input name="email"></label>
+    <label>Telegram<input name="telegram_handle"></label>
+    <label>Platforms<input name="platforms" placeholder="reels,shorts,telegram"></label>
+    <label>Notes<input name="notes"></label>
+    <div class="actions"><button type="submit">Create</button></div>
+  </form>
+  {% if selected_participant %}
+    <div class="metric-grid">
+      {% for step in setup_steps %}
+        <div class="metric"><strong>{{ step.status }}</strong><span>{{ step.step }}</span></div>
+      {% endfor %}
+    </div>
+    <form action="/participant-portal/participants/{{ selected_participant.id }}/link-destination" method="post" class="form-grid">
+      <label>Destination
+        <select name="destination_id">
+          {% for destination in destinations %}
+            <option value="{{ destination.id }}">#{{ destination.id }} - {{ destination.platform }} - {{ destination.name }}</option>
+          {% else %}
+            <option value="">No destinations</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Relationship
+        <select name="relationship_type">
+          <option value="owner">owner</option>
+          <option value="operator">operator</option>
+          <option value="creator">creator</option>
+          <option value="partner">partner</option>
+          <option value="reviewer">reviewer</option>
+        </select>
+      </label>
+      <div class="actions"><button type="submit">Link</button></div>
+    </form>
+  {% endif %}
+</section>
+
+{% if selected_participant %}
+<section class="panel">
+  <h2>My Briefs / Assignments</h2>
+  <form action="/participant-portal/assignments" method="post" class="form-grid">
+    <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+    <label>Type
+      <select name="assignment_type">
+        <option value="create_video">create_video</option>
+        <option value="publish_video">publish_video</option>
+        <option value="review_video">review_video</option>
+        <option value="import_stats">import_stats</option>
+        <option value="regenerate">regenerate</option>
+        <option value="approve_package">approve_package</option>
+      </select>
+    </label>
+    <label>Content run
+      <select name="content_run_id">
+        <option value="">None</option>
+        {% for run in content_runs %}
+          <option value="{{ run.id }}">#{{ run.id }} - {{ run.sku }} - {{ run.status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Publishing task
+      <select name="publishing_task_id">
+        <option value="">None</option>
+        {% for task in publishing_tasks %}
+          <option value="{{ task.id }}">#{{ task.id }} - {{ task.platform }} - {{ task.status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Payout rule
+      <select name="payout_rule_id">
+        <option value="">None</option>
+        {% for rule in payout_rules %}
+          <option value="{{ rule.id }}">#{{ rule.id }} - {{ rule.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Assign</button></div>
+  </form>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Status</th><th>SKU</th><th>Hook</th><th>Destination</th><th>Payout</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for assignment in assignments %}
+        <tr>
+          <td>{{ assignment.id }}</td>
+          <td>{{ assignment.status }}</td>
+          <td>{{ assignment.sku or assignment.brief_json.sku or "-" }}</td>
+          <td>{{ assignment.brief_json.hook_text or "-" }}</td>
+          <td>{{ assignment.brief_json.destination.platform or "-" }} {{ assignment.brief_json.destination.handle or "" }}</td>
+          <td>{{ assignment.payout_rule_id or "-" }}</td>
+          <td>
+            <form action="/participant-portal/assignments/{{ assignment.id }}/calculate-payout" method="post">
+              <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+              <button type="submit">Ledger</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No assignments.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Brief Detail</h2>
+  {% for assignment in assignments[:3] %}
+    <h3>#{{ assignment.id }} - {{ assignment.assignment_type }}</h3>
+    <table class="table">
+      <tbody>
+        <tr><th>Product</th><td>{{ assignment.brief_json.product_title or "-" }}</td></tr>
+        <tr><th>Buyer need</th><td>{{ assignment.brief_json.buyer_need or "-" }}</td></tr>
+        <tr><th>Safe promise</th><td>{{ assignment.brief_json.safe_promise or "-" }}</td></tr>
+        <tr><th>First frame</th><td>{{ assignment.brief_json.first_frame_logic or "-" }}</td></tr>
+        <tr><th>Must include</th><td>{{ assignment.brief_json.must_include|join(", ") }}</td></tr>
+        <tr><th>Must avoid</th><td>{{ assignment.brief_json.must_avoid|join(", ") }}</td></tr>
+        <tr><th>Format</th><td>{{ assignment.brief_json.output_format.platform or "-" }} / {{ assignment.brief_json.output_format.aspect_ratio or "-" }}</td></tr>
+        <tr><th>Checklist</th><td>{{ assignment.brief_json.review_checklist|join(", ") }}</td></tr>
+      </tbody>
+    </table>
+    <form action="/participant-portal/submissions" method="post" class="form-grid">
+      <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+      <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+      <label>External URL<input name="external_url"></label>
+      <label>File path<input name="file_path"></label>
+      <label>Final post URL<input name="final_post_url"></label>
+      <div class="actions"><button type="submit">Submit</button></div>
+    </form>
+  {% else %}
+    <p>No brief cards.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>My Channels</h2>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Platform</th><th>Handle</th><th>Relationship</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for link in links %}
+        <tr><td>{{ link.destination.name }}</td><td>{{ link.destination.platform }}</td><td>{{ link.destination.handle or "-" }}</td><td>{{ link.relationship_type }}</td><td>{{ link.status }}</td></tr>
+      {% else %}
+        <tr><td colspan="5">No linked channels.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>My Stats</h2>
+  {% if stats %}
+    <div class="metric-grid">
+      <div class="metric"><strong>{{ stats.assignments_total }}</strong><span>assignments</span></div>
+      <div class="metric"><strong>{{ stats.submitted_total }}</strong><span>submitted</span></div>
+      <div class="metric"><strong>{{ stats.approved_total }}</strong><span>approved</span></div>
+      <div class="metric"><strong>{{ stats.published_total }}</strong><span>published</span></div>
+      <div class="metric"><strong>{{ stats.views_total }}</strong><span>views</span></div>
+      <div class="metric"><strong>{{ stats.clicks_total }}</strong><span>clicks</span></div>
+      <div class="metric"><strong>{{ stats.orders_total }}</strong><span>orders</span></div>
+      <div class="metric"><strong>{{ stats.revenue_total }}</strong><span>revenue</span></div>
+      <div class="metric"><strong>{{ stats.payout_total }}</strong><span>payout</span></div>
+    </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>My Payouts</h2>
+  <form action="/participant-portal/payout-rules" method="post" class="form-grid">
+    <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+    <label>Name<input name="name" required></label>
+    <label>Type
+      <select name="payout_type">
+        <option value="per_video">per_video</option>
+        <option value="per_published_post">per_published_post</option>
+        <option value="per_approved_post">per_approved_post</option>
+        <option value="cpa">cpa</option>
+        <option value="revenue_share">revenue_share</option>
+        <option value="hybrid">hybrid</option>
+      </select>
+    </label>
+    <label>Fixed<input type="number" step="0.01" name="amount_fixed"></label>
+    <label>Revenue %<input type="number" step="0.01" name="percent_revenue"></label>
+    <div class="actions"><button type="submit">Create Rule</button></div>
+  </form>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Assignment</th><th>SKU</th><th>Amount</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for entry in payout_summary.entries %}
+        <tr>
+          <td>{{ entry.id }}</td><td>{{ entry.assignment_id or "-" }}</td><td>{{ entry.sku or "-" }}</td><td>{{ entry.amount }} {{ entry.currency }}</td><td>{{ entry.status }}</td><td>{{ entry.reason or "-" }}</td>
+          <td>
+            <form action="/participant-portal/payouts/{{ entry.id }}/mark-paid" method="post">
+              <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+              <button type="submit">Mark Paid</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No payout ledger entries.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Recommendations</h2>
+  <table class="table">
+    <thead><tr><th>Action</th><th>Reason</th><th>Assignment</th><th>Destination</th></tr></thead>
+    <tbody>
+      {% for item in recommendations %}
+        <tr><td>{{ item.action }}</td><td>{{ item.reason }}</td><td>{{ item.assignment_id or "-" }}</td><td>{{ item.destination_id or "-" }}</td></tr>
+      {% else %}
+        <tr><td colspan="4">No recommendations.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}
