@@ -1,0 +1,2 @@
+campaign_id,destination_name,platform,posted_url,sku,period_start,period_end,views,likes,comments,shares,saves,clicks,orders,revenue,spend,watch_time_seconds,retention_rate
+1,Bombar Reels,Instagram Reels,https://example.com/posts/sample-1,BOMBAR-001,2026-07-01,2026-07-07,1200,90,12,8,20,34,3,4500,800,4800,0.42

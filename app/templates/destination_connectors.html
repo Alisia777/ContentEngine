@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Destination Connectors</p>
+    <h1>Connections, Metrics, Feedback</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Destination</span>
+  <span>Connection</span>
+  <span>Credential Check</span>
+  <span>Final URL</span>
+  <span>Metrics</span>
+  <span>Performance Loop</span>
+</section>
+
+{% if error %}
+  <section class="panel"><strong>Error:</strong> {{ error }}</section>
+{% endif %}
+{% if notice %}
+  <section class="panel"><strong>Status:</strong> {{ notice }}</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Connections Overview</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ overview.total_destinations }}</strong><span>destinations</span></div>
+    <div class="metric"><strong>{{ overview.connected }}</strong><span>connected</span></div>
+    <div class="metric"><strong>{{ overview.needs_auth }}</strong><span>needs auth</span></div>
+    <div class="metric"><strong>{{ overview.manual_only }}</strong><span>manual only</span></div>
+    <div class="metric"><strong>{{ overview.token_expired }}</strong><span>token expired</span></div>
+    <div class="metric"><strong>{{ overview.last_sync or "-" }}</strong><span>last sync</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Campaign</h2>
+  <form action="/destination-connectors" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Add Connection</h2>
+  <form action="/destination-connectors/connections" method="post" class="form-grid">
+    {% if selected_campaign %}<input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">{% endif %}
+    <label>Destination
+      <select name="destination_id">
+        {% for destination in destinations %}
+          <option value="{{ destination.id }}">#{{ destination.id }} - {{ destination.platform }} - {{ destination.name }}</option>
+        {% else %}
+          <option value="">No destinations yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Type
+      <select name="connection_type">
+        <option value="manual">manual</option>
+        <option value="csv">csv</option>
+        <option value="telegram_bot">telegram_bot</option>
+        <option value="youtube_oauth">youtube_oauth</option>
+        <option value="instagram_stub">instagram_stub</option>
+        <option value="tiktok_stub">tiktok_stub</option>
+      </select>
+    </label>
+    <label>Credential ref<input name="credential_ref" placeholder="ENV_SECRET_NAME"></label>
+    <div class="actions"><button type="submit">Create</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Destination Connection Detail</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Destination</th><th>Platform</th><th>Type</th><th>Status</th><th>Auth</th><th>Credential</th><th>Last Check</th><th>Last Sync</th><th>Errors</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for item in connections %}
+        <tr>
+          <td>{{ item.id }}</td>
+          <td>{{ item.destination_id }}</td>
+          <td>{{ item.platform }}</td>
+          <td>{{ item.connection_type }}</td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.auth_status }}</td>
+          <td>{{ "configured" if item.credential_configured else "not configured" }}</td>
+          <td>{{ item.last_checked_at or "-" }}</td>
+          <td>{{ item.last_sync_at or "-" }}</td>
+          <td>{{ item.error_message or "-" }}</td>
+          <td>
+            <form action="/destination-connectors/connections/{{ item.id }}/check" method="post">
+              {% if selected_campaign %}<input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">{% endif %}
+              <button type="submit">Check</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="11">No connections yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Metrics Import</h2>
+  <form action="/destination-connectors/import-csv" method="post" enctype="multipart/form-data" class="form-grid">
+    {% if selected_campaign %}<input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">{% endif %}
+    <label>Connection
+      <select name="connection_id">
+        <option value="">Auto</option>
+        {% for item in connections %}
+          <option value="{{ item.id }}">#{{ item.id }} - {{ item.platform }} - {{ item.connection_type }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>CSV file<input type="file" name="file" accept=".csv" required></label>
+    <div class="actions"><button type="submit">Import CSV</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Metrics Sync</h2>
+  <table class="table">
+    <thead><tr><th>Connection</th><th>Period Start</th><th>Period End</th><th>Run</th></tr></thead>
+    <tbody>
+      {% for item in connections %}
+        <tr>
+          <td>#{{ item.id }} - {{ item.platform }} - {{ item.connection_type }}</td>
+          <td colspan="3">
+            <form action="/destination-connectors/connections/{{ item.id }}/sync" method="post" class="form-grid">
+              {% if selected_campaign %}<input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">{% endif %}
+              <input type="date" name="period_start">
+              <input type="date" name="period_end">
+              <button type="submit">Sync</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No connections to sync.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Recent Syncs</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Status</th><th>Connection</th><th>Campaign</th><th>Imported</th><th>Skipped</th><th>Errors</th><th>Warnings</th></tr></thead>
+    <tbody>
+      {% for sync in syncs %}
+        <tr>
+          <td>{{ sync.id }}</td>
+          <td>{{ sync.status }}</td>
+          <td>{{ sync.connection_id or "-" }}</td>
+          <td>{{ sync.campaign_id or "-" }}</td>
+          <td>{{ sync.imported_count }}</td>
+          <td>{{ sync.skipped_count }}</td>
+          <td>{{ sync.error_count }}</td>
+          <td>{{ sync.warnings_json|join(", ") }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">No syncs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if selected_campaign and summary %}
+<section class="panel">
+  <h2>Campaign Metrics Summary</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ summary.metric_count }}</strong><span>metrics</span></div>
+    <div class="metric"><strong>{{ summary.total_views }}</strong><span>views</span></div>
+    <div class="metric"><strong>{{ summary.total_clicks }}</strong><span>clicks</span></div>
+    <div class="metric"><strong>{{ summary.total_orders }}</strong><span>orders</span></div>
+    <div class="metric"><strong>{{ summary.total_revenue }}</strong><span>revenue</span></div>
+    <div class="metric"><strong>{{ summary.missing_metrics|length }}</strong><span>missing metrics</span></div>
+  </div>
+  <h3>By Destination</h3>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Views</th><th>Clicks</th><th>Orders</th><th>Revenue</th><th>CTR</th></tr></thead>
+    <tbody>
+      {% for row in summary.by_destination %}
+        <tr><td>{{ row.entity_id }}</td><td>{{ row.views }}</td><td>{{ row.clicks }}</td><td>{{ row.orders }}</td><td>{{ row.revenue }}</td><td>{{ row.ctr or "-" }}</td></tr>
+      {% else %}
+        <tr><td colspan="6">No destination metrics yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <h3>By Platform / SKU</h3>
+  <table class="table">
+    <thead><tr><th>Group</th><th>ID</th><th>Views</th><th>Clicks</th><th>Orders</th><th>Revenue</th></tr></thead>
+    <tbody>
+      {% for row in summary.by_platform %}
+        <tr><td>platform</td><td>{{ row.entity_id }}</td><td>{{ row.views }}</td><td>{{ row.clicks }}</td><td>{{ row.orders }}</td><td>{{ row.revenue }}</td></tr>
+      {% endfor %}
+      {% for row in summary.by_sku %}
+        <tr><td>sku</td><td>{{ row.entity_id }}</td><td>{{ row.views }}</td><td>{{ row.clicks }}</td><td>{{ row.orders }}</td><td>{{ row.revenue }}</td></tr>
+      {% else %}
+        <tr><td colspan="6">No SKU metrics yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <h3>Next Actions</h3>
+  <table class="table">
+    <thead><tr><th>Action</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for item in summary.next_actions %}
+        <tr><td>{{ item.action }}</td><td>{{ item.reason }}</td></tr>
+      {% else %}
+        <tr><td colspan="2">No connector actions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Destination Metrics</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Destination</th><th>Task</th><th>SKU</th><th>Platform</th><th>URL</th><th>Views</th><th>Clicks</th><th>Orders</th><th>Revenue</th></tr></thead>
+    <tbody>
+      {% for metric in metrics %}
+        <tr>
+          <td>{{ metric.id }}</td>
+          <td>{{ metric.destination_id or "-" }}</td>
+          <td>{{ metric.publishing_task_id or "-" }}</td>
+          <td>{{ metric.sku or "-" }}</td>
+          <td>{{ metric.platform }}</td>
+          <td>{{ metric.posted_url or "-" }}</td>
+          <td>{{ metric.views if metric.views is not none else "-" }}</td>
+          <td>{{ metric.clicks if metric.clicks is not none else "-" }}</td>
+          <td>{{ metric.orders if metric.orders is not none else "-" }}</td>
+          <td>{{ metric.revenue if metric.revenue is not none else "-" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10">No imported destination metrics yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

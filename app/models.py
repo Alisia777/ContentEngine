@@ -285,6 +285,100 @@ class PublishingDestination(Base, TimestampMixin):
     publishing_tasks = relationship("PublishingTask", back_populates="destination")
 
 
+class DestinationConnection(Base, TimestampMixin):
+    __tablename__ = "destination_connections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    connection_type = Column(String(80), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="not_configured", index=True)
+    auth_status = Column(String(80), nullable=False, default="manual_only", index=True)
+    credential_ref = Column(String(160), nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    settings_json = Column(JSON, default=dict, nullable=False)
+
+    destination = relationship("PublishingDestination")
+
+
+class DestinationMetricSync(Base, TimestampMixin):
+    __tablename__ = "destination_metric_syncs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    connection_id = Column(Integer, ForeignKey("destination_connections.id"), nullable=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="queued", index=True)
+    period_start = Column(Date, nullable=True, index=True)
+    period_end = Column(Date, nullable=True, index=True)
+    imported_count = Column(Integer, nullable=False, default=0)
+    skipped_count = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+
+    destination = relationship("PublishingDestination")
+    connection = relationship("DestinationConnection")
+    campaign = relationship("Campaign")
+
+
+class DestinationPostMetric(Base):
+    __tablename__ = "destination_post_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    connection_id = Column(Integer, ForeignKey("destination_connections.id"), nullable=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    posted_url = Column(String(500), nullable=True, index=True)
+    provider_post_id = Column(String(160), nullable=True, index=True)
+    period_start = Column(Date, nullable=True, index=True)
+    period_end = Column(Date, nullable=True, index=True)
+    views = Column(Integer, nullable=True)
+    likes = Column(Integer, nullable=True)
+    comments = Column(Integer, nullable=True)
+    shares = Column(Integer, nullable=True)
+    saves = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    orders = Column(Integer, nullable=True)
+    revenue = Column(Float, nullable=True)
+    spend = Column(Float, nullable=True)
+    watch_time_seconds = Column(Float, nullable=True)
+    retention_rate = Column(Float, nullable=True)
+    engagement_rate = Column(Float, nullable=True)
+    ctr = Column(Float, nullable=True)
+    conversion_rate = Column(Float, nullable=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    destination = relationship("PublishingDestination")
+    connection = relationship("DestinationConnection")
+    campaign = relationship("Campaign")
+    publishing_task = relationship("PublishingTask")
+    product = relationship("Product")
+
+
+class DestinationConnectionAudit(Base):
+    __tablename__ = "destination_connection_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    connection_id = Column(Integer, ForeignKey("destination_connections.id"), nullable=True, index=True)
+    event_type = Column(String(80), nullable=False, index=True)
+    status = Column(String(80), nullable=False, index=True)
+    message = Column(Text, nullable=True)
+    sanitized_payload_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    destination = relationship("PublishingDestination")
+    connection = relationship("DestinationConnection")
+
+
 class PublishingTask(Base, TimestampMixin):
     __tablename__ = "publishing_tasks"
 
