@@ -74,6 +74,7 @@ from app.destination_connectors import (
     TelegramConnector,
     YouTubeAnalyticsConnector,
 )
+from app.destination_control_tower import DestinationControlReportService, TowerService
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
 from app.demand.types import DemandHypothesis
@@ -5226,3 +5227,161 @@ def test_no_scraping_or_unofficial_login_paths_exist():
 
     for marker in banned:
         assert marker not in text
+
+
+def test_destination_control_tower_aggregates_setup_readiness_connections_metrics():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/tower-ok")
+            task.destination.status = "active"
+            db.commit()
+            ConnectionRegistry(db).create(task.destination_id, "manual")
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 1200,
+                            "clicks": 30,
+                            "orders": 3,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            snapshot = TowerService(db).refresh(campaign_id)
+            rows = TowerService(db).rows(campaign_id)
+
+    assert snapshot.total_destinations == 1
+    assert snapshot.ready_count == 1
+    assert snapshot.connected_count == 1
+    assert snapshot.metrics_synced_count == 1
+    assert rows[0].connection_status == "connected"
+    assert rows[0].metrics_status == "synced"
+
+
+def test_destination_control_row_marks_no_metrics_when_published_without_stats():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/tower-no-metrics")
+            task.destination.status = "active"
+            db.commit()
+            ConnectionRegistry(db).create(task.destination_id, "manual")
+            TowerService(db).refresh(campaign_id)
+            row = TowerService(db).rows(campaign_id)[0]
+
+    assert row.publishing_status == "published"
+    assert row.metrics_status == "no_metrics"
+    assert row.next_action == "import_metrics"
+
+
+def test_destination_control_row_marks_low_performance():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/tower-weak")
+            task.destination.status = "active"
+            db.commit()
+            ConnectionRegistry(db).create(task.destination_id, "manual")
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 2500,
+                            "clicks": 1,
+                            "orders": 0,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            CampaignPerformanceScorer(db).compute_scores(campaign_id)
+            snapshot = TowerService(db).refresh(campaign_id)
+            row = TowerService(db).rows(campaign_id)[0]
+
+    assert snapshot.low_performance_count == 1
+    assert row.performance_status == "weak"
+    assert row.next_action == "investigate_low_performance"
+
+
+def test_destination_control_next_action_import_metrics():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            _, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/tower-import")
+            task.destination.status = "active"
+            db.commit()
+            ConnectionRegistry(db).create(task.destination_id, "manual")
+            TowerService(db).refresh(campaign_id)
+            row = TowerService(db).rows(campaign_id)[0]
+
+    assert row.metrics_status == "no_metrics"
+    assert row.next_action == "import_metrics"
+
+
+def test_destination_control_next_action_refresh_readiness():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            destination = add_launch_destination(db, weekly_limit=3)
+            destination.handle = None
+            db.commit()
+            TowerService(db).refresh(campaign_id)
+            row = TowerService(db).rows(campaign_id)[0]
+
+    assert row.readiness_status == "blocked"
+    assert row.next_action == "refresh_readiness"
+
+
+def test_destination_control_snapshot_counts_capacity_gap():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=10, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=2)
+            snapshot = TowerService(db).refresh(campaign_id)
+
+    assert snapshot.capacity_gap == 8
+    assert any(blocker["blocker"] == "capacity_gap" for blocker in snapshot.blockers)
+
+
+def test_destination_control_ui_renders_overview_and_rows():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            destination = add_launch_destination(db, weekly_limit=3)
+            ConnectionRegistry(db).create(destination.id, "manual")
+            TowerService(db).refresh(campaign_id)
+        response = api.get(f"/destination-control-tower?campaign_id={campaign_id}")
+
+    assert response.status_code == 200, response.text
+    assert "Destination Control Tower" in response.text
+    assert "Destination Table" in response.text
+    assert "Action Queue" in response.text
+
+
+def test_destination_control_report_exports():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=3)
+            TowerService(db).refresh(campaign_id)
+            report = DestinationControlReportService(db).build(campaign_id)
+
+    assert report.snapshot.campaign_id == campaign_id
+    assert "Destination Control Tower Campaign" in report.markdown
+    assert "| Platform | Destination | Readiness |" in report.markdown

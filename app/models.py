@@ -1198,6 +1198,56 @@ class DestinationCapacitySnapshot(Base, TimestampMixin):
     campaign = relationship("Campaign")
 
 
+class DestinationControlSnapshot(Base, TimestampMixin):
+    __tablename__ = "destination_control_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    total_destinations = Column(Integer, nullable=False, default=0)
+    setup_needed_count = Column(Integer, nullable=False, default=0)
+    ready_count = Column(Integer, nullable=False, default=0)
+    connected_count = Column(Integer, nullable=False, default=0)
+    metrics_synced_count = Column(Integer, nullable=False, default=0)
+    no_metrics_count = Column(Integer, nullable=False, default=0)
+    low_performance_count = Column(Integer, nullable=False, default=0)
+    paused_count = Column(Integer, nullable=False, default=0)
+    capacity_total = Column(Integer, nullable=False, default=0)
+    capacity_used = Column(Integer, nullable=False, default=0)
+    capacity_gap = Column(Integer, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    campaign = relationship("Campaign")
+    rows = relationship("DestinationControlRow", back_populates="snapshot", cascade="all, delete-orphan")
+
+
+class DestinationControlRow(Base, TimestampMixin):
+    __tablename__ = "destination_control_rows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(Integer, ForeignKey("destination_control_snapshots.id"), nullable=False, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    name = Column(String(160), nullable=True)
+    handle = Column(String(160), nullable=True)
+    setup_status = Column(String(80), nullable=False, default="unknown", index=True)
+    readiness_status = Column(String(80), nullable=False, default="unknown", index=True)
+    connection_status = Column(String(80), nullable=False, default="unknown", index=True)
+    publishing_status = Column(String(80), nullable=False, default="unknown", index=True)
+    metrics_status = Column(String(80), nullable=False, default="unknown", index=True)
+    performance_status = Column(String(80), nullable=False, default="unknown", index=True)
+    warmup_phase = Column(String(80), nullable=True)
+    daily_capacity_remaining = Column(Integer, nullable=False, default=0)
+    weekly_capacity_remaining = Column(Integer, nullable=False, default=0)
+    last_post_url = Column(String(500), nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_action = Column(String(120), nullable=True, index=True)
+
+    snapshot = relationship("DestinationControlSnapshot", back_populates="rows")
+    destination = relationship("PublishingDestination")
+
+
 class DestinationSetupRequirement(Base, TimestampMixin):
     __tablename__ = "destination_setup_requirements"
 

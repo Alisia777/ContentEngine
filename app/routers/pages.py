@@ -53,6 +53,7 @@ from app.destination_crm import (
 from app.destination_crm.errors import DestinationCRMError
 from app.destination_connectors import ConnectionRegistry, CSVMetricsImporter, DestinationConnectorSyncService, DestinationMetricsCollector
 from app.destination_connectors.errors import DestinationConnectorError
+from app.destination_control_tower import DestinationControlReportService, DestinationControlTowerError, TowerService
 from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
@@ -1672,6 +1673,57 @@ async def destination_connectors_import_csv_ui(
     if campaign_id:
         target += f"&campaign_id={campaign_id}"
     return redirect(target)
+
+
+@router.get("/destination-control-tower", response_class=HTMLResponse)
+def destination_control_tower_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    snapshot = None
+    rows = []
+    report = None
+    error = request.query_params.get("error")
+    notice = request.query_params.get("notice")
+    if selected_campaign:
+        try:
+            service = TowerService(db)
+            snapshot = service.latest_or_refresh(selected_campaign.id)
+            rows = service.rows(selected_campaign.id)
+            report = DestinationControlReportService(db).build(selected_campaign.id)
+        except DestinationControlTowerError as exc:
+            error = str(exc)
+    return templates.TemplateResponse(
+        "destination_control_tower.html",
+        {
+            "request": request,
+            "page_title": "Destination Control Tower",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "snapshot": snapshot,
+            "rows": rows,
+            "report": report,
+            "error": error,
+            "notice": notice,
+        },
+    )
+
+
+@router.post("/destination-control-tower/{campaign_id}/refresh")
+def destination_control_tower_refresh_ui(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        snapshot = TowerService(db).refresh(campaign_id)
+    except DestinationControlTowerError as exc:
+        return redirect(f"/destination-control-tower?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-control-tower?campaign_id={campaign_id}&notice=snapshot_{snapshot.snapshot_id}_refreshed")
+
+
+@router.post("/destination-control-tower/rows/{row_id}/action")
+def destination_control_tower_action_ui(row_id: int, campaign_id: int = Form(...), db: Session = Depends(get_db)):
+    try:
+        result = TowerService(db).apply_action(row_id)
+    except DestinationControlTowerError as exc:
+        return redirect(f"/destination-control-tower?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-control-tower?campaign_id={campaign_id}&notice={result['action']}_{result['status']}")
 
 
 @router.post("/campaign-autopilot/import-matrix")
