@@ -51,6 +51,8 @@ from app.destination_crm import (
     DestinationWarmupService,
 )
 from app.destination_crm.errors import DestinationCRMError
+from app.destination_connectors import ConnectionRegistry, CSVMetricsImporter, DestinationConnectorSyncService, DestinationMetricsCollector
+from app.destination_connectors.errors import DestinationConnectorError
 from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
@@ -1569,6 +1571,107 @@ def destination_crm_warmup_ui(
     except DestinationCRMError as exc:
         return redirect(f"/destination-crm?error={exc}")
     return redirect(f"/destination-crm?campaign_id={campaign_id}" if campaign_id else "/destination-crm")
+
+
+@router.get("/destination-connectors", response_class=HTMLResponse)
+def destination_connectors_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    destinations = db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.platform, models.PublishingDestination.id)).all()
+    registry = ConnectionRegistry(db)
+    metrics_service = DestinationMetricsCollector(db)
+    overview = registry.overview()
+    connections = [registry.view(connection) for connection in registry.list()]
+    syncs = db.scalars(select(models.DestinationMetricSync).order_by(models.DestinationMetricSync.id.desc()).limit(10)).all()
+    metrics = db.scalars(select(models.DestinationPostMetric).order_by(models.DestinationPostMetric.id.desc()).limit(20)).all()
+    summary = metrics_service.campaign_summary(selected_campaign.id) if selected_campaign else None
+    return templates.TemplateResponse(
+        "destination_connectors.html",
+        {
+            "request": request,
+            "page_title": "Destination Connectors",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "destinations": destinations,
+            "overview": overview,
+            "connections": connections,
+            "syncs": syncs,
+            "metrics": metrics,
+            "summary": summary,
+            "error": request.query_params.get("error"),
+            "notice": request.query_params.get("notice"),
+        },
+    )
+
+
+@router.post("/destination-connectors/connections")
+def destination_connectors_create_ui(
+    destination_id: int = Form(...),
+    connection_type: str = Form("manual"),
+    credential_ref: str = Form(""),
+    campaign_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        ConnectionRegistry(db).create(destination_id, connection_type, credential_ref=credential_ref or None)
+    except DestinationConnectorError as exc:
+        return redirect(f"/destination-connectors?error={exc}")
+    return redirect(f"/destination-connectors?campaign_id={campaign_id}" if campaign_id else "/destination-connectors")
+
+
+@router.post("/destination-connectors/connections/{connection_id}/check")
+def destination_connectors_check_ui(connection_id: int, campaign_id: int | None = Form(None), db: Session = Depends(get_db)):
+    try:
+        ConnectionRegistry(db).check(connection_id)
+    except DestinationConnectorError as exc:
+        return redirect(f"/destination-connectors?error={exc}")
+    return redirect(f"/destination-connectors?campaign_id={campaign_id}" if campaign_id else "/destination-connectors")
+
+
+@router.post("/destination-connectors/connections/{connection_id}/sync")
+def destination_connectors_sync_ui(
+    connection_id: int,
+    campaign_id: int | None = Form(None),
+    period_start: str = Form(""),
+    period_end: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = DestinationConnectorSyncService(db).sync(
+            connection_id,
+            period_start=datetime.fromisoformat(period_start).date() if period_start else None,
+            period_end=datetime.fromisoformat(period_end).date() if period_end else None,
+        )
+    except DestinationConnectorError as exc:
+        return redirect(f"/destination-connectors?error={exc}")
+    target = f"/destination-connectors?notice=sync_{result.sync_id}_{result.status}"
+    if campaign_id:
+        target += f"&campaign_id={campaign_id}"
+    return redirect(target)
+
+
+@router.post("/destination-connectors/import-csv")
+async def destination_connectors_import_csv_ui(
+    file: UploadFile = File(...),
+    campaign_id: int | None = Form(None),
+    connection_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        text = (await file.read()).decode("utf-8-sig")
+        connection = ConnectionRegistry(db).get(connection_id) if connection_id else None
+        result = CSVMetricsImporter(db).import_csv_text(
+            text,
+            connection=connection,
+            campaign_id=campaign_id,
+            source_file=file.filename or "destination_metrics.csv",
+        )
+    except DestinationConnectorError as exc:
+        return redirect(f"/destination-connectors?error={exc}")
+    target = f"/destination-connectors?notice=import_{result.sync_id}_{result.status}"
+    if campaign_id:
+        target += f"&campaign_id={campaign_id}"
+    return redirect(target)
 
 
 @router.post("/campaign-autopilot/import-matrix")

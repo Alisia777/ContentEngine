@@ -588,6 +588,34 @@ Open `/destination-crm` to inspect ready/manual/API/paused/blocked destinations,
 
 Docs: `docs/DESTINATION_READINESS_CRM.md`, `docs/DESTINATION_WARMUP_PLANS.md`, and `docs/DESTINATION_CAPACITY_RULES.md`.
 
+## v1.5 Connected Destinations & Metrics Collection
+
+v1.5 connects owned destinations to metric collection without adding external account creation or unsafe upload automation:
+
+```text
+destination
+-> connection
+-> credential readiness
+-> final URL / publishing task
+-> metrics collection
+-> campaign performance loop
+```
+
+Operator CLI:
+
+```bash
+python scripts/add_destination_connection.py --destination-id 1 --type manual
+python scripts/add_destination_connection.py --destination-id 1 --type telegram_bot --credential-ref TELEGRAM_BOT_TOKEN
+python scripts/check_destination_connection.py --connection-id 1
+python scripts/sync_destination_metrics.py --connection-id 1 --period-start 2026-07-01 --period-end 2026-07-07
+python scripts/import_destination_metrics.py --csv sample_data/destination_metrics.csv
+python scripts/destination_metrics_summary.py --campaign-id 1
+```
+
+Open `/destination-connectors` to review connection status, credential configured yes/no, recent syncs, CSV import results, matched/unmatched URLs, and campaign metrics summaries.
+
+Docs: `docs/DESTINATION_CONNECTORS.md`, `docs/METRICS_COLLECTION.md`, `docs/YOUTUBE_ANALYTICS_CONNECTOR.md`, `docs/TELEGRAM_CONNECTOR.md`, and `docs/MANUAL_METRICS_IMPORT.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

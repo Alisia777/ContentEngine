@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -58,6 +58,8 @@ from app.destination_crm import (
     DestinationWarmupService,
 )
 from app.destination_crm.errors import DestinationCRMError
+from app.destination_connectors import ConnectionRegistry, CSVMetricsImporter, DestinationConnectorSyncService, DestinationMetricsCollector
+from app.destination_connectors.errors import DestinationConnectorError
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
@@ -352,6 +354,28 @@ class DestinationWarmupPlanRequest(BaseModel):
     current_phase: str = "phase_1_soft_start"
     status: str = "active"
     notes: str | None = None
+
+
+class DestinationConnectionCreateRequest(BaseModel):
+    destination_id: int
+    connection_type: str = Field("manual", alias="type")
+    credential_ref: str | None = None
+    settings_json: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+
+class DestinationConnectionPatchRequest(BaseModel):
+    status: str | None = None
+    auth_status: str | None = None
+    credential_ref: str | None = None
+    settings_json: dict[str, Any] | None = None
+    error_message: str | None = None
+
+
+class DestinationConnectionSyncRequest(BaseModel):
+    period_start: date | None = None
+    period_end: date | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -2526,6 +2550,154 @@ def get_analytics_by_product(product_id: int, db: Session = Depends(get_db)):
 def get_analytics_by_account(account_id: int, db: Session = Depends(get_db)):
     get_or_404(db, models.PublishingAccount, account_id)
     return AnalyticsService(db).by_account(account_id)
+
+
+@router.post("/destination-connectors/connections")
+def create_destination_connector_connection(payload: DestinationConnectionCreateRequest, db: Session = Depends(get_db)):
+    try:
+        connection = ConnectionRegistry(db).create(
+            payload.destination_id,
+            payload.connection_type,
+            credential_ref=payload.credential_ref,
+            settings_json=payload.settings_json,
+        )
+        return ConnectionRegistry(db).view(connection).model_dump(mode="json")
+    except DestinationConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-connectors/connections")
+def list_destination_connector_connections(db: Session = Depends(get_db)):
+    registry = ConnectionRegistry(db)
+    return [registry.view(connection).model_dump(mode="json") for connection in registry.list()]
+
+
+@router.get("/destination-connectors/destinations/{destination_id}/connections")
+def list_destination_connections(destination_id: int, db: Session = Depends(get_db)):
+    registry = ConnectionRegistry(db)
+    return [registry.view(connection).model_dump(mode="json") for connection in registry.list_for_destination(destination_id)]
+
+
+@router.patch("/destination-connectors/connections/{connection_id}")
+def update_destination_connector_connection(
+    connection_id: int,
+    payload: DestinationConnectionPatchRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        connection = ConnectionRegistry(db).update(connection_id, **payload.model_dump(exclude_unset=True))
+        return ConnectionRegistry(db).view(connection).model_dump(mode="json")
+    except DestinationConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-connectors/connections/{connection_id}/check")
+def check_destination_connector_connection(connection_id: int, db: Session = Depends(get_db)):
+    try:
+        return ConnectionRegistry(db).check(connection_id).model_dump(mode="json")
+    except DestinationConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-connectors/connections/{connection_id}/sync")
+def sync_destination_connector_connection(
+    connection_id: int,
+    payload: DestinationConnectionSyncRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = payload or DestinationConnectionSyncRequest()
+        return DestinationConnectorSyncService(db).sync(
+            connection_id,
+            period_start=payload.period_start,
+            period_end=payload.period_end,
+        ).model_dump(mode="json")
+    except DestinationConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-connectors/metrics/import-csv")
+async def import_destination_connector_metrics_csv(
+    file: UploadFile = File(...),
+    campaign_id: int | None = Form(None),
+    connection_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        text = (await file.read()).decode("utf-8-sig")
+        connection = ConnectionRegistry(db).get(connection_id) if connection_id else None
+        return CSVMetricsImporter(db).import_csv_text(
+            text,
+            connection=connection,
+            campaign_id=campaign_id,
+            source_file=file.filename or "destination_metrics.csv",
+        ).model_dump(mode="json")
+    except DestinationConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-connectors/metrics")
+def list_destination_connector_metrics(
+    campaign_id: int | None = None,
+    destination_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    query = select(models.DestinationPostMetric).order_by(models.DestinationPostMetric.id.desc())
+    if campaign_id:
+        query = query.where(models.DestinationPostMetric.campaign_id == campaign_id)
+    if destination_id:
+        query = query.where(models.DestinationPostMetric.destination_id == destination_id)
+    metrics = db.scalars(query).all()
+    return [
+        {
+            "id": metric.id,
+            "destination_id": metric.destination_id,
+            "connection_id": metric.connection_id,
+            "campaign_id": metric.campaign_id,
+            "publishing_task_id": metric.publishing_task_id,
+            "sku": metric.sku,
+            "platform": metric.platform,
+            "posted_url": metric.posted_url,
+            "period_start": metric.period_start,
+            "period_end": metric.period_end,
+            "views": metric.views,
+            "clicks": metric.clicks,
+            "orders": metric.orders,
+            "revenue": metric.revenue,
+            "engagement_rate": metric.engagement_rate,
+            "ctr": metric.ctr,
+        }
+        for metric in metrics
+    ]
+
+
+@router.get("/destination-connectors/syncs/{sync_id}")
+def get_destination_connector_sync(sync_id: int, db: Session = Depends(get_db)):
+    sync = get_or_404(db, models.DestinationMetricSync, sync_id)
+    return {
+        "id": sync.id,
+        "destination_id": sync.destination_id,
+        "connection_id": sync.connection_id,
+        "campaign_id": sync.campaign_id,
+        "status": sync.status,
+        "period_start": sync.period_start,
+        "period_end": sync.period_end,
+        "imported_count": sync.imported_count,
+        "skipped_count": sync.skipped_count,
+        "error_count": sync.error_count,
+        "warnings": sync.warnings_json,
+        "errors": sync.errors_json,
+    }
+
+
+@router.get("/destination-connectors/destinations/{destination_id}/metrics")
+def list_destination_connector_destination_metrics(destination_id: int, db: Session = Depends(get_db)):
+    return list_destination_connector_metrics(destination_id=destination_id, db=db)
+
+
+@router.get("/destination-connectors/campaigns/{campaign_id}/metrics-summary")
+def get_destination_connector_campaign_summary(campaign_id: int, db: Session = Depends(get_db)):
+    return DestinationMetricsCollector(db).campaign_summary(campaign_id).model_dump(mode="json")
 
 
 @router.post("/exports")

@@ -66,6 +66,14 @@ from app.destination_crm import (
     DestinationReadinessService,
     DestinationWarmupService,
 )
+from app.destination_connectors import (
+    ConnectionRegistry,
+    CSVMetricsImporter,
+    DestinationConnectorSyncService,
+    DestinationMetricsCollector,
+    TelegramConnector,
+    YouTubeAnalyticsConnector,
+)
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
 from app.demand.types import DemandHypothesis
@@ -3290,6 +3298,33 @@ def performance_csv(rows: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def destination_metrics_csv(rows: list[dict]) -> str:
+    columns = [
+        "campaign_id",
+        "destination_name",
+        "platform",
+        "posted_url",
+        "sku",
+        "period_start",
+        "period_end",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "clicks",
+        "orders",
+        "revenue",
+        "spend",
+        "watch_time_seconds",
+        "retention_rate",
+    ]
+    lines = [",".join(columns)]
+    for row in rows:
+        lines.append(",".join(str(row.get(column, "")) for column in columns))
+    return "\n".join(lines) + "\n"
+
+
 def test_import_product_matrix_csv():
     with client():
         with SessionLocal() as db:
@@ -4901,3 +4936,293 @@ def test_destination_crm_ui_renders_readiness_and_capacity():
     assert response.status_code == 200, response.text
     assert "Destination Readiness CRM" in response.text
     assert "Capacity by Campaign" in response.text
+
+
+def test_create_manual_destination_connection():
+    with client():
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            connection = ConnectionRegistry(db).create(destination_id, "manual")
+            audit = db.scalar(select(models.DestinationConnectionAudit))
+
+    assert connection.destination_id == destination_id
+    assert connection.connection_type == "manual"
+    assert connection.status == "connected"
+    assert connection.auth_status == "manual_only"
+    assert audit.event_type == "connection_created"
+
+
+def test_connection_stores_credential_ref_not_secret(monkeypatch):
+    monkeypatch.setenv("SECRET_TOKEN_REF", "super-secret-value")
+    with client():
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            connection = ConnectionRegistry(db).create(destination_id, "telegram_bot", credential_ref="SECRET_TOKEN_REF")
+            audit = db.scalar(select(models.DestinationConnectionAudit))
+
+    assert connection.credential_ref == "SECRET_TOKEN_REF"
+    assert "super-secret-value" not in json.dumps(audit.sanitized_payload_json)
+
+
+def test_connection_check_reports_missing_credential(monkeypatch):
+    monkeypatch.delenv("MISSING_TELEGRAM_TOKEN_REF", raising=False)
+    with client():
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            connection = ConnectionRegistry(db).create(destination_id, "telegram_bot", credential_ref="MISSING_TELEGRAM_TOKEN_REF")
+            result = ConnectionRegistry(db).check(connection.id)
+
+    assert result.status == "needs_auth"
+    assert result.credential_configured is False
+    assert any(blocker["blocker"] == "destination_connection_needs_auth" for blocker in result.blockers)
+
+
+def test_connection_ui_never_renders_secret(monkeypatch):
+    monkeypatch.setenv("SECRET_TOKEN_REF", "super-secret-value")
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            ConnectionRegistry(db).create(destination_id, "telegram_bot", credential_ref="SECRET_TOKEN_REF")
+        response = api.get(f"/destination-connectors?campaign_id={campaign_id}")
+
+    assert response.status_code == 200, response.text
+    assert "Destination Connectors" in response.text
+    assert "configured" in response.text
+    assert "super-secret-value" not in response.text
+    assert "SECRET_TOKEN_REF" not in response.text
+
+
+def test_csv_metrics_import_maps_posted_url_to_task():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/destination-map")
+            result = CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 1200,
+                            "likes": 80,
+                            "comments": 12,
+                            "shares": 4,
+                            "saves": 8,
+                            "clicks": 30,
+                            "orders": 3,
+                            "revenue": 4500,
+                            "spend": 700,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            metric = db.scalar(select(models.DestinationPostMetric))
+            performance_metric = db.scalar(select(models.CampaignPerformanceMetric))
+
+    assert result.imported_count == 1
+    assert metric.publishing_task_id == task.id
+    assert metric.destination_id == task.destination_id
+    assert performance_metric.publishing_task_id == task.id
+    assert performance_metric.views == 1200
+
+
+def test_csv_metrics_import_unmatched_url_warns_not_fails():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product = db.get(models.Product, db.get(models.Campaign, campaign_id).product_ids_json[0])
+            result = CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": "Unknown",
+                            "platform": "Instagram Reels",
+                            "posted_url": "https://example.com/post/unmatched",
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 100,
+                            "clicks": 2,
+                            "orders": 0,
+                        }
+                    ]
+                )
+            )
+            metric = db.scalar(select(models.DestinationPostMetric))
+
+    assert result.status == "partial"
+    assert result.imported_count == 1
+    assert metric.publishing_task_id is None
+    assert any("posted_url_not_matched_to_task" in warning for warning in result.warnings)
+
+
+def test_metrics_import_idempotent_by_url_period():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/idempotent")
+            csv_text = destination_metrics_csv(
+                [
+                    {
+                        "campaign_id": campaign_id,
+                        "destination_name": task.destination.name,
+                        "platform": task.platform,
+                        "posted_url": task.final_url,
+                        "sku": product.sku,
+                        "period_start": "2026-07-01",
+                        "period_end": "2026-07-07",
+                        "views": 200,
+                        "clicks": 4,
+                        "orders": 1,
+                    }
+                ]
+            )
+            first = CSVMetricsImporter(db).import_csv_text(csv_text, campaign_id=campaign_id)
+            second = CSVMetricsImporter(db).import_csv_text(csv_text, campaign_id=campaign_id)
+            metric_count = db.query(models.DestinationPostMetric).count()
+            performance_count = db.query(models.CampaignPerformanceMetric).count()
+
+    assert first.imported_count == 1
+    assert second.imported_count == 0
+    assert second.skipped_count == 1
+    assert metric_count == 1
+    assert performance_count == 1
+
+
+def test_telegram_connector_uses_mock_client_in_tests(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    with client():
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            connection = ConnectionRegistry(db).create(destination_id, "telegram_bot", credential_ref="TELEGRAM_BOT_TOKEN")
+            result = TelegramConnector().check(connection)
+
+    assert result.status == "connected"
+    assert result.auth_status == "bot_ready"
+    assert result.credential_configured is True
+
+
+def test_youtube_connector_requires_oauth_ref():
+    with client():
+        with SessionLocal() as db:
+            destination_id = add_campaign_destination(db)
+            connection = ConnectionRegistry(db).create(destination_id, "youtube_oauth")
+            result = YouTubeAnalyticsConnector().check(connection)
+
+    assert result.status == "needs_auth"
+    assert result.credential_configured is False
+
+
+def test_sync_destination_metrics_creates_destination_post_metrics():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/sync")
+            connection = ConnectionRegistry(db).create(
+                task.destination_id,
+                "manual",
+                settings_json={
+                    "mock_metrics": [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "views": 500,
+                            "clicks": 10,
+                            "orders": 2,
+                        }
+                    ]
+                },
+            )
+            result = DestinationConnectorSyncService(db).sync(connection.id, period_start=date(2026, 7, 1), period_end=date(2026, 7, 7))
+            metric = db.scalar(select(models.DestinationPostMetric))
+
+    assert result.imported_count == 1
+    assert metric.connection_id == connection.id
+    assert metric.publishing_task_id == task.id
+    assert metric.views == 500
+
+
+def test_metrics_flow_updates_campaign_performance():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/performance-flow")
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 900,
+                            "clicks": 45,
+                            "orders": 5,
+                            "revenue": 7500,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+            summary = DestinationMetricsCollector(db).campaign_summary(campaign_id)
+            performance = CampaignPerformanceAggregator(db).summarize(campaign_id)
+
+    assert summary.total_views == 900
+    assert performance.total_views == 900
+    assert performance.total_orders == 5
+
+
+def test_destination_connectors_ui_renders_connections_and_metrics():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/ui")
+            ConnectionRegistry(db).create(task.destination_id, "manual")
+            CSVMetricsImporter(db).import_csv_text(
+                destination_metrics_csv(
+                    [
+                        {
+                            "campaign_id": campaign_id,
+                            "destination_name": task.destination.name,
+                            "platform": task.platform,
+                            "posted_url": task.final_url,
+                            "sku": product.sku,
+                            "period_start": "2026-07-01",
+                            "period_end": "2026-07-07",
+                            "views": 321,
+                            "clicks": 8,
+                            "orders": 1,
+                        }
+                    ]
+                ),
+                campaign_id=campaign_id,
+            )
+        response = api.get(f"/destination-connectors?campaign_id={campaign_id}")
+
+    assert response.status_code == 200, response.text
+    assert "Destination Connectors" in response.text
+    assert "Campaign Metrics Summary" in response.text
+    assert "https://example.com/post/ui" in response.text
+
+
+def test_no_scraping_or_unofficial_login_paths_exist():
+    package_dir = Path("app/destination_connectors")
+    banned = ["selenium", "playwright", "anti_detect", "temp_mail", "register_account"]
+    text = "\n".join(path.read_text(encoding="utf-8") for path in package_dir.glob("*.py"))
+
+    for marker in banned:
+        assert marker not in text
