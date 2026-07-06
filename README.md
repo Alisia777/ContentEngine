@@ -616,6 +616,33 @@ Open `/destination-connectors` to review connection status, credential configure
 
 Docs: `docs/DESTINATION_CONNECTORS.md`, `docs/METRICS_COLLECTION.md`, `docs/YOUTUBE_ANALYTICS_CONNECTOR.md`, `docs/TELEGRAM_CONNECTOR.md`, and `docs/MANUAL_METRICS_IMPORT.md`.
 
+## v1.6 Destination Control Tower
+
+v1.6 combines the destination/account operating modules into one control view:
+
+```text
+destination network
+-> setup status
+-> readiness status
+-> connection status
+-> publishing status
+-> metrics status
+-> performance status
+-> next action
+```
+
+Operator CLI:
+
+```bash
+python scripts/destination_control_snapshot.py --campaign-id 1
+python scripts/destination_control_refresh.py --campaign-id 1
+python scripts/destination_control_report.py --campaign-id 1
+```
+
+Open `/destination-control-tower` for the campaign overview, destination table, blockers, and safe/manual/gated action queue.
+
+Docs: `docs/DESTINATION_CONTROL_TOWER.md` and `docs/DESTINATION_CONTROL_STATUSES.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

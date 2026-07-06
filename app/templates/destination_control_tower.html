@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Destination Control Tower</p>
+    <h1>Account Network Operations</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Setup</span>
+  <span>Readiness</span>
+  <span>Connection</span>
+  <span>Publishing</span>
+  <span>Metrics</span>
+  <span>Performance</span>
+  <span>Action</span>
+</section>
+
+{% if error %}
+  <section class="panel"><strong>Error:</strong> {{ error }}</section>
+{% endif %}
+{% if notice %}
+  <section class="panel"><strong>Status:</strong> {{ notice }}</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Campaign</h2>
+  <form action="/destination-control-tower" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions">
+      <button type="submit">Open</button>
+    </div>
+  </form>
+  {% if selected_campaign %}
+    <form action="/destination-control-tower/{{ selected_campaign.id }}/refresh" method="post" class="actions">
+      <button type="submit">Refresh Tower</button>
+    </form>
+  {% endif %}
+</section>
+
+{% if snapshot %}
+<section class="panel">
+  <h2>Overview</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ snapshot.total_destinations }}</strong><span>destinations</span></div>
+    <div class="metric"><strong>{{ snapshot.setup_needed_count }}</strong><span>setup needed</span></div>
+    <div class="metric"><strong>{{ snapshot.ready_count }}</strong><span>ready</span></div>
+    <div class="metric"><strong>{{ snapshot.connected_count }}</strong><span>connected</span></div>
+    <div class="metric"><strong>{{ snapshot.metrics_synced_count }}</strong><span>synced</span></div>
+    <div class="metric"><strong>{{ snapshot.no_metrics_count }}</strong><span>no metrics</span></div>
+    <div class="metric"><strong>{{ snapshot.low_performance_count }}</strong><span>low performance</span></div>
+    <div class="metric"><strong>{{ snapshot.capacity_gap }}</strong><span>capacity gap</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Destination Table</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Platform</th>
+        <th>Handle</th>
+        <th>Setup</th>
+        <th>Readiness</th>
+        <th>Connection</th>
+        <th>Publishing</th>
+        <th>Metrics</th>
+        <th>Performance</th>
+        <th>Capacity</th>
+        <th>Last URL</th>
+        <th>Next Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.platform }}</td>
+          <td>{{ row.handle or row.name or "-" }}</td>
+          <td>{{ row.setup_status }}</td>
+          <td>{{ row.readiness_status }}</td>
+          <td>{{ row.connection_status }}</td>
+          <td>{{ row.publishing_status }}</td>
+          <td>{{ row.metrics_status }}</td>
+          <td>{{ row.performance_status }}</td>
+          <td>{{ row.daily_capacity_remaining }}/day, {{ row.weekly_capacity_remaining }}/week</td>
+          <td>{{ row.last_post_url or "-" }}</td>
+          <td>{{ row.next_action or "-" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="11">No destination rows yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Blockers</h2>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Blocker</th><th>Source</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        {% for blocker in row.blockers %}
+          <tr>
+            <td>{{ row.handle or row.name or row.destination_id or "-" }}</td>
+            <td>{{ blocker.blocker }}</td>
+            <td>{{ blocker.source or "-" }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="3">No blockers.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Action Queue</h2>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Action</th><th>Mode</th><th>Module</th><th>Run</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        {% if row.next_action and row.next_action != "monitor" %}
+          <tr>
+            <td>{{ row.handle or row.name or row.destination_id or "-" }}</td>
+            <td>{{ row.next_action }}</td>
+            <td>safe/manual/gated</td>
+            <td>
+              {% if row.next_action in ["complete_destination_setup", "increase_capacity"] %}
+                <a href="/destination-setup?campaign_id={{ selected_campaign.id }}">Destination Setup</a>
+              {% elif row.next_action == "refresh_readiness" %}
+                <a href="/destination-crm?campaign_id={{ selected_campaign.id }}">Destination CRM</a>
+              {% elif row.next_action in ["add_connection", "import_metrics", "sync_metrics"] %}
+                <a href="/destination-connectors?campaign_id={{ selected_campaign.id }}">Destination Connectors</a>
+              {% elif row.next_action == "create_publishing_task" %}
+                <a href="/publishing">Publishing</a>
+              {% elif row.next_action == "investigate_low_performance" %}
+                <a href="/campaign-performance?campaign_id={{ selected_campaign.id }}">Campaign Performance</a>
+              {% else %}
+                <a href="/launch-operations?campaign_id={{ selected_campaign.id }}">Launch Ops</a>
+              {% endif %}
+            </td>
+            <td>
+              <form action="/destination-control-tower/rows/{{ row.row_id }}/action" method="post">
+                <input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">
+                <button type="submit">Queue</button>
+              </form>
+            </td>
+          </tr>
+        {% endif %}
+      {% else %}
+        <tr><td colspan="5">No actions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Report</h2>
+  {% if report %}
+    <pre>{{ report.markdown }}</pre>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

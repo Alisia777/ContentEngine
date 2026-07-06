@@ -60,6 +60,7 @@ from app.destination_crm import (
 from app.destination_crm.errors import DestinationCRMError
 from app.destination_connectors import ConnectionRegistry, CSVMetricsImporter, DestinationConnectorSyncService, DestinationMetricsCollector
 from app.destination_connectors.errors import DestinationConnectorError
+from app.destination_control_tower import DestinationControlReportService, DestinationControlTowerError, TowerService
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
@@ -2698,6 +2699,46 @@ def list_destination_connector_destination_metrics(destination_id: int, db: Sess
 @router.get("/destination-connectors/campaigns/{campaign_id}/metrics-summary")
 def get_destination_connector_campaign_summary(campaign_id: int, db: Session = Depends(get_db)):
     return DestinationMetricsCollector(db).campaign_summary(campaign_id).model_dump(mode="json")
+
+
+@router.get("/destination-control-tower/campaigns/{campaign_id}/snapshot")
+def get_destination_control_snapshot(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return TowerService(db).latest_or_refresh(campaign_id).model_dump(mode="json")
+    except DestinationControlTowerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-control-tower/campaigns/{campaign_id}/refresh")
+def refresh_destination_control_snapshot(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return TowerService(db).refresh(campaign_id).model_dump(mode="json")
+    except DestinationControlTowerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-control-tower/campaigns/{campaign_id}/rows")
+def get_destination_control_rows(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [row.model_dump(mode="json") for row in TowerService(db).rows(campaign_id)]
+    except DestinationControlTowerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-control-tower/campaigns/{campaign_id}/report")
+def get_destination_control_report(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return DestinationControlReportService(db).build(campaign_id).model_dump(mode="json")
+    except DestinationControlTowerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-control-tower/rows/{row_id}/action")
+def run_destination_control_row_action(row_id: int, db: Session = Depends(get_db)):
+    try:
+        return TowerService(db).apply_action(row_id)
+    except DestinationControlTowerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/exports")
