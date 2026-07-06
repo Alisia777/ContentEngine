@@ -50,6 +50,14 @@ from app.creative.types import CreativeSpec
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
+from app.destination_crm import (
+    DestinationCRMActionService,
+    DestinationCRMCampaignCapacityService,
+    DestinationHealthService,
+    DestinationReadinessService,
+    DestinationWarmupService,
+)
+from app.destination_crm.errors import DestinationCRMError
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
@@ -337,6 +345,12 @@ class DestinationSetupTaskCompleteRequest(BaseModel):
     url: str | None = None
     handle: str | None = None
     owner_name: str | None = None
+    notes: str | None = None
+
+
+class DestinationWarmupPlanRequest(BaseModel):
+    current_phase: str = "phase_1_soft_start"
+    status: str = "active"
     notes: str | None = None
 
 
@@ -1880,6 +1894,94 @@ def create_destination_from_setup_task(task_id: int, db: Session = Depends(get_d
         "posting_mode": destination.posting_mode,
         "auth_status": destination.auth_status,
     }
+
+
+@router.get("/destination-crm/destinations")
+def list_destination_crm_destinations(campaign_id: int | None = None, db: Session = Depends(get_db)):
+    try:
+        overview = DestinationCRMActionService(db).overview()
+        readiness = DestinationReadinessService(db).list_latest(campaign_id=campaign_id)
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "overview": overview,
+        "destinations": [item.model_dump(mode="json") for item in readiness],
+    }
+
+
+@router.get("/destination-crm/destinations/{destination_id}/readiness")
+def get_destination_crm_readiness(destination_id: int, db: Session = Depends(get_db)):
+    try:
+        return DestinationReadinessService(db).latest_or_refresh(destination_id).model_dump(mode="json")
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/destination-crm/destinations/{destination_id}/refresh-readiness")
+def refresh_destination_crm_readiness(destination_id: int, db: Session = Depends(get_db)):
+    try:
+        return DestinationReadinessService(db).refresh(destination_id).model_dump(mode="json")
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-crm/destinations/{destination_id}/warmup-plan")
+def create_destination_warmup_plan(
+    destination_id: int,
+    payload: DestinationWarmupPlanRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or DestinationWarmupPlanRequest()
+    try:
+        return DestinationWarmupService(db).create_or_update(
+            destination_id,
+            current_phase=payload.current_phase,
+            status=payload.status,
+            notes=payload.notes,
+        ).model_dump(mode="json")
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/destination-crm/destinations/{destination_id}/warmup-plan")
+def patch_destination_warmup_plan(
+    destination_id: int,
+    payload: DestinationWarmupPlanRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return DestinationWarmupService(db).create_or_update(
+            destination_id,
+            current_phase=payload.current_phase,
+            status=payload.status,
+            notes=payload.notes,
+        ).model_dump(mode="json")
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-crm/campaigns/{campaign_id}/capacity")
+def get_destination_crm_campaign_capacity(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return DestinationCRMCampaignCapacityService(db).calculate(campaign_id).model_dump(mode="json")
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/destination-crm/campaigns/{campaign_id}/health")
+def get_destination_crm_campaign_health(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in DestinationHealthService(db).refresh_campaign(campaign_id)]
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/destination-crm/actions")
+def get_destination_crm_actions(campaign_id: int | None = None, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in DestinationCRMActionService(db).list_actions(campaign_id=campaign_id)]
+    except DestinationCRMError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/bombar/campaigns")

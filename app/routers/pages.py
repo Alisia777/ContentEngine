@@ -43,6 +43,14 @@ from app.creative.errors import CreativeSpecError
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
+from app.destination_crm import (
+    DestinationCRMActionService,
+    DestinationCRMCampaignCapacityService,
+    DestinationHealthService,
+    DestinationReadinessService,
+    DestinationWarmupService,
+)
+from app.destination_crm.errors import DestinationCRMError
 from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
@@ -1500,6 +1508,67 @@ def destination_setup_create_destination_ui(
     except DestinationSetupError as exc:
         return redirect(f"/destination-setup?campaign_id={campaign_id}&error={exc}")
     return redirect(f"/destination-setup?campaign_id={campaign_id}")
+
+
+@router.get("/destination-crm", response_class=HTMLResponse)
+def destination_crm_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    overview = {"total": 0, "active": 0, "ready": 0, "manual_ready": 0, "api_ready": 0, "paused": 0, "blocked": 0}
+    readiness = []
+    capacity = None
+    health = []
+    actions = []
+    error = request.query_params.get("error")
+    try:
+        overview = DestinationCRMActionService(db).overview()
+        readiness = DestinationReadinessService(db).list_latest(campaign_id=selected_campaign.id if selected_campaign else None)
+        if selected_campaign:
+            capacity = DestinationCRMCampaignCapacityService(db).calculate(selected_campaign.id)
+            health = DestinationHealthService(db).refresh_campaign(selected_campaign.id)
+            actions = DestinationCRMActionService(db).list_actions(campaign_id=selected_campaign.id)
+    except DestinationCRMError as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "destination_crm.html",
+        {
+            "request": request,
+            "page_title": "Destination Readiness CRM",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "overview": overview,
+            "readiness": readiness,
+            "capacity": capacity,
+            "health": health,
+            "actions": actions,
+            "error": error,
+        },
+    )
+
+
+@router.post("/destination-crm/destinations/{destination_id}/refresh")
+def destination_crm_refresh_ui(destination_id: int, campaign_id: int | None = Form(None), db: Session = Depends(get_db)):
+    try:
+        DestinationReadinessService(db).refresh(destination_id, campaign_id=campaign_id)
+    except DestinationCRMError as exc:
+        return redirect(f"/destination-crm?error={exc}")
+    return redirect(f"/destination-crm?campaign_id={campaign_id}" if campaign_id else "/destination-crm")
+
+
+@router.post("/destination-crm/destinations/{destination_id}/warmup")
+def destination_crm_warmup_ui(
+    destination_id: int,
+    campaign_id: int | None = Form(None),
+    current_phase: str = Form("phase_1_soft_start"),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        DestinationWarmupService(db).create_or_update(destination_id, current_phase=current_phase, notes=notes or None)
+        DestinationReadinessService(db).refresh(destination_id, campaign_id=campaign_id)
+    except DestinationCRMError as exc:
+        return redirect(f"/destination-crm?error={exc}")
+    return redirect(f"/destination-crm?campaign_id={campaign_id}" if campaign_id else "/destination-crm")
 
 
 @router.post("/campaign-autopilot/import-matrix")

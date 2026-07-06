@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Destination Readiness CRM</p>
+    <h1>Accounts, Capacity, Warmup, Health</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Internal Destination</span>
+  <span>Readiness</span>
+  <span>Warmup</span>
+  <span>Capacity</span>
+  <span>Health</span>
+  <span>Next Actions</span>
+</section>
+
+{% if error %}
+  <section class="panel"><strong>Error:</strong> {{ error }}</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Campaign</h2>
+  <form action="/destination-crm" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Destination Overview</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ overview.total }}</strong><span>total</span></div>
+    <div class="metric"><strong>{{ overview.active }}</strong><span>active</span></div>
+    <div class="metric"><strong>{{ overview.ready }}</strong><span>ready</span></div>
+    <div class="metric"><strong>{{ overview.manual_ready }}</strong><span>manual ready</span></div>
+    <div class="metric"><strong>{{ overview.api_ready }}</strong><span>API ready</span></div>
+    <div class="metric"><strong>{{ overview.paused }}</strong><span>paused</span></div>
+    <div class="metric"><strong>{{ overview.blocked }}</strong><span>blocked</span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Readiness Table</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Platform</th><th>Readiness</th><th>Mode</th><th>Auth</th><th>Warmup</th><th>Capacity</th><th>Blockers</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for item in readiness %}
+        <tr>
+          <td>{{ item.destination_id }}</td>
+          <td>{{ item.platform }}</td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.posting_mode }}</td>
+          <td>{{ item.auth_status }}</td>
+          <td>{{ item.warmup_phase }}</td>
+          <td>{{ item.remaining_daily_capacity }}/day, {{ item.remaining_weekly_capacity }}/week</td>
+          <td>{{ item.blockers[0].blocker if item.blockers else "-" }}</td>
+          <td>
+            <form action="/destination-crm/destinations/{{ item.destination_id }}/refresh" method="post">
+              {% if selected_campaign %}<input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">{% endif %}
+              <button type="submit">Refresh</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9">No destinations yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Warmup Plans</h2>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Phase</th><th>Daily/Weekly</th><th>Set Phase</th></tr></thead>
+    <tbody>
+      {% for item in readiness %}
+        <tr>
+          <td>#{{ item.destination_id }}</td>
+          <td>{{ item.warmup_phase }}</td>
+          <td>{{ item.daily_limit }} / {{ item.weekly_limit }}</td>
+          <td>
+            <form action="/destination-crm/destinations/{{ item.destination_id }}/warmup" method="post" class="form-grid">
+              {% if selected_campaign %}<input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">{% endif %}
+              <select name="current_phase">
+                <option>phase_0_setup</option>
+                <option>phase_1_soft_start</option>
+                <option>phase_2_regular</option>
+                <option>phase_3_scaled</option>
+              </select>
+              <input name="notes" placeholder="Notes">
+              <button type="submit">Save</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No warmup plans yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if capacity %}
+<section class="panel">
+  <h2>Capacity by Campaign</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ capacity.required_slots }}</strong><span>required slots</span></div>
+    <div class="metric"><strong>{{ capacity.available_weekly_capacity }}</strong><span>available weekly</span></div>
+    <div class="metric"><strong>{{ capacity.capacity_gap }}</strong><span>gap</span></div>
+    <div class="metric"><strong>{{ capacity.ready_destinations }}</strong><span>ready destinations</span></div>
+    <div class="metric"><strong>{{ capacity.blocked_destinations }}</strong><span>blocked destinations</span></div>
+  </div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Destination Health</h2>
+  <table class="table">
+    <thead><tr><th>Destination</th><th>Status</th><th>Last Post</th><th>Failed Tasks</th><th>Avg Views</th><th>Avg ER</th><th>Blocker</th></tr></thead>
+    <tbody>
+      {% for item in health %}
+        <tr>
+          <td>{{ item.destination_id }}</td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.last_final_url or "-" }}</td>
+          <td>{{ item.failed_task_count }}</td>
+          <td>{{ "%.0f"|format(item.avg_views) }}</td>
+          <td>{{ "%.3f"|format(item.avg_engagement_rate) }}</td>
+          <td>{{ item.blockers[0].blocker if item.blockers else "-" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No health checks yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Next Actions</h2>
+  <table class="table">
+    <thead><tr><th>Type</th><th>Action</th><th>Destination</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for item in actions %}
+        <tr><td>{{ item.action_type }}</td><td>{{ item.action }}</td><td>{{ item.destination_id or "-" }}</td><td>{{ item.reason }}</td></tr>
+      {% else %}
+        <tr><td colspan="4">No destination actions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

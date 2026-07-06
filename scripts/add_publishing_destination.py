@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--handle")
     parser.add_argument("--url")
     parser.add_argument("--owner-name")
-    parser.add_argument("--posting-mode", default="manual", choices=["manual", "api", "disabled"])
+    parser.add_argument("--posting-mode", default="manual", choices=["manual", "api", "telegram_bot", "disabled"])
     parser.add_argument("--daily-limit", type=int, default=1)
     parser.add_argument("--weekly-limit", type=int, default=3)
     parser.add_argument("--notes")

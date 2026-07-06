@@ -562,6 +562,32 @@ Open `/destination-setup` to review capacity gaps, profile packs, first posts, c
 
 Docs: `docs/DESTINATION_SETUP_FACTORY.md`, `docs/DESTINATION_PROFILE_PACKS.md`, and `docs/ACCOUNT_SETUP_CHECKLIST.md`.
 
+## v1.4 Destination Readiness CRM
+
+v1.4 manages owned destinations after setup:
+
+```text
+internal destination
+-> readiness snapshot
+-> warmup/posting mode
+-> campaign capacity
+-> destination health
+-> next actions
+```
+
+Operator CLI:
+
+```bash
+python scripts/destination_crm_readiness.py --destination-id 1
+python scripts/destination_crm_refresh.py --destination-id 1
+python scripts/destination_crm_campaign_capacity.py --campaign-id 1
+python scripts/destination_crm_health.py --campaign-id 1
+```
+
+Open `/destination-crm` to inspect ready/manual/API/paused/blocked destinations, warmup phases, remaining capacity, health, and next operator actions. The CRM does not register external accounts, bypass platform rules, or publish unapproved videos.
+
+Docs: `docs/DESTINATION_READINESS_CRM.md`, `docs/DESTINATION_WARMUP_PLANS.md`, and `docs/DESTINATION_CAPACITY_RULES.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

@@ -1158,6 +1158,65 @@ class DestinationSetupTask(Base, TimestampMixin):
     profile_pack = relationship("DestinationProfilePack")
 
 
+class DestinationReadinessSnapshot(Base, TimestampMixin):
+    __tablename__ = "destination_readiness_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="blocked", index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    posting_mode = Column(String(80), nullable=False, index=True)
+    auth_status = Column(String(80), nullable=False, index=True)
+    active = Column(Boolean, default=False, nullable=False, index=True)
+    manual_ready = Column(Boolean, default=False, nullable=False, index=True)
+    api_ready = Column(Boolean, default=False, nullable=False, index=True)
+    warmup_phase = Column(String(80), nullable=False, default="phase_2_regular", index=True)
+    daily_limit = Column(Integer, nullable=False, default=0)
+    weekly_limit = Column(Integer, nullable=False, default=0)
+    used_today = Column(Integer, nullable=False, default=0)
+    used_this_week = Column(Integer, nullable=False, default=0)
+    remaining_daily_capacity = Column(Integer, nullable=False, default=0)
+    remaining_weekly_capacity = Column(Integer, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    destination = relationship("PublishingDestination")
+    campaign = relationship("Campaign")
+
+
+class DestinationWarmupPlan(Base, TimestampMixin):
+    __tablename__ = "destination_warmup_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    start_date = Column(DateTime, default=utcnow, nullable=False)
+    current_phase = Column(String(80), nullable=False, default="phase_1_soft_start", index=True)
+    rules_json = Column(JSON, default=list, nullable=False)
+    notes = Column(Text, nullable=True)
+
+    destination = relationship("PublishingDestination")
+
+
+class DestinationHealthCheck(Base, TimestampMixin):
+    __tablename__ = "destination_health_checks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="unknown", index=True)
+    last_posted_at = Column(DateTime, nullable=True)
+    last_final_url = Column(String(500), nullable=True)
+    recent_task_count = Column(Integer, nullable=False, default=0)
+    failed_task_count = Column(Integer, nullable=False, default=0)
+    avg_views = Column(Float, nullable=False, default=0)
+    avg_engagement_rate = Column(Float, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+
+    destination = relationship("PublishingDestination")
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

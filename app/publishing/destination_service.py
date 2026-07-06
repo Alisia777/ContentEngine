@@ -13,8 +13,8 @@ from app.publishing.types import PublishingReadiness
 
 class PublishingDestinationService:
     VALID_STATUSES = {"draft", "active", "paused", "disabled"}
-    VALID_POSTING_MODES = {"manual", "api", "disabled"}
-    VALID_AUTH_STATUSES = {"manual_only", "not_configured", "token_valid", "token_expired", "needs_review"}
+    VALID_POSTING_MODES = {"manual", "api", "telegram_bot", "disabled"}
+    VALID_AUTH_STATUSES = {"manual_only", "not_configured", "token_valid", "api_ready", "token_expired", "needs_review"}
 
     def __init__(self, db: Session):
         self.db = db
@@ -143,6 +143,8 @@ class PublishingDestinationService:
         if posting_mode == "manual":
             return "manual_only"
         if posting_mode == "api":
+            return "not_configured"
+        if posting_mode == "telegram_bot":
             return "not_configured"
         return "not_configured"
 
