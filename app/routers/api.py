@@ -105,6 +105,7 @@ from app.participant_portal import (
 )
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
+from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, TrainingAcademyError
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -489,6 +490,15 @@ class MetricsCSVImportRequest(BaseModel):
     campaign_id: int | None = None
     source_type: str = "manual_csv"
     source_name: str | None = None
+
+
+class TrainingStartRequest(BaseModel):
+    participant_id: int
+
+
+class TrainingQuizSubmitRequest(BaseModel):
+    participant_id: int
+    answers: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -3254,6 +3264,78 @@ def get_campaign_funnel(campaign_id: int, db: Session = Depends(get_db)):
 @router.get("/metrics-intake/campaigns/{campaign_id}/unmatched")
 def get_campaign_unmatched_rows(campaign_id: int, db: Session = Depends(get_db)):
     return {"campaign_id": campaign_id, "unmatched_rows": FunnelService(db).unmatched_rows(campaign_id)}
+
+
+@router.get("/training/courses")
+def list_training_courses(db: Session = Depends(get_db)):
+    service = CurriculumService(db)
+    if not service.list_courses():
+        service.seed_defaults()
+    return [service.course_payload(course) for course in service.list_courses()]
+
+
+@router.get("/training/courses/{course_id}")
+def get_training_course(course_id: int, db: Session = Depends(get_db)):
+    try:
+        service = CurriculumService(db)
+        if not service.list_courses():
+            service.seed_defaults()
+        return service.course_payload(service.get_course(course_id))
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/training/courses/{course_id}/start")
+def start_training_course(course_id: int, payload: TrainingStartRequest, db: Session = Depends(get_db)):
+    try:
+        attempt = ProgressService(db).start_course(participant_id=payload.participant_id, course_id=course_id)
+        return {
+            "attempt_id": attempt.id,
+            "participant_id": attempt.participant_id,
+            "course_id": attempt.course_id,
+            "status": attempt.status,
+        }
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/training/quizzes/{quiz_id}/submit")
+def submit_training_quiz(quiz_id: int, payload: TrainingQuizSubmitRequest, db: Session = Depends(get_db)):
+    try:
+        return QuizService(db).submit(participant_id=payload.participant_id, quiz_id=quiz_id, answers=payload.answers).model_dump(mode="json")
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/training/participants/{participant_id}/progress")
+def get_training_progress(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        service = CurriculumService(db)
+        if not service.list_courses():
+            service.seed_defaults()
+        return ProgressService(db).progress(participant_id).model_dump(mode="json")
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/training/participants/{participant_id}/certifications")
+def get_training_certifications(participant_id: int, db: Session = Depends(get_db)):
+    try:
+        certifications = CertificationService(db).list_certifications(participant_id)
+        return [
+            {
+                "id": cert.id,
+                "participant_id": cert.participant_id,
+                "course_id": cert.course_id,
+                "course_code": cert.course_code,
+                "status": cert.status,
+                "issued_at": cert.issued_at,
+                "expires_at": cert.expires_at,
+            }
+            for cert in certifications
+        ]
+    except TrainingAcademyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/exports")

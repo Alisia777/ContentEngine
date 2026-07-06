@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">v1.9</p>
+    <h1>Training Academy</h1>
+  </div>
+  {% if selected_participant %}
+    <span class="status">Participant #{{ selected_participant.id }} / {{ selected_participant.role }}</span>
+  {% endif %}
+</section>
+
+{% if error %}
+  <section class="panel danger-panel"><strong>{{ error }}</strong></section>
+{% endif %}
+{% if notice %}
+  <section class="panel"><strong>Status:</strong> {{ notice }}</section>
+{% endif %}
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Participant Progress</h2>
+      <p class="muted">Soft gates are advisory by default. Strict mode can block publishing, metrics submission, or reviewer approval when enabled by the operator.</p>
+    </div>
+    <form method="get" action="/training-academy" class="inline-form">
+      <label>Participant
+        <select name="participant_id">
+          {% for participant in participants %}
+            <option value="{{ participant.id }}" {% if selected_participant and participant.id == selected_participant.id %}selected{% endif %}>
+              #{{ participant.id }} {{ participant.display_name }} / {{ participant.role }}
+            </option>
+          {% else %}
+            <option value="">No participants yet</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if selected_course %}
+        <input type="hidden" name="course_id" value="{{ selected_course.id }}">
+      {% endif %}
+      <button type="submit">Open</button>
+    </form>
+  </div>
+  {% if progress %}
+    <div class="metric-grid">
+      {% for course in progress.courses %}
+        <div class="metric">
+          <strong>{{ course.status }}</strong>
+          <span>{{ course.title }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    <table class="table compact">
+      <thead><tr><th>Gate</th><th>Course</th><th>Status</th><th>Message</th></tr></thead>
+      <tbody>
+        {% for action, gate in progress.gates.items() %}
+          <tr>
+            <td>{{ action }}</td>
+            <td>{{ gate.course_code }}</td>
+            <td>{{ gate.status }}</td>
+            <td>{{ gate.message }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Create or select a participant to track certifications.</p>
+  {% endif %}
+</section>
+
+<section class="grid two">
+  <article class="panel">
+    <h2>Course Catalog</h2>
+    <table class="table compact">
+      <thead><tr><th>Course</th><th>Role</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for course in courses %}
+          <tr>
+            <td>{{ course.title }}</td>
+            <td>{{ course.role }}</td>
+            <td>{{ course.status }}</td>
+            <td>
+              <a href="/training-academy?course_id={{ course.id }}{% if selected_participant %}&participant_id={{ selected_participant.id }}{% endif %}">Open</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel">
+    <h2>Role-Based Learning Path</h2>
+    {% if selected_course_payload %}
+      <h3>{{ selected_course_payload.title }}</h3>
+      <p>{{ selected_course_payload.summary }}</p>
+      <ul>
+        {% for item in selected_course_payload.learning_path %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      <h3>Checklist</h3>
+      <ul>
+        {% for item in selected_course_payload.checklist %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% if selected_participant %}
+        <form method="post" action="/training-academy/courses/{{ selected_course_payload.id }}/start">
+          <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+          <button type="submit">Start Course</button>
+        </form>
+      {% endif %}
+    {% endif %}
+  </article>
+</section>
+
+{% if selected_course_payload %}
+<section class="grid two">
+  <article class="panel">
+    <h2>Lesson Viewer</h2>
+    {% for lesson in selected_course_payload.lessons %}
+      <h3>{{ lesson.title }}</h3>
+      <p>{{ lesson.body }}</p>
+      <ul>
+        {% for item in lesson.checklist %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% for example in lesson.examples %}
+        <p class="muted"><strong>{{ example.label }}:</strong> {{ example.value }}</p>
+      {% endfor %}
+    {% endfor %}
+  </article>
+
+  <article class="panel">
+    <h2>Quiz / Certification Test</h2>
+    {% if selected_course_payload.quizzes %}
+      {% set quiz = selected_course_payload.quizzes[0] %}
+      <p class="muted">Passing score: {{ quiz.passing_score }}</p>
+      {% if selected_participant %}
+        <form method="post" action="/training-academy/quizzes/{{ quiz.id }}/submit" class="stacked-form">
+          <input type="hidden" name="participant_id" value="{{ selected_participant.id }}">
+          <input type="hidden" name="course_id" value="{{ selected_course_payload.id }}">
+          {% for question in quiz.questions %}
+            <label>{{ question.prompt }}
+              <input name="answer_{{ question.id }}" placeholder="Type the expected rule">
+            </label>
+          {% endfor %}
+          <button type="submit">Submit Quiz</button>
+        </form>
+      {% else %}
+        <p class="muted">Select a participant to submit the quiz.</p>
+      {% endif %}
+    {% endif %}
+  </article>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Certification Result</h2>
+  {% if progress and progress.certifications %}
+    <table class="table compact">
+      <thead><tr><th>Course</th><th>Status</th><th>Issued</th></tr></thead>
+      <tbody>
+        {% for cert in progress.certifications %}
+          <tr><td>{{ cert.course_code }}</td><td>{{ cert.status }}</td><td>{{ cert.issued_at }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No certifications yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
