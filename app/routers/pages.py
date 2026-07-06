@@ -41,6 +41,8 @@ from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
 from app.database import get_db
+from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
+from app.destination_setup.errors import DestinationSetupError
 from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
@@ -1386,6 +1388,118 @@ def launch_operations_refresh(campaign_id: int, db: Session = Depends(get_db)):
 def launch_operations_export_runbook(campaign_id: int, db: Session = Depends(get_db)):
     LaunchReportService(db).export_runbook(campaign_id)
     return redirect(f"/launch-operations?campaign_id={campaign_id}")
+
+
+@router.get("/destination-setup", response_class=HTMLResponse)
+def destination_setup_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+    campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
+    selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
+    requirements = []
+    profile_packs = []
+    tasks = []
+    error = request.query_params.get("error")
+    if selected_campaign:
+        try:
+            requirements = SetupRequirementService(db).list(selected_campaign.id)
+            profile_packs = DestinationProfilePackBuilder(db).list(selected_campaign.id)
+            tasks = DestinationSetupTaskService(db).list(campaign_id=selected_campaign.id)
+        except DestinationSetupError as exc:
+            error = str(exc)
+    return templates.TemplateResponse(
+        "destination_setup.html",
+        {
+            "request": request,
+            "page_title": "Destination Setup Factory",
+            "campaigns": campaigns,
+            "selected_campaign": selected_campaign,
+            "requirements": requirements,
+            "profile_packs": profile_packs,
+            "tasks": tasks,
+            "error": error,
+        },
+    )
+
+
+@router.post("/destination-setup/{campaign_id}/requirements")
+def destination_setup_requirements_ui(
+    campaign_id: int,
+    platform: str = Form("Instagram Reels"),
+    db: Session = Depends(get_db),
+):
+    try:
+        SetupRequirementService(db).refresh(campaign_id, platform=platform)
+    except DestinationSetupError as exc:
+        return redirect(f"/destination-setup?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-setup?campaign_id={campaign_id}")
+
+
+@router.post("/destination-setup/{campaign_id}/profile-packs")
+def destination_setup_profile_packs_ui(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        if not SetupRequirementService(db).list(campaign_id):
+            SetupRequirementService(db).refresh(campaign_id)
+        DestinationProfilePackBuilder(db).generate_for_campaign(campaign_id)
+    except DestinationSetupError as exc:
+        return redirect(f"/destination-setup?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-setup?campaign_id={campaign_id}")
+
+
+@router.post("/destination-setup/{campaign_id}/tasks")
+def destination_setup_tasks_ui(
+    campaign_id: int,
+    owner_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        DestinationSetupTaskService(db).create_tasks_for_campaign(campaign_id, owner_name=owner_name or None)
+    except DestinationSetupError as exc:
+        return redirect(f"/destination-setup?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-setup?campaign_id={campaign_id}")
+
+
+@router.post("/destination-setup/profile-packs/{profile_pack_id}/create-task")
+def destination_setup_profile_pack_task_ui(profile_pack_id: int, db: Session = Depends(get_db)):
+    try:
+        task = DestinationSetupTaskService(db).create_task(profile_pack_id)
+    except DestinationSetupError as exc:
+        return redirect(f"/destination-setup?error={exc}")
+    return redirect(f"/destination-setup?campaign_id={task.campaign_id}")
+
+
+@router.post("/destination-setup/tasks/{task_id}/complete")
+def destination_setup_complete_task_ui(
+    task_id: int,
+    campaign_id: int = Form(...),
+    final_account_url: str = Form(""),
+    final_handle: str = Form(""),
+    owner_name: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        DestinationSetupTaskService(db).mark_complete(
+            task_id,
+            url=final_account_url or None,
+            handle=final_handle or None,
+            owner_name=owner_name or None,
+            notes=notes or None,
+        )
+    except DestinationSetupError as exc:
+        return redirect(f"/destination-setup?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-setup?campaign_id={campaign_id}")
+
+
+@router.post("/destination-setup/tasks/{task_id}/create-destination")
+def destination_setup_create_destination_ui(
+    task_id: int,
+    campaign_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        DestinationSetupTaskService(db).create_destination(task_id)
+    except DestinationSetupError as exc:
+        return redirect(f"/destination-setup?campaign_id={campaign_id}&error={exc}")
+    return redirect(f"/destination-setup?campaign_id={campaign_id}")
 
 
 @router.post("/campaign-autopilot/import-matrix")
