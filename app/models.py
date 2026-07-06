@@ -1104,6 +1104,60 @@ class DestinationCapacitySnapshot(Base, TimestampMixin):
     campaign = relationship("Campaign")
 
 
+class DestinationSetupRequirement(Base, TimestampMixin):
+    __tablename__ = "destination_setup_requirements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, default="Instagram Reels", index=True)
+    required_count = Column(Integer, nullable=False, default=0)
+    existing_ready_count = Column(Integer, nullable=False, default=0)
+    capacity_gap = Column(Integer, nullable=False, default=0)
+    reason = Column(String(160), nullable=False, default="capacity_gap", index=True)
+    status = Column(String(80), nullable=False, default="open", index=True)
+
+    campaign = relationship("Campaign")
+
+
+class DestinationProfilePack(Base, TimestampMixin):
+    __tablename__ = "destination_profile_packs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, default="Instagram Reels", index=True)
+    sku_focus_json = Column(JSON, default=list, nullable=False)
+    theme = Column(String(160), nullable=False)
+    suggested_name = Column(String(160), nullable=False)
+    suggested_handle = Column(String(160), nullable=False)
+    bio_text = Column(Text, nullable=True)
+    avatar_prompt = Column(Text, nullable=True)
+    avatar_asset_path = Column(String(500), nullable=True)
+    content_pillars_json = Column(JSON, default=list, nullable=False)
+    first_posts_json = Column(JSON, default=list, nullable=False)
+    posting_rules_json = Column(JSON, default=list, nullable=False)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+
+    campaign = relationship("Campaign")
+
+
+class DestinationSetupTask(Base, TimestampMixin):
+    __tablename__ = "destination_setup_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    profile_pack_id = Column(Integer, ForeignKey("destination_profile_packs.id"), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="needs_manual_setup", index=True)
+    owner_name = Column(String(160), nullable=True)
+    checklist_json = Column(JSON, default=list, nullable=False)
+    final_account_url = Column(String(500), nullable=True)
+    final_handle = Column(String(160), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    campaign = relationship("Campaign")
+    profile_pack = relationship("DestinationProfilePack")
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

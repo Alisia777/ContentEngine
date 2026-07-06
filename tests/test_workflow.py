@@ -58,6 +58,8 @@ from app.creative.hook_strategy import HookStrategySelector
 from app.creative.product_geometry import GEOMETRY_LOCK_PROMPT_LINES, GEOMETRY_NEGATIVE_TERMS
 from app.creative.types import CreativeSpec
 from app.database import Base, SessionLocal, engine
+from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
+from app.destination_setup.errors import DestinationSetupDataError
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
 from app.demand.types import DemandHypothesis
@@ -4623,3 +4625,144 @@ def test_launch_operations_does_not_auto_publish():
 
     assert before == after == 0
     assert jobs == []
+
+
+def test_destination_setup_requirement_from_capacity_gap():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=10, target_destinations=3)
+        with SessionLocal() as db:
+            add_launch_destination(db, weekly_limit=2)
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+
+    assert requirement.platform == "Instagram Reels"
+    assert requirement.existing_ready_count == 1
+    assert requirement.capacity_gap == 8
+    assert requirement.required_count == 3
+    assert requirement.status == "open"
+
+
+def test_profile_pack_builder_creates_name_bio_first_posts():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+            packs = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)
+
+    assert len(packs) == 1
+    assert packs[0].suggested_name
+    assert packs[0].suggested_handle.startswith("@")
+    assert "human review" in (packs[0].bio_text or "")
+    assert len(packs[0].first_posts) == 9
+    assert packs[0].content_pillars
+
+
+def test_setup_task_created_from_profile_pack():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+            pack = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)[0]
+            task = DestinationSetupTaskService(db).create_task(pack.id, owner_name="Ops")
+
+    assert task.status == "needs_manual_setup"
+    assert task.owner_name == "Ops"
+    assert any(item["key"] == "no_external_registration" for item in task.checklist)
+
+
+def test_setup_task_mark_complete_requires_url_or_handle():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+            pack = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)[0]
+            task = DestinationSetupTaskService(db).create_task(pack.id)
+            with pytest.raises(DestinationSetupDataError):
+                DestinationSetupTaskService(db).mark_complete(task.id)
+
+
+def test_create_internal_destination_from_completed_task():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+            pack = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)[0]
+            task = DestinationSetupTaskService(db).create_task(pack.id)
+            completed = DestinationSetupTaskService(db).mark_complete(
+                task.id,
+                url="https://example.com/account",
+                handle="@example",
+            )
+            destination = DestinationSetupTaskService(db).create_destination(completed.id)
+
+    assert destination.status == "active"
+    assert destination.posting_mode == "manual"
+    assert destination.auth_status == "manual_only"
+    assert destination.handle == "@example"
+
+
+def test_instagram_destination_requires_manual_setup():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            requirement = SetupRequirementService(db).refresh(campaign_id, platform="Instagram Reels")
+            pack = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)[0]
+            task = DestinationSetupTaskService(db).create_task(pack.id)
+
+    assert task.platform == "Instagram Reels"
+    assert task.status == "needs_manual_setup"
+    assert any(item["key"] == "official_api" for item in task.checklist)
+
+
+def test_destination_setup_does_not_auto_register_external_account():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            before_destinations = db.query(models.PublishingDestination).count()
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+            packs = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)
+            DestinationSetupTaskService(db).create_task(packs[0].id)
+            after_destinations = db.query(models.PublishingDestination).count()
+            publishing_tasks = db.scalars(select(models.PublishingTask)).all()
+            publishing_jobs = db.scalars(select(models.PublishingJob)).all()
+
+    assert before_destinations == after_destinations == 0
+    assert publishing_tasks == []
+    assert publishing_jobs == []
+
+
+def test_destination_setup_ui_renders():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        with SessionLocal() as db:
+            requirement = SetupRequirementService(db).refresh(campaign_id)
+            pack = DestinationProfilePackBuilder(db).generate_for_requirement(requirement.id)[0]
+            DestinationSetupTaskService(db).create_task(pack.id)
+        response = api.get(f"/destination-setup?campaign_id={campaign_id}")
+
+    assert response.status_code == 200, response.text
+    assert "Destination Setup Factory" in response.text
+    assert "Capacity Gap to Owned Destinations" in response.text
+    assert "Create Internal Destination" in response.text
+
+
+def test_destination_setup_api_flow_creates_destination():
+    with client() as api:
+        campaign_id = campaign_fixture(row_count=1, target_videos=1, target_destinations=1)
+        requirement_response = api.post(f"/api/destination-setup/campaigns/{campaign_id}/requirements", json={})
+        assert requirement_response.status_code == 200, requirement_response.text
+        pack_response = api.post(f"/api/destination-setup/campaigns/{campaign_id}/profile-packs", json={})
+        assert pack_response.status_code == 200, pack_response.text
+        pack_id = pack_response.json()[0]["id"]
+        task_response = api.post(f"/api/destination-setup/profile-packs/{pack_id}/create-task", json={"owner_name": "Ops"})
+        assert task_response.status_code == 200, task_response.text
+        task_id = task_response.json()["id"]
+        complete_response = api.post(
+            f"/api/destination-setup/tasks/{task_id}/mark-complete",
+            json={"url": "https://example.com/account", "handle": "@example", "owner_name": "Ops"},
+        )
+        assert complete_response.status_code == 200, complete_response.text
+        destination_response = api.post(f"/api/destination-setup/tasks/{task_id}/create-destination")
+
+    assert destination_response.status_code == 200, destination_response.text
+    assert destination_response.json()["status"] == "active"
+    assert destination_response.json()["posting_mode"] == "manual"

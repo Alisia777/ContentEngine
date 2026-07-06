@@ -535,6 +535,33 @@ Launch Operations separates safe, human, paid, and publishing actions. It does n
 
 Docs: `docs/LAUNCH_OPERATIONS_HUB.md`, `docs/LAUNCH_READINESS.md`, `docs/DESTINATION_CAPACITY.md`, and `docs/QUALITY_GATES.md`.
 
+## v1.3 Destination Setup Factory
+
+v1.3 turns Launch Operations capacity gaps into operator-ready destination setup work:
+
+```text
+capacity gap
+-> setup requirement
+-> profile/account setup pack
+-> first 9 post ideas
+-> setup checklist
+-> operator task
+-> completed owned destination
+```
+
+Operator CLI:
+
+```bash
+python scripts/destination_setup_requirements.py --campaign-id 1
+python scripts/generate_destination_profile_packs.py --campaign-id 1
+python scripts/create_destination_setup_tasks.py --campaign-id 1
+python scripts/complete_destination_setup_task.py --task-id 1 --url "https://example.com/account" --handle "@example"
+```
+
+Open `/destination-setup` to review capacity gaps, profile packs, first posts, checklists, setup tasks, and create internal publishing destinations after operator confirmation. ContentEngine does not auto-register external accounts, use proxy/anti-detect flows, bypass platform rules, or publish unapproved videos.
+
+Docs: `docs/DESTINATION_SETUP_FACTORY.md`, `docs/DESTINATION_PROFILE_PACKS.md`, and `docs/ACCOUNT_SETUP_CHECKLIST.md`.
+
 ## Publishing Workflow
 
 v0.3 adds a safe manual publishing layer after video generation:

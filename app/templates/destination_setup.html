@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Destination Setup Factory</p>
+    <h1>Capacity Gap to Owned Destinations</h1>
+  </div>
+  {% if selected_campaign %}
+    <span class="status">Campaign #{{ selected_campaign.id }}</span>
+  {% endif %}
+</section>
+
+<section class="workflow">
+  <span>Capacity Gap</span>
+  <span>Requirement</span>
+  <span>Profile Pack</span>
+  <span>Setup Task</span>
+  <span>Active Destination</span>
+</section>
+
+{% if error %}
+  <section class="panel"><strong>Error:</strong> {{ error }}</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Campaign</h2>
+  <form action="/destination-setup" method="get" class="form-grid">
+    <label>Campaign
+      <select name="campaign_id">
+        {% for campaign in campaigns %}
+          <option value="{{ campaign.id }}" {% if selected_campaign and campaign.id == selected_campaign.id %}selected{% endif %}>
+            #{{ campaign.id }} - {{ campaign.name }} - {{ campaign.status }}
+          </option>
+        {% else %}
+          <option value="">No campaigns yet</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Open</button></div>
+  </form>
+</section>
+
+{% if selected_campaign %}
+<section class="panel">
+  <h2>Capacity Gap</h2>
+  <div class="metric-grid">
+    <div class="metric"><strong>{{ selected_campaign.target_destination_count }}</strong><span>required destinations</span></div>
+    <div class="metric"><strong>{{ requirements[0].existing_ready_count if requirements else 0 }}</strong><span>existing ready on platform</span></div>
+    <div class="metric"><strong>{{ requirements[0].required_count if requirements else 0 }}</strong><span>setup packs needed</span></div>
+    <div class="metric"><strong>{{ requirements[0].capacity_gap if requirements else 0 }}</strong><span>weekly slot gap</span></div>
+  </div>
+  <form action="/destination-setup/{{ selected_campaign.id }}/requirements" method="post" class="form-grid">
+    <label>Platform
+      <select name="platform">
+        <option>Instagram Reels</option>
+        <option>TikTok</option>
+        <option>YouTube Shorts</option>
+        <option>Telegram</option>
+        <option>VK Clips</option>
+      </select>
+    </label>
+    <div class="actions"><button type="submit">Create Requirement</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Requirements</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Platform</th><th>Required</th><th>Existing</th><th>Capacity Gap</th><th>Reason</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for requirement in requirements %}
+        <tr>
+          <td>{{ requirement.id }}</td>
+          <td>{{ requirement.platform }}</td>
+          <td>{{ requirement.required_count }}</td>
+          <td>{{ requirement.existing_ready_count }}</td>
+          <td>{{ requirement.capacity_gap }}</td>
+          <td>{{ requirement.reason }}</td>
+          <td>{{ requirement.status }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No setup requirements yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="actions">
+    <form action="/destination-setup/{{ selected_campaign.id }}/profile-packs" method="post"><button type="submit">Generate Profile Packs</button></form>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Profile Packs</h2>
+  <div class="grid">
+    {% for pack in profile_packs %}
+      <article class="card">
+        <h3>{{ pack.suggested_name }}</h3>
+        <p class="muted">{{ pack.platform }} - {{ pack.suggested_handle }} - {{ pack.status }}</p>
+        <p>{{ pack.bio_text }}</p>
+        <p><strong>Theme:</strong> {{ pack.theme }}</p>
+        <p><strong>SKU focus:</strong> {{ pack.sku_focus[0].sku if pack.sku_focus else "-" }}</p>
+        <p><strong>Pillars:</strong> {{ pack.content_pillars|join(", ") }}</p>
+        <ol>
+          {% for post in pack.first_posts[:9] %}
+            <li>{{ post.angle }} - {{ post.title }}</li>
+          {% endfor %}
+        </ol>
+        <form action="/destination-setup/profile-packs/{{ pack.id }}/create-task" method="post">
+          <button type="submit">Create Setup Task</button>
+        </form>
+      </article>
+    {% else %}
+      <p>No profile packs yet.</p>
+    {% endfor %}
+  </div>
+  <form action="/destination-setup/{{ selected_campaign.id }}/tasks" method="post" class="form-grid">
+    <label>Owner
+      <input name="owner_name" placeholder="Operator name">
+    </label>
+    <div class="actions"><button type="submit">Create Tasks for Packs</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Setup Tasks</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Platform</th><th>Status</th><th>Owner</th><th>Final Account</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for task in tasks %}
+        <tr>
+          <td>{{ task.id }}</td>
+          <td>{{ task.platform }}</td>
+          <td>{{ task.status }}</td>
+          <td>{{ task.owner_name or "-" }}</td>
+          <td>{{ task.final_handle or task.final_account_url or "-" }}</td>
+          <td>
+            <form action="/destination-setup/tasks/{{ task.id }}/complete" method="post" class="form-grid">
+              <input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">
+              <input name="final_handle" placeholder="@handle">
+              <input name="final_account_url" placeholder="https://...">
+              <input name="owner_name" placeholder="Owner">
+              <input name="notes" placeholder="Notes">
+              <button type="submit">Complete</button>
+            </form>
+            <form action="/destination-setup/tasks/{{ task.id }}/create-destination" method="post">
+              <input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">
+              <button type="submit" class="secondary">Create Internal Destination</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No setup tasks yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

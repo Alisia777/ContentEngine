@@ -48,6 +48,8 @@ from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.errors import CreativeSpecError
 from app.creative.types import CreativeSpec
 from app.database import get_db
+from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
+from app.destination_setup.errors import DestinationSetupError
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
@@ -308,6 +310,34 @@ class BombarProductionDryRunRequest(BaseModel):
     target_videos: int = 350
     target_destinations: int = 120
     reports_dir: str = "reports"
+
+
+class DestinationSetupRequirementRequest(BaseModel):
+    platform: str = "Instagram Reels"
+
+
+class DestinationProfilePackRequest(BaseModel):
+    platform: str = "Instagram Reels"
+
+
+class DestinationSetupTaskCreateRequest(BaseModel):
+    owner_name: str | None = None
+
+
+class DestinationSetupTaskPatchRequest(BaseModel):
+    status: str | None = None
+    owner_name: str | None = None
+    final_account_url: str | None = None
+    final_handle: str | None = None
+    notes: str | None = None
+    checklist: list[dict[str, Any]] | None = None
+
+
+class DestinationSetupTaskCompleteRequest(BaseModel):
+    url: str | None = None
+    handle: str | None = None
+    owner_name: str | None = None
+    notes: str | None = None
 
 
 def get_or_404(db: Session, model: type, entity_id: int):
@@ -1730,6 +1760,126 @@ def export_launch_runbook(campaign_id: int, db: Session = Depends(get_db)):
         return LaunchReportService(db).export_runbook(campaign_id).model_dump(mode="json")
     except LaunchOperationsError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/destination-setup/campaigns/{campaign_id}/requirements")
+def create_destination_setup_requirement(
+    campaign_id: int,
+    payload: DestinationSetupRequirementRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or DestinationSetupRequirementRequest()
+    try:
+        return SetupRequirementService(db).refresh(campaign_id, platform=payload.platform).model_dump(mode="json")
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-setup/campaigns/{campaign_id}/requirements")
+def list_destination_setup_requirements(campaign_id: int, db: Session = Depends(get_db)):
+    try:
+        return [item.model_dump(mode="json") for item in SetupRequirementService(db).list(campaign_id)]
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/destination-setup/campaigns/{campaign_id}/profile-packs")
+def generate_destination_profile_packs(
+    campaign_id: int,
+    payload: DestinationProfilePackRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or DestinationProfilePackRequest()
+    try:
+        requirements = SetupRequirementService(db).list(campaign_id)
+        if not requirements:
+            SetupRequirementService(db).refresh(campaign_id, platform=payload.platform)
+        packs = DestinationProfilePackBuilder(db).generate_for_campaign(campaign_id)
+        return [pack.model_dump(mode="json") for pack in packs]
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-setup/profile-packs/{profile_pack_id}")
+def get_destination_profile_pack(profile_pack_id: int, db: Session = Depends(get_db)):
+    try:
+        return DestinationProfilePackBuilder(db).get(profile_pack_id).model_dump(mode="json")
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/destination-setup/profile-packs/{profile_pack_id}/create-task")
+def create_destination_setup_task(
+    profile_pack_id: int,
+    payload: DestinationSetupTaskCreateRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    payload = payload or DestinationSetupTaskCreateRequest()
+    try:
+        return DestinationSetupTaskService(db).create_task(profile_pack_id, owner_name=payload.owner_name).model_dump(mode="json")
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/destination-setup/tasks")
+def list_destination_setup_tasks(
+    campaign_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return [
+        task.model_dump(mode="json")
+        for task in DestinationSetupTaskService(db).list(campaign_id=campaign_id, status=status)
+    ]
+
+
+@router.patch("/destination-setup/tasks/{task_id}")
+def patch_destination_setup_task(
+    task_id: int,
+    payload: DestinationSetupTaskPatchRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return DestinationSetupTaskService(db).update(task_id, **payload.model_dump(exclude_unset=True)).model_dump(mode="json")
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-setup/tasks/{task_id}/mark-complete")
+def complete_destination_setup_task(
+    task_id: int,
+    payload: DestinationSetupTaskCompleteRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return DestinationSetupTaskService(db).mark_complete(
+            task_id,
+            url=payload.url,
+            handle=payload.handle,
+            owner_name=payload.owner_name,
+            notes=payload.notes,
+        ).model_dump(mode="json")
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/destination-setup/tasks/{task_id}/create-destination")
+def create_destination_from_setup_task(task_id: int, db: Session = Depends(get_db)):
+    try:
+        destination = DestinationSetupTaskService(db).create_destination(task_id)
+    except DestinationSetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "id": destination.id,
+        "brand": destination.brand,
+        "platform": destination.platform,
+        "name": destination.name,
+        "handle": destination.handle,
+        "url": destination.url,
+        "status": destination.status,
+        "posting_mode": destination.posting_mode,
+        "auth_status": destination.auth_status,
+    }
 
 
 @router.post("/bombar/campaigns")
