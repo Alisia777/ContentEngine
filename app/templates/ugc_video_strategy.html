@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>UGC Video Strategy</h1>
+  <p class="muted">Product-safe mass UGC gate for reference policy, blogger meaning, scripts, and prompt-only prep.</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/ugc-video-strategy/run" class="grid-form">
+    <label>Product
+      <select name="product_id" required>
+        {% for product in products %}
+          <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Platform<input name="platform" value="{{ selected_platform or 'Instagram Reels' }}"></label>
+    <label>Duration<input name="duration_seconds" type="number" min="6" max="15" value="{{ selected_duration_seconds or 8 }}"></label>
+    <label>Selected Variant
+      <select name="creative_variant_id">
+        <option value="">none</option>
+        {% for variant in selected_variants %}
+          <option value="{{ variant.id }}" {% if selected_creative_variant_id == variant.id %}selected{% endif %}>#{{ variant.id }} / {{ variant.hook_text }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>UGC Script
+      <select name="ugc_script_id">
+        <option value="">latest</option>
+        {% for script in ugc_scripts %}
+          <option value="{{ script.id }}" {% if selected_ugc_script_id == script.id %}selected{% endif %}>#{{ script.id }} / spec #{{ script.blogger_meaning_spec_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions">
+      <button name="action" value="check">Check Policy</button>
+      <button name="action" value="build_spec">Build Meaning Spec</button>
+      <button name="action" value="build_script">Build UGC Script</button>
+      <button name="action" value="prompt_only">Prompt Only</button>
+    </div>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h2>Reference Policy</h2>
+  <div class="metric-grid">
+    <div><span>Status</span><strong>{{ result.reference_policy.status }}</strong></div>
+    <div><span>References</span><strong>{{ result.reference_policy.approved_reference_count }}/3</strong></div>
+    <div><span>Lock Mode</span><strong>{{ result.reference_policy.product_lock_mode }}</strong></div>
+    <div><span>Mass Safety</span><strong>{{ result.mass_generation_safety_status }}</strong></div>
+  </div>
+  <p>Strict real generation allowed: {{ result.reference_policy.strict_real_generation_allowed }}</p>
+  <p>Missing references: {{ result.reference_policy.missing_reference_types | join(', ') or 'none' }}</p>
+  <p>Blockers: {{ result.reference_policy.blockers | join(', ') or 'none' }}</p>
+  <p>Next actions: {{ result.next_actions | join(', ') or 'none' }}</p>
+</section>
+
+{% if result.meaning_spec %}
+<section class="panel">
+  <h2>Blogger Meaning Spec</h2>
+  <p><strong>Persona:</strong> {{ result.meaning_spec.creator_persona_json.persona }} / {{ result.meaning_spec.creator_persona_json.age_range }}</p>
+  <p><strong>Buyer context:</strong> {{ result.meaning_spec.buyer_context_json.buyer_situation }}</p>
+  <p><strong>Proof:</strong> {{ result.meaning_spec.proof_moment_json.proof_line }}</p>
+  <p><strong>CTA:</strong> {{ result.meaning_spec.cta_json.spoken_line }}</p>
+  <h3>Scene Intent</h3>
+  <ul>
+    {% for scene in result.meaning_spec.scene_intent_json %}
+      <li><strong>{{ scene.role }}</strong> - {{ scene.intention }} - {{ scene.spoken_line }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if result.ugc_script %}
+<section class="panel">
+  <h2>UGC Script</h2>
+  <p>Status: {{ result.ugc_script.status }} / {{ result.ugc_script.duration_seconds }}s</p>
+  <p>Creative Variant: {{ result.ugc_script.creative_variant_id or 'none' }}</p>
+  <ul>
+    {% for scene in result.ugc_script.scene_script_json %}
+      <li><strong>{{ scene.role }}</strong> - {{ scene.spoken_line }}</li>
+    {% endfor %}
+  </ul>
+  {% if result.prompt_pack_id %}
+    <p>Prompt Pack ID: {{ result.prompt_pack_id }}</p>
+    <p>Generation Variant ID: {{ result.generation_variant_id }}</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel">
+  <h2>Recent Specs</h2>
+  <table>
+    <thead><tr><th>ID</th><th>SKU</th><th>Lock</th><th>Warnings</th></tr></thead>
+    <tbody>
+      {% for spec in meaning_specs %}
+        <tr>
+          <td>{{ spec.id }}</td>
+          <td>{{ spec.sku }}</td>
+          <td>{{ spec.product_lock_rules_json.product_lock_mode }}</td>
+          <td>{{ spec.warnings_json | join(', ') }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -10,6 +10,7 @@ from app.content_factory.types import ContentNextAction
 
 RECOMMENDATION_ACTIONS = [
     "add_product_reference",
+    "add_product_references",
     "add_geometry_lock",
     "run_prompt_only",
     "run_real_smoke",
@@ -31,6 +32,7 @@ class RecommendationService:
         actions: list[ContentNextAction] = []
         run_json = content_run.run_json or {}
         readiness = run_json.get("reference_readiness") or {}
+        reference_policy = run_json.get("reference_policy") or {}
         control_readiness = control_loop_readiness(self.db, content_run)
         geometry = control_readiness["geometry_readiness"]
         blockers = set(content_run.blockers_json or [])
@@ -44,6 +46,24 @@ class RecommendationService:
                     priority=10,
                     reason="Approved primary product reference is required before real provider smoke.",
                     payload={"product_id": content_run.product_id, "provider": "runway"},
+                )
+            )
+        if (
+            reference_policy.get("strict_real_generation_allowed") is not True
+            or any(item.startswith("reference_policy:") for item in blockers)
+        ):
+            actions.append(
+                ContentNextAction(
+                    action="add_product_references",
+                    priority=9,
+                    reason="Strict product video needs at least two approved product references; recommended standard is three.",
+                    payload={
+                        "product_id": content_run.product_id,
+                        "provider": "runway",
+                        "minimum_required": 2,
+                        "recommended": 3,
+                        "missing_reference_types": reference_policy.get("missing_reference_types") or [],
+                    },
                 )
             )
 
@@ -74,6 +94,7 @@ class RecommendationService:
         if (
             content_run.prompt_pack_id
             and readiness.get("status") == "ready"
+            and reference_policy.get("strict_real_generation_allowed") is True
             and geometry.get("status") == "ready"
             and not content_run.video_job_id
         ):

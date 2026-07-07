@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
+from app.blogger_brief.reference_policy import ProductReferencePolicyService
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.demand.demand_hypothesis_builder import DemandHypothesisBuilder
 from app.demand.demand_validator import DemandValidator
@@ -44,6 +45,7 @@ class WorkingVideoPrepareResult(BaseModel):
     first_frame: dict[str, Any] = Field(default_factory=dict)
     asset_kit_id: int | None = None
     reference_readiness: dict[str, Any] = Field(default_factory=dict)
+    reference_policy: dict[str, Any] = Field(default_factory=dict)
     selected_variant_id: int | None = None
     selected_variant_score: dict[str, Any] = Field(default_factory=dict)
     generation_variant_id: int | None = None
@@ -78,6 +80,7 @@ class WorkingVideoGenerator:
         )
         asset_kit = self._latest_asset_kit(product_id) or AssetKitBuilder(self.db).build_for_product(product_id)
         readiness = ProductReferenceReadinessChecker(self.db).check(product_id, provider="runway")
+        reference_policy = ProductReferencePolicyService(self.db).check(product_id, provider="runway")
         validation = DemandValidator().validate(
             hypothesis,
             reference_readiness_status=readiness.status,
@@ -110,6 +113,7 @@ class WorkingVideoGenerator:
             first_frame=first_frames[0].option_json if first_frames else {},
             asset_kit=asset_kit,
             readiness=readiness.model_dump(mode="json"),
+            reference_policy=reference_policy.model_dump(mode="json"),
             selected_variant=selected_variant,
             generation_variant=generation_variant,
             validation=validation.model_dump(mode="json"),
@@ -122,6 +126,7 @@ class WorkingVideoGenerator:
         demand_record = self._demand_for_spec(selected_variant.creative_spec_id)
         hypothesis = DemandHypothesis.model_validate(demand_record.hypothesis_json)
         readiness = ProductReferenceReadinessChecker(self.db).check(product.id, provider=provider)
+        reference_policy = ProductReferencePolicyService(self.db).check(product.id, provider=provider)
         validation = DemandValidator().validate(
             hypothesis,
             reference_readiness_status=readiness.status,
@@ -135,6 +140,7 @@ class WorkingVideoGenerator:
             first_frame=selected_variant.first_frame_json,
             asset_kit=selected_variant.variant_set.asset_kit,
             readiness=readiness.model_dump(mode="json"),
+            reference_policy=reference_policy.model_dump(mode="json"),
             selected_variant=selected_variant,
             generation_variant=generation_variant,
             validation=validation.model_dump(mode="json"),
@@ -168,6 +174,7 @@ class WorkingVideoGenerator:
             .order_by(models.VideoGenerationVariant.id.desc())
         )
         readiness = ProductReferenceReadinessChecker(self.db).check(product.id, provider="runway")
+        reference_policy = ProductReferencePolicyService(self.db).check(product.id, provider="runway")
         validation = DemandValidator().validate(
             hypothesis,
             reference_readiness_status=readiness.status,
@@ -181,6 +188,7 @@ class WorkingVideoGenerator:
             first_frame=selected_variant.first_frame_json,
             asset_kit=selected_variant.variant_set.asset_kit,
             readiness=readiness.model_dump(mode="json"),
+            reference_policy=reference_policy.model_dump(mode="json"),
             selected_variant=selected_variant,
             generation_variant=generation_variant,
             validation=validation.model_dump(mode="json"),
@@ -196,6 +204,7 @@ class WorkingVideoGenerator:
         first_frame: dict,
         asset_kit: models.ProductAssetKit | None,
         readiness: dict,
+        reference_policy: dict,
         selected_variant: models.CreativeVariant,
         generation_variant: models.VideoGenerationVariant | None,
         validation: dict,
@@ -205,12 +214,15 @@ class WorkingVideoGenerator:
         real_smoke_eligible = (
             validation.get("real_video_eligible") is True
             and readiness.get("status") == "ready"
+            and reference_policy.get("strict_real_generation_allowed") is True
             and selected_variant.status == "selected"
             and bool(prompt_pack.get("reference_bundle_id"))
+            and prompt_pack.get("product_lock_mode") == "reference_i2v"
         )
         blockers = self._real_smoke_blockers(
             validation=validation,
             readiness=readiness,
+            reference_policy=reference_policy,
             selected_variant=selected_variant,
             prompt_pack=prompt_pack,
             provider_status=provider_status,
@@ -234,6 +246,7 @@ class WorkingVideoGenerator:
             first_frame=first_frame,
             asset_kit_id=asset_kit.id if asset_kit else None,
             reference_readiness=readiness,
+            reference_policy=reference_policy,
             selected_variant_id=selected_variant.id,
             selected_variant_score=selected_variant.score_json or {},
             generation_variant_id=generation_variant.id if generation_variant else None,
@@ -247,6 +260,7 @@ class WorkingVideoGenerator:
                     (demand_record.warnings_json or [])
                     + validation.get("warnings", [])
                     + readiness.get("warnings", [])
+                    + reference_policy.get("warnings", [])
                     + (prompt_pack.get("warnings") or [])
                 )
             ),
@@ -257,6 +271,7 @@ class WorkingVideoGenerator:
         *,
         validation: dict,
         readiness: dict,
+        reference_policy: dict,
         selected_variant: models.CreativeVariant,
         prompt_pack: dict,
         provider_status: dict,
@@ -269,10 +284,15 @@ class WorkingVideoGenerator:
         if readiness.get("status") != "ready":
             reference_blockers = readiness.get("blockers") or ["product_reference_readiness_not_ready"]
             blockers.extend(f"reference:{item}" for item in reference_blockers)
+        if reference_policy.get("strict_real_generation_allowed") is not True:
+            policy_blockers = reference_policy.get("blockers") or ["strict_product_reference_policy_not_ready"]
+            blockers.extend(f"reference_policy:{item}" for item in policy_blockers)
         if selected_variant.status != "selected":
             blockers.append("selected_variant_required")
         if not prompt_pack.get("reference_bundle_id"):
             blockers.append("prompt_pack_missing_reference_bundle")
+        if prompt_pack.get("product_lock_mode") and prompt_pack.get("product_lock_mode") != "reference_i2v":
+            blockers.append(f"product_lock_mode:{prompt_pack.get('product_lock_mode')}")
         if provider_status.get("generation_mode") != "real":
             blockers.append("spend_gate:QVF_GENERATION_MODE=real")
         if not provider_status.get("allow_real_spend"):

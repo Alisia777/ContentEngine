@@ -17,6 +17,7 @@ import pytest
 import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app import models
 from app.assets.asset_kit_builder import AssetKitBuilder
@@ -34,6 +35,9 @@ from app.bombar_launch import (
     ProfilePackBuilder,
 )
 from app.bombar_production import BombarMatrixValidator, BombarProductionDryRunService
+from app.blogger_brief import MeaningSpecBuilder, ProductReferencePolicyService, UGCAdScriptBuilder
+from app.blogger_brief.prompt_enricher import PromptEnricher
+from app.blogger_brief.types import PACKAGING_DRIFT_NEGATIVE_TERMS
 from app.campaign_autopilot import (
     CampaignDistributionPlanner,
     CampaignRunner,
@@ -128,6 +132,7 @@ from app.services.video_assembly import VideoAssemblyService
 from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService
 from app.training_academy.academy_catalog import BEGINNER_TRACKS, COURSE_BADGE_BY_CODE
 from app.training_academy.errors import TrainingAcademyDataError
+from app.ugc import UGCRealismService
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.first_frame_builder import FirstFrameBuilder
 from app.variants.variant_scorer import VariantScorer
@@ -426,16 +431,33 @@ def prepare_ready_variant(
 ) -> tuple[int, int, int, int]:
     product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title=title)
     with SessionLocal() as db:
-        storage = ProductAssetStorage(db)
-        asset = storage.attach_url(
-            product_id,
-            url=url,
-            asset_type="packshot",
-            is_primary_reference=True,
-        )
-        storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+        attach_approved_reference_pair(db, product_id, primary_url=url)
         bundle = ProviderReferenceBundleBuilder(db).build(product_id, provider="runway")
     return product_id, spec_id, selected_variant_id, bundle.id
+
+
+def attach_approved_reference_pair(
+    db: Session,
+    product_id: int,
+    *,
+    primary_url: str = "https://example.com/packshot.png",
+) -> tuple[models.ProductAsset, models.ProductAsset]:
+    storage = ProductAssetStorage(db)
+    primary = storage.attach_url(
+        product_id,
+        url=primary_url,
+        asset_type="packshot",
+        is_primary_reference=True,
+    )
+    storage.update_asset(primary.id, review_status="approved", is_primary_reference=True)
+    label = storage.attach_url(
+        product_id,
+        url="https://example.com/label_closeup.png",
+        asset_type="label_closeup",
+        manual_label="label closeup",
+    )
+    storage.update_asset(label.id, review_status="approved", asset_type="label_closeup")
+    return primary, label
 
 
 def prepare_working_video_product(
@@ -2180,6 +2202,8 @@ def test_prompt_pack_from_variant_includes_reference_bundle_when_ready():
         assert prompt_pack["reference_bundle_id"]
         assert prompt_pack["reference_images"] == ["https://example.com/packshot.png"]
         assert prompt_pack["primary_reference_asset"] == asset.id
+        assert prompt_pack["product_lock_mode"] == "packshot_overlay"
+        assert prompt_pack["product_reference_policy"]["strict_real_generation_allowed"] is False
 
 
 def test_prompt_pack_from_variant_warns_when_reference_bundle_missing():
@@ -2238,6 +2262,211 @@ def test_no_secrets_or_signed_urls_in_reference_bundle_report():
         assert "token=secret" not in serialized
         assert "signature=abc123" not in serialized
         assert response.json()["provider_payload"]["reference_images"] == ["https://example.com/packshot.png"]
+
+
+def test_reference_policy_blocks_strict_real_video_with_one_photo(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    with client() as api:
+        product_id, _, _, selected_variant_id = build_variant_set_fixture(api, title="One Photo Strict Block Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(
+                product_id,
+                url="https://example.com/packshot.png",
+                asset_type="packshot",
+                is_primary_reference=True,
+            )
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            policy = ProductReferencePolicyService(db).check(product_id)
+
+            with pytest.raises(ProviderConfigurationError, match="Product reference policy blocks strict real product generation"):
+                RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+        assert policy.product_lock_mode == "packshot_overlay"
+        assert policy.strict_real_generation_allowed is False
+        assert "strict_product_identity_requires_two_approved_references" in policy.blockers
+        assert policy.next_actions == ["add_product_references"]
+
+
+def test_reference_policy_allows_packshot_overlay_with_one_photo():
+    with client() as api:
+        product_id, _, _, selected_variant_id = build_variant_set_fixture(api, title="One Photo Overlay Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(
+                product_id,
+                url="https://example.com/packshot.png",
+                asset_type="packshot",
+                is_primary_reference=True,
+            )
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            generation = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+
+        assert generation.prompt_pack_json["product_lock_mode"] == "packshot_overlay"
+        assert "packshot_overlay" in generation.prompt_pack_json["product_reference_policy"]["allowed_modes"]
+        assert generation.video_job_id is None
+
+
+def test_reference_policy_requires_two_or_three_refs_for_strict_product_generation():
+    with client() as api:
+        product_id = create_product(api, title="Two Reference Product")
+        with SessionLocal() as db:
+            primary, label = attach_approved_reference_pair(db, product_id)
+            policy = ProductReferencePolicyService(db).check(product_id)
+            lifestyle = ProductAssetStorage(db).attach_url(
+                product_id,
+                url="https://example.com/context.png",
+                asset_type="lifestyle",
+            )
+            ProductAssetStorage(db).update_asset(lifestyle.id, review_status="approved", asset_type="lifestyle")
+            full_policy = ProductReferencePolicyService(db).check(product_id)
+
+        assert policy.strict_real_generation_allowed is True
+        assert policy.approved_reference_count == 2
+        assert primary.id in policy.reference_asset_ids
+        assert label.id in policy.reference_asset_ids
+        assert "recommended_three_product_references_missing" in policy.warnings
+        assert full_policy.approved_reference_count == 3
+        assert "context_or_scale" not in full_policy.missing_reference_types
+
+
+def test_blogger_meaning_spec_contains_persona_context_and_proof():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Bombbar Pro Dubai Mango Snack")
+        with SessionLocal() as db:
+            spec = MeaningSpecBuilder(db).build(product_id, platform="Instagram Reels", duration_seconds=8)
+
+        assert spec.creator_persona_json["persona"] == "sporty UGC creator"
+        assert spec.buyer_context_json["buyer_situation"]
+        assert spec.proof_moment_json["proof_line"]
+        assert spec.product_lock_rules_json["product_lock_mode"] in {"reference_i2v", "packshot_overlay", "no_product_generation"}
+
+
+def test_ugc_script_uses_first_person_blogger_language():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="First Person Script Product")
+        with SessionLocal() as db:
+            meaning = MeaningSpecBuilder(db).build(product_id, duration_seconds=8)
+            script = UGCAdScriptBuilder(db).build(meaning.id, duration_seconds=8)
+
+        lines = " ".join(script.voiceover_json["lines"])
+        assert "I " in lines
+        assert script.voiceover_json["style"] == "first-person creator language"
+        assert "generic ad voice" in script.voiceover_json["avoid"]
+
+
+def test_ugc_script_without_variant_uses_latest_selected_variant_for_prompt_pack():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Default Variant UGC Script Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            meaning = MeaningSpecBuilder(db).build(product_id, creative_spec_id=spec_id, duration_seconds=8)
+            script = UGCAdScriptBuilder(db).build(meaning.id, duration_seconds=8)
+            generation = PromptEnricher(db).build_prompt_pack_from_script(script.id, provider="runway")
+
+        assert script.creative_variant_id == selected_variant_id
+        assert generation.prompt_pack_json["ugc_script_id"] == script.id
+        assert generation.video_job_id is None
+
+
+def test_scene_intent_has_hook_context_reason_proof_cta():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Scene Intent Product")
+        with SessionLocal() as db:
+            meaning = MeaningSpecBuilder(db).build(product_id, duration_seconds=8)
+
+        roles = [scene["role"] for scene in meaning.scene_intent_json]
+        assert roles == ["hook", "personal_context", "product_reason", "proof_demo", "cta"]
+
+
+def test_prompt_enricher_includes_blogger_persona_and_scene_role():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Bombbar Protein UGC Enriched Prompt Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            meaning = MeaningSpecBuilder(db).build(product_id, creative_spec_id=spec_id, duration_seconds=8)
+            script = UGCAdScriptBuilder(db).build(meaning.id, creative_variant_id=selected_variant_id, duration_seconds=8)
+            generation = PromptEnricher(db).build_prompt_pack_from_script(script.id, provider="runway")
+
+        first_scene = generation.prompt_pack_json["scene_prompts"][0]
+        assert "Creator persona: sporty UGC creator" in first_scene["prompt_text"]
+        assert "scene role: hook" in first_scene["prompt_text"]
+        assert generation.prompt_pack_json["blogger_meaning_spec_id"] == meaning.id
+        assert generation.prompt_pack_json["ugc_script_id"] == script.id
+
+
+def test_prompt_enricher_requires_packshot_overlay_for_strict_identity_with_one_photo():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="UGC One Ref Overlay Prompt Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(
+                product_id,
+                url="https://example.com/packshot.png",
+                asset_type="packshot",
+                is_primary_reference=True,
+            )
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            meaning = MeaningSpecBuilder(db).build(product_id, creative_spec_id=spec_id, duration_seconds=8)
+            script = UGCAdScriptBuilder(db).build(meaning.id, creative_variant_id=selected_variant_id, duration_seconds=8)
+            generation = PromptEnricher(db).build_prompt_pack_from_script(script.id, provider="runway")
+
+        first_scene = generation.prompt_pack_json["scene_prompts"][0]
+        assert generation.prompt_pack_json["product_lock_mode"] == "packshot_overlay"
+        assert "do not generate packaging" in " ".join(first_scene["safety_constraints"])
+        assert "Do not generate or redraw packaging" in first_scene["prompt_text"]
+
+
+def test_mass_generation_marks_missing_references_as_blocker():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Mass Missing References Product", images=[])
+        with SessionLocal() as db:
+            result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
+
+        assert result.reference_policy["mass_generation_safety_status"] == "blocked_missing_references"
+        assert "add_product_references" in {action.action for action in result.next_actions}
+        assert any(blocker.startswith("reference_policy:") for blocker in result.blockers)
+
+
+def test_prompt_contains_packaging_and_geometry_negative_terms():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Packaging Drift Prompt Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            meaning = MeaningSpecBuilder(db).build(product_id, creative_spec_id=spec_id, duration_seconds=8)
+            script = UGCAdScriptBuilder(db).build(meaning.id, creative_variant_id=selected_variant_id, duration_seconds=8)
+            generation = PromptEnricher(db).build_prompt_pack_from_script(script.id, provider="runway")
+
+        negative_prompt = generation.prompt_pack_json["scene_prompts"][0]["negative_prompt"]
+        for term in PACKAGING_DRIFT_NEGATIVE_TERMS:
+            assert term in negative_prompt
+
+
+def test_ugc_video_strategy_ui_and_api_show_reference_policy():
+    with client() as api:
+        product_id = create_product(api, title="UGC Strategy UI Product")
+
+        policy_response = api.get(f"/api/video-generator/products/{product_id}/reference-policy")
+        page = api.get(f"/ugc-video-strategy?product_id={product_id}")
+
+        spec_response = api.post(
+            "/api/blogger-brief/specs/build",
+            json={"product_id": product_id, "platform": "Instagram Reels", "duration_seconds": 8},
+        )
+        script_response = api.post(
+            "/api/blogger-brief/scripts/build",
+            json={"blogger_meaning_spec_id": spec_response.json()["id"], "duration_seconds": 8},
+        )
+
+        assert policy_response.status_code == 200
+        assert policy_response.json()["next_actions"] == ["add_product_references"]
+        assert page.status_code == 200
+        assert "UGC Video Strategy" in page.text
+        assert "Reference Policy" in page.text
+        assert spec_response.status_code == 200
+        assert spec_response.json()["product_lock_rules"]["product_lock_mode"] == "no_product_generation"
+        assert script_response.status_code == 200
+        assert script_response.json()["status"] == "ready"
 
 
 def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):
@@ -2336,7 +2565,9 @@ def test_variant_real_smoke_prompt_pack_contains_reference_bundle(monkeypatch):
 
         assert output.reference_bundle_id
         assert generation_variant.prompt_pack_json["reference_bundle_id"] >= bundle_id
-        assert generation_variant.prompt_pack_json["reference_images"] == ["https://example.com/packshot.png"]
+        assert generation_variant.prompt_pack_json["reference_images"][0] == "https://example.com/packshot.png"
+        assert len(generation_variant.prompt_pack_json["reference_images"]) >= 2
+        assert generation_variant.prompt_pack_json["product_lock_mode"] == "reference_i2v"
         assert generation_variant.prompt_pack_json["provider_reference_bundle"]["reference_asset_ids"]
 
 
@@ -2652,6 +2883,101 @@ def test_working_video_prompt_only_from_selected_variant():
         assert prompt_only.prompt_pack["reference_readiness_status"] in {"blocked", "ready"}
 
 
+def test_ugc_realism_contract_feeds_variant_prompt_and_assignment():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(
+            api,
+            title="Bombbar Pro Dubai Mango & Kunafa 45 g",
+            count=3,
+        )
+
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Sport UGC Creator", role="creator")
+            content_run = models.ContentRun(
+                product_id=product_id,
+                platform="Instagram Reels",
+                duration_seconds=8,
+                creative_spec_id=spec_id,
+                selected_variant_id=selected_variant_id,
+                status="prompt_ready",
+            )
+            db.add(content_run)
+            db.commit()
+            assignment = AssignmentPortalService(db).create_assignment(
+                participant_id=participant.id,
+                product_id=product_id,
+                content_run_id=content_run.id,
+                creative_variant_id=selected_variant_id,
+            )
+
+            variant = UGCRealismService(db).apply_to_variant(selected_variant_id, duration_seconds=8)
+            scene = variant.scene_plan_json[0]
+            generation = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
+            prompt_scene = generation.prompt_pack_json["scene_prompts"][0]
+            db.refresh(assignment)
+
+        assert scene["duration_seconds"] == 8
+        assert scene["caption"] == ""
+        assert len(scene["provider_prompt_text"]) <= 1000
+        assert "Sporty athletic adult woman presenter age 25-30" in scene["provider_prompt_text"]
+        assert "never from wrapper or package" in scene["provider_prompt_text"]
+        assert "no on-screen text" in scene["provider_prompt_text"]
+        assert "bottle" not in scene["provider_prompt_text"].lower()
+        assert prompt_scene["prompt_text"] == scene["provider_prompt_text"]
+        assert prompt_scene["duration_seconds"] == 8
+        assert "biting wrapper" in prompt_scene["negative_prompt"]
+        assert "on-screen text" in prompt_scene["negative_prompt"]
+        assert assignment.brief_json["ugc_realism_contract"]["presenter"] == "sporty athletic woman, 25-30, fitness lifestyle"
+        assert "no wrapper biting" in assignment.brief_json["corrections"]
+
+
+def test_runway_provider_uses_prompt_image_for_local_reference(monkeypatch, tmp_path):
+    image = tmp_path / "packshot.png"
+    image.write_bytes(b"not-a-real-png-but-local-reference")
+    captured = {}
+
+    class FakeResponse:
+        text = ""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "runway-task-1", "status": "queued"}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured["url"] = url
+        captured["payload"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("app.providers.runway_video.httpx.post", fake_post)
+    prompt_pack = PromptPackOutput(
+        provider="runway",
+        aspect_ratio="9:16",
+        duration_seconds=8,
+        scene_prompts=[
+            PromptSceneOutput(
+                scene_number=1,
+                duration_seconds=8,
+                prompt_text="x" * 1200,
+                negative_prompt="distorted product",
+                reference_images=[str(image)],
+            )
+        ],
+    )
+
+    job = RunwayVideoProvider(api_secret="test-key").create_generation(prompt_pack)
+
+    assert captured["url"].endswith("/image_to_video")
+    assert captured["payload"]["promptImage"].startswith("data:image/png;base64,")
+    assert len(captured["payload"]["promptText"]) == 1000
+    assert captured["payload"]["duration"] == 8
+    assert job.provider_job_id == "runway-task-1"
+    assert job.raw_response["prompt_image_used"] is True
+
+
 def test_working_video_real_smoke_reuses_sprint_07_gates(monkeypatch):
     monkeypatch.setenv("QVF_GENERATION_MODE", "mock")
     monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "false")
@@ -2780,6 +3106,7 @@ def test_content_run_recommendation_add_reference_when_missing():
 
         actions = {action.action for action in result.next_actions}
         assert "add_product_reference" in actions
+        assert "add_product_references" in actions
         assert any(blocker.startswith("reference:") for blocker in result.blockers)
 
 
@@ -2787,20 +3114,15 @@ def test_content_run_recommendation_real_smoke_when_ready():
     with client() as api:
         product_id = prepare_working_video_product(api, title="Factory Ready Reference Product")
         with SessionLocal() as db:
-            storage = ProductAssetStorage(db)
-            asset = storage.attach_url(
-                product_id,
-                url="https://example.com/packshot.png",
-                asset_type="packshot",
-                is_primary_reference=True,
-            )
-            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            attach_approved_reference_pair(db, product_id)
             result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
 
         actions = {action.action for action in result.next_actions}
         assert "run_real_smoke" in actions
         assert "add_product_reference" not in actions
+        assert "add_product_references" not in actions
         assert result.run["reference_readiness"]["status"] == "ready"
+        assert result.run["reference_policy"]["strict_real_generation_allowed"] is True
 
 
 def test_content_run_prompt_only_never_calls_video_provider(monkeypatch):

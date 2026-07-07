@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
+from app.blogger_brief.reference_policy import ProductReferencePolicyService
 from app.config import get_settings
 from app.creative.types import CreativeSpec
 from app.intelligence.errors import ProviderConfigurationError
@@ -67,6 +68,17 @@ class RealSmokeRunner:
             raise ProviderConfigurationError(
                 "Product reference readiness must be ready before real smoke: "
                 + ", ".join(readiness.blockers or ["not ready"])
+            )
+        product_identity_strict = bool((creative_variant.creative_spec.spec_json or {}).get("product_identity_strict", True))
+        reference_policy = ProductReferencePolicyService(self.db).check(
+            spec.product_id,
+            provider=provider,
+            product_identity_strict=product_identity_strict,
+        )
+        if product_identity_strict and not reference_policy.strict_real_generation_allowed:
+            raise ProviderConfigurationError(
+                "Product reference policy blocks strict real product generation: "
+                + ", ".join(reference_policy.blockers or ["add_product_references"])
             )
         prompt_variant = VideoGenerator(self.db).build_prompt_pack_from_variant(creative_variant_id, provider=provider)
         prompt_pack = prompt_variant.prompt_pack

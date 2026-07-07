@@ -952,6 +952,47 @@ class VideoQualityReview(Base, TimestampMixin):
     video_job = relationship("VideoJob")
 
 
+class BloggerMeaningSpec(Base, TimestampMixin):
+    __tablename__ = "blogger_meaning_specs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    demand_hypothesis_id = Column(Integer, ForeignKey("demand_hypothesis_records.id"), nullable=True, index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=True, index=True)
+    creator_persona_json = Column(JSON, default=dict, nullable=False)
+    buyer_context_json = Column(JSON, default=dict, nullable=False)
+    blogger_story_json = Column(JSON, default=dict, nullable=False)
+    authenticity_rules_json = Column(JSON, default=dict, nullable=False)
+    scene_intent_json = Column(JSON, default=list, nullable=False)
+    hook_options_json = Column(JSON, default=list, nullable=False)
+    proof_moment_json = Column(JSON, default=dict, nullable=False)
+    cta_json = Column(JSON, default=dict, nullable=False)
+    product_lock_rules_json = Column(JSON, default=dict, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    demand_hypothesis = relationship("DemandHypothesisRecord")
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    scripts = relationship("UGCAdScript", back_populates="blogger_meaning_spec", cascade="all, delete-orphan")
+
+
+class UGCAdScript(Base, TimestampMixin):
+    __tablename__ = "ugc_ad_scripts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    blogger_meaning_spec_id = Column(Integer, ForeignKey("blogger_meaning_specs.id"), nullable=False, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    duration_seconds = Column(Integer, nullable=False, default=8)
+    voiceover_json = Column(JSON, default=dict, nullable=False)
+    captions_json = Column(JSON, default=dict, nullable=False)
+    scene_script_json = Column(JSON, default=list, nullable=False)
+
+    blogger_meaning_spec = relationship("BloggerMeaningSpec", back_populates="scripts")
+    creative_variant = relationship("CreativeVariant")
+
+
 class SceneRegenerationRequest(Base, TimestampMixin):
     __tablename__ = "scene_regeneration_requests"
 

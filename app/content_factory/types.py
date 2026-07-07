@@ -38,6 +38,7 @@ class ContentRunResult(BaseModel):
     buyer_need: str | None = None
     safe_promise: str | None = None
     reference_readiness: dict[str, Any] = Field(default_factory=dict)
+    reference_policy: dict[str, Any] = Field(default_factory=dict)
     geometry_readiness: dict[str, Any] = Field(default_factory=dict)
     product_identity_readiness: dict[str, Any] = Field(default_factory=dict)
     publishing_readiness: dict[str, Any] = Field(default_factory=dict)
