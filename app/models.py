@@ -1293,6 +1293,74 @@ class VideoOutputAcceptance(Base, TimestampMixin):
     director_prompt_pack = relationship("DirectorPromptPack")
 
 
+class OneVideoRenderPlan(Base, TimestampMixin):
+    __tablename__ = "one_video_render_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, default="Instagram Reels", index=True)
+    aspect_ratio = Column(String(20), nullable=False, default="9:16")
+    duration_seconds = Column(Integer, nullable=False, default=15)
+    provider = Column(String(120), nullable=False, default="runway")
+    status = Column(String(80), nullable=False, default="plan_ready", index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=True, index=True)
+    director_prompt_pack_id = Column(Integer, ForeignKey("director_prompt_packs.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=True, index=True)
+    product_scene_policy_json = Column(JSON, default=dict, nullable=False)
+    scene_plan_json = Column(JSON, default=list, nullable=False)
+    prompt_preview_json = Column(JSON, default=dict, nullable=False)
+    negative_prompt = Column(Text, nullable=True)
+    acceptance_checklist_json = Column(JSON, default=list, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    creative_variant = relationship("CreativeVariant")
+    ai_production_brief = relationship("AIProductionBrief")
+    director_prompt_pack = relationship("DirectorPromptPack")
+    prompt_pack = relationship("PromptPack")
+    video_generation_variant = relationship("VideoGenerationVariant")
+    results = relationship("OneVideoRenderResult", back_populates="plan", cascade="all, delete-orphan")
+
+
+class OneVideoRenderResult(Base, TimestampMixin):
+    __tablename__ = "one_video_render_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(Integer, ForeignKey("one_video_render_plans.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    output_acceptance_id = Column(Integer, ForeignKey("video_output_acceptances.id"), nullable=True, index=True)
+    provider = Column(String(120), nullable=False, default="runway")
+    status = Column(String(80), nullable=False, default="created", index=True)
+    max_scenes = Column(Integer, nullable=False, default=1)
+    provider_job_ids_json = Column(JSON, default=list, nullable=False)
+    local_output_paths_json = Column(JSON, default=list, nullable=False)
+    final_video_path = Column(String(500), nullable=True)
+    generation_report_path = Column(String(500), nullable=True)
+    human_review_status = Column(String(80), nullable=False, default="needs_human_review", index=True)
+    human_review_notes = Column(Text, nullable=True)
+    result_json = Column(JSON, default=dict, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    plan = relationship("OneVideoRenderPlan", back_populates="results")
+    product = relationship("Product")
+    creative_variant = relationship("CreativeVariant")
+    video_generation_variant = relationship("VideoGenerationVariant")
+    prompt_pack = relationship("PromptPack")
+    video_job = relationship("VideoJob")
+    output_acceptance = relationship("VideoOutputAcceptance")
+
+
 class SceneRegenerationRequest(Base, TimestampMixin):
     __tablename__ = "scene_regeneration_requests"
 

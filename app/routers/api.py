@@ -31,6 +31,7 @@ from app.output_acceptance import (
     OutputAcceptanceError,
     RegenerationFeedbackBuilder,
 )
+from app.one_video_acceptance import BombbarOneVideoRenderPlanner, OneVideoAcceptanceError, OneVideoAcceptanceService
 from app.bombar_launch import (
     BombarMatrixImporter,
     DestinationSetupPlanner,
@@ -297,6 +298,28 @@ class WorkingVideoRealSmokeRequest(BaseModel):
     real_run: bool = False
     allow_real_spend: bool = False
     max_scenes: int = 1
+
+
+class OneVideoRenderPlanRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    duration_seconds: int = 15
+    video_provider: str = "runway"
+
+
+class OneVideoPromptOnlyRequest(BaseModel):
+    video_provider: str = "runway"
+
+
+class OneVideoRealRunRequest(BaseModel):
+    video_provider: str = "runway"
+    real_run: bool = False
+    max_scenes: int = 1
+
+
+class OneVideoReviewRequest(BaseModel):
+    status: str
+    notes: str | None = None
 
 
 class BloggerMeaningSpecBuildRequest(BaseModel):
@@ -1965,6 +1988,61 @@ def working_video_status(selected_variant_id: int, db: Session = Depends(get_db)
     try:
         return WorkingVideoGenerator(db).status(selected_variant_id).model_dump(mode="json")
     except (DemandError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/plans")
+def build_one_video_render_plan(payload: OneVideoRenderPlanRequest, db: Session = Depends(get_db)):
+    try:
+        plan = OneVideoAcceptanceService(db).build_plan(
+            payload.product_id,
+            platform=payload.platform,
+            duration_seconds=payload.duration_seconds,
+            provider=payload.video_provider,
+        )
+        return BombbarOneVideoRenderPlanner.as_output(plan).model_dump(mode="json")
+    except (OneVideoAcceptanceError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/one-video-acceptance/plans/{plan_id}")
+def get_one_video_render_plan(plan_id: int, db: Session = Depends(get_db)):
+    try:
+        plan = BombbarOneVideoRenderPlanner(db).get(plan_id)
+        return BombbarOneVideoRenderPlanner.as_output(plan).model_dump(mode="json")
+    except OneVideoAcceptanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/plans/{plan_id}/prompt-only")
+def one_video_prompt_only(plan_id: int, payload: OneVideoPromptOnlyRequest, db: Session = Depends(get_db)):
+    try:
+        plan = OneVideoAcceptanceService(db).prompt_only(plan_id, provider=payload.video_provider)
+        return BombbarOneVideoRenderPlanner.as_output(plan).model_dump(mode="json")
+    except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/plans/{plan_id}/real-run")
+def one_video_real_run(plan_id: int, payload: OneVideoRealRunRequest, db: Session = Depends(get_db)):
+    try:
+        result = OneVideoAcceptanceService(db).run_real(
+            plan_id,
+            provider=payload.video_provider,
+            real_run=payload.real_run,
+            max_scenes=payload.max_scenes,
+        )
+        return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+    except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/results/{result_id}/review")
+def one_video_review(result_id: int, payload: OneVideoReviewRequest, db: Session = Depends(get_db)):
+    try:
+        result = OneVideoAcceptanceService(db).review(result_id, status=payload.status, notes=payload.notes)
+        return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+    except OneVideoAcceptanceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
