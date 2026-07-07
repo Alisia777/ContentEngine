@@ -20,6 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.ai_brief_contract import AIProductionBriefBuilder, BriefQualityChecker, DirectorPromptBuilder, MarkdownRenderer, SceneBlueprintBuilder
+from app.ai_brief_contract.types import NEGATIVE_PROMPT_TERMS
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
@@ -599,6 +601,27 @@ def prepare_workbench_fixture(
         UGCQualityScorer(db).score_script(script.id, prompt_pack_id=prompt_pack_id)
         session = WorkbenchService(db).build(product_id, ugc_script_id=script.id, prompt_pack_id=prompt_pack_id)
     return product_id, session.id, script.id, prompt_pack_id
+
+
+def prepare_ai_brief_fixture(
+    api: TestClient,
+    *,
+    title: str = "AI Brief Contract Product",
+    scenes: list[dict] | None = None,
+    with_blueprint: bool = True,
+    with_director_prompt: bool = True,
+    with_quality_check: bool = False,
+) -> tuple[int, int, int]:
+    product_id, _, script_id, _ = prepare_workbench_fixture(api, title=title, scenes=scenes)
+    with SessionLocal() as db:
+        brief = AIProductionBriefBuilder(db).build(product_id, ugc_script_id=script_id)
+        if with_blueprint:
+            SceneBlueprintBuilder(db).build(brief.id)
+        if with_director_prompt:
+            DirectorPromptBuilder(db).build(brief.id)
+        if with_quality_check:
+            BriefQualityChecker(db).check(brief.id)
+    return product_id, brief.id, script_id
 
 
 def prepare_working_video_product(
@@ -3350,6 +3373,148 @@ def test_creative_workbench_ui_renders_all_sections():
         assert "Prompt Preview" in response.text
         assert "Rewrite" in response.text
         assert "Real Smoke Readiness" in response.text
+
+
+def test_ai_production_brief_contains_thesis_takeaway_proof_and_cta():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Thesis Product", with_blueprint=False, with_director_prompt=False)
+
+        with SessionLocal() as db:
+            brief = db.get(models.AIProductionBrief, brief_id)
+
+        assert brief.one_sentence_thesis
+        assert brief.viewer_takeaway
+        assert brief.proof_moment
+        assert brief.cta
+        assert brief.reason_to_believe
+
+
+def test_ai_production_brief_contains_must_show_and_must_avoid():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Musts Product", with_blueprint=False, with_director_prompt=False)
+
+        with SessionLocal() as db:
+            brief = db.get(models.AIProductionBrief, brief_id)
+
+        assert "proof/use-case demo" in brief.must_show_json
+        assert "fake label" in brief.must_avoid_json
+        assert "changed packaging" in brief.must_avoid_json
+        assert brief.failure_conditions_json
+
+
+def test_scene_blueprint_has_required_timeline_roles():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Timeline Product", with_blueprint=True, with_director_prompt=False)
+
+        with SessionLocal() as db:
+            scenes = SceneBlueprintBuilder(db).latest_for_brief(brief_id)
+
+        assert [scene.scene_role for scene in scenes] == ["hook", "personal_context", "product_reason", "proof_demo", "cta"]
+        assert [(scene.start_second, scene.end_second) for scene in scenes] == [(0, 2), (2, 5), (5, 8), (8, 12), (12, 15)]
+
+
+def test_scene_blueprint_defines_product_visibility_per_scene():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Visibility Product", with_blueprint=True, with_director_prompt=False)
+
+        with SessionLocal() as db:
+            scenes = SceneBlueprintBuilder(db).latest_for_brief(brief_id)
+
+        assert all(scene.product_visibility for scene in scenes)
+        assert any("reference image" in scene.product_visibility for scene in scenes)
+
+
+def test_director_prompt_pack_contains_scene_role_spoken_line_and_asset_rules():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Director Product")
+
+        with SessionLocal() as db:
+            prompt = DirectorPromptBuilder(db).latest_for_brief(brief_id)
+
+        first_scene = prompt.provider_prompt_json["scenes"][0]
+        assert first_scene["scene_role"] == "hook"
+        assert first_scene["exact_spoken_line"]
+        assert first_scene["asset_overlay_instruction"]
+        assert first_scene["identity_geometry_constraints"]["human_review_required"] is True
+        for term in NEGATIVE_PROMPT_TERMS:
+            assert term in prompt.negative_prompt
+
+
+def test_director_prompt_pack_blocks_ai_packaging_generation_in_overlay_mode():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="AI Brief Overlay Product")
+        with SessionLocal() as db:
+            storage = ProductAssetStorage(db)
+            asset = storage.attach_url(product_id, url="https://example.com/packshot.png", asset_type="packshot", is_primary_reference=True)
+            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            UGCQualityScorer(db).score_script(script.id)
+            brief = AIProductionBriefBuilder(db).build(product_id, ugc_script_id=script.id)
+            SceneBlueprintBuilder(db).build(brief.id)
+            prompt = DirectorPromptBuilder(db).build(brief.id)
+
+        assert brief.product_lock_mode == "packshot_overlay"
+        assert "Do not ask AI to redraw exact packaging" in prompt.overlay_instructions_json["instruction"]
+        assert "Do not ask AI to redraw exact packaging" in prompt.provider_prompt_json["scenes"][0]["asset_overlay_instruction"]
+
+
+def test_brief_quality_checker_blocks_missing_proof_moment():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Missing Proof Product", with_director_prompt=False)
+
+        with SessionLocal() as db:
+            brief = db.get(models.AIProductionBrief, brief_id)
+            brief.proof_moment = None
+            db.commit()
+            check = BriefQualityChecker(db).check(brief.id)
+
+        assert check.status == "blocked"
+        assert "proof_moment" in check.missing_fields_json
+
+
+def test_brief_quality_checker_blocks_generic_ad_language():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(
+            api,
+            title="AI Brief Generic Language Product",
+            scenes=generic_ad_scenes(),
+            with_director_prompt=False,
+        )
+
+        with SessionLocal() as db:
+            check = BriefQualityChecker(db).check(brief_id)
+
+        assert check.status == "blocked"
+        assert "generic_ad_language" in check.weak_points_json
+
+
+def test_brief_markdown_export_contains_full_tz():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief Markdown Product", with_blueprint=True, with_director_prompt=False)
+
+        with SessionLocal() as db:
+            brief = db.get(models.AIProductionBrief, brief_id)
+            markdown = MarkdownRenderer().render(brief)
+
+        assert "Final Brief Contract" in markdown
+        assert "Scene Blueprint" in markdown
+        assert "Failure Conditions" in markdown
+        assert "Product lock mode" in markdown
+
+
+def test_ai_brief_studio_ui_renders_contract_blueprint_prompt_and_quality():
+    with client() as api:
+        _, brief_id, _ = prepare_ai_brief_fixture(api, title="AI Brief UI Product", with_quality_check=True)
+
+        response = api.get(f"/ai-brief-studio?ai_production_brief_id={brief_id}")
+
+        assert response.status_code == 200
+        assert "AI Brief Studio" in response.text
+        assert "Final Brief Contract" in response.text
+        assert "Scene Blueprint" in response.text
+        assert "Director Prompt Preview" in response.text
+        assert "Brief Quality Check" in response.text
+        assert "Export Markdown" in response.text
 
 
 def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):

@@ -17,6 +17,14 @@ from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
 from app.assets.types import ProductAssetDescriptor
+from app.ai_brief_contract import (
+    AIBriefContractError,
+    AIProductionBriefBuilder,
+    BriefQualityChecker,
+    DirectorPromptBuilder,
+    MarkdownRenderer,
+    SceneBlueprintBuilder,
+)
 from app.bombar_launch import (
     BombarMatrixImporter,
     DestinationSetupPlanner,
@@ -348,6 +356,12 @@ class CreativeWorkbenchRewriteRequest(BaseModel):
 class CreativeWorkbenchApprovalRequest(BaseModel):
     reviewer_name: str = "Operator"
     notes: str | None = None
+
+
+class AIProductionBriefBuildRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    ugc_script_id: int | None = None
 
 
 class ContentFactoryPrepareRequest(BaseModel):
@@ -1541,6 +1555,67 @@ def get_creative_workbench_product_readiness(product_id: int, provider: str = "r
         return ReadinessService(db).for_product(product_id, provider=provider).model_dump(mode="json")
     except (CreativeWorkbenchError, BloggerBriefError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai-brief/contracts/build")
+def build_ai_production_brief(payload: AIProductionBriefBuildRequest, db: Session = Depends(get_db)):
+    try:
+        brief = AIProductionBriefBuilder(db).build(
+            payload.product_id,
+            platform=payload.platform,
+            ugc_script_id=payload.ugc_script_id,
+        )
+        return AIProductionBriefBuilder(db).as_output(brief).model_dump(mode="json")
+    except AIBriefContractError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/ai-brief/contracts/{brief_id}")
+def get_ai_production_brief(brief_id: int, db: Session = Depends(get_db)):
+    brief = get_or_404(db, models.AIProductionBrief, brief_id)
+    return AIProductionBriefBuilder(db).as_output(brief).model_dump(mode="json")
+
+
+@router.post("/ai-brief/contracts/{brief_id}/scene-blueprint")
+def build_ai_brief_scene_blueprint(brief_id: int, db: Session = Depends(get_db)):
+    try:
+        scenes = SceneBlueprintBuilder(db).build(brief_id)
+        return {"ai_production_brief_id": brief_id, "scenes": [SceneBlueprintBuilder.as_output(scene).model_dump(mode="json") for scene in scenes]}
+    except AIBriefContractError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai-brief/contracts/{brief_id}/director-prompt")
+def build_ai_brief_director_prompt(brief_id: int, db: Session = Depends(get_db)):
+    try:
+        prompt = DirectorPromptBuilder(db).build(brief_id)
+        return DirectorPromptBuilder.as_output(prompt).model_dump(mode="json")
+    except AIBriefContractError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai-brief/contracts/{brief_id}/quality-check")
+def check_ai_brief_quality(brief_id: int, db: Session = Depends(get_db)):
+    try:
+        check = BriefQualityChecker(db).check(brief_id)
+        return BriefQualityChecker.as_output(check).model_dump(mode="json")
+    except AIBriefContractError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/ai-brief/contracts/{brief_id}/export-markdown")
+def export_ai_brief_markdown(brief_id: int, db: Session = Depends(get_db)):
+    brief = get_or_404(db, models.AIProductionBrief, brief_id)
+    markdown = brief.brief_markdown or MarkdownRenderer().render(brief)
+    return {"ai_production_brief_id": brief.id, "markdown": markdown}
+
+
+@router.get("/ai-brief/products/{product_id}/latest")
+def get_latest_ai_brief_for_product(product_id: int, db: Session = Depends(get_db)):
+    brief = AIProductionBriefBuilder(db).latest_for_product(product_id)
+    if not brief:
+        raise HTTPException(status_code=404, detail="AIProductionBrief not found.")
+    return AIProductionBriefBuilder(db).as_output(brief).model_dump(mode="json")
 
 
 @router.post("/variants/first-frames/build")
