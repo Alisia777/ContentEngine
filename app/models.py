@@ -2064,6 +2064,24 @@ class DestinationHealthCheck(Base, TimestampMixin):
     destination = relationship("PublishingDestination")
 
 
+class EngineAuditReport(Base, TimestampMixin):
+    __tablename__ = "engine_audit_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scope_type = Column(String(80), nullable=False, default="global", index=True)
+    scope_id = Column(Integer, nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="needs_work", index=True)
+    overall_score = Column(Float, nullable=False, default=0)
+    score_scale = Column(String(40), nullable=False, default="1_to_10")
+    dimensions_json = Column(JSON, default=list, nullable=False)
+    reasons_json = Column(JSON, default=list, nullable=False)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+    road_to_10_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+    evidence_json = Column(JSON, default=dict, nullable=False)
+    report_path = Column(String(500), nullable=True)
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

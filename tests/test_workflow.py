@@ -91,6 +91,7 @@ from app.destination_connectors import (
     YouTubeAnalyticsConnector,
 )
 from app.destination_control_tower import DestinationControlReportService, TowerService
+from app.engine_audit import EngineAuditReportService, EngineAuditScorecardService
 from app.participant_portal import (
     AssignmentPortalService,
     OnboardingService,
@@ -8202,3 +8203,87 @@ def test_metrics_intake_shows_platform_csv_examples():
     assert "youtube_shorts_metrics.csv" in response.text
     assert "marketplace_conversion.csv" in response.text
     assert "Common mistakes" in response.text
+
+
+def test_engine_audit_scores_all_quality_dimensions():
+    reset_db()
+    with SessionLocal() as db:
+        report = EngineAuditScorecardService(db).run()
+        output = EngineAuditScorecardService(db).output(report)
+
+    assert output.status == "needs_work"
+    assert output.score_scale == "1_to_10"
+    assert len(output.dimensions) == 9
+    assert {dimension.key for dimension in output.dimensions} == {
+        "interface_usability",
+        "video_quality",
+        "ai_brief_quality",
+        "creator_clarity",
+        "training_readiness",
+        "metrics_traceability",
+        "destination_readiness",
+        "campaign_operations",
+        "production_readiness",
+    }
+    assert all(1 <= dimension.score <= 10 for dimension in output.dimensions)
+    assert all(dimension.reasons for dimension in output.dimensions)
+    assert all(dimension.required_fixes for dimension in output.dimensions)
+    assert all(dimension.next_action for dimension in output.dimensions)
+    assert len(output.road_to_10) == 9
+
+
+def test_engine_audit_report_writer_persists_json(tmp_path):
+    reset_db()
+    with SessionLocal() as db:
+        report = EngineAuditScorecardService(db).run()
+        path = EngineAuditReportService(db).write(report.id, output_dir=tmp_path)
+        db.refresh(report)
+
+    report_path = Path(path)
+    assert report_path.exists()
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["id"] == report.id
+    assert payload["overall_score"] == report.overall_score
+    assert len(payload["dimensions"]) == 9
+    assert report.report_path == report_path.as_posix()
+
+
+def test_engine_audit_api_and_ui_render_scorecard():
+    with client() as api:
+        api_response = api.post("/api/engine-audit/run", json={"write_report": False})
+        page_response = api.get("/engine-audit")
+
+    assert api_response.status_code == 200, api_response.text
+    payload = api_response.json()
+    assert payload["score_scale"] == "1_to_10"
+    assert len(payload["dimensions"]) == 9
+    assert payload["road_to_10"]
+    assert page_response.status_code == 200, page_response.text
+    assert "Engine Audit" in page_response.text
+    assert "Road to 10/10" in page_response.text
+    assert "Interface usability" in page_response.text
+    assert "Video quality" in page_response.text
+
+
+def test_engine_audit_cli_writes_report(tmp_path):
+    reset_db()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_engine_audit.py",
+            "--write-report",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Overall Score:" in result.stdout
+    assert "Road to 10/10:" in result.stdout
+    reports = list(tmp_path.glob("engine_audit_*.json"))
+    assert len(reports) == 1
+    payload = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert len(payload["dimensions"]) == 9

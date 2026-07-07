@@ -276,6 +276,20 @@ The lab creates contact sheets and stores manual review decisions. It does not a
 
 Full runbook: `docs/OUTPUT_ACCEPTANCE_LAB.md`.
 
+## Engine Quality Scorecard
+
+v2.5 adds `/engine-audit`, a CLI report, and persisted `EngineAuditReport` records. The scorecard measures interface usability, video quality, AI brief quality, creator clarity, training readiness, metrics traceability, destination readiness, campaign operations, and production readiness on a 1-10 scale with reasons, required fixes, next actions, and Road to 10/10.
+
+Run locally:
+
+```powershell
+python scripts\run_engine_audit.py --write-report
+```
+
+The audit is read-only for generation and publishing: no paid providers, no auto-publishing, and no review bypass.
+
+Full runbook: `docs/ENGINE_QUALITY_SCORECARD.md`.
+
 ## Product Geometry / Scale Lock
 
 v0.2.1 adds prompt-level protection against product size and proportion drift. `VideoCreativeSpec` and selected-variant prompt packs now include product geometry, scale, and visibility rules, plus negative prompts for changed product size, wrong proportions, stretched/squashed bottle, oversized/miniature product, changed silhouette, wrong cap size, and label area changes.

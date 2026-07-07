@@ -87,6 +87,7 @@ from app.destination_connectors.errors import DestinationConnectorError
 from app.destination_control_tower import DestinationControlReportService, DestinationControlTowerError, TowerService
 from app.demand.errors import DemandError
 from app.engine import VideoFactoryEngine
+from app.engine_audit import EngineAuditReportService, EngineAuditScorecardService
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.factory_os.errors import FactoryOSError
 from app.intelligence.csv_imports import import_csv_text
@@ -1780,6 +1781,31 @@ def engine_page(request: Request, db: Session = Depends(get_db)):
             "result": None,
         },
     )
+
+
+@router.get("/engine-audit", response_class=HTMLResponse)
+def engine_audit_page(request: Request, db: Session = Depends(get_db)):
+    service = EngineAuditScorecardService(db)
+    report = service.latest()
+    if not report:
+        report = service.run()
+    return templates.TemplateResponse(
+        "engine_audit.html",
+        {
+            "request": request,
+            "page_title": "Engine Audit",
+            "audit": service.output(report),
+        },
+    )
+
+
+@router.post("/engine-audit/run")
+def run_engine_audit_page(write_report: bool = Form(False), db: Session = Depends(get_db)):
+    service = EngineAuditScorecardService(db)
+    report = service.run()
+    if write_report:
+        EngineAuditReportService(db).write(report.id)
+    return redirect("/engine-audit")
 
 
 @router.post("/engine/run", response_class=HTMLResponse)

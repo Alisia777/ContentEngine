@@ -94,6 +94,7 @@ from app.destination_control_tower import DestinationControlReportService, Desti
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
+from app.engine_audit import EngineAuditError, EngineAuditReportService, EngineAuditScorecardService
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.factory_os.errors import FactoryOSError
 from app.intelligence.csv_imports import import_csv_text
@@ -160,6 +161,12 @@ router = APIRouter(prefix="/api", tags=["api"])
 class EngineRunRequest(BaseModel):
     product_id: int
     account_id: int | None = None
+
+
+class EngineAuditRunRequest(BaseModel):
+    scope_type: str = "global"
+    scope_id: int | None = None
+    write_report: bool = False
 
 
 class GeneratorProductRequest(BaseModel):
@@ -1181,6 +1188,28 @@ def run_engine_demo(payload: EngineRunRequest, db: Session = Depends(get_db)):
     if result.status == "failed":
         raise HTTPException(status_code=400, detail=result.model_dump())
     return result
+
+
+@router.post("/engine-audit/run")
+def run_engine_audit(payload: EngineAuditRunRequest, db: Session = Depends(get_db)):
+    try:
+        service = EngineAuditScorecardService(db)
+        report = service.run(scope_type=payload.scope_type, scope_id=payload.scope_id)
+        if payload.write_report:
+            EngineAuditReportService(db).write(report.id)
+            db.refresh(report)
+        return service.output(report).model_dump(mode="json")
+    except EngineAuditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/engine-audit/latest")
+def latest_engine_audit(scope_type: str = "global", scope_id: int | None = None, db: Session = Depends(get_db)):
+    service = EngineAuditScorecardService(db)
+    report = service.latest(scope_type=scope_type, scope_id=scope_id)
+    if not report:
+        report = service.run(scope_type=scope_type, scope_id=scope_id)
+    return service.output(report).model_dump(mode="json")
 
 
 @router.get("/engine/status/{publishing_job_id}")
