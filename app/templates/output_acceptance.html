@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>Output Acceptance</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/output-acceptance/run" class="form-grid">
+    <label>Video Job
+      <select name="video_job_id" required>
+        {% for video_job in video_jobs %}
+          <option value="{{ video_job.id }}" {% if selected_video_job_id == video_job.id %}selected{% endif %}>#{{ video_job.id }} / {{ video_job.status }} / {{ video_job.output_video_path or 'no output' }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>AI Production Brief
+      <select name="ai_production_brief_id">
+        <option value="0">select for review</option>
+        {% for brief in briefs %}
+          <option value="{{ brief.id }}" {% if selected_ai_production_brief_id == brief.id %}selected{% endif %}>#{{ brief.id }} / {{ brief.sku }} / {{ brief.status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Decision
+      <select name="decision">
+        <option value="needs_human_review">needs_human_review</option>
+        <option value="approve">approve</option>
+        <option value="needs_regeneration">needs_regeneration</option>
+        <option value="reject">reject</option>
+      </select>
+    </label>
+    {% for field in [
+      "product_identity_status",
+      "packaging_status",
+      "geometry_status",
+      "blogger_authenticity_status",
+      "scene_match_status",
+      "proof_moment_status",
+      "cta_status"
+    ] %}
+      <label>{{ field.replace('_', ' ') }}
+        <select name="{{ field }}">
+          <option value="needs_review">needs_review</option>
+          <option value="pass">pass</option>
+          <option value="fail">fail</option>
+          <option value="drift">drift</option>
+          <option value="missing">missing</option>
+          <option value="generic_ai">generic_ai</option>
+        </select>
+      </label>
+    {% endfor %}
+    <label>Reviewer notes
+      <textarea name="reviewer_notes" rows="3"></textarea>
+    </label>
+    <label>Regeneration reason
+      <select name="reason">
+        <option value="">auto</option>
+        <option value="product_identity_mismatch">product_identity_mismatch</option>
+        <option value="product_geometry_mismatch">product_geometry_mismatch</option>
+        <option value="scene_quality_issue">scene_quality_issue</option>
+        <option value="claim_mismatch">claim_mismatch</option>
+        <option value="other">other</option>
+      </select>
+    </label>
+    <label>Scene number
+      <input type="number" name="scene_number" value="1" min="1">
+    </label>
+    <div class="actions">
+      <button name="action" value="extract_frames">Extract Frames</button>
+      <button name="action" value="review">Review Output</button>
+      <button name="action" value="request_regeneration">Request Regeneration</button>
+    </div>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h2>Video Artifact</h2>
+  <div class="metric-grid">
+    <div><span>Video Job</span><strong>#{{ result.video_job.id }}</strong></div>
+    <div><span>Status</span><strong>{{ result.video_job.status }}</strong></div>
+    <div><span>Provider</span><strong>{{ result.video_job.provider }}</strong></div>
+    <div><span>Duration</span><strong>{{ result.video_job.duration_seconds }} sec</strong></div>
+  </div>
+  <p><strong>Output:</strong> {{ result.video_job.output_video_path or 'missing' }}</p>
+</section>
+
+<section class="panel">
+  <h2>Contact Sheet</h2>
+  {% if result.contact_sheet_url %}
+    <p><img src="{{ result.contact_sheet_url }}" alt="Contact sheet" style="max-width: 100%; height: auto;"></p>
+    <p><strong>Path:</strong> {{ result.frame_result.contact_sheet_path }}</p>
+  {% else %}
+    <p class="muted">No contact sheet yet. Extract frames before review.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>AIProductionBrief Summary</h2>
+  {% if result.brief %}
+    <p><strong>Thesis:</strong> {{ result.brief.one_sentence_thesis }}</p>
+    <p><strong>Proof moment:</strong> {{ result.brief.proof_moment }}</p>
+    <p><strong>CTA:</strong> {{ result.brief.cta }}</p>
+    <p><strong>Product lock:</strong> {{ result.brief.product_lock_mode }}</p>
+  {% else %}
+    <p class="muted">Review this video with an AI Production Brief to compare actual output against the production contract.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Scene Blueprint Checklist</h2>
+  {% if result.scenes %}
+    <table class="table">
+      <thead><tr><th>Time</th><th>Role</th><th>Viewer Goal</th><th>Product Visibility</th></tr></thead>
+      <tbody>
+        {% for scene in result.scenes %}
+          <tr>
+            <td>{{ scene.start_second }}-{{ scene.end_second }}</td>
+            <td>{{ scene.scene_role }}</td>
+            <td>{{ scene.viewer_goal }}</td>
+            <td>{{ scene.product_visibility }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No scene blueprint attached yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Product Identity Checklist</h2>
+  {% if result.acceptance %}
+    <div class="metric-grid">
+      <div><span>Status</span><strong>{{ result.acceptance.status }}</strong></div>
+      <div><span>Score</span><strong>{{ result.acceptance.score }}</strong></div>
+      <div><span>Publishing</span><strong>{{ result.acceptance.publishing_readiness }}</strong></div>
+      <div><span>Identity</span><strong>{{ result.acceptance.product_identity_status }}</strong></div>
+    </div>
+    <p><strong>Packaging:</strong> {{ result.acceptance.packaging_status }}</p>
+    <p><strong>Geometry:</strong> {{ result.acceptance.geometry_status }}</p>
+    <p><strong>Blockers:</strong> {{ result.acceptance.blockers | join(', ') or 'none' }}</p>
+  {% else %}
+    <p class="muted">No output acceptance review yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Blogger Authenticity Checklist</h2>
+  {% if result.acceptance %}
+    <p><strong>Blogger authenticity:</strong> {{ result.acceptance.blogger_authenticity_status }}</p>
+    <p><strong>Scene match:</strong> {{ result.acceptance.scene_match_status }}</p>
+    <p><strong>Proof moment:</strong> {{ result.acceptance.proof_moment_status }}</p>
+    <p><strong>CTA:</strong> {{ result.acceptance.cta_status }}</p>
+    <p><strong>Required fixes:</strong> {{ result.acceptance.required_fixes | join(', ') or 'none' }}</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Decision: approve / needs_regeneration / reject</h2>
+  <p>Product identity is never auto-approved here. A human review decision is required before publishing readiness can become ready.</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Recent Acceptance Reviews</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Video</th><th>Status</th><th>Score</th><th>Publishing</th></tr></thead>
+    <tbody>
+      {% for acceptance in acceptances %}
+        <tr>
+          <td>#{{ acceptance.id }}</td>
+          <td><a href="/output-acceptance?video_job_id={{ acceptance.video_job_id }}">#{{ acceptance.video_job_id }}</a></td>
+          <td>{{ acceptance.status }}</td>
+          <td>{{ acceptance.score }}</td>
+          <td>{{ acceptance.publishing_readiness }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

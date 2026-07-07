@@ -149,6 +149,8 @@ class VideoJob(Base, TimestampMixin):
     script_variant = relationship("ScriptVariant", back_populates="video_jobs")
     clips = relationship("VideoClip", back_populates="video_job", cascade="all, delete-orphan")
     publishing_packages = relationship("PublishingPackage", back_populates="video_job")
+    frame_extraction_results = relationship("FrameExtractionResult", back_populates="video_job", cascade="all, delete-orphan")
+    output_acceptances = relationship("VideoOutputAcceptance", back_populates="video_job", cascade="all, delete-orphan")
 
 
 class VideoClip(Base):
@@ -1246,6 +1248,49 @@ class BriefQualityCheck(Base, TimestampMixin):
     required_fixes_json = Column(JSON, default=list, nullable=False)
 
     ai_production_brief = relationship("AIProductionBrief", back_populates="quality_checks")
+
+
+class FrameExtractionResult(Base, TimestampMixin):
+    __tablename__ = "frame_extraction_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="created", index=True)
+    frame_paths_json = Column(JSON, default=list, nullable=False)
+    contact_sheet_path = Column(String(500), nullable=True)
+    duration_seconds = Column(Float, nullable=False, default=0)
+    fps = Column(Float, nullable=False, default=0)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    video_job = relationship("VideoJob", back_populates="frame_extraction_results")
+
+
+class VideoOutputAcceptance(Base, TimestampMixin):
+    __tablename__ = "video_output_acceptances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=False, index=True)
+    director_prompt_pack_id = Column(Integer, ForeignKey("director_prompt_packs.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="needs_human_review", index=True)
+    product_identity_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    packaging_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    geometry_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    blogger_authenticity_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    scene_match_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    proof_moment_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    cta_status = Column(String(80), nullable=False, default="needs_review", index=True)
+    publishing_readiness = Column(String(80), nullable=False, default="blocked", index=True)
+    score = Column(Float, nullable=False, default=0)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+    contact_sheet_path = Column(String(500), nullable=True)
+    keyframes_json = Column(JSON, default=list, nullable=False)
+    reviewer_notes = Column(Text, nullable=True)
+
+    video_job = relationship("VideoJob", back_populates="output_acceptances")
+    ai_production_brief = relationship("AIProductionBrief")
+    director_prompt_pack = relationship("DirectorPromptPack")
 
 
 class SceneRegenerationRequest(Base, TimestampMixin):

@@ -25,6 +25,12 @@ from app.ai_brief_contract import (
     MarkdownRenderer,
     SceneBlueprintBuilder,
 )
+from app.output_acceptance import (
+    AcceptanceReviewService,
+    FrameExtractor,
+    OutputAcceptanceError,
+    RegenerationFeedbackBuilder,
+)
 from app.bombar_launch import (
     BombarMatrixImporter,
     DestinationSetupPlanner,
@@ -362,6 +368,25 @@ class AIProductionBriefBuildRequest(BaseModel):
     product_id: int
     platform: str = "Instagram Reels"
     ugc_script_id: int | None = None
+
+
+class OutputAcceptanceReviewRequest(BaseModel):
+    ai_production_brief_id: int
+    director_prompt_pack_id: int | None = None
+    decision: str = "needs_human_review"
+    product_identity_status: str = "needs_review"
+    packaging_status: str = "needs_review"
+    geometry_status: str = "needs_review"
+    blogger_authenticity_status: str = "needs_review"
+    scene_match_status: str = "needs_review"
+    proof_moment_status: str = "needs_review"
+    cta_status: str = "needs_review"
+    reviewer_notes: str | None = None
+
+
+class OutputRegenerationRequest(BaseModel):
+    reason: str | None = None
+    scene_number: int = 1
 
 
 class ContentFactoryPrepareRequest(BaseModel):
@@ -1616,6 +1641,77 @@ def get_latest_ai_brief_for_product(product_id: int, db: Session = Depends(get_d
     if not brief:
         raise HTTPException(status_code=404, detail="AIProductionBrief not found.")
     return AIProductionBriefBuilder(db).as_output(brief).model_dump(mode="json")
+
+
+@router.post("/output-acceptance/video-jobs/{video_job_id}/extract-frames")
+def extract_output_acceptance_frames(video_job_id: int, db: Session = Depends(get_db)):
+    try:
+        result = FrameExtractor(db).extract(video_job_id)
+        return FrameExtractor.as_output(result).model_dump(mode="json")
+    except OutputAcceptanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/output-acceptance/video-jobs/{video_job_id}/review")
+def review_output_acceptance_video(
+    video_job_id: int,
+    payload: OutputAcceptanceReviewRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        acceptance = AcceptanceReviewService(db).review(
+            video_job_id=video_job_id,
+            ai_production_brief_id=payload.ai_production_brief_id,
+            director_prompt_pack_id=payload.director_prompt_pack_id,
+            decision=payload.decision,
+            product_identity_status=payload.product_identity_status,
+            packaging_status=payload.packaging_status,
+            geometry_status=payload.geometry_status,
+            blogger_authenticity_status=payload.blogger_authenticity_status,
+            scene_match_status=payload.scene_match_status,
+            proof_moment_status=payload.proof_moment_status,
+            cta_status=payload.cta_status,
+            reviewer_notes=payload.reviewer_notes,
+        )
+        return AcceptanceReviewService.as_output(acceptance).model_dump(mode="json")
+    except OutputAcceptanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/output-acceptance/video-jobs/{video_job_id}")
+def get_output_acceptance_video(video_job_id: int, db: Session = Depends(get_db)):
+    video_job = get_or_404(db, models.VideoJob, video_job_id)
+    frame_result = FrameExtractor(db).latest_for_video_job(video_job.id)
+    acceptance = AcceptanceReviewService(db).latest_for_video_job(video_job.id)
+    return {
+        "video_job_id": video_job.id,
+        "video_output_path": video_job.output_video_path,
+        "frame_extraction": FrameExtractor.as_output(frame_result).model_dump(mode="json") if frame_result else None,
+        "acceptance": AcceptanceReviewService.as_output(acceptance).model_dump(mode="json") if acceptance else None,
+    }
+
+
+@router.post("/output-acceptance/{acceptance_id}/request-regeneration")
+def request_output_acceptance_regeneration(
+    acceptance_id: int,
+    payload: OutputRegenerationRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        request = RegenerationFeedbackBuilder(db).request(
+            acceptance_id,
+            reason=payload.reason,
+            scene_number=payload.scene_number,
+        )
+        return {
+            "regeneration_request_id": request.id,
+            "video_job_id": request.video_job_id,
+            "scene_number": request.scene_number,
+            "reason": request.reason,
+            "status": request.status,
+        }
+    except (OutputAcceptanceError, VideoGeneratorError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/variants/first-frames/build")
