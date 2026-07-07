@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>AI Brief Studio</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/ai-brief-studio/run" class="form-grid">
+    <label>Product
+      <select name="product_id" required>
+        {% for product in products %}
+          <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>AI Production Brief
+      <select name="ai_production_brief_id">
+        <option value="">new/latest by action</option>
+        {% for brief in briefs %}
+          <option value="{{ brief.id }}" {% if selected_ai_production_brief_id == brief.id %}selected{% endif %}>#{{ brief.id }} / {{ brief.sku }} / {{ brief.status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Platform
+      <select name="platform">
+        {% for platform in ["Instagram Reels", "TikTok", "YouTube Shorts", "Telegram", "VK", "Marketplace card video"] %}
+          <option value="{{ platform }}">{{ platform }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>UGC Script
+      <select name="ugc_script_id">
+        <option value="">latest</option>
+        {% for script in ugc_scripts %}
+          <option value="{{ script.id }}" {% if selected_ugc_script_id == script.id %}selected{% endif %}>#{{ script.id }} / spec #{{ script.blogger_meaning_spec_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions">
+      <button name="action" value="build">Build Contract</button>
+      <button name="action" value="blueprint">Scene Blueprint</button>
+      <button name="action" value="director_prompt">Director Prompt</button>
+      <button name="action" value="quality_check">Quality Check</button>
+      <button name="action" value="full_contract">Full Contract</button>
+    </div>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h2>Final Brief Contract</h2>
+  <div class="metric-grid">
+    <div><span>Status</span><strong>{{ result.brief.status }}</strong></div>
+    <div><span>Product lock</span><strong>{{ result.brief.product_lock_mode or 'missing' }}</strong></div>
+    <div><span>Scenes</span><strong>{{ result.brief.scene_count }}</strong></div>
+    <div><span>Duration</span><strong>{{ result.brief.duration_seconds }} sec</strong></div>
+  </div>
+  <p><strong>Thesis:</strong> {{ result.brief.one_sentence_thesis }}</p>
+  <p><strong>Viewer takeaway:</strong> {{ result.brief.viewer_takeaway }}</p>
+  <p><strong>Buyer situation:</strong> {{ result.brief.buyer_situation }}</p>
+  <p><strong>Main objection:</strong> {{ result.brief.main_objection }}</p>
+  <p><strong>Reason to believe:</strong> {{ result.brief.reason_to_believe }}</p>
+  <p><strong>Proof moment:</strong> {{ result.brief.proof_moment }}</p>
+  <p><strong>CTA:</strong> {{ result.brief.cta }}</p>
+</section>
+
+<section class="panel">
+  <h2>Product Visibility / Lock</h2>
+  <div class="metric-grid">
+    <div><span>Reference count</span><strong>{{ result.brief.reference_requirements.approved_reference_count or 0 }}</strong></div>
+    <div><span>Reference policy</span><strong>{{ result.brief.reference_requirements.status or 'missing' }}</strong></div>
+    <div><span>Strict real</span><strong>{{ result.brief.reference_requirements.strict_real_generation_allowed }}</strong></div>
+    <div><span>Primary reference</span><strong>{{ result.brief.reference_requirements.primary_reference_asset_id or 'missing' }}</strong></div>
+  </div>
+  <p><strong>Must show:</strong> {{ result.brief.must_show | join(' | ') }}</p>
+  <p><strong>Must say:</strong> {{ result.brief.must_say | join(' | ') }}</p>
+  <p><strong>Must avoid:</strong> {{ result.brief.must_avoid | join(' | ') }}</p>
+  <p><strong>Failure conditions:</strong> {{ result.brief.failure_conditions | join(' | ') }}</p>
+</section>
+
+<section class="panel">
+  <h2>Scene Blueprint</h2>
+  <table class="table">
+    <thead><tr><th>Time</th><th>Role</th><th>Viewer Goal</th><th>Visual</th><th>Line</th><th>Product Visibility</th></tr></thead>
+    <tbody>
+      {% for scene in result.scene_blueprints %}
+        <tr>
+          <td>{{ scene.start_second }}-{{ scene.end_second }}</td>
+          <td>{{ scene.scene_role }}</td>
+          <td>{{ scene.viewer_goal }}</td>
+          <td>{{ scene.visual_action }}</td>
+          <td>{{ scene.spoken_line }}</td>
+          <td>{{ scene.product_visibility }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Director Prompt Preview</h2>
+  {% if result.director_prompt %}
+    <p><strong>System:</strong> {{ result.director_prompt.system_instruction }}</p>
+    <p><strong>Negative prompt:</strong> {{ result.director_prompt.negative_prompt }}</p>
+    <table class="table">
+      <thead><tr><th>Scene</th><th>Role</th><th>Spoken Line</th><th>Asset Rule</th></tr></thead>
+      <tbody>
+        {% for scene in result.director_prompt.provider_prompt.scenes %}
+          <tr>
+            <td>{{ scene.scene_order }}</td>
+            <td>{{ scene.scene_role }}</td>
+            <td>{{ scene.exact_spoken_line }}</td>
+            <td>{{ scene.asset_overlay_instruction }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Director prompt has not been built yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Brief Quality Check</h2>
+  {% if result.quality_check %}
+    <div class="metric-grid">
+      <div><span>Status</span><strong>{{ result.quality_check.status }}</strong></div>
+      <div><span>Score</span><strong>{{ result.quality_check.score }}</strong></div>
+      <div><span>Missing</span><strong>{{ result.quality_check.missing_fields | length }}</strong></div>
+      <div><span>Risks</span><strong>{{ result.quality_check.failure_risks | length }}</strong></div>
+    </div>
+    <p><strong>Required fixes:</strong> {{ result.quality_check.required_fixes | join(', ') or 'none' }}</p>
+  {% else %}
+    <p class="muted">Quality check has not been run yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Export Markdown / JSON / Prompt Pack</h2>
+  <pre>{{ result.markdown }}</pre>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Recent AI Briefs</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>SKU</th><th>Status</th><th>Lock</th><th>Scenes</th></tr></thead>
+    <tbody>
+      {% for brief in briefs %}
+        <tr>
+          <td><a href="/ai-brief-studio?ai_production_brief_id={{ brief.id }}">#{{ brief.id }}</a></td>
+          <td>{{ brief.sku }}</td>
+          <td>{{ brief.status }}</td>
+          <td>{{ brief.product_lock_mode or 'missing' }}</td>
+          <td>{{ brief.scene_count }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

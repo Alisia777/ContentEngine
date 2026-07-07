@@ -1145,6 +1145,109 @@ class CreativeBriefApproval(Base, TimestampMixin):
     workbench_session = relationship("CreativeWorkbenchSession", back_populates="approvals")
 
 
+class AIProductionBrief(Base, TimestampMixin):
+    __tablename__ = "ai_production_briefs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    product_strategy_spec_id = Column(Integer, ForeignKey("product_strategy_specs.id"), nullable=True, index=True)
+    offer_strategy_id = Column(Integer, ForeignKey("offer_strategies.id"), nullable=True, index=True)
+    blogger_meaning_spec_id = Column(Integer, ForeignKey("blogger_meaning_specs.id"), nullable=True, index=True)
+    ugc_script_id = Column(Integer, ForeignKey("ugc_ad_scripts.id"), nullable=True, index=True)
+    creative_quality_score_id = Column(Integer, ForeignKey("creative_quality_scores.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+    platform = Column(String(120), nullable=False, default="Instagram Reels")
+    format = Column(String(80), nullable=False, default="short_video")
+    one_sentence_thesis = Column(Text, nullable=True)
+    viewer_takeaway = Column(Text, nullable=True)
+    buyer_situation = Column(Text, nullable=True)
+    main_objection = Column(Text, nullable=True)
+    reason_to_believe = Column(Text, nullable=True)
+    proof_moment = Column(Text, nullable=True)
+    cta = Column(Text, nullable=True)
+    must_show_json = Column(JSON, default=list, nullable=False)
+    must_say_json = Column(JSON, default=list, nullable=False)
+    must_avoid_json = Column(JSON, default=list, nullable=False)
+    product_identity_rules_json = Column(JSON, default=dict, nullable=False)
+    product_lock_mode = Column(String(80), nullable=True, index=True)
+    reference_requirements_json = Column(JSON, default=dict, nullable=False)
+    scene_count = Column(Integer, nullable=False, default=5)
+    duration_seconds = Column(Integer, nullable=False, default=15)
+    failure_conditions_json = Column(JSON, default=list, nullable=False)
+    brief_json = Column(JSON, default=dict, nullable=False)
+    brief_markdown = Column(Text, nullable=True)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    product_strategy_spec = relationship("ProductStrategySpec")
+    offer_strategy = relationship("OfferStrategy")
+    blogger_meaning_spec = relationship("BloggerMeaningSpec")
+    ugc_script = relationship("UGCAdScript")
+    creative_quality_score = relationship("CreativeQualityScore")
+    scene_blueprints = relationship("SceneBlueprint", back_populates="ai_production_brief", cascade="all, delete-orphan")
+    director_prompt_packs = relationship("DirectorPromptPack", back_populates="ai_production_brief", cascade="all, delete-orphan")
+    quality_checks = relationship("BriefQualityCheck", back_populates="ai_production_brief", cascade="all, delete-orphan")
+
+
+class SceneBlueprint(Base, TimestampMixin):
+    __tablename__ = "scene_blueprints"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=False, index=True)
+    scene_order = Column(Integer, nullable=False, index=True)
+    scene_role = Column(String(120), nullable=False, index=True)
+    start_second = Column(Float, nullable=False, default=0)
+    end_second = Column(Float, nullable=False, default=0)
+    viewer_goal = Column(Text, nullable=True)
+    visual_action = Column(Text, nullable=True)
+    spoken_line = Column(Text, nullable=True)
+    onscreen_text = Column(Text, nullable=True)
+    caption_text = Column(Text, nullable=True)
+    product_visibility = Column(Text, nullable=True)
+    camera_framing = Column(Text, nullable=True)
+    broll_notes = Column(Text, nullable=True)
+    transition_notes = Column(Text, nullable=True)
+    must_show_json = Column(JSON, default=list, nullable=False)
+    must_avoid_json = Column(JSON, default=list, nullable=False)
+
+    ai_production_brief = relationship("AIProductionBrief", back_populates="scene_blueprints")
+
+
+class DirectorPromptPack(Base, TimestampMixin):
+    __tablename__ = "director_prompt_packs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=False, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    system_instruction = Column(Text, nullable=True)
+    provider_prompt_json = Column(JSON, default=dict, nullable=False)
+    negative_prompt = Column(Text, nullable=True)
+    asset_instructions_json = Column(JSON, default=dict, nullable=False)
+    overlay_instructions_json = Column(JSON, default=dict, nullable=False)
+    end_card_instructions_json = Column(JSON, default=dict, nullable=False)
+    quality_checklist_json = Column(JSON, default=list, nullable=False)
+
+    ai_production_brief = relationship("AIProductionBrief", back_populates="director_prompt_packs")
+    prompt_pack = relationship("PromptPack")
+
+
+class BriefQualityCheck(Base, TimestampMixin):
+    __tablename__ = "brief_quality_checks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="blocked", index=True)
+    score = Column(Float, nullable=False, default=0)
+    missing_fields_json = Column(JSON, default=list, nullable=False)
+    weak_points_json = Column(JSON, default=list, nullable=False)
+    failure_risks_json = Column(JSON, default=list, nullable=False)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+
+    ai_production_brief = relationship("AIProductionBrief", back_populates="quality_checks")
+
+
 class SceneRegenerationRequest(Base, TimestampMixin):
     __tablename__ = "scene_regeneration_requests"
 

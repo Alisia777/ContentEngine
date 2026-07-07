@@ -6,6 +6,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.ai_brief_contract import (
+    AIBriefContractError,
+    AIProductionBriefBuilder,
+    BriefQualityChecker,
+    DirectorPromptBuilder,
+    MarkdownRenderer,
+    SceneBlueprintBuilder,
+)
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
@@ -1007,6 +1015,101 @@ def latest_workbench_session(db: Session, product_id: int) -> models.CreativeWor
         .where(models.CreativeWorkbenchSession.product_id == product_id)
         .order_by(models.CreativeWorkbenchSession.id.desc())
     )
+
+
+@router.get("/ai-brief-studio", response_class=HTMLResponse)
+def ai_brief_studio_page(
+    request: Request,
+    ai_production_brief_id: int | None = None,
+    product_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    result = None
+    if ai_production_brief_id:
+        result = ai_brief_studio_result(db, ai_production_brief_id)
+    elif product_id:
+        brief = AIProductionBriefBuilder(db).latest_for_product(product_id)
+        result = ai_brief_studio_result(db, brief.id) if brief else None
+    return templates.TemplateResponse(
+        "ai_brief_studio.html",
+        {
+            "request": request,
+            "page_title": "AI Brief Studio",
+            "result": result,
+            "error": request.query_params.get("error"),
+            **ai_brief_studio_context(db),
+        },
+    )
+
+
+@router.post("/ai-brief-studio/run", response_class=HTMLResponse)
+def run_ai_brief_studio_page(
+    request: Request,
+    product_id: int = Form(0),
+    ai_production_brief_id: str = Form(""),
+    platform: str = Form("Instagram Reels"),
+    ugc_script_id: str = Form(""),
+    action: str = Form("build"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    error = None
+    try:
+        brief = db.get(models.AIProductionBrief, int(ai_production_brief_id)) if ai_production_brief_id else None
+        if action == "build" or not brief:
+            brief = AIProductionBriefBuilder(db).build(
+                product_id,
+                platform=platform,
+                ugc_script_id=int(ugc_script_id) if ugc_script_id else None,
+            )
+        if action == "blueprint":
+            SceneBlueprintBuilder(db).build(brief.id)
+        elif action == "director_prompt":
+            DirectorPromptBuilder(db).build(brief.id)
+        elif action == "quality_check":
+            BriefQualityChecker(db).check(brief.id)
+        elif action == "full_contract":
+            SceneBlueprintBuilder(db).build(brief.id)
+            DirectorPromptBuilder(db).build(brief.id)
+            BriefQualityChecker(db).check(brief.id)
+        result = ai_brief_studio_result(db, brief.id)
+    except (AIBriefContractError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "ai_brief_studio.html",
+        {
+            "request": request,
+            "page_title": "AI Brief Studio",
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_ai_production_brief_id": int(ai_production_brief_id) if ai_production_brief_id else None,
+            "selected_ugc_script_id": int(ugc_script_id) if ugc_script_id else None,
+            **ai_brief_studio_context(db),
+        },
+    )
+
+
+def ai_brief_studio_context(db: Session) -> dict:
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "briefs": db.scalars(select(models.AIProductionBrief).order_by(models.AIProductionBrief.id.desc()).limit(30)).all(),
+        "ugc_scripts": db.scalars(select(models.UGCAdScript).order_by(models.UGCAdScript.id.desc()).limit(30)).all(),
+    }
+
+
+def ai_brief_studio_result(db: Session, ai_production_brief_id: int) -> dict:
+    brief = db.get(models.AIProductionBrief, ai_production_brief_id)
+    scenes = SceneBlueprintBuilder(db).latest_for_brief(ai_production_brief_id)
+    director_prompt = DirectorPromptBuilder(db).latest_for_brief(ai_production_brief_id)
+    quality_check = BriefQualityChecker(db).latest_for_brief(ai_production_brief_id)
+    return {
+        "brief": AIProductionBriefBuilder(db).as_output(brief).model_dump(mode="json"),
+        "scene_blueprints": [SceneBlueprintBuilder.as_output(scene).model_dump(mode="json") for scene in scenes],
+        "director_prompt": DirectorPromptBuilder.as_output(director_prompt).model_dump(mode="json") if director_prompt else None,
+        "quality_check": BriefQualityChecker.as_output(quality_check).model_dump(mode="json") if quality_check else None,
+        "markdown": brief.brief_markdown or MarkdownRenderer().render(brief),
+    }
 
 
 def latest_rewrite_request(db: Session, ugc_script_id: int) -> models.CreativeRewriteRequest | None:

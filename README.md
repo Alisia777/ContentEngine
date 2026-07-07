@@ -234,6 +234,28 @@ Docs:
 - `docs/AI_BRIEF_STUDIO.md`
 - `docs/PROMPT_PREVIEW_AND_REWRITE.md`
 
+## AI Brief Contract
+
+v2.3 adds `/ai-brief-studio`, the production contract layer between creative quality and provider prompts:
+
+```text
+ProductStrategySpec -> OfferStrategy -> BloggerMeaningSpec -> UGCAdScript -> CreativeQualityScore -> AIProductionBrief -> SceneBlueprint -> DirectorPromptPack
+```
+
+CLI flow:
+
+```bash
+python scripts/build_ai_production_brief.py --product-id 1 --platform "Instagram Reels"
+python scripts/build_scene_blueprint.py --ai-production-brief-id 1
+python scripts/build_director_prompt_pack.py --ai-production-brief-id 1
+python scripts/check_ai_brief_quality.py --ai-production-brief-id 1
+python scripts/export_ai_brief_markdown.py --ai-production-brief-id 1
+```
+
+The contract makes the final TЗ explicit: thesis, viewer takeaway, proof moment, scene timeline, product visibility policy, forbidden changes, CTA, and failure conditions. It does not call paid providers.
+
+Full runbook: `docs/AI_BRIEF_CONTRACT.md`.
+
 ## Product Geometry / Scale Lock
 
 v0.2.1 adds prompt-level protection against product size and proportion drift. `VideoCreativeSpec` and selected-variant prompt packs now include product geometry, scale, and visibility rules, plus negative prompts for changed product size, wrong proportions, stretched/squashed bottle, oversized/miniature product, changed silhouette, wrong cap size, and label area changes.
