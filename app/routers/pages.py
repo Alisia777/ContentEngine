@@ -48,6 +48,13 @@ from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
 from app.creative_quality import CreativeQualityDataError, CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
+from app.creative_workbench import (
+    BriefEditorService,
+    CreativeWorkbenchError,
+    PromptPreviewService,
+    RewriteWorkflowService,
+    WorkbenchService,
+)
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
@@ -851,6 +858,155 @@ def creative_quality_result(
         "gate_status": gate_status,
         "build_result": build_result,
     }
+
+
+@router.get("/creative-workbench", response_class=HTMLResponse)
+def creative_workbench_page(
+    request: Request,
+    session_id: int | None = None,
+    product_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    result = None
+    if session_id:
+        try:
+            result = WorkbenchService(db).as_output(WorkbenchService(db).get(session_id)).model_dump(mode="json")
+        except CreativeWorkbenchError:
+            result = None
+    elif product_id:
+        session = latest_workbench_session(db, product_id)
+        result = WorkbenchService(db).as_output(session).model_dump(mode="json") if session else None
+    return templates.TemplateResponse(
+        "creative_workbench.html",
+        {
+            "request": request,
+            "page_title": "Creative Workbench",
+            "result": result,
+            "error": request.query_params.get("error"),
+            **creative_workbench_context(db),
+        },
+    )
+
+
+@router.post("/creative-workbench/run", response_class=HTMLResponse)
+def run_creative_workbench_page(
+    request: Request,
+    product_id: int = Form(0),
+    session_id: str = Form(""),
+    platform: str = Form("Instagram Reels"),
+    ugc_script_id: str = Form(""),
+    prompt_pack_id: str = Form(""),
+    buyer_situation: str = Form(""),
+    main_objection: str = Form(""),
+    proof_moment: str = Form(""),
+    cta: str = Form(""),
+    platform_angle: str = Form(""),
+    creator_persona: str = Form(""),
+    product_reason: str = Form(""),
+    must_include: str = Form(""),
+    must_avoid: str = Form(""),
+    feedback: str = Form(""),
+    reviewer_name: str = Form("Operator"),
+    action: str = Form("build"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    error = None
+    rewrite_result = None
+    approval_result = None
+    prompt_preview = None
+    try:
+        service = WorkbenchService(db)
+        selected_session = db.get(models.CreativeWorkbenchSession, int(session_id)) if session_id else None
+        if action == "build" or not selected_session:
+            selected_session = service.build(
+                product_id,
+                platform=platform,
+                ugc_script_id=int(ugc_script_id) if ugc_script_id else None,
+                prompt_pack_id=int(prompt_pack_id) if prompt_pack_id else None,
+            )
+        if action == "score":
+            service.score(selected_session.id)
+            selected_session = service.refresh(selected_session.id)
+        elif action == "patch_brief":
+            selected_session = BriefEditorService(db).patch(
+                selected_session.id,
+                creative_workbench_brief_payload(
+                    buyer_situation=buyer_situation,
+                    main_objection=main_objection,
+                    proof_moment=proof_moment,
+                    cta=cta,
+                    platform_angle=platform_angle,
+                    creator_persona=creator_persona,
+                    product_reason=product_reason,
+                    must_include=must_include,
+                    must_avoid=must_avoid,
+                ),
+            )
+        elif action == "prompt_preview":
+            prompt_preview = PromptPreviewService(db).preview(selected_session.id).model_dump(mode="json")
+        elif action == "rewrite":
+            rewrite_result = RewriteWorkflowService(db).rewrite(selected_session.id, feedback=feedback or None).model_dump(mode="json")
+            selected_session = service.refresh(selected_session.id)
+        elif action == "approve":
+            approval_result = service.approve_for_smoke(
+                selected_session.id,
+                reviewer_name=reviewer_name or "Operator",
+                notes=feedback or None,
+            ).model_dump(mode="json")
+            selected_session = service.get(selected_session.id)
+        result = service.as_output(selected_session).model_dump(mode="json")
+        if rewrite_result:
+            result["rewrite_result"] = rewrite_result
+        if approval_result:
+            result["approval_result"] = approval_result
+        if prompt_preview:
+            result["prompt_preview"] = prompt_preview
+    except (CreativeWorkbenchError, CreativeQualityDataError, BloggerBriefError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "creative_workbench.html",
+        {
+            "request": request,
+            "page_title": "Creative Workbench",
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_session_id": int(session_id) if session_id else None,
+            "selected_ugc_script_id": int(ugc_script_id) if ugc_script_id else None,
+            "selected_prompt_pack_id": int(prompt_pack_id) if prompt_pack_id else None,
+            **creative_workbench_context(db),
+        },
+    )
+
+
+def creative_workbench_context(db: Session) -> dict:
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "sessions": db.scalars(select(models.CreativeWorkbenchSession).order_by(models.CreativeWorkbenchSession.id.desc()).limit(30)).all(),
+        "ugc_scripts": db.scalars(select(models.UGCAdScript).order_by(models.UGCAdScript.id.desc()).limit(30)).all(),
+        "prompt_packs": db.scalars(select(models.PromptPack).order_by(models.PromptPack.id.desc()).limit(30)).all(),
+    }
+
+
+def creative_workbench_brief_payload(**values: str) -> dict:
+    payload = {}
+    for key, value in values.items():
+        if key in {"must_include", "must_avoid"}:
+            parsed = [item.strip() for item in value.split(",") if item.strip()]
+            if parsed:
+                payload[key] = parsed
+        elif value:
+            payload[key] = value
+    return payload
+
+
+def latest_workbench_session(db: Session, product_id: int) -> models.CreativeWorkbenchSession | None:
+    return db.scalar(
+        select(models.CreativeWorkbenchSession)
+        .where(models.CreativeWorkbenchSession.product_id == product_id)
+        .order_by(models.CreativeWorkbenchSession.id.desc())
+    )
 
 
 def latest_rewrite_request(db: Session, ugc_script_id: int) -> models.CreativeRewriteRequest | None:
