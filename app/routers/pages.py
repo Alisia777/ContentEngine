@@ -47,6 +47,7 @@ from app.content_factory import ContentPerformanceService, ContentRunOrchestrato
 from app.content_factory.errors import ContentFactoryError
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.errors import CreativeSpecError
+from app.creative_quality import CreativeQualityDataError, CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
@@ -631,6 +632,136 @@ def latest_ugc_script(db: Session, product_id: int) -> models.UGCAdScript | None
         .join(models.BloggerMeaningSpec)
         .where(models.BloggerMeaningSpec.product_id == product_id)
         .order_by(models.UGCAdScript.id.desc())
+    )
+
+
+@router.get("/creative-quality", response_class=HTMLResponse)
+def creative_quality_page(request: Request, product_id: int | None = None, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "creative_quality.html",
+        {
+            "request": request,
+            "page_title": "Creative Quality",
+            "result": creative_quality_result(db, product_id) if product_id else None,
+            "error": request.query_params.get("error"),
+            **creative_quality_context(db),
+        },
+    )
+
+
+@router.post("/creative-quality/run", response_class=HTMLResponse)
+def run_creative_quality_page(
+    request: Request,
+    product_id: int = Form(0),
+    ugc_script_id: str = Form(""),
+    quality_score_id: str = Form(""),
+    rewrite_request_id: str = Form(""),
+    feedback: str = Form(""),
+    action: str = Form("score"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    error = None
+    try:
+        script_id = int(ugc_script_id) if ugc_script_id else None
+        selected_script = db.get(models.UGCAdScript, script_id) if script_id else latest_ugc_script(db, product_id)
+        if not selected_script:
+            raise CreativeQualityDataError("UGC script is required before creative quality scoring.")
+        if action == "score":
+            score = UGCQualityScorer(db).score_script(selected_script.id)
+            result = creative_quality_result(db, product_id, ugc_script_id=selected_script.id, quality_score_id=score.id)
+        elif action == "gate":
+            gate = CreativeQualityGateService(db).gate(product_id, ugc_script_id=selected_script.id)
+            result = creative_quality_result(db, product_id, ugc_script_id=selected_script.id, quality_score_id=gate.quality_score_id, gate_status=gate.model_dump(mode="json"))
+        elif action == "request_rewrite":
+            score_id = int(quality_score_id) if quality_score_id else None
+            score = db.get(models.CreativeQualityScore, score_id) if score_id else UGCQualityScorer(db).latest_for_script(selected_script.id)
+            if not score:
+                score = UGCQualityScorer(db).score_script(selected_script.id)
+            request_model = ScriptRewriter(db).create_request(score.id, feedback=feedback or None)
+            result = creative_quality_result(
+                db,
+                product_id,
+                ugc_script_id=selected_script.id,
+                quality_score_id=score.id,
+                rewrite_request_id=request_model.id,
+            )
+        elif action == "build_rewrite":
+            request_id = int(rewrite_request_id) if rewrite_request_id else None
+            request_model = db.get(models.CreativeRewriteRequest, request_id) if request_id else latest_rewrite_request(db, selected_script.id)
+            if not request_model:
+                score = UGCQualityScorer(db).latest_for_script(selected_script.id) or UGCQualityScorer(db).score_script(selected_script.id)
+                request_model = ScriptRewriter(db).create_request(score.id, feedback=feedback or None)
+            build = ScriptRewriter(db).build(request_model.id)
+            score = UGCQualityScorer(db).score_script(build.new_ugc_script_id)
+            result = creative_quality_result(
+                db,
+                product_id,
+                ugc_script_id=build.new_ugc_script_id,
+                quality_score_id=score.id,
+                rewrite_request_id=request_model.id,
+                build_result=build.model_dump(mode="json"),
+            )
+    except (CreativeQualityDataError, BloggerBriefError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "creative_quality.html",
+        {
+            "request": request,
+            "page_title": "Creative Quality",
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_ugc_script_id": int(ugc_script_id) if ugc_script_id else None,
+            "selected_quality_score_id": int(quality_score_id) if quality_score_id else None,
+            "selected_rewrite_request_id": int(rewrite_request_id) if rewrite_request_id else None,
+            **creative_quality_context(db),
+        },
+    )
+
+
+def creative_quality_context(db: Session) -> dict:
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "ugc_scripts": db.scalars(select(models.UGCAdScript).order_by(models.UGCAdScript.id.desc()).limit(30)).all(),
+        "quality_scores": db.scalars(select(models.CreativeQualityScore).order_by(models.CreativeQualityScore.id.desc()).limit(30)).all(),
+        "rewrite_requests": db.scalars(select(models.CreativeRewriteRequest).order_by(models.CreativeRewriteRequest.id.desc()).limit(30)).all(),
+    }
+
+
+def creative_quality_result(
+    db: Session,
+    product_id: int | None,
+    *,
+    ugc_script_id: int | None = None,
+    quality_score_id: int | None = None,
+    rewrite_request_id: int | None = None,
+    gate_status: dict | None = None,
+    build_result: dict | None = None,
+) -> dict:
+    product = db.get(models.Product, product_id) if product_id else None
+    script = db.get(models.UGCAdScript, ugc_script_id) if ugc_script_id else (latest_ugc_script(db, product_id) if product_id else None)
+    score = db.get(models.CreativeQualityScore, quality_score_id) if quality_score_id else (
+        UGCQualityScorer(db).latest_for_script(script.id) if script else None
+    )
+    rewrite_request = db.get(models.CreativeRewriteRequest, rewrite_request_id) if rewrite_request_id else (
+        latest_rewrite_request(db, script.id) if script else None
+    )
+    return {
+        "product": product,
+        "ugc_script": script,
+        "quality_score": score,
+        "rewrite_request": rewrite_request,
+        "gate_status": gate_status,
+        "build_result": build_result,
+    }
+
+
+def latest_rewrite_request(db: Session, ugc_script_id: int) -> models.CreativeRewriteRequest | None:
+    return db.scalar(
+        select(models.CreativeRewriteRequest)
+        .where(models.CreativeRewriteRequest.ugc_script_id == ugc_script_id)
+        .order_by(models.CreativeRewriteRequest.id.desc())
     )
 
 

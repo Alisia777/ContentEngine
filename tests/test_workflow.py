@@ -61,6 +61,7 @@ from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.hook_strategy import HookStrategySelector
 from app.creative.product_geometry import GEOMETRY_LOCK_PROMPT_LINES, GEOMETRY_NEGATIVE_TERMS
 from app.creative.types import CreativeSpec
+from app.creative_quality import CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
 from app.database import Base, SessionLocal, engine
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupDataError
@@ -458,6 +459,91 @@ def attach_approved_reference_pair(
     )
     storage.update_asset(label.id, review_status="approved", asset_type="label_closeup")
     return primary, label
+
+
+def create_manual_ugc_script(
+    db: Session,
+    product_id: int,
+    *,
+    creative_spec_id: int | None = None,
+    creative_variant_id: int | None = None,
+    scenes: list[dict] | None = None,
+) -> models.UGCAdScript:
+    meaning = MeaningSpecBuilder(db).build(product_id, creative_spec_id=creative_spec_id, duration_seconds=8)
+    scene_script = scenes or [
+        {
+            "scene_number": 1,
+            "role": "hook",
+            "starts_at": 0,
+            "duration_seconds": 1,
+            "spoken_line": "I tried this after training when I wanted dessert without a heavy snack.",
+            "caption": "After training",
+            "visual_direction": "Sporty creator holds the exact pack.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 2,
+            "role": "personal_context",
+            "starts_at": 1,
+            "duration_seconds": 2,
+            "spoken_line": "I keep it in my gym bag because I need something quick between errands.",
+            "caption": "Real routine",
+            "visual_direction": "Creator speaks naturally in a gym or kitchen routine.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 3,
+            "role": "product_reason",
+            "starts_at": 3,
+            "duration_seconds": 2,
+            "spoken_line": "That is why this exact product fits my routine: compact pack, clear flavour, and easy portion.",
+            "caption": "Why this one",
+            "visual_direction": "Package stays visible and readable.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 4,
+            "role": "proof_demo",
+            "starts_at": 5,
+            "duration_seconds": 2,
+            "spoken_line": "I show the real pack, open it, and try one unwrapped bite so the texture is visible.",
+            "caption": "Texture check",
+            "visual_direction": "Exact packshot plus separate unwrapped product piece.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 5,
+            "role": "cta",
+            "starts_at": 7,
+            "duration_seconds": 1,
+            "spoken_line": "Check the product card if this snack fits your routine.",
+            "caption": "See product card",
+            "visual_direction": "End on exact product packshot.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+    ]
+    script = models.UGCAdScript(
+        blogger_meaning_spec_id=meaning.id,
+        creative_variant_id=creative_variant_id,
+        status="ready",
+        duration_seconds=8,
+        voiceover_json={
+            "language": "ru",
+            "style": "first-person creator language",
+            "lines": [scene.get("spoken_line", "") for scene in scene_script],
+        },
+        captions_json={"style": "minimal", "lines": [scene.get("caption", "") for scene in scene_script]},
+        scene_script_json=scene_script,
+    )
+    db.add(script)
+    db.commit()
+    db.refresh(script)
+    return script
 
 
 def prepare_working_video_product(
@@ -2467,6 +2553,284 @@ def test_ugc_video_strategy_ui_and_api_show_reference_policy():
         assert spec_response.json()["product_lock_rules"]["product_lock_mode"] == "no_product_generation"
         assert script_response.status_code == 200
         assert script_response.json()["status"] == "ready"
+
+
+def test_ugc_quality_score_passes_good_blogger_script():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Good UGC Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert score.status == "passed"
+        assert score.total_score >= 75
+        assert "generic_ad_voice" not in score.reasons_json
+
+
+def test_ugc_quality_score_flags_generic_ad_voice():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Generic Voice Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, this is the best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This snack is useful.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "generic_ad_voice" in score.reasons_json
+        assert score.status == "needs_rewrite"
+
+
+def test_ugc_quality_score_flags_missing_personal_context():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Missing Context Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            base_script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            base_script.scene_script_json = [scene for scene in base_script.scene_script_json if scene["role"] != "personal_context"]
+            db.commit()
+            score = UGCQualityScorer(db).score_script(base_script.id)
+
+        assert "no_personal_context" in score.reasons_json
+        assert "incomplete_scene_roles" in score.reasons_json
+
+
+def test_ugc_quality_score_flags_missing_proof_moment():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Missing Proof Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            script.scene_script_json = [scene for scene in script.scene_script_json if scene["role"] != "proof_demo"]
+            db.commit()
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "missing_proof_moment" in score.reasons_json
+        assert score.status == "needs_rewrite"
+
+
+def test_ugc_quality_score_flags_weak_hook():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Weak Hook Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            scenes = list(script.scene_script_json)
+            scenes[0] = {**scenes[0], "spoken_line": "Nice."}
+            script.scene_script_json = scenes
+            db.commit()
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "weak_hook" in score.reasons_json
+
+
+def test_ugc_quality_gate_blocks_real_smoke_below_threshold():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Block Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            gate = CreativeQualityGateService(db).gate(product_id, ugc_script_id=script.id, creative_variant_id=selected_variant_id)
+
+        assert gate.real_smoke_allowed is False
+        assert gate.next_action == "rewrite_ugc_script"
+        assert gate.rewrite_request_id is not None
+        assert any(blocker.startswith("creative_quality:") for blocker in gate.blockers)
+
+
+def test_ugc_quality_gate_passes_script_above_threshold():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Pass Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            gate = CreativeQualityGateService(db).gate(product_id, ugc_script_id=script.id, creative_variant_id=selected_variant_id)
+
+        assert gate.real_smoke_allowed is True
+        assert gate.status == "passed"
+        assert gate.next_action == "run_limited_real_smoke"
+
+
+def test_rewrite_request_created_for_needs_rewrite():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Rewrite Request Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+            request = ScriptRewriter(db).create_request(score.id, feedback="Make it feel like a sporty creator.")
+
+        assert score.status == "needs_rewrite"
+        assert request.status == "requested"
+        assert request.ugc_script_id == script.id
+        assert request.required_fixes_json
+
+
+def test_script_rewriter_adds_personal_context_and_proof():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Rewrite Build Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+            request = ScriptRewriter(db).create_request(score.id)
+            result = ScriptRewriter(db).build(request.id)
+            rewritten = db.get(models.UGCAdScript, result.new_ugc_script_id)
+
+        roles = [scene["role"] for scene in rewritten.scene_script_json]
+        lines = " ".join(scene["spoken_line"] for scene in rewritten.scene_script_json)
+        assert "personal_context" in roles
+        assert "proof_demo" in roles
+        assert "I " in lines
+        assert result.new_ugc_script_id != script.id
+
+
+def test_creative_quality_ui_renders_score_breakdown():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality UI Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        response = api.get(f"/creative-quality?product_id={product_id}")
+
+        assert response.status_code == 200
+        assert "Creative Quality" in response.text
+        assert "Score Breakdown" in response.text
+        assert "Hook strength" in response.text
+        assert str(score.id) in response.text
+
+
+def test_creative_quality_api_scores_rewrites_and_reports_gate_status():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality API Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+
+        score_response = api.post("/api/creative-quality/score", json={"ugc_script_id": script.id})
+        score_id = score_response.json()["id"]
+        rewrite_response = api.post(
+            f"/api/creative-quality/scores/{score_id}/rewrite-request",
+            json={"feedback": "Make it creator-led."},
+        )
+        build_response = api.post(f"/api/creative-quality/rewrite-requests/{rewrite_response.json()['id']}/build")
+        gate_response = api.get(
+            f"/api/creative-quality/products/{product_id}/gate-status",
+            params={"ugc_script_id": script.id, "creative_variant_id": selected_variant_id},
+        )
+
+        assert score_response.status_code == 200
+        assert score_response.json()["status"] == "needs_rewrite"
+        assert rewrite_response.status_code == 200
+        assert build_response.status_code == 200
+        assert build_response.json()["new_ugc_script_id"] != script.id
+        assert gate_response.status_code == 200
+        assert gate_response.json()["next_action"] == "rewrite_ugc_script"
+
+
+def test_creative_quality_cli_scores_script():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality CLI Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "scripts/score_ugc_script.py", "--ugc-script-id", str(script.id)],
+            cwd=root,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        assert "Total Score:" in result.stdout
+        assert "Status: passed" in result.stdout
 
 
 def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):

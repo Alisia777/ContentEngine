@@ -991,6 +991,63 @@ class UGCAdScript(Base, TimestampMixin):
 
     blogger_meaning_spec = relationship("BloggerMeaningSpec", back_populates="scripts")
     creative_variant = relationship("CreativeVariant")
+    quality_scores = relationship("CreativeQualityScore", back_populates="ugc_script", cascade="all, delete-orphan")
+
+
+class CreativeQualityScore(Base, TimestampMixin):
+    __tablename__ = "creative_quality_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    blogger_meaning_spec_id = Column(Integer, ForeignKey("blogger_meaning_specs.id"), nullable=True, index=True)
+    ugc_script_id = Column(Integer, ForeignKey("ugc_ad_scripts.id"), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="needs_rewrite", index=True)
+    total_score = Column(Float, nullable=False, default=0)
+    hook_strength_score = Column(Float, nullable=False, default=0)
+    personal_situation_score = Column(Float, nullable=False, default=0)
+    buyer_need_clarity_score = Column(Float, nullable=False, default=0)
+    product_reason_score = Column(Float, nullable=False, default=0)
+    proof_moment_score = Column(Float, nullable=False, default=0)
+    natural_blogger_language_score = Column(Float, nullable=False, default=0)
+    cta_clarity_score = Column(Float, nullable=False, default=0)
+    claims_safety_score = Column(Float, nullable=False, default=0)
+    product_lock_reference_safety_score = Column(Float, nullable=False, default=0)
+    scene_completeness_score = Column(Float, nullable=False, default=0)
+    reasons_json = Column(JSON, default=list, nullable=False)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+    breakdown_json = Column(JSON, default=dict, nullable=False)
+    gate_json = Column(JSON, default=dict, nullable=False)
+
+    product = relationship("Product")
+    blogger_meaning_spec = relationship("BloggerMeaningSpec")
+    ugc_script = relationship("UGCAdScript", back_populates="quality_scores")
+    creative_variant = relationship("CreativeVariant")
+    prompt_pack = relationship("PromptPack")
+    rewrite_requests = relationship("CreativeRewriteRequest", back_populates="quality_score", cascade="all, delete-orphan")
+
+
+class CreativeRewriteRequest(Base, TimestampMixin):
+    __tablename__ = "creative_rewrite_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creative_quality_score_id = Column(Integer, ForeignKey("creative_quality_scores.id"), nullable=False, index=True)
+    ugc_script_id = Column(Integer, ForeignKey("ugc_ad_scripts.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="requested", index=True)
+    reason = Column(String(160), nullable=False, default="quality_score_below_threshold")
+    feedback = Column(Text, nullable=True)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+    before_script_json = Column(JSON, default=dict, nullable=False)
+    rewrite_plan_json = Column(JSON, default=dict, nullable=False)
+    new_ugc_script_id = Column(Integer, ForeignKey("ugc_ad_scripts.id"), nullable=True, index=True)
+
+    quality_score = relationship("CreativeQualityScore", back_populates="rewrite_requests")
+    ugc_script = relationship("UGCAdScript", foreign_keys=[ugc_script_id])
+    new_ugc_script = relationship("UGCAdScript", foreign_keys=[new_ugc_script_id])
+    product = relationship("Product")
 
 
 class SceneRegenerationRequest(Base, TimestampMixin):

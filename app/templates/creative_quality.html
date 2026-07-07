@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>Creative Quality</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/creative-quality/run" class="form-grid">
+    <label>Product
+      <select name="product_id" required>
+        {% for product in products %}
+          <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>UGC Script
+      <select name="ugc_script_id">
+        <option value="">latest</option>
+        {% for script in ugc_scripts %}
+          <option value="{{ script.id }}" {% if selected_ugc_script_id == script.id %}selected{% endif %}>#{{ script.id }} / spec #{{ script.blogger_meaning_spec_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Quality Score
+      <select name="quality_score_id">
+        <option value="">latest</option>
+        {% for score in quality_scores %}
+          <option value="{{ score.id }}" {% if selected_quality_score_id == score.id %}selected{% endif %}>#{{ score.id }} / {{ score.status }} / {{ score.total_score }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Rewrite Request
+      <select name="rewrite_request_id">
+        <option value="">latest</option>
+        {% for request in rewrite_requests %}
+          <option value="{{ request.id }}" {% if selected_rewrite_request_id == request.id %}selected{% endif %}>#{{ request.id }} / {{ request.status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Feedback
+      <textarea name="feedback" placeholder="Optional operator feedback"></textarea>
+    </label>
+    <div class="actions">
+      <button name="action" value="score">Score</button>
+      <button name="action" value="request_rewrite">Request Rewrite</button>
+      <button name="action" value="build_rewrite">Build Rewrite</button>
+      <button name="action" value="gate">Gate Status</button>
+    </div>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h2>Selected Creative</h2>
+  <div class="metric-grid">
+    <div><span>Product</span><strong>{{ result.product.sku if result.product else 'none' }}</strong></div>
+    <div><span>UGC Script</span><strong>{{ result.ugc_script.id if result.ugc_script else 'none' }}</strong></div>
+    <div><span>Score</span><strong>{{ result.quality_score.total_score if result.quality_score else 'pending' }}</strong></div>
+    <div><span>Status</span><strong>{{ result.quality_score.status if result.quality_score else 'pending' }}</strong></div>
+  </div>
+</section>
+
+{% if result.quality_score %}
+<section class="panel">
+  <h2>Score Breakdown</h2>
+  <table class="table">
+    <thead><tr><th>Component</th><th>Score</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for item in result.quality_score.breakdown_json %}
+        <tr>
+          <td>{{ item.label }}</td>
+          <td>{{ item.score }} / {{ item.max_score }}</td>
+          <td>{{ 'passed' if item.passed else 'fix' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><strong>Reasons:</strong> {{ result.quality_score.reasons_json | join(', ') or 'none' }}</p>
+  <p><strong>Required fixes:</strong> {{ result.quality_score.required_fixes_json | join(' | ') or 'none' }}</p>
+</section>
+{% endif %}
+
+{% if result.gate_status %}
+<section class="panel">
+  <h2>Gate Status</h2>
+  <div class="metric-grid">
+    <div><span>Status</span><strong>{{ result.gate_status.status }}</strong></div>
+    <div><span>Real Smoke</span><strong>{{ result.gate_status.real_smoke_allowed }}</strong></div>
+    <div><span>Next Action</span><strong>{{ result.gate_status.next_action }}</strong></div>
+    <div><span>Rewrite Request</span><strong>{{ result.gate_status.rewrite_request_id or 'none' }}</strong></div>
+  </div>
+  <p><strong>Blockers:</strong> {{ result.gate_status.blockers | join(', ') or 'none' }}</p>
+  <p><strong>Reference policy:</strong> {{ result.gate_status.reference_policy.status }} / {{ result.gate_status.reference_policy.product_lock_mode }}</p>
+</section>
+{% endif %}
+
+{% if result.rewrite_request %}
+<section class="panel">
+  <h2>Rewrite Request</h2>
+  <p>Status: {{ result.rewrite_request.status }}</p>
+  <p>Reason: {{ result.rewrite_request.reason }}</p>
+  <p>Fixes: {{ result.rewrite_request.required_fixes_json | join(' | ') or 'none' }}</p>
+</section>
+{% endif %}
+
+{% if result.build_result %}
+<section class="panel">
+  <h2>Rewrite Result</h2>
+  <p>New UGC Script ID: {{ result.build_result.new_ugc_script_id }}</p>
+  <table class="table">
+    <thead><tr><th>Before</th><th>After</th></tr></thead>
+    <tbody>
+      {% for before in result.build_result.before_lines %}
+        <tr>
+          <td>{{ before }}</td>
+          <td>{{ result.build_result.after_lines[loop.index0] if result.build_result.after_lines|length > loop.index0 else '' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if result.ugc_script %}
+<section class="panel">
+  <h2>UGC Script Scenes</h2>
+  <table class="table">
+    <thead><tr><th>Role</th><th>Line</th><th>Visual</th></tr></thead>
+    <tbody>
+      {% for scene in result.ugc_script.scene_script_json %}
+        <tr>
+          <td>{{ scene.role }}</td>
+          <td>{{ scene.spoken_line }}</td>
+          <td>{{ scene.visual_direction }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel">
+  <h2>Recent Scores</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>SKU</th><th>Script</th><th>Score</th><th>Status</th><th>Reasons</th></tr></thead>
+    <tbody>
+      {% for score in quality_scores %}
+        <tr>
+          <td>{{ score.id }}</td>
+          <td>{{ score.sku }}</td>
+          <td>{{ score.ugc_script_id }}</td>
+          <td>{{ score.total_score }}</td>
+          <td>{{ score.status }}</td>
+          <td>{{ score.reasons_json | join(', ') }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
