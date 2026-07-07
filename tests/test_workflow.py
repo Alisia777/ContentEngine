@@ -62,6 +62,14 @@ from app.creative.hook_strategy import HookStrategySelector
 from app.creative.product_geometry import GEOMETRY_LOCK_PROMPT_LINES, GEOMETRY_NEGATIVE_TERMS
 from app.creative.types import CreativeSpec
 from app.creative_quality import CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
+from app.creative_workbench import (
+    BriefEditorService,
+    CreativeWorkbenchGuardrailError,
+    PromptPreviewService,
+    ReadinessService,
+    RewriteWorkflowService,
+    WorkbenchService,
+)
 from app.database import Base, SessionLocal, engine
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupDataError
@@ -553,6 +561,44 @@ def create_manual_ugc_script(
     db.commit()
     db.refresh(script)
     return script
+
+
+def generic_ad_scenes() -> list[dict]:
+    return [
+        {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+        {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+        {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+        {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+        {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+    ]
+
+
+def prepare_workbench_fixture(
+    api: TestClient,
+    *,
+    title: str = "Creative Workbench Product",
+    scenes: list[dict] | None = None,
+    with_references: bool = True,
+    with_prompt_pack: bool = True,
+) -> tuple[int, int, int, int | None]:
+    product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title=title)
+    with SessionLocal() as db:
+        if with_references:
+            attach_approved_reference_pair(db, product_id)
+        script = create_manual_ugc_script(
+            db,
+            product_id,
+            creative_spec_id=spec_id,
+            creative_variant_id=selected_variant_id,
+            scenes=scenes,
+        )
+        prompt_pack_id = None
+        if with_prompt_pack:
+            generation = PromptEnricher(db).build_prompt_pack_from_script(script.id, provider="runway")
+            prompt_pack_id = generation.prompt_pack_id
+        UGCQualityScorer(db).score_script(script.id, prompt_pack_id=prompt_pack_id)
+        session = WorkbenchService(db).build(product_id, ugc_script_id=script.id, prompt_pack_id=prompt_pack_id)
+    return product_id, session.id, script.id, prompt_pack_id
 
 
 def prepare_working_video_product(
@@ -3139,6 +3185,171 @@ def test_creative_quality_cli_scores_script():
         assert result.returncode == 0
         assert "Total Score:" in result.stdout
         assert "Status: passed" in result.stdout
+
+
+def test_creative_workbench_builds_session_from_product():
+    with client() as api:
+        product_id, session_id, script_id, prompt_pack_id = prepare_workbench_fixture(api, title="Workbench Build Product")
+
+        with SessionLocal() as db:
+            session = db.get(models.CreativeWorkbenchSession, session_id)
+            output = WorkbenchService(db).as_output(session)
+
+        assert session.product_id == product_id
+        assert session.ugc_script_id == script_id
+        assert session.prompt_pack_id == prompt_pack_id
+        assert output.product_strategy_spec_id
+        assert output.offer_strategy_id
+        assert output.real_smoke_readiness.prompt_pack_ready is True
+
+
+def test_workbench_shows_strategy_offer_ugc_score_and_prompt():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(api, title="Workbench Full View Product")
+
+        with SessionLocal() as db:
+            output = WorkbenchService(db).as_output(db.get(models.CreativeWorkbenchSession, session_id))
+
+        assert output.strategy_scorecard["items"]
+        assert output.offer_logic["offer_type"]
+        assert output.ugc_script_preview["scenes"]
+        assert output.creative_quality_breakdown["total_score"] >= 80
+        assert output.prompt_preview["scenes"]
+
+
+def test_workbench_blocks_real_smoke_when_quality_below_threshold():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(
+            api,
+            title="Workbench Low Quality Product",
+            scenes=generic_ad_scenes(),
+        )
+
+        with SessionLocal() as db:
+            readiness = ReadinessService(db).for_session(session_id)
+
+        assert readiness.real_smoke_allowed is False
+        assert any(blocker.startswith("creative_quality:") for blocker in readiness.blockers)
+
+
+def test_workbench_blocks_real_smoke_when_reference_policy_fails():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(
+            api,
+            title="Workbench Missing References Product",
+            with_references=False,
+        )
+
+        with SessionLocal() as db:
+            readiness = ReadinessService(db).for_session(session_id)
+
+        assert readiness.reference_policy_passed is False
+        assert readiness.real_smoke_allowed is False
+        assert any(blocker.startswith("reference_policy:") for blocker in readiness.blockers)
+
+
+def test_brief_editor_updates_safe_fields():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(api, title="Workbench Brief Patch Product")
+
+        with SessionLocal() as db:
+            session = BriefEditorService(db).patch(
+                session_id,
+                {
+                    "buyer_situation": "Sporty creator needs a quick snack after training.",
+                    "main_objection": "Needs proof that it is not just candy.",
+                    "proof_moment": "Show the exact pack and one unwrapped bite.",
+                    "cta": "Open the product card and compare details.",
+                    "creator_persona": "Sporty woman, 25-30, calm first-person delivery.",
+                    "must_avoid": ["do not eat wrapper"],
+                },
+            )
+            assert session.product_strategy_spec.main_objection == "Needs proof that it is not just candy."
+            assert session.blogger_meaning_spec.proof_moment_json["proof_line"] == "Show the exact pack and one unwrapped bite."
+            assert session.blogger_meaning_spec.cta_json["spoken_line"] == "Open the product card and compare details."
+            assert "do not eat wrapper" in session.blogger_meaning_spec.authenticity_rules_json["must_avoid"]
+
+
+def test_brief_editor_does_not_bypass_gates():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(api, title="Workbench Guardrail Product")
+
+        with SessionLocal() as db:
+            with pytest.raises(CreativeWorkbenchGuardrailError):
+                BriefEditorService(db).patch(
+                    session_id,
+                    {"real_smoke_allowed": True, "product_reference_approval_status": "approved"},
+                )
+            session = db.get(models.CreativeWorkbenchSession, session_id)
+
+        assert session.status != "approved_for_smoke"
+
+
+def test_prompt_preview_contains_scene_prompt_negative_prompt_and_lock_mode():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(api, title="Workbench Prompt Preview Product")
+
+        with SessionLocal() as db:
+            preview = PromptPreviewService(db).preview(session_id)
+
+        assert preview.prompt_pack_id
+        assert preview.product_lock_mode == "reference_i2v"
+        assert preview.negative_prompt
+        assert preview.scenes[0].scene_prompt
+        assert preview.scenes[0].identity_constraints
+
+
+def test_rewrite_workflow_creates_before_after_script():
+    with client() as api:
+        _, session_id, script_id, _ = prepare_workbench_fixture(
+            api,
+            title="Workbench Rewrite Product",
+            scenes=generic_ad_scenes(),
+        )
+
+        with SessionLocal() as db:
+            result = RewriteWorkflowService(db).rewrite(session_id, feedback="Make this feel like a real sporty creator.")
+
+        assert result.source_ugc_script_id == script_id
+        assert result.new_ugc_script_id != script_id
+        assert result.before_lines != result.after_lines
+        assert result.new_score["ugc_script_id"] == result.new_ugc_script_id
+
+
+def test_workbench_approval_requires_passed_readiness():
+    with client() as api:
+        _, blocked_session_id, _, _ = prepare_workbench_fixture(
+            api,
+            title="Workbench Blocked Approval Product",
+            scenes=generic_ad_scenes(),
+        )
+        _, ready_session_id, _, _ = prepare_workbench_fixture(api, title="Workbench Ready Approval Product")
+
+        with SessionLocal() as db:
+            with pytest.raises(CreativeWorkbenchGuardrailError):
+                WorkbenchService(db).approve_for_smoke(blocked_session_id, reviewer_name="Operator")
+            approval = WorkbenchService(db).approve_for_smoke(ready_session_id, reviewer_name="Operator")
+            ready_session = db.get(models.CreativeWorkbenchSession, ready_session_id)
+
+        assert approval.status == "approved"
+        assert ready_session.status == "approved_for_smoke"
+
+
+def test_creative_workbench_ui_renders_all_sections():
+    with client() as api:
+        _, session_id, _, _ = prepare_workbench_fixture(api, title="Workbench UI Product")
+
+        response = api.get(f"/creative-workbench?session_id={session_id}")
+
+        assert response.status_code == 200
+        assert "Creative Quality Workbench" in response.text
+        assert "Product Strategy" in response.text
+        assert "Offer Logic" in response.text
+        assert "UGC Script" in response.text
+        assert "Quality Score" in response.text
+        assert "Prompt Preview" in response.text
+        assert "Rewrite" in response.text
+        assert "Real Smoke Readiness" in response.text
 
 
 def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):

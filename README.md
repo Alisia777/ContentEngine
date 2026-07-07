@@ -212,6 +212,28 @@ Paid manual acceptance uses the same command after `QVF_GENERATION_MODE=real`, `
 
 Full runbook: `docs/REAL_SMOKE_FROM_VARIANT.md`.
 
+## Creative Quality Workbench
+
+v2.2 adds `/creative-workbench`, an operator review surface for strategy, offer, UGC script, creative score, prompt preview, rewrite, and real-smoke readiness.
+
+CLI flow:
+
+```bash
+python scripts/build_creative_workbench.py --product-id 1
+python scripts/creative_workbench_readiness.py --session-id 1
+python scripts/creative_workbench_prompt_preview.py --session-id 1
+python scripts/creative_workbench_rewrite.py --session-id 1
+python scripts/creative_workbench_approve.py --session-id 1 --reviewer "Operator"
+```
+
+The workbench does not call paid providers. It approves only the brief/session for a later limited real smoke when product strategy, offer logic, UGC script, creative quality, reference policy, and prompt pack gates all pass.
+
+Docs:
+
+- `docs/CREATIVE_QUALITY_WORKBENCH.md`
+- `docs/AI_BRIEF_STUDIO.md`
+- `docs/PROMPT_PREVIEW_AND_REWRITE.md`
+
 ## Product Geometry / Scale Lock
 
 v0.2.1 adds prompt-level protection against product size and proportion drift. `VideoCreativeSpec` and selected-variant prompt packs now include product geometry, scale, and visibility rules, plus negative prompts for changed product size, wrong proportions, stretched/squashed bottle, oversized/miniature product, changed silhouette, wrong cap size, and label area changes.

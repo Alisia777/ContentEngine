@@ -1105,6 +1105,46 @@ class CreativeRewriteRequest(Base, TimestampMixin):
     product = relationship("Product")
 
 
+class CreativeWorkbenchSession(Base, TimestampMixin):
+    __tablename__ = "creative_workbench_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    product_strategy_spec_id = Column(Integer, ForeignKey("product_strategy_specs.id"), nullable=True, index=True)
+    offer_strategy_id = Column(Integer, ForeignKey("offer_strategies.id"), nullable=True, index=True)
+    blogger_meaning_spec_id = Column(Integer, ForeignKey("blogger_meaning_specs.id"), nullable=True, index=True)
+    ugc_script_id = Column(Integer, ForeignKey("ugc_ad_scripts.id"), nullable=True, index=True)
+    creative_quality_score_id = Column(Integer, ForeignKey("creative_quality_scores.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="draft", index=True)
+    summary_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    product_strategy_spec = relationship("ProductStrategySpec")
+    offer_strategy = relationship("OfferStrategy")
+    blogger_meaning_spec = relationship("BloggerMeaningSpec")
+    ugc_script = relationship("UGCAdScript")
+    creative_quality_score = relationship("CreativeQualityScore")
+    prompt_pack = relationship("PromptPack")
+    approvals = relationship("CreativeBriefApproval", back_populates="workbench_session", cascade="all, delete-orphan")
+
+
+class CreativeBriefApproval(Base, TimestampMixin):
+    __tablename__ = "creative_brief_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workbench_session_id = Column(Integer, ForeignKey("creative_workbench_sessions.id"), nullable=False, index=True)
+    reviewer_name = Column(String(160), nullable=False)
+    status = Column(String(80), nullable=False, default="approved", index=True)
+    notes = Column(Text, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+    workbench_session = relationship("CreativeWorkbenchSession", back_populates="approvals")
+
+
 class SceneRegenerationRequest(Base, TimestampMixin):
     __tablename__ = "scene_regeneration_requests"
 

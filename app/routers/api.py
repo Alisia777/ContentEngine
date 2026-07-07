@@ -55,6 +55,14 @@ from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.errors import CreativeSpecError
 from app.creative.types import CreativeSpec
 from app.creative_quality import CreativeQualityDataError, CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
+from app.creative_workbench import (
+    BriefEditorService,
+    CreativeWorkbenchError,
+    PromptPreviewService,
+    ReadinessService,
+    RewriteWorkflowService,
+    WorkbenchService,
+)
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
@@ -324,6 +332,22 @@ class CreativeQualityGateRequest(BaseModel):
     creative_variant_id: int | None = None
     prompt_pack_id: int | None = None
     provider: str = "runway"
+
+
+class CreativeWorkbenchBuildRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    ugc_script_id: int | None = None
+    prompt_pack_id: int | None = None
+
+
+class CreativeWorkbenchRewriteRequest(BaseModel):
+    feedback: str | None = None
+
+
+class CreativeWorkbenchApprovalRequest(BaseModel):
+    reviewer_name: str = "Operator"
+    notes: str | None = None
 
 
 class ContentFactoryPrepareRequest(BaseModel):
@@ -1428,6 +1452,94 @@ def get_creative_quality_gate_status(
             provider=provider,
         ).model_dump(mode="json")
     except (CreativeQualityDataError, BloggerBriefError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-workbench/sessions/build")
+def build_creative_workbench_session(payload: CreativeWorkbenchBuildRequest, db: Session = Depends(get_db)):
+    try:
+        session = WorkbenchService(db).build(
+            payload.product_id,
+            platform=payload.platform,
+            ugc_script_id=payload.ugc_script_id,
+            prompt_pack_id=payload.prompt_pack_id,
+        )
+        return WorkbenchService(db).as_output(session).model_dump(mode="json")
+    except CreativeWorkbenchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/creative-workbench/sessions/{session_id}")
+def get_creative_workbench_session(session_id: int, db: Session = Depends(get_db)):
+    try:
+        session = WorkbenchService(db).get(session_id)
+        return WorkbenchService(db).as_output(session).model_dump(mode="json")
+    except CreativeWorkbenchError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/creative-workbench/sessions/{session_id}/brief")
+def patch_creative_workbench_brief(session_id: int, payload: dict[str, Any], db: Session = Depends(get_db)):
+    try:
+        session = BriefEditorService(db).patch(session_id, payload)
+        return WorkbenchService(db).as_output(session).model_dump(mode="json")
+    except CreativeWorkbenchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-workbench/sessions/{session_id}/score")
+def score_creative_workbench_session(session_id: int, db: Session = Depends(get_db)):
+    try:
+        score = WorkbenchService(db).score(session_id)
+        return creative_quality_score_response(score)
+    except (CreativeWorkbenchError, CreativeQualityDataError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-workbench/sessions/{session_id}/rewrite")
+def rewrite_creative_workbench_session(
+    session_id: int,
+    payload: CreativeWorkbenchRewriteRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        return RewriteWorkflowService(db).rewrite(
+            session_id,
+            feedback=payload.feedback if payload else None,
+        ).model_dump(mode="json")
+    except (CreativeWorkbenchError, CreativeQualityDataError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-workbench/sessions/{session_id}/prompt-preview")
+def preview_creative_workbench_prompt(session_id: int, db: Session = Depends(get_db)):
+    try:
+        return PromptPreviewService(db).preview(session_id).model_dump(mode="json")
+    except CreativeWorkbenchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-workbench/sessions/{session_id}/approve-for-smoke")
+def approve_creative_workbench_for_smoke(
+    session_id: int,
+    payload: CreativeWorkbenchApprovalRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return WorkbenchService(db).approve_for_smoke(
+            session_id,
+            reviewer_name=payload.reviewer_name,
+            notes=payload.notes,
+        ).model_dump(mode="json")
+    except CreativeWorkbenchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/creative-workbench/products/{product_id}/readiness")
+def get_creative_workbench_product_readiness(product_id: int, provider: str = "runway", db: Session = Depends(get_db)):
+    try:
+        return ReadinessService(db).for_product(product_id, provider=provider).model_dump(mode="json")
+    except (CreativeWorkbenchError, BloggerBriefError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
