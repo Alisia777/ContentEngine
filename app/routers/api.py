@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app import models, schemas
 from app.assets.asset_kit_builder import AssetKitBuilder
@@ -54,6 +54,7 @@ from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.errors import CreativeSpecError
 from app.creative.types import CreativeSpec
+from app.creative_quality import CreativeQualityDataError, CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
@@ -110,6 +111,7 @@ from app.participant_portal import (
     RecommendationService,
     SubmissionService,
 )
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder, ProductStrategyDataError
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService, TrainingAcademyError
@@ -295,6 +297,33 @@ class UGCAdScriptPromptPackRequest(BaseModel):
     ugc_script_id: int
     video_provider: str = "runway"
     build_prompts_only: bool = True
+
+
+class ProductStrategySpecBuildRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    demand_hypothesis_id: int | None = None
+
+
+class OfferStrategyBuildRequest(BaseModel):
+    product_strategy_spec_id: int
+
+
+class CreativeQualityScoreRequest(BaseModel):
+    ugc_script_id: int
+    prompt_pack_id: int | None = None
+
+
+class CreativeRewriteRequestCreate(BaseModel):
+    feedback: str | None = None
+    reason: str = "quality_score_below_threshold"
+
+
+class CreativeQualityGateRequest(BaseModel):
+    ugc_script_id: int | None = None
+    creative_variant_id: int | None = None
+    prompt_pack_id: int | None = None
+    provider: str = "runway"
 
 
 class ContentFactoryPrepareRequest(BaseModel):
@@ -747,6 +776,54 @@ def ugc_ad_script_response(script: models.UGCAdScript) -> dict:
         "captions": script.captions_json,
         "scene_script": script.scene_script_json,
         "created_at": script.created_at.isoformat() if script.created_at else None,
+    }
+
+
+def product_strategy_spec_response(spec: models.ProductStrategySpec) -> dict:
+    return ProductStrategyBuilder(object_session(spec)).as_output(spec).model_dump(mode="json")
+
+
+def offer_strategy_response(offer: models.OfferStrategy) -> dict:
+    return OfferStrategyBuilder(object_session(offer)).as_output(offer).model_dump(mode="json")
+
+
+def creative_quality_score_response(score: models.CreativeQualityScore) -> dict:
+    return {
+        "id": score.id,
+        "product_id": score.product_id,
+        "sku": score.sku,
+        "product_strategy_spec_id": score.product_strategy_spec_id,
+        "blogger_meaning_spec_id": score.blogger_meaning_spec_id,
+        "ugc_script_id": score.ugc_script_id,
+        "creative_variant_id": score.creative_variant_id,
+        "prompt_pack_id": score.prompt_pack_id,
+        "status": score.status,
+        "total_score": score.total_score,
+        "offer_alignment_score": score.offer_alignment_score,
+        "platform_fit_score": score.platform_fit_score,
+        "breakdown": score.breakdown_json,
+        "reasons": score.reasons_json,
+        "required_fixes": score.required_fixes_json,
+        "gate": score.gate_json,
+        "created_at": score.created_at.isoformat() if score.created_at else None,
+        "updated_at": score.updated_at.isoformat() if score.updated_at else None,
+    }
+
+
+def creative_rewrite_request_response(request: models.CreativeRewriteRequest) -> dict:
+    return {
+        "id": request.id,
+        "creative_quality_score_id": request.creative_quality_score_id,
+        "ugc_script_id": request.ugc_script_id,
+        "product_id": request.product_id,
+        "status": request.status,
+        "reason": request.reason,
+        "feedback": request.feedback,
+        "required_fixes": request.required_fixes_json,
+        "rewrite_plan": request.rewrite_plan_json,
+        "new_ugc_script_id": request.new_ugc_script_id,
+        "created_at": request.created_at.isoformat() if request.created_at else None,
+        "updated_at": request.updated_at.isoformat() if request.updated_at else None,
     }
 
 
@@ -1214,6 +1291,40 @@ def get_product_reference_policy(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/product-strategy/specs/build")
+def build_product_strategy_spec(payload: ProductStrategySpecBuildRequest, db: Session = Depends(get_db)):
+    try:
+        spec = ProductStrategyBuilder(db).build(
+            payload.product_id,
+            platform=payload.platform,
+            demand_hypothesis_id=payload.demand_hypothesis_id,
+        )
+        return product_strategy_spec_response(spec)
+    except ProductStrategyDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/product-strategy/specs/{spec_id}")
+def get_product_strategy_spec(spec_id: int, db: Session = Depends(get_db)):
+    return product_strategy_spec_response(get_or_404(db, models.ProductStrategySpec, spec_id))
+
+
+@router.post("/product-strategy/offers/build")
+def build_offer_strategy(payload: OfferStrategyBuildRequest, db: Session = Depends(get_db)):
+    try:
+        return offer_strategy_response(OfferStrategyBuilder(db).build(payload.product_strategy_spec_id))
+    except ProductStrategyDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/product-strategy/products/{product_id}/strategy-status")
+def get_product_strategy_status(product_id: int, db: Session = Depends(get_db)):
+    try:
+        return ProductStrategyBuilder(db).status(product_id).model_dump(mode="json")
+    except ProductStrategyDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/blogger-brief/specs/build")
 def build_blogger_meaning_spec(payload: BloggerMeaningSpecBuildRequest, db: Session = Depends(get_db)):
     try:
@@ -1265,6 +1376,58 @@ def build_video_generator_prompt_pack_from_ugc_script(payload: UGCAdScriptPrompt
         )
         return generation_variant_response(variant)
     except (BloggerBriefError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-quality/score")
+def score_ugc_creative_quality(payload: CreativeQualityScoreRequest, db: Session = Depends(get_db)):
+    try:
+        score = UGCQualityScorer(db).score_script(payload.ugc_script_id, prompt_pack_id=payload.prompt_pack_id)
+        return creative_quality_score_response(score)
+    except CreativeQualityDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/creative-quality/scores/{score_id}")
+def get_creative_quality_score(score_id: int, db: Session = Depends(get_db)):
+    return creative_quality_score_response(get_or_404(db, models.CreativeQualityScore, score_id))
+
+
+@router.post("/creative-quality/scores/{score_id}/rewrite-request")
+def create_creative_rewrite_request(score_id: int, payload: CreativeRewriteRequestCreate, db: Session = Depends(get_db)):
+    try:
+        request = ScriptRewriter(db).create_request(score_id, feedback=payload.feedback, reason=payload.reason)
+        return creative_rewrite_request_response(request)
+    except CreativeQualityDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/creative-quality/rewrite-requests/{rewrite_request_id}/build")
+def build_creative_rewrite_request(rewrite_request_id: int, db: Session = Depends(get_db)):
+    try:
+        return ScriptRewriter(db).build(rewrite_request_id).model_dump(mode="json")
+    except CreativeQualityDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/creative-quality/products/{product_id}/gate-status")
+def get_creative_quality_gate_status(
+    product_id: int,
+    ugc_script_id: int | None = None,
+    creative_variant_id: int | None = None,
+    prompt_pack_id: int | None = None,
+    provider: str = "runway",
+    db: Session = Depends(get_db),
+):
+    try:
+        return CreativeQualityGateService(db).gate(
+            product_id,
+            ugc_script_id=ugc_script_id,
+            creative_variant_id=creative_variant_id,
+            prompt_pack_id=prompt_pack_id,
+            provider=provider,
+        ).model_dump(mode="json")
+    except (CreativeQualityDataError, BloggerBriefError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

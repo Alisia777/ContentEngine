@@ -15,6 +15,7 @@ from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.blogger_brief.reference_policy import ProductReferencePolicyService
 from app.config import get_settings
 from app.creative.types import CreativeSpec
+from app.creative_quality import CreativeQualityGateService
 from app.intelligence.errors import ProviderConfigurationError
 from app.intelligence.video_generator import GeneratorVideoService
 from app.video_generator.artifact_manager import ArtifactManager
@@ -80,6 +81,7 @@ class RealSmokeRunner:
                 "Product reference policy blocks strict real product generation: "
                 + ", ".join(reference_policy.blockers or ["add_product_references"])
             )
+        self._preflight_creative_quality(spec.product_id, creative_variant_id, provider=provider)
         prompt_variant = VideoGenerator(self.db).build_prompt_pack_from_variant(creative_variant_id, provider=provider)
         prompt_pack = prompt_variant.prompt_pack
         if not prompt_pack:
@@ -152,6 +154,18 @@ class RealSmokeRunner:
             raise
 
         return self._output(prompt_variant, video_job, report_path=report_path, quality_review_id=review.id, warnings=warnings, errors=errors)
+
+    def _preflight_creative_quality(self, product_id: int, creative_variant_id: int, *, provider: str) -> None:
+        gate_service = CreativeQualityGateService(self.db)
+        script = gate_service.latest_script_for_variant(creative_variant_id)
+        if not script:
+            return
+        gate = gate_service.gate(product_id, ugc_script_id=script.id, creative_variant_id=creative_variant_id, provider=provider)
+        if not gate.real_smoke_allowed:
+            raise ProviderConfigurationError(
+                "Creative quality gate blocks real smoke: "
+                + ", ".join(gate.blockers or ["rewrite_ugc_script"])
+            )
 
     def poll(self, video_job_id: int) -> RealSmokeRunOutput:
         video_job, generation_variant = self._job_and_variant(video_job_id)

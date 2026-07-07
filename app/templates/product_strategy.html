@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>Product Strategy</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/product-strategy/run" class="form-grid">
+    <label>Product
+      <select name="product_id" required>
+        {% for product in products %}
+          <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Platform
+      <select name="platform">
+        {% for platform in ["Instagram Reels", "TikTok", "YouTube Shorts", "Telegram", "VK", "Marketplace card video"] %}
+          <option value="{{ platform }}" {% if selected_platform == platform %}selected{% endif %}>{{ platform }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>UGC Script
+      <select name="ugc_script_id">
+        <option value="">latest</option>
+        {% for script in ugc_scripts %}
+          <option value="{{ script.id }}" {% if selected_ugc_script_id == script.id %}selected{% endif %}>#{{ script.id }} / spec #{{ script.blogger_meaning_spec_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions">
+      <button name="action" value="build_spec">Build Strategy</button>
+      <button name="action" value="build_offer">Build Offer</button>
+      <button name="action" value="score_latest">Score UGC</button>
+      <button name="action" value="gate">Gate Status</button>
+    </div>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h2>Strategy Status</h2>
+  <div class="metric-grid">
+    <div><span>Product</span><strong>{{ result.product.sku if result.product else 'none' }}</strong></div>
+    <div><span>Status</span><strong>{{ result.strategy_status.status }}</strong></div>
+    <div><span>Strategy</span><strong>{{ result.strategy.id if result.strategy else 'missing' }}</strong></div>
+    <div><span>Offer</span><strong>{{ result.offer.id if result.offer else 'missing' }}</strong></div>
+  </div>
+  <p><strong>Blockers:</strong> {{ result.strategy_status.blockers | join(', ') or 'none' }}</p>
+  <p><strong>Next actions:</strong> {{ result.strategy_status.next_actions | join(', ') or 'none' }}</p>
+</section>
+
+{% if result.strategy %}
+<section class="panel">
+  <h2>Product Strategy Spec</h2>
+  <div class="metric-grid">
+    <div><span>Buyer segment</span><strong>{{ result.strategy.buyer_segment_json.segment }}</strong></div>
+    <div><span>Product role</span><strong>{{ result.strategy.product_role }}</strong></div>
+    <div><span>Category alternative</span><strong>{{ result.strategy.category_alternative }}</strong></div>
+    <div><span>Main objection</span><strong>{{ result.strategy.main_objection }}</strong></div>
+  </div>
+  <p><strong>Buyer situation:</strong> {{ result.strategy.buyer_situation_json.situation }}</p>
+  <p><strong>Main pain:</strong> {{ result.strategy.main_pain }}</p>
+  <p><strong>Main desire:</strong> {{ result.strategy.main_desire }}</p>
+  <p><strong>Competitor:</strong> {{ result.strategy.competitor_context_json.pressure }} / {{ result.strategy.competitor_context_json.cheapest_competitor_price or 'no price' }}</p>
+  <p><strong>Price:</strong> {{ result.strategy.price_position_json.position }} / {{ result.strategy.price_position_json.avg_price or 'unknown' }}</p>
+  <p><strong>Stock:</strong> {{ result.strategy.stock_context_json.stock_risk or 'none' }} / aggressive CTA allowed: {{ result.strategy.stock_context_json.aggressive_cta_allowed }}</p>
+  <h3>Proof Required</h3>
+  <ul>
+    {% for proof in result.strategy.proof_required_json %}
+      <li><strong>{{ proof.proof_type }}</strong> - {{ proof.proof }} - {{ proof.scene_use }}</li>
+    {% endfor %}
+  </ul>
+  <h3>Platform Strategy</h3>
+  <p><strong>{{ result.strategy.platform_strategy_json.primary_platform }}</strong>: {{ result.strategy.platform_strategy_json.selected.hook_style }} / {{ result.strategy.platform_strategy_json.selected.cta }}</p>
+</section>
+{% endif %}
+
+{% if result.offer %}
+<section class="panel">
+  <h2>Offer Strategy</h2>
+  <div class="metric-grid">
+    <div><span>Offer type</span><strong>{{ result.offer.offer_type }}</strong></div>
+    <div><span>CTA</span><strong>{{ result.offer.cta_strategy }}</strong></div>
+    <div><span>Stock warning</span><strong>{{ result.offer.stock_warning or 'none' }}</strong></div>
+    <div><span>Warnings</span><strong>{{ result.offer.warnings_json | join(', ') or 'none' }}</strong></div>
+  </div>
+  <p><strong>Price message:</strong> {{ result.offer.price_message }}</p>
+  <p><strong>Value reason:</strong> {{ result.offer.value_reason }}</p>
+  <p><strong>Competitor response:</strong> {{ result.offer.competitor_response or 'none' }}</p>
+</section>
+{% endif %}
+
+{% if result.quality_score %}
+<section class="panel">
+  <h2>Creative Quality Score</h2>
+  <div class="metric-grid">
+    <div><span>Total</span><strong>{{ result.quality_score.total_score }}</strong></div>
+    <div><span>Status</span><strong>{{ result.quality_score.status }}</strong></div>
+    <div><span>Strategy</span><strong>{{ result.quality_score.product_strategy_spec_id or 'missing' }}</strong></div>
+    <div><span>Fixes</span><strong>{{ result.quality_score.required_fixes_json | length }}</strong></div>
+  </div>
+  <p><strong>Reasons:</strong> {{ result.quality_score.reasons_json | join(', ') or 'none' }}</p>
+</section>
+{% endif %}
+
+{% if result.gate_status %}
+<section class="panel">
+  <h2>Gate Status</h2>
+  <div class="metric-grid">
+    <div><span>Status</span><strong>{{ result.gate_status.status }}</strong></div>
+    <div><span>Real Smoke</span><strong>{{ result.gate_status.real_smoke_allowed }}</strong></div>
+    <div><span>Next Action</span><strong>{{ result.gate_status.next_action }}</strong></div>
+    <div><span>Rewrite Request</span><strong>{{ result.gate_status.rewrite_request_id or 'none' }}</strong></div>
+  </div>
+  <p><strong>Blockers:</strong> {{ result.gate_status.blockers | join(', ') or 'none' }}</p>
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel">
+  <h2>Recent Strategies</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>SKU</th><th>Buyer</th><th>Offer</th><th>Warnings</th></tr></thead>
+    <tbody>
+      {% for spec in product_strategy_specs %}
+        <tr>
+          <td>{{ spec.id }}</td>
+          <td>{{ spec.sku }}</td>
+          <td>{{ spec.buyer_situation_json.desire }}</td>
+          <td>{{ spec.offer_strategy_json.offer_type }}</td>
+          <td>{{ spec.warnings_json | join(', ') }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

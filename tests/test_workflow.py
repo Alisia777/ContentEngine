@@ -61,6 +61,7 @@ from app.creative.creative_spec_validator import CreativeSpecValidator
 from app.creative.hook_strategy import HookStrategySelector
 from app.creative.product_geometry import GEOMETRY_LOCK_PROMPT_LINES, GEOMETRY_NEGATIVE_TERMS
 from app.creative.types import CreativeSpec
+from app.creative_quality import CreativeQualityGateService, ScriptRewriter, UGCQualityScorer
 from app.database import Base, SessionLocal, engine
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupDataError
@@ -126,6 +127,7 @@ from app.metrics_intake import (
 from app.publishing import ManualUploadProvider, MockUploadProvider
 from app.publishing.errors import PublishingError
 from app.participant_portal.errors import ParticipantPortalDataError
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder
 from app.providers.openai_llm import OpenAILLMProvider
 from app.providers.runway_video import RunwayVideoProvider
 from app.services.video_assembly import VideoAssemblyService
@@ -458,6 +460,99 @@ def attach_approved_reference_pair(
     )
     storage.update_asset(label.id, review_status="approved", asset_type="label_closeup")
     return primary, label
+
+
+def create_manual_ugc_script(
+    db: Session,
+    product_id: int,
+    *,
+    creative_spec_id: int | None = None,
+    creative_variant_id: int | None = None,
+    scenes: list[dict] | None = None,
+    with_product_strategy: bool = True,
+    platform: str = "Instagram Reels",
+) -> models.UGCAdScript:
+    if with_product_strategy:
+        strategy = ProductStrategyBuilder(db).latest_for_product(product_id) or ProductStrategyBuilder(db).build(
+            product_id,
+            platform=platform,
+        )
+        OfferStrategyBuilder(db).build(strategy.id)
+    meaning = MeaningSpecBuilder(db).build(product_id, creative_spec_id=creative_spec_id, duration_seconds=8)
+    scene_script = scenes or [
+        {
+            "scene_number": 1,
+            "role": "hook",
+            "starts_at": 0,
+            "duration_seconds": 1,
+            "spoken_line": "I tried this after training when I wanted dessert without a heavy snack.",
+            "caption": "After training",
+            "visual_direction": "Sporty creator holds the exact pack.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 2,
+            "role": "personal_context",
+            "starts_at": 1,
+            "duration_seconds": 2,
+            "spoken_line": "I keep it in my gym bag because I need something quick between errands.",
+            "caption": "Real routine",
+            "visual_direction": "Creator speaks naturally in a gym or kitchen routine.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 3,
+            "role": "product_reason",
+            "starts_at": 3,
+            "duration_seconds": 2,
+            "spoken_line": "That is why this exact product fits my routine: compact pack, clear flavour, and easy portion.",
+            "caption": "Why this one",
+            "visual_direction": "Package stays visible and readable.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 4,
+            "role": "proof_demo",
+            "starts_at": 5,
+            "duration_seconds": 2,
+            "spoken_line": "I show the real pack, open it, and try one unwrapped bite so the texture is visible.",
+            "caption": "Texture check",
+            "visual_direction": "Exact packshot plus separate unwrapped product piece.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+        {
+            "scene_number": 5,
+            "role": "cta",
+            "starts_at": 7,
+            "duration_seconds": 1,
+            "spoken_line": "Check the product card if this snack fits your routine.",
+            "caption": "See product card",
+            "visual_direction": "End on exact product packshot.",
+            "proof_moment": meaning.proof_moment_json,
+            "product_lock_mode": (meaning.product_lock_rules_json or {}).get("product_lock_mode"),
+        },
+    ]
+    script = models.UGCAdScript(
+        blogger_meaning_spec_id=meaning.id,
+        creative_variant_id=creative_variant_id,
+        status="ready",
+        duration_seconds=8,
+        voiceover_json={
+            "language": "ru",
+            "style": "first-person creator language",
+            "lines": [scene.get("spoken_line", "") for scene in scene_script],
+        },
+        captions_json={"style": "minimal", "lines": [scene.get("caption", "") for scene in scene_script]},
+        scene_script_json=scene_script,
+    )
+    db.add(script)
+    db.commit()
+    db.refresh(script)
+    return script
 
 
 def prepare_working_video_product(
@@ -2467,6 +2562,583 @@ def test_ugc_video_strategy_ui_and_api_show_reference_policy():
         assert spec_response.json()["product_lock_rules"]["product_lock_mode"] == "no_product_generation"
         assert script_response.status_code == 200
         assert script_response.json()["status"] == "ready"
+
+
+def test_product_strategy_spec_contains_buyer_situation_objection_offer():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Strategy Snack Product")
+        with SessionLocal() as db:
+            spec = ProductStrategyBuilder(db).build(product_id, platform="Instagram Reels")
+            offer = OfferStrategyBuilder(db).build(spec.id)
+
+        assert spec.buyer_situation_json["situation"]
+        assert spec.main_objection
+        assert spec.offer_strategy_json["offer_type"]
+        assert spec.proof_required_json
+        assert offer.product_strategy_spec_id == spec.id
+
+
+def test_offer_strategy_handles_competitor_price_pressure():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Strategy Competitor Product", competitor_price=100)
+        with SessionLocal() as db:
+            spec = ProductStrategyBuilder(db).build(product_id, platform="Instagram Reels")
+            offer = OfferStrategyBuilder(db).build(spec.id)
+
+        assert spec.competitor_context_json["pressure"] == "price_pressure"
+        assert offer.offer_type == "comparison"
+        assert "value" in (offer.competitor_response or "").lower()
+
+
+def test_offer_strategy_blocks_aggressive_cta_on_stock_risk():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Strategy Stock Product", stock_qty=3, days_of_stock=3)
+        with SessionLocal() as db:
+            spec = ProductStrategyBuilder(db).build(product_id, platform="Instagram Reels")
+            offer = OfferStrategyBuilder(db).build(spec.id)
+
+        assert spec.stock_context_json["stock_risk"] == "low_stock"
+        assert spec.stock_context_json["aggressive_cta_allowed"] is False
+        assert "stock_risk_no_aggressive_cta" in offer.warnings_json
+        assert "urgent" not in (offer.cta_strategy or "").lower()
+
+
+def test_platform_strategy_differs_for_reels_tiktok_youtube_marketplace():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Strategy Platform Product")
+        with SessionLocal() as db:
+            reels = ProductStrategyBuilder(db).build(product_id, platform="Instagram Reels")
+            tiktok = ProductStrategyBuilder(db).build(product_id, platform="TikTok")
+            youtube = ProductStrategyBuilder(db).build(product_id, platform="YouTube Shorts")
+            marketplace = ProductStrategyBuilder(db).build(product_id, platform="Marketplace card video")
+
+        assert reels.platform_strategy_json["selected"]["hook_style"] != tiktok.platform_strategy_json["selected"]["hook_style"]
+        assert youtube.platform_strategy_json["selected"]["pacing"] != tiktok.platform_strategy_json["selected"]["pacing"]
+        assert "product clarity" in marketplace.platform_strategy_json["selected"]["hook_style"]
+
+
+def test_product_strategy_api_builds_spec_offer_and_status():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Strategy API Product")
+
+        spec_response = api.post(
+            "/api/product-strategy/specs/build",
+            json={"product_id": product_id, "platform": "TikTok"},
+        )
+        spec_id = spec_response.json()["id"]
+        offer_response = api.post(
+            "/api/product-strategy/offers/build",
+            json={"product_strategy_spec_id": spec_id},
+        )
+        status_response = api.get(f"/api/product-strategy/products/{product_id}/strategy-status")
+
+        assert spec_response.status_code == 200
+        assert spec_response.json()["platform_strategy"]["primary_platform"] == "TikTok"
+        assert spec_response.json()["buyer_situation"]["situation"]
+        assert offer_response.status_code == 200
+        assert offer_response.json()["product_strategy_spec_id"] == spec_id
+        assert status_response.status_code == 200
+        assert status_response.json()["status"] == "ready"
+        assert status_response.json()["offer_strategy_id"] == offer_response.json()["id"]
+
+
+def test_product_strategy_cli_builds_spec_and_offer():
+    with client() as api:
+        product_id = prepare_working_video_product(api, title="Strategy CLI Product")
+
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    spec_result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/build_product_strategy_spec.py",
+            "--product-id",
+            str(product_id),
+            "--platform",
+            "Instagram Reels",
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert spec_result.returncode == 0
+    assert "Product Strategy Spec ID:" in spec_result.stdout
+    spec_id = int(
+        next(line for line in spec_result.stdout.splitlines() if line.startswith("Product Strategy Spec ID:")).split(":")[-1].strip()
+    )
+
+    offer_result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/build_offer_strategy.py",
+            "--product-strategy-spec-id",
+            str(spec_id),
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert offer_result.returncode == 0
+    assert "Offer Strategy ID:" in offer_result.stdout
+    assert f"Product Strategy Spec ID: {spec_id}" in offer_result.stdout
+
+
+def test_ugc_quality_score_passes_good_blogger_script():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Good UGC Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert score.status == "passed"
+        assert score.total_score >= 75
+        assert "generic_ad_voice" not in score.reasons_json
+
+
+def test_ugc_quality_score_passes_russian_blogger_script():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(
+            api,
+            title="Quality Russian UGC Product",
+            conversion_rate=0.05,
+        )
+        scenes = [
+            {
+                "scene_number": 1,
+                "role": "hook",
+                "spoken_line": "Я беру этот батончик после тренировки, когда хочется сладкого без тяжелого перекуса.",
+                "caption": "После тренировки",
+                "visual_direction": "Спортивная девушка держит точную упаковку.",
+            },
+            {
+                "scene_number": 2,
+                "role": "personal_context",
+                "spoken_line": "Мне удобно держать его в сумке между залом и делами.",
+                "caption": "В моей рутине",
+                "visual_direction": "Натуральная речь в раздевалке или кухне.",
+            },
+            {
+                "scene_number": 3,
+                "role": "product_reason",
+                "spoken_line": "Поэтому выбираю именно этот формат: он подходит для быстрого перекуса и легко помещается в сумку.",
+                "caption": "Почему этот",
+                "visual_direction": "Упаковка читаемая, без перерисовки.",
+            },
+            {
+                "scene_number": 4,
+                "role": "proof_demo",
+                "spoken_line": "Покажу реальную упаковку, открою батончик и пробую кусочек, чтобы была видна текстура.",
+                "caption": "Пробую текстуру",
+                "visual_direction": "Отдельный распакованный кусочек рядом с точной упаковкой.",
+            },
+            {
+                "scene_number": 5,
+                "role": "cta",
+                "spoken_line": "Открой карточку товара и посмотри, подходит ли он под твою рутину.",
+                "caption": "Смотри карточку",
+                "visual_direction": "Финальный кадр на точную упаковку.",
+            },
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert score.status == "passed"
+        assert "generic_ad_voice" not in score.reasons_json
+        assert "offer_mismatch" not in score.reasons_json
+
+
+def test_ugc_quality_score_flags_generic_ad_voice():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Generic Voice Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, this is the best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This snack is useful.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "generic_ad_voice" in score.reasons_json
+        assert score.status == "needs_rewrite"
+
+
+def test_ugc_quality_score_flags_missing_personal_context():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Missing Context Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            base_script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            base_script.scene_script_json = [scene for scene in base_script.scene_script_json if scene["role"] != "personal_context"]
+            db.commit()
+            score = UGCQualityScorer(db).score_script(base_script.id)
+
+        assert "no_personal_context" in score.reasons_json
+        assert "incomplete_scene_roles" in score.reasons_json
+
+
+def test_ugc_quality_score_flags_missing_product_reason():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Missing Reason Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            script.scene_script_json = [scene for scene in script.scene_script_json if scene["role"] != "product_reason"]
+            db.commit()
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "missing_product_reason" in score.reasons_json
+        assert "incomplete_scene_roles" in score.reasons_json
+
+
+def test_ugc_quality_score_flags_missing_proof_moment():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Missing Proof Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            script.scene_script_json = [scene for scene in script.scene_script_json if scene["role"] != "proof_demo"]
+            db.commit()
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "missing_proof_moment" in score.reasons_json
+        assert score.status == "needs_rewrite"
+
+
+def test_ugc_quality_score_flags_weak_hook():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Weak Hook Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(db, product_id, creative_spec_id=spec_id, creative_variant_id=selected_variant_id)
+            scenes = list(script.scene_script_json)
+            scenes[0] = {**scenes[0], "spoken_line": "Nice."}
+            script.scene_script_json = scenes
+            db.commit()
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert "weak_hook" in score.reasons_json
+
+
+def test_ugc_quality_score_flags_offer_mismatch():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(
+            api,
+            title="Quality Offer Mismatch Product",
+            conversion_rate=0.08,
+        )
+        add_generator_snapshots(product_sku(api, product_id), competitor_price=100)
+        scenes = [
+            {
+                "scene_number": 1,
+                "role": "hook",
+                "spoken_line": "I tried this after training when I wanted a quick snack in my routine.",
+                "caption": "",
+                "visual_direction": "",
+            },
+            {
+                "scene_number": 2,
+                "role": "personal_context",
+                "spoken_line": "I keep it nearby between errands and gym days.",
+                "caption": "",
+                "visual_direction": "",
+            },
+            {
+                "scene_number": 3,
+                "role": "product_reason",
+                "spoken_line": "Because the format is easy to carry and the portion is clear.",
+                "caption": "",
+                "visual_direction": "",
+            },
+            {
+                "scene_number": 4,
+                "role": "proof_demo",
+                "spoken_line": "I show the real pack and the texture in one bite.",
+                "caption": "",
+                "visual_direction": "",
+            },
+            {
+                "scene_number": 5,
+                "role": "cta",
+                "spoken_line": "Check the product card if this fits your snack routine.",
+                "caption": "",
+                "visual_direction": "",
+            },
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            strategy = ProductStrategyBuilder(db).build(product_id, platform="Instagram Reels")
+            offer = OfferStrategyBuilder(db).build(strategy.id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        assert offer.offer_type == "comparison"
+        assert "offer_mismatch" in score.reasons_json
+
+
+def test_ugc_quality_gate_blocks_real_smoke_below_threshold():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Block Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            gate = CreativeQualityGateService(db).gate(product_id, ugc_script_id=script.id, creative_variant_id=selected_variant_id)
+
+        assert gate.real_smoke_allowed is False
+        assert gate.next_action == "rewrite_ugc_script"
+        assert gate.rewrite_request_id is not None
+        assert any(blocker.startswith("creative_quality:") for blocker in gate.blockers)
+
+
+def test_quality_gate_blocks_real_smoke_without_product_strategy(monkeypatch):
+    enable_real_smoke_env(monkeypatch)
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Missing Strategy Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                with_product_strategy=False,
+            )
+            with pytest.raises(ProviderConfigurationError, match="Creative quality gate blocks real smoke"):
+                RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
+
+
+def test_ugc_quality_gate_passes_script_above_threshold():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Pass Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            gate = CreativeQualityGateService(db).gate(product_id, ugc_script_id=script.id, creative_variant_id=selected_variant_id)
+
+        assert gate.real_smoke_allowed is True
+        assert gate.status == "passed"
+        assert gate.next_action == "run_limited_real_smoke"
+
+
+def test_rewrite_request_created_for_needs_rewrite():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Rewrite Request Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+            request = ScriptRewriter(db).create_request(score.id, feedback="Make it feel like a sporty creator.")
+
+        assert score.status == "needs_rewrite"
+        assert request.status == "requested"
+        assert request.ugc_script_id == script.id
+        assert request.required_fixes_json
+
+
+def test_script_rewriter_adds_personal_context_and_proof():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Rewrite Build Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+            request = ScriptRewriter(db).create_request(score.id)
+            result = ScriptRewriter(db).build(request.id)
+            rewritten = db.get(models.UGCAdScript, result.new_ugc_script_id)
+
+        roles = [scene["role"] for scene in rewritten.scene_script_json]
+        lines = " ".join(scene["spoken_line"] for scene in rewritten.scene_script_json)
+        assert "personal_context" in roles
+        assert "proof_demo" in roles
+        assert "I " in lines
+        assert result.new_ugc_script_id != script.id
+
+
+def test_creative_quality_ui_renders_score_breakdown():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality UI Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        response = api.get(f"/creative-quality?product_id={product_id}")
+
+        assert response.status_code == 200
+        assert "Creative Quality" in response.text
+        assert "Score Breakdown" in response.text
+        assert "Hook strength" in response.text
+        assert str(score.id) in response.text
+
+
+def test_product_strategy_ui_renders_strategy_and_quality_score():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Product Strategy UI Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+            score = UGCQualityScorer(db).score_script(script.id)
+
+        response = api.get(f"/product-strategy?product_id={product_id}")
+
+        assert response.status_code == 200
+        assert "Product Strategy" in response.text
+        assert "Buyer situation" in response.text
+        assert "Offer Strategy" in response.text
+        assert str(score.product_strategy_spec_id) in response.text
+
+
+def test_creative_quality_api_scores_rewrites_and_reports_gate_status():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality API Product")
+        generic_scenes = [
+            {"scene_number": 1, "role": "hook", "spoken_line": "Buy now, best product.", "caption": "", "visual_direction": ""},
+            {"scene_number": 2, "role": "personal_context", "spoken_line": "This is good.", "caption": "", "visual_direction": ""},
+            {"scene_number": 3, "role": "product_reason", "spoken_line": "Great offer for everyone.", "caption": "", "visual_direction": ""},
+            {"scene_number": 4, "role": "proof_demo", "spoken_line": "Look at this item.", "caption": "", "visual_direction": ""},
+            {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
+        ]
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+                scenes=generic_scenes,
+            )
+
+        score_response = api.post("/api/creative-quality/score", json={"ugc_script_id": script.id})
+        score_id = score_response.json()["id"]
+        rewrite_response = api.post(
+            f"/api/creative-quality/scores/{score_id}/rewrite-request",
+            json={"feedback": "Make it creator-led."},
+        )
+        build_response = api.post(f"/api/creative-quality/rewrite-requests/{rewrite_response.json()['id']}/build")
+        gate_response = api.get(
+            f"/api/creative-quality/products/{product_id}/gate-status",
+            params={"ugc_script_id": script.id, "creative_variant_id": selected_variant_id},
+        )
+
+        assert score_response.status_code == 200
+        assert score_response.json()["status"] == "needs_rewrite"
+        assert rewrite_response.status_code == 200
+        assert build_response.status_code == 200
+        assert build_response.json()["new_ugc_script_id"] != script.id
+        assert gate_response.status_code == 200
+        assert gate_response.json()["next_action"] == "rewrite_ugc_script"
+
+
+def test_creative_quality_cli_scores_script():
+    with client() as api:
+        product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality CLI Product")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id)
+            script = create_manual_ugc_script(
+                db,
+                product_id,
+                creative_spec_id=spec_id,
+                creative_variant_id=selected_variant_id,
+            )
+
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "scripts/score_ugc_script.py", "--ugc-script-id", str(script.id)],
+            cwd=root,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        assert "Total Score:" in result.stdout
+        assert "Status: passed" in result.stdout
 
 
 def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):

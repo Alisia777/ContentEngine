@@ -84,6 +84,15 @@ def _ensure_sqlite_schema() -> None:
             "review_status": "ALTER TABLE publishing_packages ADD COLUMN review_status VARCHAR(80) DEFAULT 'needs_review'",
         },
     )
+    _add_missing_sqlite_columns(
+        inspector,
+        "creative_quality_scores",
+        {
+            "product_strategy_spec_id": "ALTER TABLE creative_quality_scores ADD COLUMN product_strategy_spec_id INTEGER",
+            "offer_alignment_score": "ALTER TABLE creative_quality_scores ADD COLUMN offer_alignment_score FLOAT DEFAULT 0",
+            "platform_fit_score": "ALTER TABLE creative_quality_scores ADD COLUMN platform_fit_score FLOAT DEFAULT 0",
+        },
+    )
 
 
 def _add_missing_sqlite_columns(inspector, table_name: str, migrations: dict[str, str]) -> None:
