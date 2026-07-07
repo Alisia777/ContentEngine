@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app import models, schemas
 from app.assets.asset_kit_builder import AssetKitBuilder
@@ -111,6 +111,7 @@ from app.participant_portal import (
     RecommendationService,
     SubmissionService,
 )
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder, ProductStrategyDataError
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService, TrainingAcademyError
@@ -296,6 +297,16 @@ class UGCAdScriptPromptPackRequest(BaseModel):
     ugc_script_id: int
     video_provider: str = "runway"
     build_prompts_only: bool = True
+
+
+class ProductStrategySpecBuildRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    demand_hypothesis_id: int | None = None
+
+
+class OfferStrategyBuildRequest(BaseModel):
+    product_strategy_spec_id: int
 
 
 class CreativeQualityScoreRequest(BaseModel):
@@ -768,17 +779,28 @@ def ugc_ad_script_response(script: models.UGCAdScript) -> dict:
     }
 
 
+def product_strategy_spec_response(spec: models.ProductStrategySpec) -> dict:
+    return ProductStrategyBuilder(object_session(spec)).as_output(spec).model_dump(mode="json")
+
+
+def offer_strategy_response(offer: models.OfferStrategy) -> dict:
+    return OfferStrategyBuilder(object_session(offer)).as_output(offer).model_dump(mode="json")
+
+
 def creative_quality_score_response(score: models.CreativeQualityScore) -> dict:
     return {
         "id": score.id,
         "product_id": score.product_id,
         "sku": score.sku,
+        "product_strategy_spec_id": score.product_strategy_spec_id,
         "blogger_meaning_spec_id": score.blogger_meaning_spec_id,
         "ugc_script_id": score.ugc_script_id,
         "creative_variant_id": score.creative_variant_id,
         "prompt_pack_id": score.prompt_pack_id,
         "status": score.status,
         "total_score": score.total_score,
+        "offer_alignment_score": score.offer_alignment_score,
+        "platform_fit_score": score.platform_fit_score,
         "breakdown": score.breakdown_json,
         "reasons": score.reasons_json,
         "required_fixes": score.required_fixes_json,
@@ -1266,6 +1288,40 @@ def get_product_reference_policy(
             product_identity_strict=product_identity_strict,
         ).model_dump(mode="json")
     except BloggerBriefError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/product-strategy/specs/build")
+def build_product_strategy_spec(payload: ProductStrategySpecBuildRequest, db: Session = Depends(get_db)):
+    try:
+        spec = ProductStrategyBuilder(db).build(
+            payload.product_id,
+            platform=payload.platform,
+            demand_hypothesis_id=payload.demand_hypothesis_id,
+        )
+        return product_strategy_spec_response(spec)
+    except ProductStrategyDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/product-strategy/specs/{spec_id}")
+def get_product_strategy_spec(spec_id: int, db: Session = Depends(get_db)):
+    return product_strategy_spec_response(get_or_404(db, models.ProductStrategySpec, spec_id))
+
+
+@router.post("/product-strategy/offers/build")
+def build_offer_strategy(payload: OfferStrategyBuildRequest, db: Session = Depends(get_db)):
+    try:
+        return offer_strategy_response(OfferStrategyBuilder(db).build(payload.product_strategy_spec_id))
+    except ProductStrategyDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/product-strategy/products/{product_id}/strategy-status")
+def get_product_strategy_status(product_id: int, db: Session = Depends(get_db)):
+    try:
+        return ProductStrategyBuilder(db).status(product_id).model_dump(mode="json")
+    except ProductStrategyDataError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

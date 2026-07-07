@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.creative_quality.errors import CreativeQualityDataError
-from app.creative_quality.rubric import REASON_TO_FIX, REQUIRED_SCENE_ROLES
+from app.creative_quality.rubric import REQUIRED_SCENE_ROLES
 from app.creative_quality.types import CreativeRewriteBuildResult
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder
 
 
 class ScriptRewriter:
@@ -128,6 +129,8 @@ class ScriptRewriter:
         buyer_context = meaning.buyer_context_json or {}
         proof = meaning.proof_moment_json or {}
         cta = meaning.cta_json or {}
+        strategy = ProductStrategyBuilder(self.db).latest_for_product(meaning.product_id)
+        offer = OfferStrategyBuilder(self.db).latest_for_product(meaning.product_id)
         role_to_scene = {scene.get("role"): deepcopy(scene) for scene in (source.scene_script_json or []) if scene.get("role")}
         starts_at = 0
         duration = max(1, source.duration_seconds // max(1, len(REQUIRED_SCENE_ROLES)))
@@ -137,9 +140,9 @@ class ScriptRewriter:
             scene["scene_number"] = index
             scene["starts_at"] = starts_at
             scene["duration_seconds"] = duration if index < len(REQUIRED_SCENE_ROLES) else max(1, source.duration_seconds - starts_at)
-            scene["spoken_line"] = self._line_for_role(role, product_title, buyer_context, proof, cta)
+            scene["spoken_line"] = self._line_for_role(role, product_title, buyer_context, proof, cta, strategy, offer)
             scene["caption"] = scene.get("caption") or self._caption_for_role(role)
-            scene["visual_direction"] = scene.get("visual_direction") or self._visual_for_role(role)
+            scene["visual_direction"] = scene.get("visual_direction") or self._visual_for_role(role, strategy)
             scene["proof_moment"] = proof
             scene["rewrite_request_id"] = request.id
             starts_at += scene["duration_seconds"]
@@ -147,19 +150,35 @@ class ScriptRewriter:
         return rewritten
 
     @staticmethod
-    def _line_for_role(role: str, product_title: str, buyer_context: dict, proof: dict, cta: dict) -> str:
+    def _line_for_role(
+        role: str,
+        product_title: str,
+        buyer_context: dict,
+        proof: dict,
+        cta: dict,
+        strategy: models.ProductStrategySpec | None,
+        offer: models.OfferStrategy | None,
+    ) -> str:
+        offer_type = offer.offer_type if offer else (buyer_context.get("offer_strategy") or {}).get("offer_type")
+        value_reason = offer.value_reason if offer else (strategy.product_role if strategy else None)
         if role == "hook":
+            if offer_type == "comparison":
+                return f"I wanted to understand why {product_title} is worth comparing beyond just price."
+            if offer_type == "trust":
+                return f"I tried {product_title} because I needed proof before adding it to my routine."
             return f"I found {product_title} for the moment when I need a quick, clear snack choice."
         if role == "personal_context":
             return "I usually reach for something like this between errands or after training, when I do not want a heavy snack."
         if role == "product_reason":
             reason = buyer_context.get("objection") or "I want to understand why this one fits my routine."
+            if value_reason:
+                return f"That is why I look at this exact product: {value_reason}"
             return f"That is why I look at this exact product: {reason}"
         if role == "proof_demo":
             proof_line = proof.get("proof_line") or "I show the real pack and texture/use moment without changing the packaging."
             return proof_line
         if role == "cta":
-            return cta.get("spoken_line") or "Check the product card if this fits your routine."
+            return (offer.cta_strategy if offer else None) or cta.get("spoken_line") or "Check the product card if this fits your routine."
         return "I keep this as a natural creator note, not an announcer ad."
 
     @staticmethod
@@ -174,13 +193,14 @@ class ScriptRewriter:
         return captions.get(role, "")
 
     @staticmethod
-    def _visual_for_role(role: str) -> str:
+    def _visual_for_role(role: str, strategy: models.ProductStrategySpec | None) -> str:
+        platform_selected = ((strategy.platform_strategy_json or {}).get("selected") if strategy else {}) or {}
         visuals = {
             "hook": "Sporty creator holds the exact pack in a realistic vertical frame.",
             "personal_context": "Creator speaks in a real kitchen/gym-bag routine moment.",
             "product_reason": "Creator keeps package visible and points to safe, readable product details.",
             "proof_demo": "Creator shows exact packshot, texture, or bite/use moment without redrawing packaging.",
-            "cta": "Creator ends with exact packshot/end-card and low-pressure CTA.",
+            "cta": f"Creator ends with exact packshot/end-card and {platform_selected.get('cta', 'low-pressure CTA')}.",
         }
         return visuals.get(role, "Natural creator delivery.")
 

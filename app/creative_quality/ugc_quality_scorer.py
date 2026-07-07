@@ -10,6 +10,7 @@ from app.creative_quality.rubric import (
     COMPONENT_MAX_SCORES,
     FIRST_PERSON_MARKERS,
     GENERIC_AD_PHRASES,
+    MAX_TOTAL_SCORE,
     PASS_THRESHOLD,
     REASON_TO_FIX,
     REQUIRED_SCENE_ROLES,
@@ -18,6 +19,7 @@ from app.creative_quality.rubric import (
     UNSAFE_CLAIM_MARKERS,
 )
 from app.creative_quality.types import CreativeQualityComponentScore, CreativeQualityScoreOutput
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder
 
 
 class UGCQualityScorer:
@@ -35,17 +37,21 @@ class UGCQualityScorer:
         if not product:
             raise CreativeQualityDataError(f"Product {meaning.product_id} not found.")
 
-        component_scores, reasons = self._component_scores(script, meaning)
-        total_score = float(sum(component_scores.values()))
+        strategy = ProductStrategyBuilder(self.db).latest_for_product(product.id)
+        offer = OfferStrategyBuilder(self.db).latest_for_product(product.id)
+        component_scores, reasons = self._component_scores(script, meaning, strategy=strategy, offer=offer)
+        raw_total = float(sum(component_scores.values()))
+        total_score = round((raw_total / MAX_TOTAL_SCORE) * 100, 2)
         reasons = list(dict.fromkeys(reasons))
         status = self._status(total_score, reasons)
         required_fixes = [REASON_TO_FIX[reason] for reason in reasons if reason in REASON_TO_FIX]
         breakdown = self._breakdown(component_scores)
-        gate_json = self._gate_json(product.id, reasons)
+        gate_json = self._gate_json(product.id, reasons, strategy=strategy, offer=offer)
 
         score = models.CreativeQualityScore(
             product_id=product.id,
             sku=product.sku,
+            product_strategy_spec_id=strategy.id if strategy else None,
             blogger_meaning_spec_id=meaning.id,
             ugc_script_id=script.id,
             creative_variant_id=script.creative_variant_id,
@@ -62,6 +68,8 @@ class UGCQualityScorer:
             claims_safety_score=component_scores["claims_safety"],
             product_lock_reference_safety_score=component_scores["product_lock_reference_safety"],
             scene_completeness_score=component_scores["scene_completeness"],
+            offer_alignment_score=component_scores["offer_alignment"],
+            platform_fit_score=component_scores["platform_fit"],
             reasons_json=reasons,
             required_fixes_json=required_fixes,
             breakdown_json=breakdown,
@@ -92,12 +100,15 @@ class UGCQualityScorer:
                 "claims_safety": score.claims_safety_score,
                 "product_lock_reference_safety": score.product_lock_reference_safety_score,
                 "scene_completeness": score.scene_completeness_score,
+                "offer_alignment": score.offer_alignment_score,
+                "platform_fit": score.platform_fit_score,
             }
         )
         return CreativeQualityScoreOutput(
             id=score.id,
             product_id=score.product_id,
             sku=score.sku,
+            product_strategy_spec_id=score.product_strategy_spec_id,
             blogger_meaning_spec_id=score.blogger_meaning_spec_id,
             ugc_script_id=score.ugc_script_id,
             creative_variant_id=score.creative_variant_id,
@@ -113,9 +124,13 @@ class UGCQualityScorer:
         self,
         script: models.UGCAdScript,
         meaning: models.BloggerMeaningSpec,
+        *,
+        strategy: models.ProductStrategySpec | None,
+        offer: models.OfferStrategy | None,
     ) -> tuple[dict[str, float], list[str]]:
         scenes = script.scene_script_json or []
         role_to_scene = {scene.get("role"): scene for scene in scenes if scene.get("role")}
+        script_text = self._script_text(script)
         all_text = self._all_text(script, meaning)
         reasons: list[str] = []
         scores = {key: 0.0 for key in COMPONENT_MAX_SCORES}
@@ -141,7 +156,7 @@ class UGCQualityScorer:
         buyer_context = meaning.buyer_context_json or {}
         if buyer_context.get("buyer_situation") and buyer_context.get("pain_or_desire"):
             scores["buyer_need_clarity"] = 15
-        elif buyer_context.get("buyer_situation") or "need" in all_text or "нужно" in all_text:
+        elif buyer_context.get("buyer_situation") or "need" in all_text or "must" in all_text or "нужно" in all_text:
             scores["buyer_need_clarity"] = 7
             reasons.append("missing_buyer_need")
         else:
@@ -157,7 +172,6 @@ class UGCQualityScorer:
             reasons.append("missing_product_reason")
 
         proof_scene = role_to_scene.get("proof_demo") or {}
-        proof = meaning.proof_moment_json or {}
         proof_line = str(proof_scene.get("spoken_line") or "")
         if proof_line and self._mentions_proof(proof_line):
             scores["proof_moment"] = 10
@@ -197,6 +211,14 @@ class UGCQualityScorer:
         else:
             reasons.append("incomplete_scene_roles")
 
+        offer_score, offer_reasons = self._offer_alignment_score(script_text, strategy, offer)
+        scores["offer_alignment"] = offer_score
+        reasons.extend(offer_reasons)
+
+        platform_score, platform_reasons = self._platform_fit_score(script_text, strategy)
+        scores["platform_fit"] = platform_score
+        reasons.extend(platform_reasons)
+
         return scores, reasons
 
     def _product_lock_score(self, meaning: models.BloggerMeaningSpec) -> tuple[float, list[str]]:
@@ -214,7 +236,93 @@ class UGCQualityScorer:
             return 5, []
         return 2, ["product_lock_missing"]
 
-    def _gate_json(self, product_id: int, reasons: list[str]) -> dict:
+    @staticmethod
+    def _offer_alignment_score(
+        all_text: str,
+        strategy: models.ProductStrategySpec | None,
+        offer: models.OfferStrategy | None,
+    ) -> tuple[float, list[str]]:
+        if not strategy:
+            return 0, ["offer_mismatch", "no_reason_to_believe"]
+        proof_required = strategy.proof_required_json or []
+        has_reason_to_believe = bool(proof_required) or "show" in all_text or "proof" in all_text or "texture" in all_text
+        if not has_reason_to_believe:
+            return 2, ["no_reason_to_believe"]
+        if not offer:
+            return 3, ["offer_mismatch"]
+        offer_type = (offer.offer_type or "").lower()
+        if offer_type == "comparison":
+            if (
+                "compare" in all_text
+                or "value" in all_text
+                or "why" in all_text
+                or "instead" in all_text
+                or "сравн" in all_text
+                or "ценн" in all_text
+                or "почему" in all_text
+                or "вместо" in all_text
+            ):
+                return 5, []
+            return 2, ["offer_mismatch"]
+        if offer_type == "trust":
+            if (
+                "trust" in all_text
+                or "proof" in all_text
+                or "show" in all_text
+                or "real pack" in all_text
+                or "довер" in all_text
+                or "покаж" in all_text
+                or "реаль" in all_text
+                or "упаков" in all_text
+            ):
+                return 5, []
+            return 3, ["offer_mismatch"]
+        if offer_type == "routine":
+            if (
+                "routine" in all_text
+                or "when i" in all_text
+                or "after training" in all_text
+                or "between" in all_text
+                or "рутин" in all_text
+                or "когда я" in all_text
+                or "после тренировки" in all_text
+                or "между" in all_text
+            ):
+                return 5, []
+            return 3, ["offer_mismatch"]
+        return 5, []
+
+    @staticmethod
+    def _platform_fit_score(all_text: str, strategy: models.ProductStrategySpec | None) -> tuple[float, list[str]]:
+        if not strategy:
+            return 0, ["platform_mismatch"]
+        platform_rules = strategy.platform_strategy_json or {}
+        selected = platform_rules.get("selected") or {}
+        primary = (platform_rules.get("primary_platform") or "").lower()
+        if "marketplace" in primary:
+            if "product card" in all_text or "details" in all_text or "pack" in all_text or "карточ" in all_text or "упаков" in all_text:
+                return 5, []
+            return 2, ["platform_mismatch"]
+        if "tiktok" in primary:
+            if "show" in all_text or "try" in all_text or "now" in all_text or "покаж" in all_text or "проб" in all_text:
+                return 5, []
+            return 3, ["platform_mismatch"]
+        if "youtube" in primary:
+            if "why" in all_text or "because" in all_text or "reason" in all_text or "почему" in all_text or "потому" in all_text:
+                return 5, []
+            return 3, ["platform_mismatch"]
+        if selected:
+            return 5, []
+        return 3, ["platform_mismatch"]
+
+    def _gate_json(
+        self,
+        product_id: int,
+        reasons: list[str],
+        *,
+        strategy: models.ProductStrategySpec | None,
+        offer: models.OfferStrategy | None,
+    ) -> dict:
         try:
             policy = ProductReferencePolicyService(self.db).check(product_id)
         except Exception as exc:  # pragma: no cover - defensive only
@@ -224,12 +332,23 @@ class UGCQualityScorer:
             "strict_real_generation_allowed": policy.strict_real_generation_allowed,
             "product_lock_mode": policy.product_lock_mode,
             "approved_reference_count": policy.approved_reference_count,
+            "product_strategy_spec_id": strategy.id if strategy else None,
+            "offer_strategy_id": offer.id if offer else None,
             "quality_reasons": reasons,
         }
 
     @staticmethod
     def _status(total_score: float, reasons: list[str]) -> str:
-        critical_reasons = {"missing_proof_moment", "missing_cta", "unsafe_claim", "incomplete_scene_roles", "product_lock_missing"}
+        critical_reasons = {
+            "missing_proof_moment",
+            "missing_cta",
+            "unsafe_claim",
+            "incomplete_scene_roles",
+            "product_lock_missing",
+            "offer_mismatch",
+            "platform_mismatch",
+            "no_reason_to_believe",
+        }
         if total_score >= PASS_THRESHOLD:
             if critical_reasons.intersection(reasons):
                 return "needs_rewrite"
@@ -256,9 +375,6 @@ class UGCQualityScorer:
 
     @staticmethod
     def _all_text(script: models.UGCAdScript, meaning: models.BloggerMeaningSpec) -> str:
-        scene_lines = " ".join(str(scene.get("spoken_line") or "") for scene in (script.scene_script_json or []))
-        captions = " ".join(str(scene.get("caption") or "") for scene in (script.scene_script_json or []))
-        voice_lines = " ".join(str(line) for line in (script.voiceover_json or {}).get("lines", []))
         meaning_bits = " ".join(
             str(value)
             for value in [
@@ -266,10 +382,18 @@ class UGCQualityScorer:
                 (meaning.buyer_context_json or {}).get("pain_or_desire"),
                 (meaning.proof_moment_json or {}).get("proof_line"),
                 (meaning.cta_json or {}).get("spoken_line"),
+                (meaning.cta_json or {}).get("offer_type"),
             ]
             if value
         )
-        return f" {scene_lines} {captions} {voice_lines} {meaning_bits} ".lower()
+        return f"{UGCQualityScorer._script_text(script)} {meaning_bits} ".lower()
+
+    @staticmethod
+    def _script_text(script: models.UGCAdScript) -> str:
+        scene_lines = " ".join(str(scene.get("spoken_line") or "") for scene in (script.scene_script_json or []))
+        captions = " ".join(str(scene.get("caption") or "") for scene in (script.scene_script_json or []))
+        voice_lines = " ".join(str(line) for line in (script.voiceover_json or {}).get("lines", []))
+        return f" {scene_lines} {captions} {voice_lines} ".lower()
 
     @staticmethod
     def _has_first_person(text: str) -> bool:
@@ -326,6 +450,8 @@ class UGCQualityScorer:
             "real",
             "taste",
             "try",
+            "bite",
+            "details",
             "покаж",
             "проб",
             "текстур",

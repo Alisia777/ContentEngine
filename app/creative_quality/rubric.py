@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-PASS_THRESHOLD = 75
-REWRITE_THRESHOLD = 55
+PASS_THRESHOLD = 80
+REWRITE_THRESHOLD = 60
 
 REQUIRED_SCENE_ROLES = ("hook", "personal_context", "product_reason", "proof_demo", "cta")
 
@@ -19,6 +19,8 @@ GENERIC_AD_PHRASES = (
     "works for everyone",
     "revolutionary",
     "the best choice",
+    "super deal",
+    "perfect for everyone",
     "купи сейчас",
     "закажи сейчас",
     "лучший продукт",
@@ -33,6 +35,11 @@ FIRST_PERSON_MARKERS = (
     " i've ",
     " my ",
     " me ",
+    " tried ",
+    " try ",
+    " use ",
+    " keep ",
+    " reach for ",
     " я ",
     " мне ",
     " меня ",
@@ -50,6 +57,9 @@ UNSAFE_CLAIM_MARKERS = (
     "heals",
     "guaranteed weight loss",
     "medical result",
+    "fixes acne",
+    "burn fat",
+    "doctor approved result",
     "лечит",
     "вылечит",
     "избавит навсегда",
@@ -76,9 +86,12 @@ RUBRIC_COMPONENTS = (
     RubricComponent("claims_safety", "Claims safety", 5),
     RubricComponent("product_lock_reference_safety", "Product lock/reference safety", 5),
     RubricComponent("scene_completeness", "Scene completeness", 5),
+    RubricComponent("offer_alignment", "Offer alignment", 5),
+    RubricComponent("platform_fit", "Platform fit", 5),
 )
 
 COMPONENT_MAX_SCORES = {component.key: component.max_score for component in RUBRIC_COMPONENTS}
+MAX_TOTAL_SCORE = sum(COMPONENT_MAX_SCORES.values())
 
 REASON_TO_FIX = {
     "generic_ad_voice": "Rewrite lines as first-person creator speech, not announcer copy.",
@@ -92,4 +105,8 @@ REASON_TO_FIX = {
     "incomplete_scene_roles": "Complete hook, context, reason, proof, and CTA scene roles.",
     "product_lock_missing": "Select a product lock mode before building provider prompts.",
     "low_reference_count": "Add approved front packshot and label/packaging closeup before strict real generation.",
+    "offer_mismatch": "Align the script with the selected offer strategy.",
+    "platform_mismatch": "Adapt the script to the selected platform strategy.",
+    "competitor_context_missing_when_needed": "Add competitor or price context before using comparison/value framing.",
+    "no_reason_to_believe": "Add a concrete proof or reason-to-believe moment.",
 }

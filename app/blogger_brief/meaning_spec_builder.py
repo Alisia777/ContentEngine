@@ -8,6 +8,7 @@ from app.blogger_brief.blogger_persona_builder import BloggerPersonaBuilder
 from app.blogger_brief.errors import BloggerBriefDataError
 from app.blogger_brief.reference_policy import ProductReferencePolicyService
 from app.blogger_brief.scene_intent_builder import SceneIntentBuilder
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder
 
 
 class MeaningSpecBuilder:
@@ -33,6 +34,8 @@ class MeaningSpecBuilder:
             raise BloggerBriefDataError(f"Product {product_id} not found.")
         demand = self._demand(product_id, demand_hypothesis_id)
         creative_spec = self._creative_spec(product_id, creative_spec_id)
+        strategy = ProductStrategyBuilder(self.db).latest_for_product(product_id)
+        offer = OfferStrategyBuilder(self.db).latest_for_product(product_id)
         policy = self.reference_policy.check(
             product_id,
             provider=provider,
@@ -40,9 +43,9 @@ class MeaningSpecBuilder:
         )
 
         persona = self.personas.build(product, platform=platform)
-        buyer_context = self._buyer_context(product, demand)
-        proof_moment = self._proof_moment(product, policy.product_lock_mode)
-        cta = self._cta(platform)
+        buyer_context = self._buyer_context(product, demand, strategy)
+        proof_moment = self._proof_moment(product, policy.product_lock_mode, strategy)
+        cta = self._cta(platform, offer, strategy)
         scene_intent = self.scene_intents.build(
             buyer_context=buyer_context,
             proof_moment=proof_moment,
@@ -61,6 +64,8 @@ class MeaningSpecBuilder:
                 "why_showing_product": "The creator frames the product as a personal find for a concrete routine moment.",
                 "story_arc": "personal find -> buyer situation -> product reason -> proof/use-case -> natural CTA",
                 "language": "first-person creator language",
+                "product_strategy_spec_id": strategy.id if strategy else None,
+                "offer_strategy_id": offer.id if offer else None,
             },
             authenticity_rules_json={
                 "voice": "first person",
@@ -109,34 +114,53 @@ class MeaningSpecBuilder:
         )
 
     @staticmethod
-    def _buyer_context(product: models.Product, demand: models.DemandHypothesisRecord | None) -> dict:
+    def _buyer_context(
+        product: models.Product,
+        demand: models.DemandHypothesisRecord | None,
+        strategy: models.ProductStrategySpec | None,
+    ) -> dict:
         hypothesis = demand.hypothesis_json if demand else {}
+        strategy_situation = strategy.buyer_situation_json if strategy else {}
         return {
-            "buyer_situation": hypothesis.get("buyer_need") or f"Buyer is considering {product.title}.",
-            "trigger_situation": hypothesis.get("trigger_situation") or "A quick routine moment where the product needs to be easy to understand.",
-            "pain_or_desire": hypothesis.get("pain_point") or "The ad must explain why this product is useful now.",
-            "objection": hypothesis.get("objection") or "Why this product instead of another option?",
+            "buyer_situation": strategy_situation.get("desire") or hypothesis.get("buyer_need") or f"Buyer is considering {product.title}.",
+            "trigger_situation": strategy_situation.get("situation")
+            or hypothesis.get("trigger_situation")
+            or "A quick routine moment where the product needs to be easy to understand.",
+            "pain_or_desire": strategy_situation.get("pain") or hypothesis.get("pain_point") or "The ad must explain why this product is useful now.",
+            "objection": strategy_situation.get("objection") or hypothesis.get("objection") or "Why this product instead of another option?",
             "safe_promise": hypothesis.get("safe_promise") or "Clear product fit without unsupported claims.",
             "source_refs": hypothesis.get("source_refs") or ["product_field:description"],
+            "product_strategy_spec_id": strategy.id if strategy else None,
+            "offer_strategy": (strategy.offer_strategy_json if strategy else {}),
         }
 
     @staticmethod
-    def _proof_moment(product: models.Product, product_lock_mode: str) -> dict:
+    def _proof_moment(product: models.Product, product_lock_mode: str, strategy: models.ProductStrategySpec | None) -> dict:
+        proof_required = strategy.proof_required_json if strategy else []
+        proof_line = "I show the real pack, then the texture/use moment without changing the packaging."
+        if proof_required:
+            proof_line = str(proof_required[0].get("proof") if isinstance(proof_required[0], dict) else proof_required[0])
         return {
             "proof_type": "reference-backed product use case",
-            "proof_line": "I show the real pack, then the texture/use moment without changing the packaging.",
+            "proof_line": proof_line,
             "product_lock_mode": product_lock_mode,
             "asset_requirement": "Use exact packshot or approved references for package identity.",
             "product_title": product.title,
+            "proof_required": proof_required,
+            "product_strategy_spec_id": strategy.id if strategy else None,
         }
 
     @staticmethod
-    def _cta(platform: str) -> dict:
+    def _cta(platform: str, offer: models.OfferStrategy | None, strategy: models.ProductStrategySpec | None) -> dict:
+        platform_rules = ((strategy.platform_strategy_json or {}).get("selected") if strategy else {}) or {}
         return {
             "platform": platform,
-            "spoken_line": "Check the product card if this fits your snack routine.",
-            "caption": "See product card",
+            "spoken_line": (offer.cta_strategy if offer else None) or "Check the product card if this fits your snack routine.",
+            "caption": platform_rules.get("cta") or "See product card",
             "style": "natural, low-pressure, creator-led",
+            "offer_strategy_id": offer.id if offer else None,
+            "offer_type": offer.offer_type if offer else None,
+            "platform_rules": platform_rules,
         }
 
     @staticmethod

@@ -15,6 +15,7 @@ class CreativeQualityScoreOutput(BaseModel):
     id: int
     product_id: int
     sku: str
+    product_strategy_spec_id: int | None = None
     blogger_meaning_spec_id: int | None = None
     ugc_script_id: int | None = None
     creative_variant_id: int | None = None

@@ -952,6 +952,57 @@ class VideoQualityReview(Base, TimestampMixin):
     video_job = relationship("VideoJob")
 
 
+class ProductStrategySpec(Base, TimestampMixin):
+    __tablename__ = "product_strategy_specs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    buyer_segment_json = Column(JSON, default=dict, nullable=False)
+    buyer_situation_json = Column(JSON, default=dict, nullable=False)
+    purchase_trigger = Column(Text, nullable=True)
+    main_pain = Column(Text, nullable=True)
+    main_desire = Column(Text, nullable=True)
+    main_objection = Column(Text, nullable=True)
+    product_role = Column(Text, nullable=True)
+    category_alternative = Column(Text, nullable=True)
+    competitor_context_json = Column(JSON, default=dict, nullable=False)
+    price_position_json = Column(JSON, default=dict, nullable=False)
+    stock_context_json = Column(JSON, default=dict, nullable=False)
+    offer_strategy_json = Column(JSON, default=dict, nullable=False)
+    proof_required_json = Column(JSON, default=list, nullable=False)
+    safe_claims_json = Column(JSON, default=list, nullable=False)
+    forbidden_claims_json = Column(JSON, default=list, nullable=False)
+    platform_strategy_json = Column(JSON, default=dict, nullable=False)
+    content_angles_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    offers = relationship("OfferStrategy", back_populates="product_strategy_spec", cascade="all, delete-orphan")
+
+
+class OfferStrategy(Base, TimestampMixin):
+    __tablename__ = "offer_strategies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_strategy_spec_id = Column(Integer, ForeignKey("product_strategy_specs.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="ready", index=True)
+    offer_type = Column(String(120), nullable=False, default="value", index=True)
+    price_message = Column(Text, nullable=True)
+    discount_message = Column(Text, nullable=True)
+    value_reason = Column(Text, nullable=True)
+    competitor_response = Column(Text, nullable=True)
+    stock_warning = Column(Text, nullable=True)
+    cta_strategy = Column(Text, nullable=True)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product_strategy_spec = relationship("ProductStrategySpec", back_populates="offers")
+    product = relationship("Product")
+
+
 class BloggerMeaningSpec(Base, TimestampMixin):
     __tablename__ = "blogger_meaning_specs"
 
@@ -1000,6 +1051,7 @@ class CreativeQualityScore(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     sku = Column(String(120), nullable=False, index=True)
+    product_strategy_spec_id = Column(Integer, ForeignKey("product_strategy_specs.id"), nullable=True, index=True)
     blogger_meaning_spec_id = Column(Integer, ForeignKey("blogger_meaning_specs.id"), nullable=True, index=True)
     ugc_script_id = Column(Integer, ForeignKey("ugc_ad_scripts.id"), nullable=True, index=True)
     creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
@@ -1016,12 +1068,15 @@ class CreativeQualityScore(Base, TimestampMixin):
     claims_safety_score = Column(Float, nullable=False, default=0)
     product_lock_reference_safety_score = Column(Float, nullable=False, default=0)
     scene_completeness_score = Column(Float, nullable=False, default=0)
+    offer_alignment_score = Column(Float, nullable=False, default=0)
+    platform_fit_score = Column(Float, nullable=False, default=0)
     reasons_json = Column(JSON, default=list, nullable=False)
     required_fixes_json = Column(JSON, default=list, nullable=False)
     breakdown_json = Column(JSON, default=dict, nullable=False)
     gate_json = Column(JSON, default=dict, nullable=False)
 
     product = relationship("Product")
+    product_strategy_spec = relationship("ProductStrategySpec")
     blogger_meaning_spec = relationship("BloggerMeaningSpec")
     ugc_script = relationship("UGCAdScript", back_populates="quality_scores")
     creative_variant = relationship("CreativeVariant")

@@ -97,6 +97,7 @@ from app.participant_portal import (
     RecommendationService,
     SubmissionService,
 )
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder, ProductStrategyDataError
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
 from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService, TrainingAcademyError
@@ -633,6 +634,101 @@ def latest_ugc_script(db: Session, product_id: int) -> models.UGCAdScript | None
         .where(models.BloggerMeaningSpec.product_id == product_id)
         .order_by(models.UGCAdScript.id.desc())
     )
+
+
+@router.get("/product-strategy", response_class=HTMLResponse)
+def product_strategy_page(request: Request, product_id: int | None = None, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "product_strategy.html",
+        {
+            "request": request,
+            "page_title": "Product Strategy",
+            "result": product_strategy_result(db, product_id) if product_id else None,
+            "error": request.query_params.get("error"),
+            **product_strategy_context(db),
+        },
+    )
+
+
+@router.post("/product-strategy/run", response_class=HTMLResponse)
+def run_product_strategy_page(
+    request: Request,
+    product_id: int = Form(0),
+    platform: str = Form("Instagram Reels"),
+    ugc_script_id: str = Form(""),
+    action: str = Form("build_spec"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    error = None
+    try:
+        if action == "build_spec":
+            spec = ProductStrategyBuilder(db).build(product_id, platform=platform)
+            result = product_strategy_result(db, product_id, product_strategy_spec_id=spec.id)
+        elif action == "build_offer":
+            spec = ProductStrategyBuilder(db).latest_for_product(product_id) or ProductStrategyBuilder(db).build(product_id, platform=platform)
+            offer = OfferStrategyBuilder(db).build(spec.id)
+            result = product_strategy_result(db, product_id, product_strategy_spec_id=spec.id, offer_strategy_id=offer.id)
+        elif action == "score_latest":
+            script_id = int(ugc_script_id) if ugc_script_id else (latest_ugc_script(db, product_id).id if latest_ugc_script(db, product_id) else 0)
+            score = UGCQualityScorer(db).score_script(script_id)
+            result = product_strategy_result(db, product_id, quality_score_id=score.id)
+        elif action == "gate":
+            script_id = int(ugc_script_id) if ugc_script_id else (latest_ugc_script(db, product_id).id if latest_ugc_script(db, product_id) else None)
+            gate = CreativeQualityGateService(db).gate(product_id, ugc_script_id=script_id)
+            result = product_strategy_result(db, product_id, quality_score_id=gate.quality_score_id, gate_status=gate.model_dump(mode="json"))
+    except (ProductStrategyDataError, CreativeQualityDataError, BloggerBriefError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "product_strategy.html",
+        {
+            "request": request,
+            "page_title": "Product Strategy",
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_platform": platform,
+            "selected_ugc_script_id": int(ugc_script_id) if ugc_script_id else None,
+            **product_strategy_context(db),
+        },
+    )
+
+
+def product_strategy_context(db: Session) -> dict:
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "product_strategy_specs": db.scalars(select(models.ProductStrategySpec).order_by(models.ProductStrategySpec.id.desc()).limit(30)).all(),
+        "offer_strategies": db.scalars(select(models.OfferStrategy).order_by(models.OfferStrategy.id.desc()).limit(30)).all(),
+        "ugc_scripts": db.scalars(select(models.UGCAdScript).order_by(models.UGCAdScript.id.desc()).limit(30)).all(),
+    }
+
+
+def product_strategy_result(
+    db: Session,
+    product_id: int | None,
+    *,
+    product_strategy_spec_id: int | None = None,
+    offer_strategy_id: int | None = None,
+    quality_score_id: int | None = None,
+    gate_status: dict | None = None,
+) -> dict:
+    product = db.get(models.Product, product_id) if product_id else None
+    spec = db.get(models.ProductStrategySpec, product_strategy_spec_id) if product_strategy_spec_id else (
+        ProductStrategyBuilder(db).latest_for_product(product_id) if product_id else None
+    )
+    offer = db.get(models.OfferStrategy, offer_strategy_id) if offer_strategy_id else (
+        OfferStrategyBuilder(db).latest_for_product(product_id) if product_id else None
+    )
+    score = db.get(models.CreativeQualityScore, quality_score_id) if quality_score_id else None
+    status = ProductStrategyBuilder(db).status(product_id).model_dump(mode="json") if product_id else {}
+    return {
+        "product": product,
+        "strategy": spec,
+        "offer": offer,
+        "quality_score": score,
+        "gate_status": gate_status,
+        "strategy_status": status,
+    }
 
 
 @router.get("/creative-quality", response_class=HTMLResponse)

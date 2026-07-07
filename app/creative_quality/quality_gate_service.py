@@ -10,6 +10,7 @@ from app.creative_quality.rubric import REQUIRED_SCENE_ROLES
 from app.creative_quality.script_rewriter import ScriptRewriter
 from app.creative_quality.types import CreativeQualityGateStatus
 from app.creative_quality.ugc_quality_scorer import UGCQualityScorer
+from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder
 
 
 class CreativeQualityGateService:
@@ -31,11 +32,17 @@ class CreativeQualityGateService:
             raise CreativeQualityDataError(f"Product {product_id} not found.")
         script = self._script(product_id, ugc_script_id=ugc_script_id, creative_variant_id=creative_variant_id)
         policy = ProductReferencePolicyService(self.db).check(product_id, provider=provider)
+        product_strategy = ProductStrategyBuilder(self.db).latest_for_product(product_id)
+        offer_strategy = OfferStrategyBuilder(self.db).latest_for_product(product_id)
 
         blockers: list[str] = []
         warnings = list(policy.warnings or [])
         rewrite_request_id = None
         score = None
+        if not product_strategy:
+            blockers.append("product_strategy_required")
+        if not offer_strategy:
+            blockers.append("offer_strategy_required")
         if not policy.strict_real_generation_allowed:
             blockers.extend([f"reference_policy:{item}" for item in (policy.blockers or ["strict_real_generation_not_allowed"])])
         if not policy.product_lock_mode:
@@ -124,6 +131,10 @@ class CreativeQualityGateService:
     @staticmethod
     def _next_action(blockers: list[str]) -> str:
         blocker_text = " ".join(blockers)
+        if "product_strategy_required" in blocker_text:
+            return "build_product_strategy_spec"
+        if "offer_strategy_required" in blocker_text:
+            return "build_offer_strategy"
         if "reference_policy" in blocker_text or "product_lock_missing" in blocker_text:
             return "add_product_references"
         if "creative_quality" in blocker_text or "incomplete_scene_roles" in blocker_text or "ugc_script_required" in blocker_text:
