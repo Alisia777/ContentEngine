@@ -256,6 +256,26 @@ The contract makes the final TЗ explicit: thesis, viewer takeaway, proof moment
 
 Full runbook: `docs/AI_BRIEF_CONTRACT.md`.
 
+## Real Output Acceptance Lab
+
+v2.4 adds `/output-acceptance`, the review layer for actual generated video artifacts:
+
+```text
+AIProductionBrief -> DirectorPromptPack -> video_job output -> frame extraction -> contact sheet -> output checklist -> approve / needs_regeneration / reject
+```
+
+CLI flow:
+
+```bash
+python scripts/extract_video_frames.py --video-job-id 21
+python scripts/review_video_output.py --video-job-id 21 --ai-production-brief-id 1
+python scripts/request_output_regeneration.py --acceptance-id 1 --reason product_identity_mismatch
+```
+
+The lab creates contact sheets and stores manual review decisions. It does not auto-approve product identity or claim computer vision.
+
+Full runbook: `docs/OUTPUT_ACCEPTANCE_LAB.md`.
+
 ## Product Geometry / Scale Lock
 
 v0.2.1 adds prompt-level protection against product size and proportion drift. `VideoCreativeSpec` and selected-variant prompt packs now include product geometry, scale, and visibility rules, plus negative prompts for changed product size, wrong proportions, stretched/squashed bottle, oversized/miniature product, changed silhouette, wrong cap size, and label area changes.

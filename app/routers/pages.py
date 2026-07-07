@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,6 +14,13 @@ from app.ai_brief_contract import (
     DirectorPromptBuilder,
     MarkdownRenderer,
     SceneBlueprintBuilder,
+)
+from app.config import get_settings
+from app.output_acceptance import (
+    AcceptanceReviewService,
+    FrameExtractor,
+    OutputAcceptanceError,
+    RegenerationFeedbackBuilder,
 )
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
@@ -1110,6 +1118,130 @@ def ai_brief_studio_result(db: Session, ai_production_brief_id: int) -> dict:
         "quality_check": BriefQualityChecker.as_output(quality_check).model_dump(mode="json") if quality_check else None,
         "markdown": brief.brief_markdown or MarkdownRenderer().render(brief),
     }
+
+
+@router.get("/output-acceptance", response_class=HTMLResponse)
+def output_acceptance_page(
+    request: Request,
+    video_job_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    result = output_acceptance_result(db, video_job_id) if video_job_id else None
+    return templates.TemplateResponse(
+        "output_acceptance.html",
+        {
+            "request": request,
+            "page_title": "Output Acceptance",
+            "result": result,
+            "error": request.query_params.get("error"),
+            **output_acceptance_context(db),
+        },
+    )
+
+
+@router.post("/output-acceptance/run", response_class=HTMLResponse)
+def run_output_acceptance_page(
+    request: Request,
+    video_job_id: int = Form(...),
+    ai_production_brief_id: int = Form(0),
+    decision: str = Form("needs_human_review"),
+    product_identity_status: str = Form("needs_review"),
+    packaging_status: str = Form("needs_review"),
+    geometry_status: str = Form("needs_review"),
+    blogger_authenticity_status: str = Form("needs_review"),
+    scene_match_status: str = Form("needs_review"),
+    proof_moment_status: str = Form("needs_review"),
+    cta_status: str = Form("needs_review"),
+    reviewer_notes: str = Form(""),
+    reason: str = Form(""),
+    scene_number: int = Form(1),
+    action: str = Form("extract_frames"),
+    db: Session = Depends(get_db),
+):
+    error = None
+    try:
+        if action == "extract_frames":
+            FrameExtractor(db).extract(video_job_id)
+        elif action == "review":
+            AcceptanceReviewService(db).review(
+                video_job_id=video_job_id,
+                ai_production_brief_id=ai_production_brief_id,
+                decision=decision,
+                product_identity_status=product_identity_status,
+                packaging_status=packaging_status,
+                geometry_status=geometry_status,
+                blogger_authenticity_status=blogger_authenticity_status,
+                scene_match_status=scene_match_status,
+                proof_moment_status=proof_moment_status,
+                cta_status=cta_status,
+                reviewer_notes=reviewer_notes or None,
+            )
+        elif action == "request_regeneration":
+            acceptance = AcceptanceReviewService(db).latest_for_video_job(video_job_id)
+            if not acceptance:
+                raise OutputAcceptanceError("No output acceptance review exists for this video job.")
+            RegenerationFeedbackBuilder(db).request(
+                acceptance.id,
+                reason=reason or None,
+                scene_number=scene_number,
+            )
+    except (OutputAcceptanceError, VideoGeneratorError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "output_acceptance.html",
+        {
+            "request": request,
+            "page_title": "Output Acceptance",
+            "result": output_acceptance_result(db, video_job_id),
+            "error": error,
+            "selected_video_job_id": video_job_id,
+            "selected_ai_production_brief_id": ai_production_brief_id or None,
+            **output_acceptance_context(db),
+        },
+    )
+
+
+def output_acceptance_context(db: Session) -> dict:
+    return {
+        "video_jobs": db.scalars(select(models.VideoJob).order_by(models.VideoJob.id.desc()).limit(50)).all(),
+        "briefs": db.scalars(select(models.AIProductionBrief).order_by(models.AIProductionBrief.id.desc()).limit(50)).all(),
+        "acceptances": db.scalars(select(models.VideoOutputAcceptance).order_by(models.VideoOutputAcceptance.id.desc()).limit(20)).all(),
+    }
+
+
+def output_acceptance_result(db: Session, video_job_id: int | None) -> dict | None:
+    if not video_job_id:
+        return None
+    video_job = db.get(models.VideoJob, video_job_id)
+    if not video_job:
+        return None
+    frame_result = FrameExtractor(db).latest_for_video_job(video_job.id)
+    acceptance = AcceptanceReviewService(db).latest_for_video_job(video_job.id)
+    brief = db.get(models.AIProductionBrief, acceptance.ai_production_brief_id) if acceptance else None
+    scenes = SceneBlueprintBuilder(db).latest_for_brief(brief.id) if brief else []
+    return {
+        "video_job": video_job,
+        "frame_result": FrameExtractor.as_output(frame_result).model_dump(mode="json") if frame_result else None,
+        "contact_sheet_url": media_url(frame_result.contact_sheet_path) if frame_result and frame_result.contact_sheet_path else None,
+        "acceptance": AcceptanceReviewService.as_output(acceptance).model_dump(mode="json") if acceptance else None,
+        "brief": AIProductionBriefBuilder(db).as_output(brief).model_dump(mode="json") if brief else None,
+        "scenes": [SceneBlueprintBuilder.as_output(scene).model_dump(mode="json") for scene in scenes],
+    }
+
+
+def media_url(path: str | None) -> str | None:
+    if not path:
+        return None
+    raw = Path(path)
+    root = get_settings().media_root
+    try:
+        rel = raw.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        try:
+            rel = raw.relative_to(root)
+        except ValueError:
+            return raw.as_posix()
+    return "/media/" + rel.as_posix()
 
 
 def latest_rewrite_request(db: Session, ugc_script_id: int) -> models.CreativeRewriteRequest | None:

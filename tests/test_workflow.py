@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.ai_brief_contract import AIProductionBriefBuilder, BriefQualityChecker, DirectorPromptBuilder, MarkdownRenderer, SceneBlueprintBuilder
 from app.ai_brief_contract.types import NEGATIVE_PROMPT_TERMS
+from app.output_acceptance import AcceptanceReviewService, FrameExtractor, OutputQualityChecker, RegenerationFeedbackBuilder
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
@@ -622,6 +623,43 @@ def prepare_ai_brief_fixture(
         if with_quality_check:
             BriefQualityChecker(db).check(brief.id)
     return product_id, brief.id, script_id
+
+
+def prepare_output_acceptance_fixture(
+    api: TestClient,
+    *,
+    title: str = "Output Acceptance Product",
+    with_frames: bool = True,
+) -> tuple[int, int, int]:
+    product_id, brief_id, script_id = prepare_ai_brief_fixture(api, title=title, with_quality_check=True)
+    video_job_id = approve_script_and_create_video(api)
+    run = api.post(f"/api/video-jobs/{video_job_id}/run")
+    assert run.status_code == 200, run.text
+    with SessionLocal() as db:
+        script = db.get(models.UGCAdScript, script_id)
+        creative_spec_id = script.blogger_meaning_spec.creative_spec_id
+        video_job = db.get(models.VideoJob, video_job_id)
+        generation_variant = models.VideoGenerationVariant(
+            creative_spec_id=creative_spec_id,
+            script_variant_id=video_job.script_variant_id,
+            video_job_id=video_job.id,
+            provider="mock",
+            status="generated",
+            prompt_pack_json={
+                "scene_prompts": [
+                    {"scene_number": 1, "scene_role": "hook", "prompt": "Hook scene"},
+                    {"scene_number": 2, "scene_role": "personal_context", "prompt": "Context scene"},
+                ]
+            },
+            provider_payload_json={},
+            local_output_paths_json=[video_job.output_video_path],
+            final_video_path=video_job.output_video_path,
+        )
+        db.add(generation_variant)
+        db.commit()
+        if with_frames:
+            FrameExtractor(db).extract(video_job_id)
+    return product_id, brief_id, video_job_id
 
 
 def prepare_working_video_product(
@@ -3515,6 +3553,175 @@ def test_ai_brief_studio_ui_renders_contract_blueprint_prompt_and_quality():
         assert "Director Prompt Preview" in response.text
         assert "Brief Quality Check" in response.text
         assert "Export Markdown" in response.text
+
+
+def test_frame_extractor_creates_contact_sheet_from_fixture_video():
+    with client() as api:
+        _, _, video_job_id = prepare_output_acceptance_fixture(api, title="Output Frames Product", with_frames=False)
+
+        with SessionLocal() as db:
+            result = FrameExtractor(db).extract(video_job_id)
+
+        assert result.status == "created"
+        assert result.frame_paths_json
+        assert Path(result.contact_sheet_path).exists()
+
+
+def test_output_acceptance_blocks_missing_contact_sheet():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output Missing Sheet Product", with_frames=False)
+
+        with SessionLocal() as db:
+            acceptance = AcceptanceReviewService(db).review(
+                video_job_id=video_job_id,
+                ai_production_brief_id=brief_id,
+                decision="approve",
+                product_identity_status="pass",
+                packaging_status="pass",
+                geometry_status="pass",
+                blogger_authenticity_status="pass",
+                scene_match_status="pass",
+                proof_moment_status="pass",
+                cta_status="pass",
+            )
+
+        assert acceptance.status == "blocked"
+        assert "contact_sheet_missing" in acceptance.blockers_json
+        assert "extract_frames_before_review" in acceptance.required_fixes_json
+
+
+def test_output_quality_checker_requires_human_review_for_identity():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output Identity Review Product")
+
+        with SessionLocal() as db:
+            video_job = db.get(models.VideoJob, video_job_id)
+            brief = db.get(models.AIProductionBrief, brief_id)
+            frame_result = FrameExtractor(db).latest_for_video_job(video_job_id)
+            result = OutputQualityChecker().check(
+                video_job=video_job,
+                brief=brief,
+                frame_result=frame_result,
+                decision="approve",
+                product_identity_status="needs_review",
+                packaging_status="pass",
+                geometry_status="pass",
+                blogger_authenticity_status="pass",
+                scene_match_status="pass",
+                proof_moment_status="pass",
+                cta_status="pass",
+            )
+
+        assert result.status == "needs_regeneration"
+        assert "human_review_required_for_product_identity" in result.blockers
+        assert result.publishing_readiness == "blocked"
+
+
+def test_output_acceptance_flags_packaging_drift():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output Packaging Drift Product")
+
+        with SessionLocal() as db:
+            acceptance = AcceptanceReviewService(db).review(
+                video_job_id=video_job_id,
+                ai_production_brief_id=brief_id,
+                decision="needs_regeneration",
+                product_identity_status="pass",
+                packaging_status="drift",
+                geometry_status="pass",
+                blogger_authenticity_status="pass",
+                scene_match_status="pass",
+                proof_moment_status="pass",
+                cta_status="pass",
+            )
+
+        assert acceptance.status == "needs_regeneration"
+        assert "packaging_drift" in acceptance.blockers_json
+        assert "regenerate_or_switch_to_packshot_overlay" in acceptance.required_fixes_json
+
+
+def test_output_acceptance_flags_missing_proof_moment():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output Missing Proof Product")
+
+        with SessionLocal() as db:
+            acceptance = AcceptanceReviewService(db).review(
+                video_job_id=video_job_id,
+                ai_production_brief_id=brief_id,
+                decision="needs_regeneration",
+                product_identity_status="pass",
+                packaging_status="pass",
+                geometry_status="pass",
+                blogger_authenticity_status="pass",
+                scene_match_status="pass",
+                proof_moment_status="missing",
+                cta_status="pass",
+            )
+
+        assert acceptance.status == "needs_regeneration"
+        assert "missing_proof_moment" in acceptance.blockers_json
+        assert "add_visible_proof_moment" in acceptance.required_fixes_json
+
+
+def test_output_acceptance_creates_regeneration_request():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output Regeneration Product")
+
+        with SessionLocal() as db:
+            acceptance = AcceptanceReviewService(db).review(
+                video_job_id=video_job_id,
+                ai_production_brief_id=brief_id,
+                decision="needs_regeneration",
+                product_identity_status="pass",
+                packaging_status="drift",
+                geometry_status="pass",
+                blogger_authenticity_status="pass",
+                scene_match_status="pass",
+                proof_moment_status="pass",
+                cta_status="pass",
+                reviewer_notes="Label drifted in product closeup.",
+            )
+            request = RegenerationFeedbackBuilder(db).request(
+                acceptance.id,
+                reason="product_identity_mismatch",
+                scene_number=1,
+            )
+
+        assert request.video_job_id == video_job_id
+        assert request.reason == "product_identity_mismatch"
+        assert "Output acceptance" in request.feedback
+
+
+def test_output_acceptance_ui_renders_contact_sheet_and_checklist():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output UI Product")
+        response = api.post(
+            f"/api/output-acceptance/video-jobs/{video_job_id}/review",
+            json={
+                "ai_production_brief_id": brief_id,
+                "decision": "approve",
+                "product_identity_status": "pass",
+                "packaging_status": "pass",
+                "geometry_status": "pass",
+                "blogger_authenticity_status": "pass",
+                "scene_match_status": "pass",
+                "proof_moment_status": "pass",
+                "cta_status": "pass",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        page = api.get(f"/output-acceptance?video_job_id={video_job_id}")
+
+        assert page.status_code == 200
+        assert "Output Acceptance" in page.text
+        assert "Video Artifact" in page.text
+        assert "Contact Sheet" in page.text
+        assert "AIProductionBrief Summary" in page.text
+        assert "Scene Blueprint Checklist" in page.text
+        assert "Product Identity Checklist" in page.text
+        assert "Blogger Authenticity Checklist" in page.text
+        assert "Decision: approve / needs_regeneration / reject" in page.text
 
 
 def test_variant_real_smoke_requires_real_generation_mode(monkeypatch):
