@@ -27,6 +27,13 @@ from app.bombar_launch import (
 from app.bombar_launch.errors import BombarLaunchDataError
 from app.bombar_production import BombarProductionDryRunService
 from app.bombar_production.errors import BombarProductionError
+from app.blogger_brief import (
+    BloggerBriefError,
+    MeaningSpecBuilder,
+    ProductReferencePolicyService,
+    UGCAdScriptBuilder,
+)
+from app.blogger_brief.prompt_enricher import PromptEnricher
 from app.campaign_batch import BatchExecutor, BatchReporter, BatchSelector
 from app.campaign_batch.errors import CampaignBatchDataError
 from app.campaign_autopilot import CampaignDistributionPlanner, CampaignRunner, CampaignService, ProductMatrixImporter
@@ -266,6 +273,28 @@ class WorkingVideoRealSmokeRequest(BaseModel):
     real_run: bool = False
     allow_real_spend: bool = False
     max_scenes: int = 1
+
+
+class BloggerMeaningSpecBuildRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    duration_seconds: int = 8
+    demand_hypothesis_id: int | None = None
+    creative_spec_id: int | None = None
+    provider: str = "runway"
+    product_identity_strict: bool = True
+
+
+class UGCAdScriptBuildRequest(BaseModel):
+    blogger_meaning_spec_id: int
+    creative_variant_id: int | None = None
+    duration_seconds: int = 8
+
+
+class UGCAdScriptPromptPackRequest(BaseModel):
+    ugc_script_id: int
+    video_provider: str = "runway"
+    build_prompts_only: bool = True
 
 
 class ContentFactoryPrepareRequest(BaseModel):
@@ -683,6 +712,41 @@ def generation_variant_response(variant: models.VideoGenerationVariant) -> dict:
         "final_video_path": variant.final_video_path or (video_job.output_video_path if video_job else None),
         "quality_score": variant.quality_score_json,
         "provider_job_ids": [clip.provider_job_id for clip in video_job.clips if clip.provider_job_id] if video_job else [],
+    }
+
+
+def blogger_meaning_spec_response(spec: models.BloggerMeaningSpec) -> dict:
+    return {
+        "id": spec.id,
+        "product_id": spec.product_id,
+        "sku": spec.sku,
+        "demand_hypothesis_id": spec.demand_hypothesis_id,
+        "creative_spec_id": spec.creative_spec_id,
+        "creator_persona": spec.creator_persona_json,
+        "buyer_context": spec.buyer_context_json,
+        "blogger_story": spec.blogger_story_json,
+        "authenticity_rules": spec.authenticity_rules_json,
+        "scene_intent": spec.scene_intent_json,
+        "hook_options": spec.hook_options_json,
+        "proof_moment": spec.proof_moment_json,
+        "cta": spec.cta_json,
+        "product_lock_rules": spec.product_lock_rules_json,
+        "warnings": spec.warnings_json,
+        "created_at": spec.created_at.isoformat() if spec.created_at else None,
+    }
+
+
+def ugc_ad_script_response(script: models.UGCAdScript) -> dict:
+    return {
+        "id": script.id,
+        "blogger_meaning_spec_id": script.blogger_meaning_spec_id,
+        "creative_variant_id": script.creative_variant_id,
+        "status": script.status,
+        "duration_seconds": script.duration_seconds,
+        "voiceover": script.voiceover_json,
+        "captions": script.captions_json,
+        "scene_script": script.scene_script_json,
+        "created_at": script.created_at.isoformat() if script.created_at else None,
     }
 
 
@@ -1130,6 +1194,77 @@ def build_product_reference_bundle(product_id: int, payload: ProductReferenceReq
     try:
         return reference_bundle_response(ProviderReferenceBundleBuilder(db).build(product_id, provider=payload.provider))
     except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/video-generator/products/{product_id}/reference-policy")
+def get_product_reference_policy(
+    product_id: int,
+    provider: str = "runway",
+    product_identity_strict: bool = True,
+    db: Session = Depends(get_db),
+):
+    try:
+        return ProductReferencePolicyService(db).check(
+            product_id,
+            provider=provider,
+            product_identity_strict=product_identity_strict,
+        ).model_dump(mode="json")
+    except BloggerBriefError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/blogger-brief/specs/build")
+def build_blogger_meaning_spec(payload: BloggerMeaningSpecBuildRequest, db: Session = Depends(get_db)):
+    try:
+        spec = MeaningSpecBuilder(db).build(
+            payload.product_id,
+            platform=payload.platform,
+            duration_seconds=payload.duration_seconds,
+            demand_hypothesis_id=payload.demand_hypothesis_id,
+            creative_spec_id=payload.creative_spec_id,
+            provider=payload.provider,
+            product_identity_strict=payload.product_identity_strict,
+        )
+        return blogger_meaning_spec_response(spec)
+    except BloggerBriefError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/blogger-brief/specs/{spec_id}")
+def get_blogger_meaning_spec(spec_id: int, db: Session = Depends(get_db)):
+    return blogger_meaning_spec_response(get_or_404(db, models.BloggerMeaningSpec, spec_id))
+
+
+@router.post("/blogger-brief/scripts/build")
+def build_ugc_ad_script(payload: UGCAdScriptBuildRequest, db: Session = Depends(get_db)):
+    try:
+        return ugc_ad_script_response(
+            UGCAdScriptBuilder(db).build(
+                payload.blogger_meaning_spec_id,
+                creative_variant_id=payload.creative_variant_id,
+                duration_seconds=payload.duration_seconds,
+            )
+        )
+    except BloggerBriefError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/blogger-brief/scripts/{script_id}")
+def get_ugc_ad_script(script_id: int, db: Session = Depends(get_db)):
+    return ugc_ad_script_response(get_or_404(db, models.UGCAdScript, script_id))
+
+
+@router.post("/video-generator/prompt-packs/from-ugc-script")
+def build_video_generator_prompt_pack_from_ugc_script(payload: UGCAdScriptPromptPackRequest, db: Session = Depends(get_db)):
+    try:
+        variant = PromptEnricher(db).build_prompt_pack_from_script(
+            payload.ugc_script_id,
+            provider=payload.video_provider,
+            build_prompts_only=payload.build_prompts_only,
+        )
+        return generation_variant_response(variant)
+    except (BloggerBriefError, VideoGeneratorError, IntelligenceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

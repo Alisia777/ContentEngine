@@ -11,6 +11,13 @@ from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
+from app.blogger_brief import (
+    BloggerBriefError,
+    MeaningSpecBuilder,
+    ProductReferencePolicyService,
+    UGCAdScriptBuilder,
+)
+from app.blogger_brief.prompt_enricher import PromptEnricher
 from app.bombar_launch import (
     BombarMatrixImporter,
     DestinationSetupPlanner,
@@ -501,6 +508,130 @@ def working_video_context(db: Session) -> dict:
             and status["runway_api_secret_configured"]
         ),
     }
+
+
+@router.get("/ugc-video-strategy", response_class=HTMLResponse)
+def ugc_video_strategy_page(request: Request, product_id: int | None = None, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "ugc_video_strategy.html",
+        {
+            "request": request,
+            "page_title": "UGC Video Strategy",
+            "result": ugc_video_strategy_result(db, product_id) if product_id else None,
+            "error": request.query_params.get("error"),
+            **ugc_video_strategy_context(db),
+        },
+    )
+
+
+@router.post("/ugc-video-strategy/run", response_class=HTMLResponse)
+def run_ugc_video_strategy_page(
+    request: Request,
+    product_id: int = Form(0),
+    platform: str = Form("Instagram Reels"),
+    duration_seconds: int = Form(8),
+    creative_variant_id: str = Form(""),
+    ugc_script_id: str = Form(""),
+    action: str = Form("check"),
+    db: Session = Depends(get_db),
+):
+    result = None
+    error = None
+    try:
+        if action == "check":
+            result = ugc_video_strategy_result(db, product_id)
+        elif action == "build_spec":
+            spec = MeaningSpecBuilder(db).build(product_id, platform=platform, duration_seconds=duration_seconds)
+            result = ugc_video_strategy_result(db, product_id, meaning_spec_id=spec.id)
+        elif action == "build_script":
+            spec = latest_blogger_meaning_spec(db, product_id) or MeaningSpecBuilder(db).build(
+                product_id,
+                platform=platform,
+                duration_seconds=duration_seconds,
+            )
+            script = UGCAdScriptBuilder(db).build(
+                spec.id,
+                creative_variant_id=int(creative_variant_id) if creative_variant_id else None,
+                duration_seconds=duration_seconds,
+            )
+            result = ugc_video_strategy_result(db, product_id, meaning_spec_id=spec.id, ugc_script_id=script.id)
+        elif action == "prompt_only":
+            script_id = int(ugc_script_id) if ugc_script_id else (latest_ugc_script(db, product_id).id if latest_ugc_script(db, product_id) else 0)
+            generation = PromptEnricher(db).build_prompt_pack_from_script(script_id, provider="runway")
+            result = ugc_video_strategy_result(db, product_id, ugc_script_id=script_id)
+            result["prompt_pack_id"] = generation.prompt_pack_id
+            result["generation_variant_id"] = generation.id
+    except (BloggerBriefError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "ugc_video_strategy.html",
+        {
+            "request": request,
+            "page_title": "UGC Video Strategy",
+            "result": result,
+            "error": error,
+            "selected_product_id": product_id,
+            "selected_platform": platform,
+            "selected_duration_seconds": duration_seconds,
+            "selected_creative_variant_id": int(creative_variant_id) if creative_variant_id else None,
+            "selected_ugc_script_id": int(ugc_script_id) if ugc_script_id else None,
+            **ugc_video_strategy_context(db),
+        },
+    )
+
+
+def ugc_video_strategy_context(db: Session) -> dict:
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "selected_variants": db.scalars(
+            select(models.CreativeVariant)
+            .where(models.CreativeVariant.status == "selected")
+            .order_by(models.CreativeVariant.created_at.desc())
+            .limit(20)
+        ).all(),
+        "meaning_specs": db.scalars(select(models.BloggerMeaningSpec).order_by(models.BloggerMeaningSpec.created_at.desc()).limit(20)).all(),
+        "ugc_scripts": db.scalars(select(models.UGCAdScript).order_by(models.UGCAdScript.created_at.desc()).limit(20)).all(),
+    }
+
+
+def ugc_video_strategy_result(
+    db: Session,
+    product_id: int,
+    *,
+    meaning_spec_id: int | None = None,
+    ugc_script_id: int | None = None,
+) -> dict:
+    product = db.get(models.Product, product_id)
+    policy = ProductReferencePolicyService(db).check(product_id).model_dump(mode="json")
+    readiness = ProductReferenceReadinessChecker(db).check(product_id, provider="runway").model_dump(mode="json")
+    meaning_spec = db.get(models.BloggerMeaningSpec, meaning_spec_id) if meaning_spec_id else latest_blogger_meaning_spec(db, product_id)
+    script = db.get(models.UGCAdScript, ugc_script_id) if ugc_script_id else latest_ugc_script(db, product_id)
+    return {
+        "product": product,
+        "reference_policy": policy,
+        "reference_readiness": readiness,
+        "meaning_spec": meaning_spec,
+        "ugc_script": script,
+        "mass_generation_safety_status": policy.get("mass_generation_safety_status"),
+        "next_actions": policy.get("next_actions") or [],
+    }
+
+
+def latest_blogger_meaning_spec(db: Session, product_id: int) -> models.BloggerMeaningSpec | None:
+    return db.scalar(
+        select(models.BloggerMeaningSpec)
+        .where(models.BloggerMeaningSpec.product_id == product_id)
+        .order_by(models.BloggerMeaningSpec.id.desc())
+    )
+
+
+def latest_ugc_script(db: Session, product_id: int) -> models.UGCAdScript | None:
+    return db.scalar(
+        select(models.UGCAdScript)
+        .join(models.BloggerMeaningSpec)
+        .where(models.BloggerMeaningSpec.product_id == product_id)
+        .order_by(models.UGCAdScript.id.desc())
+    )
 
 
 @router.get("/content-factory", response_class=HTMLResponse)

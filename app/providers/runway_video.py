@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 from pathlib import Path
 
@@ -21,15 +23,23 @@ class RunwayVideoProvider:
             raise ProviderConfigurationError("Runway provider is selected, but RUNWAYML_API_SECRET is missing.")
 
     def create_generation(self, prompt_pack: PromptPackOutput) -> ProviderVideoJob:
+        scene = prompt_pack.scene_prompts[0] if prompt_pack.scene_prompts else None
+        prompt_text = scene.prompt_text if scene else ""
+        prompt_text = prompt_text[:1000]
         payload = {
             "model": self.model,
-            "promptText": prompt_pack.scene_prompts[0].prompt_text if prompt_pack.scene_prompts else "",
+            "promptText": prompt_text,
             "ratio": get_settings().video_ratio,
-            "duration": prompt_pack.scene_prompts[0].duration_seconds if prompt_pack.scene_prompts else 5,
+            "duration": scene.duration_seconds if scene else 5,
         }
+        endpoint = "https://api.dev.runwayml.com/v1/text_to_video"
+        reference_image = self._local_reference_image(scene.reference_images if scene else [])
+        if reference_image:
+            payload["promptImage"] = self._data_uri(reference_image)
+            endpoint = "https://api.dev.runwayml.com/v1/image_to_video"
         try:
             response = httpx.post(
-                "https://api.dev.runwayml.com/v1/text_to_video",
+                endpoint,
                 headers={
                     "Authorization": f"Bearer {self.api_secret}",
                     "Content-Type": "application/json",
@@ -50,11 +60,13 @@ class RunwayVideoProvider:
         provider_job_id = str(data.get("id") or data.get("task_id") or data.get("uuid"))
         if not provider_job_id:
             raise ProviderConfigurationError("Runway response did not include a provider job id.")
+        raw_response = dict(data)
+        raw_response["prompt_image_used"] = bool(reference_image)
         return ProviderVideoJob(
             provider=self.provider_name,
             provider_job_id=provider_job_id,
             status=str(data.get("status") or "queued"),
-            raw_response=data,
+            raw_response=raw_response,
         )
 
     def get_status(self, provider_job_id: str) -> ProviderVideoStatus:
@@ -108,3 +120,19 @@ class RunwayVideoProvider:
     def _safe_response_excerpt(response: httpx.Response) -> str:
         text = response.text.replace("\n", " ").strip()
         return text[:500] if text else "no response body"
+
+    @staticmethod
+    def _local_reference_image(reference_images: list[str]) -> Path | None:
+        for reference in reference_images or []:
+            path = Path(reference)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            if path.exists() and path.is_file():
+                return path
+        return None
+
+    @staticmethod
+    def _data_uri(path: Path) -> str:
+        mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"

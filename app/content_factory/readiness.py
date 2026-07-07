@@ -55,6 +55,26 @@ def reference_readiness(content_run: models.ContentRun, prompt_pack: dict[str, A
     }
 
 
+def reference_policy_readiness(content_run: models.ContentRun, prompt_pack: dict[str, Any] | None = None) -> dict[str, Any]:
+    run = content_run.run_json or {}
+    existing = run.get("reference_policy") if isinstance(run.get("reference_policy"), dict) else {}
+    prompt_pack = prompt_pack or content_run_prompt_pack(content_run)
+    policy = existing or prompt_pack.get("product_reference_policy") or {}
+    blockers = list(policy.get("blockers") or [])
+    return {
+        "status": policy.get("status") or "unknown",
+        "strict_real_generation_allowed": policy.get("strict_real_generation_allowed") is True,
+        "product_lock_mode": policy.get("product_lock_mode"),
+        "approved_reference_count": policy.get("approved_reference_count", 0),
+        "recommended_reference_count": policy.get("recommended_reference_count", 3),
+        "minimum_strict_reference_count": policy.get("minimum_strict_reference_count", 2),
+        "missing_reference_types": policy.get("missing_reference_types") or [],
+        "blockers": blockers,
+        "next_actions": policy.get("next_actions") or [],
+        "mass_generation_safety_status": policy.get("mass_generation_safety_status") or "unknown",
+    }
+
+
 def product_identity_readiness(prompt_pack: dict[str, Any]) -> dict[str, Any]:
     accuracy_rules = prompt_pack.get("product_accuracy_rules") or []
     scene_text = " ".join(
@@ -177,6 +197,7 @@ def control_loop_readiness(db: Session, content_run: models.ContentRun) -> dict[
     publishing = publishing_readiness(db, content_run)
     return {
         "reference_readiness": reference_readiness(content_run, prompt_pack),
+        "reference_policy": reference_policy_readiness(content_run, prompt_pack),
         "product_identity_readiness": identity,
         "geometry_readiness": geometry,
         "publishing_readiness": publishing,

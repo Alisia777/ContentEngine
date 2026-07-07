@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app import models
 from app.assets.errors import AssetKitError
 from app.assets.reference_bundle_builder import ProviderReferenceBundleBuilder
+from app.blogger_brief.reference_policy import ProductReferencePolicyService
+from app.blogger_brief.types import PACKAGING_DRIFT_NEGATIVE_TERMS
 from app.config import get_settings
 from app.creative.product_geometry import (
     GEOMETRY_LOCK_PROMPT_LINES,
@@ -87,6 +89,12 @@ class VideoGenerator:
         spec = CreativeSpec.model_validate(spec_record.spec_json)
         script_variant = self._create_execution_variant_from_creative_variant(spec_record, spec, creative_variant)
         first_frame = creative_variant.first_frame_json or {}
+        product_identity_strict = bool((spec_record.spec_json or {}).get("product_identity_strict", True))
+        reference_policy = ProductReferencePolicyService(self.db).check(
+            spec.product_id,
+            provider=selected_provider,
+            product_identity_strict=product_identity_strict,
+        )
         reference_bundle = self._reference_bundle(spec.product_id, selected_provider)
         provider_reference_bundle = reference_bundle.provider_payload_json if reference_bundle else {}
         reference_images = provider_reference_bundle.get("reference_images") or []
@@ -99,7 +107,12 @@ class VideoGenerator:
         if reference_bundle and reference_bundle.status == "ready":
             stale_asset_risks = {"missing_packshot", "packshot_missing_for_product_accuracy", "missing_product_reference_assets"}
             variant_warnings = [warning for warning in variant_warnings if warning not in stale_asset_risks]
-        scene_prompts = self._variant_scene_prompts(creative_variant, spec, reference_images=reference_images)
+        scene_prompts = self._variant_scene_prompts(
+            creative_variant,
+            spec,
+            reference_images=reference_images,
+            reference_policy=reference_policy.model_dump(mode="json"),
+        )
         prompt_output = PromptPackOutput(
             provider=selected_provider,
             aspect_ratio=spec.aspect_ratio,
@@ -118,6 +131,11 @@ class VideoGenerator:
                 "reference_images": reference_images,
                 "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
                 "provider_reference_bundle": provider_reference_bundle,
+                "product_reference_policy": reference_policy.model_dump(mode="json"),
+                "product_identity_strict": product_identity_strict,
+                "product_lock_mode": reference_policy.product_lock_mode,
+                "product_reference_count": reference_policy.approved_reference_count,
+                "mass_generation_safety_status": reference_policy.mass_generation_safety_status,
                 "product_accuracy_rules": self._product_accuracy_rules(spec),
                 "product_geometry_spec": spec.product_geometry_spec.model_dump(mode="json"),
                 "product_geometry_rules": spec.product_geometry_rules,
@@ -127,7 +145,9 @@ class VideoGenerator:
                 "scene_pacing": creative_variant.pacing_json,
                 "selected_cta": creative_variant.cta_framing,
                 "variant_score": creative_variant.score_json,
-                "warnings": list(dict.fromkeys(variant_warnings + reference_warnings)),
+                "warnings": list(dict.fromkeys(variant_warnings + reference_warnings + reference_policy.warnings)),
+                "blockers": list(dict.fromkeys(reference_policy.blockers)),
+                "next_actions": reference_policy.next_actions,
             }
         )
         prompt_pack = models.PromptPack(
@@ -148,6 +168,11 @@ class VideoGenerator:
                 "reference_images": reference_images,
                 "primary_reference_asset": reference_bundle.primary_image_asset_id if reference_bundle else None,
                 "provider_reference_bundle": provider_reference_bundle,
+                "product_reference_policy": reference_policy.model_dump(mode="json"),
+                "product_identity_strict": product_identity_strict,
+                "product_lock_mode": reference_policy.product_lock_mode,
+                "product_reference_count": reference_policy.approved_reference_count,
+                "mass_generation_safety_status": reference_policy.mass_generation_safety_status,
                 "product_geometry_spec": spec.product_geometry_spec.model_dump(mode="json"),
                 "product_geometry_rules": spec.product_geometry_rules,
                 "product_scale_rules": spec.product_scale_rules,
@@ -403,28 +428,51 @@ class VideoGenerator:
         spec: CreativeSpec,
         *,
         reference_images: list[str] | None = None,
+        reference_policy: dict | None = None,
     ) -> list[PromptSceneOutput]:
         prompts = []
+        reference_policy = reference_policy or {}
+        product_lock_mode = reference_policy.get("product_lock_mode", "no_product_generation")
+        do_not_generate_packaging = product_lock_mode in {"packshot_overlay", "end_card_packshot"}
         for scene in creative_variant.scene_plan_json or []:
+            negative_prompt = self._merge_negative_prompt(
+                scene.get("negative_prompt") or geometry_negative_prompt(
+                    "distorted product, changed packaging, fake labels, unsupported claims, "
+                    "medical claims, unreadable text, low quality"
+                )
+            )
+            safety_constraints = scene.get("safety_constraints") or [
+                "show the selected first frame clearly",
+                "do not alter product shape, packaging, color, or label",
+                "use only source-backed claims",
+                "keep overlay text readable and clear of packaging",
+                *GEOMETRY_LOCK_PROMPT_LINES,
+            ]
+            safety_constraints = list(
+                dict.fromkeys(
+                    [
+                        *safety_constraints,
+                        f"product_lock_mode:{product_lock_mode}",
+                        f"product_reference_count:{reference_policy.get('approved_reference_count', 0)}",
+                        *(
+                            ["do not generate packaging; use exact packshot overlay or end card"]
+                            if do_not_generate_packaging
+                            else ["use approved product references for package identity"]
+                        ),
+                        "provider-generated product scenes always need human review",
+                    ]
+                )
+            )
             prompts.append(
                 PromptSceneOutput(
                     scene_number=int(scene.get("scene_number") or 1),
                     duration_seconds=max(1, int(scene.get("duration_seconds") or 1)),
                     prompt_text=self._variant_prompt_text(creative_variant, spec, scene),
-                    negative_prompt=geometry_negative_prompt(
-                        "distorted product, changed packaging, fake labels, unsupported claims, "
-                        "medical claims, unreadable text, low quality"
-                    ),
+                    negative_prompt=negative_prompt,
                     reference_images=reference_images or creative_variant.asset_refs_json or [],
                     camera_motion=scene.get("camera_motion") or "slow product-focused movement",
                     style=creative_variant.visual_style or spec.visual_style,
-                    safety_constraints=[
-                        "show the selected first frame clearly",
-                        "do not alter product shape, packaging, color, or label",
-                        "use only source-backed claims",
-                        "keep overlay text readable and clear of packaging",
-                        *GEOMETRY_LOCK_PROMPT_LINES,
-                    ],
+                    safety_constraints=safety_constraints,
                     product_geometry_rules=spec.product_geometry_rules,
                     product_scale_rules=spec.product_scale_rules,
                     product_visibility_rules=spec.product_visibility_rules,
@@ -434,6 +482,8 @@ class VideoGenerator:
 
     @staticmethod
     def _variant_prompt_text(creative_variant: models.CreativeVariant, spec: CreativeSpec, scene: dict) -> str:
+        if scene.get("provider_prompt_text"):
+            return str(scene["provider_prompt_text"]).strip()
         first_frame = creative_variant.first_frame_json or {}
         first_frame_text = ""
         if int(scene.get("scene_number") or 1) == 1:
@@ -453,6 +503,11 @@ class VideoGenerator:
     @staticmethod
     def _product_accuracy_rules(spec: CreativeSpec) -> list[str]:
         return list(dict.fromkeys(spec.product_display_rules + GEOMETRY_LOCK_PROMPT_LINES))
+
+    @staticmethod
+    def _merge_negative_prompt(existing: str) -> str:
+        terms = [item.strip() for item in existing.split(",") if item.strip()]
+        return ", ".join(list(dict.fromkeys([*terms, *PACKAGING_DRIFT_NEGATIVE_TERMS])))
 
     @staticmethod
     def _video_job(generation_variant: models.VideoGenerationVariant) -> models.VideoJob:
