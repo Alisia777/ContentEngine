@@ -123,10 +123,24 @@ class OneVideoAcceptanceService:
             self.db.refresh(result)
             return result
         except Exception as exc:
-            result.status = "failed_generation"
+            if self._is_provider_credit_error(exc):
+                result.status = "blocked_by_runway_credits"
+                result.human_review_status = "blocked"
+                result.result_json = {
+                    **(result.result_json or {}),
+                    "blocker": "blocked_by_runway_credits",
+                    "next_action": "add_runway_credits_then_rerun_one_scene_real_smoke",
+                    "provider": provider,
+                }
+                plan.status = "real_run_blocked_by_runway_credits"
+            else:
+                result.status = "failed_generation"
+                plan.status = "real_run_failed"
             result.errors_json = list(dict.fromkeys([*(result.errors_json or []), str(exc)]))
-            plan.status = "real_run_failed"
             self.db.commit()
+            self.db.refresh(result)
+            if self._is_provider_credit_error(exc):
+                return result
             raise
 
     def review(self, result_id: int, *, status: str, notes: str | None = None) -> models.OneVideoRenderResult:
@@ -295,3 +309,16 @@ class OneVideoAcceptanceService:
         if "manual_review_requires_regeneration" in blockers:
             fixes.append("request_regeneration")
         return list(dict.fromkeys(fixes))
+
+    @staticmethod
+    def _is_provider_credit_error(exc: Exception) -> bool:
+        normalized = str(exc).lower()
+        credit_markers = [
+            "do not have enough credits",
+            "not have enough credits",
+            "not enough credits",
+            "insufficient credits",
+            "runway credits",
+            "no credits",
+        ]
+        return any(marker in normalized for marker in credit_markers)

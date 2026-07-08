@@ -8314,6 +8314,33 @@ def test_one_video_prompt_only_builds_prompt_pack_without_video_job():
     assert any("granola bar" in item["negative_prompt"] for item in prompt_pack.negative_prompts_json)
 
 
+def test_one_video_real_run_records_blocked_by_runway_credits(monkeypatch):
+    class FakeRunner:
+        def __init__(self, db: Session):
+            self.db = db
+
+        def run_from_variant(self, *_args, **_kwargs):
+            raise ProviderConfigurationError("Runway generation request failed: HTTP 400: You do not have enough credits to run this task.")
+
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    monkeypatch.setattr("app.one_video_acceptance.acceptance_service.RealSmokeRunner", FakeRunner)
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        service = OneVideoAcceptanceService(db)
+        plan = service.prompt_only(service.build_plan(product_id, platform="Instagram Reels").id, provider="runway")
+        result = service.run_real(plan.id, provider="runway", real_run=True, max_scenes=1)
+        db.refresh(plan)
+
+    assert result.status == "blocked_by_runway_credits"
+    assert result.human_review_status == "blocked"
+    assert result.video_job_id is None
+    assert result.output_acceptance_id is None
+    assert result.result_json["blocker"] == "blocked_by_runway_credits"
+    assert result.result_json["next_action"] == "add_runway_credits_then_rerun_one_scene_real_smoke"
+    assert plan.status == "real_run_blocked_by_runway_credits"
+
+
 def test_one_video_human_review_records_muesli_and_wrapper_drift():
     api = client()
     product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")

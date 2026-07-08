@@ -128,6 +128,14 @@ $env:RUNWAYML_API_SECRET="..."
 python scripts\one_video_run_real.py --plan-id 1 --video-provider runway --real-run --max-scenes 1
 ```
 
+If Runway responds that credits are unavailable, the run result is persisted as:
+
+- `status=blocked_by_runway_credits`
+- `human_review_status=blocked`
+- `next_action=add_runway_credits_then_rerun_one_scene_real_smoke`
+
+This is an operational blocker, not a silent fallback to mock generation.
+
 Human review:
 
 ```powershell
