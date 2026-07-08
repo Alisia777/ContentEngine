@@ -1,4 +1,8 @@
 from pathlib import Path
+import os
+
+os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
+os.environ["QVF_MEDIA_ROOT"] = "test_media"
 
 from fastapi.testclient import TestClient
 

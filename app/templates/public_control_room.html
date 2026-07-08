@@ -1,0 +1,97 @@
+{% extends "public_pilot_base.html" %}
+{% block content %}
+<section class="public-dashboard">
+  <aside class="altea-card public-sidebar altea-reveal">
+    <a class="altea-sidebar__brand" href="/control-room" aria-label="ALTEA control room">
+      <img src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+      <span><strong>ALTEA</strong><small>PUBLIC PILOT</small></span>
+    </a>
+    <nav class="public-nav" aria-label="Public pilot navigation">
+      <a class="is-active" href="/control-room">Control room</a>
+      <a href="/settings/access">Access gates</a>
+      <a href="/altea-motion/dashboard">Motion shell</a>
+      <a href="/one-video-acceptance">One-video QA</a>
+      <a href="/output-acceptance">Output acceptance</a>
+    </nav>
+    <div class="public-user-card">
+      <strong>{{ user.profile.display_name or user.profile.email }}</strong>
+      <small>{{ user.profile.email }}</small>
+      <span>{{ role }}</span>
+    </div>
+  </aside>
+
+  <div class="public-main">
+    <header class="public-topline altea-reveal">
+      <div>
+        <p>ALTEA Beauty</p>
+        <h1>Public Pilot Control Room</h1>
+      </div>
+      <a class="altea-glow-button altea-glow-button--small" href="/settings/access">Review gates</a>
+    </header>
+
+    <div class="public-kpi-grid">
+      {% for item in metrics %}
+      <article class="altea-card public-kpi altea-reveal">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+        <small>{{ item.detail }}</small>
+      </article>
+      {% endfor %}
+    </div>
+
+    <div class="public-grid">
+      <article class="altea-card public-panel public-panel--wide altea-reveal">
+        <header class="public-panel-head">
+          <h2>Gate summary</h2>
+          <span>Dangerous actions are audited</span>
+        </header>
+        <table class="public-table">
+          <thead><tr><th>Action</th><th>Roles</th><th>Certification</th><th>Spend gate</th><th>Audit</th></tr></thead>
+          <tbody>
+            {% for item in gate_summary %}
+            <tr>
+              <td>{{ item.label }}</td>
+              <td>{{ item.roles or "blocked" }}</td>
+              <td>{{ item.required_certification or "none" }}</td>
+              <td>{{ "required" if item.spend_gate_required else "not required" }}</td>
+              <td>{{ "yes" if item.audit_required else "standard" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Training</h2><span>Strict gates: {{ settings.public_pilot_strict_training_gates }}</span></header>
+        <ul class="public-list">
+          {% for module in training_modules %}
+          <li>
+            <div>
+              <strong>{{ module.title }}</strong>
+              <small>{{ module.code }}</small>
+            </div>
+            {% if module.code in certifications %}
+            <span class="public-pill is-good">certified</span>
+            {% else %}
+            <form method="post" action="/control-room/training/{{ module.code }}/submit">
+              <button class="public-link-button" type="submit">complete</button>
+            </form>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Next actions</h2><span>No paid calls here</span></header>
+        <ul class="public-checklist">
+          {% for action in next_actions %}
+          <li>{{ action }}</li>
+          {% endfor %}
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
