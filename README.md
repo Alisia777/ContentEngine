@@ -111,6 +111,19 @@ python scripts\generate_video.py --product-id 1 --llm-provider openai --video-pr
 
 Full-video real generation requires `--full-video` and still obeys the configured max scene and duration caps.
 
+## One Video Acceptance
+
+`/one-video-acceptance` is the controlled Bombbar product-safe UGC path for a single 9:16 render before scaling. It builds a `ProductScenePolicy`, separates wrapper/edible/style/lifestyle refs, records an asset audit and MVP scorecard, blocks unsafe bite/macro scenes when edible references are weak, adds Bombbar-specific muesli/granola and wrapper-drift negatives, and keeps paid smoke behind the existing real-spend gates.
+
+```powershell
+python scripts\build_one_video_render_plan.py --product-id 7 --platform "Instagram Reels"
+python scripts\one_video_prompt_only.py --plan-id 1
+python scripts\one_video_run_real.py --plan-id 1 --video-provider runway --real-run --max-scenes 1
+python scripts\one_video_review.py --result-id 1 --status needs_regeneration --notes "Wrapper drifted and edible bar became muesli-like."
+```
+
+See `docs/ONE_VIDEO_ACCEPTANCE.md`.
+
 ## Hook-Driven Video Generator
 
 The `/video-generator` page adds the Sprint 04 product layer:

@@ -16,13 +16,14 @@ os.environ["QVF_MEDIA_ROOT"] = "test_media"
 import pytest
 import httpx
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
 from app.ai_brief_contract import AIProductionBriefBuilder, BriefQualityChecker, DirectorPromptBuilder, MarkdownRenderer, SceneBlueprintBuilder
 from app.ai_brief_contract.types import NEGATIVE_PROMPT_TERMS
 from app.output_acceptance import AcceptanceReviewService, FrameExtractor, OutputQualityChecker, RegenerationFeedbackBuilder
+from app.one_video_acceptance import OneVideoAcceptanceService, ProductScenePolicyService
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
@@ -8202,3 +8203,172 @@ def test_metrics_intake_shows_platform_csv_examples():
     assert "youtube_shorts_metrics.csv" in response.text
     assert "marketplace_conversion.csv" in response.text
     assert "Common mistakes" in response.text
+
+
+def test_one_video_scene_policy_blocks_bite_without_edible_refs():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        policy = ProductScenePolicyService(db).evaluate(product_id, provider="runway")
+
+    assert policy.wrapper_reference_count == 2
+    assert policy.edible_reference_count == 0
+    assert policy.wrapper_scene_allowed is True
+    assert policy.bite_scene_allowed is False
+    assert policy.texture_macro_allowed is False
+    assert "bite_scene" in policy.blocked_scene_types
+    assert "approved_cutaway_insert" in policy.allowed_scene_types
+    assert "add_edible_cutaway_texture_and_use_case_refs" in policy.next_actions
+
+
+def test_one_video_scene_policy_does_not_count_lifestyle_as_edible_ref():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        lifestyle = ProductAssetStorage(db).attach_url(
+            product_id,
+            url="https://example.com/wibes_creator_table_context.png",
+            asset_type="lifestyle",
+            manual_label="female creator at table with coffee",
+        )
+        ProductAssetStorage(db).update_asset(lifestyle.id, review_status="approved", asset_type="lifestyle")
+        policy = ProductScenePolicyService(db).evaluate(product_id, provider="runway")
+
+    assert policy.lifestyle_reference_count == 1
+    assert policy.style_reference_count == 1
+    assert policy.edible_reference_count == 0
+    assert policy.bite_scene_allowed is False
+    assert policy.texture_macro_allowed is False
+    assert policy.asset_audit is not None
+    assert next(item for item in policy.asset_audit.lifestyle_refs if item.key == "coffee_table_context").status == "yes"
+    assert next(item for item in policy.asset_audit.edible_refs if item.key == "bitten_bar").status == "no"
+    assert policy.asset_audit.decision == "safe_prompt_only_or_overlay_until_edible_refs_ready"
+
+
+def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        plan = OneVideoAcceptanceService(db).build_plan(product_id, platform="Instagram Reels")
+
+    policy = plan.product_scene_policy_json
+    proof_scene = next(scene for scene in plan.scene_plan_json if scene["role"] == "proof_use_case")
+    assert plan.creative_variant_id
+    assert plan.ai_production_brief_id
+    assert plan.director_prompt_pack_id
+    assert policy["bite_scene_allowed"] is False
+    assert "approved cutaway" in proof_scene["visual"].lower()
+    assert "no ai-generated bite" in proof_scene["visual"].lower()
+    assert "generic muesli bar" in plan.negative_prompt
+    assert "granola bar" in plan.negative_prompt
+    assert "no_muesli_granola_visual_drift" in plan.acceptance_checklist_json
+    assert plan.product_scene_policy_json["asset_audit"]["decision"] == "safe_prompt_only_or_overlay_until_edible_refs_ready"
+    assert plan.prompt_preview_json["mvp_scorecard"]["total_score"] == 80
+    assert plan.prompt_preview_json["mvp_scorecard"]["verdict"] == "usable_with_fixes"
+
+
+def test_one_video_acceptance_api_uses_issue_endpoint_names():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+
+    build_response = api.post(
+        "/api/one-video-acceptance/plans/build",
+        json={"product_id": product_id, "platform": "Instagram Reels", "duration_seconds": 15},
+    )
+    assert build_response.status_code == 200, build_response.text
+    plan_id = build_response.json()["id"]
+
+    prompt_response = api.post(f"/api/one-video-acceptance/plans/{plan_id}/prompt-only", json={})
+    assert prompt_response.status_code == 200, prompt_response.text
+    assert prompt_response.json()["status"] == "prompt_only_ready"
+
+    real_response = api.post(f"/api/one-video-acceptance/plans/{plan_id}/run-real", json={"real_run": False})
+    assert real_response.status_code == 400
+    assert "real-run" in real_response.text
+
+
+def test_one_video_prompt_only_builds_prompt_pack_without_video_job():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        service = OneVideoAcceptanceService(db)
+        plan = service.build_plan(product_id, platform="Instagram Reels")
+        before_jobs = db.scalar(select(func.count()).select_from(models.VideoJob))
+        plan = service.prompt_only(plan.id, provider="runway")
+        after_jobs = db.scalar(select(func.count()).select_from(models.VideoJob))
+        prompt_pack = db.get(models.PromptPack, plan.prompt_pack_id)
+
+    assert before_jobs == after_jobs
+    assert plan.status == "prompt_only_ready"
+    assert prompt_pack is not None
+    assert prompt_pack.prompt_pack_json["one_video_render_plan_id"] == plan.id
+    assert prompt_pack.prompt_pack_json["product_scene_policy"]["bite_scene_allowed"] is False
+    assert prompt_pack.prompt_pack_json["asset_audit"]["decision"] == "safe_prompt_only_or_overlay_until_edible_refs_ready"
+    assert prompt_pack.prompt_pack_json["mvp_scorecard"]["verdict"] == "usable_with_fixes"
+    assert any("granola bar" in item["negative_prompt"] for item in prompt_pack.negative_prompts_json)
+
+
+def test_one_video_human_review_records_muesli_and_wrapper_drift():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        service = OneVideoAcceptanceService(db)
+        plan = service.prompt_only(service.build_plan(product_id, platform="Instagram Reels").id, provider="runway")
+        generation_variant = db.get(models.VideoGenerationVariant, plan.video_generation_variant_id)
+        video_job = models.VideoJob(
+            script_variant_id=generation_variant.script_variant_id,
+            provider="runway",
+            status="video_generated",
+            duration_seconds=15,
+            output_video_path="test_media/fake_one_video.mp4",
+        )
+        db.add(video_job)
+        db.flush()
+        result = models.OneVideoRenderResult(
+            plan_id=plan.id,
+            product_id=product_id,
+            creative_variant_id=plan.creative_variant_id,
+            video_generation_variant_id=generation_variant.id,
+            prompt_pack_id=plan.prompt_pack_id,
+            video_job_id=video_job.id,
+            provider="runway",
+            status="needs_human_review",
+            human_review_status="needs_human_review",
+        )
+        db.add(result)
+        db.commit()
+        result = service.review(
+            result.id,
+            status="needs_regeneration",
+            notes="Wrapper drifted and edible bar became muesli-like.",
+        )
+        acceptance = db.get(models.VideoOutputAcceptance, result.output_acceptance_id)
+
+    assert result.human_review_status == "needs_regeneration"
+    assert acceptance is not None
+    assert acceptance.status == "needs_regeneration"
+    assert "packaging_drift" in acceptance.blockers_json
+    assert "edible_product_drift" in acceptance.blockers_json
+    assert acceptance.publishing_readiness == "blocked"
+
+
+def test_one_video_acceptance_ui_renders_plan():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        plan = OneVideoAcceptanceService(db).build_plan(product_id, platform="Instagram Reels")
+
+    response = api.get(f"/one-video-acceptance?plan_id={plan.id}")
+    assert response.status_code == 200
+    assert "One Video Acceptance" in response.text
+    assert "bite blocked" in response.text
+    assert "Asset Audit" in response.text
+    assert "MVP Scorecard" in response.text
