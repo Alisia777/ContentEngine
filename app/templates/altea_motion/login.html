@@ -1,0 +1,45 @@
+{% extends "altea_motion/base.html" %}
+{% set altea_screen = "login" %}
+{% block main_class %}altea-main--login{% endblock %}
+{% block content %}
+<section class="altea-login-layout">
+  <div class="altea-login-copy altea-reveal">
+    <div class="altea-copy-line"></div>
+    <p>Премиальный портал управления брендом</p>
+  </div>
+  <form class="altea-card altea-login-card altea-reveal" data-login-form>
+    <header class="altea-card-logo">
+      <img class="altea-logo-mark" src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+      <div class="altea-wordmark altea-wordmark--card" aria-label="ALTEA">
+        <span>A</span><span>L</span><span>T</span><span>E</span><span>A</span>
+      </div>
+      <p>BEAUTY &amp; HARMONY</p>
+      <div class="altea-ornament" aria-hidden="true"><span></span><b></b><span></span></div>
+    </header>
+    <label class="altea-field">
+      <span>Логин</span>
+      <span class="altea-input-wrap">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 7a7 7 0 0 0-14 0"/></svg>
+        <input name="login" autocomplete="username" placeholder="Введите логин">
+      </span>
+    </label>
+    <label class="altea-field">
+      <span>Пароль</span>
+      <span class="altea-input-wrap">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"/></svg>
+        <input name="password" type="password" autocomplete="current-password" placeholder="Введите пароль" data-password-input>
+        <button class="altea-icon-button" type="button" data-toggle-password aria-label="Показать пароль">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+        </button>
+      </span>
+    </label>
+    <div class="altea-login-options">
+      <label class="altea-check"><input type="checkbox"><span>Запомнить меня</span></label>
+      <span class="altea-status-pulse">Безопасное соединение</span>
+    </div>
+    <button class="altea-glow-button" type="submit">Войти</button>
+    <a class="altea-recover" href="/altea-motion/login">Восстановить доступ</a>
+    <p class="altea-bottom-status">Готово к подключению / Сервер доступен</p>
+  </form>
+</section>
+{% endblock %}

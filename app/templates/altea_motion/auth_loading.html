@@ -1,0 +1,35 @@
+{% extends "altea_motion/base.html" %}
+{% set altea_screen = "auth-loading" %}
+{% block main_class %}altea-main--center{% endblock %}
+{% block content %}
+<section class="altea-card altea-auth-card altea-reveal" data-auth-loading>
+  <header class="altea-card-logo">
+    <img class="altea-logo-mark" src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+    <div class="altea-wordmark altea-wordmark--card" aria-label="ALTEA">
+      <span>A</span><span>L</span><span>T</span><span>E</span><span>A</span>
+    </div>
+    <p>BEAUTY &amp; HARMONY</p>
+  </header>
+  <div class="altea-loader-ring" aria-hidden="true">
+    <span></span>
+    <img src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+  </div>
+  <h1>Проверка доступа</h1>
+  <ol class="altea-auth-steps" data-auth-steps>
+    <li class="is-active">Проверка доступа</li>
+    <li>Загрузка профиля</li>
+    <li>Настройка рабочего пространства</li>
+  </ol>
+  <div class="altea-user-preview">
+    <span class="altea-user-icon" aria-hidden="true"></span>
+    <div>
+      <strong>Анна Петрова</strong>
+      <small>Администратор</small>
+    </div>
+    <div>
+      <small>Рабочее пространство</small>
+      <strong>ALTEA Beauty</strong>
+    </div>
+  </div>
+</section>
+{% endblock %}

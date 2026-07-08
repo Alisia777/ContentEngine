@@ -1,0 +1,49 @@
+{% extends "altea_motion/base.html" %}
+{% set altea_screen = "dashboard-loading" %}
+{% block main_class %}altea-main--dashboard{% endblock %}
+{% block content %}
+<section class="altea-dashboard-shell altea-dashboard-shell--loading" data-dashboard-loading>
+  {% include "altea_motion/dashboard_sidebar.html" %}
+  <div class="altea-dashboard">
+    {% include "altea_motion/dashboard_topbar.html" %}
+    <div class="altea-dashboard__title altea-reveal">
+      <div>
+        <h1>Панель управления</h1>
+        <p>Обзор ключевых показателей и активности бренда</p>
+      </div>
+      <div class="altea-dashboard-actions">
+        <span class="altea-skeleton altea-skeleton--button"></span>
+        <span class="altea-skeleton altea-skeleton--button"></span>
+      </div>
+    </div>
+    <div class="altea-kpi-grid">
+      {% for _ in range(4) %}
+      <article class="altea-card altea-kpi-card altea-skeleton-card altea-reveal">
+        <span class="altea-skeleton w-35"></span>
+        <span class="altea-skeleton w-60"></span>
+        <span class="altea-skeleton w-80"></span>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="altea-dashboard-grid">
+      <article class="altea-card altea-panel altea-panel--wide altea-reveal">
+        <span class="altea-skeleton w-25"></span>
+        {% for _ in range(5) %}<span class="altea-skeleton w-100"></span>{% endfor %}
+      </article>
+      <article class="altea-card altea-panel altea-reveal">
+        <span class="altea-skeleton w-25"></span>
+        {% for _ in range(4) %}<span class="altea-skeleton w-85"></span>{% endfor %}
+      </article>
+      <article class="altea-card altea-panel altea-reveal">
+        <span class="altea-skeleton w-35"></span>
+        {% for _ in range(4) %}<span class="altea-skeleton w-90"></span>{% endfor %}
+      </article>
+      <article class="altea-card altea-panel altea-panel--wide altea-reveal">
+        <span class="altea-skeleton w-30"></span>
+        {% for _ in range(4) %}<span class="altea-skeleton w-100"></span>{% endfor %}
+      </article>
+    </div>
+    <p class="altea-loading-note"><span></span>Загружаем данные, пожалуйста, подождите...</p>
+  </div>
+</section>
+{% endblock %}

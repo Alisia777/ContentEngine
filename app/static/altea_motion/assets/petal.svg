@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 64" role="img" aria-label="floating petal">
+  <defs>
+    <linearGradient id="p" x1="0" x2="1">
+      <stop offset="0" stop-color="#c99f5e"/>
+      <stop offset="0.42" stop-color="#f6ead4"/>
+      <stop offset="1" stop-color="#d9b77a"/>
+    </linearGradient>
+  </defs>
+  <path d="M6 50C28 8 75 1 114 13 93 52 42 69 6 50Z" fill="url(#p)" opacity=".92"/>
+  <path d="M16 47C45 31 75 21 108 15" fill="none" stroke="#8b7045" stroke-width="1.8" opacity=".42"/>
+</svg>

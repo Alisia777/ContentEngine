@@ -1,0 +1,137 @@
+{% extends "altea_motion/base.html" %}
+{% set altea_screen = "dashboard" %}
+{% block main_class %}altea-main--dashboard{% endblock %}
+{% block content %}
+<section class="altea-dashboard-shell" data-dashboard>
+  {% include "altea_motion/dashboard_sidebar.html" %}
+  <div class="altea-dashboard">
+    {% include "altea_motion/dashboard_topbar.html" %}
+    <div class="altea-dashboard__title altea-reveal">
+      <div>
+        <h1>Панель управления</h1>
+        <p>Ключевые показатели и активность бренда</p>
+      </div>
+      <div class="altea-dashboard-actions">
+        <button class="altea-date-button" type="button">12 мая – 18 мая 2025</button>
+        <button class="altea-glow-button altea-glow-button--small" type="button">Экспорт отчёта</button>
+      </div>
+    </div>
+    <div class="altea-kpi-grid">
+      {% for kpi in kpis %}
+      <article class="altea-card altea-kpi-card altea-reveal">
+        <div>
+          <p>{{ kpi.label }}</p>
+          <strong data-count-text>{{ kpi.value }}</strong>
+          <small>{{ kpi.delta }} к прошлой неделе</small>
+        </div>
+        <span class="altea-kpi-icon altea-kpi-icon--{{ kpi.icon }}" aria-hidden="true"></span>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="altea-dashboard-grid">
+      <article class="altea-card altea-panel altea-panel--chart altea-panel--wide altea-reveal">
+        <header class="altea-panel__head">
+          <h2>Динамика выручки</h2>
+          <button type="button">По дням</button>
+        </header>
+        <svg class="altea-chart" viewBox="0 0 450 150" role="img" aria-label="Динамика выручки за неделю">
+          <defs>
+            <linearGradient id="altea-chart-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="#d9b77a" stop-opacity=".28"/>
+              <stop offset="1" stop-color="#d9b77a" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path class="altea-chart__area" d="M18 124 L88 78 L156 68 L226 60 L294 86 L362 72 L430 38 L430 140 L18 140 Z"></path>
+          <polyline class="altea-chart__line" points="{{ chart_points }}"></polyline>
+          <g class="altea-chart__dots">
+            {% for point in chart_points.split(" ") %}
+              {% set xy = point.split(",") %}
+              <circle cx="{{ xy[0] }}" cy="{{ xy[1] }}" r="4"></circle>
+            {% endfor %}
+          </g>
+        </svg>
+      </article>
+      <article class="altea-card altea-panel altea-reveal">
+        <header class="altea-panel__head">
+          <h2>Задачи</h2>
+          <button type="button">Добавить задачу</button>
+        </header>
+        <ul class="altea-task-list">
+          {% for task in tasks %}
+          <li>
+            <span></span>
+            <strong>{{ task.title }}</strong>
+            <small>{{ task.date }}</small>
+            <em>{{ task.status }}</em>
+          </li>
+          {% endfor %}
+        </ul>
+        <a class="altea-panel-link" href="/altea-motion/dashboard">Смотреть все задачи</a>
+      </article>
+      <article class="altea-card altea-panel altea-reveal">
+        <header class="altea-panel__head">
+          <h2>Календарь контента</h2>
+          <a href="/altea-motion/dashboard">Просмотр календаря</a>
+        </header>
+        <ul class="altea-calendar-list">
+          {% for item in calendar %}
+          <li>
+            <time><strong>{{ item.day }}</strong><span>{{ item.month }}</span></time>
+            <div>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.channel }}</small>
+            </div>
+            <em>{{ item.status }}</em>
+          </li>
+          {% endfor %}
+        </ul>
+        <a class="altea-panel-link" href="/altea-motion/dashboard">Смотреть весь контент-план</a>
+      </article>
+      <article class="altea-card altea-panel altea-reveal">
+        <header class="altea-panel__head">
+          <h2>Последняя активность</h2>
+        </header>
+        <ul class="altea-activity-list">
+          {% for item in activity %}
+          <li>
+            <span class="altea-activity-icon" aria-hidden="true"></span>
+            <div>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.detail }}</small>
+            </div>
+            <time>{{ item.time }}</time>
+          </li>
+          {% endfor %}
+        </ul>
+      </article>
+      <article class="altea-card altea-panel altea-panel--wide altea-reveal">
+        <header class="altea-panel__head">
+          <h2>Топ товаров</h2>
+          <a href="/altea-motion/dashboard">Все товары</a>
+        </header>
+        <table class="altea-product-table">
+          <thead>
+            <tr>
+              <th>Товар</th>
+              <th>Выручка</th>
+              <th>Продано</th>
+              <th>Конверсия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for product in products %}
+            <tr>
+              <td><span class="altea-product-thumb"></span><strong>{{ product.name }}</strong><small>SKU: {{ product.sku }}</small></td>
+              <td>{{ product.revenue }}</td>
+              <td>{{ product.sold }}</td>
+              <td>{{ product.conversion }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <a class="altea-panel-link" href="/altea-motion/dashboard">Смотреть все товары</a>
+      </article>
+    </div>
+  </div>
+</section>
+{% endblock %}
