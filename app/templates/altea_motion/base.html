@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title or "ALTEA Motion" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/altea_motion/altea_motion.css') }}">
+  </head>
+  <body class="altea-body" data-screen="{{ altea_screen }}">
+    <div class="altea-bg" aria-hidden="true">
+      <div class="altea-bg__vignette"></div>
+      <div class="altea-bg__ribbon altea-bg__ribbon--left"></div>
+      <div class="altea-bg__ribbon altea-bg__ribbon--right"></div>
+      <div class="altea-bg__spark altea-bg__spark--one"></div>
+      <div class="altea-bg__spark altea-bg__spark--two"></div>
+      <div class="altea-hero-flower"></div>
+      <div class="altea-petal-field" data-petal-field></div>
+    </div>
+    <main class="altea-main {% block main_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+    <script src="{{ url_for('static', path='/altea_motion/altea_motion.js') }}" defer></script>
+  </body>
+</html>

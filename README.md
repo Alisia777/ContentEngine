@@ -34,6 +34,20 @@ python -m uvicorn app.main:app --reload
 
 Open http://localhost:8000.
 
+## ALTEA Motion UI Prototype
+
+The ALTEA Motion prototype is a local animated premium UI kit built with FastAPI, Jinja, CSS, vanilla JS, and local SVG assets. It includes splash, login, auth-loading, dashboard-loading, and final dashboard screens without real authentication or external CDN assets.
+
+Open:
+
+```text
+http://localhost:8000/altea-motion/splash
+http://localhost:8000/altea-motion/login
+http://localhost:8000/altea-motion/auth-loading
+http://localhost:8000/altea-motion/dashboard-loading
+http://localhost:8000/altea-motion/dashboard
+```
+
 ## Fast Demo
 
 Run the full mock/local MVP workflow from one command:

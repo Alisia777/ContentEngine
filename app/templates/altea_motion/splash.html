@@ -1,0 +1,22 @@
+{% extends "altea_motion/base.html" %}
+{% set altea_screen = "splash" %}
+{% block main_class %}altea-main--center{% endblock %}
+{% block content %}
+<section class="altea-splash altea-reveal">
+  <img class="altea-logo-mark altea-logo-mark--large" src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="ALTEA">
+  <div class="altea-wordmark" aria-label="ALTEA">
+    <span>A</span><span>L</span><span>T</span><span>E</span><span>A</span>
+  </div>
+  <p class="altea-subtitle">BEAUTY &amp; HARMONY</p>
+  <div class="altea-ornament" aria-hidden="true"><span></span><b></b><span></span></div>
+  <div class="altea-progress" data-splash-progress>
+    <div class="altea-progress__track"><span></span></div>
+    <ol class="altea-progress__steps">
+      <li class="is-active">Инициализация</li>
+      <li>Загрузка данных</li>
+      <li>Подготовка рабочего пространства</li>
+    </ol>
+  </div>
+  <a class="altea-ghost-link" data-splash-next href="/altea-motion/login">Перейти ко входу</a>
+</section>
+{% endblock %}
