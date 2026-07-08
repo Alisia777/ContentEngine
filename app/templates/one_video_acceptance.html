@@ -61,6 +61,16 @@
       <p>{{ 'bite allowed' if policy.bite_scene_allowed else 'bite blocked' }}</p>
     </article>
     <article class="metric">
+      <span>Style refs</span>
+      <strong>{{ policy.style_reference_count or 0 }}</strong>
+      <p>creator / Wibes tone</p>
+    </article>
+    <article class="metric">
+      <span>Lifestyle refs</span>
+      <strong>{{ policy.lifestyle_reference_count or 0 }}</strong>
+      <p>context only, not edible proof</p>
+    </article>
+    <article class="metric">
       <span>End card</span>
       <strong>{{ 'yes' if policy.end_card_required else 'no' }}</strong>
       <p>{{ 'packshot overlay required' if policy.packshot_overlay_required else 'reference i2v' }}</p>

@@ -17,6 +17,8 @@ The flow classifies approved references before prompt generation:
 
 - wrapper refs
 - edible refs
+- style refs
+- lifestyle refs
 - bitten-bar ref
 - bar-in-hand ref
 
@@ -27,6 +29,18 @@ Rules:
 - missing bitten-bar reference blocks bite/chew close-up.
 - missing bar-in-hand reference blocks unwrapped bar in hand.
 - label accuracy requires packshot overlay or end card.
+- style/lifestyle refs help UGC tone and context, but do not count as edible proof.
+
+## API
+
+The issue-level API contract is:
+
+- `POST /api/one-video-acceptance/plans/build`
+- `GET /api/one-video-acceptance/plans/{id}`
+- `POST /api/one-video-acceptance/plans/{id}/prompt-only`
+- `POST /api/one-video-acceptance/plans/{id}/run-real`
+- `GET /api/one-video-acceptance/results/{id}`
+- `POST /api/one-video-acceptance/results/{id}/review`
 
 Allowed with weak edible kit:
 

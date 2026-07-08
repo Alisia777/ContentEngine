@@ -11,6 +11,8 @@ class ProductScenePolicyOutput(BaseModel):
     provider: str = "runway"
     wrapper_reference_count: int = 0
     edible_reference_count: int = 0
+    style_reference_count: int = 0
+    lifestyle_reference_count: int = 0
     has_bitten_bar_reference: bool = False
     has_bar_in_hand_reference: bool = False
     label_accuracy_required: bool = True
@@ -24,6 +26,8 @@ class ProductScenePolicyOutput(BaseModel):
     edible_kit_ready: bool = False
     approved_wrapper_asset_ids: list[int] = Field(default_factory=list)
     approved_edible_asset_ids: list[int] = Field(default_factory=list)
+    approved_style_asset_ids: list[int] = Field(default_factory=list)
+    approved_lifestyle_asset_ids: list[int] = Field(default_factory=list)
     blocked_scene_types: list[str] = Field(default_factory=list)
     allowed_scene_types: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)

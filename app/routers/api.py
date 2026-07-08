@@ -1991,6 +1991,7 @@ def working_video_status(selected_variant_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/one-video-acceptance/plans/build")
 @router.post("/one-video-acceptance/plans")
 def build_one_video_render_plan(payload: OneVideoRenderPlanRequest, db: Session = Depends(get_db)):
     try:
@@ -2023,6 +2024,7 @@ def one_video_prompt_only(plan_id: int, payload: OneVideoPromptOnlyRequest, db: 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/one-video-acceptance/plans/{plan_id}/run-real")
 @router.post("/one-video-acceptance/plans/{plan_id}/real-run")
 def one_video_real_run(plan_id: int, payload: OneVideoRealRunRequest, db: Session = Depends(get_db)):
     try:
@@ -2034,6 +2036,15 @@ def one_video_real_run(plan_id: int, payload: OneVideoRealRunRequest, db: Sessio
         )
         return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
     except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/one-video-acceptance/results/{result_id}")
+def get_one_video_result(result_id: int, db: Session = Depends(get_db)):
+    try:
+        result = OneVideoAcceptanceService(db).get_result(result_id)
+        return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+    except OneVideoAcceptanceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

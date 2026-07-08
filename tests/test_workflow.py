@@ -8222,6 +8222,27 @@ def test_one_video_scene_policy_blocks_bite_without_edible_refs():
     assert "add_edible_cutaway_texture_and_use_case_refs" in policy.next_actions
 
 
+def test_one_video_scene_policy_does_not_count_lifestyle_as_edible_ref():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        lifestyle = ProductAssetStorage(db).attach_url(
+            product_id,
+            url="https://example.com/wibes_creator_table_context.png",
+            asset_type="lifestyle",
+            manual_label="female creator at table with coffee",
+        )
+        ProductAssetStorage(db).update_asset(lifestyle.id, review_status="approved", asset_type="lifestyle")
+        policy = ProductScenePolicyService(db).evaluate(product_id, provider="runway")
+
+    assert policy.lifestyle_reference_count == 1
+    assert policy.style_reference_count == 1
+    assert policy.edible_reference_count == 0
+    assert policy.bite_scene_allowed is False
+    assert policy.texture_macro_allowed is False
+
+
 def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
     api = client()
     product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
@@ -8240,6 +8261,28 @@ def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
     assert "generic muesli bar" in plan.negative_prompt
     assert "granola bar" in plan.negative_prompt
     assert "no_muesli_granola_visual_drift" in plan.acceptance_checklist_json
+
+
+def test_one_video_acceptance_api_uses_issue_endpoint_names():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+
+    build_response = api.post(
+        "/api/one-video-acceptance/plans/build",
+        json={"product_id": product_id, "platform": "Instagram Reels", "duration_seconds": 15},
+    )
+    assert build_response.status_code == 200, build_response.text
+    plan_id = build_response.json()["id"]
+
+    prompt_response = api.post(f"/api/one-video-acceptance/plans/{plan_id}/prompt-only", json={})
+    assert prompt_response.status_code == 200, prompt_response.text
+    assert prompt_response.json()["status"] == "prompt_only_ready"
+
+    real_response = api.post(f"/api/one-video-acceptance/plans/{plan_id}/run-real", json={"real_run": False})
+    assert real_response.status_code == 400
+    assert "real-run" in real_response.text
 
 
 def test_one_video_prompt_only_builds_prompt_pack_without_video_job():
