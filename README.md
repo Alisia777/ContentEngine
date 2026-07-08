@@ -123,6 +123,7 @@ python scripts\one_video_review.py --result-id 1 --status needs_regeneration --n
 ```
 
 See `docs/ONE_VIDEO_ACCEPTANCE.md`.
+See `docs/BOMBBAR_ONE_VIDEO_ACCEPTANCE_REPORT.md` for the latest post-merge prompt-only acceptance record.
 
 ## Hook-Driven Video Generator
 
