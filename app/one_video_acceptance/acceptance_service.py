@@ -7,8 +7,9 @@ from app import models
 from app.intelligence.errors import ProviderConfigurationError
 from app.one_video_acceptance.bombbar_render_plan import BombbarOneVideoRenderPlanner
 from app.one_video_acceptance.errors import OneVideoAcceptanceDataError
+from app.one_video_acceptance.mvp_scorecard import MVPScorecardBuilder
 from app.one_video_acceptance.prompt_specializer import BombbarPromptSpecializer
-from app.one_video_acceptance.types import OneVideoRenderResultOutput
+from app.one_video_acceptance.types import OneVideoRenderResultOutput, OneVideoScene, ProductScenePolicyOutput
 from app.output_acceptance import AcceptanceReviewService, FrameExtractor, OutputAcceptanceError
 from app.video_generator.generator import VideoGenerator
 from app.video_generator.real_smoke_runner import RealSmokeRunner
@@ -137,11 +138,17 @@ class OneVideoAcceptanceService:
         blockers = self._blockers_from_review(status, notes)
         acceptance = self._upsert_manual_acceptance(result, plan, status=status, notes=notes, blockers=blockers)
         result.output_acceptance_id = acceptance.id
+        scorecard = MVPScorecardBuilder().build_for_plan(
+            ProductScenePolicyOutput.model_validate(plan.product_scene_policy_json or {}),
+            [OneVideoScene.model_validate(scene) for scene in plan.scene_plan_json or []],
+            human_review_recorded=True,
+        )
         result.result_json = {
             **(result.result_json or {}),
             "manual_review_status": status,
             "manual_review_notes": notes,
             "manual_review_blockers": blockers,
+            "mvp_scorecard": scorecard.model_dump(mode="json"),
         }
         self.db.commit()
         self.db.refresh(result)

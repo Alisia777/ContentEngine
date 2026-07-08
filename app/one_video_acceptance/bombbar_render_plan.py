@@ -23,6 +23,7 @@ from app.creative.types import (
 )
 from app.intelligence.types import AllowedClaim
 from app.one_video_acceptance.errors import OneVideoAcceptanceDataError
+from app.one_video_acceptance.mvp_scorecard import MVPScorecardBuilder
 from app.one_video_acceptance.product_scene_policy import ProductScenePolicyService
 from app.one_video_acceptance.prompt_specializer import ACCEPTANCE_CHECKLIST, BombbarPromptSpecializer
 from app.one_video_acceptance.types import OneVideoRenderPlanOutput, OneVideoScene, ProductScenePolicyOutput
@@ -57,6 +58,8 @@ class BombbarOneVideoRenderPlanner:
             platform=platform,
             provider=provider,
         )
+        scorecard = MVPScorecardBuilder().build_for_plan(policy, scenes)
+        prompt_preview["mvp_scorecard"] = scorecard.model_dump(mode="json")
         for scene, prompt in zip(scenes, prompt_preview["scene_prompts"], strict=True):
             scene.provider_prompt_text = prompt["prompt_text"]
             scene.negative_prompt = prompt["negative_prompt"]
@@ -125,6 +128,7 @@ class BombbarOneVideoRenderPlanner:
             product_scene_policy=ProductScenePolicyOutput.model_validate(plan.product_scene_policy_json or {}),
             scene_plan=[OneVideoScene.model_validate(scene) for scene in plan.scene_plan_json or []],
             prompt_preview=plan.prompt_preview_json or {},
+            mvp_scorecard=plan.prompt_preview_json.get("mvp_scorecard") if plan.prompt_preview_json else None,
             negative_prompt=plan.negative_prompt,
             acceptance_checklist=plan.acceptance_checklist_json or [],
             blockers=plan.blockers_json or [],

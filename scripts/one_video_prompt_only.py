@@ -40,6 +40,10 @@ def main() -> int:
     print(f"Generation Variant ID: {output.video_generation_variant_id}")
     print(f"Bite scene allowed: {output.product_scene_policy.bite_scene_allowed}")
     print(f"Negative prompt contains muesli/granola guards: {'muesli' in (output.negative_prompt or '') and 'granola' in (output.negative_prompt or '')}")
+    if output.product_scene_policy.asset_audit:
+        print(f"Asset audit decision: {output.product_scene_policy.asset_audit.decision}")
+    if output.mvp_scorecard:
+        print(f"MVP scorecard: {output.mvp_scorecard.total_score}/{output.mvp_scorecard.max_score} ({output.mvp_scorecard.verdict})")
     print("Video skipped. Provider not called.")
     return 0
 

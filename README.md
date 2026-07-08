@@ -113,7 +113,7 @@ Full-video real generation requires `--full-video` and still obeys the configure
 
 ## One Video Acceptance
 
-`/one-video-acceptance` is the controlled Bombbar product-safe UGC path for a single 9:16 render before scaling. It builds a `ProductScenePolicy`, separates wrapper/edible/style/lifestyle refs, blocks unsafe bite/macro scenes when edible references are weak, adds Bombbar-specific muesli/granola and wrapper-drift negatives, and keeps paid smoke behind the existing real-spend gates.
+`/one-video-acceptance` is the controlled Bombbar product-safe UGC path for a single 9:16 render before scaling. It builds a `ProductScenePolicy`, separates wrapper/edible/style/lifestyle refs, records an asset audit and MVP scorecard, blocks unsafe bite/macro scenes when edible references are weak, adds Bombbar-specific muesli/granola and wrapper-drift negatives, and keeps paid smoke behind the existing real-spend gates.
 
 ```powershell
 python scripts\build_one_video_render_plan.py --product-id 7 --platform "Instagram Reels"

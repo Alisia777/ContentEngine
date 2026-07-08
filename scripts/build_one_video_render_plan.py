@@ -53,6 +53,21 @@ def main() -> int:
     print("Blocked scenes: " + (", ".join(output.product_scene_policy.blocked_scene_types) or "none"))
     print("Blockers: " + (", ".join(output.blockers) or "none"))
     print("Next actions: " + (", ".join(output.product_scene_policy.next_actions) or "none"))
+    if output.product_scene_policy.asset_audit:
+        print("\nAsset audit")
+        for title, items in [
+            ("Wrapper refs", output.product_scene_policy.asset_audit.wrapper_refs),
+            ("Edible refs", output.product_scene_policy.asset_audit.edible_refs),
+            ("Style refs", output.product_scene_policy.asset_audit.style_refs),
+            ("Lifestyle refs", output.product_scene_policy.asset_audit.lifestyle_refs),
+        ]:
+            print(f"{title}:")
+            for item in items:
+                print(f"  - {item.label}: {item.status}")
+        print(f"Decision: {output.product_scene_policy.asset_audit.decision}")
+    if output.mvp_scorecard:
+        print("\nMVP scorecard")
+        print(f"Score: {output.mvp_scorecard.total_score}/{output.mvp_scorecard.max_score} ({output.mvp_scorecard.verdict})")
     return 0
 
 

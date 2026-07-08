@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.assets.readiness_checker import ProductReferenceReadinessChecker
 from app.blogger_brief.reference_policy import ProductReferencePolicyService
+from app.one_video_acceptance.asset_audit import ProductAssetAuditor
 from app.one_video_acceptance.errors import OneVideoAcceptanceDataError
 from app.one_video_acceptance.types import ProductScenePolicyOutput
 
@@ -163,6 +164,15 @@ class ProductScenePolicyService:
         if texture_macro_allowed:
             allowed_scene_types.append("texture_macro")
 
+        blocked_scene_types = list(dict.fromkeys(blocked_scene_types))
+        allowed_scene_types = list(dict.fromkeys(allowed_scene_types))
+        asset_audit = ProductAssetAuditor().build(
+            product,
+            approved_assets,
+            allowed_scene_types=allowed_scene_types,
+            blocked_scene_types=blocked_scene_types,
+        )
+
         return ProductScenePolicyOutput(
             product_id=product.id,
             sku=product.sku,
@@ -186,8 +196,9 @@ class ProductScenePolicyService:
             approved_edible_asset_ids=[asset.id for asset in edible_assets],
             approved_style_asset_ids=[asset.id for asset in style_assets],
             approved_lifestyle_asset_ids=[asset.id for asset in lifestyle_assets],
-            blocked_scene_types=list(dict.fromkeys(blocked_scene_types)),
-            allowed_scene_types=list(dict.fromkeys(allowed_scene_types)),
+            asset_audit=asset_audit,
+            blocked_scene_types=blocked_scene_types,
+            allowed_scene_types=allowed_scene_types,
             blockers=list(dict.fromkeys(blockers)),
             warnings=list(dict.fromkeys(warnings)),
             next_actions=list(dict.fromkeys(next_actions)),

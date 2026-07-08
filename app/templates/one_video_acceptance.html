@@ -107,6 +107,74 @@
     </div>
   </section>
 
+  {% if policy.asset_audit %}
+    <section class="panel">
+      <h2>Asset Audit</h2>
+      <p class="muted">Style/lifestyle refs shape UGC tone, but do not unlock edible bite or macro scenes.</p>
+      {% for group in [
+        ('Wrapper refs', policy.asset_audit.wrapper_refs),
+        ('Edible refs', policy.asset_audit.edible_refs),
+        ('Style refs', policy.asset_audit.style_refs),
+        ('Lifestyle refs', policy.asset_audit.lifestyle_refs)
+      ] %}
+        <h3>{{ group[0] }}</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Status</th>
+              <th>Evidence</th>
+              <th>Next action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in group[1] %}
+              <tr>
+                <td>{{ item.label }}</td>
+                <td>{{ item.status }}</td>
+                <td>{{ item.evidence | join(', ') if item.evidence else 'none' }}</td>
+                <td>{{ item.next_action or 'none' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+      <p><strong>Decision:</strong> {{ policy.asset_audit.decision }}</p>
+    </section>
+  {% endif %}
+
+  {% if selected_plan.prompt_preview_json and selected_plan.prompt_preview_json.mvp_scorecard %}
+    {% set scorecard = selected_plan.prompt_preview_json.mvp_scorecard %}
+    <section class="panel">
+      <h2>MVP Scorecard</h2>
+      <div class="grid">
+        <article class="metric">
+          <span>Total</span>
+          <strong>{{ scorecard.total_score }}/{{ scorecard.max_score }}</strong>
+          <p>{{ scorecard.verdict }}</p>
+        </article>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Criterion</th>
+            <th>Score</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in scorecard['items'] %}
+            <tr>
+              <td>{{ item.label }}</td>
+              <td>{{ item.score }}/{{ item.weight }}</td>
+              <td>{{ item.notes }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
   <section class="panel">
     <h2>Scene Plan</h2>
     <table class="table">

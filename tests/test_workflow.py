@@ -8241,6 +8241,10 @@ def test_one_video_scene_policy_does_not_count_lifestyle_as_edible_ref():
     assert policy.edible_reference_count == 0
     assert policy.bite_scene_allowed is False
     assert policy.texture_macro_allowed is False
+    assert policy.asset_audit is not None
+    assert next(item for item in policy.asset_audit.lifestyle_refs if item.key == "coffee_table_context").status == "yes"
+    assert next(item for item in policy.asset_audit.edible_refs if item.key == "bitten_bar").status == "no"
+    assert policy.asset_audit.decision == "safe_prompt_only_or_overlay_until_edible_refs_ready"
 
 
 def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
@@ -8261,6 +8265,9 @@ def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
     assert "generic muesli bar" in plan.negative_prompt
     assert "granola bar" in plan.negative_prompt
     assert "no_muesli_granola_visual_drift" in plan.acceptance_checklist_json
+    assert plan.product_scene_policy_json["asset_audit"]["decision"] == "safe_prompt_only_or_overlay_until_edible_refs_ready"
+    assert plan.prompt_preview_json["mvp_scorecard"]["total_score"] == 80
+    assert plan.prompt_preview_json["mvp_scorecard"]["verdict"] == "usable_with_fixes"
 
 
 def test_one_video_acceptance_api_uses_issue_endpoint_names():
@@ -8302,6 +8309,8 @@ def test_one_video_prompt_only_builds_prompt_pack_without_video_job():
     assert prompt_pack is not None
     assert prompt_pack.prompt_pack_json["one_video_render_plan_id"] == plan.id
     assert prompt_pack.prompt_pack_json["product_scene_policy"]["bite_scene_allowed"] is False
+    assert prompt_pack.prompt_pack_json["asset_audit"]["decision"] == "safe_prompt_only_or_overlay_until_edible_refs_ready"
+    assert prompt_pack.prompt_pack_json["mvp_scorecard"]["verdict"] == "usable_with_fixes"
     assert any("granola bar" in item["negative_prompt"] for item in prompt_pack.negative_prompts_json)
 
 
@@ -8361,3 +8370,5 @@ def test_one_video_acceptance_ui_renders_plan():
     assert response.status_code == 200
     assert "One Video Acceptance" in response.text
     assert "bite blocked" in response.text
+    assert "Asset Audit" in response.text
+    assert "MVP Scorecard" in response.text

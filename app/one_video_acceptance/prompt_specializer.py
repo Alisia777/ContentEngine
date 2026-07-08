@@ -119,6 +119,8 @@ class BombbarPromptSpecializer:
             {
                 "one_video_render_plan_id": plan.id,
                 "product_scene_policy": plan.product_scene_policy_json,
+                "asset_audit": (plan.product_scene_policy_json or {}).get("asset_audit"),
+                "mvp_scorecard": (plan.prompt_preview_json or {}).get("mvp_scorecard"),
                 "bombbar_prompt_negative_terms": BOMBBAR_NEGATIVE_TERMS,
                 "acceptance_checklist": ACCEPTANCE_CHECKLIST,
                 "scene_prompts": specialized_scenes or prompt_pack_json.get("scene_prompts") or [],
@@ -132,6 +134,8 @@ class BombbarPromptSpecializer:
             {
                 "one_video_render_plan_id": plan.id,
                 "product_scene_policy": plan.product_scene_policy_json,
+                "asset_audit": (plan.product_scene_policy_json or {}).get("asset_audit"),
+                "mvp_scorecard": (plan.prompt_preview_json or {}).get("mvp_scorecard"),
                 "scenes": specialized_scenes or provider_payload.get("scenes") or [],
                 "negative_prompt": plan.negative_prompt,
                 "quality_checklist": ACCEPTANCE_CHECKLIST,

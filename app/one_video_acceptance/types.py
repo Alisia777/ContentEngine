@@ -5,6 +5,43 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class AssetAuditItem(BaseModel):
+    key: str
+    label: str
+    status: str
+    asset_ids: list[int] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    next_action: str | None = None
+
+
+class ProductAssetAuditOutput(BaseModel):
+    product_id: int
+    sku: str
+    wrapper_refs: list[AssetAuditItem] = Field(default_factory=list)
+    edible_refs: list[AssetAuditItem] = Field(default_factory=list)
+    style_refs: list[AssetAuditItem] = Field(default_factory=list)
+    lifestyle_refs: list[AssetAuditItem] = Field(default_factory=list)
+    allowed_scenes: list[str] = Field(default_factory=list)
+    blocked_scenes: list[str] = Field(default_factory=list)
+    missing_refs: list[str] = Field(default_factory=list)
+    decision: str
+
+
+class MVPScorecardItem(BaseModel):
+    key: str
+    label: str
+    weight: int
+    score: int
+    notes: str | None = None
+
+
+class MVPScorecardOutput(BaseModel):
+    total_score: int
+    max_score: int = 100
+    verdict: str
+    items: list[MVPScorecardItem] = Field(default_factory=list)
+
+
 class ProductScenePolicyOutput(BaseModel):
     product_id: int
     sku: str
@@ -28,6 +65,7 @@ class ProductScenePolicyOutput(BaseModel):
     approved_edible_asset_ids: list[int] = Field(default_factory=list)
     approved_style_asset_ids: list[int] = Field(default_factory=list)
     approved_lifestyle_asset_ids: list[int] = Field(default_factory=list)
+    asset_audit: ProductAssetAuditOutput | None = None
     blocked_scene_types: list[str] = Field(default_factory=list)
     allowed_scene_types: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
@@ -71,6 +109,7 @@ class OneVideoRenderPlanOutput(BaseModel):
     product_scene_policy: ProductScenePolicyOutput
     scene_plan: list[OneVideoScene] = Field(default_factory=list)
     prompt_preview: dict[str, Any] = Field(default_factory=dict)
+    mvp_scorecard: MVPScorecardOutput | None = None
     negative_prompt: str | None = None
     acceptance_checklist: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)

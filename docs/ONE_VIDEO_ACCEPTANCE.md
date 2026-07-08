@@ -31,6 +31,50 @@ Rules:
 - label accuracy requires packshot overlay or end card.
 - style/lifestyle refs help UGC tone and context, but do not count as edible proof.
 
+## Asset Audit
+
+The plan stores an asset audit matrix inside `product_scene_policy.asset_audit`.
+
+Wrapper refs:
+
+- front packshot
+- angled wrapper
+- wrapper in hand
+- semi-open wrapper
+- wrapper + edible product
+
+Edible refs:
+
+- whole unwrapped bar
+- cutaway
+- bitten bar
+- bar in hand
+- bar near mouth
+- texture macro
+
+Style and lifestyle refs are reported separately. They can support a realistic Wibes/Reels scene, but they never unlock bite, chew, or macro product generation.
+
+## MVP Scorecard
+
+Each plan includes `prompt_preview.mvp_scorecard`:
+
+| Criterion | Weight |
+| --- | ---: |
+| Product identity stable | 20 |
+| Edible identity stable | 20 |
+| Scene policy followed | 15 |
+| Blogger meaning clear | 15 |
+| Proof moment present | 10 |
+| CTA/end card present | 10 |
+| Human review recorded | 10 |
+
+Score bands:
+
+- 90-100: quality MVP success
+- 75-89: usable with fixes
+- 60-74: use as background / needs regeneration
+- <60: reject
+
 ## API
 
 The issue-level API contract is:
