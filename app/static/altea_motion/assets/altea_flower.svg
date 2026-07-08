@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-label="ivory flower">
+  <defs>
+    <radialGradient id="petal" cx="50%" cy="50%" r="70%">
+      <stop offset="0" stop-color="#fff7e7"/>
+      <stop offset=".58" stop-color="#e7c68c"/>
+      <stop offset="1" stop-color="#6e5128"/>
+    </radialGradient>
+    <linearGradient id="stem" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1d9aa"/>
+      <stop offset="1" stop-color="#231b10"/>
+    </linearGradient>
+  </defs>
+  <g opacity=".96">
+    <path d="M196 512C250 420 303 346 364 285" stroke="url(#stem)" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <path d="M232 462c-58-60-95-63-146-45 48 51 91 65 146 45Z" fill="url(#stem)" opacity=".52"/>
+    <path d="M270 408c-34-75-69-95-121-91 31 62 67 91 121 91Z" fill="url(#stem)" opacity=".42"/>
+    <g transform="translate(342 246)">
+      <path d="M0 0C-58-120-31-181 33-216 74-123 64-52 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C-122-75-142-138-102-202-19-139 19-74 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C-132-14-176-64-160-137-56-112 0-66 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C-111 56-173 43-212-18-113-48-38-44 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C-37 120-88 154-157 132-102 46-39 3 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C52 112 40 174-18 218-58 121-50 48 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C126 65 151 125 116 193 28 137-13 72 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C143 2 190 47 178 121 73 106 12 66 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <path d="M0 0C113-53 176-37 211 27 109 50 38 42 0 0Z" fill="url(#petal)" stroke="#e5c488" stroke-width="2"/>
+      <circle cx="0" cy="0" r="34" fill="#d9a85f"/>
+      <g stroke="#f8e6b9" stroke-width="3" stroke-linecap="round">
+        <path d="M-7-4c-24-36-38-60-51-85"/>
+        <path d="M-4-6c-8-43-10-73-10-98"/>
+        <path d="M7-6c15-40 30-66 45-87"/>
+        <path d="M11 2c39-20 68-31 96-40"/>
+        <path d="M7 10c25 34 40 57 55 83"/>
+        <path d="M-7 10c-38 16-65 24-92 30"/>
+      </g>
+      <g fill="#f8e6b9">
+        <circle cx="-51" cy="-85" r="6"/>
+        <circle cx="-14" cy="-104" r="6"/>
+        <circle cx="52" cy="-93" r="6"/>
+        <circle cx="107" cy="-38" r="6"/>
+        <circle cx="62" cy="93" r="6"/>
+        <circle cx="-99" cy="40" r="6"/>
+      </g>
+    </g>
+  </g>
+</svg>

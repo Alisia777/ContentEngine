@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from app import models
 from app.config import get_settings
 from app.database import SessionLocal, init_db
-from app.routers import api, pages
+from app.routers import altea_motion, api, pages
 from app.ui import templates
 
 settings = get_settings()
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.mount("/media", StaticFiles(directory=settings.media_root), name="media")
     app.include_router(api.router)
+    app.include_router(altea_motion.router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
