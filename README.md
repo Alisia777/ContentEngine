@@ -139,6 +139,19 @@ python scripts\one_video_review.py --result-id 1 --status needs_regeneration --n
 See `docs/ONE_VIDEO_ACCEPTANCE.md`.
 See `docs/BOMBBAR_ONE_VIDEO_ACCEPTANCE_REPORT.md` for the latest post-merge prompt-only acceptance record.
 
+## One-Video Smoke Readiness Recovery
+
+v3.6 adds a safe recovery layer before paid one-video smoke. It reports missing local plans clearly, can rebuild a prompt-only one-video state from product/reference data, updates EngineAudit and Control Room, masks provider keys, and keeps paid providers blocked until spend gates and credits are explicitly confirmed.
+
+```powershell
+python scripts\smoke_readiness_recover.py --plan-id 3
+python scripts\smoke_readiness_recover.py --product-id 1 --rebuild-plan
+python scripts\smoke_readiness_recover.py --seed-demo --rebuild-plan
+python scripts\smoke_readiness_report.py --latest
+```
+
+Provider calls are skipped. See `docs/SMOKE_READINESS_RECOVERY.md`.
+
 ## Hook-Driven Video Generator
 
 The `/video-generator` page adds the Sprint 04 product layer:

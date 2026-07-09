@@ -100,6 +100,7 @@ from app.engine.errors import EngineError
 from app.engine_audit import EngineAuditError, EngineAuditRecommendationsService, EngineAuditReportService, EngineAuditScorecardService
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.factory_os.errors import FactoryOSError
+from app.smoke_readiness import ReadinessReportService, RecoveryService, SmokeReadinessError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
 from app.intelligence.generation_runner import GeneratorRunArtifacts, GeneratorRunService
@@ -214,6 +215,18 @@ class ControlRoomRefreshRequest(BaseModel):
     role: str = "owner"
     scope_type: str = "global"
     scope_id: int | None = None
+
+
+class SmokeReadinessRecoverRequest(BaseModel):
+    plan_id: int | None = None
+    product_id: int | None = None
+    sku: str | None = None
+    platform: str = "Instagram Reels"
+    video_provider: str = "runway"
+    rebuild_plan: bool = False
+    seed_demo: bool = False
+    seed_demo_refs: bool = False
+    runway_credits_confirmed: bool = False
 
 
 class GeneratorProductRequest(BaseModel):
@@ -1372,6 +1385,42 @@ def route_control_room_action(action_id: int, db: Session = Depends(get_db)):
         "safe_to_execute": action.safe_to_execute,
         "requires_spend_gate": action.requires_spend_gate,
     }
+
+
+@router.post("/smoke-readiness/recover")
+def smoke_readiness_recover(payload: SmokeReadinessRecoverRequest, db: Session = Depends(get_db)):
+    try:
+        run = RecoveryService(db).recover(
+            plan_id=payload.plan_id,
+            product_id=payload.product_id,
+            sku=payload.sku,
+            platform=payload.platform,
+            video_provider=payload.video_provider,
+            rebuild_plan=payload.rebuild_plan,
+            seed_demo=payload.seed_demo,
+            seed_demo_refs=payload.seed_demo_refs,
+            runway_credits_confirmed=payload.runway_credits_confirmed,
+        )
+        return ReadinessReportService(db).output(run).model_dump(mode="json")
+    except SmokeReadinessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/smoke-readiness/runs/{run_id}")
+def smoke_readiness_run(run_id: int, db: Session = Depends(get_db)):
+    try:
+        run = ReadinessReportService(db).get(run_id)
+        return ReadinessReportService(db).output(run).model_dump(mode="json")
+    except SmokeReadinessError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/smoke-readiness/latest")
+def smoke_readiness_latest(db: Session = Depends(get_db)):
+    run = ReadinessReportService(db).latest()
+    if not run:
+        return {"status": "not_run", "report": None}
+    return ReadinessReportService(db).output(run).model_dump(mode="json")
 
 
 @router.post("/creative/specs/build")

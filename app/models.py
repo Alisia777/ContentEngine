@@ -1361,6 +1361,42 @@ class OneVideoRenderResult(Base, TimestampMixin):
     output_acceptance = relationship("VideoOutputAcceptance")
 
 
+class SmokeReadinessRun(Base, TimestampMixin):
+    __tablename__ = "smoke_readiness_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(120), nullable=False, default="started", index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    one_video_render_plan_id = Column(Integer, ForeignKey("one_video_render_plans.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    engine_audit_run_id = Column(Integer, ForeignKey("engine_audit_runs.id"), nullable=True, index=True)
+    control_room_snapshot_id = Column(Integer, ForeignKey("control_room_snapshots.id"), nullable=True, index=True)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+    report_json = Column(JSON, default=dict, nullable=False)
+
+    product = relationship("Product")
+    one_video_render_plan = relationship("OneVideoRenderPlan")
+    prompt_pack = relationship("PromptPack")
+    engine_audit_run = relationship("EngineAuditRun")
+    control_room_snapshot = relationship("ControlRoomSnapshot")
+    blockers = relationship("SmokeReadinessBlocker", back_populates="run", cascade="all, delete-orphan")
+
+
+class SmokeReadinessBlocker(Base, TimestampMixin):
+    __tablename__ = "smoke_readiness_blockers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    smoke_readiness_run_id = Column(Integer, ForeignKey("smoke_readiness_runs.id"), nullable=False, index=True)
+    blocker_type = Column(String(120), nullable=False, index=True)
+    severity = Column(String(40), nullable=False, default="blocker", index=True)
+    message = Column(Text, nullable=False)
+    recommended_action = Column(Text, nullable=False)
+
+    run = relationship("SmokeReadinessRun", back_populates="blockers")
+
+
 class SceneRegenerationRequest(Base, TimestampMixin):
     __tablename__ = "scene_regeneration_requests"
 

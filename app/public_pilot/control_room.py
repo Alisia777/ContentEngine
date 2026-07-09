@@ -9,6 +9,7 @@ from app.control_room import ControlRoomSnapshotService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser
 from app.public_pilot.gate_matrix import ACTION_LABELS, PublicPilotGateMatrix
+from app.smoke_readiness import ReadinessReportService
 
 
 class PublicPilotControlRoomService:
@@ -28,6 +29,8 @@ class PublicPilotControlRoomService:
         snapshot_service = ControlRoomSnapshotService(self.db)
         snapshot = snapshot_service.refresh(role=requested_role)
         snapshot_output = snapshot_service.output(snapshot)
+        smoke_service = ReadinessReportService(self.db)
+        smoke_run = smoke_service.latest()
         return {
             "user": user,
             "settings": self.settings,
@@ -35,6 +38,7 @@ class PublicPilotControlRoomService:
             "control_role": snapshot_output.role,
             "control_roles": ["owner", "content_lead", "campaign_operator", "reviewer", "creator", "creator_publisher", "metrics_operator"],
             "control_snapshot": snapshot_output,
+            "smoke_readiness": smoke_service.output(smoke_run) if smoke_run else None,
             "certifications": sorted(certifications),
             "training_modules": modules,
             "gate_summary": matrix.summary(),

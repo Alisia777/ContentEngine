@@ -42,6 +42,56 @@
   </form>
 </section>
 
+<section class="panel">
+  <h2>Paid Smoke Readiness</h2>
+  {% if smoke_readiness %}
+    {% set smoke = smoke_readiness.report %}
+    <div class="grid">
+      <article class="metric">
+        <span>Decision</span>
+        <strong>{{ smoke.final_decision }}</strong>
+        <p>provider never called by recovery</p>
+      </article>
+      <article class="metric">
+        <span>Plan</span>
+        <strong>{{ smoke.one_video_render_plan_id or "missing" }}</strong>
+        <p>{{ "exists" if smoke.requested_plan_exists else "missing/not requested" }}</p>
+      </article>
+      <article class="metric">
+        <span>Spend</span>
+        <strong>{{ "on" if smoke.spend_gate_status.allow_real_spend else "off" }}</strong>
+        <p>{{ smoke.generation_mode }}</p>
+      </article>
+      <article class="metric">
+        <span>Runway key</span>
+        <strong>{{ "yes" if smoke.runway_key_configured else "no" }}</strong>
+        <p>value masked</p>
+      </article>
+      <article class="metric">
+        <span>Credits</span>
+        <strong>{{ "yes" if smoke.runway_credits_confirmed else "no" }}</strong>
+        <p>manual confirmation</p>
+      </article>
+      <article class="metric">
+        <span>Prompt-only</span>
+        <strong>{{ smoke.prompt_only_status }}</strong>
+        <p>{{ smoke.mvp_scorecard.total_score if smoke.mvp_scorecard.total_score is defined else "n/a" }}</p>
+      </article>
+    </div>
+    <h3>Blockers</h3>
+    <ul>
+      {% for blocker in smoke.blockers %}
+        <li><strong>{{ blocker.blocker_type }}</strong>: {{ blocker.message }} -> {{ blocker.recommended_action }}</li>
+      {% else %}
+        <li>No blockers recorded. Paid run still requires explicit operator confirmation.</li>
+      {% endfor %}
+    </ul>
+    <p><strong>Next action:</strong> {{ smoke.next_actions[0] if smoke.next_actions else smoke.control_room_next_action or "run smoke readiness recovery" }}</p>
+  {% else %}
+    <p class="muted">No smoke readiness run yet. Safe CLI: <code>python scripts\smoke_readiness_recover.py --plan-id 3</code>.</p>
+  {% endif %}
+</section>
+
 {% if selected_plan %}
   {% set policy = selected_plan.product_scene_policy_json or {} %}
   <section class="grid">

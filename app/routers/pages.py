@@ -23,6 +23,7 @@ from app.output_acceptance import (
     RegenerationFeedbackBuilder,
 )
 from app.one_video_acceptance import BombbarOneVideoRenderPlanner, OneVideoAcceptanceError, OneVideoAcceptanceService
+from app.smoke_readiness import ReadinessReportService
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
@@ -628,11 +629,14 @@ def run_one_video_acceptance_page(
 def one_video_acceptance_context(db: Session, selected_plan_id: int | None) -> dict:
     provider_status = provider_key_status()
     latest_results = OneVideoAcceptanceService(db).list_results(selected_plan_id, limit=10) if selected_plan_id else []
+    smoke_service = ReadinessReportService(db)
+    smoke_run = smoke_service.latest()
     return {
         "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
         "plans": BombbarOneVideoRenderPlanner(db).list_recent(limit=20),
         "latest_results": latest_results,
         "provider_status": provider_status,
+        "smoke_readiness": smoke_service.output(smoke_run) if smoke_run else None,
         "real_smoke_gate_ready": (
             provider_status["generation_mode"] == "real"
             and provider_status["allow_real_spend"]

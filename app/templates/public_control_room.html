@@ -88,6 +88,35 @@
 
     <div class="public-grid">
       <article class="altea-card public-panel public-panel--wide altea-reveal">
+        <header class="public-panel-head"><h2>Paid Smoke Readiness</h2><span>safe recovery status</span></header>
+        {% if smoke_readiness %}
+          {% set smoke = smoke_readiness.report %}
+          <table class="public-table">
+            <tbody>
+              <tr><th>Decision</th><td>{{ smoke.final_decision }}</td></tr>
+              <tr><th>Plan</th><td>{{ "exists" if smoke.requested_plan_exists else "missing/not requested" }}{% if smoke.one_video_render_plan_id %} / #{{ smoke.one_video_render_plan_id }}{% endif %}</td></tr>
+              <tr><th>Generation mode</th><td>{{ smoke.generation_mode }}</td></tr>
+              <tr><th>Spend gate</th><td>{{ "enabled" if smoke.spend_gate_status.allow_real_spend else "off" }}</td></tr>
+              <tr><th>Runway key</th><td>{{ "configured" if smoke.runway_key_configured else "missing" }}</td></tr>
+              <tr><th>Credits confirmed</th><td>{{ "yes" if smoke.runway_credits_confirmed else "no" }}</td></tr>
+              <tr><th>Prompt-only</th><td>{{ smoke.prompt_only_status }}{% if smoke.prompt_pack_id %} / prompt #{{ smoke.prompt_pack_id }}{% endif %}</td></tr>
+              <tr><th>MVP score</th><td>{{ smoke.mvp_scorecard.total_score if smoke.mvp_scorecard.total_score is defined else "n/a" }}</td></tr>
+              <tr><th>Next action</th><td>{{ smoke.next_actions[0] if smoke.next_actions else smoke.control_room_next_action or "run smoke readiness recovery" }}</td></tr>
+            </tbody>
+          </table>
+          <ul class="public-list">
+            {% for blocker in smoke.blockers %}
+            <li><div><strong>{{ blocker.blocker_type }}</strong><small>{{ blocker.message }}</small></div><span>{{ blocker.severity }}</span></li>
+            {% else %}
+            <li><div><strong>No blockers recorded</strong><small>Still requires explicit operator spend confirmation before paid run.</small></div></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>Smoke readiness has not been run yet. Use <code>python scripts\smoke_readiness_recover.py --plan-id 3</code> for a safe status check.</p>
+        {% endif %}
+      </article>
+
+      <article class="altea-card public-panel public-panel--wide altea-reveal">
         <header class="public-panel-head"><h2>Executive snapshot</h2><span>launch decision in 30 seconds</span></header>
         <table class="public-table">
           <tbody>
