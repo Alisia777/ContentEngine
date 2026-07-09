@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ContentEngine | ALTEA Control Room</title>
+    <meta name="description" content="ContentEngine public shell: ALTEA motion UI, role dashboards, and local Control Room routes.">
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #070707;
+        --panel: rgba(16, 15, 14, 0.82);
+        --panel-strong: rgba(24, 22, 20, 0.94);
+        --border: rgba(217, 183, 122, 0.34);
+        --gold: #d9b77a;
+        --gold-soft: #f4dcb0;
+        --ivory: #f7ead3;
+        --muted: #a99d8b;
+        --line: rgba(255, 255, 255, 0.08);
+        --radius: 18px;
+        --shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        color: var(--ivory);
+        background: var(--bg);
+        font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .bg {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at 26% 18%, rgba(246, 234, 212, 0.12), transparent 22%),
+          radial-gradient(circle at 76% 38%, rgba(217, 183, 122, 0.11), transparent 25%),
+          linear-gradient(115deg, #040404, #11100d 52%, #050505);
+      }
+
+      .bg::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 50%, transparent 18%, rgba(0, 0, 0, 0.54) 76%),
+          linear-gradient(90deg, rgba(0, 0, 0, 0.42), transparent 45%, rgba(0, 0, 0, 0.42));
+      }
+
+      .ribbon {
+        position: absolute;
+        width: 76vw;
+        height: 20vh;
+        opacity: 0.44;
+        background:
+          linear-gradient(92deg, transparent 0%, rgba(217, 183, 122, 0.04) 32%, rgba(241, 217, 170, 0.52) 50%, rgba(217, 183, 122, 0.08) 62%, transparent 100%),
+          url("app/static/altea_motion/assets/light_ribbon.svg") center / 100% 100% no-repeat;
+        animation: ribbon 14s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+      }
+
+      .ribbon.left {
+        left: -20vw;
+        bottom: 8vh;
+        transform: rotate(11deg);
+      }
+
+      .ribbon.right {
+        right: -18vw;
+        top: 21vh;
+        transform: rotate(-8deg);
+        animation-delay: -5s;
+      }
+
+      .petal {
+        position: absolute;
+        width: 56px;
+        height: 40px;
+        background: url("app/static/altea_motion/assets/petal.svg") center / contain no-repeat;
+        filter: drop-shadow(0 8px 18px rgba(217, 183, 122, 0.18));
+        animation: petal 11s ease-in-out infinite alternate;
+      }
+
+      .petal.one { left: 8vw; top: 18vh; }
+      .petal.two { right: 18vw; top: 13vh; animation-delay: -3s; }
+      .petal.three { left: 28vw; bottom: 15vh; animation-delay: -6s; }
+      .petal.four { right: 8vw; bottom: 22vh; animation-delay: -2s; }
+
+      .page {
+        position: relative;
+        z-index: 1;
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 42px 0 56px;
+      }
+
+      .topbar,
+      .hero,
+      .panel,
+      .route-card {
+        border: 1px solid var(--border);
+        background: linear-gradient(145deg, rgba(22, 21, 19, 0.9), rgba(12, 12, 11, 0.78));
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 16px 18px;
+        border-radius: var(--radius);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        text-decoration: none;
+      }
+
+      .brand img {
+        width: 44px;
+        height: 44px;
+      }
+
+      .brand strong {
+        display: block;
+        font-size: 22px;
+        letter-spacing: 0.22em;
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 500;
+      }
+
+      .brand small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+      }
+
+      .top-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 16px;
+        border: 1px solid rgba(217, 183, 122, 0.42);
+        border-radius: 10px;
+        color: #0a0908;
+        background: linear-gradient(180deg, #f7e5c5, #d6ad6b);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .button.ghost {
+        color: var(--ivory);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .hero {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 34px;
+        margin-top: 28px;
+        padding: 42px;
+        border-radius: 26px;
+        overflow: hidden;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        left: -20px;
+        bottom: -84px;
+        width: 380px;
+        height: 380px;
+        opacity: 0.78;
+        background: url("app/static/altea_motion/assets/altea_flower.svg") center / contain no-repeat;
+        filter: drop-shadow(0 22px 44px rgba(217, 183, 122, 0.24));
+      }
+
+      .hero-copy {
+        position: relative;
+        z-index: 1;
+        padding-left: 230px;
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: var(--gold);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 680px;
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 54px;
+        line-height: 1.02;
+        font-weight: 500;
+      }
+
+      .lead {
+        max-width: 660px;
+        margin: 20px 0 0;
+        color: #d9cfbd;
+        font-size: 18px;
+        line-height: 1.65;
+      }
+
+      .hero-panel {
+        position: relative;
+        z-index: 1;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      .status {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .status div {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .status span {
+        color: var(--muted);
+      }
+
+      .status strong {
+        color: var(--gold-soft);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .panel {
+        margin-top: 18px;
+        padding: 24px;
+        border-radius: var(--radius);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 16px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      .panel-head p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .route-card {
+        min-height: 184px;
+        padding: 20px;
+        border-radius: 16px;
+        text-decoration: none;
+        transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+      }
+
+      .route-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(244, 220, 176, 0.7);
+        background: linear-gradient(145deg, rgba(35, 31, 25, 0.96), rgba(13, 13, 12, 0.88));
+      }
+
+      .route-card small {
+        color: var(--gold);
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .route-card h3 {
+        margin: 12px 0 10px;
+        font-size: 20px;
+      }
+
+      .route-card p {
+        margin: 0;
+        color: #c9bead;
+        line-height: 1.5;
+      }
+
+      .note {
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      code {
+        color: var(--gold-soft);
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 2px 6px;
+      }
+
+      @keyframes ribbon {
+        from { opacity: 0.3; translate: -2vw -1vh; }
+        to { opacity: 0.65; translate: 3vw 2vh; }
+      }
+
+      @keyframes petal {
+        from { transform: translate3d(0, 0, 0) rotate(-7deg); opacity: 0.55; }
+        to { transform: translate3d(18px, 24px, 0) rotate(9deg); opacity: 0.88; }
+      }
+
+      @media (max-width: 980px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-copy {
+          padding-left: 0;
+          padding-top: 210px;
+        }
+
+        .grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (max-width: 680px) {
+        .page {
+          width: min(100% - 24px, 1180px);
+          padding-top: 18px;
+        }
+
+        .topbar,
+        .panel-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .hero {
+          padding: 24px;
+        }
+
+        h1 {
+          font-size: 38px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true">
+      <div class="ribbon left"></div>
+      <div class="ribbon right"></div>
+      <div class="petal one"></div>
+      <div class="petal two"></div>
+      <div class="petal three"></div>
+      <div class="petal four"></div>
+    </div>
+
+    <main class="page">
+      <header class="topbar">
+        <a class="brand" href="./">
+          <img src="app/static/altea_motion/assets/logo_mark.svg" alt="">
+          <span>
+            <strong>ALTEA</strong>
+            <small>ContentEngine shell</small>
+          </span>
+        </a>
+        <nav class="top-links" aria-label="Quick links">
+          <a class="button ghost" href="README.md">README</a>
+          <a class="button ghost" href="docs/CONTROL_ROOM.md">Control Room docs</a>
+          <a class="button" href="https://github.com/Alisia777/ContentEngine/pull/69">PR #69</a>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Unified Control Room v3.5</p>
+          <h1>ContentEngine кабинеты и оболочка запуска</h1>
+          <p class="lead">
+            Это публичная статическая витрина GitHub Pages. Рабочие кабинеты, данные, роли,
+            EngineAudit и очереди действий запускаются локально через FastAPI.
+          </p>
+        </div>
+        <aside class="hero-panel">
+          <p class="eyebrow">Local app</p>
+          <h2>Как открыть настоящие кабинеты</h2>
+          <div class="status">
+            <div><span>Control Room</span><strong>localhost:8013</strong></div>
+            <div><span>Owner dashboard</span><strong>/control-room?role=owner</strong></div>
+            <div><span>ALTEA motion shell</span><strong>/altea-motion/dashboard</strong></div>
+          </div>
+          <p class="note">
+            GitHub Pages не запускает Python/FastAPI. Поэтому здесь лежит entry shell,
+            а операционный слой открывается после локального запуска сервера.
+          </p>
+        </aside>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Cabinets</p>
+            <h2>Ролевые рабочие экраны</h2>
+          </div>
+          <p>Эти маршруты доступны в локальной версии приложения.</p>
+        </div>
+        <div class="grid">
+          <a class="route-card" href="http://localhost:8013/control-room?role=owner">
+            <small>Owner</small>
+            <h3>Executive Control Room</h3>
+            <p>Production readiness, EngineAudit score, blockers, paid smoke status, decisions.</p>
+          </a>
+          <a class="route-card" href="http://localhost:8013/control-room?role=content_lead">
+            <small>Content lead</small>
+            <h3>Quality & Briefs</h3>
+            <p>Product strategy, weak briefs, one-video plans, prompt-only readiness, review queue.</p>
+          </a>
+          <a class="route-card" href="http://localhost:8013/control-room?role=reviewer">
+            <small>Reviewer</small>
+            <h3>Output Acceptance</h3>
+            <p>Human review, product identity, packaging drift, regeneration and QA decisions.</p>
+          </a>
+          <a class="route-card" href="http://localhost:8013/control-room?role=creator">
+            <small>Creator</small>
+            <h3>Assignments & Payouts</h3>
+            <p>Brief cards, final URL blockers, stats, training and payout status.</p>
+          </a>
+          <a class="route-card" href="http://localhost:8013/control-room?role=metrics_operator">
+            <small>Metrics</small>
+            <h3>Metrics Intake</h3>
+            <p>Unmatched rows, missing stats, destinations without stats, funnel coverage.</p>
+          </a>
+          <a class="route-card" href="http://localhost:8013/altea-motion/dashboard">
+            <small>Shell</small>
+            <h3>ALTEA Motion UI</h3>
+            <p>Premium visual shell: gold ribbons, petals, dashboard motion and loading layers.</p>
+          </a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Run locally</p>
+            <h2>Команды запуска</h2>
+          </div>
+        </div>
+        <p class="note">
+          Из корня репозитория: <code>python -m uvicorn app.main:app --host 127.0.0.1 --port 8013</code>.
+          После запуска открывай <code>http://localhost:8013/control-room?role=owner</code>.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
