@@ -96,7 +96,7 @@ from app.destination_control_tower import DestinationControlReportService, Desti
 from app.demand.errors import DemandError
 from app.engine import EngineRunResult, VideoFactoryEngine
 from app.engine.errors import EngineError
-from app.engine_audit import EngineAuditError, EngineAuditReportService, EngineAuditScorecardService
+from app.engine_audit import EngineAuditError, EngineAuditRecommendationsService, EngineAuditReportService, EngineAuditScorecardService
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.factory_os.errors import FactoryOSError
 from app.intelligence.csv_imports import import_csv_text
@@ -1266,6 +1266,15 @@ def run_engine_audit(payload: EngineAuditRunRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/engine-audit/runs/{run_id}")
+def get_engine_audit_run(run_id: int, db: Session = Depends(get_db)):
+    service = EngineAuditScorecardService(db)
+    run = service.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="engine_audit_run_not_found")
+    return service.output(run).model_dump(mode="json")
+
+
 @router.get("/engine-audit/latest")
 def latest_engine_audit(scope_type: str = "global", scope_id: int | None = None, db: Session = Depends(get_db)):
     service = EngineAuditScorecardService(db)
@@ -1273,6 +1282,21 @@ def latest_engine_audit(scope_type: str = "global", scope_id: int | None = None,
     if not report:
         report = service.run(scope_type=scope_type, scope_id=scope_id)
     return service.output(report).model_dump(mode="json")
+
+
+@router.get("/engine-audit/recommendations")
+def engine_audit_recommendations(db: Session = Depends(get_db)):
+    return {"recommendations": EngineAuditRecommendationsService(db).latest()}
+
+
+@router.get("/engine-audit/report")
+def engine_audit_report(db: Session = Depends(get_db)):
+    service = EngineAuditScorecardService(db)
+    run = service.latest()
+    if not run:
+        run = service.run()
+    path = EngineAuditReportService(db).write(run.id)
+    return {"audit_run_id": run.id, "report_path": path, "report": service.output(run).model_dump(mode="json")}
 
 
 @router.get("/engine/status/{publishing_job_id}")

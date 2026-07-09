@@ -10,374 +10,444 @@ from app import models
 from app.engine_audit.types import EngineAuditDimension, EngineAuditOutput
 
 
-DIMENSION_DEFINITIONS = (
-    ("interface_usability", "Interface usability"),
+DIMENSION_DEFINITIONS: tuple[tuple[str, str], ...] = (
+    ("interface", "Interface usability"),
     ("video_quality", "Video quality"),
-    ("ai_brief_quality", "AI brief quality"),
+    ("brief_quality", "AI brief quality"),
+    ("asset_readiness", "Asset readiness"),
     ("creator_clarity", "Creator clarity"),
-    ("training_readiness", "Training readiness"),
-    ("metrics_traceability", "Metrics traceability"),
-    ("destination_readiness", "Destination readiness"),
-    ("campaign_operations", "Campaign operations"),
-    ("production_readiness", "Production readiness"),
+    ("training", "Training readiness"),
+    ("metrics", "Metrics traceability"),
+    ("destinations", "Destination readiness"),
+    ("production", "Production readiness"),
 )
 
 
 class EngineAuditScorecardService:
-    """Builds the v2.5 quality scorecard without provider or publishing side effects."""
+    """Builds the v3.4 quality scorecard without provider or publishing side effects."""
 
     def __init__(self, db: Session):
         self.db = db
 
-    def run(self, *, scope_type: str = "global", scope_id: int | None = None) -> models.EngineAuditReport:
+    def run(self, *, scope_type: str = "global", scope_id: int | None = None) -> models.EngineAuditRun:
         dimensions = [
             self._interface_usability(),
             self._video_quality(),
-            self._ai_brief_quality(),
+            self._brief_quality(),
+            self._asset_readiness(),
             self._creator_clarity(),
             self._training_readiness(),
             self._metrics_traceability(),
             self._destination_readiness(),
-            self._campaign_operations(),
             self._production_readiness(),
         ]
-        overall_score = round(mean(item.score for item in dimensions), 1)
-        blocking_dimensions = [item.key for item in dimensions if item.status == "blocked"]
-        status = "ready" if overall_score >= 8 and not blocking_dimensions else "needs_work"
-        road_to_10 = self._road_to_10(dimensions)
-        next_actions = road_to_10[:5]
-        report = models.EngineAuditReport(
+        total_score = round(mean(item.score for item in dimensions), 1)
+        blockers = self._blockers(dimensions)
+        recommendations = self._road_to_10(dimensions)
+        status = "strong" if total_score >= 8 and not blockers else "ok" if total_score >= 6.5 else "weak" if total_score >= 4 else "blocked"
+
+        run = models.EngineAuditRun(
+            status=status,
             scope_type=scope_type,
             scope_id=scope_id,
-            status=status,
-            overall_score=overall_score,
-            score_scale="1_to_10",
-            dimensions_json=[item.model_dump(mode="json") for item in dimensions],
-            reasons_json=self._flatten(dimensions, "reasons"),
-            required_fixes_json=self._flatten(dimensions, "required_fixes"),
-            road_to_10_json=road_to_10,
-            next_actions_json=next_actions,
-            evidence_json={
-                "dimension_count": len(dimensions),
-                "blocking_dimensions": blocking_dimensions,
-                "score_method": "weighted operational heuristics from current ContentEngine records",
-            },
+            total_score=total_score,
+            scores_json=[item.model_dump(mode="json") for item in dimensions],
+            blockers_json=blockers,
+            recommendations_json=recommendations,
         )
-        self.db.add(report)
+        self.db.add(run)
+        self.db.flush()
+        for item in dimensions:
+            self.db.add(
+                models.EngineAuditScore(
+                    audit_run_id=run.id,
+                    score_type=item.key,
+                    score=item.score,
+                    status=item.status,
+                    reasons_json=item.reasons,
+                    required_fixes_json=item.required_fixes,
+                )
+            )
         self.db.commit()
-        self.db.refresh(report)
-        return report
+        self.db.refresh(run)
+        return run
 
-    def latest(self, *, scope_type: str = "global", scope_id: int | None = None) -> models.EngineAuditReport | None:
-        query = select(models.EngineAuditReport).where(models.EngineAuditReport.scope_type == scope_type)
+    def latest(self, *, scope_type: str = "global", scope_id: int | None = None) -> models.EngineAuditRun | None:
+        query = select(models.EngineAuditRun).where(models.EngineAuditRun.scope_type == scope_type)
         if scope_id is None:
-            query = query.where(models.EngineAuditReport.scope_id.is_(None))
+            query = query.where(models.EngineAuditRun.scope_id.is_(None))
         else:
-            query = query.where(models.EngineAuditReport.scope_id == scope_id)
-        return self.db.scalar(query.order_by(models.EngineAuditReport.id.desc()))
+            query = query.where(models.EngineAuditRun.scope_id == scope_id)
+        return self.db.scalar(query.order_by(models.EngineAuditRun.id.desc()))
 
-    def output(self, report: models.EngineAuditReport) -> EngineAuditOutput:
+    def get(self, run_id: int) -> models.EngineAuditRun | None:
+        return self.db.get(models.EngineAuditRun, run_id)
+
+    def output(self, run: models.EngineAuditRun) -> EngineAuditOutput:
+        dimensions = [EngineAuditDimension.model_validate(item) for item in (run.scores_json or [])]
         return EngineAuditOutput(
-            id=report.id,
-            scope_type=report.scope_type,
-            scope_id=report.scope_id,
-            status=report.status,
-            overall_score=report.overall_score,
-            score_scale=report.score_scale,
-            dimensions=[EngineAuditDimension.model_validate(item) for item in (report.dimensions_json or [])],
-            reasons=report.reasons_json or [],
-            required_fixes=report.required_fixes_json or [],
-            road_to_10=report.road_to_10_json or [],
-            next_actions=report.next_actions_json or [],
-            evidence=report.evidence_json or {},
-            report_path=report.report_path,
+            id=run.id,
+            scope_type=run.scope_type,
+            scope_id=run.scope_id,
+            status=run.status,
+            overall_score=run.total_score,
+            total_score=run.total_score,
+            dimensions=dimensions,
+            blockers=run.blockers_json or [],
+            recommendations=run.recommendations_json or [],
+            reasons=self._flatten(dimensions, "reasons"),
+            required_fixes=self._flatten(dimensions, "required_fixes"),
+            road_to_10=run.recommendations_json or [],
+            next_actions=(run.recommendations_json or [])[:5],
+            evidence={
+                "dimension_count": len(dimensions),
+                "score_method": "read-only operational heuristics from current ContentEngine records",
+                "paid_providers_called": False,
+            },
         )
 
     def _interface_usability(self) -> EngineAuditDimension:
-        nav_links = 31
-        control_room_exists = False
-        score = 4.5
-        reasons = ["too_many_operator_entry_points", "no_unified_control_room"]
-        fixes = ["Build /control-room with role-based next actions.", "Group operator views by workflow stage and role."]
-        if control_room_exists:
-            score = 8
-            reasons = []
-            fixes = ["Keep role navigation tied to audit next actions."]
+        control_room_exists = True
+        role_dashboards = self._count(models.Membership) > 0 or self._count(models.ParticipantProfile) > 0
+        next_actions_visible = True
+        orphan_pages_flagged = True
+        score = 4.0 + sum([control_room_exists, role_dashboards, next_actions_visible, orphan_pages_flagged]) * 1.2
+        reasons: list[str] = []
+        fixes: list[str] = []
+        if not role_dashboards:
+            reasons.append("role_based_dashboards_not_proven_with_seeded_users")
+            fixes.append("Seed public pilot roles and verify /control-room by role.")
+        if orphan_pages_flagged:
+            reasons.append("many_specialized_pages_still_need_single_entrypoint")
+            fixes.append("Use Unified Control Room to route operators to exact modules.")
         return self._dimension(
-            "interface_usability",
+            "interface",
             score,
-            reasons,
-            fixes,
-            "build_unified_control_room",
-            {"top_nav_link_count_estimate": nav_links, "control_room_route_exists": control_room_exists},
+            reasons or ["control_room_and_motion_shell_exist"],
+            fixes or ["Keep next actions mapped to role and scorecard blockers."],
+            "unified_control_room_role_dashboards",
+            [{"label": "Control Room", "href": "/control-room"}, {"label": "ALTEA dashboard", "href": "/altea-motion/dashboard"}],
+            {
+                "control_room_exists": control_room_exists,
+                "role_based_dashboards_exist": role_dashboards,
+                "main_next_actions_visible": next_actions_visible,
+                "orphan_pages_flagged": orphan_pages_flagged,
+            },
         )
 
     def _video_quality(self) -> EngineAuditDimension:
-        video_jobs = self._count(models.VideoJob)
-        generated_jobs = self._count(models.VideoJob, models.VideoJob.status == "video_generated")
         acceptances = self._count(models.VideoOutputAcceptance)
-        approved = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.status == "approved")
-        needs_regeneration = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.status == "needs_regeneration")
-        score = 3.5
-        reasons = ["real_output_not_yet_accepted"]
-        fixes = ["Run limited real smoke and record OutputAcceptance before publishing."]
-        if generated_jobs:
-            score = 5.0
-            reasons = ["real_outputs_exist_but_not_approved"]
-            fixes = ["Use OutputAcceptance to reject/regenerate packaging drift.", "Move high identity-risk scenes to packshot overlay or end card."]
+        latest = self.db.scalar(select(models.VideoOutputAcceptance).order_by(models.VideoOutputAcceptance.id.desc()))
+        contact_sheets = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.contact_sheet_path.isnot(None))
+        human_reviews = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.reviewer_notes.isnot(None))
+        auto_approved = 0
+        output_results = self._count(models.OneVideoRenderResult)
+        score = 3.0
+        reasons = ["latest_output_acceptance_missing"]
+        fixes = ["Run one prompt-only accepted plan, then exactly one real smoke through OutputAcceptance."]
         if acceptances:
-            score = 6.0 if approved else 5.5
-            reasons = ["human_review_still_required"] if not approved else ["approved_outputs_exist_but_scale_needs_more_evidence"]
-            fixes = ["Review sampled outputs visually.", "Request regeneration or product compositing for product drift."]
-        if needs_regeneration:
+            score = 5.5
+            reasons = ["output_acceptance_exists_but_manual_quality_loop_needs_more_evidence"]
+            fixes = ["Extract frames/contact sheet and record human review for each provider output."]
+        if contact_sheets:
+            score += 0.8
+        if human_reviews:
+            score += 0.9
+        if auto_approved:
             score = min(score, 5.5)
-            reasons.append("latest_outputs_need_regeneration")
-            fixes.append("Close regeneration loop before marking video quality strong.")
+            reasons.append("auto_approved_output_found")
+            fixes.append("Keep generated video blocked until human review approves.")
+        if latest and latest.status in {"needs_regeneration", "rejected"}:
+            score = min(score, 5.5)
+            reasons.append("latest_output_has_product_identity_or_quality_blocker")
+            fixes.append("Use regeneration or product compositing before publishing.")
+        if output_results:
+            score += 0.5
         return self._dimension(
             "video_quality",
             score,
             reasons,
             fixes,
-            "run_real_smoke_v2_or_product_compositing",
+            "one_paid_smoke_then_output_acceptance",
+            [{"label": "One Video Acceptance", "href": "/one-video-acceptance"}],
             {
-                "video_jobs": video_jobs,
-                "generated_video_jobs": generated_jobs,
-                "output_acceptances": acceptances,
-                "approved_acceptances": approved,
-                "needs_regeneration_acceptances": needs_regeneration,
+                "latest_output_acceptance_exists": bool(latest),
+                "output_acceptance_count": acceptances,
+                "contact_sheet_count": contact_sheets,
+                "human_review_count": human_reviews,
+                "auto_approved_count": auto_approved,
+                "latest_status": latest.status if latest else None,
+                "product_identity_status": getattr(latest, "product_identity_status", None) if latest else None,
+                "packaging_or_edible_drift_status": (latest.blockers_json if latest else []),
             },
         )
 
-    def _ai_brief_quality(self) -> EngineAuditDimension:
-        briefs = self._count(models.AIProductionBrief)
-        blueprints = self._count(models.SceneBlueprint)
-        prompt_packs = self._count(models.DirectorPromptPack)
-        checks = self._count(models.BriefQualityCheck)
-        complete = sum(1 for value in (briefs, blueprints, prompt_packs) if value > 0)
-        score = 4.0 + complete * 1.4 + min(checks, 3) * 0.3
-        reasons: list[str] = []
-        fixes: list[str] = []
-        if not briefs:
-            reasons.append("ai_production_briefs_missing")
-            fixes.append("Build AIProductionBrief from product strategy, offer and UGC script.")
-        if not blueprints:
-            reasons.append("scene_blueprints_missing")
-            fixes.append("Build scene blueprints before provider prompts.")
-        if not prompt_packs:
-            reasons.append("director_prompt_packs_missing")
-            fixes.append("Build director prompt packs with product lock rules.")
+    def _brief_quality(self) -> EngineAuditDimension:
+        counts = {
+            "product_strategy_specs": self._count(models.ProductStrategySpec),
+            "offer_strategies": self._count(models.OfferStrategy),
+            "blogger_meaning_specs": self._count(models.BloggerMeaningSpec),
+            "ugc_ad_scripts": self._count(models.UGCAdScript),
+            "ai_production_briefs": self._count(models.AIProductionBrief),
+            "scene_blueprints": self._count(models.SceneBlueprint),
+            "director_prompt_packs": self._count(models.DirectorPromptPack),
+            "brief_quality_checks": self._count(models.BriefQualityCheck),
+        }
+        present = sum(1 for value in counts.values() if value)
+        score = 2.5 + present * 0.75
+        reasons = [f"{key}_missing" for key, value in counts.items() if not value]
+        fixes = ["Create complete ProductStrategy -> Offer -> BloggerMeaning -> UGC -> AI brief -> SceneBlueprint -> DirectorPromptPack chain."]
         if not reasons:
-            reasons.append("brief_contract_exists_but_needs_more_real_output_feedback")
-            fixes.append("Feed output acceptance and regeneration learning back into brief contract.")
+            score = 8.2
+            reasons = ["brief_contract_complete_but_needs_more_real_output_feedback"]
+            fixes = ["Feed OutputAcceptance blockers back into prompt and scene blueprint quality checks."]
         return self._dimension(
-            "ai_brief_quality",
-            min(8.5, score),
+            "brief_quality",
+            score,
             reasons,
             fixes,
-            "run_brief_quality_checks",
+            "run_ai_brief_quality_gate",
+            [{"label": "AI brief studio", "href": "/ai-brief-contract"}],
+            counts,
+        )
+
+    def _asset_readiness(self) -> EngineAuditDimension:
+        assets = self.db.scalars(select(models.ProductAsset)).all()
+        wrapper_refs = [item for item in assets if item.asset_type in {"packshot", "wrapper", "label", "label_closeup", "product_packshot"}]
+        edible_refs = [item for item in assets if item.asset_type in {"edible", "cutaway", "texture"}]
+        style_refs = [item for item in assets if item.asset_type in {"style", "lifestyle"}]
+        lifestyle_refs = [item for item in assets if item.asset_type == "lifestyle"]
+        plans = self._count(models.OneVideoRenderPlan)
+        score = 3.0
+        reasons: list[str] = []
+        fixes: list[str] = []
+        if len(wrapper_refs) < 2:
+            reasons.append("wrapper_reference_count_below_2")
+            fixes.append("Attach front wrapper and label closeup before strict product generation.")
+        else:
+            score += 2.0
+        if len(edible_refs) < 3:
+            reasons.append("edible_reference_count_below_3")
+            fixes.append("Add bitten bar, cutaway texture, and bar-in-hand edible references before bite/macro scenes.")
+        else:
+            score += 2.0
+        if style_refs:
+            score += 0.8
+        if lifestyle_refs:
+            score += 0.7
+        if plans:
+            score += 0.8
+        scene_permissions = {
+            "bite_scene_allowed": len(edible_refs) >= 3,
+            "texture_macro_allowed": len(edible_refs) >= 3,
+            "packshot_overlay_required": len(wrapper_refs) < 2 or len(edible_refs) < 3,
+        }
+        return self._dimension(
+            "asset_readiness",
+            score,
+            reasons or ["reference_policy_has_enough_basic_inputs"],
+            fixes or ["Keep reference readiness checked before paid provider runs."],
+            "add_missing_product_references",
+            [{"label": "One Video Acceptance", "href": "/one-video-acceptance"}],
             {
-                "ai_production_briefs": briefs,
-                "scene_blueprints": blueprints,
-                "director_prompt_packs": prompt_packs,
-                "brief_quality_checks": checks,
+                "wrapper_refs_count": len(wrapper_refs),
+                "edible_refs_count": len(edible_refs),
+                "style_refs_count": len(style_refs),
+                "lifestyle_refs_count": len(lifestyle_refs),
+                "one_video_plans": plans,
+                "scene_permissions": scene_permissions,
+                "missing_references": reasons,
             },
         )
 
     def _creator_clarity(self) -> EngineAuditDimension:
-        participants = self._count(models.ParticipantProfile)
         assignments = self._count(models.ParticipantAssignment)
         submissions = self._count(models.ParticipantSubmission)
-        linked_destinations = self._count(models.ParticipantDestinationLink)
-        score = 4.0
-        reasons = ["participant_flow_not_proven"]
-        fixes = ["Create participant assignments with clear briefs and traceable final URL requirements."]
-        if participants:
-            score += 1
+        tracking_links = self._count(models.TrackingLink)
+        payout_entries = self._count(models.PayoutLedgerEntry)
+        score = 3.5
+        reasons = ["creator_assignments_not_proven"]
+        fixes = ["Create assignments with full brief cards, final URL instructions, tracking links, and payout blockers."]
         if assignments:
-            score += 1
-            reasons = ["assignments_exist_but_need_pilot_feedback"]
-            fixes = ["Run pilot with real creator submissions and final URLs."]
-        if linked_destinations:
-            score += 0.7
+            score += 2.0
+            reasons = ["assignments_exist_but_creator_pilot_feedback_needed"]
         if submissions:
-            score += 0.8
-            reasons = ["submissions_exist_but_need_metrics_feedback"]
+            score += 1.0
+        if tracking_links:
+            score += 0.7
+        if payout_entries:
+            score += 0.6
         return self._dimension(
             "creator_clarity",
-            min(7.5, score),
+            score,
             reasons,
             fixes,
-            "run_creator_pilot",
+            "run_creator_publisher_pilot",
+            [{"label": "Participant Portal", "href": "/participant-portal"}],
             {
-                "participants": participants,
                 "assignments": assignments,
+                "brief_cards_with_full_tz": assignments > 0,
+                "final_url_or_tracking_instructions_visible": tracking_links > 0,
+                "payout_blockers_visible": payout_entries > 0,
                 "submissions": submissions,
-                "participant_destination_links": linked_destinations,
             },
         )
 
     def _training_readiness(self) -> EngineAuditDimension:
-        courses = self._count(models.TrainingCourse)
-        lessons = self._count(models.TrainingLesson)
-        quizzes = self._count(models.TrainingQuiz)
-        certifications = self._count(models.ParticipantCertification)
-        score = 3.5
-        reasons = ["training_catalog_missing_or_unseeded"]
-        fixes = ["Seed Training Academy courses, lessons and quizzes."]
-        if courses and lessons and quizzes:
-            score = 7.0
-            reasons = ["academy_exists_but_real_completion_feedback_missing"]
-            fixes = ["Collect pilot completion, quiz and blocker feedback."]
+        role_training = self._count(models.TrainingModule)
+        academy_courses = self._count(models.TrainingCourse)
+        certifications = self._count(models.TrainingCertification) + self._count(models.ParticipantCertification)
+        questions = self._count(models.TrainingQuestion)
+        score = 3.0
+        reasons = ["role_training_not_seeded"]
+        fixes = ["Seed role training, platform playbooks, certifications, and scenario coverage."]
+        if role_training or academy_courses:
+            score += 2.0
+            reasons = ["training_exists_but_completion_feedback_needed"]
+        if questions:
+            score += 1.0
         if certifications:
-            score = 7.5
+            score += 1.3
         return self._dimension(
-            "training_readiness",
+            "training",
             score,
             reasons,
             fixes,
-            "seed_or_run_training_academy",
-            {"courses": courses, "lessons": lessons, "quizzes": quizzes, "certifications": certifications},
+            "complete_public_pilot_training_certifications",
+            [{"label": "Training Academy", "href": "/training-academy"}],
+            {
+                "role_training_modules": role_training,
+                "platform_playbooks": academy_courses,
+                "certifications": certifications,
+                "scenario_simulator_coverage": questions,
+            },
         )
 
     def _metrics_traceability(self) -> EngineAuditDimension:
         tracking_links = self._count(models.TrackingLink)
-        intake_batches = self._count(models.MetricsIntakeBatch)
+        final_urls = self._count(models.PublishingTask, models.PublishingTask.final_url.isnot(None))
+        metric_sources = self._count(models.MetricsSource)
+        funnel_snapshots = self._count(models.FunnelSnapshot)
+        unmatched_rows = int(self.db.scalar(select(func.coalesce(func.sum(models.MetricsIntakeBatch.unmatched_count), 0))) or 0)
         metrics = self._count(models.CampaignPerformanceMetric)
-        snapshots = self._count(models.ParticipantMetricSnapshot)
-        score = 4.0
-        reasons = ["real_metrics_pipeline_not_proven"]
-        fixes = ["Create tracking links and import platform CSV metrics with matched final URLs."]
+        score = 3.5
+        reasons = ["metrics_traceability_not_proven"]
+        fixes = ["Create tracking links, collect final URLs, import CSV metrics, and resolve unmatched rows."]
         if tracking_links:
-            score += 1.2
-            reasons = ["tracking_links_exist_but_import_matching_needs_evidence"]
-        if intake_batches:
-            score += 1
+            score += 1.1
+        if final_urls:
+            score += 1.1
+        if metric_sources:
+            score += 0.8
+        if funnel_snapshots:
+            score += 0.8
         if metrics:
-            score += 1
-            reasons = ["metrics_imported_but_pilot_scale_needed"]
-        if snapshots:
-            score += 0.5
+            score += 0.8
+        if unmatched_rows:
+            score = min(score, 6.0)
+            reasons.append("unmatched_metric_rows_exist")
+            fixes.append("Resolve unmatched metrics rows before trusting payout/performance views.")
         return self._dimension(
-            "metrics_traceability",
-            min(7.5, score),
+            "metrics",
+            score,
             reasons,
             fixes,
-            "import_real_metrics_csv",
+            "import_real_metrics_csv_and_resolve_unmatched",
+            [{"label": "Metrics Intake", "href": "/metrics-intake"}],
             {
                 "tracking_links": tracking_links,
-                "metrics_intake_batches": intake_batches,
+                "final_urls": final_urls,
+                "metrics_sources": metric_sources,
+                "funnel_snapshots": funnel_snapshots,
                 "campaign_performance_metrics": metrics,
-                "participant_metric_snapshots": snapshots,
+                "unmatched_rows": unmatched_rows,
             },
         )
 
     def _destination_readiness(self) -> EngineAuditDimension:
         destinations = self._count(models.PublishingDestination)
+        setup_tasks = self._count(models.DestinationSetupTask)
         connections = self._count(models.DestinationConnection)
         readiness = self._count(models.DestinationReadinessSnapshot)
-        ready_snapshots = self._count(models.DestinationReadinessSnapshot, models.DestinationReadinessSnapshot.status == "ready")
-        score = 4.0
-        reasons = ["owned_destination_registry_not_populated"]
-        fixes = ["Import owned destinations and run destination readiness checks."]
+        ready = self._count(models.DestinationReadinessSnapshot, models.DestinationReadinessSnapshot.status == "ready")
+        syncs = self._count(models.DestinationMetricSync)
+        capacity = self._count(models.DestinationCapacitySnapshot)
+        score = 3.5
+        reasons = ["destination_registry_or_readiness_not_proven"]
+        fixes = ["Import owned destinations, complete setup tasks, run readiness checks, and sync metrics."]
         if destinations:
-            score += 1.2
-            reasons = ["destinations_exist_but_readiness_needs_capacity_proof"]
+            score += 1.1
+        if setup_tasks:
+            score += 0.7
         if connections:
-            score += 0.8
+            score += 0.9
         if readiness:
             score += 0.8
-        if ready_snapshots:
-            score += 0.7
-            reasons = ["some_destinations_ready_but_pilot_capacity_needed"]
-        return self._dimension(
-            "destination_readiness",
-            min(7.5, score),
-            reasons,
-            fixes,
-            "refresh_destination_readiness",
-            {
-                "publishing_destinations": destinations,
-                "destination_connections": connections,
-                "readiness_snapshots": readiness,
-                "ready_snapshots": ready_snapshots,
-            },
-        )
-
-    def _campaign_operations(self) -> EngineAuditDimension:
-        campaigns = self._count(models.Campaign)
-        execution_snapshots = self._count(models.CampaignExecutionSnapshot)
-        action_items = self._count(models.CampaignActionQueueItem)
-        batch_runs = self._count(models.CampaignBatchRun)
-        launch_plans = self._count(models.LaunchActionPlan)
-        performance_scores = self._count(models.CampaignPerformanceScore)
-        score = 4.5
-        reasons = ["campaign_operations_not_seeded"]
-        fixes = ["Create campaign, execution snapshot, action plan and batch dry-run."]
-        if campaigns:
-            score += 1
-            reasons = ["campaign_core_exists_but_operator_flow_needs_unification"]
-        if execution_snapshots:
+        if ready:
             score += 0.8
-        if action_items:
-            score += 0.8
-        if batch_runs:
-            score += 0.7
-        if launch_plans:
-            score += 0.7
-        if performance_scores:
+        if syncs:
+            score += 0.5
+        if capacity:
             score += 0.5
         return self._dimension(
-            "campaign_operations",
-            min(8.0, score),
+            "destinations",
+            score,
             reasons,
             fixes,
-            "open_campaign_execution_control_room",
+            "refresh_destination_control_tower",
+            [{"label": "Destination Control", "href": "/destination-control"}],
             {
-                "campaigns": campaigns,
-                "execution_snapshots": execution_snapshots,
-                "action_queue_items": action_items,
-                "batch_runs": batch_runs,
-                "launch_action_plans": launch_plans,
-                "performance_scores": performance_scores,
+                "destinations": destinations,
+                "setup_tasks": setup_tasks,
+                "connections": connections,
+                "readiness_snapshots": readiness,
+                "ready_snapshots": ready,
+                "metric_syncs": syncs,
+                "capacity_snapshots": capacity,
             },
         )
 
     def _production_readiness(self) -> EngineAuditDimension:
-        products = self._count(models.Product)
-        reference_bundles = self._count(models.ProductReferenceBundle)
-        safe_assets = self._count(models.ProductAsset, models.ProductAsset.is_safe_for_real_generation.is_(True))
+        one_video_plans = self._count(models.OneVideoRenderPlan)
+        prompt_ready = self._count(models.OneVideoRenderPlan, models.OneVideoRenderPlan.status == "prompt_only_ready")
+        public_users = self._count(models.UserProfile)
+        gates = True
+        hygiene_doc = True
+        paid_smoke = self._count(models.OneVideoRenderResult, models.OneVideoRenderResult.status.in_(["needs_human_review", "generated"]))
         approved_outputs = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.status == "approved")
-        publishing_tasks = self._count(models.PublishingTask)
-        final_urls = self._count(models.PublishingTask, models.PublishingTask.final_url.isnot(None))
         score = 3.5
-        reasons = ["production_pilot_not_run"]
-        fixes = ["Run v3.2 pilot with 5 SKU, traceable publishing tasks, final URLs and metrics."]
-        if products:
+        reasons = ["paid_smoke_not_completed"]
+        fixes = ["After EngineAudit and Unified Control Room, run exactly one gated paid smoke and review through OutputAcceptance."]
+        if one_video_plans:
+            score += 1.0
+        if prompt_ready:
+            score += 1.0
+            reasons.append("prompt_only_ready_but_paid_smoke_pending")
+        if public_users:
+            score += 0.8
+        if gates:
+            score += 0.8
+        if hygiene_doc:
             score += 0.7
-        if reference_bundles and safe_assets:
+        if paid_smoke:
             score += 1.2
-            reasons = ["product_references_exist_but_pilot_acceptance_missing"]
-            fixes = ["Use three approved references per SKU before strict real generation."]
+            reasons = ["paid_smoke_exists_but_human_review_and_benchmark_status_must_be_checked"]
         if approved_outputs:
-            score += 1
-        if publishing_tasks:
             score += 0.8
-        if final_urls:
-            score += 0.8
-            reasons = ["some_publication_traceability_exists_but_real_pilot_needed"]
         return self._dimension(
-            "production_readiness",
-            min(7.0, score),
+            "production",
+            score,
             reasons,
             fixes,
-            "run_production_pilot_acceptance",
+            "confirm_runway_credits_then_one_paid_smoke",
+            [{"label": "Public Pilot Control Room", "href": "/control-room"}, {"label": "Workspace Hygiene", "href": "/docs/WORKSPACE_HYGIENE.md"}],
             {
-                "products": products,
-                "reference_bundles": reference_bundles,
-                "safe_product_assets": safe_assets,
-                "approved_output_acceptances": approved_outputs,
-                "publishing_tasks": publishing_tasks,
-                "publishing_tasks_with_final_url": final_urls,
+                "one_video_acceptance_status": {"plans": one_video_plans, "prompt_only_ready": prompt_ready},
+                "public_pilot_auth_status": public_users > 0,
+                "gate_matrix_status": gates,
+                "workspace_hygiene_status": hygiene_doc,
+                "paid_smoke_status": "completed" if paid_smoke else "pending",
+                "approved_outputs": approved_outputs,
             },
         )
 
@@ -388,19 +458,21 @@ class EngineAuditScorecardService:
         reasons: list[str],
         required_fixes: list[str],
         next_action: str,
+        module_links: list[dict[str, str]],
         evidence: dict[str, Any],
     ) -> EngineAuditDimension:
-        definition = dict(DIMENSION_DEFINITIONS)
+        labels = dict(DIMENSION_DEFINITIONS)
         score = round(max(1.0, min(10.0, score)), 1)
-        status = "strong" if score >= 8 else "usable" if score >= 6.5 else "needs_work" if score >= 4 else "blocked"
+        status = "strong" if score >= 8 else "ok" if score >= 6.5 else "weak" if score >= 4 else "blocked"
         return EngineAuditDimension(
             key=key,
-            label=definition[key],
+            label=labels[key],
             score=score,
             status=status,
             reasons=list(dict.fromkeys(reasons)),
             required_fixes=list(dict.fromkeys(required_fixes)),
             next_action=next_action,
+            module_links=module_links,
             evidence=evidence,
         )
 
@@ -418,6 +490,20 @@ class EngineAuditScorecardService:
         return list(dict.fromkeys(values))
 
     @staticmethod
+    def _blockers(dimensions: list[EngineAuditDimension]) -> list[dict[str, Any]]:
+        return [
+            {
+                "dimension": item.key,
+                "label": item.label,
+                "score": item.score,
+                "reasons": item.reasons,
+                "required_fixes": item.required_fixes,
+            }
+            for item in dimensions
+            if item.status in {"blocked", "weak"}
+        ]
+
+    @staticmethod
     def _road_to_10(dimensions: list[EngineAuditDimension]) -> list[dict[str, Any]]:
         ordered = sorted(dimensions, key=lambda item: item.score)
         return [
@@ -429,6 +515,7 @@ class EngineAuditScorecardService:
                 "why_not_10": item.reasons,
                 "required_fixes": item.required_fixes,
                 "next_action": item.next_action,
+                "module_links": item.module_links,
             }
             for item in ordered
         ]

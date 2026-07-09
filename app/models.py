@@ -2150,6 +2150,35 @@ class EngineAuditReport(Base, TimestampMixin):
     report_path = Column(String(500), nullable=True)
 
 
+class EngineAuditRun(Base, TimestampMixin):
+    __tablename__ = "engine_audit_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(80), nullable=False, default="weak", index=True)
+    scope_type = Column(String(80), nullable=False, default="global", index=True)
+    scope_id = Column(Integer, nullable=True, index=True)
+    total_score = Column(Float, nullable=False, default=0)
+    scores_json = Column(JSON, default=list, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    recommendations_json = Column(JSON, default=list, nullable=False)
+
+    scores = relationship("EngineAuditScore", back_populates="audit_run", cascade="all, delete-orphan")
+
+
+class EngineAuditScore(Base, TimestampMixin):
+    __tablename__ = "engine_audit_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    audit_run_id = Column(Integer, ForeignKey("engine_audit_runs.id"), nullable=False, index=True)
+    score_type = Column(String(120), nullable=False, index=True)
+    score = Column(Float, nullable=False, default=0)
+    status = Column(String(80), nullable=False, default="weak", index=True)
+    reasons_json = Column(JSON, default=list, nullable=False)
+    required_fixes_json = Column(JSON, default=list, nullable=False)
+
+    audit_run = relationship("EngineAuditRun", back_populates="scores")
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

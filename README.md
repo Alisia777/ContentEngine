@@ -306,7 +306,7 @@ Full runbook: `docs/OUTPUT_ACCEPTANCE_LAB.md`.
 
 ## Engine Quality Scorecard
 
-v2.5 adds `/engine-audit`, a CLI report, and persisted `EngineAuditReport` records. The scorecard measures interface usability, video quality, AI brief quality, creator clarity, training readiness, metrics traceability, destination readiness, campaign operations, and production readiness on a 1-10 scale with reasons, required fixes, next actions, and Road to 10/10.
+v3.4 adds `/engine-audit`, CLI reports, and persisted `EngineAuditRun` / `EngineAuditScore` records. The scorecard measures interface usability, video quality, AI brief quality, asset readiness, creator clarity, training readiness, metrics traceability, destination readiness, and production readiness on a 1-10 scale with reasons, required fixes, module links, blockers, recommendations, and Road to 10/10.
 
 Run locally:
 

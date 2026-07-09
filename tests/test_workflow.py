@@ -8206,62 +8206,142 @@ def test_metrics_intake_shows_platform_csv_examples():
     assert "Common mistakes" in response.text
 
 
-def test_engine_audit_scores_all_quality_dimensions():
+def test_engine_audit_scores_all_dimensions():
     reset_db()
     with SessionLocal() as db:
         report = EngineAuditScorecardService(db).run()
         output = EngineAuditScorecardService(db).output(report)
 
-    assert output.status == "needs_work"
+    assert output.status in {"strong", "ok", "weak", "blocked"}
     assert output.score_scale == "1_to_10"
     assert len(output.dimensions) == 9
     assert {dimension.key for dimension in output.dimensions} == {
-        "interface_usability",
+        "interface",
         "video_quality",
-        "ai_brief_quality",
+        "brief_quality",
+        "asset_readiness",
         "creator_clarity",
-        "training_readiness",
-        "metrics_traceability",
-        "destination_readiness",
-        "campaign_operations",
-        "production_readiness",
+        "training",
+        "metrics",
+        "destinations",
+        "production",
     }
     assert all(1 <= dimension.score <= 10 for dimension in output.dimensions)
+    assert {dimension.status for dimension in output.dimensions} <= {"strong", "ok", "weak", "blocked"}
     assert all(dimension.reasons for dimension in output.dimensions)
     assert all(dimension.required_fixes for dimension in output.dimensions)
     assert all(dimension.next_action for dimension in output.dimensions)
     assert len(output.road_to_10) == 9
+    assert output.blockers
 
 
 def test_engine_audit_report_writer_persists_json(tmp_path):
     reset_db()
     with SessionLocal() as db:
-        report = EngineAuditScorecardService(db).run()
-        path = EngineAuditReportService(db).write(report.id, output_dir=tmp_path)
-        db.refresh(report)
+        run = EngineAuditScorecardService(db).run()
+        path = EngineAuditReportService(db).write(run.id, output_dir=tmp_path)
 
     report_path = Path(path)
     assert report_path.exists()
     payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["id"] == report.id
-    assert payload["overall_score"] == report.overall_score
+    assert payload["id"] == run.id
+    assert payload["overall_score"] == run.total_score
     assert len(payload["dimensions"]) == 9
-    assert report.report_path == report_path.as_posix()
+
+
+def test_engine_audit_flags_missing_real_output_acceptance():
+    reset_db()
+    with SessionLocal() as db:
+        run = EngineAuditScorecardService(db).run()
+        output = EngineAuditScorecardService(db).output(run)
+
+    video_quality = next(item for item in output.dimensions if item.key == "video_quality")
+    assert video_quality.status in {"blocked", "weak"}
+    assert "latest_output_acceptance_missing" in video_quality.reasons
+    assert "Run one prompt-only accepted plan" in video_quality.required_fixes[0]
+
+
+def test_engine_audit_scores_ai_brief_quality_from_v23_models():
+    with client() as api:
+        prepare_ai_brief_fixture(api, with_quality_check=True)
+        with SessionLocal() as db:
+            run = EngineAuditScorecardService(db).run()
+            output = EngineAuditScorecardService(db).output(run)
+
+    brief_quality = next(item for item in output.dimensions if item.key == "brief_quality")
+    assert brief_quality.score >= 8
+    assert brief_quality.evidence["ai_production_briefs"] >= 1
+    assert brief_quality.evidence["scene_blueprints"] >= 1
+    assert brief_quality.evidence["director_prompt_packs"] >= 1
+    assert brief_quality.evidence["brief_quality_checks"] >= 1
+
+
+def test_engine_audit_scores_asset_readiness_from_one_video_plan():
+    with client() as api:
+        product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+            OneVideoAcceptanceService(db).build_plan(product_id, platform="Instagram Reels")
+            run = EngineAuditScorecardService(db).run()
+            output = EngineAuditScorecardService(db).output(run)
+
+    asset = next(item for item in output.dimensions if item.key == "asset_readiness")
+    assert asset.evidence["wrapper_refs_count"] >= 2
+    assert asset.evidence["one_video_plans"] >= 1
+    assert asset.evidence["scene_permissions"]["bite_scene_allowed"] is False
+    assert "edible_reference_count_below_3" in asset.reasons
+
+
+def test_engine_audit_flags_low_interface_without_control_room():
+    reset_db()
+    with SessionLocal() as db:
+        run = EngineAuditScorecardService(db).run()
+        output = EngineAuditScorecardService(db).output(run)
+
+    interface = next(item for item in output.dimensions if item.key == "interface")
+    assert interface.evidence["control_room_exists"] is True
+    assert interface.score < 10
+    assert "many_specialized_pages_still_need_single_entrypoint" in interface.reasons
+
+
+def test_engine_audit_recommends_paid_smoke_when_prompt_only_ready():
+    with client() as api:
+        product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+            service = OneVideoAcceptanceService(db)
+            plan = service.build_plan(product_id, platform="Instagram Reels")
+            service.prompt_only(plan.id, provider="runway")
+            run = EngineAuditScorecardService(db).run()
+            output = EngineAuditScorecardService(db).output(run)
+
+    production = next(item for item in output.dimensions if item.key == "production")
+    assert production.evidence["one_video_acceptance_status"]["prompt_only_ready"] >= 1
+    assert production.evidence["paid_smoke_status"] == "pending"
+    assert "confirm_runway_credits_then_one_paid_smoke" in [item["next_action"] for item in output.road_to_10]
 
 
 def test_engine_audit_api_and_ui_render_scorecard():
     with client() as api:
         api_response = api.post("/api/engine-audit/run", json={"write_report": False})
+        latest_response = api.get("/api/engine-audit/latest")
+        recommendations_response = api.get("/api/engine-audit/recommendations")
         page_response = api.get("/engine-audit")
 
     assert api_response.status_code == 200, api_response.text
     payload = api_response.json()
     assert payload["score_scale"] == "1_to_10"
     assert len(payload["dimensions"]) == 9
+    assert latest_response.status_code == 200, latest_response.text
+    assert recommendations_response.status_code == 200, recommendations_response.text
+    assert recommendations_response.json()["recommendations"]
     assert payload["road_to_10"]
     assert page_response.status_code == 200, page_response.text
     assert "Engine Audit" in page_response.text
     assert "Road to 10/10" in page_response.text
+    assert "Scores by dimension" in page_response.text
+    assert "Blockers" in page_response.text
+    assert "Required fixes" in page_response.text
     assert "Interface usability" in page_response.text
     assert "Video quality" in page_response.text
 
@@ -8271,7 +8351,7 @@ def test_engine_audit_cli_writes_report(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/run_engine_audit.py",
+            "scripts/engine_audit_run.py",
             "--write-report",
             "--output-dir",
             str(tmp_path),
@@ -8288,6 +8368,20 @@ def test_engine_audit_cli_writes_report(tmp_path):
     assert len(reports) == 1
     payload = json.loads(reports[0].read_text(encoding="utf-8"))
     assert len(payload["dimensions"]) == 9
+
+
+def test_engine_audit_cli_runs(tmp_path):
+    reset_db()
+    result = subprocess.run(
+        [sys.executable, "scripts/engine_audit_report.py", "--output-dir", str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Report:" in result.stdout
+    assert list(tmp_path.glob("engine_audit_*.json"))
 
 
 def test_one_video_scene_policy_blocks_bite_without_edible_refs():

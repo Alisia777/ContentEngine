@@ -2,9 +2,9 @@
 {% block content %}
 <section class="page-head">
   <div>
-    <p class="eyebrow">v2.5 Quality Framework</p>
+    <p class="eyebrow">v3.4 Engine Quality Scorecard</p>
     <h1>Engine Audit</h1>
-    <p class="muted">Operational 1-10 scorecard for the current ContentEngine foundation.</p>
+    <p class="muted">A 1-10 readiness scorecard for interface, video, briefs, assets, creators, training, metrics, destinations and production.</p>
   </div>
   <form method="post" action="/engine-audit/run" class="inline-form">
     <label class="checkbox-row">
@@ -17,7 +17,7 @@
 
 <section class="metric-grid">
   <article class="metric">
-    <span class="stat-label">Overall</span>
+    <span class="stat-label">Overall score</span>
     <strong>{{ "%.1f"|format(audit.overall_score) }}/10</strong>
     <span class="status-pill">{{ audit.status }}</span>
   </article>
@@ -27,14 +27,14 @@
     <span class="muted">score scale {{ audit.score_scale }}</span>
   </article>
   <article class="metric">
-    <span class="stat-label">Report</span>
-    <strong>{{ audit.report_path or "not written" }}</strong>
-    <span class="muted">run with JSON report enabled to persist a file</span>
+    <span class="stat-label">Blockers</span>
+    <strong>{{ audit.blockers|length }}</strong>
+    <span class="muted">weak or blocked dimensions</span>
   </article>
 </section>
 
 <section class="panel">
-  <h2>Scorecard</h2>
+  <h2>Scores by dimension</h2>
   <div class="table-wrap">
     <table class="table">
       <thead>
@@ -42,9 +42,9 @@
           <th>Dimension</th>
           <th>Score</th>
           <th>Status</th>
-          <th>Why low</th>
+          <th>Reasons</th>
           <th>Required fixes</th>
-          <th>Next action</th>
+          <th>Module links</th>
         </tr>
       </thead>
       <tbody>
@@ -63,11 +63,51 @@
               <div>{{ fix }}</div>
             {% endfor %}
           </td>
-          <td>{{ dimension.next_action }}</td>
+          <td>
+            {% for link in dimension.module_links %}
+              <a href="{{ link.href }}">{{ link.label }}</a>{% if not loop.last %}<br>{% endif %}
+            {% endfor %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Blockers</h2>
+  <div class="stack">
+    {% for blocker in audit.blockers %}
+    <article class="list-card">
+      <div class="list-card-main">
+        <strong>{{ blocker.label }}</strong>
+        <span class="status-pill">{{ "%.1f"|format(blocker.score) }}/10</span>
+      </div>
+      <div class="muted">{{ blocker.reasons|join(", ") }}</div>
+    </article>
+    {% else %}
+    <p class="muted">No weak or blocked dimensions in the latest audit.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Required fixes</h2>
+  <div class="stack">
+    {% for action in audit.next_actions %}
+    <article class="list-card">
+      <div class="list-card-main">
+        <strong>{{ action.label }}</strong>
+        <span class="muted">{{ action.next_action }}</span>
+      </div>
+      <div>
+        {% for fix in action.required_fixes %}
+          <div>{{ fix }}</div>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
   </div>
 </section>
 
@@ -80,9 +120,7 @@
         <strong>{{ loop.index }}. {{ step.label }}</strong>
         <span class="muted">{{ "%.1f"|format(step.current_score) }}/10 -> {{ step.target_score }}/10</span>
       </div>
-      <div>
-        <strong>Next:</strong> {{ step.next_action }}
-      </div>
+      <div><strong>Next:</strong> {{ step.next_action }}</div>
       <div class="muted">
         {% for fix in step.required_fixes %}
           <span>{{ fix }}</span>{% if not loop.last %} | {% endif %}
