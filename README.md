@@ -308,6 +308,10 @@ Full runbook: `docs/OUTPUT_ACCEPTANCE_LAB.md`.
 
 v3.4 adds `/engine-audit`, CLI reports, and persisted `EngineAuditRun` / `EngineAuditScore` records. The scorecard measures interface usability, video quality, AI brief quality, asset readiness, creator clarity, training readiness, metrics traceability, destination readiness, and production readiness on a 1-10 scale with reasons, required fixes, module links, blockers, recommendations, and Road to 10/10.
 
+## Unified Control Room
+
+v3.5 makes `/control-room` the primary post-login working interface. It uses EngineAudit, public pilot gates, OutputAcceptance, OneVideoAcceptance, Participant Portal, Metrics Intake, Destination Control, Campaign Execution, and Publishing to show role-based ready items, blockers, human review queues, safe actions, gated actions, and Road to 10/10.
+
 Run locally:
 
 ```powershell

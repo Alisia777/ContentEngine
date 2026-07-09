@@ -4,14 +4,15 @@
   <aside class="altea-card public-sidebar altea-reveal">
     <a class="altea-sidebar__brand" href="/control-room" aria-label="ALTEA control room">
       <img src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
-      <span><strong>ALTEA</strong><small>PUBLIC PILOT</small></span>
+      <span><strong>ALTEA</strong><small>CONTROL ROOM</small></span>
     </a>
-    <nav class="public-nav" aria-label="Public pilot navigation">
+    <nav class="public-nav" aria-label="Control room navigation">
       <a class="is-active" href="/control-room">Control room</a>
+      <a href="/engine-audit">Engine audit</a>
       <a href="/settings/access">Access gates</a>
-      <a href="/altea-motion/dashboard">Motion shell</a>
       <a href="/one-video-acceptance">One-video QA</a>
       <a href="/output-acceptance">Output acceptance</a>
+      <a href="/metrics-intake">Metrics intake</a>
     </nav>
     <div class="public-user-card">
       <strong>{{ user.profile.display_name or user.profile.email }}</strong>
@@ -24,27 +25,167 @@
     <header class="public-topline altea-reveal">
       <div>
         <p>ALTEA Beauty</p>
-        <h1>Public Pilot Control Room</h1>
+        <h1>Unified Control Room</h1>
+        <p>Public Pilot Control Room</p>
       </div>
-      <a class="altea-glow-button altea-glow-button--small" href="/settings/access">Review gates</a>
+      <a class="altea-glow-button altea-glow-button--small" href="/engine-audit">Open scorecard</a>
     </header>
 
+    <article class="altea-card public-panel altea-reveal">
+      <header class="public-panel-head">
+        <h2>Role selector</h2>
+        <span>Current: {{ control_role }}</span>
+      </header>
+      <nav class="public-nav public-nav--inline" aria-label="Role selector">
+        {% for item in control_roles %}
+        <a class="{{ 'is-active' if item == control_role else '' }}" href="/control-room?role={{ item }}">{{ item.replace("_", " ") }}</a>
+        {% endfor %}
+      </nav>
+    </article>
+
     <div class="public-kpi-grid">
-      {% for item in metrics %}
       <article class="altea-card public-kpi altea-reveal">
-        <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-        <small>{{ item.detail }}</small>
+        <span>Engine score</span>
+        <strong>{{ control_snapshot.summary.engine_audit_total_score }}/10</strong>
+        <small>{{ control_snapshot.overall_status }}</small>
       </article>
-      {% endfor %}
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Ready</span>
+        <strong>{{ control_snapshot.ready_items|length }}</strong>
+        <small>items available now</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Blocked</span>
+        <strong>{{ control_snapshot.blocked_items|length }}</strong>
+        <small>need attention</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Human review</span>
+        <strong>{{ control_snapshot.review_queue|length }}</strong>
+        <small>queue items</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Video quality</span>
+        <strong>{{ control_snapshot.summary.dimension_scores.video_quality.score if control_snapshot.summary.dimension_scores.video_quality is defined else "n/a" }}/10</strong>
+        <small>{{ control_snapshot.summary.dimension_scores.video_quality.status if control_snapshot.summary.dimension_scores.video_quality is defined else "unknown" }}</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Metrics coverage</span>
+        <strong>{{ control_snapshot.summary.metrics_coverage.coverage_percent }}%</strong>
+        <small>{{ control_snapshot.summary.metrics_coverage.metric_rows }} metric rows</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Payout exposure</span>
+        <strong>{{ control_snapshot.summary.payout_exposure.pending_amount|round(0)|int }}</strong>
+        <small>{{ control_snapshot.summary.payout_exposure.currency }} pending</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Paid smoke</span>
+        <strong>{{ control_snapshot.summary.paid_smoke_status }}</strong>
+        <small>spend-gated only</small>
+      </article>
     </div>
 
     <div class="public-grid">
       <article class="altea-card public-panel public-panel--wide altea-reveal">
-        <header class="public-panel-head">
-          <h2>Gate summary</h2>
-          <span>Dangerous actions are audited</span>
-        </header>
+        <header class="public-panel-head"><h2>Executive snapshot</h2><span>launch decision in 30 seconds</span></header>
+        <table class="public-table">
+          <tbody>
+            <tr><th>Overall production readiness</th><td>{{ control_snapshot.overall_status }}</td></tr>
+            <tr><th>Campaign readiness</th><td>{{ control_snapshot.summary.campaign_readiness.status }} · {{ control_snapshot.summary.campaign_readiness.open_actions }} open actions</td></tr>
+            <tr><th>Destination capacity</th><td>{{ control_snapshot.summary.destination_capacity.status }} · {{ control_snapshot.summary.destination_capacity.active_destinations }}/{{ control_snapshot.summary.destination_capacity.destinations }} active</td></tr>
+            <tr><th>Metrics coverage</th><td>{{ control_snapshot.summary.metrics_coverage.coverage_percent }}% · {{ control_snapshot.summary.metrics_coverage.tracked_publications }} tracked publications</td></tr>
+            <tr><th>Money risk</th><td>{{ control_snapshot.summary.payout_exposure.pending_amount|round(0)|int }} {{ control_snapshot.summary.payout_exposure.currency }} pending payouts</td></tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Scores by dimension</h2><span>from EngineAudit</span></header>
+        <ul class="public-list">
+          {% for key, item in control_snapshot.summary.dimension_scores.items() %}
+          <li><div><strong>{{ key.replace("_", " ") }}</strong><small>{{ item.status }}</small></div><span>{{ item.score }}/10</span></li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Executive next decisions</h2><span>owner-level choices</span></header>
+        <ul class="public-checklist">
+          {% for decision in control_snapshot.summary.executive_next_decisions %}
+          <li>{{ decision }}</li>
+          {% else %}
+          <li>No executive decisions pending.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel public-panel--wide altea-reveal">
+        <header class="public-panel-head"><h2>What is ready</h2><span>safe operating surface</span></header>
+        <ul class="public-list">
+          {% for item in control_snapshot.ready_items %}
+          <li><div><strong>{{ item.label }}</strong><small>{{ item.detail or item.target_module }}</small></div><a href="{{ item.target_url }}">open</a></li>
+          {% else %}
+          <li><div><strong>No ready items yet</strong><small>Run EngineAudit or seed pilot data.</small></div></li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>What is blocked</h2><span>from scorecard and role queues</span></header>
+        <ul class="public-list">
+          {% for item in control_snapshot.blocked_items %}
+          <li><div><strong>{{ item.label }}</strong><small>{{ item.detail or item.target_module }}</small></div><a href="{{ item.target_url }}">fix</a></li>
+          {% else %}
+          <li><div><strong>No blockers</strong><small>Latest snapshot has no blockers for this role.</small></div></li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Human review queue</h2><span>acceptance and regeneration</span></header>
+        <ul class="public-list">
+          {% for item in control_snapshot.review_queue %}
+          <li><div><strong>{{ item.label }}</strong><small>{{ item.detail or item.target_module }}</small></div><a href="{{ item.target_url }}">review</a></li>
+          {% else %}
+          <li><div><strong>Queue is empty</strong><small>No OutputAcceptance items need review.</small></div></li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Safe actions</h2><span>no spend gate required</span></header>
+        <ul class="public-list">
+          {% for item in control_snapshot.safe_actions %}
+          <li><div><strong>{{ item.action_type }}</strong><small>{{ item.reason or item.target_module }}</small></div><a href="{{ item.target_url }}">go</a></li>
+          {% else %}
+          <li><div><strong>No safe actions</strong><small>Resolve blockers or select another role.</small></div></li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel altea-reveal">
+        <header class="public-panel-head"><h2>Gated actions</h2><span>human/spend/certification required</span></header>
+        <ul class="public-list">
+          {% for item in control_snapshot.gated_actions %}
+          <li><div><strong>{{ item.action_type }}</strong><small>{{ item.reason or "gate required" }}</small></div><a href="/settings/access">gates</a></li>
+          {% else %}
+          <li><div><strong>No gated actions</strong><small>Current role has no gated next actions.</small></div></li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel public-panel--wide altea-reveal">
+        <header class="public-panel-head"><h2>Road to 10/10</h2><span>from EngineAudit</span></header>
+        <ul class="public-checklist">
+          {% for action in control_snapshot.next_actions %}
+          <li>{{ action.action_type }} -> {{ action.target_module }}</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="altea-card public-panel public-panel--wide altea-reveal">
+        <header class="public-panel-head"><h2>Gate summary</h2><span>Dangerous actions are audited</span></header>
         <table class="public-table">
           <thead><tr><th>Action</th><th>Roles</th><th>Certification</th><th>Spend gate</th><th>Audit</th></tr></thead>
           <tbody>
@@ -60,38 +201,7 @@
           </tbody>
         </table>
       </article>
-
-      <article class="altea-card public-panel altea-reveal">
-        <header class="public-panel-head"><h2>Training</h2><span>Strict gates: {{ settings.public_pilot_strict_training_gates }}</span></header>
-        <ul class="public-list">
-          {% for module in training_modules %}
-          <li>
-            <div>
-              <strong>{{ module.title }}</strong>
-              <small>{{ module.code }}</small>
-            </div>
-            {% if module.code in certifications %}
-            <span class="public-pill is-good">certified</span>
-            {% else %}
-            <form method="post" action="/control-room/training/{{ module.code }}/submit">
-              <button class="public-link-button" type="submit">complete</button>
-            </form>
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-      </article>
-
-      <article class="altea-card public-panel altea-reveal">
-        <header class="public-panel-head"><h2>Next actions</h2><span>No paid calls here</span></header>
-        <ul class="public-checklist">
-          {% for action in next_actions %}
-          <li>{{ action }}</li>
-          {% endfor %}
-        </ul>
-      </article>
     </div>
   </div>
 </section>
 {% endblock %}
-

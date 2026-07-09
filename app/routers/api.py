@@ -79,6 +79,7 @@ from app.creative_workbench import (
     RewriteWorkflowService,
     WorkbenchService,
 )
+from app.control_room import ControlRoomSnapshotService
 from app.database import get_db
 from app.destination_setup import DestinationProfilePackBuilder, DestinationSetupTaskService, SetupRequirementService
 from app.destination_setup.errors import DestinationSetupError
@@ -207,6 +208,12 @@ class EngineAuditRunRequest(BaseModel):
     scope_type: str = "global"
     scope_id: int | None = None
     write_report: bool = False
+
+
+class ControlRoomRefreshRequest(BaseModel):
+    role: str = "owner"
+    scope_type: str = "global"
+    scope_id: int | None = None
 
 
 class GeneratorProductRequest(BaseModel):
@@ -1305,6 +1312,66 @@ def get_engine_status(publishing_job_id: int, db: Session = Depends(get_db)):
         return VideoFactoryEngine(db).status_for_publishing_job(publishing_job_id)
     except EngineError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/control-room/snapshot")
+def get_control_room_snapshot(role: str = "owner", db: Session = Depends(get_db)):
+    service = ControlRoomSnapshotService(db)
+    snapshot = service.latest(role=role) or service.refresh(role=role)
+    return service.output(snapshot).model_dump(mode="json")
+
+
+@router.post("/control-room/refresh")
+def refresh_control_room_snapshot(payload: ControlRoomRefreshRequest, db: Session = Depends(get_db)):
+    service = ControlRoomSnapshotService(db)
+    snapshot = service.refresh(role=payload.role, scope_type=payload.scope_type, scope_id=payload.scope_id)
+    return service.output(snapshot).model_dump(mode="json")
+
+
+@router.get("/control-room/roles/{role}")
+def get_control_room_role(role: str, db: Session = Depends(get_db)):
+    service = ControlRoomSnapshotService(db)
+    snapshot = service.latest(role=role) or service.refresh(role=role)
+    return service.output(snapshot).model_dump(mode="json")
+
+
+@router.get("/control-room/actions")
+def get_control_room_actions(snapshot_id: int | None = None, db: Session = Depends(get_db)):
+    service = ControlRoomSnapshotService(db)
+    return [
+        {
+            "id": action.id,
+            "snapshot_id": action.snapshot_id,
+            "action_type": action.action_type,
+            "role": action.role,
+            "target_module": action.target_module,
+            "target_url": action.target_url,
+            "status": action.status,
+            "safe_to_execute": action.safe_to_execute,
+            "requires_human": action.requires_human,
+            "requires_spend_gate": action.requires_spend_gate,
+            "reason": action.reason,
+            "payload": action.payload_json,
+        }
+        for action in service.actions(snapshot_id=snapshot_id)
+    ]
+
+
+@router.post("/control-room/actions/{action_id}/route")
+def route_control_room_action(action_id: int, db: Session = Depends(get_db)):
+    service = ControlRoomSnapshotService(db)
+    try:
+        action = service.route_action(action_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="control_room_action_not_found") from exc
+    return {
+        "id": action.id,
+        "status": action.status,
+        "target_module": action.target_module,
+        "target_url": action.target_url,
+        "safe_to_execute": action.safe_to_execute,
+        "requires_spend_gate": action.requires_spend_gate,
+    }
 
 
 @router.post("/creative/specs/build")
