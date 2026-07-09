@@ -34,6 +34,20 @@ python -m uvicorn app.main:app --reload
 
 Open http://localhost:8000.
 
+## ALTEA Motion UI Prototype
+
+The ALTEA Motion prototype is a local animated premium UI kit built with FastAPI, Jinja, CSS, vanilla JS, and local SVG assets. It includes splash, login, auth-loading, dashboard-loading, and final dashboard screens without real authentication or external CDN assets.
+
+Open:
+
+```text
+http://localhost:8000/altea-motion/splash
+http://localhost:8000/altea-motion/login
+http://localhost:8000/altea-motion/auth-loading
+http://localhost:8000/altea-motion/dashboard-loading
+http://localhost:8000/altea-motion/dashboard
+```
+
 ## Fast Demo
 
 Run the full mock/local MVP workflow from one command:
@@ -110,6 +124,20 @@ python scripts\generate_video.py --product-id 1 --llm-provider openai --video-pr
 ```
 
 Full-video real generation requires `--full-video` and still obeys the configured max scene and duration caps.
+
+## One Video Acceptance
+
+`/one-video-acceptance` is the controlled Bombbar product-safe UGC path for a single 9:16 render before scaling. It builds a `ProductScenePolicy`, separates wrapper/edible/style/lifestyle refs, records an asset audit and MVP scorecard, blocks unsafe bite/macro scenes when edible references are weak, adds Bombbar-specific muesli/granola and wrapper-drift negatives, and keeps paid smoke behind the existing real-spend gates.
+
+```powershell
+python scripts\build_one_video_render_plan.py --product-id 7 --platform "Instagram Reels"
+python scripts\one_video_prompt_only.py --plan-id 1
+python scripts\one_video_run_real.py --plan-id 1 --video-provider runway --real-run --max-scenes 1
+python scripts\one_video_review.py --result-id 1 --status needs_regeneration --notes "Wrapper drifted and edible bar became muesli-like."
+```
+
+See `docs/ONE_VIDEO_ACCEPTANCE.md`.
+See `docs/BOMBBAR_ONE_VIDEO_ACCEPTANCE_REPORT.md` for the latest post-merge prompt-only acceptance record.
 
 ## Hook-Driven Video Generator
 

@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Product-Safe UGC</p>
+    <h1>One Video Acceptance</h1>
+    <p class="muted">Bombbar 9:16 controlled render plan, prompt-only and paid smoke gate.</p>
+  </div>
+  <div class="status">{{ provider_status.generation_mode }} / spend {{ provider_status.allow_real_spend }}</div>
+</section>
+
+{% if error %}
+  <section class="panel">
+    <strong>Error</strong>
+    <p>{{ error }}</p>
+  </section>
+{% endif %}
+
+<section class="panel">
+  <form method="post" action="/one-video-acceptance/run" class="form-grid">
+    <label>Product
+      <select name="product_id">
+        {% for product in products %}
+          <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>
+            #{{ product.id }} {{ product.brand }} - {{ product.title }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Platform
+      <input name="platform" value="{{ selected_platform or 'Instagram Reels' }}">
+    </label>
+    <label>Duration
+      <input name="duration_seconds" type="number" value="{{ selected_duration or 15 }}">
+    </label>
+    <label>Provider
+      <input name="video_provider" value="{{ selected_video_provider or 'runway' }}">
+    </label>
+    <div class="actions">
+      <button name="action" value="build_plan">Build plan</button>
+    </div>
+  </form>
+</section>
+
+{% if selected_plan %}
+  {% set policy = selected_plan.product_scene_policy_json or {} %}
+  <section class="grid">
+    <article class="metric">
+      <span>Plan</span>
+      <strong>#{{ selected_plan.id }}</strong>
+      <p>{{ selected_plan.status }}</p>
+    </article>
+    <article class="metric">
+      <span>Wrapper refs</span>
+      <strong>{{ policy.wrapper_reference_count }}</strong>
+      <p>{{ 'close-up allowed' if policy.wrapper_closeup_allowed else 'close-up blocked' }}</p>
+    </article>
+    <article class="metric">
+      <span>Edible refs</span>
+      <strong>{{ policy.edible_reference_count }}</strong>
+      <p>{{ 'bite allowed' if policy.bite_scene_allowed else 'bite blocked' }}</p>
+    </article>
+    <article class="metric">
+      <span>Style refs</span>
+      <strong>{{ policy.style_reference_count or 0 }}</strong>
+      <p>creator / Wibes tone</p>
+    </article>
+    <article class="metric">
+      <span>Lifestyle refs</span>
+      <strong>{{ policy.lifestyle_reference_count or 0 }}</strong>
+      <p>context only, not edible proof</p>
+    </article>
+    <article class="metric">
+      <span>End card</span>
+      <strong>{{ 'yes' if policy.end_card_required else 'no' }}</strong>
+      <p>{{ 'packshot overlay required' if policy.packshot_overlay_required else 'reference i2v' }}</p>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Scene Policy</h2>
+    <div class="grid">
+      <div>
+        <h3>Allowed</h3>
+        <ul>
+          {% for item in policy.allowed_scene_types or [] %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <h3>Blocked</h3>
+        <ul>
+          {% for item in policy.blocked_scene_types or [] %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <h3>Next Actions</h3>
+        <ul>
+          {% for item in policy.next_actions or [] %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  {% if policy.asset_audit %}
+    <section class="panel">
+      <h2>Asset Audit</h2>
+      <p class="muted">Style/lifestyle refs shape UGC tone, but do not unlock edible bite or macro scenes.</p>
+      {% for group in [
+        ('Wrapper refs', policy.asset_audit.wrapper_refs),
+        ('Edible refs', policy.asset_audit.edible_refs),
+        ('Style refs', policy.asset_audit.style_refs),
+        ('Lifestyle refs', policy.asset_audit.lifestyle_refs)
+      ] %}
+        <h3>{{ group[0] }}</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Status</th>
+              <th>Evidence</th>
+              <th>Next action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in group[1] %}
+              <tr>
+                <td>{{ item.label }}</td>
+                <td>{{ item.status }}</td>
+                <td>{{ item.evidence | join(', ') if item.evidence else 'none' }}</td>
+                <td>{{ item.next_action or 'none' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+      <p><strong>Decision:</strong> {{ policy.asset_audit.decision }}</p>
+    </section>
+  {% endif %}
+
+  {% if selected_plan.prompt_preview_json and selected_plan.prompt_preview_json.mvp_scorecard %}
+    {% set scorecard = selected_plan.prompt_preview_json.mvp_scorecard %}
+    <section class="panel">
+      <h2>MVP Scorecard</h2>
+      <div class="grid">
+        <article class="metric">
+          <span>Total</span>
+          <strong>{{ scorecard.total_score }}/{{ scorecard.max_score }}</strong>
+          <p>{{ scorecard.verdict }}</p>
+        </article>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Criterion</th>
+            <th>Score</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in scorecard['items'] %}
+            <tr>
+              <td>{{ item.label }}</td>
+              <td>{{ item.score }}/{{ item.weight }}</td>
+              <td>{{ item.notes }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Scene Plan</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Role</th>
+          <th>Line</th>
+          <th>Product</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for scene in selected_plan.scene_plan_json or [] %}
+          <tr>
+            <td>{{ scene.starts_at }}-{{ scene.starts_at + scene.duration_seconds }}s</td>
+            <td>{{ scene.role }}</td>
+            <td>{{ scene.spoken_line }}</td>
+            <td>{{ scene.product_visibility }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <form method="post" action="/one-video-acceptance/run" class="form-grid">
+      <input type="hidden" name="plan_id" value="{{ selected_plan.id }}">
+      <label>Provider
+        <input name="video_provider" value="{{ selected_plan.provider }}">
+      </label>
+      <label>Max scenes
+        <input name="max_scenes" type="number" value="1">
+      </label>
+      <div class="actions">
+        <button name="action" value="prompt_only">Prompt-only</button>
+        <button class="danger" name="action" value="real_run">Paid smoke</button>
+      </div>
+    </form>
+    <p class="muted">Gate ready: {{ real_smoke_gate_ready }}. Selected variant #{{ selected_plan.creative_variant_id }}.</p>
+  </section>
+
+  {% if selected_plan.prompt_preview_json %}
+    <section class="panel">
+      <h2>Prompt Preview</h2>
+      <p><strong>Negative:</strong> {{ selected_plan.negative_prompt }}</p>
+      <pre>{{ selected_plan.prompt_preview_json | tojson(indent=2) }}</pre>
+    </section>
+  {% endif %}
+{% endif %}
+
+{% if latest_results %}
+  <section class="panel">
+    <h2>Results</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Status</th>
+          <th>Video Job</th>
+          <th>Output</th>
+          <th>Report</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in latest_results %}
+          <tr>
+            <td>#{{ item.id }}</td>
+            <td>{{ item.status }} / {{ item.human_review_status }}</td>
+            <td>{{ item.video_job_id or 'none' }}</td>
+            <td>{{ item.final_video_path or item.local_output_paths_json | join(', ') }}</td>
+            <td>{{ item.generation_report_path or 'none' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Human Review</h2>
+    <form method="post" action="/one-video-acceptance/run" class="form-grid">
+      <label>Result
+        <select name="result_id">
+          {% for item in latest_results %}
+            <option value="{{ item.id }}">#{{ item.id }} video {{ item.video_job_id or 'none' }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Status
+        <select name="review_status">
+          <option value="needs_regeneration">needs_regeneration</option>
+          <option value="needs_human_review">needs_human_review</option>
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+        </select>
+      </label>
+      <label>Notes
+        <textarea name="review_notes">Wrapper drifted or edible bar became muesli-like.</textarea>
+      </label>
+      <div class="actions">
+        <button name="action" value="review">Save review</button>
+      </div>
+    </form>
+  </section>
+{% endif %}
+
+{% if result %}
+  <section class="panel">
+    <h2>Last Action</h2>
+    <pre>{{ result | tojson(indent=2) }}</pre>
+  </section>
+{% endif %}
+
+<section class="panel">
+  <h2>Recent Plans</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>SKU</th>
+        <th>Status</th>
+        <th>Variant</th>
+        <th>Prompt</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for plan in plans %}
+        <tr>
+          <td><a href="/one-video-acceptance?plan_id={{ plan.id }}">#{{ plan.id }}</a></td>
+          <td>{{ plan.sku }}</td>
+          <td>{{ plan.status }}</td>
+          <td>{{ plan.creative_variant_id or 'none' }}</td>
+          <td>{{ plan.prompt_pack_id or 'none' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

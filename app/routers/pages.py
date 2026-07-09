@@ -22,6 +22,7 @@ from app.output_acceptance import (
     OutputAcceptanceError,
     RegenerationFeedbackBuilder,
 )
+from app.one_video_acceptance import BombbarOneVideoRenderPlanner, OneVideoAcceptanceError, OneVideoAcceptanceService
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.errors import AssetKitError
@@ -532,6 +533,110 @@ def working_video_context(db: Session) -> dict:
             status["generation_mode"] == "real"
             and status["allow_real_spend"]
             and status["runway_api_secret_configured"]
+        ),
+    }
+
+
+@router.get("/one-video-acceptance", response_class=HTMLResponse)
+def one_video_acceptance_page(
+    request: Request,
+    plan_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    selected_plan = db.get(models.OneVideoRenderPlan, plan_id) if plan_id else BombbarOneVideoRenderPlanner(db).latest()
+    return templates.TemplateResponse(
+        "one_video_acceptance.html",
+        {
+            "request": request,
+            "page_title": "One Video Acceptance",
+            "result": None,
+            "error": None,
+            "selected_plan": selected_plan,
+            **one_video_acceptance_context(db, selected_plan.id if selected_plan else None),
+        },
+    )
+
+
+@router.post("/one-video-acceptance/run", response_class=HTMLResponse)
+def run_one_video_acceptance_page(
+    request: Request,
+    product_id: int = Form(0),
+    platform: str = Form("Instagram Reels"),
+    duration_seconds: int = Form(15),
+    plan_id: str = Form(""),
+    result_id: str = Form(""),
+    video_provider: str = Form("runway"),
+    max_scenes: int = Form(1),
+    review_status: str = Form("needs_regeneration"),
+    review_notes: str = Form(""),
+    action: str = Form("build_plan"),
+    db: Session = Depends(get_db),
+):
+    output = None
+    error = None
+    selected_plan = None
+    try:
+        service = OneVideoAcceptanceService(db)
+        if action == "build_plan":
+            selected_plan = service.build_plan(
+                product_id,
+                platform=platform,
+                duration_seconds=duration_seconds,
+                provider=video_provider,
+            )
+            output = BombbarOneVideoRenderPlanner.as_output(selected_plan).model_dump(mode="json")
+        else:
+            selected_plan = BombbarOneVideoRenderPlanner(db).get(int(plan_id))
+            if action == "prompt_only":
+                selected_plan = service.prompt_only(selected_plan.id, provider=video_provider)
+                output = BombbarOneVideoRenderPlanner.as_output(selected_plan).model_dump(mode="json")
+            elif action == "real_run":
+                result = service.run_real(
+                    selected_plan.id,
+                    provider=video_provider,
+                    real_run=True,
+                    max_scenes=max_scenes,
+                )
+                output = OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+            elif action == "review":
+                result = service.review(
+                    int(result_id),
+                    status=review_status,
+                    notes=review_notes or None,
+                )
+                output = OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+                selected_plan = result.plan
+    except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        "one_video_acceptance.html",
+        {
+            "request": request,
+            "page_title": "One Video Acceptance",
+            "result": output,
+            "error": error,
+            "selected_plan": selected_plan,
+            "selected_product_id": product_id,
+            "selected_platform": platform,
+            "selected_duration": duration_seconds,
+            "selected_video_provider": video_provider,
+            **one_video_acceptance_context(db, selected_plan.id if selected_plan else None),
+        },
+    )
+
+
+def one_video_acceptance_context(db: Session, selected_plan_id: int | None) -> dict:
+    provider_status = provider_key_status()
+    latest_results = OneVideoAcceptanceService(db).list_results(selected_plan_id, limit=10) if selected_plan_id else []
+    return {
+        "products": db.scalars(select(models.Product).order_by(models.Product.title)).all(),
+        "plans": BombbarOneVideoRenderPlanner(db).list_recent(limit=20),
+        "latest_results": latest_results,
+        "provider_status": provider_status,
+        "real_smoke_gate_ready": (
+            provider_status["generation_mode"] == "real"
+            and provider_status["allow_real_spend"]
+            and provider_status["runway_api_secret_configured"]
         ),
     }
 

@@ -1293,6 +1293,74 @@ class VideoOutputAcceptance(Base, TimestampMixin):
     director_prompt_pack = relationship("DirectorPromptPack")
 
 
+class OneVideoRenderPlan(Base, TimestampMixin):
+    __tablename__ = "one_video_render_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    platform = Column(String(120), nullable=False, default="Instagram Reels", index=True)
+    aspect_ratio = Column(String(20), nullable=False, default="9:16")
+    duration_seconds = Column(Integer, nullable=False, default=15)
+    provider = Column(String(120), nullable=False, default="runway")
+    status = Column(String(80), nullable=False, default="plan_ready", index=True)
+    creative_spec_id = Column(Integer, ForeignKey("video_creative_spec_records.id"), nullable=True, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=True, index=True)
+    director_prompt_pack_id = Column(Integer, ForeignKey("director_prompt_packs.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=True, index=True)
+    product_scene_policy_json = Column(JSON, default=dict, nullable=False)
+    scene_plan_json = Column(JSON, default=list, nullable=False)
+    prompt_preview_json = Column(JSON, default=dict, nullable=False)
+    negative_prompt = Column(Text, nullable=True)
+    acceptance_checklist_json = Column(JSON, default=list, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+    creative_spec = relationship("VideoCreativeSpecRecord")
+    creative_variant = relationship("CreativeVariant")
+    ai_production_brief = relationship("AIProductionBrief")
+    director_prompt_pack = relationship("DirectorPromptPack")
+    prompt_pack = relationship("PromptPack")
+    video_generation_variant = relationship("VideoGenerationVariant")
+    results = relationship("OneVideoRenderResult", back_populates="plan", cascade="all, delete-orphan")
+
+
+class OneVideoRenderResult(Base, TimestampMixin):
+    __tablename__ = "one_video_render_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(Integer, ForeignKey("one_video_render_plans.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
+    video_generation_variant_id = Column(Integer, ForeignKey("video_generation_variants.id"), nullable=True, index=True)
+    prompt_pack_id = Column(Integer, ForeignKey("prompt_packs.id"), nullable=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    output_acceptance_id = Column(Integer, ForeignKey("video_output_acceptances.id"), nullable=True, index=True)
+    provider = Column(String(120), nullable=False, default="runway")
+    status = Column(String(80), nullable=False, default="created", index=True)
+    max_scenes = Column(Integer, nullable=False, default=1)
+    provider_job_ids_json = Column(JSON, default=list, nullable=False)
+    local_output_paths_json = Column(JSON, default=list, nullable=False)
+    final_video_path = Column(String(500), nullable=True)
+    generation_report_path = Column(String(500), nullable=True)
+    human_review_status = Column(String(80), nullable=False, default="needs_human_review", index=True)
+    human_review_notes = Column(Text, nullable=True)
+    result_json = Column(JSON, default=dict, nullable=False)
+    errors_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+
+    plan = relationship("OneVideoRenderPlan", back_populates="results")
+    product = relationship("Product")
+    creative_variant = relationship("CreativeVariant")
+    video_generation_variant = relationship("VideoGenerationVariant")
+    prompt_pack = relationship("PromptPack")
+    video_job = relationship("VideoJob")
+    output_acceptance = relationship("VideoOutputAcceptance")
+
+
 class SceneRegenerationRequest(Base, TimestampMixin):
     __tablename__ = "scene_regeneration_requests"
 
@@ -2248,3 +2316,144 @@ class CampaignScalingRecommendation(Base, TimestampMixin):
     product = relationship("Product")
     creative_variant = relationship("CreativeVariant")
     destination = relationship("PublishingDestination")
+
+
+class Organization(Base, TimestampMixin):
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(180), nullable=False)
+    slug = Column(String(160), unique=True, nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    settings_json = Column(JSON, default=dict, nullable=False)
+
+    memberships = relationship("Membership", back_populates="organization", cascade="all, delete-orphan")
+
+
+class UserProfile(Base, TimestampMixin):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    supabase_user_id = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    display_name = Column(String(180), nullable=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    last_login_at = Column(DateTime, nullable=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+
+    memberships = relationship("Membership", back_populates="user_profile", cascade="all, delete-orphan")
+    public_training_attempts = relationship("UserTrainingAttempt", back_populates="user_profile", cascade="all, delete-orphan")
+    public_training_certifications = relationship("TrainingCertification", back_populates="user_profile", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="user_profile")
+
+
+class Membership(Base, TimestampMixin):
+    __tablename__ = "memberships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    role = Column(String(80), nullable=False, default="viewer", index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    permissions_json = Column(JSON, default=list, nullable=False)
+
+    organization = relationship("Organization", back_populates="memberships")
+    user_profile = relationship("UserProfile", back_populates="memberships")
+
+
+class TrainingModule(Base, TimestampMixin):
+    __tablename__ = "public_training_modules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(120), unique=True, nullable=False, index=True)
+    title = Column(String(180), nullable=False)
+    description = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False, default=100, index=True)
+    required_for_roles_json = Column(JSON, default=list, nullable=False)
+    required_for_permissions_json = Column(JSON, default=list, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+
+    lessons = relationship("PublicTrainingLesson", back_populates="module", cascade="all, delete-orphan")
+    questions = relationship("TrainingQuestion", back_populates="module", cascade="all, delete-orphan")
+    attempts = relationship("UserTrainingAttempt", back_populates="module", cascade="all, delete-orphan")
+    certifications = relationship("TrainingCertification", back_populates="module", cascade="all, delete-orphan")
+
+
+class PublicTrainingLesson(Base, TimestampMixin):
+    __tablename__ = "public_training_lessons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    title = Column(String(180), nullable=False)
+    content_markdown = Column(Text, nullable=False)
+    order_index = Column(Integer, nullable=False, default=100, index=True)
+
+    module = relationship("TrainingModule", back_populates="lessons")
+
+
+class TrainingQuestion(Base, TimestampMixin):
+    __tablename__ = "public_training_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    question_text = Column(Text, nullable=False)
+    question_type = Column(String(80), nullable=False, default="single_choice", index=True)
+    options_json = Column(JSON, default=list, nullable=False)
+    correct_answer_json = Column(JSON, default=list, nullable=False)
+    explanation = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False, default=100, index=True)
+
+    module = relationship("TrainingModule", back_populates="questions")
+
+
+class UserTrainingAttempt(Base, TimestampMixin):
+    __tablename__ = "user_training_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="completed", index=True)
+    score = Column(Float, nullable=False, default=0)
+    passed = Column(Boolean, default=False, nullable=False, index=True)
+    answers_json = Column(JSON, default=dict, nullable=False)
+    started_at = Column(DateTime, default=utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    user_profile = relationship("UserProfile", back_populates="public_training_attempts")
+    module = relationship("TrainingModule", back_populates="attempts")
+
+
+class TrainingCertification(Base, TimestampMixin):
+    __tablename__ = "public_training_certifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    attempt_id = Column(Integer, ForeignKey("user_training_attempts.id"), nullable=True, index=True)
+    module_code = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="passed", index=True)
+    granted_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+
+    user_profile = relationship("UserProfile", back_populates="public_training_certifications")
+    module = relationship("TrainingModule", back_populates="certifications")
+    attempt = relationship("UserTrainingAttempt")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    action = Column(String(160), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="allowed", index=True)
+    reason = Column(Text, nullable=True)
+    entity_type = Column(String(120), nullable=True, index=True)
+    entity_id = Column(String(160), nullable=True, index=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    user_profile = relationship("UserProfile", back_populates="audit_logs")
+    organization = relationship("Organization")

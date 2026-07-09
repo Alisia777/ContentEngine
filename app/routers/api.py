@@ -4,12 +4,13 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
 from app import models, schemas
+from app.config import get_settings
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
@@ -31,6 +32,7 @@ from app.output_acceptance import (
     OutputAcceptanceError,
     RegenerationFeedbackBuilder,
 )
+from app.one_video_acceptance import BombbarOneVideoRenderPlanner, OneVideoAcceptanceError, OneVideoAcceptanceService
 from app.bombar_launch import (
     BombarMatrixImporter,
     DestinationSetupPlanner,
@@ -134,6 +136,18 @@ from app.participant_portal import (
     RecommendationService,
     SubmissionService,
 )
+from app.public_pilot.access import PublicPilotAccessService
+from app.public_pilot.auth import PublicPilotUser, get_current_public_user
+from app.public_pilot.gate_matrix import (
+    METRICS_IMPORT,
+    ONE_VIDEO_REAL_RUN,
+    OUTPUT_REVIEW,
+    PUBLISHING_APPROVE,
+    VARIANT_REAL_SMOKE,
+    VIDEO_APPROVE,
+    VIDEO_REJECT,
+    WORKING_VIDEO_REAL_SMOKE,
+)
 from app.product_strategy import OfferStrategyBuilder, ProductStrategyBuilder, ProductStrategyDataError
 from app.publishing import ManualUploadProvider, PublishingDestinationService, PublishingPackageService, PublishingScheduler
 from app.publishing.errors import PublishingError
@@ -156,6 +170,32 @@ from app.services.upload_service import UploadService
 from app.services.analytics_service import AnalyticsService
 
 router = APIRouter(prefix="/api", tags=["api"])
+
+
+def require_public_pilot_action(action: str):
+    def guard(
+        request: Request,
+        db: Session = Depends(get_db),
+        user: PublicPilotUser = Depends(get_current_public_user),
+    ):
+        settings = get_settings()
+        if not settings.public_pilot_mode and not settings.auth_required:
+            return None
+        spend_gate_confirmed = request.headers.get("x-qvf-spend-gate-confirmed", "").lower() == "true"
+        return PublicPilotAccessService(db).require_action(
+            user_profile_id=user.profile.id,
+            organization_id=user.organization.id,
+            role=user.role,
+            action=action,
+            spend_gate_confirmed=spend_gate_confirmed,
+            payload={
+                "method": request.method,
+                "path": request.url.path,
+                "query": dict(request.query_params),
+            },
+        )
+
+    return guard
 
 
 class EngineRunRequest(BaseModel):
@@ -304,6 +344,28 @@ class WorkingVideoRealSmokeRequest(BaseModel):
     real_run: bool = False
     allow_real_spend: bool = False
     max_scenes: int = 1
+
+
+class OneVideoRenderPlanRequest(BaseModel):
+    product_id: int
+    platform: str = "Instagram Reels"
+    duration_seconds: int = 15
+    video_provider: str = "runway"
+
+
+class OneVideoPromptOnlyRequest(BaseModel):
+    video_provider: str = "runway"
+
+
+class OneVideoRealRunRequest(BaseModel):
+    video_provider: str = "runway"
+    real_run: bool = False
+    max_scenes: int = 1
+
+
+class OneVideoReviewRequest(BaseModel):
+    status: str
+    notes: str | None = None
 
 
 class BloggerMeaningSpecBuildRequest(BaseModel):
@@ -999,6 +1061,7 @@ def approve_safe_publishing_package(
     package_id: int,
     payload: schemas.PublishingPackageApprovalRequest,
     db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(PUBLISHING_APPROVE)),
 ):
     package = get_or_404(db, models.PublishingPackage, package_id)
     try:
@@ -1903,6 +1966,7 @@ def run_variant_real_smoke(
     creative_variant_id: int,
     payload: VariantRealSmokeRequest,
     db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(VARIANT_REAL_SMOKE)),
 ):
     if not payload.real_run:
         raise HTTPException(status_code=400, detail="Real smoke requires explicit real_run=true.")
@@ -1975,7 +2039,11 @@ def working_video_prompt_only(payload: WorkingVideoPromptOnlyRequest, db: Sessio
 
 
 @router.post("/working-video/real-smoke")
-def working_video_real_smoke(payload: WorkingVideoRealSmokeRequest, db: Session = Depends(get_db)):
+def working_video_real_smoke(
+    payload: WorkingVideoRealSmokeRequest,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(WORKING_VIDEO_REAL_SMOKE)),
+):
     if not payload.real_run:
         raise HTTPException(status_code=400, detail="Working video real smoke requires explicit real_run=true.")
     try:
@@ -1994,6 +2062,82 @@ def working_video_status(selected_variant_id: int, db: Session = Depends(get_db)
     try:
         return WorkingVideoGenerator(db).status(selected_variant_id).model_dump(mode="json")
     except (DemandError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/plans/build")
+@router.post("/one-video-acceptance/plans")
+def build_one_video_render_plan(payload: OneVideoRenderPlanRequest, db: Session = Depends(get_db)):
+    try:
+        plan = OneVideoAcceptanceService(db).build_plan(
+            payload.product_id,
+            platform=payload.platform,
+            duration_seconds=payload.duration_seconds,
+            provider=payload.video_provider,
+        )
+        return BombbarOneVideoRenderPlanner.as_output(plan).model_dump(mode="json")
+    except (OneVideoAcceptanceError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/one-video-acceptance/plans/{plan_id}")
+def get_one_video_render_plan(plan_id: int, db: Session = Depends(get_db)):
+    try:
+        plan = BombbarOneVideoRenderPlanner(db).get(plan_id)
+        return BombbarOneVideoRenderPlanner.as_output(plan).model_dump(mode="json")
+    except OneVideoAcceptanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/plans/{plan_id}/prompt-only")
+def one_video_prompt_only(plan_id: int, payload: OneVideoPromptOnlyRequest, db: Session = Depends(get_db)):
+    try:
+        plan = OneVideoAcceptanceService(db).prompt_only(plan_id, provider=payload.video_provider)
+        return BombbarOneVideoRenderPlanner.as_output(plan).model_dump(mode="json")
+    except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/plans/{plan_id}/run-real")
+@router.post("/one-video-acceptance/plans/{plan_id}/real-run")
+def one_video_real_run(
+    plan_id: int,
+    payload: OneVideoRealRunRequest,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(ONE_VIDEO_REAL_RUN)),
+):
+    try:
+        result = OneVideoAcceptanceService(db).run_real(
+            plan_id,
+            provider=payload.video_provider,
+            real_run=payload.real_run,
+            max_scenes=payload.max_scenes,
+        )
+        return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+    except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/one-video-acceptance/results/{result_id}")
+def get_one_video_result(result_id: int, db: Session = Depends(get_db)):
+    try:
+        result = OneVideoAcceptanceService(db).get_result(result_id)
+        return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+    except OneVideoAcceptanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/one-video-acceptance/results/{result_id}/review")
+def one_video_review(
+    result_id: int,
+    payload: OneVideoReviewRequest,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(OUTPUT_REVIEW)),
+):
+    try:
+        result = OneVideoAcceptanceService(db).review(result_id, status=payload.status, notes=payload.notes)
+        return OneVideoAcceptanceService.as_result_output(result).model_dump(mode="json")
+    except OneVideoAcceptanceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -3159,13 +3303,22 @@ def regenerate_video_clip(clip_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/video-jobs/{video_job_id}/approve", response_model=schemas.VideoJobRead)
-def approve_video_job(video_job_id: int, db: Session = Depends(get_db)):
+def approve_video_job(
+    video_job_id: int,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(VIDEO_APPROVE)),
+):
     video_job = get_or_404(db, models.VideoJob, video_job_id)
     return VideoEngine(db).approve_video(video_job)
 
 
 @router.post("/video-jobs/{video_job_id}/reject", response_model=schemas.VideoJobRead)
-def reject_video_job(video_job_id: int, reason: str = "Needs revision", db: Session = Depends(get_db)):
+def reject_video_job(
+    video_job_id: int,
+    reason: str = "Needs revision",
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(VIDEO_REJECT)),
+):
     video_job = get_or_404(db, models.VideoJob, video_job_id)
     return VideoEngine(db).reject_video(video_job, reason)
 
@@ -3195,7 +3348,11 @@ def generate_publishing_metadata(package_id: int, db: Session = Depends(get_db))
 
 
 @router.post("/publishing-packages/{package_id}/approve", response_model=schemas.PublishingPackageRead)
-def approve_publishing_package(package_id: int, db: Session = Depends(get_db)):
+def approve_publishing_package(
+    package_id: int,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(PUBLISHING_APPROVE)),
+):
     package = get_or_404(db, models.PublishingPackage, package_id)
     return PublishingEngine(db).approve(package)
 
@@ -3835,7 +3992,11 @@ def list_tracking_links(campaign_id: int | None = None, publishing_task_id: int 
 
 
 @router.post("/metrics-intake/import-csv")
-def import_metrics_csv(payload: MetricsCSVImportRequest, db: Session = Depends(get_db)):
+def import_metrics_csv(
+    payload: MetricsCSVImportRequest,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(METRICS_IMPORT)),
+):
     try:
         result = CSVImporter(db).import_csv_text(**payload.model_dump())
         return result.model_dump(mode="json")

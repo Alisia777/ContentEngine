@@ -1,0 +1,36 @@
+<aside class="altea-sidebar altea-reveal">
+  <a class="altea-sidebar__brand" href="/altea-motion/dashboard" aria-label="ALTEA dashboard">
+    <img src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+    <span>
+      <strong>ALTEA</strong>
+      <small>BEAUTY &amp; HARMONY</small>
+    </span>
+  </a>
+  <nav class="altea-sidebar__nav" aria-label="Основная навигация">
+    {% set nav_items = [
+      ("Главная", "home", true),
+      ("Показатели", "chart", false),
+      ("Заказы", "orders", false),
+      ("Клиенты", "users", false),
+      ("Каталог", "catalog", false),
+      ("Контент", "content", false),
+      ("Маркетинг", "marketing", false),
+      ("Отчёты", "reports", false),
+      ("Интеграции", "integrations", false),
+      ("Настройки", "settings", false)
+    ] %}
+    {% for label, icon, active in nav_items %}
+    <a class="{% if active %}is-active{% endif %}" href="/altea-motion/dashboard">
+      <span class="altea-nav-icon altea-nav-icon--{{ icon }}" aria-hidden="true"></span>
+      {{ label }}
+    </a>
+    {% endfor %}
+  </nav>
+  <div class="altea-sidebar__support">
+    <span aria-hidden="true">?</span>
+    <div>
+      <strong>Служба поддержки</strong>
+      <small>Ответим в течение 15 минут</small>
+    </div>
+  </div>
+</aside>
