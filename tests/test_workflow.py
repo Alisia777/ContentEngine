@@ -24,6 +24,7 @@ from app.ai_brief_contract import AIProductionBriefBuilder, BriefQualityChecker,
 from app.ai_brief_contract.types import NEGATIVE_PROMPT_TERMS
 from app.output_acceptance import AcceptanceReviewService, FrameExtractor, OutputQualityChecker, RegenerationFeedbackBuilder
 from app.one_video_acceptance import OneVideoAcceptanceService, ProductScenePolicyService
+from app.smoke_readiness import ReadinessReportService, RecoveryService
 from app.assets.asset_kit_builder import AssetKitBuilder
 from app.assets.asset_storage import ProductAssetStorage
 from app.assets.asset_validator import AssetValidator
@@ -8737,3 +8738,169 @@ def test_one_video_acceptance_ui_renders_plan():
     assert "bite blocked" in response.text
     assert "Asset Audit" in response.text
     assert "MVP Scorecard" in response.text
+
+
+def test_smoke_readiness_reports_missing_plan():
+    api = client()
+    response = api.post("/api/smoke-readiness/recover", json={"plan_id": 3})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    latest = api.get("/api/smoke-readiness/latest")
+    run_response = api.get(f"/api/smoke-readiness/runs/{payload['id']}")
+
+    assert latest.status_code == 200
+    assert run_response.status_code == 200
+    assert payload["report"]["requested_plan_id"] == 3
+    assert payload["report"]["requested_plan_exists"] is False
+    assert payload["report"]["final_decision"] == "blocked_by_missing_plan"
+    assert any(blocker["blocker_type"] == "missing_plan" for blocker in payload["blockers"])
+
+
+def test_smoke_readiness_rebuilds_plan_when_requested():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        run = RecoveryService(db).recover(product_id=product_id, rebuild_plan=True)
+        output = ReadinessReportService(db).output(run)
+        plan = db.get(models.OneVideoRenderPlan, output.one_video_render_plan_id)
+
+    assert plan is not None
+    assert plan.status == "prompt_only_ready"
+    assert output.prompt_pack_id is not None
+    assert output.report.rebuilt_plan_id == plan.id
+    assert output.report.prompt_only_status == "prompt_only_ready"
+    assert output.report.final_decision == "blocked_by_spend_gate"
+
+
+def test_smoke_readiness_does_not_call_provider(monkeypatch):
+    called = {"provider": False}
+
+    def fail_provider(*_args, **_kwargs):
+        called["provider"] = True
+        raise AssertionError("provider should not be called by smoke readiness")
+
+    monkeypatch.setattr("app.video_generator.real_smoke_runner.RealSmokeRunner.run_from_variant", fail_provider)
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        run = RecoveryService(db).recover(product_id=product_id, rebuild_plan=True)
+        output = ReadinessReportService(db).output(run)
+
+    assert called["provider"] is False
+    assert output.report.prompt_only_status == "prompt_only_ready"
+    assert output.report.final_decision == "blocked_by_spend_gate"
+
+
+def test_smoke_readiness_seed_demo_does_not_create_fake_refs():
+    reset_db()
+    with SessionLocal() as db:
+        run = RecoveryService(db).recover(seed_demo=True, rebuild_plan=True)
+        output = ReadinessReportService(db).output(run)
+        asset_count = db.scalar(select(func.count()).select_from(models.ProductAsset))
+
+    assert output.product_id is not None
+    assert output.one_video_render_plan_id is not None
+    assert output.prompt_pack_id is not None
+    assert asset_count == 0
+    assert any(blocker.blocker_type == "missing_refs" for blocker in output.blockers)
+
+
+def test_smoke_readiness_reports_spend_gate_off(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "false")
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "test-runway-secret")
+    get_settings.cache_clear()
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        run = RecoveryService(db).recover(product_id=product_id, rebuild_plan=True, runway_credits_confirmed=True)
+        output = ReadinessReportService(db).output(run)
+
+    assert output.report.generation_mode == "real"
+    assert output.report.spend_gate_status["allow_real_spend"] is False
+    assert output.report.final_decision == "blocked_by_spend_gate"
+    assert any(blocker.blocker_type == "spend_gate_off" for blocker in output.blockers)
+
+
+def test_smoke_readiness_reports_generation_mode_not_real(monkeypatch):
+    monkeypatch.setenv("QVF_GENERATION_MODE", "mock")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "test-runway-secret")
+    get_settings.cache_clear()
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        run = RecoveryService(db).recover(product_id=product_id, rebuild_plan=True, runway_credits_confirmed=True)
+        output = ReadinessReportService(db).output(run)
+
+    assert output.report.generation_mode == "mock"
+    assert output.report.final_decision == "blocked_by_spend_gate"
+    assert any(blocker.blocker_type == "generation_mode_not_real" for blocker in output.blockers)
+
+
+def test_smoke_readiness_masks_runway_key_value(monkeypatch):
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "secret-value-that-must-not-leak")
+    get_settings.cache_clear()
+    reset_db()
+    with SessionLocal() as db:
+        run = RecoveryService(db).recover(plan_id=99)
+        output = ReadinessReportService(db).output(run)
+        payload = output.model_dump(mode="json")
+
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert output.report.runway_key_configured is True
+    assert output.report.runway_key_value == "[redacted]"
+    assert "secret-value-that-must-not-leak" not in serialized
+
+
+def test_smoke_readiness_updates_engine_audit():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        run = RecoveryService(db).recover(product_id=product_id, rebuild_plan=True)
+        output = ReadinessReportService(db).output(run)
+
+    assert output.engine_audit_run_id is not None
+    assert output.control_room_snapshot_id is not None
+    assert output.report.engine_audit_latest_score is not None
+    assert output.report.control_room_snapshot_id == output.control_room_snapshot_id
+
+
+def test_smoke_readiness_control_room_section_renders():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        RecoveryService(db).recover(product_id=product_id, rebuild_plan=True)
+
+    response = api.get("/control-room?role=owner")
+
+    assert response.status_code == 200, response.text
+    assert "Paid Smoke Readiness" in response.text
+    assert "blocked_by_spend_gate" in response.text
+    assert "Runway key" in response.text
+
+
+def test_smoke_readiness_cli_report_latest():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        RecoveryService(db).recover(product_id=product_id, rebuild_plan=True)
+
+    result = subprocess.run(
+        [sys.executable, "scripts/smoke_readiness_report.py", "--latest"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ContentEngine smoke readiness report" in result.stdout
+    assert "Decision: blocked_by_spend_gate" in result.stdout
+    assert "Runway key configured:" in result.stdout
