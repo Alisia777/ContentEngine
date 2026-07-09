@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">v3.4 Engine Quality Scorecard</p>
+    <h1>Engine Audit</h1>
+    <p class="muted">A 1-10 readiness scorecard for interface, video, briefs, assets, creators, training, metrics, destinations and production.</p>
+  </div>
+  <form method="post" action="/engine-audit/run" class="inline-form">
+    <label class="checkbox-row">
+      <input type="checkbox" name="write_report" value="true">
+      Write JSON report
+    </label>
+    <button type="submit">Run Audit</button>
+  </form>
+</section>
+
+<section class="metric-grid">
+  <article class="metric">
+    <span class="stat-label">Overall score</span>
+    <strong>{{ "%.1f"|format(audit.overall_score) }}/10</strong>
+    <span class="status-pill">{{ audit.status }}</span>
+  </article>
+  <article class="metric">
+    <span class="stat-label">Dimensions</span>
+    <strong>{{ audit.dimensions|length }}</strong>
+    <span class="muted">score scale {{ audit.score_scale }}</span>
+  </article>
+  <article class="metric">
+    <span class="stat-label">Blockers</span>
+    <strong>{{ audit.blockers|length }}</strong>
+    <span class="muted">weak or blocked dimensions</span>
+  </article>
+</section>
+
+<section class="panel">
+  <h2>Scores by dimension</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>Score</th>
+          <th>Status</th>
+          <th>Reasons</th>
+          <th>Required fixes</th>
+          <th>Module links</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for dimension in audit.dimensions %}
+        <tr>
+          <td><strong>{{ dimension.label }}</strong><br><span class="muted">{{ dimension.key }}</span></td>
+          <td>{{ "%.1f"|format(dimension.score) }}</td>
+          <td><span class="status-pill">{{ dimension.status }}</span></td>
+          <td>
+            {% for reason in dimension.reasons %}
+              <div>{{ reason }}</div>
+            {% endfor %}
+          </td>
+          <td>
+            {% for fix in dimension.required_fixes %}
+              <div>{{ fix }}</div>
+            {% endfor %}
+          </td>
+          <td>
+            {% for link in dimension.module_links %}
+              <a href="{{ link.href }}">{{ link.label }}</a>{% if not loop.last %}<br>{% endif %}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Blockers</h2>
+  <div class="stack">
+    {% for blocker in audit.blockers %}
+    <article class="list-card">
+      <div class="list-card-main">
+        <strong>{{ blocker.label }}</strong>
+        <span class="status-pill">{{ "%.1f"|format(blocker.score) }}/10</span>
+      </div>
+      <div class="muted">{{ blocker.reasons|join(", ") }}</div>
+    </article>
+    {% else %}
+    <p class="muted">No weak or blocked dimensions in the latest audit.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Required fixes</h2>
+  <div class="stack">
+    {% for action in audit.next_actions %}
+    <article class="list-card">
+      <div class="list-card-main">
+        <strong>{{ action.label }}</strong>
+        <span class="muted">{{ action.next_action }}</span>
+      </div>
+      <div>
+        {% for fix in action.required_fixes %}
+          <div>{{ fix }}</div>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Road to 10/10</h2>
+  <div class="stack">
+    {% for step in audit.road_to_10 %}
+    <article class="list-card">
+      <div class="list-card-main">
+        <strong>{{ loop.index }}. {{ step.label }}</strong>
+        <span class="muted">{{ "%.1f"|format(step.current_score) }}/10 -> {{ step.target_score }}/10</span>
+      </div>
+      <div><strong>Next:</strong> {{ step.next_action }}</div>
+      <div class="muted">
+        {% for fix in step.required_fixes %}
+          <span>{{ fix }}</span>{% if not loop.last %} | {% endif %}
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
