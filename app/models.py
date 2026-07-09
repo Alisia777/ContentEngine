@@ -2179,6 +2179,47 @@ class EngineAuditScore(Base, TimestampMixin):
     audit_run = relationship("EngineAuditRun", back_populates="scores")
 
 
+class ControlRoomSnapshot(Base, TimestampMixin):
+    __tablename__ = "control_room_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scope_type = Column(String(80), nullable=False, default="global", index=True)
+    scope_id = Column(Integer, nullable=True, index=True)
+    role = Column(String(80), nullable=False, default="owner", index=True)
+    overall_status = Column(String(80), nullable=False, default="weak", index=True)
+    engine_audit_run_id = Column(Integer, ForeignKey("engine_audit_runs.id"), nullable=True, index=True)
+    summary_json = Column(JSON, default=dict, nullable=False)
+    scorecard_json = Column(JSON, default=dict, nullable=False)
+    ready_items_json = Column(JSON, default=list, nullable=False)
+    blocked_items_json = Column(JSON, default=list, nullable=False)
+    review_queue_json = Column(JSON, default=list, nullable=False)
+    safe_actions_json = Column(JSON, default=list, nullable=False)
+    gated_actions_json = Column(JSON, default=list, nullable=False)
+    next_actions_json = Column(JSON, default=list, nullable=False)
+
+    engine_audit_run = relationship("EngineAuditRun")
+    actions = relationship("ControlRoomAction", back_populates="snapshot", cascade="all, delete-orphan")
+
+
+class ControlRoomAction(Base, TimestampMixin):
+    __tablename__ = "control_room_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(Integer, ForeignKey("control_room_snapshots.id"), nullable=False, index=True)
+    action_type = Column(String(120), nullable=False, index=True)
+    role = Column(String(80), nullable=False, index=True)
+    target_module = Column(String(120), nullable=False, index=True)
+    target_url = Column(String(500), nullable=False)
+    status = Column(String(80), nullable=False, default="open", index=True)
+    safe_to_execute = Column(Boolean, default=True, nullable=False)
+    requires_human = Column(Boolean, default=True, nullable=False)
+    requires_spend_gate = Column(Boolean, default=False, nullable=False)
+    reason = Column(Text, nullable=True)
+    payload_json = Column(JSON, default=dict, nullable=False)
+
+    snapshot = relationship("ControlRoomSnapshot", back_populates="actions")
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

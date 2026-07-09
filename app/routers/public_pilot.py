@@ -26,6 +26,8 @@ def public_login(request: Request, error: str | None = None) -> HTMLResponse:
 @router.post("/login")
 def public_login_submit(email: str = Form(...), password: str = Form(...)) -> RedirectResponse:
     settings = get_settings()
+    if not settings.auth_required:
+        return RedirectResponse("/control-room", status_code=303)
     if not settings.supabase_url:
         return RedirectResponse("/login?error=supabase_not_configured", status_code=303)
     if not password:
@@ -45,10 +47,11 @@ def public_logout() -> RedirectResponse:
 @router.get("/control-room", response_class=HTMLResponse)
 def control_room(
     request: Request,
+    role: str | None = None,
     db: Session = Depends(get_db),
     user: PublicPilotUser = Depends(get_current_public_user),
 ) -> HTMLResponse:
-    context = PublicPilotControlRoomService(db).context(user)
+    context = PublicPilotControlRoomService(db).context(user, role=role)
     return templates.TemplateResponse(
         "public_control_room.html",
         {"request": request, "page_title": "ALTEA Control Room", **context},

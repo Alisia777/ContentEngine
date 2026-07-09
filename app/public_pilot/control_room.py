@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.config import get_settings
+from app.control_room import ControlRoomSnapshotService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser
 from app.public_pilot.gate_matrix import ACTION_LABELS, PublicPilotGateMatrix
@@ -16,17 +17,24 @@ class PublicPilotControlRoomService:
         self.settings = get_settings()
         self.access = PublicPilotAccessService(db)
 
-    def context(self, user: PublicPilotUser) -> dict:
+    def context(self, user: PublicPilotUser, *, role: str | None = None) -> dict:
         self.access.ensure_training_catalog()
         certifications = self.access.certification_codes(user.profile.id)
         matrix = PublicPilotGateMatrix(strict_training=self.settings.public_pilot_strict_training_gates)
         modules = self.db.scalars(select(models.TrainingModule).order_by(models.TrainingModule.order_index)).all()
         audit_count = self.db.scalar(select(func.count()).select_from(models.AuditLog)) or 0
         denied_count = self.db.scalar(select(func.count()).select_from(models.AuditLog).where(models.AuditLog.status == "denied")) or 0
+        requested_role = role or (user.role if user.role in {"owner", "admin", "reviewer", "operator"} else "creator_publisher")
+        snapshot_service = ControlRoomSnapshotService(self.db)
+        snapshot = snapshot_service.refresh(role=requested_role)
+        snapshot_output = snapshot_service.output(snapshot)
         return {
             "user": user,
             "settings": self.settings,
             "role": user.role,
+            "control_role": snapshot_output.role,
+            "control_roles": ["owner", "content_lead", "campaign_operator", "reviewer", "creator", "creator_publisher", "metrics_operator"],
+            "control_snapshot": snapshot_output,
             "certifications": sorted(certifications),
             "training_modules": modules,
             "gate_summary": matrix.summary(),

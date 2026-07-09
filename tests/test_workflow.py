@@ -59,6 +59,7 @@ from app.campaign_performance import (
     CampaignRecommendationEngine,
 )
 from app.config import get_settings
+from app.control_room import ControlRoomSnapshotService
 from app.content_factory import ContentPerformanceService, ContentRunOrchestrator, ContentStatsImporter
 from app.creative.creative_spec_builder import CreativeSpecBuilder
 from app.creative.creative_spec_validator import CreativeSpecValidator
@@ -8344,6 +8345,164 @@ def test_engine_audit_api_and_ui_render_scorecard():
     assert "Required fixes" in page_response.text
     assert "Interface usability" in page_response.text
     assert "Video quality" in page_response.text
+
+
+def test_control_room_snapshot_uses_latest_engine_audit():
+    reset_db()
+    with SessionLocal() as db:
+        audit_run = EngineAuditScorecardService(db).run()
+        service = ControlRoomSnapshotService(db)
+        snapshot = service.refresh(role="owner")
+        output = service.output(snapshot)
+
+    assert snapshot.engine_audit_run_id == audit_run.id
+    assert output.summary["engine_audit_total_score"] == audit_run.total_score
+    assert output.scorecard["id"] == audit_run.id
+
+
+def test_control_room_owner_dashboard_shows_production_readiness():
+    reset_db()
+    with SessionLocal() as db:
+        snapshot = ControlRoomSnapshotService(db).refresh(role="owner")
+        output = ControlRoomSnapshotService(db).output(snapshot)
+
+    assert any(item.label == "Engine scorecard available" for item in output.ready_items)
+    assert output.summary["top_blocker_count"] >= 1
+    assert "video_quality" in output.summary["dimension_scores"]
+    assert "campaign_readiness" in output.summary
+    assert "destination_capacity" in output.summary
+    assert "metrics_coverage" in output.summary
+    assert "payout_exposure" in output.summary
+    assert "paid_smoke_status" in output.summary
+    assert output.summary["executive_next_decisions"]
+    assert any(action.target_module in {"engine_audit", "one_video_acceptance", "output_acceptance"} for action in output.next_actions)
+
+
+def test_control_room_content_lead_shows_quality_and_review_items():
+    with client() as api:
+        product_id = create_product(api, title="Control Room Content Lead")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id, primary_url="https://example.com/control-room-wrapper.png")
+            OneVideoAcceptanceService(db).build_plan(product_id, platform="Instagram Reels")
+            snapshot = ControlRoomSnapshotService(db).refresh(role="content_lead")
+            output = ControlRoomSnapshotService(db).output(snapshot)
+
+    assert any("one-video plans ready" in item.label for item in output.ready_items)
+    assert any(item.target_module in {"one_video_acceptance", "ai_brief_studio", "output_acceptance"} for item in [*output.blocked_items, *output.review_queue])
+
+
+def test_control_room_reviewer_shows_output_acceptance_queue():
+    with client() as api:
+        _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Control Room Reviewer")
+        with SessionLocal() as db:
+            acceptance = AcceptanceReviewService(db).review(video_job_id=video_job_id, ai_production_brief_id=brief_id)
+            snapshot = ControlRoomSnapshotService(db).refresh(role="reviewer")
+            output = ControlRoomSnapshotService(db).output(snapshot)
+
+    assert acceptance.status in {"needs_human_review", "needs_regeneration"}
+    assert any(item.payload.get("output_acceptance_id") == acceptance.id for item in output.review_queue)
+
+
+def test_control_room_creator_shows_assignment_final_url_and_payout_blockers():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            participant = ParticipantService(db).create(display_name="Control Creator", role="creator")
+            assignment = AssignmentPortalService(db).create_assignment(participant_id=participant.id, campaign_id=campaign_id)
+            SubmissionService(db).submit(assignment_id=assignment.id, external_url="https://example.com/video.mp4")
+            rule = PayoutService(db).create_rule(name="Blocked payout", payout_type="per_video", amount_fixed=500)
+            assignment.payout_rule_id = rule.id
+            db.commit()
+            PayoutService(db).calculate_for_assignment(assignment.id)
+            snapshot = ControlRoomSnapshotService(db).refresh(role="creator_publisher")
+            output = ControlRoomSnapshotService(db).output(snapshot)
+
+    labels = [item.label for item in output.blocked_items]
+    assert any("submissions missing final_url" in label for label in labels)
+    assert any("payout blockers" in label for label in labels)
+
+
+def test_control_room_metrics_operator_shows_unmatched_rows_and_missing_stats():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
+        with SessionLocal() as db:
+            add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/no-metrics")
+            db.add(
+                models.MetricsIntakeBatch(
+                    campaign_id=campaign_id,
+                    source_type="manual_csv",
+                    imported_count=2,
+                    matched_count=1,
+                    unmatched_count=1,
+                    unmatched_rows_json=[{"posted_url": "https://example.com/unmatched"}],
+                )
+            )
+            db.commit()
+            snapshot = ControlRoomSnapshotService(db).refresh(role="metrics_operator")
+            output = ControlRoomSnapshotService(db).output(snapshot)
+
+    assert any("unmatched metric rows" in item.label for item in output.blocked_items)
+    assert any("publications missing metrics" in item.label for item in output.blocked_items)
+
+
+def test_control_room_routes_actions_to_existing_modules():
+    reset_db()
+    with SessionLocal() as db:
+        service = ControlRoomSnapshotService(db)
+        snapshot = service.refresh(role="owner")
+        action = service.actions(snapshot.id)[0]
+        routed = service.route_action(action.id)
+
+    assert routed.status == "routed"
+    assert routed.target_url.startswith("/")
+
+
+def test_control_room_respects_public_pilot_role_gates():
+    with client() as api:
+        product_id = create_product(api, title="Control Room Gates")
+        with SessionLocal() as db:
+            attach_approved_reference_pair(db, product_id, primary_url="https://example.com/gated-wrapper.png")
+            plan = OneVideoAcceptanceService(db).build_plan(product_id, platform="Instagram Reels")
+            OneVideoAcceptanceService(db).prompt_only(plan.id, provider="runway")
+            EngineAuditScorecardService(db).run()
+            snapshot = ControlRoomSnapshotService(db).refresh(role="content_lead")
+            output = ControlRoomSnapshotService(db).output(snapshot)
+
+    assert any(action.requires_spend_gate or action.reason in {"spend_gate_required", "role_producer_cannot_one_video_real_run"} for action in output.gated_actions)
+    assert all(action.safe_to_execute is False for action in output.gated_actions)
+
+
+def test_control_room_ui_renders_role_dashboards():
+    with client() as api:
+        response = api.get("/control-room?role=owner")
+
+    assert response.status_code == 200, response.text
+    assert "Unified Control Room" in response.text
+    assert "Public Pilot Control Room" in response.text
+    assert "Executive snapshot" in response.text
+    assert "Scores by dimension" in response.text
+    assert "Paid smoke" in response.text
+    assert "owner" in response.text
+    assert "What is ready" in response.text
+    assert "What is blocked" in response.text
+    assert "Road to 10/10" in response.text
+
+
+def test_control_room_creator_alias_uses_creator_publisher_dashboard():
+    with client() as api:
+        response = api.get("/control-room?role=creator")
+
+    assert response.status_code == 200, response.text
+    assert "creator_publisher" in response.text
+    assert "my assignments" in response.text
+
+
+def test_control_room_is_main_post_login_entrypoint():
+    with client() as api:
+        response = api.post("/login", data={"email": "owner@example.com", "password": "local"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/control-room"
 
 
 def test_engine_audit_cli_writes_report(tmp_path):
