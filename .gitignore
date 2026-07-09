@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 .venv/
 venv/
@@ -16,9 +19,12 @@ env/
 
 data/
 media/
+media/**
 uploads/
 exports/
 test_media/
+logs/
+logs/**
 
 .DS_Store
 Thumbs.db
@@ -26,3 +32,8 @@ Thumbs.db
 .idea/
 
 *.log
+*.mp4
+*.mov
+*.webm
+*.avi
+*.tmp

@@ -2298,3 +2298,144 @@ class CampaignScalingRecommendation(Base, TimestampMixin):
     product = relationship("Product")
     creative_variant = relationship("CreativeVariant")
     destination = relationship("PublishingDestination")
+
+
+class Organization(Base, TimestampMixin):
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(180), nullable=False)
+    slug = Column(String(160), unique=True, nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    settings_json = Column(JSON, default=dict, nullable=False)
+
+    memberships = relationship("Membership", back_populates="organization", cascade="all, delete-orphan")
+
+
+class UserProfile(Base, TimestampMixin):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    supabase_user_id = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    display_name = Column(String(180), nullable=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    last_login_at = Column(DateTime, nullable=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+
+    memberships = relationship("Membership", back_populates="user_profile", cascade="all, delete-orphan")
+    public_training_attempts = relationship("UserTrainingAttempt", back_populates="user_profile", cascade="all, delete-orphan")
+    public_training_certifications = relationship("TrainingCertification", back_populates="user_profile", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="user_profile")
+
+
+class Membership(Base, TimestampMixin):
+    __tablename__ = "memberships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    role = Column(String(80), nullable=False, default="viewer", index=True)
+    status = Column(String(80), nullable=False, default="active", index=True)
+    permissions_json = Column(JSON, default=list, nullable=False)
+
+    organization = relationship("Organization", back_populates="memberships")
+    user_profile = relationship("UserProfile", back_populates="memberships")
+
+
+class TrainingModule(Base, TimestampMixin):
+    __tablename__ = "public_training_modules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(120), unique=True, nullable=False, index=True)
+    title = Column(String(180), nullable=False)
+    description = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False, default=100, index=True)
+    required_for_roles_json = Column(JSON, default=list, nullable=False)
+    required_for_permissions_json = Column(JSON, default=list, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+
+    lessons = relationship("PublicTrainingLesson", back_populates="module", cascade="all, delete-orphan")
+    questions = relationship("TrainingQuestion", back_populates="module", cascade="all, delete-orphan")
+    attempts = relationship("UserTrainingAttempt", back_populates="module", cascade="all, delete-orphan")
+    certifications = relationship("TrainingCertification", back_populates="module", cascade="all, delete-orphan")
+
+
+class PublicTrainingLesson(Base, TimestampMixin):
+    __tablename__ = "public_training_lessons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    title = Column(String(180), nullable=False)
+    content_markdown = Column(Text, nullable=False)
+    order_index = Column(Integer, nullable=False, default=100, index=True)
+
+    module = relationship("TrainingModule", back_populates="lessons")
+
+
+class TrainingQuestion(Base, TimestampMixin):
+    __tablename__ = "public_training_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    question_text = Column(Text, nullable=False)
+    question_type = Column(String(80), nullable=False, default="single_choice", index=True)
+    options_json = Column(JSON, default=list, nullable=False)
+    correct_answer_json = Column(JSON, default=list, nullable=False)
+    explanation = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False, default=100, index=True)
+
+    module = relationship("TrainingModule", back_populates="questions")
+
+
+class UserTrainingAttempt(Base, TimestampMixin):
+    __tablename__ = "user_training_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="completed", index=True)
+    score = Column(Float, nullable=False, default=0)
+    passed = Column(Boolean, default=False, nullable=False, index=True)
+    answers_json = Column(JSON, default=dict, nullable=False)
+    started_at = Column(DateTime, default=utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    user_profile = relationship("UserProfile", back_populates="public_training_attempts")
+    module = relationship("TrainingModule", back_populates="attempts")
+
+
+class TrainingCertification(Base, TimestampMixin):
+    __tablename__ = "public_training_certifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    module_id = Column(Integer, ForeignKey("public_training_modules.id"), nullable=False, index=True)
+    attempt_id = Column(Integer, ForeignKey("user_training_attempts.id"), nullable=True, index=True)
+    module_code = Column(String(120), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="passed", index=True)
+    granted_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+
+    user_profile = relationship("UserProfile", back_populates="public_training_certifications")
+    module = relationship("TrainingModule", back_populates="certifications")
+    attempt = relationship("UserTrainingAttempt")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    action = Column(String(160), nullable=False, index=True)
+    status = Column(String(80), nullable=False, default="allowed", index=True)
+    reason = Column(Text, nullable=True)
+    entity_type = Column(String(120), nullable=True, index=True)
+    entity_id = Column(String(160), nullable=True, index=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    user_profile = relationship("UserProfile", back_populates="audit_logs")
+    organization = relationship("Organization")

@@ -1,0 +1,58 @@
+{% extends "public_pilot_base.html" %}
+{% block content %}
+<section class="public-dashboard public-dashboard--single">
+  <aside class="altea-card public-sidebar altea-reveal">
+    <a class="altea-sidebar__brand" href="/control-room" aria-label="ALTEA control room">
+      <img src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+      <span><strong>ALTEA</strong><small>ACCESS</small></span>
+    </a>
+    <nav class="public-nav" aria-label="Access navigation">
+      <a href="/control-room">Control room</a>
+      <a class="is-active" href="/settings/access">Access gates</a>
+      <a href="/altea-motion/dashboard">Motion shell</a>
+    </nav>
+  </aside>
+
+  <div class="public-main">
+    <header class="public-topline altea-reveal">
+      <div>
+        <p>Role acceptance matrix</p>
+        <h1>Settings / Access</h1>
+      </div>
+      <a class="altea-glow-button altea-glow-button--small" href="/control-room">Back to control room</a>
+    </header>
+    <article class="altea-card public-panel public-panel--wide altea-reveal">
+      <table class="public-table public-table--matrix">
+        <thead>
+          <tr>
+            <th>Action</th>
+            {% for role in roles %}<th>{{ role }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for action, row in matrix.items() %}
+          <tr>
+            <td>
+              <strong>{{ action_labels[action] }}</strong>
+              <small>{{ action }}</small>
+            </td>
+            {% for role, decision in row.items() %}
+            <td>
+              <span class="public-pill {% if decision.allowed %}is-good{% else %}is-bad{% endif %}">
+                {{ "allowed" if decision.allowed else "denied" }}
+              </span>
+              <small>{{ decision.reason }}</small>
+              {% if decision.required_certification %}<small>cert: {{ decision.required_certification }}</small>{% endif %}
+              {% if decision.spend_gate_required %}<small>spend gate</small>{% endif %}
+              {% if decision.audit_required %}<small>audit</small>{% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </article>
+  </div>
+</section>
+{% endblock %}
+
