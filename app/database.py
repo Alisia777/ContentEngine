@@ -93,6 +93,17 @@ def _ensure_sqlite_schema() -> None:
             "platform_fit_score": "ALTER TABLE creative_quality_scores ADD COLUMN platform_fit_score FLOAT DEFAULT 0",
         },
     )
+    _add_missing_sqlite_columns(
+        inspector,
+        "product_ugc_recipe_drafts",
+        {
+            "local_output_paths_json": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN local_output_paths_json TEXT DEFAULT '[]'",
+            "generation_report_path": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN generation_report_path VARCHAR(1000)",
+            "human_review_status": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN human_review_status VARCHAR(80) DEFAULT 'not_generated'",
+            "publishing_readiness": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN publishing_readiness VARCHAR(80) DEFAULT 'blocked'",
+            "human_review_notes": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN human_review_notes TEXT",
+        },
+    )
 
 
 def _add_missing_sqlite_columns(inspector, table_name: str, migrations: dict[str, str]) -> None:

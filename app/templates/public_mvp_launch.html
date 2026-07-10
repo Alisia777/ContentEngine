@@ -5,45 +5,219 @@
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
     <header class="public-topline altea-reveal">
-      <div><p class="public-eyebrow">Один SKU · один контролируемый результат</p><h1>Запуск MVP</h1><p>Семь проверяемых шагов от товара до решения. Массовый режим выключен.</p></div>
-      {% if run %}<span class="public-status public-status--{{ run.status }}">{{ run.status.replace('_', ' ') }}</span>{% endif %}
+      <div>
+        <p class="public-eyebrow">Official Runway Recipe · Product UGC</p>
+        <h1>Новый ролик с блогером</h1>
+        <p>Один точный SKU, 3–4 фото товара, один блогер и одно проверяемое задание.</p>
+      </div>
+      <span class="public-status public-status--{{ recipe_draft.status if recipe_draft else 'human_gated' }}">
+        {{ recipe_draft.status.replace('_', ' ') if recipe_draft else 'до платного запуска' }}
+      </span>
     </header>
 
-    {% if error %}<p class="public-alert">{{ error }}</p>{% endif %}
+    {% if error %}<p class="public-alert" role="alert">{{ error }}</p>{% endif %}
 
-    {% if not run %}
-    <form class="altea-card public-launch-start altea-reveal" method="post" action="/mvp-launch/start">
-      <div><p class="public-eyebrow">Шаг 1</p><h2>Выберите товар</h2><p>Выбираем ровно один SKU. Вкусы и варианты упаковки не смешиваются.</p></div>
-      <label class="altea-field"><span>Товар</span><select name="product_id" required><option value="">Выберите SKU</option>{% for product in products %}<option value="{{ product.id }}">{{ product.sku }} · {{ product.title }}</option>{% endfor %}</select></label>
-      <button class="altea-glow-button" type="submit">Начать проверку</button>
+    <form class="altea-card recipe-product-picker altea-reveal" method="get" action="/mvp-launch">
+      <label class="recipe-field">
+        <span>Товар / SKU</span>
+        <select name="product_id" required data-product-picker>
+          <option value="">Выберите товар</option>
+          {% for product in products %}
+          <option value="{{ product.id }}" {{ 'selected' if selected_product and selected_product.id == product.id else '' }}>{{ product.sku }} · {{ product.title }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="altea-glow-button" type="submit">Открыть форму</button>
     </form>
-    {% else %}
-    <ol class="public-stepper altea-reveal">
-      {% for step in run.steps %}<li class="is-{{ step.status }}"><span>{{ loop.index }}</span><div><strong>{{ step.label }}</strong><small>{{ step.detail }}</small></div></li>{% endfor %}
-    </ol>
 
-    <article class="altea-card public-focus-panel altea-reveal">
-      <div><p class="public-eyebrow">Текущий шаг · {{ run.sku or 'SKU не выбран' }}</p><h2>{{ run.next_action.label }}</h2><p>{{ run.next_action.detail }}</p></div>
-      {% if run.status != 'complete' %}
-      <form class="public-next-form" method="post" action="/mvp-launch/{{ run.id }}/next">
-        {% if run.current_step == 'select_product' %}<select name="product_id" required><option value="">Выберите SKU</option>{% for product in products %}<option value="{{ product.id }}">{{ product.sku }}</option>{% endfor %}</select>{% endif %}
-        {% if run.current_step == 'check_smoke_readiness' %}<label class="public-check"><input type="checkbox" name="runway_credits_confirmed" value="true"><span>Баланс Runway проверен вручную</span></label>{% endif %}
-        <button class="altea-glow-button" type="submit" {{ 'disabled' if run.status == 'spend_gated' and run.current_step == 'run_or_block_paid_smoke' else '' }}>Продолжить безопасно</button>
-      </form>
-      {% else %}<a class="altea-glow-button" href="/control-room">В центр управления</a>{% endif %}
-    </article>
+    {% if recipe_draft %}
+    <section class="recipe-result altea-reveal" aria-labelledby="recipe-result-title">
+      <header class="recipe-section-head">
+        <div>
+          <p class="public-eyebrow">Recipe draft #{{ recipe_draft.id }}</p>
+          <h2 id="recipe-result-title">{{ 'Можно передавать в paid preflight' if recipe_draft.status == 'ready_for_paid_preflight' else 'Запуск заблокирован' }}</h2>
+        </div>
+        <div class="recipe-cost">
+          <span>Оценка Runway</span>
+          <strong>{{ recipe_draft.estimated_credits }} credits</strong>
+        </div>
+      </header>
 
-    {% if run.blockers %}
-    <article class="altea-card public-panel altea-reveal"><header class="public-panel-head"><h2>Что нужно исправить</h2><span>{{ run.blockers|length }}</span></header><ul class="public-list">{% for item in run.blockers %}<li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">{{ item.severity }}</span></li>{% endfor %}</ul></article>
+      <div class="recipe-gate-grid">
+        {% for gate in recipe_draft.gates %}
+        <div class="recipe-gate is-{{ gate.status }}">
+          <span aria-hidden="true">{{ '✓' if gate.status == 'ready' else '!' }}</span>
+          <div><strong>{{ gate.label }}</strong><small>{{ gate.detail }}</small></div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% if recipe_draft.blockers %}
+      <div class="recipe-blocker-line"><strong>Исправить:</strong> {{ recipe_draft.blockers | join(', ') }}</div>
+      {% endif %}
+
+      <div class="recipe-output-facts">
+        <div><span>Формат</span><strong>{{ recipe_draft.duration_seconds }} сек · {{ recipe_draft.ratio }}</strong></div>
+        <div><span>Аудио</span><strong>{{ 'да' if recipe_draft.audio_enabled else 'нет' }}</strong></div>
+        <div><span>Референсы</span><strong>{{ recipe_draft.product_asset_ids | length }} фото</strong></div>
+        <div><span>Язык</span><strong>русский</strong></div>
+        <div><span>Human review</span><strong>{{ recipe_draft.human_review_status }}</strong></div>
+        <div><span>Публикация</span><strong>{{ recipe_draft.publishing_readiness }}</strong></div>
+      </div>
+
+      <details class="recipe-payload">
+        <summary>Проверить Product info и Creative direction</summary>
+        <div class="recipe-preview-grid">
+          <div><span>Product info</span><pre>{{ recipe_draft.product_info }}</pre></div>
+          <div><span>Creative direction / userConcept</span><pre>{{ recipe_draft.user_concept }}</pre></div>
+        </div>
+      </details>
+
+      <details class="recipe-payload">
+        <summary>Официальный payload Runway</summary>
+        <pre>{{ recipe_draft.payload_preview | tojson(indent=2) }}</pre>
+      </details>
+
+      <p class="public-safety-note">Провайдер не вызван. Data URI, API key и signed output URL в draft не сохраняются. Следующий paid action возможен только отдельной командой после всех gates.</p>
+    </section>
     {% endif %}
 
-    <p class="public-safety-note">Мастер не выполняет платный provider call и не публикует видео. Real smoke запускается отдельным операторским действием только после всех gates.</p>
+    {% if selected_product %}
+    <form class="recipe-form altea-reveal" method="post" action="/mvp-launch/product-ugc-draft" enctype="multipart/form-data" data-recipe-form>
+      <input type="hidden" name="product_id" value="{{ selected_product.id }}">
 
-    <details class="altea-card public-technical altea-reveal">
-      <summary>Техническое состояние запуска #{{ run.id }}</summary>
-      <div class="public-technical-grid"><div><span>Plan</span><strong>#{{ run.one_video_render_plan_id or '—' }}</strong></div><div><span>Smoke readiness</span><strong>#{{ run.smoke_readiness_run_id or '—' }}</strong></div><div><span>Output acceptance</span><strong>#{{ run.output_acceptance_id or '—' }}</strong></div><div><span>Provider calls мастера</span><strong>{{ run.context.provider_calls or 0 }}</strong></div></div>
-    </details>
+      <section class="recipe-band" aria-labelledby="recipe-product-title">
+        <header class="recipe-section-head">
+          <div><p class="public-eyebrow">01 · Товар</p><h2 id="recipe-product-title">{{ selected_product.title }}</h2></div>
+          <span class="public-status">{{ selected_profile }} · {{ selected_product.sku }}</span>
+        </header>
+        <div class="recipe-field-grid">
+          <label class="recipe-field">
+            <span>Exact variant / вкус / цвет / модель</span>
+            <input name="variant_key" value="{{ selected_variant or '' }}" placeholder="Например: mango-kunafa" required>
+          </label>
+          <label class="recipe-field">
+            <span>Площадка</span>
+            <select name="platform"><option>Instagram Reels</option><option>TikTok</option><option>YouTube Shorts</option><option>Wibes</option></select>
+          </label>
+        </div>
+        <label class="recipe-field recipe-field--wide">
+          <span>Product info <small>до 2500 знаков</small></span>
+          <textarea name="product_info" maxlength="2500" rows="8">{{ default_product_info }}</textarea>
+        </label>
+      </section>
+
+      <section class="recipe-band" aria-labelledby="recipe-refs-title">
+        <header class="recipe-section-head">
+          <div><p class="public-eyebrow">02 · Референсы товара</p><h2 id="recipe-refs-title">Ровно 3 или 4 фото одного варианта</h2></div>
+          <span class="recipe-counter" data-reference-counter>0 / 3</span>
+        </header>
+
+        {% if product_assets %}
+        <div class="recipe-asset-library">
+          {% for asset in product_assets %}
+          <label class="recipe-asset-option is-{{ asset.review_status }}">
+            <input type="checkbox" name="existing_asset_ids" value="{{ asset.id }}" data-reference-input>
+            <span class="recipe-asset-thumb">
+              {% if asset.media_url %}<img src="{{ asset.media_url }}" alt="{{ asset.filename }}">{% else %}<span>IMG</span>{% endif %}
+            </span>
+            <span class="recipe-asset-copy"><strong>{{ asset.contract_type }}</strong><small>{{ asset.filename }} · {{ asset.review_status }} · {{ asset.variant_status }}</small></span>
+            <input class="recipe-primary-radio" type="radio" name="primary_asset_id" value="{{ asset.id }}" aria-label="Сделать главным фото" {{ 'checked' if asset.is_primary else '' }}>
+          </label>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="recipe-upload-grid">
+          <label class="recipe-upload-slot">
+            <span>1 · Главный вид</span><small>Лицевая сторона, товар целиком</small>
+            <input type="file" name="front_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+          </label>
+          <label class="recipe-upload-slot">
+            <span>2 · Второй ракурс</span><small>Бок / 3⁄4 / обратная сторона</small>
+            <input type="file" name="angle_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+          </label>
+          <label class="recipe-upload-slot">
+            <span>3 · Масштаб</span><small>В руке или на поверхности</small>
+            <input type="file" name="scale_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+          </label>
+          <label class="recipe-upload-slot recipe-upload-slot--proof">
+            <span>4 · Применение / proof</span>
+            <small>
+              {% if selected_profile == 'food_snack' %}Точный продукт без упаковки или в разрезе
+              {% elif selected_profile == 'cosmetic' %}Нанесение, аппликатор или реальный свотч
+              {% elif selected_profile == 'apparel' %}Товар на человеке
+              {% else %}Реальное применение или результат{% endif %}
+            </small>
+            <input type="file" name="proof_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+          </label>
+        </div>
+        <label class="recipe-confirm">
+          <input type="checkbox" name="exact_variant_confirmed" value="true" required>
+          <span>Я сверила: на всех фото один SKU и один вариант; форма, цвет, логотип и упаковка совпадают.</span>
+        </label>
+      </section>
+
+      <section class="recipe-band" aria-labelledby="recipe-creator-title">
+        <header class="recipe-section-head"><div><p class="public-eyebrow">03 · Блогер</p><h2 id="recipe-creator-title">Кто показывает продукт</h2></div></header>
+        <div class="recipe-field-grid">
+          <label class="recipe-upload-slot recipe-upload-slot--creator">
+            <span>Character image</span><small>Лицо видно, нейтральный свет, без фильтров</small>
+            <input type="file" name="character_image" accept="image/png,image/jpeg,image/webp" required>
+          </label>
+          <label class="recipe-field">
+            <span>Профиль блогера</span>
+            <textarea name="creator_profile" rows="4" required>Русскоязычная девушка 25–30 лет, естественная, уверенная, снимает нативный обзор от первого лица.</textarea>
+          </label>
+        </div>
+        <label class="recipe-confirm">
+          <input type="checkbox" name="likeness_consent" value="true" required>
+          <span>Есть право и согласие использовать лицо и образ человека в генерации.</span>
+        </label>
+      </section>
+
+      <section class="recipe-band" aria-labelledby="recipe-task-title">
+        <header class="recipe-section-head"><div><p class="public-eyebrow">04 · Задание</p><h2 id="recipe-task-title">Что должно произойти в ролике</h2></div></header>
+        <div class="recipe-mode-control" role="group" aria-label="Режим взаимодействия">
+          <label><input type="radio" name="interaction_mode" value="presentation" checked><span>Презентация</span></label>
+          <label><input type="radio" name="interaction_mode" value="use"><span>Применение продукта</span></label>
+        </div>
+        <div class="recipe-field-grid recipe-field-grid--three">
+          <label class="recipe-field recipe-field--wide"><span>Цель ролика</span><textarea name="task" rows="3" required placeholder="Что зритель должен понять и сделать?"></textarea></label>
+          <label class="recipe-field"><span>Ситуация</span><textarea name="setting" rows="3" required placeholder="Где и в какой жизненной ситуации снимает блогер?"></textarea></label>
+          <label class="recipe-field"><span>Хук</span><textarea name="hook" rows="3" required placeholder="Первая фраза без рекламного канцелярита"></textarea></label>
+          <label class="recipe-field"><span>Действие с продуктом</span><textarea name="product_action" rows="3" required placeholder="Показывает, открывает, наносит, примеряет..."></textarea></label>
+          <label class="recipe-field"><span>Proof moment</span><textarea name="proof_moment" rows="3" required placeholder="Что зритель увидит как доказательство?"></textarea></label>
+          <label class="recipe-field"><span>Реплика блогера</span><textarea name="spoken_message" rows="3" placeholder="Точный русский текст или смысл реплики"></textarea></label>
+          <label class="recipe-field"><span>CTA</span><textarea name="cta" rows="3" required placeholder="Одно понятное действие"></textarea></label>
+          <label class="recipe-field"><span>Запрещённые визуалы</span><textarea name="forbidden_visuals" rows="3" placeholder="Что нельзя менять или показывать"></textarea></label>
+        </div>
+      </section>
+
+      <section class="recipe-band" aria-labelledby="recipe-output-title">
+        <header class="recipe-section-head"><div><p class="public-eyebrow">05 · Формат</p><h2 id="recipe-output-title">Параметры официального recipe</h2></div><div class="recipe-cost"><span>Оценка</span><strong data-credit-estimate>588 credits</strong></div></header>
+        <div class="recipe-field-grid recipe-field-grid--output">
+          <label class="recipe-field"><span>Длительность</span><input type="number" name="duration" min="4" max="15" value="15" required data-duration></label>
+          <label class="recipe-field"><span>Размер</span><select name="ratio" data-ratio><option value="720:1280">720 × 1280 · 9:16</option><option value="1080:1920">1080 × 1920 · 9:16</option></select></label>
+          <label class="recipe-audio-toggle"><input type="checkbox" name="audio_enabled" value="true" checked><span><strong>Аудио</strong><small>Русская речь и звук</small></span></label>
+        </div>
+      </section>
+
+      <footer class="recipe-submit-bar">
+        <div><strong>Сначала проверка, потом оплата</strong><small>Эта кнопка не вызывает Runway и не списывает credits.</small></div>
+        <button class="altea-glow-button" type="submit">Собрать ТЗ и проверить</button>
+      </footer>
+    </form>
+    {% endif %}
+
+    {% if run %}
+    <section class="recipe-legacy-run altea-reveal">
+      <header class="recipe-section-head"><div><p class="public-eyebrow">Операционный run #{{ run.id }}</p><h2>{{ run.next_action.label }}</h2><p>{{ run.next_action.detail }}</p></div><span class="public-status public-status--{{ run.status }}">{{ run.status }}</span></header>
+      <ol class="public-stepper">{% for step in run.steps %}<li class="is-{{ step.status }}"><span>{{ loop.index }}</span><div><strong>{{ step.label }}</strong><small>{{ step.detail }}</small></div></li>{% endfor %}</ol>
+      <p class="public-safety-note">Мастер не выполняет платный provider call и не публикует видео. Paid smoke остаётся отдельным операторским действием после всех gates.</p>
+    </section>
     {% endif %}
   </div>
 </section>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', path='/public_pilot/product_ugc_form.js') }}" defer></script>{% endblock %}

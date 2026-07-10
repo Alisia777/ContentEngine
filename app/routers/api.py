@@ -101,6 +101,7 @@ from app.engine_audit import EngineAuditError, EngineAuditRecommendationsService
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.factory_os.errors import FactoryOSError
 from app.interface_productization import InterfaceProductizationError, MVPLaunchWizardService, MVPWorkspaceService
+from app.runway_recipes import ProductUGCRecipeService, RunwayRecipeError
 from app.smoke_readiness import ReadinessReportService, RecoveryService, SmokeReadinessError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
@@ -228,6 +229,11 @@ class MVPLaunchNextRequest(BaseModel):
     product_id: int | None = None
     sku: str | None = None
     runway_credits_confirmed: bool = False
+
+
+class ProductUGCRecipeReviewRequest(BaseModel):
+    status: str
+    notes: str
 
 
 class SmokeReadinessRecoverRequest(BaseModel):
@@ -1618,6 +1624,32 @@ def build_product_reference_bundle(product_id: int, payload: ProductReferenceReq
     try:
         return reference_bundle_response(ProviderReferenceBundleBuilder(db).build(product_id, provider=payload.provider))
     except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/runway-recipes/product-ugc/{draft_id}")
+def get_product_ugc_recipe_draft(draft_id: int, db: Session = Depends(get_db)):
+    try:
+        service = ProductUGCRecipeService(db)
+        return service.output(service.get(draft_id)).model_dump(mode="json")
+    except RunwayRecipeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runway-recipes/product-ugc/{draft_id}/review")
+def review_product_ugc_recipe_draft(
+    draft_id: int,
+    payload: ProductUGCRecipeReviewRequest,
+    db: Session = Depends(get_db),
+    _access=Depends(require_public_pilot_action(VIDEO_APPROVE)),
+):
+    del _access
+    try:
+        service = ProductUGCRecipeService(db)
+        return service.output(
+            service.record_human_review(draft_id, status=payload.status, notes=payload.notes)
+        ).model_dump(mode="json")
+    except RunwayRecipeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

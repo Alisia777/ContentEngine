@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from pathlib import Path
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,13 +12,27 @@ from app import models
 from app.config import get_settings
 from app.database import get_db
 from app.interface_productization import InterfaceProductizationError, MVPLaunchWizardService, MVPWorkspaceService
+from app.product_asset_contract import ProductAssetClassifier
+from app.product_asset_contract.reference_requirement_service import product_profile, product_variant_key
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser, get_current_public_user
 from app.public_pilot.control_room import PublicPilotControlRoomService
 from app.public_pilot.gate_matrix import ACTION_LABELS, PublicPilotGateMatrix, TRAINING_ATTEMPT
+from app.runway_recipes import ProductImageUpload, ProductUGCRecipeService, RunwayRecipeError
 from app.ui import templates
 
 router = APIRouter(tags=["public-pilot"])
+
+
+def _media_url(source_ref: str) -> str | None:
+    path = Path(source_ref)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    try:
+        relative = path.resolve().relative_to(get_settings().media_root.resolve())
+    except (OSError, ValueError):
+        return None
+    return "/media/" + relative.as_posix()
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -91,29 +108,168 @@ def mvp_workbench(
 def mvp_launch(
     request: Request,
     run_id: int | None = None,
+    product_id: int | None = None,
+    recipe_draft_id: int | None = None,
+    error: str | None = None,
     db: Session = Depends(get_db),
     user: PublicPilotUser = Depends(get_current_public_user),
 ) -> HTMLResponse:
     service = MVPLaunchWizardService(db)
     run_output = None
-    error = None
     if run_id:
         try:
             run_output = service.output(service.get(run_id))
         except InterfaceProductizationError as exc:
             error = str(exc)
     products = list(db.scalars(select(models.Product).order_by(models.Product.id.desc()).limit(50)))
+    recipe_service = ProductUGCRecipeService(db)
+    recipe_draft = None
+    selected_product = db.get(models.Product, product_id) if product_id else None
+    if recipe_draft_id:
+        try:
+            recipe_record = recipe_service.get(recipe_draft_id)
+            recipe_draft = recipe_service.output(recipe_record)
+            selected_product = recipe_record.product
+        except RunwayRecipeError as exc:
+            error = str(exc)
+    assets = []
+    if selected_product:
+        classifier = ProductAssetClassifier()
+        expected_variant = product_variant_key(selected_product)
+        for asset in db.scalars(
+            select(models.ProductAsset)
+            .where(models.ProductAsset.product_id == selected_product.id)
+            .order_by(models.ProductAsset.is_primary_reference.desc(), models.ProductAsset.id.desc())
+        ):
+            classification = classifier.classify(asset, expected_variant_key=expected_variant)
+            assets.append(
+                {
+                    "id": asset.id,
+                    "filename": asset.filename or Path(asset.source_ref).name,
+                    "contract_type": classification.contract_type,
+                    "review_status": asset.review_status,
+                    "variant_status": classification.variant_status,
+                    "is_primary": asset.is_primary_reference,
+                    "media_url": _media_url(asset.source_ref) if asset.source_type == "local" else asset.source_ref,
+                }
+            )
+    selected_profile = product_profile(selected_product) if selected_product else None
+    selected_variant = product_variant_key(selected_product) if selected_product else None
     return templates.TemplateResponse(
         "public_mvp_launch.html",
         {
             "request": request,
-            "page_title": "ALTEA Запуск MVP",
+            "page_title": "ContentEngine · Product UGC",
             "user": user,
             "role": user.role,
             "run": run_output,
             "products": products,
+            "selected_product": selected_product,
+            "selected_profile": selected_profile,
+            "selected_variant": selected_variant,
+            "product_assets": assets,
+            "recipe_draft": recipe_draft,
+            "default_product_info": recipe_service.default_product_info(selected_product, selected_variant) if selected_product else "",
             "error": error,
         },
+    )
+
+
+@router.post("/mvp-launch/product-ugc-draft")
+async def product_ugc_recipe_draft(
+    product_id: int = Form(...),
+    variant_key: str = Form(...),
+    existing_asset_ids: list[int] = Form([]),
+    primary_asset_id: int | None = Form(None),
+    front_image: UploadFile | None = File(None),
+    angle_image: UploadFile | None = File(None),
+    scale_image: UploadFile | None = File(None),
+    proof_image: UploadFile | None = File(None),
+    character_image: UploadFile = File(...),
+    product_info: str = Form(""),
+    task: str = Form(...),
+    creator_profile: str = Form(...),
+    setting: str = Form(...),
+    hook: str = Form(...),
+    product_action: str = Form(...),
+    proof_moment: str = Form(...),
+    spoken_message: str = Form(""),
+    cta: str = Form(...),
+    forbidden_visuals: str = Form(""),
+    interaction_mode: str = Form("presentation"),
+    platform: str = Form("Instagram Reels"),
+    duration: int = Form(15),
+    ratio: str = Form("720:1280"),
+    audio_enabled: bool = Form(False),
+    likeness_consent: bool = Form(False),
+    exact_variant_confirmed: bool = Form(False),
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> RedirectResponse:
+    del user
+    product = db.get(models.Product, product_id)
+    if not product:
+        return RedirectResponse(f"/mvp-launch?error={quote('Товар не найден')}", status_code=303)
+    proof_type = {
+        "food_snack": "cutaway_product",
+        "cosmetic": "application_demo",
+        "apparel": "on_body",
+        "household": "application_demo",
+        "general": "application_context",
+    }[product_profile(product)]
+    upload_specs = [
+        ("Главный вид", front_image, "front_packshot", True),
+        ("Второй ракурс", angle_image, "angled_product", False),
+        ("Масштаб / в руке", scale_image, "product_in_hand", False),
+        ("Доказательство применения", proof_image, proof_type, False),
+    ]
+    uploads: list[ProductImageUpload] = []
+    for slot, upload, contract_type, primary in upload_specs:
+        if upload and upload.filename:
+            uploads.append(
+                ProductImageUpload(
+                    slot=slot,
+                    filename=upload.filename,
+                    content=await upload.read(),
+                    contract_type=contract_type,
+                    primary=primary,
+                )
+            )
+    try:
+        draft = ProductUGCRecipeService(db).create_draft(
+            product_id=product_id,
+            variant_key=variant_key,
+            character_filename=character_image.filename or "creator.png",
+            character_content=await character_image.read(),
+            existing_asset_ids=existing_asset_ids,
+            primary_asset_id=primary_asset_id,
+            product_uploads=uploads,
+            product_info=product_info,
+            task=task,
+            creator_profile=creator_profile,
+            setting=setting,
+            hook=hook,
+            product_action=product_action,
+            proof_moment=proof_moment,
+            spoken_message=spoken_message,
+            cta=cta,
+            forbidden_visuals=forbidden_visuals,
+            interaction_mode=interaction_mode,
+            platform=platform,
+            duration=duration,
+            ratio=ratio,
+            audio=audio_enabled,
+            likeness_consent=likeness_consent,
+            exact_variant_confirmed=exact_variant_confirmed,
+        )
+    except RunwayRecipeError as exc:
+        return RedirectResponse(
+            f"/mvp-launch?product_id={product_id}&error={quote(str(exc))}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/mvp-launch?product_id={product_id}&recipe_draft_id={draft.id}",
+        status_code=303,
     )
 
 

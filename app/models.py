@@ -2343,6 +2343,45 @@ class MVPLaunchRun(Base, TimestampMixin):
     output_acceptance = relationship("VideoOutputAcceptance")
 
 
+class ProductUGCRecipeDraft(Base, TimestampMixin):
+    __tablename__ = "product_ugc_recipe_drafts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    variant_key = Column(String(160), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="blocked", index=True)
+    recipe_version = Column(String(40), nullable=False, default="2026-06")
+    platform = Column(String(120), nullable=False, default="Instagram Reels")
+    language = Column(String(20), nullable=False, default="ru")
+    character_image_path = Column(String(1000), nullable=False)
+    character_image_filename = Column(String(255), nullable=False)
+    likeness_consent = Column(Boolean, default=False, nullable=False)
+    exact_variant_confirmed = Column(Boolean, default=False, nullable=False)
+    product_asset_ids_json = Column(JSON, default=list, nullable=False)
+    primary_product_asset_id = Column(Integer, ForeignKey("product_assets.id"), nullable=True, index=True)
+    product_info = Column(Text, nullable=False)
+    user_concept = Column(Text, nullable=False)
+    creative_inputs_json = Column(JSON, default=dict, nullable=False)
+    duration_seconds = Column(Integer, nullable=False, default=15)
+    ratio = Column(String(20), nullable=False, default="720:1280")
+    audio_enabled = Column(Boolean, default=True, nullable=False)
+    estimated_credits = Column(Integer, nullable=False, default=0)
+    provider_payload_preview_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    warnings_json = Column(JSON, default=list, nullable=False)
+    provider_task_id = Column(String(255), nullable=True, index=True)
+    provider_status = Column(String(80), nullable=True, index=True)
+    local_output_paths_json = Column(JSON, default=list, nullable=False)
+    generation_report_path = Column(String(1000), nullable=True)
+    human_review_status = Column(String(80), nullable=False, default="not_generated", index=True)
+    publishing_readiness = Column(String(80), nullable=False, default="blocked", index=True)
+    human_review_notes = Column(Text, nullable=True)
+
+    product = relationship("Product")
+    primary_product_asset = relationship("ProductAsset", foreign_keys=[primary_product_asset_id])
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

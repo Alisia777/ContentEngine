@@ -1,5 +1,7 @@
 # Product Asset Contract
 
+For creator-led videos executed through the official Runway recipe, see [RUNWAY_PRODUCT_UGC_RECIPE.md](RUNWAY_PRODUCT_UGC_RECIPE.md). The Product Asset Contract remains the identity and scene-safety layer; it is not a replacement for Runway's synthesis workflow.
+
 The one-video flow is product-agnostic. Its invariant is:
 
 `blogger + exact product identity + category-appropriate real use + human review`
@@ -52,4 +54,3 @@ The contract is evaluated before prompt generation and before any real provider 
 - product compositing readiness.
 
 Paid execution remains separately gated by generation mode, spend confirmation, provider credentials and operator approval.
-

@@ -627,7 +627,7 @@ def prepare_workbench_fixture(
     product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title=title)
     with SessionLocal() as db:
         if with_references:
-            attach_approved_reference_pair(db, product_id)
+            attach_approved_tier_2_contract(db, product_id)
         script = create_manual_ugc_script(
             db,
             product_id,
@@ -2357,7 +2357,7 @@ def test_readiness_blocks_without_primary_reference():
         assert "missing_approved_primary_reference" in response.json()["blockers"]
 
 
-def test_readiness_allows_approved_primary_packshot():
+def test_readiness_blocks_one_photo_even_when_primary_packshot_is_approved():
     with client() as api:
         product_id = create_product(api, title="Ready Reference Product")
         asset = api.post(
@@ -2374,9 +2374,10 @@ def test_readiness_allows_approved_primary_packshot():
 
         assert response.status_code == 200, response.text
         payload = response.json()
-        assert payload["status"] == "ready"
-        assert payload["real_generation_allowed"] is True
+        assert payload["status"] == "blocked"
+        assert payload["real_generation_allowed"] is False
         assert payload["primary_reference_asset_id"] == asset["id"]
+        assert "product_asset_contract_requires_tier_2_for_real_generation" in payload["blockers"]
 
 
 def test_rejected_asset_not_used_for_reference_bundle():
@@ -2429,23 +2430,20 @@ def test_prompt_pack_from_variant_includes_reference_bundle_when_ready():
     with client() as api:
         product_id, _, _, selected_variant_id = build_variant_set_fixture(api, title="Ready Variant Bundle Product")
         with SessionLocal() as db:
-            storage = ProductAssetStorage(db)
-            asset = storage.attach_url(
-                product_id,
-                url="https://example.com/packshot.png",
-                asset_type="packshot",
-                is_primary_reference=True,
-            )
-            storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
+            asset, angle, scale = attach_approved_tier_2_contract(db, product_id)
             generation_variant = VideoGenerator(db).build_prompt_pack_from_variant(selected_variant_id, provider="runway")
 
         prompt_pack = generation_variant.prompt_pack_json
         assert prompt_pack["reference_readiness_status"] == "ready"
         assert prompt_pack["reference_bundle_id"]
-        assert prompt_pack["reference_images"] == ["https://example.com/packshot.png"]
+        assert prompt_pack["reference_images"] == [
+            "https://example.com/packshot.png",
+            "https://example.com/angled_product.png",
+            "https://example.com/product_in_hand.png",
+        ]
         assert prompt_pack["primary_reference_asset"] == asset.id
-        assert prompt_pack["product_lock_mode"] == "packshot_overlay"
-        assert prompt_pack["product_reference_policy"]["strict_real_generation_allowed"] is False
+        assert prompt_pack["product_lock_mode"] == "reference_i2v"
+        assert prompt_pack["product_reference_policy"]["strict_real_generation_allowed"] is True
 
 
 def test_prompt_pack_from_variant_warns_when_reference_bundle_missing():
@@ -3069,7 +3067,7 @@ def test_ugc_quality_gate_blocks_real_smoke_below_threshold():
             {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
         ]
         with SessionLocal() as db:
-            attach_approved_reference_pair(db, product_id)
+            attach_approved_tier_2_contract(db, product_id)
             script = create_manual_ugc_script(
                 db,
                 product_id,
@@ -3090,7 +3088,7 @@ def test_quality_gate_blocks_real_smoke_without_product_strategy(monkeypatch):
     with client() as api:
         product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Missing Strategy Product")
         with SessionLocal() as db:
-            attach_approved_reference_pair(db, product_id)
+            attach_approved_tier_2_contract(db, product_id)
             create_manual_ugc_script(
                 db,
                 product_id,
@@ -3106,7 +3104,7 @@ def test_ugc_quality_gate_passes_script_above_threshold():
     with client() as api:
         product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title="Quality Gate Pass Product")
         with SessionLocal() as db:
-            attach_approved_reference_pair(db, product_id)
+            attach_approved_tier_2_contract(db, product_id)
             script = create_manual_ugc_script(
                 db,
                 product_id,
@@ -3232,7 +3230,7 @@ def test_creative_quality_api_scores_rewrites_and_reports_gate_status():
             {"scene_number": 5, "role": "cta", "spoken_line": "Order now.", "caption": "", "visual_direction": ""},
         ]
         with SessionLocal() as db:
-            attach_approved_reference_pair(db, product_id)
+            attach_approved_tier_2_contract(db, product_id)
             script = create_manual_ugc_script(
                 db,
                 product_id,
@@ -4410,7 +4408,7 @@ def test_content_run_recommendation_real_smoke_when_ready():
     with client() as api:
         product_id = prepare_working_video_product(api, title="Factory Ready Reference Product")
         with SessionLocal() as db:
-            attach_approved_reference_pair(db, product_id)
+            attach_approved_tier_2_contract(db, product_id)
             result = ContentRunOrchestrator(db).prepare_content_run(product_id, "Instagram Reels", 15, 5)
 
         actions = {action.action for action in result.next_actions}
