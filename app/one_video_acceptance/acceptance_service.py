@@ -287,6 +287,16 @@ class OneVideoAcceptanceService:
     def _blockers_from_review(status: str, notes: str | None) -> list[str]:
         blockers = []
         normalized = (notes or "").lower()
+        edible_drift_explicitly_absent = any(
+            marker in normalized
+            for marker in [
+                "no edible product was shown",
+                "muesli drift was not tested",
+                "granola drift was not tested",
+                "no muesli drift",
+                "no granola drift",
+            ]
+        )
         if status in {"needs_regeneration", "rejected"}:
             blockers.append("manual_review_requires_regeneration")
         if "wrapper" in normalized or "упаков" in normalized or "label" in normalized or "logo" in normalized:
@@ -295,6 +305,8 @@ class OneVideoAcceptanceService:
             blockers.append("edible_product_drift")
         if "geometry" in normalized or "пропорц" in normalized or "deform" in normalized:
             blockers.append("geometry_drift")
+        if edible_drift_explicitly_absent:
+            blockers = [item for item in blockers if item != "edible_product_drift"]
         return list(dict.fromkeys(blockers))
 
     @staticmethod

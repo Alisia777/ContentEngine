@@ -125,6 +125,8 @@
             <tr><th>Destination capacity</th><td>{{ control_snapshot.summary.destination_capacity.status }} · {{ control_snapshot.summary.destination_capacity.active_destinations }}/{{ control_snapshot.summary.destination_capacity.destinations }} active</td></tr>
             <tr><th>Metrics coverage</th><td>{{ control_snapshot.summary.metrics_coverage.coverage_percent }}% · {{ control_snapshot.summary.metrics_coverage.tracked_publications }} tracked publications</td></tr>
             <tr><th>Money risk</th><td>{{ control_snapshot.summary.payout_exposure.pending_amount|round(0)|int }} {{ control_snapshot.summary.payout_exposure.currency }} pending payouts</td></tr>
+            <tr><th>Paid smoke</th><td>{{ control_snapshot.summary.paid_smoke_status }}</td></tr>
+            <tr><th>Real video next action</th><td>{{ control_snapshot.summary.real_video_next_action }}</td></tr>
           </tbody>
         </table>
       </article>

@@ -73,3 +73,15 @@ Paid smoke is allowed only when the latest report says `ready_for_paid_smoke` an
 9. Send output to OutputAcceptance and human review.
 
 Smoke readiness never calls a paid provider, never enables spend gates, never auto-approves output, and never publishes anything.
+
+## Post-Smoke Outcome Routing
+
+After the one-scene output is reviewed, Control Room exposes a single real-video decision:
+
+- `blocked_by_runway_credits`: no provider output was created because API credits were unavailable.
+- `product_compositing_required`: packaging, label, logo, geometry, or general product identity drifted.
+- `add_edible_references`: the edible product became a different texture or flavor, including muesli/granola drift.
+- `benchmark_candidate_ready`: human review explicitly approved the output.
+- `one_paid_smoke_then_output_acceptance`: no reviewed real output exists yet.
+
+For Bombbar Pro Dubai Mango & Kunafa, the flavor lock requires a milk-chocolate shell, pale cream souffle, bright yellow mango center, and caramel-kunafa top layer. Pink/green raspberry-pistachio and brown/hazelnut variants are separate product identities and must not be mixed into the reference bundle, prompt, or compositing inputs.

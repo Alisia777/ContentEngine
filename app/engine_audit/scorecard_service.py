@@ -22,6 +22,15 @@ DIMENSION_DEFINITIONS: tuple[tuple[str, str], ...] = (
     ("production", "Production readiness"),
 )
 
+PAID_SMOKE_COMPLETED_STATUSES = {
+    "video_generated",
+    "generated",
+    "needs_human_review",
+    "needs_regeneration",
+    "rejected",
+    "approved",
+}
+
 
 class EngineAuditScorecardService:
     """Builds the v3.4 quality scorecard without provider or publishing side effects."""
@@ -138,6 +147,8 @@ class EngineAuditScorecardService:
     def _video_quality(self) -> EngineAuditDimension:
         acceptances = self._count(models.VideoOutputAcceptance)
         latest = self.db.scalar(select(models.VideoOutputAcceptance).order_by(models.VideoOutputAcceptance.id.desc()))
+        latest_result = self.db.scalar(select(models.OneVideoRenderResult).order_by(models.OneVideoRenderResult.id.desc()))
+        next_action = self._real_video_next_action(latest, latest_result)
         contact_sheets = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.contact_sheet_path.isnot(None))
         human_reviews = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.reviewer_notes.isnot(None))
         auto_approved = 0
@@ -168,7 +179,7 @@ class EngineAuditScorecardService:
             score,
             reasons,
             fixes,
-            "one_paid_smoke_then_output_acceptance",
+            next_action,
             [{"label": "One Video Acceptance", "href": "/one-video-acceptance"}],
             {
                 "latest_output_acceptance_exists": bool(latest),
@@ -177,6 +188,8 @@ class EngineAuditScorecardService:
                 "human_review_count": human_reviews,
                 "auto_approved_count": auto_approved,
                 "latest_status": latest.status if latest else None,
+                "latest_result_status": latest_result.status if latest_result else None,
+                "next_action": next_action,
                 "product_identity_status": getattr(latest, "product_identity_status", None) if latest else None,
                 "packaging_or_edible_drift_status": (latest.blockers_json if latest else []),
             },
@@ -413,7 +426,10 @@ class EngineAuditScorecardService:
         public_users = self._count(models.UserProfile)
         gates = True
         hygiene_doc = True
-        paid_smoke = self._count(models.OneVideoRenderResult, models.OneVideoRenderResult.status.in_(["needs_human_review", "generated"]))
+        latest_acceptance = self.db.scalar(select(models.VideoOutputAcceptance).order_by(models.VideoOutputAcceptance.id.desc()))
+        latest_result = self.db.scalar(select(models.OneVideoRenderResult).order_by(models.OneVideoRenderResult.id.desc()))
+        next_action = self._real_video_next_action(latest_acceptance, latest_result)
+        paid_smoke = self._count(models.OneVideoRenderResult, models.OneVideoRenderResult.status.in_(PAID_SMOKE_COMPLETED_STATUSES))
         approved_outputs = self._count(models.VideoOutputAcceptance, models.VideoOutputAcceptance.status == "approved")
         score = 3.5
         reasons = ["paid_smoke_not_completed"]
@@ -439,7 +455,7 @@ class EngineAuditScorecardService:
             score,
             reasons,
             fixes,
-            "confirm_runway_credits_then_one_paid_smoke",
+            next_action if latest_result else "confirm_runway_credits_then_one_paid_smoke",
             [{"label": "Public Pilot Control Room", "href": "/control-room"}, {"label": "Workspace Hygiene", "href": "/docs/WORKSPACE_HYGIENE.md"}],
             {
                 "one_video_acceptance_status": {"plans": one_video_plans, "prompt_only_ready": prompt_ready},
@@ -448,8 +464,25 @@ class EngineAuditScorecardService:
                 "workspace_hygiene_status": hygiene_doc,
                 "paid_smoke_status": "completed" if paid_smoke else "pending",
                 "approved_outputs": approved_outputs,
+                "next_action": next_action,
             },
         )
+
+    @staticmethod
+    def _real_video_next_action(
+        latest_acceptance: models.VideoOutputAcceptance | None,
+        latest_result: models.OneVideoRenderResult | None,
+    ) -> str:
+        if latest_result and latest_result.status == "blocked_by_runway_credits":
+            return "blocked_by_runway_credits"
+        if latest_acceptance and latest_acceptance.status == "approved":
+            return "benchmark_candidate_ready"
+        if latest_acceptance and latest_acceptance.status in {"needs_regeneration", "rejected"}:
+            blockers = set(latest_acceptance.blockers_json or [])
+            if "edible_product_drift" in blockers:
+                return "add_edible_references"
+            return "product_compositing_required"
+        return "one_paid_smoke_then_output_acceptance"
 
     def _dimension(
         self,
