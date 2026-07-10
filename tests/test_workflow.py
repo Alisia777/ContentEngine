@@ -8375,6 +8375,7 @@ def test_control_room_owner_dashboard_shows_production_readiness():
     assert "metrics_coverage" in output.summary
     assert "payout_exposure" in output.summary
     assert "paid_smoke_status" in output.summary
+    assert "real_video_next_action" in output.summary
     assert output.summary["executive_next_decisions"]
     assert any(action.target_module in {"engine_audit", "one_video_acceptance", "output_acceptance"} for action in output.next_actions)
 
@@ -8603,6 +8604,13 @@ def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
     assert "no ai-generated bite" in proof_scene["visual"].lower()
     assert "generic muesli bar" in plan.negative_prompt
     assert "granola bar" in plan.negative_prompt
+    assert "pink raspberry interior" in plan.negative_prompt
+    assert "green pistachio center" in plan.negative_prompt
+    assert "hazelnut flavor variant" in plan.negative_prompt
+    flavor_identity = plan.prompt_preview_json["product_flavor_identity"]
+    assert flavor_identity["target_variant"] == "Bombbar Pro Dubai Mango & Kunafa"
+    assert "bright yellow mango center" in flavor_identity["required_visuals"]
+    assert all("Flavor identity lock" in item["prompt_text"] for item in plan.prompt_preview_json["scene_prompts"])
     assert "no_muesli_granola_visual_drift" in plan.acceptance_checklist_json
     assert plan.product_scene_policy_json["asset_audit"]["decision"] == "safe_prompt_only_or_overlay_until_edible_refs_ready"
     assert plan.prompt_preview_json["mvp_scorecard"]["total_score"] == 80
@@ -8670,6 +8678,10 @@ def test_one_video_real_run_records_blocked_by_runway_credits(monkeypatch):
         plan = service.prompt_only(service.build_plan(product_id, platform="Instagram Reels").id, provider="runway")
         result = service.run_real(plan.id, provider="runway", real_run=True, max_scenes=1)
         db.refresh(plan)
+        audit_run = EngineAuditScorecardService(db).run()
+        audit = EngineAuditScorecardService(db).output(audit_run)
+        video_quality = next(item for item in audit.dimensions if item.key == "video_quality")
+        production = next(item for item in audit.dimensions if item.key == "production")
 
     assert result.status == "blocked_by_runway_credits"
     assert result.human_review_status == "blocked"
@@ -8678,6 +8690,9 @@ def test_one_video_real_run_records_blocked_by_runway_credits(monkeypatch):
     assert result.result_json["blocker"] == "blocked_by_runway_credits"
     assert result.result_json["next_action"] == "add_runway_credits_then_rerun_one_scene_real_smoke"
     assert plan.status == "real_run_blocked_by_runway_credits"
+    assert video_quality.next_action == "blocked_by_runway_credits"
+    assert production.next_action == "blocked_by_runway_credits"
+    assert production.evidence["paid_smoke_status"] == "pending"
 
 
 def test_one_video_human_review_records_muesli_and_wrapper_drift():
@@ -8723,6 +8738,63 @@ def test_one_video_human_review_records_muesli_and_wrapper_drift():
     assert "packaging_drift" in acceptance.blockers_json
     assert "edible_product_drift" in acceptance.blockers_json
     assert acceptance.publishing_readiness == "blocked"
+
+
+def test_real_smoke_wrapper_drift_routes_control_room_to_product_compositing():
+    api = client()
+    product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
+    with SessionLocal() as db:
+        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        service = OneVideoAcceptanceService(db)
+        plan = service.prompt_only(service.build_plan(product_id, platform="Instagram Reels").id, provider="runway")
+        generation_variant = db.get(models.VideoGenerationVariant, plan.video_generation_variant_id)
+        video_job = models.VideoJob(
+            script_variant_id=generation_variant.script_variant_id,
+            provider="runway",
+            status="video_generated",
+            duration_seconds=2.04,
+            output_video_path="test_media/real_smoke_wrapper_drift.mp4",
+        )
+        db.add(video_job)
+        db.flush()
+        result = models.OneVideoRenderResult(
+            plan_id=plan.id,
+            product_id=product_id,
+            creative_variant_id=plan.creative_variant_id,
+            video_generation_variant_id=generation_variant.id,
+            prompt_pack_id=plan.prompt_pack_id,
+            video_job_id=video_job.id,
+            provider="runway",
+            status="video_generated",
+            human_review_status="needs_human_review",
+        )
+        db.add(result)
+        db.commit()
+        result = service.review(
+            result.id,
+            status="needs_regeneration",
+            notes=(
+                "Wrapper, logo and label drifted. Output is 2.04 seconds and has no locked end card. "
+                "No edible product was shown, so muesli drift was not tested."
+            ),
+        )
+        acceptance = db.get(models.VideoOutputAcceptance, result.output_acceptance_id)
+        audit_run = EngineAuditScorecardService(db).run()
+        audit = EngineAuditScorecardService(db).output(audit_run)
+        snapshot = ControlRoomSnapshotService(db).output(ControlRoomSnapshotService(db).refresh(role="owner"))
+
+    video_quality = next(item for item in audit.dimensions if item.key == "video_quality")
+    production = next(item for item in audit.dimensions if item.key == "production")
+    assert acceptance is not None
+    assert "packaging_drift" in acceptance.blockers_json
+    assert "edible_product_drift" not in acceptance.blockers_json
+    assert video_quality.next_action == "product_compositing_required"
+    assert production.next_action == "product_compositing_required"
+    assert production.evidence["paid_smoke_status"] == "completed"
+    assert snapshot.summary["paid_smoke_status"] == "completed"
+    assert snapshot.summary["real_video_next_action"] == "product_compositing_required"
+    assert any(action.action_type == "product_compositing_required" for action in snapshot.next_actions)
+    assert any(action.action_type == "product_compositing_required" for action in snapshot.safe_actions)
 
 
 def test_one_video_acceptance_ui_renders_plan():

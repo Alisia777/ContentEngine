@@ -192,9 +192,13 @@ class ControlRoomSnapshotService:
             or 0.0
         )
         production_dimension = next((item for item in audit.dimensions if item.key == "production"), None)
+        video_quality_dimension = next((item for item in audit.dimensions if item.key == "video_quality"), None)
         paid_smoke_status = "unknown"
         if production_dimension:
             paid_smoke_status = (production_dimension.evidence or {}).get("paid_smoke_status", "unknown")
+        real_video_next_action = "one_paid_smoke_then_output_acceptance"
+        if video_quality_dimension:
+            real_video_next_action = (video_quality_dimension.evidence or {}).get("next_action", video_quality_dimension.next_action)
 
         return {
             "campaign_readiness": {
@@ -218,6 +222,7 @@ class ControlRoomSnapshotService:
                 "currency": "RUB",
             },
             "paid_smoke_status": paid_smoke_status,
+            "real_video_next_action": real_video_next_action,
             "executive_next_decisions": [item.get("next_action") for item in (audit.recommendations or [])[:5]],
         }
 
