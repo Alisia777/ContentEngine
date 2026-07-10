@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -34,15 +36,42 @@ class ProductUGCRecipeRunner:
         self.provider_factory = provider_factory or RunwayRecipeProvider
         self.sleep = sleep
 
-    def run(self, draft_id: int, *, real_run: bool = False) -> ProductUGCRecipeRunOutput:
+    def validate_preflight(self, draft_id: int, *, real_run: bool = False):
         self._preflight(real_run=real_run)
         service = ProductUGCRecipeService(self.db)
         draft = service.get(draft_id)
-        request = service.provider_request(draft)
-        provider = self.provider_factory()
-        target_dir = self.settings.media_root / "provider" / "runway_product_ugc" / f"draft_{draft.id}"
+        service.provider_request(draft)
+        return service.output(draft)
+
+    def run(
+        self,
+        draft_id: int,
+        *,
+        real_run: bool = False,
+        preclaimed: bool = False,
+    ) -> ProductUGCRecipeRunOutput:
+        draft = None
         errors: list[str] = []
         try:
+            self._preflight(real_run=real_run)
+            service = ProductUGCRecipeService(self.db)
+            draft = service.get(draft_id)
+            if preclaimed:
+                if draft.status != "provider_launching":
+                    raise RunwayRecipeError("Product UGC draft was not reserved by the paid UI action.")
+            else:
+                claimed = self.db.execute(
+                    update(type(draft))
+                    .where(type(draft).id == draft.id, type(draft).status == "ready_for_paid_preflight")
+                    .values(status="provider_launching", provider_status="SUBMITTING")
+                )
+                if claimed.rowcount != 1:
+                    raise RunwayRecipeError("Product UGC draft is already running or is not paid-run ready.")
+                self.db.commit()
+                self.db.refresh(draft)
+            request = service.provider_request(draft)
+            provider = self.provider_factory()
+            target_dir = self.settings.media_root / "provider" / "runway_product_ugc" / f"draft_{draft.id}"
             task = provider.create_product_ugc(request)
             draft.provider_task_id = task.provider_job_id
             draft.provider_status = task.status
@@ -58,12 +87,17 @@ class ProductUGCRecipeRunner:
             draft.human_review_status = "needs_human_review"
             draft.publishing_readiness = "blocked"
         except Exception as exc:
-            errors.append(str(exc))
-            draft.status = "provider_failed"
-            draft.human_review_status = "needs_human_review"
-            draft.publishing_readiness = "blocked"
-            draft.generation_report_path = self._write_report(draft, errors=errors)
-            self.db.commit()
+            errors.append(self._safe_error(exc))
+            if draft is not None:
+                draft.status = "provider_failed"
+                draft.provider_status = draft.provider_status or "FAILED"
+                draft.human_review_status = "needs_human_review"
+                draft.publishing_readiness = "blocked"
+                warnings = list(draft.warnings_json or [])
+                warnings.append(f"Provider run failed: {errors[-1]}")
+                draft.warnings_json = warnings
+                draft.generation_report_path = self._write_report(draft, errors=errors)
+                self.db.commit()
             raise
         draft.generation_report_path = self._write_report(draft, errors=errors)
         self.db.commit()
@@ -131,3 +165,12 @@ class ProductUGCRecipeRunner:
         path = report_dir / f"product_ugc_recipe_draft_{draft.id}.json"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return path.as_posix()
+
+    @staticmethod
+    def _safe_error(exc: Exception) -> str:
+        message = str(exc).replace("\n", " ").strip()
+        message = re.sub(r"Bearer\s+\S+", "Bearer [redacted]", message, flags=re.IGNORECASE)
+        message = re.sub(r"key_[A-Za-z0-9_-]+", "[redacted-key]", message)
+        message = re.sub(r"data:[^;\s]+;base64,[A-Za-z0-9+/=]+", "data:[redacted]", message)
+        message = re.sub(r"(https?://[^\s\"']+)\?[^\s\"']+", r"\1?[redacted]", message)
+        return (message or exc.__class__.__name__)[:800]

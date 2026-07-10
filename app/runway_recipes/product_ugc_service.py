@@ -44,6 +44,14 @@ PROOF_TYPES = {
     "general": {"application_demo", "application_context", "result_context", "use_video_reference"},
 }
 
+PROVIDER_PRODUCT_IMAGE_TYPES = {
+    "food_snack": {"front_packshot", "front_view", "wrapper_plus_product", "product_on_surface"},
+    "cosmetic": {"front_packshot", "front_view", "application_context", "application_demo", "product_on_surface"},
+    "apparel": {"front_packshot", "front_view", "on_body", "product_on_surface"},
+    "household": {"front_packshot", "front_view", "application_context", "result_context", "product_on_surface"},
+    "general": {"front_packshot", "front_view", "application_context", "result_context", "product_on_surface"},
+}
+
 PROFILE_ACTION_LABELS = {
     "food_snack": "пробует продукт",
     "cosmetic": "наносит продукт",
@@ -241,11 +249,12 @@ class ProductUGCRecipeService:
             local_output_paths=draft.local_output_paths_json or [],
             generation_report_path=draft.generation_report_path,
             human_review_status=draft.human_review_status,
+            human_review_notes=draft.human_review_notes,
             publishing_readiness=draft.publishing_readiness,
         )
 
     def provider_request(self, draft: models.ProductUGCRecipeDraft) -> ProductUGCRecipeRequest:
-        if draft.status != "ready_for_paid_preflight" or draft.blockers_json:
+        if draft.status not in {"ready_for_paid_preflight", "provider_launching"} or draft.blockers_json:
             raise RunwayRecipeError("Product UGC draft is blocked; fix every preflight gate before a provider call.")
         character_path = Path(draft.character_image_path)
         product_asset = self.db.get(models.ProductAsset, draft.primary_product_asset_id)
@@ -406,14 +415,26 @@ class ProductUGCRecipeService:
         )
         self._gate(blockers, "exact_variant", variants_ok, "Один exact variant", f"Variant: {expected_variant or 'не указан'}.")
         self._gate(blockers, "variant_confirmation", exact_variant_confirmed, "Подтверждение SKU", "Оператор сверил все фото с одним SKU/вариантом.")
-        self._gate(blockers, "primary_product_image", primary is not None, "Главное product image", "Один front/primary reference должен быть выбран.")
+        self._gate(
+            blockers,
+            "primary_product_image",
+            primary is not None,
+            "Product image для Runway",
+            "Выберите одно точное фото, которое лучше всего показывает товар для заданного действия.",
+        )
         primary_classification = self.classifier.classify(primary, expected_variant_key=expected_variant) if primary else None
-        primary_is_front = bool(
+        primary_is_provider_ready = bool(
             primary_classification
-            and primary_classification.contract_type in {"front_packshot", "front_view"}
+            and primary_classification.contract_type in PROVIDER_PRODUCT_IMAGE_TYPES[profile]
             and primary_classification.eligible
         )
-        self._gate(blockers, "primary_is_front", primary_is_front, "Главное фото — front", "В Runway уходит только подтверждённый главный вид товара.")
+        self._gate(
+            blockers,
+            "provider_product_image",
+            primary_is_provider_ready,
+            "Product image подходит для recipe",
+            "Runway получает точный front или reference-safe product/use composite; отдельный front всё равно обязателен в identity set.",
+        )
         signatures = [asset.checksum or asset.source_ref for asset in assets]
         unique_refs = len(signatures) == len(set(signatures))
         self._gate(blockers, "unique_references", unique_refs, "Разные ракурсы", "Один файл нельзя загрузить несколько раз под разными ролями.")

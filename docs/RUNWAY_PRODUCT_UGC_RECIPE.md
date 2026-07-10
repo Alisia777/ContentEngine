@@ -40,12 +40,12 @@ The provider request contains only:
 
 Runway accepts one `productImage` for Product UGC. ContentEngine deliberately requires three or four product references before the request:
 
-1. front / primary product image;
+1. front identity image;
 2. second angle;
 3. scale or product-in-hand image;
 4. category-appropriate use/proof image when the brief asks the creator to use the product.
 
-Only the approved front image is sent as `productImage`. The other references are evidence for variant identity, physical scale, scene permissions and human review. They are never added as unsupported provider fields.
+The operator explicitly selects one provider-compatible reference as Runway `productImage`. It can be the exact front or a category-safe composite that shows the exact product in context. For food, a wrapper-plus-product or product-on-surface composite is preferred when the edible structure matters. The separate approved front remains mandatory identity evidence. Other references prove variant identity, physical scale, scene permissions and human-review expectations; they are never added as unsupported provider fields.
 
 ## Hard Gates
 
@@ -54,7 +54,7 @@ A draft remains blocked when any condition is true:
 - fewer than three or more than four product references;
 - duplicate files reused as different angles;
 - missing front, second-angle or scale role;
-- primary reference is not an approved front view;
+- selected Runway `productImage` is not an approved exact front or category-safe product/use composite;
 - references belong to different variants;
 - SKU/variant confirmation is absent;
 - creator likeness consent is absent;
@@ -66,7 +66,17 @@ A draft remains blocked when any condition is true:
 
 Open `/mvp-launch`, select a product and complete the Product UGC form. The first action only creates a recipe draft and payload preview. It never calls Runway.
 
-After a draft is `ready_for_paid_preflight`, the explicit paid runner is:
+The same page then exposes paid preflight only when all of these are ready:
+
+- draft gates;
+- owner/admin role permission;
+- `QVF_GENERATION_MODE=real`;
+- `QVF_ALLOW_REAL_SPEND=true`;
+- configured `RUNWAYML_API_SECRET`.
+
+The operator must confirm one task, type the exact estimated credit count and acknowledge mandatory human review. The draft is atomically reserved before provider submission, so a repeated click cannot create a second task. While Runway is working, the page polls only safe draft status. After completion it renders the downloaded local MP4, task ID, safe report link and the manual approve/regenerate/reject form.
+
+The CLI remains available for controlled operator use:
 
 ```powershell
 $env:QVF_GENERATION_MODE="real"

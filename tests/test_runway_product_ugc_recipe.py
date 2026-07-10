@@ -148,6 +148,41 @@ def test_three_exact_references_build_official_product_ugc_payload():
         assert "RUNWAYML_API_SECRET" not in json.dumps(output.payload_preview)
 
 
+def test_provider_product_image_can_be_exact_use_composite_while_front_remains_identity_evidence():
+    product_id = create_product(profile="food_snack")
+    uploads = [
+        upload("front", "front_packshot"),
+        upload("angle", "angled_product"),
+        upload("surface", "product_on_surface", primary=True),
+        upload("proof", "cutaway_product"),
+    ]
+    with SessionLocal() as db:
+        draft = ProductUGCRecipeService(db).create_draft(
+            product_id=product_id,
+            variant_key="rose-lumiere",
+            character_filename="creator.png",
+            character_content=PNG,
+            product_uploads=uploads,
+            task="Показать точный продукт и его реальный разрез.",
+            creator_profile="Русскоязычная спортивная блогер 27 лет.",
+            setting="После тренировки у окна.",
+            hook="Покажу, что внутри, без рекламного глянца.",
+            product_action="Показывает упаковку и пробует продукт.",
+            proof_moment="В кадре виден точный разрез из product reference.",
+            spoken_message="Внутри мягкая начинка, а не мюсли или гранола.",
+            cta="Сохраните вариант, чтобы не потерять.",
+            interaction_mode="use",
+            likeness_consent=True,
+            exact_variant_confirmed=True,
+        )
+        primary = db.get(models.ProductAsset, draft.primary_product_asset_id)
+        assert draft.status == "ready_for_paid_preflight"
+        assert primary.metadata_json["contract_type"] == "product_on_surface"
+        request = ProductUGCRecipeService(db).provider_request(draft)
+        expected = base64.b64encode(PNG + b"surface").decode("ascii")
+        assert request.product_image.uri.endswith(expected)
+
+
 def test_use_scene_requires_fourth_category_appropriate_proof_reference():
     product_id = create_product()
     with SessionLocal() as db:
@@ -402,9 +437,101 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
         follow_redirects=True,
     )
     assert response.status_code == 200
-    assert "Можно передавать в paid preflight" in response.text
-    assert "Провайдер не вызван" in response.text
+    assert "ТЗ готово к одному paid запуску" in response.text
+    assert "Paid action скрыт" in response.text
+    assert "Провайдер ещё не вызван" in response.text
     with SessionLocal() as db:
         draft = db.query(models.ProductUGCRecipeDraft).one()
         assert draft.status == "ready_for_paid_preflight"
         assert draft.provider_task_id is None
+
+
+def test_paid_product_ugc_ui_runs_once_downloads_output_and_records_human_review(monkeypatch):
+    product_id = create_product()
+    with SessionLocal() as db:
+        draft = create_draft(db, product_id, interaction_mode="use", proof=True)
+        draft_id = draft.id
+        credits = draft.estimated_credits
+
+    calls = {"created": 0}
+
+    class FakeProvider:
+        def create_product_ugc(self, request):
+            calls["created"] += 1
+            assert request.audio is True
+            return ProviderVideoJob(
+                provider="runway_product_ugc_recipe",
+                provider_job_id="recipe-ui-task-safe",
+                status="PENDING",
+                raw_response={"id": "recipe-ui-task-safe", "status": "PENDING"},
+            )
+
+        def get_status(self, provider_job_id):
+            return ProviderVideoStatus(
+                provider_job_id=provider_job_id,
+                status="SUCCEEDED",
+                raw_response={"id": provider_job_id, "status": "SUCCEEDED", "output_count": 1},
+            )
+
+        def download_outputs(self, provider_job_id, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            output = target_dir / f"{provider_job_id}.mp4"
+            output.write_bytes(b"ui-controlled-product-ugc-video")
+            return [output]
+
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "test-key-never-persist")
+    monkeypatch.setattr("app.runway_recipes.runner.RunwayRecipeProvider", FakeProvider)
+    get_settings.cache_clear()
+
+    api = TestClient(app)
+    ready_page = api.get(f"/mvp-launch?product_id={product_id}&recipe_draft_id={draft_id}")
+    assert ready_page.status_code == 200
+    assert "Запустить 1 paid Product UGC" in ready_page.text
+    assert "Spend gate включён" in ready_page.text
+
+    generated_page = api.post(
+        f"/mvp-launch/product-ugc/{draft_id}/run",
+        data={
+            "confirm_single_paid_run": "true",
+            "confirmed_credits": str(credits),
+            "confirm_human_review": "true",
+        },
+        follow_redirects=True,
+    )
+    assert generated_page.status_code == 200
+    assert "Проверить реальный MP4" in generated_page.text
+    assert "recipe-ui-task-safe" in generated_page.text
+    assert "Сохранить human review" in generated_page.text
+    assert calls["created"] == 1
+
+    duplicate = api.post(
+        f"/mvp-launch/product-ugc/{draft_id}/run",
+        data={
+            "confirm_single_paid_run": "true",
+            "confirmed_credits": str(credits),
+            "confirm_human_review": "true",
+        },
+        follow_redirects=True,
+    )
+    assert duplicate.status_code == 200
+    assert "Paid run доступен только" in duplicate.text
+    assert calls["created"] == 1
+
+    reviewed_page = api.post(
+        f"/mvp-launch/product-ugc/{draft_id}/review",
+        data={
+            "review_status": "approved",
+            "review_notes": "Точный продукт, естественное применение и читаемая упаковка проверены человеком.",
+            "confirm_visual_review": "true",
+        },
+        follow_redirects=True,
+    )
+    assert reviewed_page.status_code == 200
+    assert "Ролик одобрен человеком" in reviewed_page.text
+    assert "ready_for_package" in reviewed_page.text
+    with SessionLocal() as db:
+        reviewed = db.get(models.ProductUGCRecipeDraft, draft_id)
+        assert reviewed.human_review_status == "approved"
+        assert reviewed.publishing_readiness == "ready_for_package"

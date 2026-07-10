@@ -16,6 +16,7 @@
     </header>
 
     {% if error %}<p class="public-alert" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="public-alert public-alert--success" role="status">{{ notice }}</p>{% endif %}
 
     <form class="altea-card recipe-product-picker altea-reveal" method="get" action="/mvp-launch">
       <label class="recipe-field">
@@ -31,11 +32,22 @@
     </form>
 
     {% if recipe_draft %}
+    {% set recipe_running = recipe_draft.status in ['provider_launching', 'provider_submitted'] %}
+    {% set recipe_generated = recipe_draft.local_output_paths | length > 0 %}
     <section class="recipe-result altea-reveal" aria-labelledby="recipe-result-title">
       <header class="recipe-section-head">
         <div>
           <p class="public-eyebrow">Recipe draft #{{ recipe_draft.id }}</p>
-          <h2 id="recipe-result-title">{{ 'Можно передавать в paid preflight' if recipe_draft.status == 'ready_for_paid_preflight' else 'Запуск заблокирован' }}</h2>
+          <h2 id="recipe-result-title">
+            {% if recipe_draft.status == 'ready_for_paid_preflight' %}ТЗ готово к одному paid запуску
+            {% elif recipe_running %}Runway генерирует ролик
+            {% elif recipe_draft.status == 'generated_needs_human_review' %}MP4 скачан, нужен просмотр глазами
+            {% elif recipe_draft.status == 'approved' %}Ролик одобрен человеком
+            {% elif recipe_draft.status == 'needs_regeneration' %}Нужна регенерация
+            {% elif recipe_draft.status == 'rejected' %}Результат отклонён
+            {% elif recipe_draft.status == 'provider_failed' %}Provider run завершился ошибкой
+            {% else %}Запуск заблокирован{% endif %}
+          </h2>
         </div>
         <div class="recipe-cost">
           <span>Оценка Runway</span>
@@ -63,7 +75,14 @@
         <div><span>Язык</span><strong>русский</strong></div>
         <div><span>Human review</span><strong>{{ recipe_draft.human_review_status }}</strong></div>
         <div><span>Публикация</span><strong>{{ recipe_draft.publishing_readiness }}</strong></div>
+        <div><span>Provider</span><strong data-recipe-run-status data-draft-id="{{ recipe_draft.id }}">{{ recipe_draft.provider_status or 'не вызван' }}</strong></div>
       </div>
+
+      {% if recipe_draft.warnings %}
+      <div class="recipe-warning-list">
+        {% for warning in recipe_draft.warnings %}<p>{{ warning }}</p>{% endfor %}
+      </div>
+      {% endif %}
 
       <details class="recipe-payload">
         <summary>Проверить Product info и Creative direction</summary>
@@ -78,7 +97,93 @@
         <pre>{{ recipe_draft.payload_preview | tojson(indent=2) }}</pre>
       </details>
 
-      <p class="public-safety-note">Провайдер не вызван. Data URI, API key и signed output URL в draft не сохраняются. Следующий paid action возможен только отдельной командой после всех gates.</p>
+      {% if recipe_draft.status == 'ready_for_paid_preflight' and recipe_run_readiness %}
+      <section class="recipe-paid-panel" aria-labelledby="recipe-paid-title">
+        <header class="recipe-section-head">
+          <div><p class="public-eyebrow">Paid preflight</p><h3 id="recipe-paid-title">Один официальный Product UGC task</h3></div>
+          <span class="public-status public-status--{{ 'ready' if recipe_run_readiness.ready else 'blocked' }}">{{ 'готово' if recipe_run_readiness.ready else 'заблокировано' }}</span>
+        </header>
+        <div class="recipe-preflight-grid">
+          {% for gate in recipe_run_readiness.gates %}
+          <div class="recipe-preflight-row is-{{ 'ready' if gate.ready else 'blocked' }}">
+            <span aria-hidden="true">{{ '✓' if gate.ready else '!' }}</span>
+            <div><strong>{{ gate.label }}</strong><small>{{ gate.detail }}</small></div>
+          </div>
+          {% endfor %}
+        </div>
+        {% if recipe_run_readiness.ready %}
+        <form class="recipe-paid-form" method="post" action="/mvp-launch/product-ugc/{{ recipe_draft.id }}/run" data-paid-run-form>
+          <label class="recipe-confirm">
+            <input type="checkbox" name="confirm_single_paid_run" value="true" required>
+            <span>Запустить ровно один paid task для этого draft. Повторный клик не создаст второй task.</span>
+          </label>
+          <label class="recipe-field">
+            <span>Подтверждение стоимости <small>введите {{ recipe_draft.estimated_credits }}</small></span>
+            <input type="number" name="confirmed_credits" min="{{ recipe_draft.estimated_credits }}" max="{{ recipe_draft.estimated_credits }}" placeholder="{{ recipe_draft.estimated_credits }}" required>
+          </label>
+          <label class="recipe-confirm">
+            <input type="checkbox" name="confirm_human_review" value="true" required>
+            <span>После скачивания MP4 публикация остаётся заблокированной до ручного просмотра и решения.</span>
+          </label>
+          <button class="altea-glow-button" type="submit">Запустить 1 paid Product UGC</button>
+        </form>
+        {% else %}
+        <p class="recipe-blocker-line">Paid action скрыт, пока не готовы роль, real mode, spend gate и API key.</p>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if recipe_running %}
+      <div class="recipe-provider-progress" data-recipe-poll data-draft-id="{{ recipe_draft.id }}">
+        <span class="recipe-provider-spinner" aria-hidden="true"></span>
+        <div><strong>Provider task выполняется</strong><small>Статус обновляется автоматически. Публикация заблокирована.</small></div>
+      </div>
+      {% endif %}
+
+      {% if recipe_draft.provider_task_id or recipe_draft.generation_report_path %}
+      <div class="recipe-provider-facts">
+        {% if recipe_draft.provider_task_id %}<div><span>Provider task ID</span><code>{{ recipe_draft.provider_task_id }}</code></div>{% endif %}
+        {% if recipe_report_url %}<a href="{{ recipe_report_url }}" target="_blank" rel="noopener">Открыть безопасный generation report</a>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if recipe_output_media %}
+      <section class="recipe-video-review" aria-labelledby="recipe-video-title">
+        <header class="recipe-section-head">
+          <div><p class="public-eyebrow">Downloaded output</p><h3 id="recipe-video-title">Проверить реальный MP4</h3></div>
+          <span class="public-status public-status--human_gated">manual review</span>
+        </header>
+        <div class="recipe-video-grid">
+          {% for output in recipe_output_media %}
+          <article class="recipe-video-item">
+            <video controls preload="metadata" playsinline src="{{ output.url }}"></video>
+            <footer><strong>{{ output.name }}</strong><small>{{ (output.size_bytes / 1048576) | round(2) }} MB</small><a href="{{ output.url }}" download>Скачать MP4</a></footer>
+          </article>
+          {% endfor %}
+        </div>
+
+        {% if recipe_draft.human_review_status == 'needs_human_review' %}
+        <form class="recipe-review-form" method="post" action="/mvp-launch/product-ugc/{{ recipe_draft.id }}/review">
+          <div class="recipe-field-grid">
+            <label class="recipe-field"><span>Решение</span><select name="review_status" required><option value="">Выберите</option><option value="approved">Approve</option><option value="needs_regeneration">Needs regeneration</option><option value="rejected">Reject</option></select></label>
+            <label class="recipe-field"><span>Что увидели в ролике</span><textarea name="review_notes" rows="4" required placeholder="Упаковка, продукт, руки, речь, применение, CTA..."></textarea></label>
+          </div>
+          <label class="recipe-confirm"><input type="checkbox" name="confirm_visual_review" value="true" required><span>Я полностью посмотрела MP4 и проверила точность товара, реалистичность применения и отсутствие опасных визуальных ошибок.</span></label>
+          <button class="altea-glow-button" type="submit">Сохранить human review</button>
+        </form>
+        {% else %}
+        <div class="recipe-review-decision"><strong>{{ recipe_draft.human_review_status }}</strong><p>{{ recipe_draft.human_review_notes or 'Решение сохранено.' }}</p></div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if recipe_draft.status == 'ready_for_paid_preflight' %}
+      <p class="public-safety-note">Провайдер ещё не вызван. API key, data URI и signed output URL в draft не сохраняются.</p>
+      {% elif recipe_running %}
+      <p class="public-safety-note">Paid task уже зарезервирован. Повторный запуск этого draft заблокирован.</p>
+      {% elif recipe_generated %}
+      <p class="public-safety-note">Файл скачан локально. Auto-approve и auto-publish отсутствуют.</p>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -109,7 +214,7 @@
 
       <section class="recipe-band" aria-labelledby="recipe-refs-title">
         <header class="recipe-section-head">
-          <div><p class="public-eyebrow">02 · Референсы товара</p><h2 id="recipe-refs-title">Ровно 3 или 4 фото одного варианта</h2></div>
+          <div><p class="public-eyebrow">02 · Референсы товара</p><h2 id="recipe-refs-title">Ровно 3 или 4 фото одного варианта</h2><p>Все фото проходят identity gate; одно выбранное product image уходит в официальный Runway recipe.</p></div>
           <span class="recipe-counter" data-reference-counter>0 / 3</span>
         </header>
 
@@ -122,7 +227,7 @@
               {% if asset.media_url %}<img src="{{ asset.media_url }}" alt="{{ asset.filename }}">{% else %}<span>IMG</span>{% endif %}
             </span>
             <span class="recipe-asset-copy"><strong>{{ asset.contract_type }}</strong><small>{{ asset.filename }} · {{ asset.review_status }} · {{ asset.variant_status }}</small></span>
-            <input class="recipe-primary-radio" type="radio" name="primary_asset_id" value="{{ asset.id }}" aria-label="Сделать главным фото" {{ 'checked' if asset.is_primary else '' }}>
+            <input class="recipe-primary-radio" type="radio" name="primary_asset_id" value="{{ asset.id }}" aria-label="Отправить это фото как product image в Runway" title="Product image для Runway" {{ 'checked' if asset.is_primary else '' }}>
           </label>
           {% endfor %}
         </div>
@@ -150,6 +255,16 @@
               {% else %}Реальное применение или результат{% endif %}
             </small>
             <input type="file" name="proof_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+          </label>
+        </div>
+        <div class="recipe-field-grid">
+          <label class="recipe-field">
+            <span>Product image для Runway <small>если загружаете новые файлы</small></span>
+            <select name="provider_image_slot"><option value="front">Главный вид</option><option value="scale">Товар в руке / на поверхности</option><option value="proof">Product + proof composite</option></select>
+          </label>
+          <label class="recipe-field">
+            <span>Что показывает фото №3</span>
+            <select name="scale_reference_type"><option value="product_in_hand">Товар в руке</option><option value="product_on_surface">Товар на поверхности</option><option value="scale_context">Другой понятный масштаб</option></select>
           </label>
         </div>
         <label class="recipe-confirm">

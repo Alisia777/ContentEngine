@@ -61,6 +61,7 @@ class ProductUGCRecipeDraftOutput(BaseModel):
     local_output_paths: list[str] = Field(default_factory=list)
     generation_report_path: str | None = None
     human_review_status: str = "not_generated"
+    human_review_notes: str | None = None
     publishing_readiness: str = "blocked"
 
 

@@ -1,24 +1,38 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import models
 from app.config import get_settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
+from app.intelligence.errors import ProviderConfigurationError
 from app.interface_productization import InterfaceProductizationError, MVPLaunchWizardService, MVPWorkspaceService
 from app.product_asset_contract import ProductAssetClassifier
 from app.product_asset_contract.reference_requirement_service import product_profile, product_variant_key
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser, get_current_public_user
 from app.public_pilot.control_room import PublicPilotControlRoomService
-from app.public_pilot.gate_matrix import ACTION_LABELS, PublicPilotGateMatrix, TRAINING_ATTEMPT
-from app.runway_recipes import ProductImageUpload, ProductUGCRecipeService, RunwayRecipeError
+from app.public_pilot.gate_matrix import (
+    ACTION_LABELS,
+    ONE_VIDEO_REAL_RUN,
+    PublicPilotGateMatrix,
+    TRAINING_ATTEMPT,
+    VIDEO_APPROVE,
+    VIDEO_REJECT,
+)
+from app.runway_recipes import (
+    ProductImageUpload,
+    ProductUGCRecipeRunner,
+    ProductUGCRecipeService,
+    RunwayRecipeError,
+)
 from app.ui import templates
 
 router = APIRouter(tags=["public-pilot"])
@@ -33,6 +47,85 @@ def _media_url(source_ref: str) -> str | None:
     except (OSError, ValueError):
         return None
     return "/media/" + relative.as_posix()
+
+
+def _recipe_media_items(paths: list[str]) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for raw_path in paths:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists() or not path.is_file():
+            continue
+        media_url = _media_url(path.as_posix())
+        if media_url:
+            items.append(
+                {
+                    "name": path.name,
+                    "url": media_url,
+                    "size_bytes": path.stat().st_size,
+                }
+            )
+    return items
+
+
+def _recipe_run_readiness(
+    db: Session,
+    user: PublicPilotUser,
+    draft: models.ProductUGCRecipeDraft,
+) -> dict[str, object]:
+    settings = get_settings()
+    role_decision = PublicPilotAccessService(db).evaluate_action(
+        user_profile_id=user.profile.id,
+        organization_id=user.organization.id,
+        role=user.role,
+        action=ONE_VIDEO_REAL_RUN,
+        spend_gate_confirmed=True,
+    )
+    rows = [
+        {
+            "label": "ТЗ прошло Product UGC gates",
+            "ready": draft.status == "ready_for_paid_preflight" and not draft.blockers_json,
+            "detail": draft.status,
+        },
+        {
+            "label": "Роль может запускать paid task",
+            "ready": role_decision.allowed,
+            "detail": user.role if role_decision.allowed else role_decision.reason,
+        },
+        {
+            "label": "Real generation mode",
+            "ready": settings.generation_mode == "real",
+            "detail": f"QVF_GENERATION_MODE={settings.generation_mode}",
+        },
+        {
+            "label": "Spend gate включён",
+            "ready": settings.allow_real_spend,
+            "detail": "QVF_ALLOW_REAL_SPEND=true" if settings.allow_real_spend else "QVF_ALLOW_REAL_SPEND не включён",
+        },
+        {
+            "label": "Runway API key настроен",
+            "ready": bool(os.getenv("RUNWAYML_API_SECRET")),
+            "detail": "ключ найден" if os.getenv("RUNWAYML_API_SECRET") else "RUNWAYML_API_SECRET отсутствует",
+        },
+    ]
+    return {
+        "ready": all(bool(row["ready"]) for row in rows),
+        "gates": rows,
+        "role": user.role,
+    }
+
+
+def _run_product_ugc_background(draft_id: int) -> None:
+    with SessionLocal() as db:
+        try:
+            ProductUGCRecipeRunner(db).run(draft_id, real_run=True, preclaimed=True)
+        except (ProviderConfigurationError, RunwayRecipeError):
+            # The runner persists a safe failure report and blocked status for the UI.
+            return
+        except Exception:
+            # Provider failures remain visible through the persisted status/report; never expose secrets here.
+            return
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -111,6 +204,7 @@ def mvp_launch(
     product_id: int | None = None,
     recipe_draft_id: int | None = None,
     error: str | None = None,
+    notice: str | None = None,
     db: Session = Depends(get_db),
     user: PublicPilotUser = Depends(get_current_public_user),
 ) -> HTMLResponse:
@@ -124,12 +218,20 @@ def mvp_launch(
     products = list(db.scalars(select(models.Product).order_by(models.Product.id.desc()).limit(50)))
     recipe_service = ProductUGCRecipeService(db)
     recipe_draft = None
+    recipe_record = None
+    recipe_run_readiness = None
+    recipe_output_media: list[dict[str, object]] = []
+    recipe_report_url = None
     selected_product = db.get(models.Product, product_id) if product_id else None
     if recipe_draft_id:
         try:
             recipe_record = recipe_service.get(recipe_draft_id)
             recipe_draft = recipe_service.output(recipe_record)
             selected_product = recipe_record.product
+            recipe_run_readiness = _recipe_run_readiness(db, user, recipe_record)
+            recipe_output_media = _recipe_media_items(recipe_draft.local_output_paths)
+            if recipe_draft.generation_report_path:
+                recipe_report_url = _media_url(recipe_draft.generation_report_path)
         except RunwayRecipeError as exc:
             error = str(exc)
     assets = []
@@ -169,8 +271,12 @@ def mvp_launch(
             "selected_variant": selected_variant,
             "product_assets": assets,
             "recipe_draft": recipe_draft,
+            "recipe_run_readiness": recipe_run_readiness,
+            "recipe_output_media": recipe_output_media,
+            "recipe_report_url": recipe_report_url,
             "default_product_info": recipe_service.default_product_info(selected_product, selected_variant) if selected_product else "",
             "error": error,
+            "notice": notice,
         },
     )
 
@@ -181,6 +287,8 @@ async def product_ugc_recipe_draft(
     variant_key: str = Form(...),
     existing_asset_ids: list[int] = Form([]),
     primary_asset_id: int | None = Form(None),
+    provider_image_slot: str = Form("front"),
+    scale_reference_type: str = Form("product_in_hand"),
     front_image: UploadFile | None = File(None),
     angle_image: UploadFile | None = File(None),
     scale_image: UploadFile | None = File(None),
@@ -217,14 +325,19 @@ async def product_ugc_recipe_draft(
         "household": "application_demo",
         "general": "application_context",
     }[product_profile(product)]
+    if scale_reference_type not in {"product_in_hand", "product_on_surface", "scale_context"}:
+        return RedirectResponse(
+            f"/mvp-launch?product_id={product_id}&error={quote('Неверный тип scale reference.')}",
+            status_code=303,
+        )
     upload_specs = [
-        ("Главный вид", front_image, "front_packshot", True),
-        ("Второй ракурс", angle_image, "angled_product", False),
-        ("Масштаб / в руке", scale_image, "product_in_hand", False),
-        ("Доказательство применения", proof_image, proof_type, False),
+        ("front", "Главный вид", front_image, "front_packshot"),
+        ("angle", "Второй ракурс", angle_image, "angled_product"),
+        ("scale", "Масштаб / в руке", scale_image, scale_reference_type),
+        ("proof", "Доказательство применения", proof_image, proof_type),
     ]
     uploads: list[ProductImageUpload] = []
-    for slot, upload, contract_type, primary in upload_specs:
+    for slot_key, slot, upload, contract_type in upload_specs:
         if upload and upload.filename:
             uploads.append(
                 ProductImageUpload(
@@ -232,7 +345,7 @@ async def product_ugc_recipe_draft(
                     filename=upload.filename,
                     content=await upload.read(),
                     contract_type=contract_type,
-                    primary=primary,
+                    primary=primary_asset_id is None and provider_image_slot == slot_key,
                 )
             )
     try:
@@ -269,6 +382,103 @@ async def product_ugc_recipe_draft(
         )
     return RedirectResponse(
         f"/mvp-launch?product_id={product_id}&recipe_draft_id={draft.id}",
+        status_code=303,
+    )
+
+
+@router.post("/mvp-launch/product-ugc/{draft_id}/run")
+def run_product_ugc_recipe_from_ui(
+    draft_id: int,
+    background_tasks: BackgroundTasks,
+    confirm_single_paid_run: bool = Form(False),
+    confirmed_credits: int = Form(0),
+    confirm_human_review: bool = Form(False),
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> RedirectResponse:
+    service = ProductUGCRecipeService(db)
+    try:
+        draft = service.get(draft_id)
+        if draft.status != "ready_for_paid_preflight" or draft.blockers_json:
+            raise RunwayRecipeError("Paid run доступен только для полностью готового Product UGC draft.")
+        if not confirm_single_paid_run or not confirm_human_review:
+            raise RunwayRecipeError("Подтвердите один paid task и обязательный human review.")
+        if confirmed_credits != draft.estimated_credits:
+            raise RunwayRecipeError(
+                f"Подтверждение стоимости должно точно совпадать с оценкой: {draft.estimated_credits} credits."
+            )
+        PublicPilotAccessService(db).require_action(
+            user_profile_id=user.profile.id,
+            organization_id=user.organization.id,
+            role=user.role,
+            action=ONE_VIDEO_REAL_RUN,
+            spend_gate_confirmed=True,
+            payload={"draft_id": draft.id, "estimated_credits": draft.estimated_credits, "recipe": "product_ugc"},
+        )
+        ProductUGCRecipeRunner(db).validate_preflight(draft.id, real_run=True)
+        claimed = db.execute(
+            update(models.ProductUGCRecipeDraft)
+            .where(
+                models.ProductUGCRecipeDraft.id == draft.id,
+                models.ProductUGCRecipeDraft.status == "ready_for_paid_preflight",
+            )
+            .values(status="provider_launching", provider_status="SUBMITTING")
+        )
+        if claimed.rowcount != 1:
+            raise RunwayRecipeError("Этот draft уже запущен или изменился. Обновите страницу.")
+        db.commit()
+        background_tasks.add_task(_run_product_ugc_background, draft.id)
+    except HTTPException as exc:
+        return RedirectResponse(
+            f"/mvp-launch?product_id={draft.product_id if 'draft' in locals() else ''}&recipe_draft_id={draft_id}&error={quote(str(exc.detail))}",
+            status_code=303,
+        )
+    except (ProviderConfigurationError, RunwayRecipeError) as exc:
+        return RedirectResponse(
+            f"/mvp-launch?product_id={draft.product_id if 'draft' in locals() else ''}&recipe_draft_id={draft_id}&error={quote(str(exc))}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/mvp-launch?product_id={draft.product_id}&recipe_draft_id={draft.id}&notice={quote('Paid task отправляется в Runway. Страница обновит статус автоматически.')}",
+        status_code=303,
+    )
+
+
+@router.post("/mvp-launch/product-ugc/{draft_id}/review")
+def review_product_ugc_recipe_from_ui(
+    draft_id: int,
+    review_status: str = Form(...),
+    review_notes: str = Form(...),
+    confirm_visual_review: bool = Form(False),
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> RedirectResponse:
+    service = ProductUGCRecipeService(db)
+    try:
+        draft = service.get(draft_id)
+        if not confirm_visual_review:
+            raise RunwayRecipeError("Подтвердите, что MP4 действительно просмотрен глазами.")
+        action = VIDEO_APPROVE if review_status == "approved" else VIDEO_REJECT
+        PublicPilotAccessService(db).require_action(
+            user_profile_id=user.profile.id,
+            organization_id=user.organization.id,
+            role=user.role,
+            action=action,
+            payload={"draft_id": draft.id, "review_status": review_status},
+        )
+        reviewed = service.record_human_review(draft.id, status=review_status, notes=review_notes)
+    except HTTPException as exc:
+        return RedirectResponse(
+            f"/mvp-launch?recipe_draft_id={draft_id}&error={quote(str(exc.detail))}",
+            status_code=303,
+        )
+    except RunwayRecipeError as exc:
+        return RedirectResponse(
+            f"/mvp-launch?recipe_draft_id={draft_id}&error={quote(str(exc))}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/mvp-launch?product_id={reviewed.product_id}&recipe_draft_id={reviewed.id}&notice={quote('Human review сохранён. Публикация зависит от решения.')}",
         status_code=303,
     )
 
