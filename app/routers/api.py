@@ -100,6 +100,7 @@ from app.engine.errors import EngineError
 from app.engine_audit import EngineAuditError, EngineAuditRecommendationsService, EngineAuditReportService, EngineAuditScorecardService
 from app.factory_os import FactoryAcceptanceReportService, FactoryHealthCheck, FactoryLaunchWorkflow, FactoryRunbookService
 from app.factory_os.errors import FactoryOSError
+from app.interface_productization import InterfaceProductizationError, MVPLaunchWizardService, MVPWorkspaceService
 from app.smoke_readiness import ReadinessReportService, RecoveryService, SmokeReadinessError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
@@ -215,6 +216,17 @@ class ControlRoomRefreshRequest(BaseModel):
     role: str = "owner"
     scope_type: str = "global"
     scope_id: int | None = None
+
+
+class MVPLaunchStartRequest(BaseModel):
+    product_id: int | None = None
+    sku: str | None = None
+
+
+class MVPLaunchNextRequest(BaseModel):
+    product_id: int | None = None
+    sku: str | None = None
+    runway_credits_confirmed: bool = False
 
 
 class SmokeReadinessRecoverRequest(BaseModel):
@@ -1385,6 +1397,42 @@ def route_control_room_action(action_id: int, db: Session = Depends(get_db)):
         "safe_to_execute": action.safe_to_execute,
         "requires_spend_gate": action.requires_spend_gate,
     }
+
+
+@router.get("/workbench/snapshot")
+def get_mvp_workbench_snapshot(role: str = "owner", db: Session = Depends(get_db)):
+    service = MVPWorkspaceService(db)
+    return service.output(service.build(role=role)).model_dump(mode="json")
+
+
+@router.post("/mvp-launch/start")
+def start_mvp_launch(payload: MVPLaunchStartRequest, db: Session = Depends(get_db)):
+    service = MVPLaunchWizardService(db)
+    return service.output(service.start(product_id=payload.product_id, sku=payload.sku)).model_dump(mode="json")
+
+
+@router.get("/mvp-launch/{run_id}")
+def get_mvp_launch(run_id: int, db: Session = Depends(get_db)):
+    service = MVPLaunchWizardService(db)
+    try:
+        return service.output(service.get(run_id)).model_dump(mode="json")
+    except InterfaceProductizationError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/mvp-launch/{run_id}/next")
+def advance_mvp_launch(run_id: int, payload: MVPLaunchNextRequest, db: Session = Depends(get_db)):
+    service = MVPLaunchWizardService(db)
+    try:
+        run = service.advance(
+            run_id,
+            product_id=payload.product_id,
+            sku=payload.sku,
+            runway_credits_confirmed=payload.runway_credits_confirmed,
+        )
+        return service.output(run).model_dump(mode="json")
+    except InterfaceProductizationError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/smoke-readiness/recover")

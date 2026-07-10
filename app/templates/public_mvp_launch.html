@@ -1,0 +1,49 @@
+{% extends "public_pilot_base.html" %}
+{% set active_page = "mvp-launch" %}
+{% block content %}
+<section class="public-dashboard">
+  {% include "_public_product_sidebar.html" %}
+  <div class="public-main">
+    <header class="public-topline altea-reveal">
+      <div><p class="public-eyebrow">Один SKU · один контролируемый результат</p><h1>Запуск MVP</h1><p>Семь проверяемых шагов от товара до решения. Массовый режим выключен.</p></div>
+      {% if run %}<span class="public-status public-status--{{ run.status }}">{{ run.status.replace('_', ' ') }}</span>{% endif %}
+    </header>
+
+    {% if error %}<p class="public-alert">{{ error }}</p>{% endif %}
+
+    {% if not run %}
+    <form class="altea-card public-launch-start altea-reveal" method="post" action="/mvp-launch/start">
+      <div><p class="public-eyebrow">Шаг 1</p><h2>Выберите товар</h2><p>Выбираем ровно один SKU. Вкусы и варианты упаковки не смешиваются.</p></div>
+      <label class="altea-field"><span>Товар</span><select name="product_id" required><option value="">Выберите SKU</option>{% for product in products %}<option value="{{ product.id }}">{{ product.sku }} · {{ product.title }}</option>{% endfor %}</select></label>
+      <button class="altea-glow-button" type="submit">Начать проверку</button>
+    </form>
+    {% else %}
+    <ol class="public-stepper altea-reveal">
+      {% for step in run.steps %}<li class="is-{{ step.status }}"><span>{{ loop.index }}</span><div><strong>{{ step.label }}</strong><small>{{ step.detail }}</small></div></li>{% endfor %}
+    </ol>
+
+    <article class="altea-card public-focus-panel altea-reveal">
+      <div><p class="public-eyebrow">Текущий шаг · {{ run.sku or 'SKU не выбран' }}</p><h2>{{ run.next_action.label }}</h2><p>{{ run.next_action.detail }}</p></div>
+      {% if run.status != 'complete' %}
+      <form class="public-next-form" method="post" action="/mvp-launch/{{ run.id }}/next">
+        {% if run.current_step == 'select_product' %}<select name="product_id" required><option value="">Выберите SKU</option>{% for product in products %}<option value="{{ product.id }}">{{ product.sku }}</option>{% endfor %}</select>{% endif %}
+        {% if run.current_step == 'check_smoke_readiness' %}<label class="public-check"><input type="checkbox" name="runway_credits_confirmed" value="true"><span>Баланс Runway проверен вручную</span></label>{% endif %}
+        <button class="altea-glow-button" type="submit" {{ 'disabled' if run.status == 'spend_gated' and run.current_step == 'run_or_block_paid_smoke' else '' }}>Продолжить безопасно</button>
+      </form>
+      {% else %}<a class="altea-glow-button" href="/control-room">В центр управления</a>{% endif %}
+    </article>
+
+    {% if run.blockers %}
+    <article class="altea-card public-panel altea-reveal"><header class="public-panel-head"><h2>Что нужно исправить</h2><span>{{ run.blockers|length }}</span></header><ul class="public-list">{% for item in run.blockers %}<li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">{{ item.severity }}</span></li>{% endfor %}</ul></article>
+    {% endif %}
+
+    <p class="public-safety-note">Мастер не выполняет платный provider call и не публикует видео. Real smoke запускается отдельным операторским действием только после всех gates.</p>
+
+    <details class="altea-card public-technical altea-reveal">
+      <summary>Техническое состояние запуска #{{ run.id }}</summary>
+      <div class="public-technical-grid"><div><span>Plan</span><strong>#{{ run.one_video_render_plan_id or '—' }}</strong></div><div><span>Smoke readiness</span><strong>#{{ run.smoke_readiness_run_id or '—' }}</strong></div><div><span>Output acceptance</span><strong>#{{ run.output_acceptance_id or '—' }}</strong></div><div><span>Provider calls мастера</span><strong>{{ run.context.provider_calls or 0 }}</strong></div></div>
+    </details>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

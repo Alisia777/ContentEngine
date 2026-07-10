@@ -1,0 +1,58 @@
+{% extends "public_pilot_base.html" %}
+{% set active_page = "workbench" %}
+{% block content %}
+<section class="public-dashboard">
+  {% include "_public_product_sidebar.html" %}
+  <div class="public-main">
+    <header class="public-topline altea-reveal">
+      <div><p class="public-eyebrow">Единый рабочий контур</p><h1>Рабочая область</h1><p>Готовность товара, ТЗ, видео и публикации без переходов по техническим модулям.</p></div>
+      <span class="public-status public-status--{{ workspace.status }}">{{ workspace.status.replace('_', ' ') }}</span>
+    </header>
+
+    <article class="altea-card public-focus-panel altea-reveal">
+      <div><p class="public-eyebrow">Рекомендуемый шаг</p><h2>{{ workspace.primary_action.label }}</h2><p>{{ workspace.primary_action.detail }}</p></div>
+      <a class="altea-glow-button" href="{{ workspace.primary_action.url }}">Продолжить</a>
+    </article>
+
+    <nav class="public-tabs altea-reveal" aria-label="Разделы рабочей области">
+      {% for item in workspace.module_links %}<a class="{{ 'is-active' if item.key == selected_tab else '' }}" href="/workbench?tab={{ item.key }}">{{ item.label }}</a>{% endfor %}
+    </nav>
+
+    {% for item in workspace.module_links if item.key == selected_tab %}
+    <article class="altea-card public-workspace-panel altea-reveal">
+      <div class="public-workspace-summary">
+        <div><p class="public-eyebrow">{{ item.label }}</p><h2>{{ item.summary }}</h2></div>
+        <span class="public-status public-status--{{ item.status }}">{{ item.status.replace('_', ' ') }}</span>
+      </div>
+      {% if item.key == 'product' %}
+      <div class="public-facts"><div><span>SKU</span><strong>{{ workspace.context.sku or 'не выбран' }}</strong></div><div><span>Smoke readiness</span><strong>{{ workspace.context.smoke_decision }}</strong></div><div><span>Блокеры</span><strong>{{ workspace.blockers|length }}</strong></div></div>
+      {% elif item.key == 'video-quality' %}
+      <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'unknown' }}</strong></div><div><span>Оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/10</strong></div><div><span>На проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
+      {% elif item.key == 'creative' %}
+      <p>Мастер запуска собирает сценарий и prompt-only только после проверки товара. Платный провайдер на этом этапе не вызывается.</p>
+      {% elif item.key == 'publishing' %}
+      <p>В публикацию попадёт только ролик с ручным решением <strong>approved</strong>, final URL и traceable destination.</p>
+      {% elif item.key == 'metrics' %}
+      <p>После публикации сюда возвращаются final URL, tracking slug и платформенные метрики.</p>
+      {% elif item.key == 'people' %}
+      <p>Задания, обучение и сертификация остаются частью одного рабочего процесса, но не мешают запуску одного SKU.</p>
+      {% else %}
+      <p>Доступ к платным, публикационным и approve-действиям зависит от роли и обязательных gates.</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+
+    {% if workspace.blockers %}
+    <article class="altea-card public-panel altea-reveal">
+      <header class="public-panel-head"><h2>Блокеры</h2><span>{{ workspace.blockers|length }}</span></header>
+      <ul class="public-list">{% for item in workspace.blockers[:8] %}<li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">{{ item.severity }}</span></li>{% endfor %}</ul>
+    </article>
+    {% endif %}
+
+    <details class="altea-card public-technical altea-reveal">
+      <summary>Источники состояния</summary>
+      <div class="public-technical-grid"><div><span>Control Room snapshot</span><strong>#{{ workspace.control_room_snapshot_id }}</strong></div><div><span>Smoke readiness</span><strong>#{{ workspace.smoke_readiness_run_id or '—' }}</strong></div><div><span>Роль</span><strong>{{ workspace.role }}</strong></div></div>
+    </details>
+  </div>
+</section>
+{% endblock %}

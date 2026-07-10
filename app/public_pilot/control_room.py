@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.control_room import ControlRoomSnapshotService
+from app.interface_productization.mvp_navigation_service import MVPNavigationService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser
 from app.public_pilot.gate_matrix import ACTION_LABELS, PublicPilotGateMatrix
@@ -31,6 +32,8 @@ class PublicPilotControlRoomService:
         snapshot_output = snapshot_service.output(snapshot)
         smoke_service = ReadinessReportService(self.db)
         smoke_run = smoke_service.latest()
+        smoke_output = smoke_service.output(smoke_run) if smoke_run else None
+        navigation = MVPNavigationService()
         return {
             "user": user,
             "settings": self.settings,
@@ -38,7 +41,9 @@ class PublicPilotControlRoomService:
             "control_role": snapshot_output.role,
             "control_roles": ["owner", "content_lead", "campaign_operator", "reviewer", "creator", "creator_publisher", "metrics_operator"],
             "control_snapshot": snapshot_output,
-            "smoke_readiness": smoke_service.output(smoke_run) if smoke_run else None,
+            "smoke_readiness": smoke_output,
+            "primary_action": navigation.primary_action(snapshot_output, smoke_output),
+            "product_blockers": navigation.blockers(snapshot_output, smoke_output),
             "certifications": sorted(certifications),
             "training_modules": modules,
             "gate_summary": matrix.summary(),

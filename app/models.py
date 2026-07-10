@@ -2256,6 +2256,49 @@ class ControlRoomAction(Base, TimestampMixin):
     snapshot = relationship("ControlRoomSnapshot", back_populates="actions")
 
 
+class MVPWorkspaceSnapshot(Base, TimestampMixin):
+    __tablename__ = "mvp_workspace_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role = Column(String(80), nullable=False, default="owner", index=True)
+    status = Column(String(80), nullable=False, default="needs_attention", index=True)
+    current_step = Column(String(120), nullable=False, default="review_workspace", index=True)
+    primary_action_json = Column(JSON, default=dict, nullable=False)
+    secondary_actions_json = Column(JSON, default=list, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    module_links_json = Column(JSON, default=list, nullable=False)
+    context_json = Column(JSON, default=dict, nullable=False)
+    control_room_snapshot_id = Column(Integer, ForeignKey("control_room_snapshots.id"), nullable=True, index=True)
+    smoke_readiness_run_id = Column(Integer, ForeignKey("smoke_readiness_runs.id"), nullable=True, index=True)
+
+    control_room_snapshot = relationship("ControlRoomSnapshot")
+    smoke_readiness_run = relationship("SmokeReadinessRun", foreign_keys=[smoke_readiness_run_id])
+
+
+class MVPLaunchRun(Base, TimestampMixin):
+    __tablename__ = "mvp_launch_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    status = Column(String(80), nullable=False, default="started", index=True)
+    current_step = Column(String(120), nullable=False, default="select_product", index=True)
+    completed_steps_json = Column(JSON, default=list, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+    next_action_json = Column(JSON, default=dict, nullable=False)
+    context_json = Column(JSON, default=dict, nullable=False)
+    one_video_render_plan_id = Column(Integer, ForeignKey("one_video_render_plans.id"), nullable=True, index=True)
+    smoke_readiness_run_id = Column(Integer, ForeignKey("smoke_readiness_runs.id"), nullable=True, index=True)
+    one_video_render_result_id = Column(Integer, ForeignKey("one_video_render_results.id"), nullable=True, index=True)
+    output_acceptance_id = Column(Integer, ForeignKey("video_output_acceptances.id"), nullable=True, index=True)
+
+    product = relationship("Product")
+    one_video_render_plan = relationship("OneVideoRenderPlan")
+    smoke_readiness_run = relationship("SmokeReadinessRun", foreign_keys=[smoke_readiness_run_id])
+    one_video_render_result = relationship("OneVideoRenderResult")
+    output_acceptance = relationship("VideoOutputAcceptance")
+
+
 class LaunchActionPlan(Base, TimestampMixin):
     __tablename__ = "launch_action_plans"
 

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import models
 from app.config import get_settings
 from app.database import get_db
+from app.interface_productization import InterfaceProductizationError, MVPLaunchWizardService, MVPWorkspaceService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser, get_current_public_user
 from app.public_pilot.control_room import PublicPilotControlRoomService
@@ -56,6 +59,96 @@ def control_room(
         "public_control_room.html",
         {"request": request, "page_title": "ALTEA Control Room", **context},
     )
+
+
+@router.get("/workbench", response_class=HTMLResponse)
+def mvp_workbench(
+    request: Request,
+    tab: str = "product",
+    role: str | None = None,
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> HTMLResponse:
+    selected_role = role or (user.role if user.role in {"owner", "admin", "reviewer", "operator"} else "owner")
+    service = MVPWorkspaceService(db)
+    snapshot = service.output(service.build(role=selected_role))
+    allowed_tabs = {item.key for item in snapshot.module_links}
+    selected_tab = tab if tab in allowed_tabs else "product"
+    return templates.TemplateResponse(
+        "public_workbench.html",
+        {
+            "request": request,
+            "page_title": "ALTEA Рабочая область",
+            "user": user,
+            "role": selected_role,
+            "workspace": snapshot,
+            "selected_tab": selected_tab,
+        },
+    )
+
+
+@router.get("/mvp-launch", response_class=HTMLResponse)
+def mvp_launch(
+    request: Request,
+    run_id: int | None = None,
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> HTMLResponse:
+    service = MVPLaunchWizardService(db)
+    run_output = None
+    error = None
+    if run_id:
+        try:
+            run_output = service.output(service.get(run_id))
+        except InterfaceProductizationError as exc:
+            error = str(exc)
+    products = list(db.scalars(select(models.Product).order_by(models.Product.id.desc()).limit(50)))
+    return templates.TemplateResponse(
+        "public_mvp_launch.html",
+        {
+            "request": request,
+            "page_title": "ALTEA Запуск MVP",
+            "user": user,
+            "role": user.role,
+            "run": run_output,
+            "products": products,
+            "error": error,
+        },
+    )
+
+
+@router.post("/mvp-launch/start")
+def mvp_launch_start(
+    product_id: int | None = Form(None),
+    sku: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> RedirectResponse:
+    del user
+    run = MVPLaunchWizardService(db).start(product_id=product_id, sku=sku or None)
+    return RedirectResponse(f"/mvp-launch?run_id={run.id}", status_code=303)
+
+
+@router.post("/mvp-launch/{run_id}/next")
+def mvp_launch_next(
+    run_id: int,
+    product_id: int | None = Form(None),
+    sku: str | None = Form(None),
+    runway_credits_confirmed: bool = Form(False),
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+) -> RedirectResponse:
+    del user
+    try:
+        MVPLaunchWizardService(db).advance(
+            run_id,
+            product_id=product_id,
+            sku=sku or None,
+            runway_credits_confirmed=runway_credits_confirmed,
+        )
+    except InterfaceProductizationError:
+        return RedirectResponse("/mvp-launch?error=run_not_found", status_code=303)
+    return RedirectResponse(f"/mvp-launch?run_id={run_id}", status_code=303)
 
 
 @router.get("/settings/access", response_class=HTMLResponse)
