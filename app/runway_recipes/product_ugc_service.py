@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,36 @@ PROFILE_ACTION_LABELS = {
     "household": "демонстрирует работу продукта",
     "general": "показывает реальное применение продукта",
 }
+
+FORM_PROOF_REFERENCE_OPTIONS = {
+    "food_snack": {
+        "cutaway_product": "Разрез / реальная начинка (без укуса)",
+        "whole_unwrapped_product": "Целый продукт без упаковки",
+        "bitten_product": "Надкушенный продукт для bite-сцены",
+        "wrapper_plus_product": "Точная упаковка и продукт вместе",
+    },
+    "cosmetic": {
+        "application_demo": "Нанесение точного продукта",
+        "texture_swatch": "Реальный свотч / текстура",
+        "application_context": "Продукт в реальном применении",
+    },
+    "apparel": {
+        "on_body": "Товар на человеке",
+        "movement_reference": "Посадка в движении",
+    },
+    "household": {
+        "application_demo": "Реальное применение",
+        "application_context": "Контекст использования",
+        "result_context": "Проверяемый результат",
+    },
+    "general": {
+        "application_demo": "Реальное применение",
+        "application_context": "Контекст использования",
+        "result_context": "Проверяемый результат",
+    },
+}
+
+SUPPORTED_PRODUCT_UGC_PLATFORMS = {"Instagram Reels", "TikTok", "YouTube Shorts", "Wibes"}
 
 
 @dataclass(frozen=True)
@@ -117,7 +148,19 @@ class ProductUGCRecipeService:
         for upload in uploads:
             self.validate_image(upload.filename, upload.content, label=f"Фото товара: {upload.slot}")
 
-        expected_variant = normalize_key(variant_key) or product_variant_key(product)
+        catalog_variant = normalize_key(product_variant_key(product))
+        requested_variant = normalize_key(variant_key)
+        if catalog_variant and requested_variant and requested_variant != catalog_variant:
+            raise RunwayRecipeError(
+                f"Вариант формы «{requested_variant}» не совпадает с карточкой SKU «{catalog_variant}»."
+            )
+        expected_variant = catalog_variant or requested_variant
+        if not expected_variant:
+            raise RunwayRecipeError("Укажите точный вариант / вкус / цвет / модель товара.")
+        if interaction_mode not in {"presentation", "use"}:
+            raise RunwayRecipeError("Режим ролика должен быть presentation или use.")
+        if platform not in SUPPORTED_PRODUCT_UGC_PLATFORMS:
+            raise RunwayRecipeError("Выберите поддерживаемую площадку Product UGC.")
         assets = self._selected_existing_assets(product.id, existing_asset_ids or [])
         storage = ProductAssetStorage(self.db)
         for upload in uploads:
@@ -256,6 +299,7 @@ class ProductUGCRecipeService:
         )
 
     def provider_request(self, draft: models.ProductUGCRecipeDraft) -> ProductUGCRecipeRequest:
+        draft = self.refresh_preflight(draft)
         if draft.status not in {"ready_for_paid_preflight", "provider_launching"} or draft.blockers_json:
             raise RunwayRecipeError("Product UGC draft is blocked; fix every preflight gate before a provider call.")
         character_path = Path(draft.character_image_path)
@@ -272,6 +316,44 @@ class ProductUGCRecipeService:
             ratio=draft.ratio,
             audio=draft.audio_enabled,
         )
+
+    def refresh_preflight(self, draft: models.ProductUGCRecipeDraft) -> models.ProductUGCRecipeDraft:
+        """Re-run current gates before any provider reservation or paid request."""
+        product = self.db.get(models.Product, draft.product_id)
+        if not product:
+            raise RunwayRecipeError(f"Product {draft.product_id} not found.")
+        assets = self._selected_existing_assets(product.id, draft.product_asset_ids_json or [])
+        primary = self._primary_asset(assets, draft.primary_product_asset_id)
+        creative_inputs = dict(draft.creative_inputs_json or {})
+        creative_inputs.pop("gates", None)
+        gates, blockers, warnings = self._preflight(
+            product=product,
+            assets=assets,
+            primary=primary,
+            expected_variant=normalize_key(draft.variant_key),
+            profile=product_profile(product),
+            creative_inputs=creative_inputs,
+            product_info=draft.product_info,
+            user_concept=draft.user_concept,
+            duration=draft.duration_seconds,
+            ratio=draft.ratio,
+            audio=draft.audio_enabled,
+            likeness_consent=draft.likeness_consent,
+            exact_variant_confirmed=draft.exact_variant_confirmed,
+        )
+        draft.creative_inputs_json = {
+            **creative_inputs,
+            "gates": [gate.model_dump(mode="json") for gate in gates],
+        }
+        draft.blockers_json = blockers
+        draft.warnings_json = warnings
+        if blockers:
+            draft.status = "blocked"
+        elif draft.status == "blocked":
+            draft.status = "ready_for_paid_preflight"
+        self.db.commit()
+        self.db.refresh(draft)
+        return draft
 
     def record_human_review(
         self,
@@ -412,7 +494,8 @@ class ProductUGCRecipeService:
         )
         approvals_ok = all(asset.review_status == "approved" for asset in assets)
         self._gate(blockers, "approved_assets", approvals_ok, "Фото подтверждены", "Каждое фото должно быть approved.")
-        variants_ok = bool(expected_variant) and all(
+        catalog_variant = normalize_key(product_variant_key(product))
+        variants_ok = bool(expected_variant) and (not catalog_variant or expected_variant == catalog_variant) and all(
             item.variant_status in {"matched", "matched_from_label"} for item in classified if item.family not in {"style", "lifestyle"}
         )
         self._gate(blockers, "exact_variant", variants_ok, "Один exact variant", f"Variant: {expected_variant or 'не указан'}.")
@@ -452,6 +535,18 @@ class ProductUGCRecipeService:
             else "Для презентации достаточно трёх identity/scale references."
         )
         self._gate(blockers, "use_proof", proof_ok, "Доказательство применения", proof_detail)
+        if profile == "food_snack":
+            bite_requested = self._food_action_requires_bite(
+                f"{creative_inputs.get('product_action', '')} {creative_inputs.get('proof_moment', '')}"
+            )
+            bite_reference_ok = not bite_requested or "bitten_product" in eligible_types
+            self._gate(
+                blockers,
+                "food_bite_reference",
+                bite_reference_ok,
+                "Укус только по отдельному референсу",
+                "Укус, жевание и продукт у рта разрешены только при approved фото надкушенного продукта.",
+            )
         self._gate(blockers, "likeness_consent", likeness_consent, "Согласие на образ блогера", "Есть право использовать лицо и образ человека.")
         self._gate(
             blockers,
@@ -468,6 +563,16 @@ class ProductUGCRecipeService:
         if audio:
             brief_ok = brief_ok and bool(str(creative_inputs.get("spoken_message") or "").strip())
         self._gate(blockers, "creative_brief", brief_ok, "Задание заполнено", "Хук, действие, proof, реплика и CTA не должны быть пустыми.")
+        safety_brief_ok = bool(
+            str(creative_inputs.get("forbidden_visuals") or "").strip() or product.restrictions_json
+        )
+        self._gate(
+            blockers,
+            "safety_brief",
+            safety_brief_ok,
+            "Запреты зафиксированы",
+            "Нужны запрещённые визуалы в ТЗ или ограничения в карточке товара.",
+        )
         product_info_ok = 20 <= len(product_info) <= 2500
         concept_ok = 30 <= len(user_concept) <= 3500
         self._gate(blockers, "recipe_text_limits", product_info_ok and concept_ok, "Лимиты Runway", "productInfo ≤ 2500, userConcept ≤ 3500.")
@@ -555,6 +660,11 @@ class ProductUGCRecipeService:
     @staticmethod
     def _action_implies_use(profile: str, text: str) -> bool:
         normalized = text.casefold()
+        normalized = re.sub(
+            r"\bне\s+(?:проб[а-яёa-z-]*|кус[а-яёa-z-]*|ест[а-яёa-z-]*|съед[а-яёa-z-]*|разрез[а-яёa-z-]*|открыва[а-яёa-z-]*|нанос[а-яёa-z-]*|апплик[а-яёa-z-]*|пример[а-яёa-z-]*|надева[а-яёa-z-]*|носит[а-яёa-z-]*|примен[а-яёa-z-]*|использ[а-яёa-z-]*|включ[а-яёa-z-]*|очища[а-яёa-z-]*)",
+            "",
+            normalized,
+        )
         keywords = {
             "food_snack": ("проб", "куса", "ест ", "съед", "вкус", "разрез", "открыва", "bite", "taste", "eat"),
             "cosmetic": ("нанос", "апплик", "свотч", "на губ", "на кож", "apply", "swatch"),
@@ -563,6 +673,34 @@ class ProductUGCRecipeService:
             "general": ("примен", "использ", "демонстрирует работу", "включ", "use", "operate"),
         }
         return any(token in normalized for token in keywords[profile])
+
+    @staticmethod
+    def _food_action_requires_bite(text: str) -> bool:
+        normalized = text.casefold()
+        normalized = re.sub(
+            r"\bне\s+(?:надкус[а-яёa-z-]*|кус[а-яёa-z-]*|жев[а-яёa-z-]*|жу[а-яёa-z-]*|ест[а-яёa-z-]*|съед[а-яёa-z-]*|проб[а-яёa-z-]*|поднос[а-яёa-z-]*\s+(?:к|ко)\s+рту)",
+            "",
+            normalized,
+        )
+        return any(
+            token in normalized
+            for token in (
+                "надкус",
+                "куса",
+                "укус",
+                "жует",
+                "жуёт",
+                "ест ",
+                "съед",
+                "пробует",
+                "у рта",
+                "ко рту",
+                "bite",
+                "chew",
+                "eats",
+                "taste",
+            )
+        )
 
     @staticmethod
     def _image_dimensions(content: bytes) -> tuple[int, int] | None:

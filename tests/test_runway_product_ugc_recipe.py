@@ -176,7 +176,7 @@ def test_provider_product_image_can_be_exact_use_composite_while_front_remains_i
             creator_profile="Русскоязычная спортивная блогер 27 лет.",
             setting="После тренировки у окна.",
             hook="Покажу, что внутри, без рекламного глянца.",
-            product_action="Показывает упаковку и пробует продукт.",
+            product_action="Показывает упаковку и точный разрез продукта.",
             proof_moment="В кадре виден точный разрез из product reference.",
             spoken_message="Внутри мягкая начинка, а не мюсли или гранола.",
             cta="Сохраните вариант, чтобы не потерять.",
@@ -213,10 +213,109 @@ def test_character_reference_with_another_product_is_a_hard_blocker():
         assert "character_reference_clean" in draft.blockers_json
 
 
+def test_food_bite_scene_requires_a_specific_bitten_product_reference():
+    product_id = create_product(profile="food_snack")
+    with SessionLocal() as db:
+        blocked = ProductUGCRecipeService(db).create_draft(
+            product_id=product_id,
+            variant_key="rose-lumiere",
+            character_filename="creator.png",
+            character_content=PNG,
+            product_uploads=[
+                upload("front", "front_packshot", primary=True),
+                upload("angle", "angled_product"),
+                upload("scale", "product_in_hand"),
+                upload("proof", "cutaway_product"),
+            ],
+            task="Показать продукт в реальной ситуации.",
+            creator_profile="Русскоязычный спортивный блогер 27 лет.",
+            setting="После тренировки.",
+            hook="Покажу быстрый перекус.",
+            product_action="Надкусывает продукт рядом с камерой.",
+            proof_moment="Показывает надкушенный продукт у рта.",
+            spoken_message="Показываю текстуру без фильтров.",
+            cta="Сохраните вариант.",
+            interaction_mode="use",
+            likeness_consent=True,
+            character_product_free_confirmed=True,
+            exact_variant_confirmed=True,
+        )
+        assert blocked.status == "blocked"
+        assert "food_bite_reference" in blocked.blockers_json
+
+
+def test_paid_preflight_revalidates_a_stale_draft_before_provider_submission():
+    product_id = create_product(profile="food_snack")
+    with SessionLocal() as db:
+        draft = ProductUGCRecipeService(db).create_draft(
+            product_id=product_id,
+            variant_key="rose-lumiere",
+            character_filename="creator.png",
+            character_content=PNG,
+            product_uploads=[
+                upload("front", "front_packshot", primary=True),
+                upload("angle", "angled_product"),
+                upload("scale", "product_in_hand"),
+                upload("proof", "cutaway_product"),
+            ],
+            task="Показать упаковку и точный разрез.",
+            creator_profile="Русскоязычный спортивный блогер 27 лет.",
+            setting="После тренировки.",
+            hook="Покажу, что внутри.",
+            product_action="Показывает закрытую упаковку и разрез.",
+            proof_moment="Разрез совпадает с product reference.",
+            spoken_message="Показываю реальную начинку.",
+            cta="Сохраните вариант.",
+            interaction_mode="presentation",
+            likeness_consent=True,
+            character_product_free_confirmed=True,
+            exact_variant_confirmed=True,
+        )
+        assert draft.status == "ready_for_paid_preflight"
+        creative = dict(draft.creative_inputs_json)
+        creative["product_action"] = "Надкусывает продукт у рта."
+        draft.creative_inputs_json = creative
+        draft.blockers_json = []
+        db.commit()
+
+        with pytest.raises(RunwayRecipeError, match="blocked"):
+            ProductUGCRecipeService(db).provider_request(draft)
+        db.refresh(draft)
+        assert draft.status == "blocked"
+        assert "food_bite_reference" in draft.blockers_json
+
+
+def test_form_variant_cannot_override_the_catalog_variant():
+    product_id = create_product()
+    with SessionLocal() as db, pytest.raises(RunwayRecipeError, match="не совпадает с карточкой SKU"):
+        ProductUGCRecipeService(db).create_draft(
+            product_id=product_id,
+            variant_key="another-variant",
+            character_filename="creator.png",
+            character_content=PNG,
+            product_uploads=[
+                upload("front", "front_packshot", primary=True),
+                upload("angle", "angled_product"),
+                upload("scale", "product_in_hand"),
+            ],
+            task="Показать точный товар.",
+            creator_profile="Русскоязычный блогер 27 лет.",
+            setting="Естественный дневной свет.",
+            hook="Покажу товар крупнее.",
+            product_action="Показывает закрытый товар в руке.",
+            proof_moment="Поворачивает товар к свету.",
+            spoken_message="Показываю точный вариант.",
+            cta="Сохраните.",
+            likeness_consent=True,
+            character_product_free_confirmed=True,
+            exact_variant_confirmed=True,
+        )
+
+
 @pytest.mark.parametrize(
     ("profile", "proof_type", "action", "expected_safety", "forbidden_leak"),
     [
-        ("food_snack", "cutaway_product", "Открывает упаковку и пробует продукт.", "сначала физически открыть упаковку", "Аппликатор"),
+        ("food_snack", "bitten_product", "Открывает упаковку и пробует продукт.", "сначала физически открыть упаковку", "Аппликатор"),
         ("cosmetic", "application_demo", "Наносит продукт аппликатором.", "Аппликатор, дозатор, оттенок", "внутренняя текстура"),
         ("apparel", "on_body", "Примеряет товар и показывает посадку.", "Посадка, длина, материал", "Аппликатор"),
         ("household", "application_demo", "Показывает, как продукт работает.", "реальный и безопасный способ применения", "внутренняя текстура"),
@@ -424,8 +523,12 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
     assert "Official Runway Recipe · Product UGC" in page.text
     assert "Ровно 3 или 4 фото одного варианта" in page.text
     assert 'name="audio_enabled"' in page.text
+    assert 'value="false"' in page.text
     assert 'name="interaction_mode"' in page.text
+    assert 'name="proof_reference_type"' in page.text
     assert 'name="character_product_free_confirmed"' in page.text
+    assert 'data-recipe-readiness' in page.text
+    assert 'data-contract-gate="references"' in page.text
 
     response = api.post(
         "/mvp-launch/product-ugc-draft",
@@ -440,6 +543,7 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
             "proof_moment": "Поворачивает лицо к дневному свету.",
             "spoken_message": "Сияние заметно, но выглядит естественно.",
             "cta": "Сохраните оттенок.",
+            "forbidden_visuals": "Не менять флакон, аппликатор и оттенок.",
             "interaction_mode": "use",
             "platform": "Instagram Reels",
             "duration": "15",

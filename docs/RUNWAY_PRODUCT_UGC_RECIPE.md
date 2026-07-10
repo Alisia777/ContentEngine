@@ -60,12 +60,27 @@ A draft remains blocked when any condition is true:
 - creator likeness consent is absent;
 - character image contains another product, package or logo that could contaminate product identity;
 - a use/application scene has no category-appropriate fourth proof image;
+- a food brief requests a bite, chewing or product near the mouth without an approved `bitten_product` reference;
+- the form variant tries to override the variant stored on the selected SKU;
+- neither the brief nor the product card records forbidden visuals or claims;
 - required creative brief fields are empty;
 - recipe text or output settings exceed official limits.
 
 ## Operator Flow
 
 Open `/mvp-launch`, select a product and complete the Product UGC form. The first action only creates a recipe draft and payload preview. It never calls Runway.
+
+The operator form mirrors the official recipe inputs without weakening ContentEngine controls:
+
+- one clean creator image;
+- exactly three or four distinct images of one SKU/variant;
+- one explicit provider `productImage` selection;
+- product information and a structured creator task;
+- category-specific proof type for real use/application;
+- explicit audio `yes/no`, 4–15 second duration and vertical ratio;
+- a live seven-gate readiness panel that keeps draft submission disabled until the visible contract is complete.
+
+Presentation can use three or four references. Product use requires a fourth proof reference. The proof selector changes by product profile: food, cosmetics, apparel, household or general. The same rules are re-evaluated server-side immediately before a paid task is reserved, so an old draft or a bypassed browser check cannot call Runway with stale readiness.
 
 The same page then exposes paid preflight only when all of these are ready:
 

@@ -28,6 +28,7 @@ from app.public_pilot.gate_matrix import (
     VIDEO_REJECT,
 )
 from app.runway_recipes import (
+    FORM_PROOF_REFERENCE_OPTIONS,
     ProductImageUpload,
     ProductUGCRecipeRunner,
     ProductUGCRecipeService,
@@ -279,6 +280,7 @@ def mvp_launch(
             "selected_product": selected_product,
             "selected_profile": selected_profile,
             "selected_variant": selected_variant,
+            "proof_reference_options": list(FORM_PROOF_REFERENCE_OPTIONS.get(selected_profile, {}).items()),
             "product_assets": assets,
             "recipe_draft": recipe_draft,
             "recipe_run_readiness": recipe_run_readiness,
@@ -301,6 +303,7 @@ async def product_ugc_recipe_draft(
     primary_asset_id: int | None = Form(None),
     provider_image_slot: str = Form("front"),
     scale_reference_type: str = Form("product_in_hand"),
+    proof_reference_type: str = Form(""),
     front_image: UploadFile | None = File(None),
     angle_image: UploadFile | None = File(None),
     scale_image: UploadFile | None = File(None),
@@ -331,13 +334,14 @@ async def product_ugc_recipe_draft(
     product = db.get(models.Product, product_id)
     if not product:
         return RedirectResponse(f"/mvp-launch?error={quote('Товар не найден')}", status_code=303)
-    proof_type = {
-        "food_snack": "cutaway_product",
-        "cosmetic": "application_demo",
-        "apparel": "on_body",
-        "household": "application_demo",
-        "general": "application_context",
-    }[product_profile(product)]
+    profile = product_profile(product)
+    proof_options = FORM_PROOF_REFERENCE_OPTIONS[profile]
+    proof_type = proof_reference_type or next(iter(proof_options))
+    if proof_type not in proof_options:
+        return RedirectResponse(
+            f"/mvp-launch?product_id={product_id}&error={quote('Неверный тип proof reference для категории товара.')}",
+            status_code=303,
+        )
     if scale_reference_type not in {"product_in_hand", "product_on_surface", "scale_context"}:
         return RedirectResponse(
             f"/mvp-launch?product_id={product_id}&error={quote('Неверный тип scale reference.')}",

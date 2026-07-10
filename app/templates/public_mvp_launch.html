@@ -198,8 +198,10 @@
     {% endif %}
 
     {% if selected_product %}
-    <form class="recipe-form altea-reveal" method="post" action="/mvp-launch/product-ugc-draft" enctype="multipart/form-data" data-recipe-form>
+    <form class="recipe-form altea-reveal" method="post" action="/mvp-launch/product-ugc-draft" enctype="multipart/form-data" data-recipe-form data-product-profile="{{ selected_profile }}">
       <input type="hidden" name="product_id" value="{{ selected_product.id }}">
+      <div class="recipe-workspace">
+        <div class="recipe-form-fields">
 
       <section class="recipe-band" aria-labelledby="recipe-product-title">
         <header class="recipe-section-head">
@@ -209,7 +211,7 @@
         <div class="recipe-field-grid">
           <label class="recipe-field">
             <span>Exact variant / вкус / цвет / модель</span>
-            <input name="variant_key" value="{{ selected_variant or '' }}" placeholder="Например: mango-kunafa" required>
+            <input name="variant_key" value="{{ selected_variant or '' }}" placeholder="Например: mango-kunafa" required data-variant-input {{ 'readonly' if selected_variant else '' }}>
           </label>
           <label class="recipe-field">
             <span>Площадка</span>
@@ -218,7 +220,7 @@
         </div>
         <label class="recipe-field recipe-field--wide">
           <span>Product info <small>до 2500 знаков</small></span>
-          <textarea name="product_info" maxlength="2500" rows="8">{{ default_product_info }}</textarea>
+          <textarea name="product_info" minlength="20" maxlength="2500" rows="8" required data-brief-required>{{ default_product_info }}</textarea>
         </label>
       </section>
 
@@ -232,12 +234,12 @@
         <div class="recipe-asset-library">
           {% for asset in product_assets %}
           <label class="recipe-asset-option is-{{ asset.review_status }}">
-            <input type="checkbox" name="existing_asset_ids" value="{{ asset.id }}" data-reference-input>
+            <input type="checkbox" name="existing_asset_ids" value="{{ asset.id }}" data-reference-input data-reference-role="{{ asset.contract_type }}" data-reference-preview="{{ asset.media_url or '' }}">
             <span class="recipe-asset-thumb">
               {% if asset.media_url %}<img src="{{ asset.media_url }}" alt="{{ asset.filename }}">{% else %}<span>IMG</span>{% endif %}
             </span>
             <span class="recipe-asset-copy"><strong>{{ asset.contract_type }}</strong><small>{{ asset.filename }} · {{ asset.review_status }} · {{ asset.variant_status }}</small></span>
-            <input class="recipe-primary-radio" type="radio" name="primary_asset_id" value="{{ asset.id }}" aria-label="Отправить это фото как product image в Runway" title="Product image для Runway" {{ 'checked' if asset.is_primary else '' }}>
+            <input class="recipe-primary-radio" type="radio" name="primary_asset_id" value="{{ asset.id }}" aria-label="Отправить это фото как product image в Runway" title="Product image для Runway" data-primary-input data-primary-preview="{{ asset.media_url or '' }}" {{ 'checked' if asset.is_primary else '' }}>
           </label>
           {% endfor %}
         </div>
@@ -246,15 +248,15 @@
         <div class="recipe-upload-grid">
           <label class="recipe-upload-slot">
             <span>1 · Главный вид</span><small>Лицевая сторона, товар целиком</small>
-            <input type="file" name="front_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+            <input type="file" name="front_image" accept="image/png,image/jpeg,image/webp" data-reference-file data-reference-role="front_packshot" data-reference-slot="front">
           </label>
           <label class="recipe-upload-slot">
             <span>2 · Второй ракурс</span><small>Бок / 3⁄4 / обратная сторона</small>
-            <input type="file" name="angle_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+            <input type="file" name="angle_image" accept="image/png,image/jpeg,image/webp" data-reference-file data-reference-role="angled_product" data-reference-slot="angle">
           </label>
           <label class="recipe-upload-slot">
             <span>3 · Масштаб</span><small>В руке или на поверхности</small>
-            <input type="file" name="scale_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+            <input type="file" name="scale_image" accept="image/png,image/jpeg,image/webp" data-reference-file data-reference-role="product_in_hand" data-reference-slot="scale">
           </label>
           <label class="recipe-upload-slot recipe-upload-slot--proof">
             <span>4 · Применение / proof</span>
@@ -264,7 +266,7 @@
               {% elif selected_profile == 'apparel' %}Товар на человеке
               {% else %}Реальное применение или результат{% endif %}
             </small>
-            <input type="file" name="proof_image" accept="image/png,image/jpeg,image/webp" data-reference-file>
+            <input type="file" name="proof_image" accept="image/png,image/jpeg,image/webp" data-reference-file data-reference-role="{{ proof_reference_options[0][0] if proof_reference_options else 'application_context' }}" data-reference-slot="proof">
           </label>
         </div>
         <div class="recipe-field-grid">
@@ -274,11 +276,17 @@
           </label>
           <label class="recipe-field">
             <span>Что показывает фото №3</span>
-            <select name="scale_reference_type"><option value="product_in_hand">Товар в руке</option><option value="product_on_surface">Товар на поверхности</option><option value="scale_context">Другой понятный масштаб</option></select>
+            <select name="scale_reference_type" data-scale-reference-type><option value="product_in_hand">Товар в руке</option><option value="product_on_surface">Товар на поверхности</option><option value="scale_context">Другой понятный масштаб</option></select>
+          </label>
+          <label class="recipe-field">
+            <span>Что доказывает фото №4</span>
+            <select name="proof_reference_type" data-proof-reference-type>
+              {% for value, label in proof_reference_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
           </label>
         </div>
         <label class="recipe-confirm">
-          <input type="checkbox" name="exact_variant_confirmed" value="true" required>
+          <input type="checkbox" name="exact_variant_confirmed" value="true" required data-hard-confirm>
           <span>Я сверила: на всех фото один SKU и один вариант; форма, цвет, логотип и упаковка совпадают.</span>
         </label>
       </section>
@@ -288,19 +296,19 @@
         <div class="recipe-field-grid">
           <label class="recipe-upload-slot recipe-upload-slot--creator">
             <span>Character image</span><small>Лицо видно, нейтральный свет, без фильтров</small>
-            <input type="file" name="character_image" accept="image/png,image/jpeg,image/webp" required>
+            <input type="file" name="character_image" accept="image/png,image/jpeg,image/webp" required data-character-file>
           </label>
           <label class="recipe-field">
             <span>Профиль блогера</span>
-            <textarea name="creator_profile" rows="4" required>Русскоязычная девушка 25–30 лет, естественная, уверенная, снимает нативный обзор от первого лица.</textarea>
+            <textarea name="creator_profile" rows="4" required data-brief-required>Русскоязычная девушка 25–30 лет, естественная, уверенная, снимает нативный обзор от первого лица.</textarea>
           </label>
         </div>
         <label class="recipe-confirm">
-          <input type="checkbox" name="likeness_consent" value="true" required>
+          <input type="checkbox" name="likeness_consent" value="true" required data-hard-confirm>
           <span>Есть право и согласие использовать лицо и образ человека в генерации.</span>
         </label>
         <label class="recipe-confirm">
-          <input type="checkbox" name="character_product_free_confirmed" value="true" required>
+          <input type="checkbox" name="character_product_free_confirmed" value="true" required data-hard-confirm>
           <span>В character image нет другого товара, упаковки или логотипа; изображение задаёт только блогера и контекст.</span>
         </label>
       </section>
@@ -312,14 +320,14 @@
           <label><input type="radio" name="interaction_mode" value="use"><span>Применение продукта</span></label>
         </div>
         <div class="recipe-field-grid recipe-field-grid--three">
-          <label class="recipe-field recipe-field--wide"><span>Цель ролика</span><textarea name="task" rows="3" required placeholder="Что зритель должен понять и сделать?"></textarea></label>
-          <label class="recipe-field"><span>Ситуация</span><textarea name="setting" rows="3" required placeholder="Где и в какой жизненной ситуации снимает блогер?"></textarea></label>
-          <label class="recipe-field"><span>Хук</span><textarea name="hook" rows="3" required placeholder="Первая фраза без рекламного канцелярита"></textarea></label>
-          <label class="recipe-field"><span>Действие с продуктом</span><textarea name="product_action" rows="3" required placeholder="Показывает, открывает, наносит, примеряет..."></textarea></label>
-          <label class="recipe-field"><span>Proof moment</span><textarea name="proof_moment" rows="3" required placeholder="Что зритель увидит как доказательство?"></textarea></label>
+          <label class="recipe-field recipe-field--wide"><span>Цель ролика</span><textarea name="task" rows="3" required data-brief-required placeholder="Что зритель должен понять и сделать?"></textarea></label>
+          <label class="recipe-field"><span>Ситуация</span><textarea name="setting" rows="3" required data-brief-required placeholder="Где и в какой жизненной ситуации снимает блогер?"></textarea></label>
+          <label class="recipe-field"><span>Хук</span><textarea name="hook" rows="3" required data-brief-required placeholder="Первая фраза без рекламного канцелярита"></textarea></label>
+          <label class="recipe-field"><span>Действие с продуктом</span><textarea name="product_action" rows="3" required data-brief-required placeholder="Показывает, открывает, наносит, примеряет..."></textarea></label>
+          <label class="recipe-field"><span>Proof moment</span><textarea name="proof_moment" rows="3" required data-brief-required placeholder="Что зритель увидит как доказательство?"></textarea></label>
           <label class="recipe-field"><span>Реплика блогера</span><textarea name="spoken_message" rows="3" placeholder="Точный русский текст или смысл реплики"></textarea></label>
-          <label class="recipe-field"><span>CTA</span><textarea name="cta" rows="3" required placeholder="Одно понятное действие"></textarea></label>
-          <label class="recipe-field"><span>Запрещённые визуалы</span><textarea name="forbidden_visuals" rows="3" placeholder="Что нельзя менять или показывать"></textarea></label>
+          <label class="recipe-field"><span>CTA</span><textarea name="cta" rows="3" required data-brief-required placeholder="Одно понятное действие"></textarea></label>
+          <label class="recipe-field"><span>Запрещённые визуалы</span><textarea name="forbidden_visuals" rows="3" required data-brief-required placeholder="Другая упаковка, другой вариант, неверное применение, опасные действия..."></textarea></label>
         </div>
       </section>
 
@@ -328,13 +336,54 @@
         <div class="recipe-field-grid recipe-field-grid--output">
           <label class="recipe-field"><span>Длительность</span><input type="number" name="duration" min="4" max="15" value="15" required data-duration></label>
           <label class="recipe-field"><span>Размер</span><select name="ratio" data-ratio><option value="720:1280">720 × 1280 · 9:16</option><option value="1080:1920">1080 × 1920 · 9:16</option></select></label>
-          <label class="recipe-audio-toggle"><input type="checkbox" name="audio_enabled" value="true" checked><span><strong>Аудио</strong><small>Русская речь и звук</small></span></label>
+          <fieldset class="recipe-audio-control">
+            <legend>Аудио</legend>
+            <div class="recipe-mode-control recipe-mode-control--audio">
+              <label><input type="radio" name="audio_enabled" value="true" checked><span>Да · речь</span></label>
+              <label><input type="radio" name="audio_enabled" value="false"><span>Нет</span></label>
+            </div>
+          </fieldset>
         </div>
       </section>
 
+        </div>
+
+        <aside class="recipe-readiness" aria-labelledby="recipe-readiness-title" data-recipe-readiness>
+          <header>
+            <div><p class="public-eyebrow">Контроль входа</p><h2 id="recipe-readiness-title">Готовность ТЗ</h2></div>
+            <strong data-contract-score>0 / 7</strong>
+          </header>
+
+          <div class="recipe-live-preview-grid">
+            <figure data-character-preview>
+              <div class="recipe-live-preview-placeholder">Блогер</div>
+              <img alt="Предпросмотр character image" hidden>
+              <figcaption>Character image</figcaption>
+            </figure>
+            <figure data-product-preview>
+              <div class="recipe-live-preview-placeholder">Товар</div>
+              <img alt="Предпросмотр product image" hidden>
+              <figcaption>Product image → Runway</figcaption>
+            </figure>
+          </div>
+
+          <ol class="recipe-live-gates">
+            <li data-contract-gate="identity"><span>1</span><div><strong>Точный SKU</strong><small>Вариант и ручная сверка совпадают.</small></div></li>
+            <li data-contract-gate="references"><span>2</span><div><strong>3–4 фото продукта</strong><small>Front, второй ракурс, масштаб; для применения ещё proof.</small></div></li>
+            <li data-contract-gate="provider"><span>3</span><div><strong>Product image выбран</strong><small>Одно из выбранных фото отправится в Runway.</small></div></li>
+            <li data-contract-gate="character"><span>4</span><div><strong>Чистый блогер</strong><small>Фото, согласие, без другого товара и логотипа.</small></div></li>
+            <li data-contract-gate="action"><span>5</span><div><strong>Действие разрешено</strong><small>Применение подтверждено профильным proof-кадром.</small></div></li>
+            <li data-contract-gate="brief"><span>6</span><div><strong>ТЗ заполнено</strong><small>Хук, действие, proof, CTA и запреты.</small></div></li>
+            <li data-contract-gate="output"><span>7</span><div><strong>Формат готов</strong><small>4–15 сек, 9:16, аудио явно выбрано.</small></div></li>
+          </ol>
+
+          <p class="recipe-readiness-note">Официальный recipe получает одно product image. Остальные фото остаются обязательным identity/proof-контрактом ContentEngine.</p>
+        </aside>
+      </div>
+
       <footer class="recipe-submit-bar">
         <div><strong>Сначала проверка, потом оплата</strong><small>Эта кнопка не вызывает Runway и не списывает credits.</small></div>
-        <button class="altea-glow-button" type="submit">Собрать ТЗ и проверить</button>
+        <button class="altea-glow-button" type="submit" data-recipe-submit>Собрать ТЗ и проверить</button>
       </footer>
     </form>
     {% endif %}
