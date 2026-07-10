@@ -84,6 +84,16 @@
       </div>
       {% endif %}
 
+      {% if recipe_character_url and recipe_provider_product_url %}
+      <section class="recipe-input-preview" aria-labelledby="recipe-input-preview-title">
+        <header class="recipe-section-head"><div><p class="public-eyebrow">Provider inputs</p><h3 id="recipe-input-preview-title">Что именно увидит Runway</h3><p>Character image задаёт блогера, product image задаёт единственный точный товар.</p></div></header>
+        <div class="recipe-input-preview-grid">
+          <figure><img src="{{ recipe_character_url }}" alt="Character image для Runway"><figcaption><strong>Character image</strong><small>Не должен содержать другую упаковку или товар.</small></figcaption></figure>
+          <figure><img src="{{ recipe_provider_product_url }}" alt="Product image для Runway"><figcaption><strong>Product image · asset #{{ recipe_draft.primary_product_asset_id }}</strong><small>Единственное product image в официальном recipe.</small></figcaption></figure>
+        </div>
+      </section>
+      {% endif %}
+
       <details class="recipe-payload">
         <summary>Проверить Product info и Creative direction</summary>
         <div class="recipe-preview-grid">
@@ -288,6 +298,10 @@
         <label class="recipe-confirm">
           <input type="checkbox" name="likeness_consent" value="true" required>
           <span>Есть право и согласие использовать лицо и образ человека в генерации.</span>
+        </label>
+        <label class="recipe-confirm">
+          <input type="checkbox" name="character_product_free_confirmed" value="true" required>
+          <span>В character image нет другого товара, упаковки или логотипа; изображение задаёт только блогера и контекст.</span>
         </label>
       </section>
 

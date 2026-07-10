@@ -82,7 +82,15 @@ def upload(slot: str, contract_type: str, *, primary: bool = False) -> ProductIm
     )
 
 
-def create_draft(db, product_id: int, *, interaction_mode: str = "presentation", proof: bool = False, audio: bool = True):
+def create_draft(
+    db,
+    product_id: int,
+    *,
+    interaction_mode: str = "presentation",
+    proof: bool = False,
+    audio: bool = True,
+    character_clean: bool = True,
+):
     uploads = [
         upload("front", "front_packshot", primary=True),
         upload("angle", "angled_product"),
@@ -109,6 +117,7 @@ def create_draft(db, product_id: int, *, interaction_mode: str = "presentation",
         ratio="720:1280",
         audio=audio,
         likeness_consent=True,
+        character_product_free_confirmed=character_clean,
         exact_variant_confirmed=True,
     )
 
@@ -173,6 +182,7 @@ def test_provider_product_image_can_be_exact_use_composite_while_front_remains_i
             cta="Сохраните вариант, чтобы не потерять.",
             interaction_mode="use",
             likeness_consent=True,
+            character_product_free_confirmed=True,
             exact_variant_confirmed=True,
         )
         primary = db.get(models.ProductAsset, draft.primary_product_asset_id)
@@ -193,6 +203,14 @@ def test_use_scene_requires_fourth_category_appropriate_proof_reference():
         ready = create_draft(db, product_id, interaction_mode="use", proof=True)
         assert ready.status == "ready_for_paid_preflight"
         assert "use_proof" not in ready.blockers_json
+
+
+def test_character_reference_with_another_product_is_a_hard_blocker():
+    product_id = create_product()
+    with SessionLocal() as db:
+        draft = create_draft(db, product_id, character_clean=False)
+        assert draft.status == "blocked"
+        assert "character_reference_clean" in draft.blockers_json
 
 
 @pytest.mark.parametrize(
@@ -230,6 +248,7 @@ def test_recipe_use_proof_is_product_category_agnostic(profile, proof_type, acti
             cta="Сохраните, чтобы не потерять.",
             interaction_mode="use",
             likeness_consent=True,
+            character_product_free_confirmed=True,
             exact_variant_confirmed=True,
         )
         assert draft.status == "ready_for_paid_preflight"
@@ -261,6 +280,7 @@ def test_same_file_cannot_be_reused_as_three_reference_roles():
             spoken_message="Посмотрите на оттенок во флаконе.",
             cta="Сохраните оттенок.",
             likeness_consent=True,
+            character_product_free_confirmed=True,
             exact_variant_confirmed=True,
         )
         assert draft.status == "blocked"
@@ -405,6 +425,7 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
     assert "Ровно 3 или 4 фото одного варианта" in page.text
     assert 'name="audio_enabled"' in page.text
     assert 'name="interaction_mode"' in page.text
+    assert 'name="character_product_free_confirmed"' in page.text
 
     response = api.post(
         "/mvp-launch/product-ugc-draft",
@@ -425,6 +446,7 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
             "ratio": "720:1280",
             "audio_enabled": "true",
             "likeness_consent": "true",
+            "character_product_free_confirmed": "true",
             "exact_variant_confirmed": "true",
         },
         files={

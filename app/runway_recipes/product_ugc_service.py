@@ -106,6 +106,7 @@ class ProductUGCRecipeService:
         ratio: str = "720:1280",
         audio: bool = True,
         likeness_consent: bool = False,
+        character_product_free_confirmed: bool = False,
         exact_variant_confirmed: bool = False,
     ) -> models.ProductUGCRecipeDraft:
         product = self.db.get(models.Product, product_id)
@@ -157,6 +158,7 @@ class ProductUGCRecipeService:
             "interaction_mode": interaction_mode,
             "product_profile": profile,
             "profile_action": PROFILE_ACTION_LABELS[profile],
+            "character_product_free_confirmed": character_product_free_confirmed,
         }
         rendered_product_info = (product_info or "").strip() or self.default_product_info(product, expected_variant)
         user_concept = self.build_user_concept(product, creative_inputs, expected_variant, language=language)
@@ -451,6 +453,13 @@ class ProductUGCRecipeService:
         )
         self._gate(blockers, "use_proof", proof_ok, "Доказательство применения", proof_detail)
         self._gate(blockers, "likeness_consent", likeness_consent, "Согласие на образ блогера", "Есть право использовать лицо и образ человека.")
+        self._gate(
+            blockers,
+            "character_reference_clean",
+            bool(creative_inputs.get("character_product_free_confirmed")),
+            "Character image без другого товара",
+            "В character reference виден только человек и нейтральный контекст; чужая упаковка не может влиять на product identity.",
+        )
 
         brief_ok = all(
             str(creative_inputs.get(key) or "").strip()

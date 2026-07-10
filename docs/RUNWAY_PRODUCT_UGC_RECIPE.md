@@ -58,6 +58,7 @@ A draft remains blocked when any condition is true:
 - references belong to different variants;
 - SKU/variant confirmation is absent;
 - creator likeness consent is absent;
+- character image contains another product, package or logo that could contaminate product identity;
 - a use/application scene has no category-appropriate fourth proof image;
 - required creative brief fields are empty;
 - recipe text or output settings exceed official limits.
@@ -75,6 +76,8 @@ The same page then exposes paid preflight only when all of these are ready:
 - configured `RUNWAYML_API_SECRET`.
 
 The operator must confirm one task, type the exact estimated credit count and acknowledge mandatory human review. The draft is atomically reserved before provider submission, so a repeated click cannot create a second task. While Runway is working, the page polls only safe draft status. After completion it renders the downloaded local MP4, task ID, safe report link and the manual approve/regenerate/reject form.
+
+Before paid submission the page renders the exact two images that the official recipe will receive: `characterImage` and `productImage`. The character reference must show only the creator and neutral context. A different product or distorted package in that image is a hard blocker even when the selected product image is correct.
 
 The CLI remains available for controlled operator use:
 

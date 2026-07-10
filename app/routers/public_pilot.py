@@ -222,6 +222,8 @@ def mvp_launch(
     recipe_run_readiness = None
     recipe_output_media: list[dict[str, object]] = []
     recipe_report_url = None
+    recipe_character_url = None
+    recipe_provider_product_url = None
     selected_product = db.get(models.Product, product_id) if product_id else None
     if recipe_draft_id:
         try:
@@ -230,6 +232,14 @@ def mvp_launch(
             selected_product = recipe_record.product
             recipe_run_readiness = _recipe_run_readiness(db, user, recipe_record)
             recipe_output_media = _recipe_media_items(recipe_draft.local_output_paths)
+            recipe_character_url = _media_url(recipe_record.character_image_path)
+            provider_asset = recipe_record.primary_product_asset
+            if provider_asset:
+                recipe_provider_product_url = (
+                    _media_url(provider_asset.source_ref)
+                    if provider_asset.source_type == "local"
+                    else provider_asset.source_ref
+                )
             if recipe_draft.generation_report_path:
                 recipe_report_url = _media_url(recipe_draft.generation_report_path)
         except RunwayRecipeError as exc:
@@ -274,6 +284,8 @@ def mvp_launch(
             "recipe_run_readiness": recipe_run_readiness,
             "recipe_output_media": recipe_output_media,
             "recipe_report_url": recipe_report_url,
+            "recipe_character_url": recipe_character_url,
+            "recipe_provider_product_url": recipe_provider_product_url,
             "default_product_info": recipe_service.default_product_info(selected_product, selected_variant) if selected_product else "",
             "error": error,
             "notice": notice,
@@ -310,6 +322,7 @@ async def product_ugc_recipe_draft(
     ratio: str = Form("720:1280"),
     audio_enabled: bool = Form(False),
     likeness_consent: bool = Form(False),
+    character_product_free_confirmed: bool = Form(False),
     exact_variant_confirmed: bool = Form(False),
     db: Session = Depends(get_db),
     user: PublicPilotUser = Depends(get_current_public_user),
@@ -373,6 +386,7 @@ async def product_ugc_recipe_draft(
             ratio=ratio,
             audio=audio_enabled,
             likeness_consent=likeness_consent,
+            character_product_free_confirmed=character_product_free_confirmed,
             exact_variant_confirmed=exact_variant_confirmed,
         )
     except RunwayRecipeError as exc:
