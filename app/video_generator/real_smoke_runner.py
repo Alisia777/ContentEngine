@@ -55,6 +55,7 @@ class RealSmokeRunner:
         max_scenes: int = 1,
         full_video: bool = False,
         allow_real_spend: bool = False,
+        prepared_generation_variant_id: int | None = None,
     ) -> RealSmokeRunOutput:
         self._preflight_environment(provider, allow_real_spend=allow_real_spend)
         if max_scenes is None:
@@ -82,7 +83,22 @@ class RealSmokeRunner:
                 + ", ".join(reference_policy.blockers or ["add_product_references"])
             )
         self._preflight_creative_quality(spec.product_id, creative_variant_id, provider=provider)
-        prompt_variant = VideoGenerator(self.db).build_prompt_pack_from_variant(creative_variant_id, provider=provider)
+        if prepared_generation_variant_id:
+            prompt_variant = self.db.get(models.VideoGenerationVariant, prepared_generation_variant_id)
+            if not prompt_variant:
+                raise VideoGeneratorDataError(
+                    f"Prepared VideoGenerationVariant {prepared_generation_variant_id} was not found."
+                )
+            if prompt_variant.creative_variant_id != creative_variant_id:
+                raise VideoGeneratorDataError(
+                    "Prepared VideoGenerationVariant does not belong to the selected creative variant."
+                )
+            if prompt_variant.provider != provider:
+                raise VideoGeneratorDataError(
+                    f"Prepared VideoGenerationVariant provider is {prompt_variant.provider}, expected {provider}."
+                )
+        else:
+            prompt_variant = VideoGenerator(self.db).build_prompt_pack_from_variant(creative_variant_id, provider=provider)
         prompt_pack = prompt_variant.prompt_pack
         if not prompt_pack:
             raise VideoGeneratorDataError("PromptPack could not be built from selected variant.")

@@ -448,7 +448,7 @@ def prepare_ready_variant(
 ) -> tuple[int, int, int, int]:
     product_id, spec_id, _, selected_variant_id = build_variant_set_fixture(api, title=title)
     with SessionLocal() as db:
-        attach_approved_reference_pair(db, product_id, primary_url=url)
+        attach_approved_tier_2_contract(db, product_id, primary_url=url)
         bundle = ProviderReferenceBundleBuilder(db).build(product_id, provider="runway")
     return product_id, spec_id, selected_variant_id, bundle.id
 
@@ -466,15 +466,51 @@ def attach_approved_reference_pair(
         asset_type="packshot",
         is_primary_reference=True,
     )
-    storage.update_asset(primary.id, review_status="approved", is_primary_reference=True)
+    storage.update_asset(
+        primary.id,
+        review_status="approved",
+        is_primary_reference=True,
+        contract_type="front_packshot",
+    )
     label = storage.attach_url(
         product_id,
         url="https://example.com/label_closeup.png",
         asset_type="label_closeup",
         manual_label="label closeup",
     )
-    storage.update_asset(label.id, review_status="approved", asset_type="label_closeup")
+    storage.update_asset(label.id, review_status="approved", asset_type="label_closeup", contract_type="label_closeup")
     return primary, label
+
+
+def attach_approved_tier_2_contract(
+    db: Session,
+    product_id: int,
+    *,
+    primary_url: str = "https://example.com/packshot.png",
+) -> tuple[models.ProductAsset, models.ProductAsset, models.ProductAsset]:
+    storage = ProductAssetStorage(db)
+    primary = storage.attach_url(product_id, url=primary_url, asset_type="packshot", is_primary_reference=True)
+    storage.update_asset(
+        primary.id,
+        review_status="approved",
+        is_primary_reference=True,
+        contract_type="front_packshot",
+    )
+    angle = storage.attach_url(
+        product_id,
+        url="https://example.com/angled_product.png",
+        asset_type="product",
+        manual_label="angled product",
+    )
+    storage.update_asset(angle.id, review_status="approved", contract_type="angled_product")
+    scale = storage.attach_url(
+        product_id,
+        url="https://example.com/product_in_hand.png",
+        asset_type="product",
+        manual_label="product in hand scale context",
+    )
+    storage.update_asset(scale.id, review_status="approved", contract_type="product_in_hand")
+    return primary, angle, scale
 
 
 def create_manual_ugc_script(
@@ -2485,7 +2521,7 @@ def test_reference_policy_blocks_strict_real_video_with_one_photo(monkeypatch):
             storage.update_asset(asset.id, review_status="approved", is_primary_reference=True)
             policy = ProductReferencePolicyService(db).check(product_id)
 
-            with pytest.raises(ProviderConfigurationError, match="Product reference policy blocks strict real product generation"):
+            with pytest.raises(ProviderConfigurationError, match="Product reference readiness must be ready before real smoke"):
                 RealSmokeRunner(db).run_from_variant(selected_variant_id, allow_real_spend=True)
 
         assert policy.product_lock_mode == "packshot_overlay"
@@ -2513,11 +2549,11 @@ def test_reference_policy_allows_packshot_overlay_with_one_photo():
         assert generation.video_job_id is None
 
 
-def test_reference_policy_requires_two_or_three_refs_for_strict_product_generation():
+def test_reference_policy_requires_tier_2_identity_and_scale_refs_for_strict_product_generation():
     with client() as api:
         product_id = create_product(api, title="Two Reference Product")
         with SessionLocal() as db:
-            primary, label = attach_approved_reference_pair(db, product_id)
+            primary, angle, scale = attach_approved_tier_2_contract(db, product_id)
             policy = ProductReferencePolicyService(db).check(product_id)
             lifestyle = ProductAssetStorage(db).attach_url(
                 product_id,
@@ -2528,11 +2564,12 @@ def test_reference_policy_requires_two_or_three_refs_for_strict_product_generati
             full_policy = ProductReferencePolicyService(db).check(product_id)
 
         assert policy.strict_real_generation_allowed is True
-        assert policy.approved_reference_count == 2
+        assert policy.approved_reference_count == 3
         assert primary.id in policy.reference_asset_ids
-        assert label.id in policy.reference_asset_ids
-        assert "recommended_three_product_references_missing" in policy.warnings
-        assert full_policy.approved_reference_count == 3
+        assert angle.id in policy.reference_asset_ids
+        assert scale.id in policy.reference_asset_ids
+        assert "recommended_three_product_references_missing" not in policy.warnings
+        assert full_policy.approved_reference_count == 4
         assert "context_or_scale" not in full_policy.missing_reference_types
 
 
@@ -8554,11 +8591,13 @@ def test_one_video_scene_policy_blocks_bite_without_edible_refs():
 
     assert policy.wrapper_reference_count == 2
     assert policy.edible_reference_count == 0
-    assert policy.wrapper_scene_allowed is True
+    assert policy.current_asset_tier == "tier_1"
+    assert policy.wrapper_scene_allowed is False
     assert policy.bite_scene_allowed is False
     assert policy.texture_macro_allowed is False
     assert "bite_scene" in policy.blocked_scene_types
-    assert "approved_cutaway_insert" in policy.allowed_scene_types
+    assert "approved_cutaway_insert" not in policy.allowed_scene_types
+    assert "packshot_overlay" in policy.allowed_scene_types
     assert "add_edible_cutaway_texture_and_use_case_refs" in policy.next_actions
 
 
@@ -8587,7 +8626,7 @@ def test_one_video_scene_policy_does_not_count_lifestyle_as_edible_ref():
     assert policy.asset_audit.decision == "safe_prompt_only_or_overlay_until_edible_refs_ready"
 
 
-def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
+def test_one_video_render_plan_uses_packshot_overlay_when_only_identity_refs_exist():
     api = client()
     product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
     with SessionLocal() as db:
@@ -8600,8 +8639,8 @@ def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
     assert plan.ai_production_brief_id
     assert plan.director_prompt_pack_id
     assert policy["bite_scene_allowed"] is False
-    assert "approved cutaway" in proof_scene["visual"].lower()
-    assert "no ai-generated bite" in proof_scene["visual"].lower()
+    assert "exact approved front packshot" in proof_scene["visual"].lower()
+    assert "do not generate wrapper handling" in proof_scene["visual"].lower()
     assert "generic muesli bar" in plan.negative_prompt
     assert "granola bar" in plan.negative_prompt
     assert "pink raspberry interior" in plan.negative_prompt
@@ -8613,7 +8652,7 @@ def test_one_video_render_plan_uses_safe_cutaway_when_edible_refs_missing():
     assert all("Flavor identity lock" in item["prompt_text"] for item in plan.prompt_preview_json["scene_prompts"])
     assert "no_muesli_granola_visual_drift" in plan.acceptance_checklist_json
     assert plan.product_scene_policy_json["asset_audit"]["decision"] == "safe_prompt_only_or_overlay_until_edible_refs_ready"
-    assert plan.prompt_preview_json["mvp_scorecard"]["total_score"] == 80
+    assert plan.prompt_preview_json["mvp_scorecard"]["total_score"] == 76
     assert plan.prompt_preview_json["mvp_scorecard"]["verdict"] == "usable_with_fixes"
 
 
@@ -8621,7 +8660,7 @@ def test_one_video_acceptance_api_uses_issue_endpoint_names():
     api = client()
     product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
     with SessionLocal() as db:
-        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        attach_approved_tier_2_contract(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
 
     build_response = api.post(
         "/api/one-video-acceptance/plans/build",
@@ -8662,18 +8701,26 @@ def test_one_video_prompt_only_builds_prompt_pack_without_video_job():
 
 
 def test_one_video_real_run_records_blocked_by_runway_credits(monkeypatch):
+    captured = {}
+
     class FakeRunner:
         def __init__(self, db: Session):
             self.db = db
 
-        def run_from_variant(self, *_args, **_kwargs):
+        def run_from_variant(self, *_args, **kwargs):
+            captured.update(kwargs)
+            prepared = self.db.get(models.VideoGenerationVariant, kwargs["prepared_generation_variant_id"])
+            assert prepared is not None
+            assert prepared.prompt_pack_json["one_video_render_plan_id"]
+            assert prepared.prompt_pack_json["product_asset_contract"]
+            assert prepared.provider_payload_json["product_asset_contract"]
             raise ProviderConfigurationError("Runway generation request failed: HTTP 400: You do not have enough credits to run this task.")
 
     api = client()
     product_id = create_product(api, title="Bombbar Pro Dubai Mango Kunafa")
     monkeypatch.setattr("app.one_video_acceptance.acceptance_service.RealSmokeRunner", FakeRunner)
     with SessionLocal() as db:
-        attach_approved_reference_pair(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
+        attach_approved_tier_2_contract(db, product_id, primary_url="https://example.com/bombbar_wrapper_front.png")
         service = OneVideoAcceptanceService(db)
         plan = service.prompt_only(service.build_plan(product_id, platform="Instagram Reels").id, provider="runway")
         result = service.run_real(plan.id, provider="runway", real_run=True, max_scenes=1)
@@ -8689,6 +8736,7 @@ def test_one_video_real_run_records_blocked_by_runway_credits(monkeypatch):
     assert result.output_acceptance_id is None
     assert result.result_json["blocker"] == "blocked_by_runway_credits"
     assert result.result_json["next_action"] == "add_runway_credits_then_rerun_one_scene_real_smoke"
+    assert captured["prepared_generation_variant_id"] == plan.video_generation_variant_id
     assert plan.status == "real_run_blocked_by_runway_credits"
     assert video_quality.next_action == "blocked_by_runway_credits"
     assert production.next_action == "blocked_by_runway_credits"
@@ -8807,7 +8855,9 @@ def test_one_video_acceptance_ui_renders_plan():
     response = api.get(f"/one-video-acceptance?plan_id={plan.id}")
     assert response.status_code == 200
     assert "One Video Acceptance" in response.text
-    assert "bite blocked" in response.text
+    assert "Product Asset Contract" in response.text
+    assert "Нельзя генерировать bite/macro" in response.text
+    assert "Interaction" in response.text
     assert "Asset Audit" in response.text
     assert "MVP Scorecard" in response.text
 

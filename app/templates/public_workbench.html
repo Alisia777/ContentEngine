@@ -26,6 +26,18 @@
       </div>
       {% if item.key == 'product' %}
       <div class="public-facts"><div><span>SKU</span><strong>{{ workspace.context.sku or 'не выбран' }}</strong></div><div><span>Smoke readiness</span><strong>{{ workspace.context.smoke_decision }}</strong></div><div><span>Блокеры</span><strong>{{ workspace.blockers|length }}</strong></div></div>
+      {% if workspace.context.product_asset_contract %}
+      {% set contract_tier = workspace.context.product_asset_contract.tier %}
+      {% set contract_requirement = workspace.context.product_asset_contract.requirement %}
+      <div class="public-contract-detail">
+        <div class="public-facts"><div><span>Профиль</span><strong>{{ contract_tier.product_profile }}</strong></div><div><span>Variant</span><strong>{{ contract_tier.variant_key or 'product-id boundary' }}</strong></div><div><span>Tier</span><strong>{{ contract_tier.current_tier }} / {{ contract_requirement.required_tier }}</strong></div><div><span>Действие</span><strong>{{ contract_tier.permissions.interaction_mode }} · {{ 'готово' if contract_tier.permissions.interaction_scene_allowed else 'blocked' }}</strong></div></div>
+        <p><strong>Не хватает:</strong> {{ contract_requirement.missing_asset_types | join(', ') if contract_requirement.missing_asset_types else 'набор готов' }}</p>
+        <p><strong>Разрешено:</strong> {{ contract_tier.allowed_scenes | join(', ') }}</p>
+        <p><strong>Заблокировано:</strong> {{ contract_tier.blocked_scenes | join(', ') }}</p>
+        {% if contract_tier.product_profile == 'food_snack' and contract_tier.current_tier != 'tier_4' %}<p class="public-alert">Нельзя генерировать bite/macro: нет полного Tier 4 набора exact variant.</p>{% endif %}
+        {% if contract_tier.product_profile != 'food_snack' and not contract_tier.permissions.interaction_scene_allowed %}<p class="public-alert">Реальное действие {{ contract_tier.permissions.interaction_mode }} заблокировано до Tier 4; разрешены блогерский контекст и точный packshot overlay.</p>{% endif %}
+      </div>
+      {% endif %}
       {% elif item.key == 'video-quality' %}
       <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'unknown' }}</strong></div><div><span>Оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/10</strong></div><div><span>На проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
       {% elif item.key == 'creative' %}

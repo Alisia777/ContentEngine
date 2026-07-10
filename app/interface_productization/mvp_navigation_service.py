@@ -22,6 +22,7 @@ class MVPNavigationService:
         self,
         snapshot: ControlRoomSnapshotOutput,
         smoke: SmokeReadinessRunOutput | None,
+        asset_contract: dict | None = None,
     ) -> MVPAction:
         if snapshot.review_queue:
             return MVPAction(
@@ -30,6 +31,20 @@ class MVPNavigationService:
                 url="/workbench?tab=video-quality",
                 detail="Видео ждёт обязательного решения человека.",
                 requires_human=True,
+            )
+
+        requirement = (asset_contract or {}).get("requirement") or {}
+        tier = (asset_contract or {}).get("tier") or {}
+        if requirement and requirement.get("status") != "ready":
+            return MVPAction(
+                action_type="complete_product_asset_contract",
+                label="Собрать недостающие фото товара",
+                url="/mvp-launch",
+                status="missing_assets",
+                detail=(
+                    f"Сейчас {tier.get('current_tier', 'tier_0')}; для {requirement.get('purpose', 'final_ad')} "
+                    f"нужен {requirement.get('required_tier', 'tier_2')}. Варианты SKU не смешиваются."
+                ),
             )
 
         smoke_decision = smoke.report.final_decision if smoke else None
@@ -75,8 +90,31 @@ class MVPNavigationService:
         self,
         snapshot: ControlRoomSnapshotOutput,
         smoke: SmokeReadinessRunOutput | None,
+        asset_contract: dict | None = None,
     ) -> list[MVPBlocker]:
         items: list[MVPBlocker] = []
+        requirement = (asset_contract or {}).get("requirement") or {}
+        tier = (asset_contract or {}).get("tier") or {}
+        if requirement and requirement.get("status") != "ready":
+            items.append(
+                MVPBlocker(
+                    blocker_type="product_asset_contract",
+                    label="Product Asset Contract не готов",
+                    detail="Не хватает: " + ", ".join(requirement.get("missing_asset_types") or tier.get("missing_assets") or ["точных фото товара"]),
+                    severity="blocker",
+                    next_action="complete_product_asset_contract",
+                )
+            )
+        if tier.get("variant_mismatch_asset_ids"):
+            items.append(
+                MVPBlocker(
+                    blocker_type="product_variant_mismatch",
+                    label="Смешаны варианты товара",
+                    detail="Identity/use-case фото другого вкуса, цвета или модели не засчитываются.",
+                    severity="blocker",
+                    next_action="separate_product_variant_reference_sets",
+                )
+            )
         if smoke:
             for blocker in smoke.blockers:
                 items.append(
@@ -116,4 +154,3 @@ class MVPNavigationService:
             "prompt_only_failed": "Prompt-only требует исправления",
         }
         return labels.get(blocker_type, blocker_type.replace("_", " ").capitalize())
-

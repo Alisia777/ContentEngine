@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -7,6 +8,7 @@ from app.control_room import ControlRoomSnapshotService
 from app.interface_productization.mvp_navigation_service import MVPNavigationService
 from app.interface_productization.types import MVPAction, MVPModuleLink, MVPWorkspaceSnapshotOutput
 from app.smoke_readiness import ReadinessReportService
+from app.product_asset_contract import ProductAssetTierService, ReferenceRequirementService
 
 
 class MVPWorkspaceService:
@@ -22,8 +24,9 @@ class MVPWorkspaceService:
         smoke_service = ReadinessReportService(self.db)
         smoke_run = smoke_service.latest()
         smoke = smoke_service.output(smoke_run) if smoke_run else None
-        primary = self.navigation.primary_action(control, smoke)
-        blockers = self.navigation.blockers(control, smoke)
+        asset_contract = self._latest_asset_contract(smoke.product_id if smoke else None)
+        primary = self.navigation.primary_action(control, smoke, asset_contract)
+        blockers = self.navigation.blockers(control, smoke, asset_contract)
         status = "blocked" if any(item.severity == "blocker" for item in blockers) else "ready"
         if control.review_queue:
             status = "needs_review"
@@ -53,6 +56,7 @@ class MVPWorkspaceService:
             "smoke_decision": smoke.report.final_decision if smoke else "not_checked",
             "product_id": smoke.product_id if smoke else None,
             "sku": smoke.sku if smoke else None,
+            "product_asset_contract": asset_contract,
             "technical": {
                 "engine_audit_run_id": control.engine_audit_run_id,
                 "control_room_snapshot_id": control.id,
@@ -75,6 +79,21 @@ class MVPWorkspaceService:
         self.db.commit()
         self.db.refresh(record)
         return record
+
+    def _latest_asset_contract(self, product_id: int | None) -> dict | None:
+        if not product_id:
+            latest_plan = self.db.scalar(select(models.OneVideoRenderPlan).order_by(models.OneVideoRenderPlan.id.desc()))
+            product_id = latest_plan.product_id if latest_plan else self.db.scalar(select(models.Product.id).order_by(models.Product.id.desc()))
+        if not product_id:
+            return None
+        tier_service = ProductAssetTierService(self.db)
+        tier = tier_service.output(tier_service.evaluate(product_id))
+        requirement_service = ReferenceRequirementService(self.db)
+        requirement = requirement_service.output(
+            requirement_service.evaluate(tier, purpose="final_ad"),
+            permission=tier.permissions.model_dump(mode="json"),
+        )
+        return {"tier": tier.model_dump(mode="json"), "requirement": requirement.model_dump(mode="json")}
 
     def output(self, record: models.MVPWorkspaceSnapshot) -> MVPWorkspaceSnapshotOutput:
         return MVPWorkspaceSnapshotOutput(
@@ -104,4 +123,3 @@ class MVPWorkspaceService:
             MVPModuleLink(key="people", label="Люди и обучение", url="/workbench?tab=people", status="available", summary="Роли, задания и сертификация.", internal_route="/participant-portal"),
             MVPModuleLink(key="access", label="Доступ", url="/settings/access", status="gated", summary="Роли, права и подтверждение расходов."),
         ]
-

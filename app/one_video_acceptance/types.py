@@ -46,6 +46,11 @@ class ProductScenePolicyOutput(BaseModel):
     product_id: int
     sku: str
     provider: str = "runway"
+    product_profile: str = "general"
+    variant_key: str | None = None
+    interaction_mode: str = "use_case"
+    current_asset_tier: str = "tier_0"
+    required_asset_tier: str = "tier_2"
     wrapper_reference_count: int = 0
     edible_reference_count: int = 0
     style_reference_count: int = 0
@@ -58,6 +63,17 @@ class ProductScenePolicyOutput(BaseModel):
     unwrapped_product_allowed: bool = False
     bite_scene_allowed: bool = False
     texture_macro_allowed: bool = False
+    opening_scene_allowed: bool = False
+    cutaway_proof_allowed: bool = False
+    near_mouth_allowed: bool = False
+    use_case_scene_allowed: bool = False
+    interaction_scene_allowed: bool = False
+    application_scene_allowed: bool = False
+    try_on_scene_allowed: bool = False
+    demonstration_scene_allowed: bool = False
+    tasting_scene_allowed: bool = False
+    provider_generated_packaging_allowed: bool = False
+    provider_generated_product_allowed: bool = False
     packshot_overlay_required: bool = True
     end_card_required: bool = True
     edible_kit_ready: bool = False
@@ -65,6 +81,8 @@ class ProductScenePolicyOutput(BaseModel):
     approved_edible_asset_ids: list[int] = Field(default_factory=list)
     approved_style_asset_ids: list[int] = Field(default_factory=list)
     approved_lifestyle_asset_ids: list[int] = Field(default_factory=list)
+    approved_identity_asset_ids: list[int] = Field(default_factory=list)
+    approved_use_case_asset_ids: list[int] = Field(default_factory=list)
     asset_audit: ProductAssetAuditOutput | None = None
     blocked_scene_types: list[str] = Field(default_factory=list)
     allowed_scene_types: list[str] = Field(default_factory=list)
@@ -73,6 +91,7 @@ class ProductScenePolicyOutput(BaseModel):
     next_actions: list[str] = Field(default_factory=list)
     reference_readiness: dict[str, Any] = Field(default_factory=dict)
     reference_policy: dict[str, Any] = Field(default_factory=dict)
+    asset_contract: dict[str, Any] = Field(default_factory=dict)
 
 
 class OneVideoScene(BaseModel):

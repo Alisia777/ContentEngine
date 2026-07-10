@@ -139,6 +139,7 @@ from app.participant_portal import (
     RecommendationService,
     SubmissionService,
 )
+from app.product_asset_contract import ProductAssetContractError, ProductAssetTierService, ReferenceRequirementService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser, get_current_public_user
 from app.public_pilot.gate_matrix import (
@@ -310,6 +311,9 @@ class AssetPatchRequest(BaseModel):
     manual_label: str | None = None
     review_status: str | None = None
     review_notes: str | None = None
+    variant_key: str | None = None
+    contract_type: str | None = None
+    shared_non_identity: bool | None = None
 
 
 class ProductReferenceRequest(BaseModel):
@@ -1614,6 +1618,24 @@ def build_product_reference_bundle(product_id: int, payload: ProductReferenceReq
     try:
         return reference_bundle_response(ProviderReferenceBundleBuilder(db).build(product_id, provider=payload.provider))
     except AssetKitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/assets/products/{product_id}/contract")
+def get_product_asset_contract(product_id: int, purpose: str = "final_ad", db: Session = Depends(get_db)):
+    try:
+        tier_service = ProductAssetTierService(db)
+        tier = tier_service.output(tier_service.evaluate(product_id))
+        requirement_service = ReferenceRequirementService(db)
+        requirement = requirement_service.evaluate(tier, purpose=purpose)
+        return {
+            "tier": tier.model_dump(mode="json"),
+            "requirement": requirement_service.output(
+                requirement,
+                permission=tier.permissions.model_dump(mode="json"),
+            ).model_dump(mode="json"),
+        }
+    except ProductAssetContractError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

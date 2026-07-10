@@ -36,6 +36,24 @@
       <article class="altea-card public-kpi altea-reveal"><span>На проверке</span><strong>{{ control_snapshot.review_queue|length }}</strong><small>решение принимает человек</small></article>
     </div>
 
+    {% if product_asset_contract %}
+    {% set contract_tier = product_asset_contract.tier %}
+    {% set contract_requirement = product_asset_contract.requirement %}
+    <article class="altea-card public-contract-bar altea-reveal">
+      <div><p class="public-eyebrow">Product Asset Contract</p><h2>{{ contract_tier.sku }}</h2><p>{{ contract_tier.product_profile }} · variant {{ contract_tier.variant_key or 'product-id boundary' }} · {{ contract_tier.permissions.interaction_mode }}</p></div>
+      <div><span>Текущий уровень</span><strong>{{ contract_tier.current_tier }}</strong></div>
+      <div><span>Нужен для рекламы</span><strong>{{ contract_requirement.required_tier }}</strong></div>
+      <div><span>Статус</span><strong class="public-status public-status--{{ contract_requirement.status }}">{{ contract_requirement.status }}</strong></div>
+      <div class="public-contract-missing"><span>Не хватает</span><strong>{{ contract_requirement.missing_asset_types | join(', ') if contract_requirement.missing_asset_types else 'ничего' }}</strong></div>
+    </article>
+    {% if contract_tier.product_profile == 'food_snack' and contract_tier.current_tier != 'tier_4' %}
+    <p class="public-safety-note">Нельзя генерировать bite/macro: нет полного Tier 4 набора exact variant — bitten product, product in hand, product near mouth и opening reference.</p>
+    {% endif %}
+    {% if contract_tier.product_profile != 'food_snack' and not contract_tier.permissions.interaction_scene_allowed %}
+    <p class="public-safety-note">Реальное действие {{ contract_tier.permissions.interaction_mode }} заблокировано до Tier 4: блогер может объяснить контекст, но AI не должен выдумывать применение товара.</p>
+    {% endif %}
+    {% endif %}
+
     <div class="public-grid">
       <article class="altea-card public-panel altea-reveal">
         <header class="public-panel-head"><div><p class="public-eyebrow">Товар и запуск</p><h2>Что мешает двигаться</h2></div><span>{{ product_blockers|length }}</span></header>

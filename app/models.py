@@ -841,6 +841,50 @@ class ProductReferenceBundle(Base, TimestampMixin):
     asset_kit = relationship("ProductAssetKit", back_populates="reference_bundles")
 
 
+class ProductAssetRequirement(Base, TimestampMixin):
+    __tablename__ = "product_asset_requirements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    variant_key = Column(String(160), nullable=True, index=True)
+    product_profile = Column(String(80), nullable=False, default="general", index=True)
+    required_tier = Column(String(40), nullable=False, default="tier_0", index=True)
+    purpose = Column(String(120), nullable=False, default="strategy", index=True)
+    required_asset_types_json = Column(JSON, default=list, nullable=False)
+    missing_asset_types_json = Column(JSON, default=list, nullable=False)
+    status = Column(String(80), nullable=False, default="needs_assets", index=True)
+    requirement_json = Column(JSON, default=dict, nullable=False)
+
+    product = relationship("Product")
+
+
+class ProductAssetTierSnapshot(Base, TimestampMixin):
+    __tablename__ = "product_asset_tier_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sku = Column(String(120), nullable=False, index=True)
+    variant_key = Column(String(160), nullable=True, index=True)
+    product_profile = Column(String(80), nullable=False, default="general", index=True)
+    current_tier = Column(String(40), nullable=False, default="tier_0", index=True)
+    wrapper_refs_count = Column(Integer, nullable=False, default=0)
+    edible_refs_count = Column(Integer, nullable=False, default=0)
+    style_refs_count = Column(Integer, nullable=False, default=0)
+    lifestyle_refs_count = Column(Integer, nullable=False, default=0)
+    identity_refs_count = Column(Integer, nullable=False, default=0)
+    use_case_refs_count = Column(Integer, nullable=False, default=0)
+    classified_assets_json = Column(JSON, default=list, nullable=False)
+    variant_mismatch_asset_ids_json = Column(JSON, default=list, nullable=False)
+    missing_assets_json = Column(JSON, default=list, nullable=False)
+    allowed_scenes_json = Column(JSON, default=list, nullable=False)
+    blocked_scenes_json = Column(JSON, default=list, nullable=False)
+    permissions_json = Column(JSON, default=dict, nullable=False)
+    blockers_json = Column(JSON, default=list, nullable=False)
+
+    product = relationship("Product")
+
+
 class FirstFrameOption(Base, TimestampMixin):
     __tablename__ = "first_frame_options"
 

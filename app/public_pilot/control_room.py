@@ -11,6 +11,7 @@ from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser
 from app.public_pilot.gate_matrix import ACTION_LABELS, PublicPilotGateMatrix
 from app.smoke_readiness import ReadinessReportService
+from app.product_asset_contract import ProductAssetTierService, ReferenceRequirementService
 
 
 class PublicPilotControlRoomService:
@@ -33,6 +34,7 @@ class PublicPilotControlRoomService:
         smoke_service = ReadinessReportService(self.db)
         smoke_run = smoke_service.latest()
         smoke_output = smoke_service.output(smoke_run) if smoke_run else None
+        contract = self._asset_contract(smoke_output.product_id if smoke_output else None)
         navigation = MVPNavigationService()
         return {
             "user": user,
@@ -42,8 +44,9 @@ class PublicPilotControlRoomService:
             "control_roles": ["owner", "content_lead", "campaign_operator", "reviewer", "creator", "creator_publisher", "metrics_operator"],
             "control_snapshot": snapshot_output,
             "smoke_readiness": smoke_output,
-            "primary_action": navigation.primary_action(snapshot_output, smoke_output),
-            "product_blockers": navigation.blockers(snapshot_output, smoke_output),
+            "primary_action": navigation.primary_action(snapshot_output, smoke_output, contract),
+            "product_blockers": navigation.blockers(snapshot_output, smoke_output, contract),
+            "product_asset_contract": contract,
             "certifications": sorted(certifications),
             "training_modules": modules,
             "gate_summary": matrix.summary(),
@@ -61,4 +64,19 @@ class PublicPilotControlRoomService:
                 "Use /settings/access to verify who can perform dangerous actions.",
             ],
         }
+
+    def _asset_contract(self, product_id: int | None) -> dict | None:
+        if not product_id:
+            latest_plan = self.db.scalar(select(models.OneVideoRenderPlan).order_by(models.OneVideoRenderPlan.id.desc()))
+            product_id = latest_plan.product_id if latest_plan else self.db.scalar(select(models.Product.id).order_by(models.Product.id.desc()))
+        if not product_id:
+            return None
+        tier_service = ProductAssetTierService(self.db)
+        tier = tier_service.output(tier_service.evaluate(product_id))
+        requirement_service = ReferenceRequirementService(self.db)
+        requirement = requirement_service.output(
+            requirement_service.evaluate(tier, purpose="final_ad"),
+            permission=tier.permissions.model_dump(mode="json"),
+        )
+        return {"tier": tier.model_dump(mode="json"), "requirement": requirement.model_dump(mode="json")}
 

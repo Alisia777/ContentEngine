@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Product-Safe UGC</p>
     <h1>One Video Acceptance</h1>
-    <p class="muted">Bombbar 9:16 controlled render plan, prompt-only and paid smoke gate.</p>
+    <p class="muted">Безопасный план 9:16: блогер + точный SKU/вариант + реальное применение, затем prompt-only и paid smoke gate.</p>
   </div>
   <div class="status">{{ provider_status.generation_mode }} / spend {{ provider_status.allow_real_spend }}</div>
 </section>
@@ -94,6 +94,9 @@
 
 {% if selected_plan %}
   {% set policy = selected_plan.product_scene_policy_json or {} %}
+  {% set contract = policy.asset_contract or {} %}
+  {% set contract_tier = contract.tier or {} %}
+  {% set contract_requirement = contract.requirement or {} %}
   <section class="grid">
     <article class="metric">
       <span>Plan</span>
@@ -101,30 +104,50 @@
       <p>{{ selected_plan.status }}</p>
     </article>
     <article class="metric">
-      <span>Wrapper refs</span>
-      <strong>{{ policy.wrapper_reference_count }}</strong>
-      <p>{{ 'close-up allowed' if policy.wrapper_closeup_allowed else 'close-up blocked' }}</p>
+      <span>Identity refs</span>
+      <strong>{{ policy.approved_identity_asset_ids | length }}</strong>
+      <p>точный SKU / {{ policy.variant_key or 'product-id boundary' }}</p>
     </article>
     <article class="metric">
-      <span>Edible refs</span>
-      <strong>{{ policy.edible_reference_count }}</strong>
-      <p>{{ 'bite allowed' if policy.bite_scene_allowed else 'bite blocked' }}</p>
+      <span>Use refs</span>
+      <strong>{{ policy.approved_use_case_asset_ids | length }}</strong>
+      <p>{{ policy.interaction_mode or 'use_case' }}: {{ 'allowed' if policy.interaction_scene_allowed else 'blocked' }}</p>
     </article>
     <article class="metric">
       <span>Style refs</span>
       <strong>{{ policy.style_reference_count or 0 }}</strong>
-      <p>creator / Wibes tone</p>
+      <p>только стиль блогера</p>
     </article>
     <article class="metric">
       <span>Lifestyle refs</span>
       <strong>{{ policy.lifestyle_reference_count or 0 }}</strong>
-      <p>context only, not edible proof</p>
+      <p>контекст, не identity/use proof</p>
     </article>
     <article class="metric">
       <span>End card</span>
       <strong>{{ 'yes' if policy.end_card_required else 'no' }}</strong>
       <p>{{ 'packshot overlay required' if policy.packshot_overlay_required else 'reference i2v' }}</p>
     </article>
+  </section>
+
+  <section class="panel">
+    <h2>Product Asset Contract</h2>
+    <div class="grid">
+      <article class="metric"><span>Profile</span><strong>{{ policy.product_profile or 'general' }}</strong><p>{{ policy.variant_key or 'product-id boundary' }}</p></article>
+      <article class="metric"><span>Interaction</span><strong>{{ policy.interaction_mode or 'use_case' }}</strong><p>{{ 'allowed' if policy.interaction_scene_allowed else 'reference-gated' }}</p></article>
+      <article class="metric"><span>Current tier</span><strong>{{ policy.current_asset_tier or 'tier_0' }}</strong><p>exact approved refs only</p></article>
+      <article class="metric"><span>Required tier</span><strong>{{ policy.required_asset_tier or 'tier_2' }}</strong><p>{{ contract_requirement.purpose or 'final_ad' }}</p></article>
+      <article class="metric"><span>Status</span><strong>{{ contract_requirement.status or 'blocked' }}</strong><p>human review required</p></article>
+    </div>
+    <p><strong>Missing:</strong> {{ contract_requirement.missing_asset_types | join(', ') if contract_requirement.missing_asset_types else 'none' }}</p>
+    <p><strong>Allowed:</strong> {{ contract_tier.allowed_scenes | join(', ') if contract_tier.allowed_scenes else 'strategy only' }}</p>
+    <p><strong>Blocked:</strong> {{ contract_tier.blocked_scenes | join(', ') if contract_tier.blocked_scenes else 'none' }}</p>
+    {% if policy.product_profile == 'food_snack' and policy.current_asset_tier != 'tier_4' %}
+    <p><strong>Нельзя генерировать bite/macro:</strong> нет полного Tier 4 набора exact variant — bitten product, product in hand, product near mouth и opening reference.</p>
+    {% endif %}
+    {% if policy.product_profile != 'food_snack' and not policy.interaction_scene_allowed %}
+    <p><strong>Нельзя генерировать реальное действие {{ policy.interaction_mode }}:</strong> до Tier 4 разрешены только блогерский контекст, approved use-case insert и точный packshot overlay.</p>
+    {% endif %}
   </section>
 
   <section class="panel">
@@ -260,7 +283,7 @@
       </label>
       <div class="actions">
         <button name="action" value="prompt_only">Prompt-only</button>
-        <button class="danger" name="action" value="real_run">Paid smoke</button>
+        <button class="danger" name="action" value="real_run" {% if contract_requirement.status != 'ready' %}disabled{% endif %}>Paid smoke</button>
       </div>
     </form>
     <p class="muted">Gate ready: {{ real_smoke_gate_ready }}. Selected variant #{{ selected_plan.creative_variant_id }}.</p>

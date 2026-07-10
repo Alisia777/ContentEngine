@@ -8,6 +8,7 @@ from app.interface_productization.errors import InterfaceProductizationError
 from app.interface_productization.types import MVPAction, MVPBlocker, MVPLaunchRunOutput, MVPLaunchStep
 from app.one_video_acceptance import OneVideoAcceptanceError, OneVideoAcceptanceService
 from app.smoke_readiness import ReadinessReportService, RecoveryService, SmokeReadinessError
+from app.product_asset_contract import ProductAssetContractError, ProductAssetTierService, ReferenceRequirementService
 
 
 STEP_DEFINITIONS = [
@@ -133,12 +134,50 @@ class MVPLaunchWizardService:
             run.current_step = "select_product"
             return
         try:
+            tier_service = ProductAssetTierService(self.db)
+            tier = tier_service.output(tier_service.evaluate(run.product_id))
+            requirement_service = ReferenceRequirementService(self.db)
+            requirement = requirement_service.output(
+                requirement_service.evaluate(tier, purpose="final_ad"),
+                permission=tier.permissions.model_dump(mode="json"),
+            )
+        except ProductAssetContractError as exc:
+            self._set_blocked(run, "asset_contract_failed", "Контракт фото не собран", str(exc))
+            return
+        context = dict(run.context_json or {})
+        context["product_asset_contract"] = {
+            "tier": tier.model_dump(mode="json"),
+            "requirement": requirement.model_dump(mode="json"),
+        }
+        context["asset_check_status"] = requirement.status
+        run.context_json = context
+        if requirement.status != "ready":
+            run.blockers_json = [
+                self._blocker(
+                    "product_asset_contract",
+                    "Не хватает точных фото товара",
+                    f"Сейчас {tier.current_tier}; нужен {requirement.required_tier}. Не хватает: {', '.join(requirement.missing_asset_types)}.",
+                    next_action="add_product_references_for_exact_variant",
+                )
+            ]
+            if tier.variant_mismatch_asset_ids:
+                run.blockers_json.append(
+                    self._blocker(
+                        "product_variant_mismatch",
+                        "Фото другого варианта не засчитываются",
+                        "Разделите вкусы, цвета или модели и укажите exact variant_key для каждого identity asset.",
+                        next_action="separate_product_variant_reference_sets",
+                    )
+                )
+            run.status = "blocked"
+            run.next_action_json = self._next_action("check_assets", blocked=True)
+            return
+        try:
             plan = OneVideoAcceptanceService(self.db).build_plan(run.product_id, provider="runway")
         except OneVideoAcceptanceError as exc:
             self._set_blocked(run, "asset_check_failed", "Фото товара не прошли проверку", str(exc))
             return
         run.one_video_render_plan_id = plan.id
-        context = dict(run.context_json or {})
         context["scene_policy"] = plan.product_scene_policy_json or {}
         context["asset_check_status"] = "blocked" if plan.blockers_json else "ready"
         run.context_json = context
@@ -316,4 +355,3 @@ class MVPLaunchWizardService:
         if sku:
             return self.db.scalar(select(models.Product).where(models.Product.sku == sku))
         return None
-

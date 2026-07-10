@@ -465,6 +465,57 @@
   line-height: 1.5;
 }
 
+.public-contract-bar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.5fr) repeat(3, minmax(130px, 0.55fr));
+  gap: 18px;
+  align-items: center;
+  padding: 22px;
+}
+
+.public-contract-bar h2 {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.public-contract-bar p {
+  margin: 7px 0 0;
+  color: var(--altea-muted);
+}
+
+.public-contract-bar > div:not(:first-child) {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.public-contract-bar > div:not(:first-child) > span {
+  color: var(--altea-muted);
+  font-size: 12px;
+}
+
+.public-contract-bar strong {
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.public-contract-missing {
+  grid-column: 2 / -1;
+}
+
+.public-contract-detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(246, 234, 212, 0.09);
+}
+
+.public-contract-detail p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .public-panel-head {
   display: flex;
   justify-content: space-between;
@@ -559,6 +610,15 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .public-contract-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .public-contract-bar > div:first-child,
+  .public-contract-missing {
+    grid-column: 1 / -1;
+  }
+
   .public-panel--wide {
     grid-column: auto;
   }
@@ -590,8 +650,14 @@
 
   .public-stepper,
   .public-facts,
-  .public-technical-grid {
+  .public-technical-grid,
+  .public-contract-bar {
     grid-template-columns: 1fr;
+  }
+
+  .public-contract-bar > div:first-child,
+  .public-contract-missing {
+    grid-column: auto;
   }
 
   .public-table {
