@@ -1,16 +1,16 @@
 {% if workspace.context.provider_failures %}
 <section class="public-review-alert" aria-labelledby="provider-failure-title">
   <div>
-    <p class="public-eyebrow">Provider failure</p>
-    <h3 id="provider-failure-title">Платный task завершился без MP4</h3>
+    <p class="public-eyebrow">Ошибка генератора</p>
+    <h3 id="provider-failure-title">Платный запуск завершился без видео</h3>
   </div>
   <ul class="public-list">
     {% for failure in workspace.context.provider_failures %}
     <li>
       <div>
-        <strong>{{ failure.label }}</strong>
-        <small>{{ failure.detail }}</small>
-        {% if failure.payload.provider_task_id %}<code>{{ failure.payload.provider_task_id }}</code>{% endif %}
+        <strong>Провайдер остановил запрос</strong>
+        <small>Исходные материалы сохранены. Проверьте фото и создайте новый черновик — повторного списания автоматически не будет.</small>
+        <details><summary>Технический код</summary><code>{{ failure.label }}</code>{% if failure.payload.provider_task_id %}<code>{{ failure.payload.provider_task_id }}</code>{% endif %}</details>
       </div>
       <a href="{{ failure.target_url }}">Открыть отчёт</a>
     </li>
@@ -23,7 +23,7 @@
 {% if workspace.context.review_queue %}
 <section class="public-review-queue" aria-labelledby="review-queue-title">
   <header class="public-panel-head">
-    <div><p class="public-eyebrow">Human review</p><h3 id="review-queue-title">Конкретные ролики на проверке</h3></div>
+    <div><p class="public-eyebrow">Решение человека</p><h3 id="review-queue-title">Ролики на проверке</h3></div>
     <span>{{ workspace.context.review_queue|length }}</span>
   </header>
   <div class="public-review-grid">
@@ -35,11 +35,11 @@
       <div class="public-review-placeholder"><span>MP4 недоступен</span><small>Откройте карточку для диагностики.</small></div>
       {% endif %}
       <div class="public-review-copy">
-        <div><strong>{{ review.label }}</strong><small>{{ review.detail or 'Требуется ручное решение.' }}</small></div>
+        <div><strong>Ролик #{{ review.video_job_id or review.payload.video_job_id or '—' }}</strong><small>Просмотрите реальный файл и проверьте товар, упаковку, сцену и призыв к действию.</small></div>
         <dl>
-          {% if review.video_job_id %}<div><dt>Video job</dt><dd>#{{ review.video_job_id }}</dd></div>{% endif %}
-          {% if review.score is defined %}<div><dt>Score</dt><dd>{{ review.score }}/10</dd></div>{% endif %}
-          <div><dt>Publishing</dt><dd>{{ review.publishing_readiness or 'blocked' }}</dd></div>
+          {% if review.video_job_id %}<div><dt>Видео</dt><dd>#{{ review.video_job_id }}</dd></div>{% endif %}
+          {% if review.score is defined %}<div><dt>Техническая оценка</dt><dd>{{ review.score | round(0) }}/100</dd></div>{% endif %}
+          <div><dt>Публикация</dt><dd>{{ 'готова' if review.publishing_readiness == 'ready' else 'заблокирована' }}</dd></div>
         </dl>
         <a class="altea-outline-button" href="{{ review.target_url }}">Открыть проверку</a>
       </div>

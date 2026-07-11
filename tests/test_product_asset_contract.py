@@ -4,8 +4,8 @@ import os
 import subprocess
 import sys
 
-os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
-os.environ["QVF_MEDIA_ROOT"] = "test_media"
+os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
+os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 os.environ["QVF_AUTH_REQUIRED"] = "false"
 
 import pytest
@@ -408,6 +408,7 @@ def test_check_product_asset_contract_cli_outputs_missing_assets():
         check=False,
         capture_output=True,
         text=True,
+        env={**os.environ, "QVF_DATABASE_URL": str(engine.url)},
     )
     assert result.returncode == 0, result.stderr
     assert "Current Tier: tier_1" in result.stdout

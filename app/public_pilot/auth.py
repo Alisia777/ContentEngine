@@ -62,9 +62,10 @@ class SupabaseJWTValidator:
             if not hmac.compare_digest(expected, actual):
                 raise HTTPException(status_code=401, detail="invalid_token_signature")
         elif self.settings.supabase_jwks_url:
-            # JWKS verification is configured but not performed locally; production deployments should terminate
-            # verification at the auth edge or add a JWKS-capable verifier.
-            pass
+            # Never parse an asymmetric token as authenticated without actually
+            # verifying its signature. This build supports the shared-secret and
+            # local-session paths; JWKS deployments must add a verifier first.
+            raise HTTPException(status_code=503, detail="jwks_signature_verifier_not_configured")
         else:
             raise HTTPException(status_code=401, detail="auth_verifier_not_configured")
 
@@ -92,6 +93,29 @@ def _extract_token(request: Request) -> str | None:
     return request.cookies.get(settings.session_cookie_name)
 
 
+def form_csrf_token(request: Request) -> str:
+    """Derive a form token from the current signed, HttpOnly session value."""
+
+    session_token = _extract_token(request)
+    if session_token:
+        return hmac.new(
+            b"qvf-public-pilot-form-csrf-v1",
+            session_token.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+    return "local-development-no-auth"
+
+
+def require_form_csrf(request: Request, submitted_token: str | None) -> None:
+    """Fail closed for authenticated browser writes without a session-bound token."""
+
+    if not get_settings().auth_required:
+        return
+    candidate = str(submitted_token or "").strip()
+    if not candidate or not hmac.compare_digest(candidate, form_csrf_token(request)):
+        raise HTTPException(status_code=403, detail="invalid_csrf_token")
+
+
 def ensure_public_pilot_user(
     db: Session,
     *,
@@ -101,6 +125,8 @@ def ensure_public_pilot_user(
     supabase_user_id: str | None = None,
     mark_login: bool = False,
     authenticated_at: datetime | None = None,
+    update_existing_role: bool = False,
+    require_active_existing: bool = False,
 ) -> PublicPilotUser:
     settings = get_settings()
     org_slug = _slugify(settings.public_pilot_default_org)
@@ -109,6 +135,8 @@ def ensure_public_pilot_user(
         organization = models.Organization(name=settings.public_pilot_default_org, slug=org_slug, settings_json={"public_pilot": True})
         db.add(organization)
         db.flush()
+    elif require_active_existing and organization.status != "active":
+        raise HTTPException(status_code=403, detail="active_membership_required")
 
     subject = supabase_user_id or f"local:{email}"
     profile = db.scalar(select(models.UserProfile).where(models.UserProfile.supabase_user_id == subject))
@@ -124,6 +152,8 @@ def ensure_public_pilot_user(
         db.add(profile)
         db.flush()
     else:
+        if require_active_existing and (not profile.is_active or profile.status != "active"):
+            raise HTTPException(status_code=403, detail="active_membership_required")
         profile.email = email
         profile.display_name = display_name or profile.display_name
     if mark_login:
@@ -146,7 +176,9 @@ def ensure_public_pilot_user(
             permissions_json=[],
         )
         db.add(membership)
-    elif role:
+    elif require_active_existing and membership.status != "active":
+        raise HTTPException(status_code=403, detail="active_membership_required")
+    elif role and update_existing_role:
         membership.role = role
 
     db.commit()
@@ -156,11 +188,64 @@ def ensure_public_pilot_user(
     return PublicPilotUser(profile=profile, organization=organization, membership=membership)
 
 
+def active_public_pilot_user_from_payload(
+    db: Session,
+    payload: dict[str, Any],
+) -> PublicPilotUser:
+    """Resolve a token to an existing active membership without provisioning it.
+
+    The database membership is authoritative.  In particular, a local-session
+    token's embedded role must never reactivate or promote a stored membership.
+    """
+
+    settings = get_settings()
+    subject = str(payload.get("sub") or "").strip()
+    is_local_session = payload.get("auth_source") == "local"
+    app_metadata = payload.get("app_metadata") if isinstance(payload.get("app_metadata"), dict) else {}
+    claimed_organization_slug = app_metadata.get("organization_slug")
+    if not isinstance(claimed_organization_slug, str) or not claimed_organization_slug.strip():
+        claimed_organization_slug = None
+    organization_slug = (
+        _slugify(settings.public_pilot_default_org)
+        if is_local_session
+        else claimed_organization_slug or _slugify(settings.public_pilot_default_org)
+    )
+    profile = db.scalar(
+        select(models.UserProfile).where(models.UserProfile.supabase_user_id == subject)
+    )
+    organization = db.scalar(
+        select(models.Organization).where(models.Organization.slug == organization_slug)
+    )
+    membership = (
+        db.scalar(
+            select(models.Membership).where(
+                models.Membership.organization_id == organization.id,
+                models.Membership.user_profile_id == profile.id,
+            )
+        )
+        if profile is not None and organization is not None
+        else None
+    )
+    if profile is None or organization is None or membership is None:
+        detail = "active_membership_required" if is_local_session else "public_pilot_invite_required"
+        raise HTTPException(status_code=403, detail=detail)
+    if (
+        not profile.is_active
+        or profile.status != "active"
+        or organization.status != "active"
+        or membership.status != "active"
+    ):
+        raise HTTPException(status_code=403, detail="active_membership_required")
+    return PublicPilotUser(profile=profile, organization=organization, membership=membership)
+
+
 def get_current_public_user(request: Request, db: Session = Depends(get_db)) -> PublicPilotUser:
     settings = get_settings()
     token = _extract_token(request)
     if token:
-        payload = SupabaseJWTValidator().validate(token)
+        payload = getattr(request.state, "public_pilot_auth_payload", None)
+        if not isinstance(payload, dict):
+            payload = SupabaseJWTValidator().validate(token)
         email = payload.get("email") or payload.get("user_metadata", {}).get("email") or f"{payload['sub']}@supabase.local"
         display_name = payload.get("user_metadata", {}).get("name") or payload.get("user_metadata", {}).get("full_name")
         role = payload.get("app_metadata", {}).get("role") or payload.get("role") or "viewer"
@@ -168,6 +253,14 @@ def get_current_public_user(request: Request, db: Session = Depends(get_db)) -> 
         authenticated_at = None
         if isinstance(issued_at, (int, float)) and not isinstance(issued_at, bool):
             authenticated_at = datetime.fromtimestamp(issued_at, UTC).replace(tzinfo=None)
+        is_local_session = payload.get("auth_source") == "local"
+        if (
+            settings.public_pilot_mode
+            or settings.auth_required
+            or settings.public_pilot_invite_only
+            or is_local_session
+        ):
+            return active_public_pilot_user_from_payload(db, payload)
         return ensure_public_pilot_user(
             db,
             email=email,
@@ -183,5 +276,11 @@ def get_current_public_user(request: Request, db: Session = Depends(get_db)) -> 
     email = request.headers.get("x-public-pilot-email", settings.auth_dev_bypass_email)
     role = request.headers.get("x-public-pilot-role", "owner")
     display_name = request.headers.get("x-public-pilot-name")
-    return ensure_public_pilot_user(db, email=email, display_name=display_name, role=role)
+    return ensure_public_pilot_user(
+        db,
+        email=email,
+        display_name=display_name,
+        role=role,
+        require_active_existing=settings.public_pilot_mode or settings.auth_required,
+    )
 

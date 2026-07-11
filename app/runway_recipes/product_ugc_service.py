@@ -121,6 +121,7 @@ class ProductUGCRecipeService:
         primary_asset_id: int | None = None,
         product_uploads: list[ProductImageUpload] | None = None,
         product_info: str | None = None,
+        required_packaging_tokens: list[str] | str | None = None,
         task: str,
         creator_profile: str,
         setting: str,
@@ -188,6 +189,12 @@ class ProductUGCRecipeService:
         primary = self._primary_asset(assets, primary_asset_id)
         if not primary:
             raise RunwayRecipeError("Выберите или загрузите главный front product image.")
+        packaging_tokens = self._packaging_tokens(required_packaging_tokens)
+        if packaging_tokens:
+            primary_metadata = dict(primary.metadata_json or {})
+            primary_metadata["required_packaging_tokens"] = packaging_tokens
+            primary_metadata["packaging_text_source"] = "operator_confirmed"
+            primary.metadata_json = primary_metadata
         creative_inputs = {
             "task": task.strip(),
             "creator_profile": creator_profile.strip(),
@@ -202,6 +209,7 @@ class ProductUGCRecipeService:
             "product_profile": profile,
             "profile_action": PROFILE_ACTION_LABELS[profile],
             "character_product_free_confirmed": character_product_free_confirmed,
+            "required_packaging_tokens": packaging_tokens,
         }
         rendered_product_info = (product_info or "").strip() or self.default_product_info(product, expected_variant)
         user_concept = self.build_user_concept(product, creative_inputs, expected_variant, language=language)
@@ -254,6 +262,30 @@ class ProductUGCRecipeService:
         self.db.commit()
         self.db.refresh(draft)
         return draft
+
+    @staticmethod
+    def _packaging_tokens(value: list[str] | str | None) -> list[str]:
+        if value is None:
+            return []
+        raw_items = (
+            re.split(r"[,;\n]+", value)
+            if isinstance(value, str)
+            else list(value)
+        )
+        tokens: list[str] = []
+        for raw in raw_items:
+            token = re.sub(r"\s+", " ", str(raw or "").strip())
+            if not token:
+                continue
+            if len(token) < 2 or len(token) > 80:
+                raise RunwayRecipeError(
+                    "Каждая обязательная надпись упаковки должна содержать 2–80 символов."
+                )
+            if token.casefold() not in {item.casefold() for item in tokens}:
+                tokens.append(token)
+        if len(tokens) > 12:
+            raise RunwayRecipeError("Укажите не более 12 ключевых надписей упаковки.")
+        return tokens
 
     def get(self, draft_id: int) -> models.ProductUGCRecipeDraft:
         draft = self.db.get(models.ProductUGCRecipeDraft, draft_id)

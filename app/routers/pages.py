@@ -128,6 +128,7 @@ from app.publishing import ManualUploadProvider, PublishingDestinationService, P
 from app.publishing.errors import PublishingError
 from app.training_academy import CertificationService, CurriculumService, ProgressService, QuizService, ScenarioService, TrainingAcademyError
 from app.training_academy.academy_catalog import BEGINNER_TRACKS, PLATFORM_PLAYBOOKS
+from app.social_metrics_ingestion import require_legacy_global_metrics_local_mode
 from app.variants.creative_variant_builder import CreativeVariantBuilder
 from app.variants.errors import VariantError
 from app.variants.first_frame_builder import FirstFrameBuilder
@@ -2515,7 +2516,12 @@ def destination_crm_warmup_ui(
 
 
 @router.get("/destination-connectors", response_class=HTMLResponse)
-def destination_connectors_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+def destination_connectors_page(
+    request: Request,
+    campaign_id: int | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
     selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
     destinations = db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.platform, models.PublishingDestination.id)).all()
@@ -2552,6 +2558,7 @@ def destination_connectors_create_ui(
     credential_ref: str = Form(""),
     campaign_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         ConnectionRegistry(db).create(destination_id, connection_type, credential_ref=credential_ref or None)
@@ -2561,7 +2568,12 @@ def destination_connectors_create_ui(
 
 
 @router.post("/destination-connectors/connections/{connection_id}/check")
-def destination_connectors_check_ui(connection_id: int, campaign_id: int | None = Form(None), db: Session = Depends(get_db)):
+def destination_connectors_check_ui(
+    connection_id: int,
+    campaign_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         ConnectionRegistry(db).check(connection_id)
     except DestinationConnectorError as exc:
@@ -2576,6 +2588,7 @@ def destination_connectors_sync_ui(
     period_start: str = Form(""),
     period_end: str = Form(""),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         result = DestinationConnectorSyncService(db).sync(
@@ -2597,6 +2610,7 @@ async def destination_connectors_import_csv_ui(
     campaign_id: int | None = Form(None),
     connection_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         text = (await file.read()).decode("utf-8-sig")
@@ -2616,7 +2630,12 @@ async def destination_connectors_import_csv_ui(
 
 
 @router.get("/destination-control-tower", response_class=HTMLResponse)
-def destination_control_tower_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+def destination_control_tower_page(
+    request: Request,
+    campaign_id: int | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
     selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
     snapshot = None
@@ -2649,7 +2668,11 @@ def destination_control_tower_page(request: Request, campaign_id: int | None = N
 
 
 @router.post("/destination-control-tower/{campaign_id}/refresh")
-def destination_control_tower_refresh_ui(campaign_id: int, db: Session = Depends(get_db)):
+def destination_control_tower_refresh_ui(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         snapshot = TowerService(db).refresh(campaign_id)
     except DestinationControlTowerError as exc:
@@ -2658,7 +2681,12 @@ def destination_control_tower_refresh_ui(campaign_id: int, db: Session = Depends
 
 
 @router.post("/destination-control-tower/rows/{row_id}/action")
-def destination_control_tower_action_ui(row_id: int, campaign_id: int = Form(...), db: Session = Depends(get_db)):
+def destination_control_tower_action_ui(
+    row_id: int,
+    campaign_id: int = Form(...),
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         result = TowerService(db).apply_action(row_id)
     except DestinationControlTowerError as exc:
@@ -2667,7 +2695,12 @@ def destination_control_tower_action_ui(row_id: int, campaign_id: int = Form(...
 
 
 @router.get("/metrics-intake", response_class=HTMLResponse)
-def metrics_intake_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+def metrics_intake_page(
+    request: Request,
+    campaign_id: int | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
     selected_campaign_id = campaign_id or (campaigns[0].id if campaigns else None)
     sources = MetricsSourceRegistry(db).list()
@@ -2704,6 +2737,7 @@ def metrics_intake_create_source(
     credential_ref: str | None = Form(None),
     campaign_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     settings = {"credential_ref": credential_ref} if credential_ref else {}
     try:
@@ -2726,6 +2760,7 @@ def metrics_intake_create_tracking_link(
     campaign_id: int | None = Form(None),
     participant_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         TrackingLinkService(db).create_for_task(
@@ -2746,6 +2781,7 @@ def metrics_intake_import_csv(
     campaign_id: int | None = Form(None),
     source_type: str = Form("manual_csv"),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         CSVImporter(db).import_csv_text(csv_text, source_id=source_id, campaign_id=campaign_id, source_type=source_type)
@@ -2755,7 +2791,12 @@ def metrics_intake_import_csv(
 
 
 @router.post("/metrics-intake/batches/{batch_id}/attribute")
-def metrics_intake_attribute_batch(batch_id: int, campaign_id: int | None = Form(None), db: Session = Depends(get_db)):
+def metrics_intake_attribute_batch(
+    batch_id: int,
+    campaign_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         AttributionService(db).attribute_batch(batch_id)
     except MetricsIntakeError as exc:
@@ -3206,7 +3247,12 @@ def campaign_batch_execute(
 
 
 @router.get("/campaign-performance", response_class=HTMLResponse)
-def campaign_performance_page(request: Request, campaign_id: int | None = None, db: Session = Depends(get_db)):
+def campaign_performance_page(
+    request: Request,
+    campaign_id: int | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     campaigns = db.scalars(select(models.Campaign).order_by(models.Campaign.id.desc())).all()
     selected_campaign = db.get(models.Campaign, campaign_id) if campaign_id else (campaigns[0] if campaigns else None)
     summary = None
@@ -3244,26 +3290,43 @@ def campaign_performance_page(request: Request, campaign_id: int | None = None, 
 
 
 @router.post("/campaign-performance/{campaign_id}/import-csv")
-async def campaign_performance_import_csv(campaign_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def campaign_performance_import_csv(
+    campaign_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     csv_text = (await file.read()).decode("utf-8-sig")
     CampaignMetricsImporter(db).import_csv_text(campaign_id, csv_text, source_file=file.filename or "campaign_performance.csv")
     return redirect(f"/campaign-performance?campaign_id={campaign_id}")
 
 
 @router.post("/campaign-performance/{campaign_id}/generate-recommendations")
-def campaign_performance_generate_recommendations(campaign_id: int, db: Session = Depends(get_db)):
+def campaign_performance_generate_recommendations(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     CampaignRecommendationEngine(db).generate(campaign_id)
     return redirect(f"/campaign-performance?campaign_id={campaign_id}")
 
 
 @router.post("/campaign-performance/recommendations/{recommendation_id}/accept")
-def campaign_performance_accept_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+def campaign_performance_accept_recommendation(
+    recommendation_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     result = CampaignRecommendationEngine(db).accept(recommendation_id)
     return redirect(f"/campaign-performance?campaign_id={result.campaign_id}")
 
 
 @router.post("/campaign-performance/recommendations/{recommendation_id}/reject")
-def campaign_performance_reject_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+def campaign_performance_reject_recommendation(
+    recommendation_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     result = CampaignRecommendationEngine(db).reject(recommendation_id)
     return redirect(f"/campaign-performance?campaign_id={result.campaign_id}")
 

@@ -2,6 +2,7 @@
 {% set active_page = "workbench" %}
 {% set factory = workspace.context.factory_dashboard %}
 {% set metrics = factory.metrics %}
+{% set recommended_action = operations_readiness.recommended_action or workspace.primary_action %}
 {% block content %}
 <section class="public-dashboard">
   {% include "_public_product_sidebar.html" %}
@@ -18,11 +19,37 @@
     <article class="altea-card public-focus-panel altea-reveal">
       <div>
         <p class="public-eyebrow">Рекомендуемый шаг</p>
-        <h2>{{ workspace.primary_action.label }}</h2>
-        <p>{{ workspace.primary_action.detail }}</p>
+        <h2>{{ recommended_action.label }}</h2>
+        <p>{{ recommended_action.detail }}</p>
       </div>
-      <a class="altea-glow-button" href="{{ workspace.primary_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ workspace.primary_action.action_type }}">Продолжить</a>
+      <a class="altea-glow-button" href="{{ recommended_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ recommended_action.action_type or recommended_action.key }}">Продолжить</a>
     </article>
+
+    <section class="altea-card public-operations-readiness altea-reveal" id="operations-readiness" aria-labelledby="operations-readiness-title">
+      <header>
+        <div>
+          <p class="public-eyebrow">Подготовка к реальной работе</p>
+          <h2 id="operations-readiness-title">Внешние контуры без технических сюрпризов</h2>
+          <p>{{ operations_readiness.summary }} Откройте карточку — внутри ровно те шаги, которые можно выполнить.</p>
+        </div>
+        <div class="public-readiness-score"><strong>{{ operations_readiness.ready_count }}/{{ operations_readiness.total_count }}</strong><span>готово</span></div>
+      </header>
+      <div class="public-operations-grid">
+        {% for card in operations_readiness.cards %}
+        <article class="public-operation-card public-operation-card--{{ card.status }}">
+          <div class="public-operation-card__head"><div><small>Контур {{ loop.index }}</small><h3>{{ card.title }}</h3></div><span class="public-status public-status--{{ 'ready' if card.status == 'ready' else 'needs_attention' }}">{{ card.status_label }}</span></div>
+          <p>{{ card.summary }}</p>
+          <ul class="public-operation-checks">
+            {% for check in card.checks %}
+            <li class="is-{{ 'external' if check.status == 'external' else ('ready' if check.ready else 'pending') }}"><span aria-hidden="true">{{ '↗' if check.status == 'external' else ('✓' if check.ready else '!') }}</span><div><strong>{{ check.label }}</strong><small>{{ check.detail }}</small></div></li>
+            {% endfor %}
+          </ul>
+          <details{% if card.action and recommended_action.key == card.action.key %} open{% endif %}><summary>Как настроить</summary><ol>{% for step in card.setup_steps %}<li>{{ step }}</li>{% endfor %}</ol><p class="public-operation-boundary">{{ card.boundary }}</p></details>
+          {% if card.action %}<a class="public-operation-link" href="{{ card.action.url }}">{{ card.action.label }} →</a>{% endif %}
+        </article>
+        {% endfor %}
+      </div>
+    </section>
 
     <nav class="public-tabs public-tabs--factory altea-reveal" aria-label="Девять блоков контент-завода">
       {% for item in workspace.module_links %}
@@ -81,12 +108,116 @@
         <strong>Что понадобится</strong>
         <p>Точный товар, 3–4 его фото, фотография или образ блогера и одна простая идея. Сначала система проверит ТЗ без платного вызова.</p>
       </div>
+      {% if queue_notice %}<div class="public-guidance"><strong>Очередь обновлена</strong><p>{% if queue_notice == 'reconciled_existing_task' %}Проверенный provider task ID прикреплён. Воркер продолжит только эту существующую задачу — нового paid submit не будет.{% elif queue_notice == 'reconciled_no_submission' %}Сохранено неизменяемое подтверждение, что у провайдера задачи нет. Разрешена одна новая платная попытка с повторной проверкой полномочий.{% else %}Задача снова доступна воркеру. Если провайдер уже принял paid task, продолжится только опрос существующего task ID — второй запуск не создаётся.{% endif %}</p></div>{% endif %}
+      {% if queue_error %}<div class="public-guidance public-guidance--warning"><strong>Повтор остановлен безопасно</strong><p>{{ queue_error }}</p></div>{% endif %}
+      <div class="public-guidance{% if not generation_queue_health.worker_ready %} public-guidance--warning{% endif %}">
+        <strong>{% if generation_queue_health.worker_ready %}Воркер генерации на связи{% else %}Воркер генерации не подтверждён{% endif %}</strong>
+        <p>{% if generation_queue_health.worker_ready %}Последний heartbeat принят; очередь обрабатывается под надзором.{% else %}Новые задачи сохранятся, но платный запуск не следует считать обслуживаемым, пока supervisor не восстановит worker.{% endif %}</p>
+        <div class="public-facts"><div><span>Готово к обработке</span><strong>{{ generation_queue_health.ready_jobs }}</strong></div><div><span>В работе</span><strong>{{ generation_queue_health.active_jobs }}</strong></div><div><span>Задержка очереди</span><strong>{{ generation_queue_health.queue_lag_seconds }} сек.</strong></div><div><span>Просроченные lease</span><strong>{{ generation_queue_health.stale_leases }}</strong></div></div>
+      </div>
+      <h3 class="public-subheading">Надёжная очередь генерации</h3>
+      {% if generation_queue_views %}
+      <div class="public-listing-cards">
+        {% for job in generation_queue_views %}
+        <article>
+          <div><strong>Задача #{{ job.id }} · draft #{{ job.draft_id }}</strong><small>попытка {{ job.attempt_count }} из {{ job.max_attempts }}{% if job.provider_task_id %} · provider task {{ job.provider_task_id }}{% endif %}</small></div>
+          <span class="public-status public-status--{{ job.ui_status }}">{{ job.status_label }}</span>
+          <dl><div><dt>Следующая попытка</dt><dd>{{ job.next_attempt_at or 'не запланирована' }}</dd></div><div><dt>Провайдер</dt><dd>{{ job.provider_status or 'ещё не отправлено' }}</dd></div><div><dt>Причина</dt><dd>{{ job.reason_label }}</dd></div></dl>
+          {% if job.manual_retry_allowed %}
+          <form method="post" action="/workbench/generation-jobs/{{ job.id }}/retry">
+            <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+            <label class="recipe-confirm"><input type="checkbox" name="confirm_safe_retry" value="true" required><span>Повторить только эту задачу. Если paid task уже существует, новый не создавать.</span></label>
+            <button class="public-link-button" type="submit">Безопасно продолжить</button>
+          </form>
+          {% elif job.quarantine_reconciliation_allowed %}
+          <div class="public-guidance public-guidance--warning"><strong>Нужна сверка в кабинете провайдера</strong><p>Сначала найдите отправку по времени и товару. Выберите ровно один подтверждённый результат; решение попадёт в неизменяемый журнал.</p></div>
+          <details class="public-technical">
+            <summary>Задача у провайдера найдена</summary>
+            <form method="post" action="/workbench/generation-jobs/{{ job.id }}/reconcile-quarantine">
+              <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+              <input type="hidden" name="resolution" value="attach_existing_task">
+              <label>Provider task ID<input name="provider_task_id" required minlength="3" maxlength="255" pattern="[A-Za-z0-9][A-Za-z0-9._:/-]+" placeholder="task_..."></label>
+              <label>Номер проверки / обращения<input name="evidence_reference" required minlength="5" maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._:/-]+" placeholder="audit-2026-001"></label>
+              <label>Что именно сверили<textarea name="reason" required minlength="12" maxlength="800" placeholder="Нашёл задачу в кабинете по времени запуска и точному товару."></textarea></label>
+              <label class="recipe-confirm"><input type="checkbox" name="confirm_provider_check" value="true" required><span>Я скопировал task ID из кабинета провайдера. Продолжить только эту задачу, без нового submit.</span></label>
+              <button class="public-link-button" type="submit">Прикрепить и продолжить</button>
+            </form>
+          </details>
+          <details class="public-technical">
+            <summary>Провайдер подтверждает: задачи нет</summary>
+            <form method="post" action="/workbench/generation-jobs/{{ job.id }}/reconcile-quarantine">
+              <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+              <input type="hidden" name="resolution" value="confirm_no_submission">
+              <label>Номер проверки / обращения<input name="evidence_reference" required minlength="5" maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._:/-]+" placeholder="support-2026-001"></label>
+              <label>Почему уверены, что отправки нет<textarea name="reason" required minlength="12" maxlength="800" placeholder="Проверил историю задач и получил подтверждение поддержки, совпадений нет."></textarea></label>
+              <label class="recipe-confirm"><input type="checkbox" name="confirm_provider_check" value="true" required><span>Я подтвердил отсутствие задачи у провайдера и разрешаю одну новую платную попытку.</span></label>
+              <button class="public-link-button" type="submit">Записать доказательство и разрешить попытку</button>
+            </form>
+          </details>
+          {% elif job.quarantined %}<p class="public-safety-note">Исход отправки провайдеру неизвестен. Автоповтор запрещён; попросите владельца или администратора выполнить сверку в кабинете провайдера.</p>{% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="public-safety-note">Очередь пуста. Она появится после явного подтверждения одного платного запуска.</p>{% endif %}
       <div class="public-panel-action"><a class="altea-glow-button" href="/mvp-launch" data-track-event="primary_action_clicked" data-track-target="ugc-generator">Создать новый ролик</a></div>
 
       {% elif item.key == 'video-quality' %}
-      <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'ещё не проверялось' }}</strong></div><div><span>Техническая оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/10</strong></div><div><span>На ручной проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
+      <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'ещё не проверялось' }}</strong></div><div><span>Техническая оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/100</strong></div><div><span>На ручной проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
       <p class="public-safety-note">Оценка движка — только предварительный сигнал. Публикацию открывает человек после просмотра реального видео.</p>
       {% include "_public_video_quality_workspace.html" %}
+      {% if quality_notice %}<div class="public-guidance"><strong>Готово</strong><p>{{ 'Кадры и контактный лист готовы. Проверьте ролик ниже.' if quality_notice == 'frames_ready' else 'Ролик прошёл подробную проверку и связан с каноническим циклом.' }}</p></div>{% endif %}
+      {% if quality_error %}<div class="public-guidance public-guidance--warning"><strong>Публикация остаётся закрыта</strong><p>{% if quality_error in ['frame_extraction_failed', 'frame_extraction_incomplete'] %}Не удалось получить настоящие кадры из MP4. Проверьте файл и FFmpeg; синтетические заглушки не засчитываются.{% elif quality_error == 'visual_evidence_blocked' %}CV/OCR-снимок сохранён, но разрешение, разнообразие, freeze-check или надписи упаковки не прошли обязательный порог.{% elif quality_error == 'visual_review_required' %}Подтвердите, что посмотрели реальный MP4.{% elif quality_error == 'review_notes_required' %}Опишите решение минимум десятью символами.{% elif quality_error == 'output_needs_regeneration' %}Хотя бы одна проверка не пройдена. Создайте новый draft после исправления причины.{% else %}Проверка не прошла fail-closed правила. Ни один ролик не будет одобрен автоматически.{% endif %}</p></div>{% endif %}
+
+      <h3 class="public-subheading">Канонические циклы качества</h3>
+      {% if content_cycle_views %}
+      <div class="public-cycle-list">
+        {% for item_view in content_cycle_views %}
+        {% set cycle = item_view.cycle %}
+        <article>
+          <header><div><strong>Цикл #{{ cycle.id }} · {{ cycle.product.sku }}</strong><small>Видео #{{ cycle.video_job_id }} · {{ cycle.status }}</small></div><span class="public-status public-status--{{ 'ready' if cycle.output_acceptance_id else 'needs_review' }}">{{ 'качество подтверждено' if cycle.output_acceptance_id else 'нужна проверка' }}</span></header>
+          {% if item_view.video_url %}<video controls preload="metadata" playsinline src="{{ item_view.video_url }}"></video>{% else %}<p class="public-safety-note">MP4 недоступен через безопасный media-root.</p>{% endif %}
+          {% if item_view.contact_sheet_url %}<a class="public-contact-sheet" href="{{ item_view.contact_sheet_url }}" target="_blank" rel="noopener"><img src="{{ item_view.contact_sheet_url }}" alt="Контактный лист ролика #{{ cycle.video_job_id }}"><span>Открыть кадры крупно</span></a>{% endif %}
+          {% if item_view.visual_evidence %}
+          {% set evidence = item_view.visual_evidence %}
+          <div class="public-facts">
+            <div><span>Настоящие кадры</span><strong>{{ evidence.decoded_frame_count }} / {{ evidence.frame_count }}</strong></div>
+            <div><span>Уникальность</span><strong>{{ evidence.unique_percent if evidence.unique_percent is not none else '—' }}{% if evidence.unique_percent is not none %}%{% endif %}</strong></div>
+            <div><span>Минимальное разрешение</span><strong>{% if evidence.minimum_short_side_observed_px %}{{ evidence.minimum_short_side_observed_px }}×{{ evidence.minimum_long_side_observed_px }}{% else %}—{% endif %}</strong></div>
+            <div><span>OCR упаковки</span><strong>{{ evidence.ocr_label }}</strong></div>
+          </div>
+          {% if evidence.missing_tokens %}<p class="public-safety-note">OCR не нашёл обязательные надписи: {{ evidence.missing_tokens | join(', ') }}.</p>{% endif %}
+          {% if evidence.blocker_labels %}<div class="public-guidance public-guidance--warning"><strong>Автопроверка блокирует одобрение</strong><ul>{% for label in evidence.blocker_labels %}<li>{{ label }}</li>{% endfor %}</ul></div>{% else %}<p class="public-safety-note">Кадры декодируются, разрешение и разнообразие прошли автоматическую проверку. Решение всё равно принимает человек.</p>{% endif %}
+          {% endif %}
+
+          {% if not cycle.output_acceptance_id %}
+            {% if item_view.frame_status != 'created' or item_view.frame_warnings %}
+            <form method="post" action="/workbench/content-cycles/{{ cycle.id }}/extract-frames"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><button class="public-link-button" type="submit">1. Получить настоящие кадры из MP4</button></form>
+            {% elif not item_view.visual_evidence or item_view.visual_evidence.status != 'passed' %}
+            <form method="post" action="/workbench/content-cycles/{{ cycle.id }}/extract-frames"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><button class="public-link-button" type="submit">Повторить CV/OCR после исправления ролика</button></form>
+            {% else %}
+            <form class="public-quality-form" method="post" action="/workbench/content-cycles/{{ cycle.id }}/review-output">
+              <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+              <h4>2. Отметьте только то, что действительно проверили</h4>
+              <div class="public-quality-checks">
+                <label><input type="checkbox" name="product_identity_ok" value="true"><span>Точный товар и вариант</span></label>
+                <label><input type="checkbox" name="packaging_ok" value="true"><span>Упаковка и надписи не изменились</span></label>
+                <label><input type="checkbox" name="geometry_ok" value="true"><span>Форма товара без искажений</span></label>
+                <label><input type="checkbox" name="blogger_ok" value="true"><span>Блогер выглядит естественно</span></label>
+                <label><input type="checkbox" name="scene_match_ok" value="true"><span>Сцены соответствуют заданию</span></label>
+                <label><input type="checkbox" name="proof_moment_ok" value="true"><span>Показано доказательство применения</span></label>
+                <label><input type="checkbox" name="cta_ok" value="true"><span>Есть понятный призыв к действию</span></label>
+              </div>
+              <label>Решение<select name="decision"><option value="approved">Одобрить, если все пункты пройдены</option><option value="needs_regeneration">Вернуть на пересоздание</option></select></label>
+              <label>Комментарий проверяющего<textarea name="reviewer_notes" minlength="10" required placeholder="Что именно посмотрели и почему принимаете решение"></textarea></label>
+              <label class="recipe-confirm"><input type="checkbox" name="confirm_video_watched" value="true" required><span>Я посмотрел реальный MP4, а не только метаданные.</span></label>
+              <button class="altea-glow-button" type="submit">Сохранить решение</button>
+            </form>
+            {% endif %}
+          {% else %}<p class="public-safety-note">Acceptance #{{ cycle.output_acceptance_id }} подтверждён. Следующий шаг находится во вкладке «Воронка».</p>{% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="public-safety-note">Канонический цикл появится после успешной генерации и первого human review.</p>{% endif %}
 
       {% elif item.key == 'funnel' %}
       <div class="public-funnel-strip" aria-label="Воронка контента">
@@ -96,22 +227,291 @@
         <div><span>Выручка</span><strong>{{ metrics.revenue }} ₽</strong></div>
       </div>
       <p>Чтобы воронка считалась честно, до публикации создаётся tracking-ссылка, а после публикации сохраняется final URL.</p>
-      <div class="public-panel-action"><a class="public-link-button" href="/metrics-intake" data-track-event="navigation_clicked" data-track-target="metrics-intake">Загрузить или проверить метрики</a></div>
+      <div class="public-panel-action"><a class="public-link-button" href="/workbench?tab=sources" data-track-event="navigation_clicked" data-track-target="safe-metrics-intake">Внести или проверить метрики</a></div>
+      {% if funnel_notice %}<div class="public-guidance"><strong>Готово</strong><p>{% if funnel_notice == 'destination_created' %}Площадка добавлена в вашу организацию.{% elif funnel_notice == 'distribution_ready' %}Пакет, ручная задача и tracking-ссылка созданы. Внешняя публикация не выполнялась.{% else %}Финальная ссылка публикации сохранена. Теперь можно привязать фактические метрики.{% endif %}</p></div>{% endif %}
+      {% if funnel_error %}<div class="public-guidance public-guidance--warning"><strong>Этап остановлен безопасно</strong><p>{% if funnel_error == 'destination_ownership_required' %}Подтвердите принадлежность площадки вашей организации.{% elif funnel_error in ['invalid_destination', 'invalid_destination_url'] %}Проверьте бренд, площадку, название и публичную HTTPS-ссылку.{% elif funnel_error == 'distribution_confirmation_required' %}Сначала одобрите качество и подтвердите ручную подготовку.{% elif funnel_error == 'distribution_blocked' %}Пакет не прошёл проверку бренда, площадки, файла или лимитов.{% elif funnel_error == 'invalid_final_url' %}Final URL должен быть публичной HTTPS-ссылкой именно выбранной соцсети.{% else %}Подтвердите, что публикация действительно выполнена вручную.{% endif %}</p></div>{% endif %}
+
+      {% if wb_products %}
+      <details class="public-inline-form">
+        <summary>Добавить свою площадку для ручной публикации</summary>
+        <form method="post" action="/workbench/publishing-destinations/create">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label>Бренд<select name="brand" required>{% for product in wb_products %}<option value="{{ product.brand }}">{{ product.brand }}</option>{% endfor %}</select></label>
+          <label>Площадка<select name="platform" required><option>Instagram Reels</option><option>TikTok</option><option>YouTube Shorts</option><option>VK</option><option>Telegram</option></select></label>
+          <label>Понятное название<input name="name" maxlength="160" placeholder="Основной Instagram" required></label>
+          <label>Ник / handle<input name="handle" maxlength="160" placeholder="@brand"></label>
+          <label class="public-form-wide">Ссылка на профиль<input name="url" type="url" placeholder="https://instagram.com/brand"></label>
+          <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_owned_destination" value="true" required><span>Подтверждаю: эта площадка принадлежит нашей организации. Публикация будет ручной.</span></label>
+          <button class="altea-glow-button" type="submit">Добавить площадку</button>
+        </form>
+      </details>
+      {% endif %}
+
+      <h3 class="public-subheading">От одобренного ролика до final URL</h3>
+      {% if content_cycle_views %}
+      <div class="public-cycle-list">
+        {% for item_view in content_cycle_views %}
+        {% set cycle = item_view.cycle %}
+        <article>
+          <header><div><strong>Цикл #{{ cycle.id }} · {{ cycle.product.sku }}</strong><small>{{ cycle.status }}</small></div><span class="public-status public-status--{{ 'ready' if cycle.publishing_task and cycle.publishing_task.final_url else ('in_progress' if cycle.output_acceptance_id else 'needs_review') }}">{% if cycle.publishing_task and cycle.publishing_task.final_url %}опубликовано{% elif cycle.status == 'manual_distribution_ready' %}готово к загрузке{% elif cycle.output_acceptance_id %}качество принято{% else %}ждёт QA{% endif %}</span></header>
+
+          {% if cycle.status == 'output_accepted' %}
+          {% set matching_destinations = publishing_destinations | selectattr('brand', 'equalto', cycle.product.brand) | selectattr('platform', 'equalto', cycle.product_ugc_recipe_draft.platform) | list %}
+          {% if matching_destinations %}
+          <form class="public-inline-cycle-form" method="post" action="/workbench/content-cycles/{{ cycle.id }}/prepare-distribution">
+            <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+            <label>Куда публикуем<select name="destination_id">{% for destination in matching_destinations %}<option value="{{ destination.id }}">{{ destination.name }} · {{ destination.platform }}</option>{% endfor %}</select></label>
+            <label>Ссылка на товар<input name="target_url" type="url" value="{{ cycle.product.product_url or '' }}" placeholder="https://..."></label>
+            <label class="recipe-confirm"><input type="checkbox" name="confirm_manual_distribution" value="true" required><span>Создать только ручной пакет. Ничего не публиковать автоматически.</span></label>
+            <button class="altea-glow-button" type="submit">Подготовить ручную публикацию</button>
+          </form>
+          {% else %}<p class="public-safety-note">Добавьте выше площадку с брендом «{{ cycle.product.brand }}» и типом «{{ cycle.product_ugc_recipe_draft.platform }}».</p>{% endif %}
+
+          {% elif cycle.status == 'manual_distribution_ready' and cycle.publishing_task %}
+          <div class="public-manual-package">
+            {% if item_view.video_url %}<a class="public-link-button" href="{{ item_view.video_url }}" target="_blank" rel="noopener">Открыть MP4</a>{% endif %}
+            <div><span>Текст</span><p>{{ cycle.publishing_package.description }}</p></div>
+            <div><span>Tracking-ссылка</span><code>{{ request.url_for('tracking_redirect', slug=cycle.tracking_link.slug) }}</code></div>
+            <p class="public-safety-note">Загрузите ролик в соцсеть вручную, используйте tracking-ссылку, затем вставьте URL уже опубликованного поста.</p>
+          </div>
+          {% if not cycle.publishing_task.final_url %}
+          <form class="public-inline-cycle-form" method="post" action="/workbench/content-cycles/{{ cycle.id }}/mark-published">
+            <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+            <label>Final URL опубликованного поста<input name="final_url" type="url" required placeholder="https://instagram.com/reel/..."></label>
+            <label class="recipe-confirm"><input type="checkbox" name="confirm_uploaded" value="true" required><span>Ролик действительно опубликован вручную на выбранной площадке.</span></label>
+            <button class="altea-glow-button" type="submit">Сохранить final URL</button>
+          </form>
+          {% else %}<p class="public-safety-note">Final URL: <a href="{{ cycle.publishing_task.final_url }}" target="_blank" rel="noopener">{{ cycle.publishing_task.final_url }}</a>. Следующий шаг — фактические метрики.</p>{% endif %}
+          {% else %}<p class="public-safety-note">Сначала завершите подробную проверку качества во вкладке «Качество».</p>{% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="public-safety-note">Цикл появится после первой одобренной генерации.</p>{% endif %}
 
       {% elif item.key == 'sources' %}
       <div class="public-facts"><div><span>Подключения</span><strong>{{ metrics.connections }}</strong></div><div><span>Синхронизированы</span><strong>{{ metrics.synced_connections }}</strong></div><div><span>Строк метрик</span><strong>{{ metrics.metric_rows }}</strong></div></div>
-      <div class="public-guidance public-guidance--warning"><strong>Честный статус</strong><p>CSV и ручной импорт работают. Автоматические коннекторы соцсетей ещё не считаются подключёнными, пока не пройдут реальную проверку данных.</p></div>
-      <div class="public-panel-action"><a class="public-link-button" href="/destination-connectors" data-track-event="navigation_clicked" data-track-target="connectors">Настроить источник</a></div>
+      <div class="public-guidance"><strong>Выберите способ получения данных</strong><p>YouTube Analytics, Instagram Insights и TikTok Display API подключаются официально. Для сетей без production-адаптера используйте проверяемый ручной/CSV снимок и tracking-ссылку — интерфейс сразу показывает разницу.</p></div>
+      <div class="public-connector-catalog" aria-label="Способы получения метрик по площадкам">
+        {% for platform in operations_cards.social_connectors.platforms %}
+        <article>
+          <div><strong>{{ platform.label }}</strong><span class="public-status public-status--{{ 'ready' if platform.status in ['ready', 'manual_ready'] else 'needs_attention' }}">{{ platform.status_label }}</span></div>
+          <dl><div><dt>Режим</dt><dd>{{ 'официальный API' if platform.mode == 'official_api' else 'manual / CSV' }}</dd></div><div><dt>Credential reference</dt><dd>{{ {'available':'переменная доступна','configured_but_unavailable':'имя задано, переменная пуста','missing':'не настроен','not_required':'не требуется'}[platform.credential_reference_status] }}</dd></div><div><dt>Последняя синхронизация</dt><dd>{{ platform.last_sync_at or 'ещё не выполнялась' }}</dd></div></dl>
+        </article>
+        {% endfor %}
+      </div>
+      <p class="public-safety-note">Автоматические коннекторы соцсетей ещё не считаются подключёнными, пока официальный API не вернул успешный ответ. Ручной импорт маркируется отдельно и не подменяет API.</p>
+      {% if connector_notice %}<div class="public-guidance"><strong>Официальный коннектор обновлён</strong><p>{{ 'Метрики получены через официальный API и прошли org-scoped ingestion.' if connector_notice == 'sync_completed' else 'Сохранена только ссылка на переменную окружения. Сам OAuth-токен в базу не записан.' }}</p></div>{% endif %}
+      {% if connector_error %}<div class="public-guidance public-guidance--warning"><strong>Официальная синхронизация не выполнена</strong><p>{{ connector_error }}</p></div>{% endif %}
+      <h3 class="public-subheading">Официальные API</h3>
+      {% if official_connector_views %}<div class="public-listing-cards">{% for connector in official_connector_views %}<article><div><strong>{{ connector.destination_name }}</strong><small>{{ connector.destination_platform }} · {{ connector.status_label }}</small></div><span class="public-status public-status--{{ 'ready' if connector.ready else ('in_progress' if connector.can_attempt_sync else 'needs_review') }}">{{ connector.status_label }}</span><p class="public-safety-note">{{ connector.api_product or 'Для этой сети доступен только явный ручной/CSV импорт' }}. Fake-строки не засчитываются.</p>{% if connector.required_scopes %}<small>Нужные scopes: {{ connector.required_scopes | join(', ') }}</small>{% endif %}{% if connector.required_permissions %}<small>Нужные permissions: {{ connector.required_permissions | join(', ') }}</small>{% endif %}{% if can_manage_connectors and connector.connection_id and connector.can_attempt_sync %}<form method="post" action="/workbench/official-connectors/{{ connector.connection_id }}/sync"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><input type="hidden" name="destination_id" value="{{ connector.destination_id }}"><label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label><label>Конец периода<input type="date" name="period_end" value="{{ today }}" required></label><label class="recipe-confirm"><input type="checkbox" name="confirm_official_api_call" value="true" required><span>Запросить фактические накопительные метрики из официального API.</span></label><button class="public-link-button" type="submit">Проверить OAuth и синхронизировать</button></form>{% endif %}</article>{% endfor %}</div>{% else %}<p class="public-safety-note">Сначала добавьте собственную площадку в блоке «Воронка».</p>{% endif %}
+
+      {% if can_manage_connectors %}
+      {% for setup in official_connector_setup_views if setup.published_cycles %}
+      <details class="public-inline-form"><summary>Настроить {{ setup.display_name }} без сохранения токена</summary><form method="post" action="/workbench/official-connectors/{{ setup.platform }}/setup"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label class="public-form-wide">Опубликованный ролик<select name="cycle_id" required>{% for cycle in setup.published_cycles %}<option value="{{ cycle.id }}">Цикл #{{ cycle.id }} · {{ cycle.product.sku }} · {{ cycle.publishing_task.final_url }}</option>{% endfor %}</select></label><label>{{ setup.target_id_label | replace('_', ' ') }}<input name="target_id" minlength="6" maxlength="80" pattern="{{ setup.target_pattern }}" required></label><label>Имя переменной окружения<input name="credential_ref" maxlength="120" value="{{ setup.credential_default }}" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_secret_reference_only" value="true" required><span>В поле указано только имя секрета. Сам OAuth access token уже настроен владельцем в окружении процесса.</span></label><button class="altea-glow-button" type="submit">Сохранить безопасную настройку</button></form><small>{{ setup.api_product }}{% if setup.required_scopes %} · scopes: {{ setup.required_scopes | join(', ') }}{% endif %}{% if setup.required_permissions %} · permissions: {{ setup.required_permissions | join(', ') }}{% endif %}</small></details>
+      {% endfor %}
+      {% endif %}
+      {% if metrics_notice %}<div class="public-guidance"><strong>Снимок принят</strong><p>Значения привязаны к точному publishing task и final URL. Повторный более свежий снимок заменит накопительные значения, а не сложит их второй раз.</p></div>{% endif %}
+      {% if metrics_error %}<div class="public-guidance public-guidance--warning"><strong>Снимок не принят</strong><p>{% if metrics_error == 'snapshot_confirmation_required' %}Подтвердите, что вводите накопительные значения на текущий момент.{% elif metrics_error == 'final_url_required' %}Сначала сохраните final URL реальной публикации.{% elif metrics_error == 'metric_quarantined' %}Сигналы публикации неоднозначны или конфликтуют. Запись отправлена в quarantine и не попала в аналитику.{% else %}Проверьте даты, неотрицательные числа и хотя бы одну заполненную метрику.{% endif %}</p></div>{% endif %}
+
+      {% if published_content_cycles %}
+      <details class="public-inline-form" open>
+        <summary>Внести накопительные метрики опубликованного поста</summary>
+        <form method="post" action="/workbench/social-metrics/ingest">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label class="public-form-wide">Публикация<select name="cycle_id" required>{% for cycle in published_content_cycles %}<option value="{{ cycle.id }}">Цикл #{{ cycle.id }} · {{ cycle.product.sku }} · {{ cycle.publishing_task.final_url }}</option>{% endfor %}</select></label>
+          <label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label>
+          <label>Конец периода<input type="date" name="period_end" value="{{ today }}" required></label>
+          <label>ID поста на площадке<input name="external_post_id" maxlength="160" placeholder="Если доступен в экспорте"></label>
+          <label>Просмотры<input name="views" inputmode="numeric" min="0" type="number"></label>
+          <label>Лайки<input name="likes" inputmode="numeric" min="0" type="number"></label>
+          <label>Комментарии<input name="comments" inputmode="numeric" min="0" type="number"></label>
+          <label>Репосты<input name="shares" inputmode="numeric" min="0" type="number"></label>
+          <label>Сохранения<input name="saves" inputmode="numeric" min="0" type="number"></label>
+          <label>Переходы<input name="clicks" inputmode="numeric" min="0" type="number"></label>
+          <label>Заказы<input name="orders" inputmode="numeric" min="0" type="number"></label>
+          <label>Выручка, ₽<input name="revenue" inputmode="decimal" min="0" step="0.01" type="number"></label>
+          <label>Расход, ₽<input name="spend" inputmode="decimal" min="0" step="0.01" type="number"></label>
+          <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_cumulative_snapshot" value="true" required><span>Это накопительные значения поста на конец периода, не прибавка за день.</span></label>
+          <button class="altea-glow-button" type="submit">Проверить и сохранить</button>
+        </form>
+      </details>
+      {% else %}<p class="public-safety-note">Форма появится после сохранения final URL реальной публикации.</p>{% endif %}
+
+      {% if social_metric_rows %}
+      <div class="public-metric-table"><div class="public-metric-row public-metric-row--head"><span>Пост</span><span>Период</span><span>Просмотры</span><span>Переходы</span><span>Заказы</span><span>Выручка</span></div>{% for metric in social_metric_rows %}<div class="public-metric-row"><span>{{ metric.platform }} · task #{{ metric.publishing_task_id }}</span><span>{{ metric.period_start }} — {{ metric.period_end }}</span><span>{{ metric.views or 0 }}</span><span>{{ metric.clicks or 0 }}</span><span>{{ metric.orders or 0 }}</span><span>{{ metric.revenue or 0 }} ₽</span></div>{% endfor %}</div>
+      {% endif %}
+      {% if social_metric_quarantine %}<details class="public-technical"><summary>Quarantine · {{ social_metric_quarantine|length }}</summary><p>Эти строки не участвуют в аналитике, пока человек не устранит неоднозначность.</p><ul class="public-list">{% for row in social_metric_quarantine %}<li><div><strong>{{ row.reason }}</strong><small>{{ row.entity_id }}</small></div></li>{% endfor %}</ul></details>{% endif %}
+      <p class="public-module-note">Защищённый JSON API: <code>/api/social-metrics</code>. Старые глобальные импорты закрыты в public/auth режиме, потому что у них нет надёжной границы организации.</p>
 
       {% elif item.key == 'payments' %}
-      <div class="public-facts"><div><span>Расчётов</span><strong>{{ metrics.payout_entries }}</strong></div><div><span>Подтверждено</span><strong>{{ metrics.payouts_paid }}</strong></div><div><span>Ожидает</span><strong>{{ metrics.payout_pending_amount }} ₽</strong></div></div>
-      <div class="public-guidance public-guidance--warning"><strong>Пока ручной контур</strong><p>Система может подготовить расчёт, но фактический перевод денег и клиентский биллинг пока не автоматизированы.</p></div>
-      <div class="public-panel-action"><a class="public-link-button" href="/participant-portal" data-track-event="navigation_clicked" data-track-target="payout-ledger">Открыть расчёты</a></div>
+      <div class="public-facts"><div><span>Подтверждено</span><strong>{{ metrics.payouts_paid }}</strong></div><div><span>Заблокировано проверкой</span><strong>{{ metrics.payouts_blocked }}</strong></div><div><span>Ожидает</span><strong>{{ metrics.payout_pending_amount }} ₽</strong></div></div>
+      <div class="public-guidance"><strong>Настройте учёт в три шага</strong><p>1) счёт и валюта, 2) тариф, 3) инвойс по измеримому циклу. Когда деньги придут через ваш банк или эквайринг, внесите transaction reference для сверки.</p></div>
+      <div class="public-payment-boundary"><div><span>Внутри завода</span><strong>счета · начисления · сверка</strong></div><span aria-hidden="true">→</span><div><span>Внешний контур</span><strong>банк · эквайринг · возвраты</strong></div></div>
+      <p class="public-safety-note">Деньги не переводятся этой системой: платёжный провайдер не подключён, поэтому интерфейс фиксирует только уже совершённую внешнюю операцию.</p>
+      <p class="public-safety-note">Legacy Participant Portal скрыт в публичном режиме: его старые записи не имеют надёжной границы организации. Безопасные расходы и статусы показаны прямо в этом блоке.</p>
+      <h3 class="public-subheading">Клиентский биллинг</h3>
+      {% if billing_notice %}<div class="public-guidance"><strong>Запись сохранена</strong><p>Факт добавлен в неизменяемую историю клиентского счёта. Повтор той же команды не создаст дубль.</p></div>{% endif %}
+      {% if billing_error %}<div class="public-guidance public-guidance--warning"><strong>Биллинг не изменён</strong><p>{{ billing_error }}</p></div>{% endif %}
+      {% if customer_billing_account %}
+      <div class="public-facts"><div><span>Счёт организации</span><strong>#{{ customer_billing_account.id }} · {{ customer_billing_account.currency }}</strong></div><div><span>Тариф</span><strong>{{ customer_billing_subscription.plan_code if customer_billing_subscription else 'не задан' }}</strong></div><div><span>Статус подписки</span><strong>{{ customer_billing_subscription.status if customer_billing_subscription else 'не задан' }}</strong></div><div><span>Баланс инвойсов</span><strong>{{ (customer_billing_balance_major ~ ' ' ~ customer_billing_account.currency) if not customer_billing_integrity_errors else 'заблокирован проверкой' }}</strong></div></div>
+      {% if customer_billing_integrity_errors %}<div class="public-guidance public-guidance--warning"><strong>Финансовая история требует проверки</strong><p>{{ customer_billing_integrity_errors }} инвойс(а) не прошли проверку неизменяемого журнала. Они показаны ниже, баланс не считается, новые платежи по ним отключены.</p></div>{% endif %}
+      {% else %}<p class="public-safety-note">Клиентский счёт ещё не создан. Себестоимость генерации и выплаты участникам уже ведутся отдельно и не попадут сюда автоматически.</p>{% endif %}
+
+      {% if can_manage_billing and not customer_billing_account %}
+      <details class="public-inline-form" open><summary>1. Создать клиентский счёт</summary><form method="post" action="/workbench/customer-billing/account"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Валюта<select name="currency"><option>RUB</option><option>USD</option><option>EUR</option></select></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Создать только учётный счёт без банковской операции.</span></label><button class="altea-glow-button" type="submit">Создать учётный счёт</button></form></details>
+      {% elif can_manage_billing and customer_billing_account and not customer_billing_subscription %}
+      <details class="public-inline-form" open><summary>2. Зафиксировать тариф</summary><form method="post" action="/workbench/customer-billing/subscription"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Код тарифа<input name="plan_code" value="content-factory-start" maxlength="80" required></label><label>Статус<select name="status"><option value="active">активен</option><option value="trialing">пробный</option><option value="paused">пауза</option></select></label><label>Период<select name="billing_interval"><option value="month">месяц</option><option value="year">год</option></select></label><label>Абонплата<input name="recurring_amount" type="number" min="0" step="0.01" value="0" required></label><label>Включено циклов<input name="included_content_cycles" type="number" min="0" value="0" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Это состояние тарифа, а не команда списать деньги.</span></label><button class="altea-glow-button" type="submit">Сохранить тариф</button></form></details>
+      {% endif %}
+      {% if can_manage_billing and customer_billing_subscription and customer_billing_subscription.status not in ['cancelled', 'expired'] %}
+      <details class="public-inline-form"><summary>Изменить состояние тарифа</summary><form method="post" action="/workbench/customer-billing/subscription">
+        <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+        <input type="hidden" name="expected_previous_state_id" value="{{ customer_billing_subscription.id }}">
+        <label>Код тарифа<input name="plan_code" value="{{ customer_billing_subscription.plan_code }}" maxlength="80" required></label>
+        <label>Новое состояние<select name="status">{% if customer_billing_subscription.status != 'active' %}<option value="active">возобновить</option>{% endif %}<option value="paused">поставить на паузу</option><option value="cancelled">отменить</option></select></label>
+        <label>Период<select name="billing_interval"><option value="{{ customer_billing_subscription.billing_interval }}">{{ customer_billing_subscription.billing_interval }}</option></select></label>
+        <label>Абонплата<input name="recurring_amount" type="number" min="0" step="0.01" value="{{ customer_billing_subscription.recurring_amount_minor / 100 }}" required></label>
+        <label>Включено циклов<input name="included_content_cycles" type="number" min="0" value="{{ customer_billing_subscription.included_content_cycles }}" required></label>
+        <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Добавить новое состояние в историю; внешних списаний и возвратов не выполнять.</span></label>
+        <button class="public-link-button" type="submit">Сохранить новое состояние</button>
+      </form></details>
+      {% endif %}
+
+      {% if can_manage_billing and not customer_billing_integrity_errors and customer_billing_subscription and customer_billing_subscription.status == 'active' and eligible_billing_usage %}
+      <details class="public-inline-form"><summary>3. Выпустить инвойс по измеримому циклу</summary><form method="post" action="/workbench/customer-billing/invoices"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Цикл и подтверждённый расход<select name="generation_cost_entry_id" required>{% for usage in eligible_billing_usage %}<option value="{{ usage.cost_entry_id }}">Цикл #{{ usage.content_cycle_id }} · {{ usage.sku }} · себестоимость {{ usage.cost_major }} {{ usage.currency }}</option>{% endfor %}</select></label><label>Номер инвойса<input name="invoice_number" maxlength="80" placeholder="INV-2026-001" required></label><label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label><label>Конец периода<input type="date" name="period_end" value="{{ tomorrow }}" required></label><label>Оплатить до<input type="date" name="due_date" value="{{ billing_due_date }}" required></label><label>Начислить клиенту<input name="charge_amount" type="number" min="0.01" step="0.01" required></label><label class="public-form-wide">Описание<input name="description" minlength="3" maxlength="500" value="Контент-цикл с подтверждённой генерацией" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_invoice_only" value="true" required><span>Выпустить только инвойс. Не списывать деньги с клиента.</span></label><button class="altea-glow-button" type="submit">Выпустить инвойс</button></form></details>
+      {% endif %}
+
+      {% if customer_invoice_views %}
+      <div class="public-listing-cards">
+        {% for invoice_view in customer_invoice_views %}
+        <article><div><strong>{{ invoice_view.invoice.invoice_number }}</strong><small>{{ invoice_view.invoice.period_start }} — {{ invoice_view.invoice.period_end }} · срок {{ invoice_view.invoice.due_at.date() }}</small></div><span class="public-status public-status--{{ 'ready' if invoice_view.totals.status == 'paid' else 'needs_review' }}">{{ invoice_view.status_label }}</span><dl><div><dt>Начислено</dt><dd>{{ invoice_view.total_major }} {{ invoice_view.totals.currency }}</dd></div><div><dt>Оплачено</dt><dd>{{ invoice_view.paid_major }} {{ invoice_view.totals.currency }}</dd></div><div><dt>Остаток</dt><dd>{{ invoice_view.balance_major }} {{ invoice_view.totals.currency }}</dd></div></dl>
+        {% if can_manage_billing and not customer_billing_integrity_errors and invoice_view.payment_allowed %}<form method="post" action="/workbench/customer-billing/invoices/{{ invoice_view.invoice.id }}/payments"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Фактически получено<input name="amount" type="number" min="0.01" max="{{ invoice_view.balance_major }}" step="0.01" required></label><label>Ссылка банка / эквайринга<input name="transaction_reference" minlength="3" maxlength="160" required></label><label>Дата получения<input name="occurred_date" type="date" value="{{ today }}" required></label><label class="recipe-confirm"><input type="checkbox" name="confirm_external_payment" value="true" required><span>Деньги уже получены вне системы; здесь только сверка.</span></label><button class="public-link-button" type="submit">Зафиксировать внешний платёж</button></form>{% endif %}
+        {% if can_manage_billing and not customer_billing_integrity_errors and invoice_view.creditable_charges %}
+        <details><summary>Исправить ошибочное начисление кредитом</summary>
+          <p class="public-safety-note">Начисление не удаляется. Создаётся связанная неизменяемая компенсация; банковский возврат не выполняется.</p>
+          {% for charge in invoice_view.creditable_charges %}
+          <form method="post" action="/workbench/customer-billing/invoices/{{ invoice_view.invoice.id }}/credits">
+            <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+            <input type="hidden" name="target_charge_entry_id" value="{{ charge.id }}">
+            <label>Точное начисление<strong>#{{ charge.id }} · {{ charge.description }} · {{ charge.amount_major }} {{ invoice_view.totals.currency }}</strong></label>
+            <label>Сумма кредита<input name="amount" type="number" min="0.01" max="{{ charge.max_credit_major }}" step="0.01" required></label>
+            <label>Причина<textarea name="reason" minlength="10" maxlength="400" required placeholder="Почему начисление нужно компенсировать"></textarea></label>
+            <label>Номер корректировки<input name="correction_reference" minlength="3" maxlength="80" required placeholder="CORR-2026-001"></label>
+            <label class="recipe-confirm"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Только запись в журнале; возврат денег клиенту выполняется отдельно.</span></label>
+            <button class="public-link-button" type="submit">Добавить связанную компенсацию</button>
+          </form>
+          {% endfor %}
+        </details>
+        {% endif %}
+        {% if invoice_view.ledger_entries %}
+        <details><summary>Неизменяемая история инвойса</summary><ul>{% for entry in invoice_view.ledger_entries %}<li>#{{ entry.id }} · {{ entry.entry_kind }} · {{ entry.amount_major }} {{ invoice_view.totals.currency }}{% if entry.related_entry_id %} · исправляет запись #{{ entry.related_entry_id }}{% endif %} · {{ entry.description }}</li>{% endfor %}</ul></details>
+        {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if not can_manage_billing %}<p class="public-safety-note">Клиентский биллинг изменяют только владелец или администратор. Остальным доступен безопасный просмотр.</p>{% endif %}
+      <h3 class="public-subheading">Расходы на генерацию</h3>
+      <p>Расходы провайдера, выплаты участникам и будущий клиентский биллинг — три разных контура. Здесь учитываются только факты стоимости генерации; перевод денег не выполняется.</p>
+      {% if factory.generation_costs %}
+      <div class="public-cost-grid">{% for cost in factory.generation_costs %}<article><span>{{ cost.currency }}</span><strong>{{ cost.recognized }}</strong><small>признанный расход</small><dl><div><dt>на созданный ролик</dt><dd>{{ cost.cost_per_generated if cost.cost_per_generated is not none else '—' }}</dd></div><div><dt>на одобренный ролик</dt><dd>{{ cost.cost_per_approved if cost.cost_per_approved is not none else '—' }}</dd></div><div><dt>без оценки</dt><dd>{{ cost.unpriced_generated }}</dd></div></dl></article>{% endfor %}</div>
+      {% else %}<p class="public-safety-note">Стоимость ещё не сверена. Ноль не подставляется вместо неизвестной суммы.</p>{% endif %}
+      {% if cost_notice %}<div class="public-guidance"><strong>Факт сохранён</strong><p>Запись добавлена в неизменяемый журнал. Повтор с тем же основанием не создаст дубль.</p></div>{% endif %}
+      {% if cost_error %}<div class="public-guidance public-guidance--warning"><strong>Факт не принят</strong><p>{% if cost_error == 'confirmation_required' %}Подтвердите тип и источник суммы.{% else %}Проверьте сумму, валюту, уникальное основание и точную связь с реальным provider job. Mock и synthetic расходы не принимаются.{% endif %}</p></div>{% endif %}
+      {% if can_manage_costs and content_cycles %}
+      <details class="public-inline-form">
+        <summary>Зафиксировать оценку или фактическую стоимость</summary>
+        <form method="post" action="/workbench/generation-costs/record">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label>Ролик<select name="cycle_id" required>{% for cycle in content_cycles %}<option value="{{ cycle.id }}">Цикл #{{ cycle.id }} · {{ cycle.product.sku }} · video #{{ cycle.video_job_id }}</option>{% endfor %}</select></label>
+          <label>Тип суммы<select name="entry_kind"><option value="estimated">оценка до сверки</option><option value="actual">фактическая сумма по документу</option></select></label>
+          <label>Сумма<input name="amount" inputmode="decimal" type="number" min="0" step="0.01" required></label>
+          <label>Валюта<select name="currency"><option>RUB</option><option>USD</option><option>EUR</option></select></label>
+          <label class="public-form-wide">Основание<input name="external_reference" maxlength="255" placeholder="invoice-2026-07-001 или reconcile/2026-07-11" required></label>
+          <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_accounting_fact" value="true" required><span>Это бухгалтерский факт или явная оценка. Я не инициирую оплату этой кнопкой.</span></label>
+          <button class="altea-glow-button" type="submit">Записать в журнал</button>
+        </form>
+      </details>
+      {% elif not can_manage_costs %}<p class="public-safety-note">Изменять учёт расходов могут только владелец или администратор.</p>{% endif %}
+      {% if generation_cost_entries %}<details class="public-technical"><summary>Журнал расходов · {{ generation_cost_entries|length }}</summary><ul class="public-list">{% for entry in generation_cost_entries %}<li><div><strong>{{ entry.amount_minor / 100 }} {{ entry.currency }} · {{ entry.entry_kind }}</strong><small>video #{{ entry.video_job_id }} · {{ entry.source }} · {{ entry.status }} · {{ entry.external_reference or 'без внешней ссылки' }}</small></div></li>{% endfor %}</ul></details>{% endif %}
 
       {% elif item.key == 'wb' %}
-      <div class="public-facts"><div><span>Товаров</span><strong>{{ metrics.products }}</strong></div><div><span>Связей артикулов</span><strong>0</strong></div><div><span>Автоподмена</span><strong>выключена</strong></div></div>
+      <div class="public-facts"><div><span>Карточек WB</span><strong>{{ metrics.marketplace_listings }}</strong></div><div><span>Подтверждено</span><strong>{{ metrics.verified_listings }}</strong></div><div><span>Исторических связей</span><strong>{{ metrics.listing_aliases }}</strong></div></div>
       <div class="public-guidance public-guidance--warning"><strong>Безопасный принцип</strong><p>Подменный артикул можно будет связать только с вашей подтверждённой карточкой Wildberries: nmID, vendorCode, срок действия и история изменений. Неоднозначные совпадения отправляются на ручную проверку.</p></div>
-      <p>До появления этой модели завод не угадывает артикулы и не переносит метрики между SKU.</p>
+      <p>Завод не угадывает артикулы и не переносит метрики между SKU. Точное разрешение доступно через защищённый API карточек; неоднозначный результат получает статус <strong>quarantine</strong>.</p>
+
+      {% if wb_notice %}<div class="public-guidance"><strong>Готово</strong><p>{{ 'Карточка добавлена. Теперь проверьте идентификаторы.' if wb_notice == 'listing_created' else ('Карточка подтверждена.' if wb_notice == 'listing_verified' else 'Связь артикула сохранена с историей изменений.') }}</p></div>{% endif %}
+      {% if wb_error %}
+      <div class="public-guidance public-guidance--warning"><strong>Не удалось сохранить</strong><p>{% if wb_error == 'ownership_confirmation_required' %}Подтвердите, что карточка и кабинет продавца принадлежат вашей организации.{% elif wb_error == 'identifier_confirmation_required' %}Перед подтверждением ещё раз сверьте nmID, vendorCode и штрихкод.{% elif wb_error == 'replacement_confirmation_required' %}Подтвердите осознанную замену артикула.{% elif wb_error == 'listing_conflict' %}Такой идентификатор уже связан с другой карточкой этого кабинета.{% elif wb_error == 'listing_not_found' %}Карточка не найдена в вашей организации.{% else %}Проверьте обязательные поля, формат идентификаторов и принадлежность карточек.{% endif %}</p></div>
+      {% endif %}
+
+      {% if not can_manage_wb %}
+      <p class="public-safety-note">У вашей роли режим просмотра. Изменять карточки и подменные артикулы могут только владелец или администратор.</p>
+      {% elif not wb_products %}
+      <p class="public-safety-note">Сначала добавьте собственный товар в блоке «Старт и интерфейс».</p>
+      {% else %}
+      <details class="public-inline-form" open>
+        <summary>Добавить свою карточку Wildberries</summary>
+        <form method="post" action="/workbench/wb/listings/create">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label>Товар<select name="product_id" required>{% for product in wb_products %}<option value="{{ product.id }}">{{ product.sku }} · {{ product.title }}</option>{% endfor %}</select></label>
+          <label>Внутреннее имя кабинета продавца<input name="seller_account_ref" maxlength="160" placeholder="Например: main-cabinet" required></label>
+          <label>nmID<input name="nm_id" inputmode="numeric" pattern="[0-9]+" placeholder="Цифры из URL карточки"></label>
+          <label>Артикул продавца / vendorCode<input name="vendor_code" maxlength="160"></label>
+          <label>Штрихкод<input name="barcode" maxlength="80"></label>
+          <label class="public-form-wide">Ссылка на карточку<input name="listing_url" type="url" placeholder="https://www.wildberries.ru/catalog/..."></label>
+          <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_owned_card" value="true" required><span>Подтверждаю: карточка и кабинет продавца принадлежат нашей организации.</span></label>
+          <button class="altea-glow-button" type="submit">Добавить без автоподтверждения</button>
+        </form>
+        <small>Укажите хотя бы один точный идентификатор. Название кабинета — внутренний псевдоним, не API-ключ и не пароль.</small>
+      </details>
+      {% endif %}
+
+      <h3 class="public-subheading">Ваши карточки</h3>
+      {% if wb_listings %}
+      <div class="public-listing-cards">
+        {% for listing in wb_listings %}
+        <article>
+          <div><strong>Карточка #{{ listing.id }}</strong><small>{{ listing.seller_account_ref }} · товар #{{ listing.product_id }}</small></div>
+          <span class="public-status public-status--{{ 'ready' if listing.status == 'verified' else 'needs_review' }}">{{ 'подтверждена' if listing.status == 'verified' else listing.status }}</span>
+          <dl><div><dt>nmID</dt><dd>{{ listing.nm_id or '—' }}</dd></div><div><dt>vendorCode</dt><dd>{{ listing.vendor_code or '—' }}</dd></div><div><dt>штрихкод</dt><dd>{{ listing.barcode or '—' }}</dd></div></dl>
+          {% if can_manage_wb and listing.status == 'draft' %}<form method="post" action="/workbench/wb/listings/{{ listing.id }}/verify"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label class="recipe-confirm"><input type="checkbox" name="confirm_identifiers" value="true" required><span>Я сверил идентификаторы</span></label><button class="public-link-button" type="submit">Подтвердить карточку</button></form>{% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="public-safety-note">Карточек пока нет.</p>{% endif %}
+
+      <section class="public-wb-analytics" id="wb-seller-analytics" aria-labelledby="wb-seller-analytics-title">
+        <div class="public-workspace-summary"><div><p class="public-eyebrow">Официальные данные кабинета</p><h3 id="wb-seller-analytics-title">Wildberries Seller Analytics</h3></div><span class="public-status public-status--{{ 'ready' if wildberries_analytics_readiness.ready else 'needs_attention' }}">{{ wildberries_analytics_readiness.status_label }}</span></div>
+        <p>Заказы, корзины и выкуп загружаются только по подтверждённым nmID вашей организации. API-ключ хранится во внешней переменной окружения.</p>
+        <div class="public-facts"><div><span>Кабинеты</span><strong>{{ wildberries_analytics_readiness.connection_count }}</strong></div><div><span>Подтверждённые nmID</span><strong>{{ wildberries_analytics_readiness.verified_listing_count }}</strong></div><div><span>Снимки метрик</span><strong>{{ wildberries_analytics_readiness.metric_snapshot_count }}</strong></div><div><span>Quarantine</span><strong>{{ wildberries_analytics_readiness.quarantine_count }}</strong></div></div>
+        {% if wb_analytics_notice %}<div class="public-guidance"><strong>{{ 'Метрики синхронизированы' if wb_analytics_notice == 'sync_completed' else 'Подключение сохранено' }}</strong><p>{{ 'Снимки привязаны к точным карточкам и прошли org-scoped проверку.' if wb_analytics_notice == 'sync_completed' else 'В базе сохранено только имя переменной окружения, без API-ключа.' }}</p></div>{% endif %}
+        {% if wb_analytics_error %}<div class="public-guidance public-guidance--warning"><strong>WB Analytics не обновлён</strong><p>{% if 'credential' in wb_analytics_error %}Укажите переменную окружения вида env:WB_SELLER_ANALYTICS_TOKEN и настройте в ней API-ключ кабинета.{% elif 'verified' in wb_analytics_error or 'listing' in wb_analytics_error %}Сначала подтвердите карточку и её nmID для выбранного кабинета.{% elif 'period' in wb_analytics_error %}Выберите период не длиннее семи дней.{% elif 'confirmation' in wb_analytics_error %}Подтвердите безопасное действие в форме.{% else %}Проверьте кабинет, даты, права роли и доступность внешнего API-ключа.{% endif %}</p></div>{% endif %}
+
+        {% if can_manage_wb and verified_wb_seller_refs %}
+        <details class="public-inline-form"{% if not wildberries_analytics_readiness.connection_count %} open{% endif %}><summary>Подключить кабинет без сохранения API-ключа</summary><form method="post" action="/workbench/wb-analytics/setup"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Подтверждённый кабинет<select name="seller_account_ref" required>{% for seller_ref in verified_wb_seller_refs %}<option value="{{ seller_ref }}">{{ seller_ref }}</option>{% endfor %}</select></label><label>Имя переменной окружения<input name="credential_ref" value="env:WB_SELLER_ANALYTICS_TOKEN" pattern="env:[A-Z][A-Z0-9_]{2,95}" maxlength="100" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_secret_reference_only" value="true" required><span>Сохранить только имя переменной. API-ключ уже настроен владельцем в окружении процесса.</span></label><button class="altea-glow-button" type="submit">Сохранить безопасное подключение</button></form></details>
+        {% elif can_manage_wb %}<p class="public-safety-note">Чтобы подключить Seller Analytics, сначала создайте и подтвердите хотя бы одну карточку с nmID и именем кабинета.</p>{% endif %}
+
+        {% if wildberries_analytics_readiness.connections %}<div class="public-listing-cards">{% for connection in wildberries_analytics_readiness.connections %}<article><div><strong>{{ connection.seller_account_ref }}</strong><small>{{ connection.connection_type }} · credential: {{ connection.credential_reference_status }}</small></div><span class="public-status public-status--{{ 'ready' if connection.ready else 'needs_attention' }}">{{ connection.status_label }}</span><dl><div><dt>Подтверждённые nmID</dt><dd>{{ connection.verified_listing_count }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ connection.last_checked_at or 'ещё не выполнялась' }}</dd></div><div><dt>Последняя синхронизация</dt><dd>{{ connection.last_sync_at or 'ещё не выполнялась' }}</dd></div></dl>{% if can_manage_wb and connection.can_attempt_sync %}<form method="post" action="/workbench/wb-analytics/{{ connection.connection_id }}/sync"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label><label>Конец периода<input type="date" name="period_end" value="{{ today }}" required></label><label class="recipe-confirm"><input type="checkbox" name="confirm_official_api_call" value="true" required><span>Запросить фактические данные по подтверждённым nmID из официального API.</span></label><button class="public-link-button" type="submit">Проверить ключ и синхронизировать</button></form>{% endif %}</article>{% endfor %}</div>{% endif %}
+        <p class="public-safety-note">Доступ передаётся в заголовке HeaderApiKey только при запросе к официальному API. Сам ключ, signed URL и cookie в БД и HTML не попадают.</p>
+      </section>
+
+      {% if can_manage_wb and wb_listings %}
+      <details class="public-inline-form">
+        <summary>Добавить исторический или подменный артикул</summary>
+        <form method="post" action="/workbench/wb/aliases/create">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label>Исходная карточка<select name="canonical_listing_id" required>{% for listing in wb_listings %}<option value="{{ listing.id }}">#{{ listing.id }} · {{ listing.nm_id or listing.vendor_code or listing.barcode }}</option>{% endfor %}</select></label>
+          <label>Текущая подтверждённая карточка<select name="current_listing_id" required>{% for listing in wb_listings if listing.status == 'verified' %}<option value="{{ listing.id }}">#{{ listing.id }} · {{ listing.nm_id or listing.vendor_code or listing.barcode }}</option>{% endfor %}</select></label>
+          <label>Тип связи<select name="alias_type"><option value="legacy_ref">старый внутренний артикул</option><option value="nm_id">старый nmID</option><option value="vendor_code">старый vendorCode</option><option value="barcode">старый штрихкод</option></select></label>
+          <label>Значение<input name="alias_value" maxlength="200" required></label>
+          <label class="public-form-wide">Причина замены<textarea name="reason" minlength="3" maxlength="1000" required></textarea></label>
+          <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_replacement" value="true" required><span>Подтверждаю замену и понимаю, что она попадёт в журнал истории.</span></label>
+          <button class="altea-glow-button" type="submit">Сохранить связь</button>
+        </form>
+      </details>
+      {% endif %}
+
+      {% if wb_aliases %}<details class="public-technical"><summary>История связей · {{ wb_aliases|length }}</summary><ul class="public-list">{% for alias in wb_aliases %}<li><div><strong>{{ alias.alias_type }}: {{ alias.alias_value }}</strong><small>карточка #{{ alias.canonical_listing_id }} → #{{ alias.current_listing_id }} · {{ alias.reason }}</small></div></li>{% endfor %}</ul></details>{% endif %}
 
       {% elif item.key == 'analytics' %}
       <div class="public-analytics-hero">
@@ -120,13 +520,74 @@
         <p>{{ factory.north_star.definition }}</p>
       </div>
       <div class="public-facts"><div><span>Ролики за 7 дней</span><strong>{{ metrics.videos_7d }}</strong></div><div><span>Заказы</span><strong>{{ metrics.orders }}</strong></div><div><span>Выручка</span><strong>{{ metrics.revenue }} ₽</strong></div></div>
+      <h3 class="public-subheading">Путь новичка · за 7 дней</h3>
+      <div class="public-journey-funnel" aria-label="Воронка пути новичка">
+        {% for step in factory.journey_funnel %}
+        <div><span>{{ loop.index }}</span><strong>{{ step.label }}</strong><small>{{ step.value }}</small></div>
+        {% endfor %}
+      </div>
+      <p class="public-module-note">События: {{ metrics.events_7d }} · активные пользователи: {{ metrics.active_users_7d }} · сессии: {{ metrics.sessions_7d }}. Здесь учитываются только события вашей организации.</p>
       <p>Следом считаем время до первого ролика, одобрение с первой попытки, стоимость одобренного видео и конверсию до заказа.</p>
-      <div class="public-panel-action"><a class="public-link-button" href="/campaign-performance" data-track-event="navigation_clicked" data-track-target="campaign-performance">Подробная аналитика</a></div>
+      <div class="public-panel-action"><a class="public-link-button" href="/workbench?tab=sources" data-track-event="navigation_clicked" data-track-target="safe-metrics-intake">Проверить источники метрик</a></div>
 
       {% elif item.key == 'people' %}
-      <div class="public-facts"><div><span>Мои сертификаты</span><strong>{{ metrics.certifications }}</strong></div><div><span>Формат</span><strong>урок → действие → проверка</strong></div><div><span>Цель</span><strong>первый результат без помощи</strong></div></div>
-      <div class="public-guidance"><strong>Обучение по месту работы</strong><p>Новичку не нужно изучать весь завод заранее. Нужный короткий урок появляется перед конкретным действием: запуском, проверкой, публикацией или импортом данных.</p></div>
-      <div class="public-panel-action"><a class="public-link-button" href="/training-academy" data-track-event="navigation_clicked" data-track-target="academy">Открыть обучение</a></div>
+      <div class="public-facts"><div><span>Прогресс</span><strong>{{ learning_path.progress_percent }}%</strong></div><div><span>Шаги</span><strong>{{ learning_path.completed_steps }} / {{ learning_path.total_steps }}</strong></div><div><span>Подтверждённые навыки</span><strong>{{ verified_certifications|length }}</strong></div></div>
+      <div class="public-guidance"><strong>Сейчас лучше сделать одно</strong><p>{{ learning_path.next_move.title }}</p><a class="public-link-button" href="{{ learning_path.next_move.href }}">{{ learning_path.next_move.label }}</a></div>
+
+      <div class="public-learning-steps">
+        {% for step in learning_path.steps %}
+        <article class="public-learning-step public-learning-step--{{ step.status }}">
+          <span>{{ step.order }}</span>
+          <div><strong>{{ step.title }}</strong><small>{{ step.estimated_minutes }} мин · {{ step.progress_percent }}%</small></div>
+          <em>{{ 'готово' if step.status == 'completed' else ('сейчас' if step.status == 'current' else 'позже') }}</em>
+          <details><summary>Как засчитывается</summary><ul>{% for criterion in step.completion_criteria %}<li>{{ '✓' if criterion.satisfied else '○' }} {{ criterion.label }}</li>{% endfor %}</ul></details>
+        </article>
+        {% endfor %}
+      </div>
+
+      <h3 class="public-subheading">Короткие уроки и мини-тесты</h3>
+      <nav class="public-training-modules" aria-label="Учебные модули">
+        {% for training_module in training_modules %}
+        <a class="{{ 'is-active' if selected_training_module and training_module.id == selected_training_module.id else '' }}" href="/workbench?tab=people&module={{ training_module.code }}">
+          {{ training_module.title }}
+          <small>{{ 'пройден' if training_module.code in verified_certifications else 'не пройден' }}</small>
+        </a>
+        {% endfor %}
+      </nav>
+
+      {% if selected_training_module %}
+      <section class="public-training-lesson">
+        <div><p class="public-eyebrow">Урок · 3–7 минут</p><h3>{{ selected_training_module.title }}</h3><p>{{ selected_training_module.description }}</p></div>
+        {% for lesson in selected_training_module.lessons|sort(attribute='order_index') %}
+        <article><strong>{{ lesson.title }}</strong><p>{{ lesson.content_markdown }}</p></article>
+        {% endfor %}
+      </section>
+
+      {% if training_result %}
+      <div class="public-guidance {{ '' if training_result == 'passed' else 'public-guidance--warning' }}">
+        <strong>{{ 'Навык подтверждён' if training_result == 'passed' else 'Пока не пройдено' }}</strong>
+        <p>Результат: {{ training_score or 0 }}%. {{ 'Можно переходить к рабочему действию.' if training_result == 'passed' else 'Вернитесь к уроку и попробуйте ещё раз. Сертификат не выдан.' }}</p>
+      </div>
+      {% endif %}
+
+      {% if selected_training_module.code not in verified_certifications %}
+      <form class="public-training-quiz" method="post" action="/control-room/training/{{ selected_training_module.code }}/submit">
+        <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+        <h3>Мини-тест</h3>
+        {% for question in selected_training_module.questions|sort(attribute='order_index') %}
+        <fieldset>
+          <legend>{{ loop.index }}. {{ question.question_text }}</legend>
+          {% for option in question.options_json %}
+          <label><input type="{{ 'checkbox' if question.question_type == 'multi_select' else 'radio' }}" name="answer_{{ question.id }}" value="{{ option }}" {% if question.question_type != 'multi_select' %}required{% endif %}> <span>{{ option }}</span></label>
+        {% endfor %}
+        </fieldset>
+        {% endfor %}
+        <button class="altea-glow-button" type="submit" data-track-event="primary_action_clicked" data-track-target="training-quiz">Проверить ответы</button>
+      </form>
+      {% else %}
+      <p class="public-safety-note">Этот модуль уже подтверждён реальной попыткой. Повторная отправка не создаст дубликат сертификата.</p>
+      {% endif %}
+      {% endif %}
       {% endif %}
 
       {% if item.note %}<p class="public-module-note">{{ item.note }}</p>{% endif %}

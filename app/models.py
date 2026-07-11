@@ -1,6 +1,24 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, event
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    text,
+)
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -17,8 +35,15 @@ class TimestampMixin:
 
 class Product(Base, TimestampMixin):
     __tablename__ = "products"
+    __table_args__ = (
+        # Enables organization-safe composite foreign keys for newly scoped records.
+        # Legacy products may remain unscoped, but security-sensitive services must
+        # never attach them to an organization until ownership is explicitly set.
+        UniqueConstraint("organization_id", "id", name="uq_products_organization_id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     sku = Column(String(120), unique=True, nullable=False, index=True)
     brand = Column(String(120), nullable=False, index=True)
     marketplace = Column(String(120), nullable=True)
@@ -134,9 +159,32 @@ class Scene(Base):
 
 class VideoJob(Base, TimestampMixin):
     __tablename__ = "video_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "product_id"],
+            ["products.organization_id", "products.id"],
+            name="fk_video_job_organization_product",
+        ),
+        UniqueConstraint(
+            "source_product_ugc_draft_id",
+            name="uq_video_job_product_ugc_source",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     script_variant_id = Column(Integer, ForeignKey("script_variants.id"), nullable=False)
+    # These fields are nullable for legacy jobs. Canonical Product UGC jobs always
+    # populate all four, giving the generated artifact explicit ownership and
+    # source lineage without changing the old script-based workflow.
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+    product_id = Column(Integer, nullable=True, index=True)
+    source_product_ugc_draft_id = Column(
+        Integer,
+        ForeignKey("product_ugc_recipe_drafts.id"),
+        nullable=True,
+        index=True,
+    )
     provider = Column(String(120), nullable=False, default="mock")
     status = Column(String(80), nullable=False, default="video_generation_queued", index=True)
     aspect_ratio = Column(String(20), nullable=False, default="9:16")
@@ -151,6 +199,7 @@ class VideoJob(Base, TimestampMixin):
     publishing_packages = relationship("PublishingPackage", back_populates="video_job")
     frame_extraction_results = relationship("FrameExtractionResult", back_populates="video_job", cascade="all, delete-orphan")
     output_acceptances = relationship("VideoOutputAcceptance", back_populates="video_job", cascade="all, delete-orphan")
+    source_product_ugc_draft = relationship("ProductUGCRecipeDraft", foreign_keys=[source_product_ugc_draft_id])
 
 
 class VideoClip(Base):
@@ -270,6 +319,9 @@ class PublishingDestination(Base, TimestampMixin):
     __tablename__ = "publishing_destinations"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Kept nullable for pre-auth installations. Canonical content cycles require
+    # an explicitly owned destination and reject legacy unscoped rows.
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     brand = Column(String(120), nullable=False, index=True)
     platform = Column(String(120), nullable=False, index=True)
     name = Column(String(160), nullable=False)
@@ -1305,8 +1357,59 @@ class FrameExtractionResult(Base, TimestampMixin):
     duration_seconds = Column(Float, nullable=False, default=0)
     fps = Column(Float, nullable=False, default=0)
     warnings_json = Column(JSON, default=list, nullable=False)
+    extraction_key = Column(String(80), nullable=True, unique=True, index=True)
+    source_video_sha256 = Column(String(64), nullable=True, index=True)
+    source_video_size_bytes = Column(Integer, nullable=True)
 
     video_job = relationship("VideoJob", back_populates="frame_extraction_results")
+    visual_evidence_snapshots = relationship(
+        "VisualEvidenceSnapshot",
+        back_populates="frame_extraction_result",
+        cascade="all, delete-orphan",
+    )
+
+
+class VisualEvidenceSnapshot(Base):
+    """Immutable CV/OCR evidence bound to one exact extraction and source video."""
+
+    __tablename__ = "visual_evidence_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "frame_extraction_result_id",
+            "frame_manifest_sha256",
+            "policy_sha256",
+            "report_sha256",
+            name="uq_visual_evidence_extraction_manifest_policy_report",
+        ),
+        CheckConstraint(
+            "status IN ('passed', 'blocked')",
+            name="ck_visual_evidence_snapshot_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    frame_extraction_result_id = Column(
+        Integer,
+        ForeignKey("frame_extraction_results.id"),
+        nullable=False,
+        index=True,
+    )
+    source_video_sha256 = Column(String(64), nullable=False, index=True)
+    frame_manifest_sha256 = Column(String(64), nullable=False, index=True)
+    policy_sha256 = Column(String(64), nullable=False, index=True)
+    # Fingerprints the complete deterministic report envelope, including OCR
+    # references/expected tokens and the evidence algorithm version.
+    report_sha256 = Column(String(64), nullable=False, index=True)
+    status = Column(String(20), nullable=False, index=True)
+    report_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+
+    video_job = relationship("VideoJob")
+    frame_extraction_result = relationship(
+        "FrameExtractionResult",
+        back_populates="visual_evidence_snapshots",
+    )
 
 
 class VideoOutputAcceptance(Base, TimestampMixin):
@@ -1330,11 +1433,31 @@ class VideoOutputAcceptance(Base, TimestampMixin):
     required_fixes_json = Column(JSON, default=list, nullable=False)
     contact_sheet_path = Column(String(500), nullable=True)
     keyframes_json = Column(JSON, default=list, nullable=False)
+    visual_evidence_snapshot_id = Column(
+        Integer,
+        ForeignKey(
+            "visual_evidence_snapshots.id",
+            name="fk_video_output_acceptance_visual_evidence_snapshot",
+        ),
+        nullable=True,
+        index=True,
+    )
     reviewer_notes = Column(Text, nullable=True)
 
     video_job = relationship("VideoJob", back_populates="output_acceptances")
     ai_production_brief = relationship("AIProductionBrief")
     director_prompt_pack = relationship("DirectorPromptPack")
+    visual_evidence_snapshot = relationship("VisualEvidenceSnapshot")
+
+
+@event.listens_for(VisualEvidenceSnapshot, "before_update")
+def _prevent_visual_evidence_update(_mapper, _connection, _target) -> None:
+    raise ValueError("Visual evidence snapshots are append-only and cannot be updated.")
+
+
+@event.listens_for(VisualEvidenceSnapshot, "before_delete")
+def _prevent_visual_evidence_delete(_mapper, _connection, _target) -> None:
+    raise ValueError("Visual evidence snapshots are append-only and cannot be deleted.")
 
 
 class OneVideoRenderPlan(Base, TimestampMixin):
@@ -2380,6 +2503,203 @@ class ProductUGCRecipeDraft(Base, TimestampMixin):
 
     product = relationship("Product")
     primary_product_asset = relationship("ProductAsset", foreign_keys=[primary_product_asset_id])
+    generation_job = relationship(
+        "ProductUGCGenerationJob",
+        back_populates="draft",
+        uselist=False,
+    )
+
+
+class ProductUGCGenerationJob(Base, TimestampMixin):
+    """Durable, at-most-once paid provider work for one Product UGC draft.
+
+    A draft has one immutable provider-spend identity. Retries happen on this
+    same row and, after a provider task id is known, can only poll/download the
+    existing provider task. A spend guard without a provider task id is an
+    ambiguous external-submit outcome and must be quarantined, never submitted
+    again automatically.
+    """
+
+    __tablename__ = "product_ugc_generation_jobs"
+    __table_args__ = (
+        UniqueConstraint("draft_id", name="uq_product_ugc_generation_job_draft"),
+        UniqueConstraint("idempotency_key", name="uq_product_ugc_generation_job_idempotency"),
+        UniqueConstraint(
+            "provider",
+            "provider_task_id",
+            name="uq_product_ugc_generation_job_provider_task",
+        ),
+        CheckConstraint("attempt_count >= 0", name="ck_product_ugc_generation_attempt_nonnegative"),
+        CheckConstraint("max_attempts >= 1", name="ck_product_ugc_generation_max_attempt_positive"),
+        CheckConstraint(
+            "status IN ("
+            "'queued', 'leased', 'provider_launching', 'provider_processing', "
+            "'downloading', 'retry_wait', 'succeeded', 'failed_terminal', 'quarantined'"
+            ")",
+            name="ck_product_ugc_generation_status",
+        ),
+        Index(
+            "ix_product_ugc_generation_ready",
+            "status",
+            "next_attempt_at",
+            "lease_expires_at",
+        ),
+        Index(
+            "ix_product_ugc_generation_org_status",
+            "organization_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    draft_id = Column(Integer, ForeignKey("product_ugc_recipe_drafts.id"), nullable=False, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    requested_by_user_profile_id = Column(
+        Integer,
+        ForeignKey("user_profiles.id"),
+        nullable=True,
+        index=True,
+    )
+    idempotency_key = Column(String(200), nullable=False, index=True)
+    status = Column(String(40), nullable=False, default="queued", index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    next_attempt_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    lease_owner = Column(String(255), nullable=True, index=True)
+    lease_token = Column(String(160), nullable=True, index=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+
+    provider = Column(String(120), nullable=False, default="runway_product_ugc_recipe", index=True)
+    provider_task_id = Column(String(255), nullable=True, index=True)
+    provider_status = Column(String(80), nullable=True, index=True)
+    spend_guarded_at = Column(DateTime, nullable=True, index=True)
+    provider_submitted_at = Column(DateTime, nullable=True)
+
+    last_error_code = Column(String(120), nullable=True, index=True)
+    last_error_message = Column(Text, nullable=True)
+    terminal_reason = Column(String(160), nullable=True, index=True)
+    quarantined_at = Column(DateTime, nullable=True, index=True)
+    completed_at = Column(DateTime, nullable=True, index=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+
+    draft = relationship("ProductUGCRecipeDraft", back_populates="generation_job")
+    organization = relationship("Organization")
+    requested_by_user_profile = relationship("UserProfile")
+
+
+class ProductUGCQueueWorkerHeartbeat(Base):
+    """Liveness record for a supervised durable-generation worker.
+
+    ``worker_key`` is a one-way fingerprint of the process identity. Hostnames,
+    process ids, provider credentials, and lease tokens are deliberately not
+    persisted or returned to operators.
+    """
+
+    __tablename__ = "product_ugc_queue_worker_heartbeats"
+    __table_args__ = (
+        UniqueConstraint("worker_key", name="uq_product_ugc_queue_worker_key"),
+        CheckConstraint(
+            "state IN ('starting', 'polling', 'idle', 'working', 'ready', 'error', 'stopping')",
+            name="ck_product_ugc_queue_worker_state",
+        ),
+        CheckConstraint(
+            "processed_job_count >= 0",
+            name="ck_product_ugc_queue_worker_processed_nonnegative",
+        ),
+        Index("ix_product_ugc_queue_worker_heartbeat", "heartbeat_at", "state"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_key = Column(String(64), nullable=False, index=True)
+    is_supervised = Column(Boolean, nullable=False, default=False, index=True)
+    state = Column(String(32), nullable=False, default="starting", index=True)
+    current_job_id = Column(
+        Integer,
+        ForeignKey("product_ugc_generation_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    last_job_id = Column(Integer, nullable=True, index=True)
+    processed_job_count = Column(Integer, nullable=False, default=0)
+    last_error_code = Column(String(120), nullable=True)
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    heartbeat_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    current_job = relationship("ProductUGCGenerationJob", foreign_keys=[current_job_id])
+
+
+class ProductUGCQueueReconciliation(Base):
+    """Append-only human evidence resolving an ambiguous provider submit.
+
+    The mutable queue row can resume after reconciliation, but the exact human
+    decision that allowed that transition remains immutable for audit and
+    incident review.
+    """
+
+    __tablename__ = "product_ugc_queue_reconciliations"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_product_ugc_queue_reconciliation_idempotency",
+        ),
+        CheckConstraint(
+            "action IN ('attach_existing_provider_task', 'confirm_no_provider_submission')",
+            name="ck_product_ugc_queue_reconciliation_action",
+        ),
+        CheckConstraint(
+            "(action = 'attach_existing_provider_task' AND provider_task_id IS NOT NULL) "
+            "OR (action = 'confirm_no_provider_submission' AND provider_task_id IS NULL)",
+            name="ck_product_ugc_queue_reconciliation_task_shape",
+        ),
+        Index(
+            "ix_product_ugc_queue_reconciliation_org_job",
+            "organization_id",
+            "generation_job_id",
+            "created_at",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    generation_job_id = Column(
+        Integer,
+        ForeignKey("product_ugc_generation_jobs.id"),
+        nullable=False,
+        index=True,
+    )
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    actor_user_profile_id = Column(
+        Integer,
+        ForeignKey("user_profiles.id"),
+        nullable=False,
+        index=True,
+    )
+    action = Column(String(64), nullable=False, index=True)
+    idempotency_key = Column(String(200), nullable=False, index=True)
+    provider_task_id = Column(String(255), nullable=True, index=True)
+    quarantine_incident_key = Column(String(64), nullable=False, index=True)
+    evidence_reference = Column(String(200), nullable=False)
+    reason = Column(Text, nullable=False)
+    evidence_sha256 = Column(String(64), nullable=False)
+    job_status_before = Column(String(40), nullable=False)
+    job_status_after = Column(String(40), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    generation_job = relationship("ProductUGCGenerationJob")
+    organization = relationship("Organization")
+    actor_user_profile = relationship("UserProfile")
+
+
+@event.listens_for(ProductUGCQueueReconciliation, "before_update")
+def _prevent_product_ugc_queue_reconciliation_update(_mapper, _connection, _target) -> None:
+    raise ValueError("ProductUGCQueueReconciliation is append-only and cannot be updated.")
+
+
+@event.listens_for(ProductUGCQueueReconciliation, "before_delete")
+def _prevent_product_ugc_queue_reconciliation_delete(_mapper, _connection, _target) -> None:
+    raise ValueError("ProductUGCQueueReconciliation is append-only and cannot be deleted.")
 
 
 class LaunchActionPlan(Base, TimestampMixin):
@@ -2711,6 +3031,102 @@ def _prevent_factory_event_delete(_mapper, _connection, _target) -> None:
     raise ValueError("FactoryEvent is append-only and cannot be deleted.")
 
 
+class GenerationCostLedgerEntry(Base):
+    """Immutable accounting record for real video-provider generation cost.
+
+    Amounts are stored in the currency's minor unit (kopecks/cents), never as a
+    floating-point value. Estimates and actual costs are separate immutable
+    records; aggregation chooses a confirmed actual cost over an estimate for
+    the same cost scope, so the two are never double-counted.
+    """
+
+    __tablename__ = "generation_cost_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_generation_cost_idempotency_key"),
+        UniqueConstraint("supersedes_entry_id", name="uq_generation_cost_supersedes_entry"),
+        UniqueConstraint(
+            "organization_id",
+            "video_job_id",
+            "currency",
+            "entry_kind",
+            "cost_unit_key",
+            "revision",
+            name="uq_generation_cost_unit_revision",
+        ),
+        CheckConstraint("amount_minor >= 0", name="ck_generation_cost_amount_nonnegative"),
+        CheckConstraint("revision > 0", name="ck_generation_cost_revision_positive"),
+        CheckConstraint(
+            "entry_kind IN ('estimated', 'actual')",
+            name="ck_generation_cost_entry_kind",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'voided')",
+            name="ck_generation_cost_status",
+        ),
+        CheckConstraint(
+            "cost_scope IN ('provider_job', 'video_job')",
+            name="ck_generation_cost_scope",
+        ),
+        CheckConstraint(
+            "(cost_scope = 'provider_job' AND provider_job_id IS NOT NULL) "
+            "OR (cost_scope = 'video_job' AND provider_job_id IS NULL)",
+            name="ck_generation_cost_provider_job_scope",
+        ),
+        Index(
+            "ix_generation_cost_org_currency_recorded",
+            "organization_id",
+            "currency",
+            "recorded_at",
+        ),
+        Index(
+            "ix_generation_cost_video_scope",
+            "video_job_id",
+            "cost_scope",
+            "provider_job_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    provider_job_id = Column(String(160), nullable=True, index=True)
+    provider = Column(String(120), nullable=False, index=True)
+    cost_scope = Column(String(40), nullable=False, index=True)
+    cost_unit_key = Column(String(220), nullable=False, index=True)
+    revision = Column(Integer, nullable=False, default=1)
+    amount_minor = Column(Integer, nullable=False)
+    currency = Column(String(3), nullable=False, index=True)
+    entry_kind = Column(String(40), nullable=False, index=True)
+    status = Column(String(40), nullable=False, index=True)
+    source = Column(String(80), nullable=False, index=True)
+    external_reference = Column(String(255), nullable=True, index=True)
+    idempotency_key = Column(String(160), nullable=False, index=True)
+    supersedes_entry_id = Column(
+        Integer,
+        ForeignKey("generation_cost_ledger_entries.id"),
+        nullable=True,
+        index=True,
+    )
+    recorded_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+    occurred_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    recorded_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    organization = relationship("Organization")
+    video_job = relationship("VideoJob")
+    recorded_by_user_profile = relationship("UserProfile")
+    supersedes_entry = relationship("GenerationCostLedgerEntry", remote_side=[id], uselist=False)
+
+
+@event.listens_for(GenerationCostLedgerEntry, "before_update")
+def _prevent_generation_cost_update(_mapper, _connection, _target) -> None:
+    raise ValueError("GenerationCostLedgerEntry is append-only and cannot be updated.")
+
+
+@event.listens_for(GenerationCostLedgerEntry, "before_delete")
+def _prevent_generation_cost_delete(_mapper, _connection, _target) -> None:
+    raise ValueError("GenerationCostLedgerEntry is append-only and cannot be deleted.")
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -2727,3 +3143,856 @@ class AuditLog(Base):
 
     user_profile = relationship("UserProfile", back_populates="audit_logs")
     organization = relationship("Organization")
+
+
+class ContentCycle(Base, TimestampMixin):
+    """Canonical, organization-owned lineage for one measurable content cycle.
+
+    Every downstream identifier is stored explicitly. A consumer never has to
+    infer a package or tracking link from SKU, timestamps, or "latest" rows.
+    """
+
+    __tablename__ = "content_cycles"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "product_id"],
+            ["products.organization_id", "products.id"],
+            name="fk_content_cycle_organization_product",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_content_cycle_organization_idempotency",
+        ),
+        UniqueConstraint(
+            "product_ugc_recipe_draft_id",
+            name="uq_content_cycle_product_ugc_draft",
+        ),
+        UniqueConstraint("video_job_id", name="uq_content_cycle_video_job"),
+        UniqueConstraint("output_acceptance_id", name="uq_content_cycle_output_acceptance"),
+        UniqueConstraint("publishing_package_id", name="uq_content_cycle_publishing_package"),
+        UniqueConstraint("publishing_task_id", name="uq_content_cycle_publishing_task"),
+        UniqueConstraint("tracking_link_id", name="uq_content_cycle_tracking_link"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    product_ugc_recipe_draft_id = Column(
+        Integer,
+        ForeignKey("product_ugc_recipe_drafts.id"),
+        nullable=False,
+        index=True,
+    )
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False, index=True)
+    ai_production_brief_id = Column(Integer, ForeignKey("ai_production_briefs.id"), nullable=False, index=True)
+    output_acceptance_id = Column(
+        Integer,
+        ForeignKey("video_output_acceptances.id"),
+        nullable=True,
+        index=True,
+    )
+    publishing_package_id = Column(Integer, ForeignKey("publishing_packages.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    tracking_link_id = Column(Integer, ForeignKey("tracking_links.id"), nullable=True, index=True)
+    destination_id = Column(Integer, ForeignKey("publishing_destinations.id"), nullable=True, index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    status = Column(String(80), nullable=False, default="needs_output_acceptance", index=True)
+    trace_version = Column(Integer, nullable=False, default=1)
+
+    organization = relationship("Organization", overlaps="product")
+    created_by_user_profile = relationship("UserProfile")
+    product = relationship("Product", overlaps="organization")
+    product_ugc_recipe_draft = relationship("ProductUGCRecipeDraft")
+    video_job = relationship("VideoJob", foreign_keys=[video_job_id])
+    ai_production_brief = relationship("AIProductionBrief")
+    output_acceptance = relationship("VideoOutputAcceptance")
+    publishing_package = relationship("PublishingPackage")
+    publishing_task = relationship("PublishingTask")
+    tracking_link = relationship("TrackingLink")
+    destination = relationship("PublishingDestination")
+
+
+class MarketplaceListing(Base, TimestampMixin):
+    """An organization's explicitly owned marketplace listing."""
+
+    __tablename__ = "marketplace_listings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "product_id"],
+            ["products.organization_id", "products.id"],
+            name="fk_listing_organization_product",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "id",
+            name="uq_listing_scope_id",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "nm_id",
+            name="uq_listing_scope_nm_id",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "vendor_code",
+            name="uq_listing_scope_vendor_code",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "barcode",
+            name="uq_listing_scope_barcode",
+        ),
+        CheckConstraint(
+            "nm_id IS NOT NULL OR vendor_code IS NOT NULL OR barcode IS NOT NULL",
+            name="ck_listing_has_identifier",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to > valid_from",
+            name="ck_listing_valid_interval",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'verified', 'quarantined', 'inactive')",
+            name="ck_listing_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    marketplace = Column(String(80), nullable=False, default="wildberries", index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    nm_id = Column(String(64), nullable=True, index=True)
+    vendor_code = Column(String(160), nullable=True, index=True)
+    barcode = Column(String(80), nullable=True, index=True)
+    listing_url = Column(String(1000), nullable=True)
+    status = Column(String(40), nullable=False, default="draft", index=True)
+    valid_from = Column(DateTime, nullable=False, default=utcnow, index=True)
+    valid_to = Column(DateTime, nullable=True, index=True)
+    verified_at = Column(DateTime, nullable=True)
+    verified_by = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+
+
+class ListingAlias(Base, TimestampMixin):
+    """A versioned exact identifier mapping to a current owned listing."""
+
+    __tablename__ = "listing_aliases"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "marketplace", "seller_account_ref", "canonical_listing_id"],
+            [
+                "marketplace_listings.organization_id",
+                "marketplace_listings.marketplace",
+                "marketplace_listings.seller_account_ref",
+                "marketplace_listings.id",
+            ],
+            name="fk_alias_canonical_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "marketplace", "seller_account_ref", "current_listing_id"],
+            [
+                "marketplace_listings.organization_id",
+                "marketplace_listings.marketplace",
+                "marketplace_listings.seller_account_ref",
+                "marketplace_listings.id",
+            ],
+            name="fk_alias_current_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "alias_type",
+            "alias_value",
+            "valid_from",
+            name="uq_alias_scope_version",
+        ),
+        Index(
+            "uq_alias_active_scope",
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "alias_type",
+            "alias_value",
+            unique=True,
+            sqlite_where=text("valid_to IS NULL"),
+            postgresql_where=text("valid_to IS NULL"),
+        ),
+        CheckConstraint(
+            "alias_type IN ('nm_id', 'vendor_code', 'barcode', 'legacy_ref')",
+            name="ck_alias_type",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to > valid_from",
+            name="ck_alias_valid_interval",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    marketplace = Column(String(80), nullable=False, index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    canonical_listing_id = Column(Integer, nullable=False, index=True)
+    current_listing_id = Column(Integer, nullable=False, index=True)
+    alias_type = Column(String(40), nullable=False, index=True)
+    alias_value = Column(String(200), nullable=False, index=True)
+    valid_from = Column(DateTime, nullable=False, default=utcnow, index=True)
+    valid_to = Column(DateTime, nullable=True, index=True)
+    reason = Column(Text, nullable=False)
+    approved_by = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+
+
+class ReplacementHistory(Base, TimestampMixin):
+    """Append-oriented history for approved changes to an alias target."""
+
+    __tablename__ = "listing_replacement_history"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "marketplace", "seller_account_ref", "canonical_listing_id"],
+            [
+                "marketplace_listings.organization_id",
+                "marketplace_listings.marketplace",
+                "marketplace_listings.seller_account_ref",
+                "marketplace_listings.id",
+            ],
+            name="fk_history_canonical_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "marketplace", "seller_account_ref", "previous_listing_id"],
+            [
+                "marketplace_listings.organization_id",
+                "marketplace_listings.marketplace",
+                "marketplace_listings.seller_account_ref",
+                "marketplace_listings.id",
+            ],
+            name="fk_history_previous_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "marketplace", "seller_account_ref", "current_listing_id"],
+            [
+                "marketplace_listings.organization_id",
+                "marketplace_listings.marketplace",
+                "marketplace_listings.seller_account_ref",
+                "marketplace_listings.id",
+            ],
+            name="fk_history_current_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "alias_type",
+            "alias_value",
+            "valid_from",
+            name="uq_history_scope_version",
+        ),
+        Index(
+            "uq_history_active_scope",
+            "organization_id",
+            "marketplace",
+            "seller_account_ref",
+            "alias_type",
+            "alias_value",
+            unique=True,
+            sqlite_where=text("valid_to IS NULL"),
+            postgresql_where=text("valid_to IS NULL"),
+        ),
+        CheckConstraint(
+            "alias_type IN ('nm_id', 'vendor_code', 'barcode', 'legacy_ref')",
+            name="ck_history_alias_type",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to > valid_from",
+            name="ck_history_valid_interval",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    marketplace = Column(String(80), nullable=False, index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    canonical_listing_id = Column(Integer, nullable=False, index=True)
+    previous_listing_id = Column(Integer, nullable=True, index=True)
+    current_listing_id = Column(Integer, nullable=False, index=True)
+    alias_type = Column(String(40), nullable=False, index=True)
+    alias_value = Column(String(200), nullable=False, index=True)
+    valid_from = Column(DateTime, nullable=False, default=utcnow, index=True)
+    valid_to = Column(DateTime, nullable=True, index=True)
+    reason = Column(Text, nullable=False)
+    approved_by = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+
+
+class WildberriesAnalyticsConnection(Base, TimestampMixin):
+    """Organization-owned configuration for the official WB seller API.
+
+    ``credential_ref`` is a logical environment-secret reference.  The API key
+    itself is resolved only for an outbound request and is never persisted.
+    """
+
+    __tablename__ = "wildberries_analytics_connections"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "id",
+            name="uq_wb_analytics_connection_organization_id",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "seller_account_ref",
+            name="uq_wb_analytics_connection_seller",
+        ),
+        CheckConstraint(
+            "marketplace = 'wildberries'",
+            name="ck_wb_analytics_connection_marketplace",
+        ),
+        CheckConstraint(
+            "connection_type = 'wildberries_seller_analytics'",
+            name="ck_wb_analytics_connection_type",
+        ),
+        CheckConstraint(
+            "credential_ref LIKE 'env:%'",
+            name="ck_wb_analytics_connection_credential_reference",
+        ),
+        CheckConstraint(
+            "status IN ('needs_verification', 'connected', 'error', 'disabled')",
+            name="ck_wb_analytics_connection_status",
+        ),
+        CheckConstraint(
+            "auth_status IN ('credential_reference_configured', 'api_key_verified', 'credential_unavailable')",
+            name="ck_wb_analytics_connection_auth_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    marketplace = Column(String(80), nullable=False, default="wildberries", index=True)
+    connection_type = Column(
+        String(80),
+        nullable=False,
+        default="wildberries_seller_analytics",
+        index=True,
+    )
+    credential_ref = Column(String(120), nullable=False)
+    status = Column(String(40), nullable=False, default="needs_verification", index=True)
+    auth_status = Column(
+        String(80),
+        nullable=False,
+        default="credential_reference_configured",
+        index=True,
+    )
+    last_checked_at = Column(DateTime, nullable=True)
+    last_sync_at = Column(DateTime, nullable=True, index=True)
+    last_error_code = Column(String(160), nullable=True)
+    settings_json = Column(JSON, default=dict, nullable=False)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+
+    organization = relationship("Organization")
+    created_by_user_profile = relationship("UserProfile")
+
+
+class WildberriesAnalyticsSyncAudit(Base):
+    """Append-only outcome of one idempotent official WB API sync."""
+
+    __tablename__ = "wildberries_analytics_sync_audits"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "id",
+            name="uq_wb_analytics_sync_audit_organization_id",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_wb_analytics_sync_audit_idempotency",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "connection_id"],
+            [
+                "wildberries_analytics_connections.organization_id",
+                "wildberries_analytics_connections.id",
+            ],
+            name="fk_wb_analytics_sync_audit_connection_scope",
+        ),
+        CheckConstraint(
+            "period_end >= period_start",
+            name="ck_wb_analytics_sync_audit_period",
+        ),
+        CheckConstraint(
+            "status IN ('completed', 'completed_with_quarantine', 'failed')",
+            name="ck_wb_analytics_sync_audit_status",
+        ),
+        CheckConstraint(
+            "page_count >= 0 AND requested_nm_id_count >= 0 "
+            "AND response_product_count >= 0 AND snapshot_count >= 0 "
+            "AND new_snapshot_count >= 0 AND quarantine_count >= 0",
+            name="ck_wb_analytics_sync_audit_counts",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    connection_id = Column(Integer, nullable=False, index=True)
+    actor_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    request_body_sha256 = Column(String(64), nullable=False, index=True)
+    response_sha256 = Column(String(64), nullable=True, index=True)
+    period_start = Column(Date, nullable=False, index=True)
+    period_end = Column(Date, nullable=False, index=True)
+    status = Column(String(48), nullable=False, index=True)
+    error_code = Column(String(160), nullable=True)
+    page_count = Column(Integer, nullable=False, default=0)
+    requested_nm_id_count = Column(Integer, nullable=False, default=0)
+    response_product_count = Column(Integer, nullable=False, default=0)
+    snapshot_count = Column(Integer, nullable=False, default=0)
+    new_snapshot_count = Column(Integer, nullable=False, default=0)
+    quarantine_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    organization = relationship("Organization", viewonly=True)
+    connection = relationship("WildberriesAnalyticsConnection", viewonly=True)
+    actor_user_profile = relationship("UserProfile", viewonly=True)
+
+
+class WildberriesMetricSnapshot(Base):
+    """Immutable, exact-listing daily sales-funnel observation."""
+
+    __tablename__ = "wildberries_metric_snapshots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "connection_id"],
+            [
+                "wildberries_analytics_connections.organization_id",
+                "wildberries_analytics_connections.id",
+            ],
+            name="fk_wb_metric_snapshot_connection_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "sync_audit_id"],
+            [
+                "wildberries_analytics_sync_audits.organization_id",
+                "wildberries_analytics_sync_audits.id",
+            ],
+            name="fk_wb_metric_snapshot_audit_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "marketplace", "seller_account_ref", "listing_id"],
+            [
+                "marketplace_listings.organization_id",
+                "marketplace_listings.marketplace",
+                "marketplace_listings.seller_account_ref",
+                "marketplace_listings.id",
+            ],
+            name="fk_wb_metric_snapshot_listing_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "product_id"],
+            ["products.organization_id", "products.id"],
+            name="fk_wb_metric_snapshot_product_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "source_fingerprint",
+            name="uq_wb_metric_snapshot_source_fingerprint",
+        ),
+        CheckConstraint(
+            "marketplace = 'wildberries'",
+            name="ck_wb_metric_snapshot_marketplace",
+        ),
+        CheckConstraint(
+            "period_end >= period_start AND metric_date >= period_start AND metric_date <= period_end",
+            name="ck_wb_metric_snapshot_period",
+        ),
+        CheckConstraint(
+            "open_count >= 0 AND cart_count >= 0 AND order_count >= 0 "
+            "AND order_sum_minor >= 0 AND buyout_count >= 0 AND buyout_sum_minor >= 0",
+            name="ck_wb_metric_snapshot_counts",
+        ),
+        CheckConstraint(
+            "buyout_percent >= 0 AND buyout_percent <= 100 "
+            "AND add_to_cart_percent >= 0 AND add_to_cart_percent <= 100 "
+            "AND cart_to_order_percent >= 0 AND cart_to_order_percent <= 100",
+            name="ck_wb_metric_snapshot_percentages",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    connection_id = Column(Integer, nullable=False, index=True)
+    sync_audit_id = Column(Integer, nullable=False, index=True)
+    marketplace = Column(String(80), nullable=False, default="wildberries", index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    listing_id = Column(Integer, nullable=False, index=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    nm_id = Column(String(64), nullable=False, index=True)
+    period_start = Column(Date, nullable=False, index=True)
+    period_end = Column(Date, nullable=False, index=True)
+    metric_date = Column(Date, nullable=False, index=True)
+    open_count = Column(BigInteger, nullable=False)
+    cart_count = Column(BigInteger, nullable=False)
+    order_count = Column(BigInteger, nullable=False)
+    order_sum_minor = Column(BigInteger, nullable=False)
+    buyout_count = Column(BigInteger, nullable=False)
+    buyout_sum_minor = Column(BigInteger, nullable=False)
+    buyout_percent = Column(Float, nullable=False)
+    add_to_cart_percent = Column(Float, nullable=False)
+    cart_to_order_percent = Column(Float, nullable=False)
+    source_fingerprint = Column(String(64), nullable=False, index=True)
+    raw_json = Column(JSON, default=dict, nullable=False)
+    observed_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    organization = relationship("Organization", viewonly=True)
+    connection = relationship("WildberriesAnalyticsConnection", viewonly=True)
+    sync_audit = relationship("WildberriesAnalyticsSyncAudit", viewonly=True)
+    listing = relationship("MarketplaceListing", viewonly=True)
+    product = relationship("Product", viewonly=True)
+
+
+class WildberriesMetricQuarantine(Base):
+    """Immutable official row that could not be mapped to one owned nmID."""
+
+    __tablename__ = "wildberries_metric_quarantine"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "connection_id"],
+            [
+                "wildberries_analytics_connections.organization_id",
+                "wildberries_analytics_connections.id",
+            ],
+            name="fk_wb_metric_quarantine_connection_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "sync_audit_id"],
+            [
+                "wildberries_analytics_sync_audits.organization_id",
+                "wildberries_analytics_sync_audits.id",
+            ],
+            name="fk_wb_metric_quarantine_audit_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "source_fingerprint",
+            name="uq_wb_metric_quarantine_source_fingerprint",
+        ),
+        CheckConstraint(
+            "period_end >= period_start",
+            name="ck_wb_metric_quarantine_period",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    connection_id = Column(Integer, nullable=False, index=True)
+    sync_audit_id = Column(Integer, nullable=False, index=True)
+    seller_account_ref = Column(String(160), nullable=False, index=True)
+    nm_id = Column(String(64), nullable=True, index=True)
+    reason_code = Column(String(160), nullable=False, index=True)
+    period_start = Column(Date, nullable=False, index=True)
+    period_end = Column(Date, nullable=False, index=True)
+    source_fingerprint = Column(String(64), nullable=False, index=True)
+    raw_row_json = Column(JSON, default=dict, nullable=False)
+    observed_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+    organization = relationship("Organization", viewonly=True)
+    connection = relationship("WildberriesAnalyticsConnection", viewonly=True)
+    sync_audit = relationship("WildberriesAnalyticsSyncAudit", viewonly=True)
+
+
+def _prevent_wildberries_analytics_mutation(_mapper, _connection, _target) -> None:
+    raise ValueError("Wildberries analytics evidence is append-only and cannot be mutated.")
+
+
+for _wildberries_append_only_model in (
+    WildberriesAnalyticsSyncAudit,
+    WildberriesMetricSnapshot,
+    WildberriesMetricQuarantine,
+):
+    event.listen(
+        _wildberries_append_only_model,
+        "before_update",
+        _prevent_wildberries_analytics_mutation,
+    )
+    event.listen(
+        _wildberries_append_only_model,
+        "before_delete",
+        _prevent_wildberries_analytics_mutation,
+    )
+
+
+class CustomerBillingAccount(Base):
+    """Immutable organization-owned root for customer billing.
+
+    The account is intentionally separate from provider costs and participant
+    payouts. Its currency is fixed at creation; a different currency requires a
+    deliberately designed migration instead of silently mixing minor units.
+    """
+
+    __tablename__ = "customer_billing_accounts"
+    __table_args__ = (
+        UniqueConstraint("organization_id", name="uq_customer_billing_account_organization"),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_customer_billing_account_idempotency",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "id",
+            name="uq_customer_billing_account_scope_id",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'suspended', 'closed')",
+            name="ck_customer_billing_account_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    currency = Column(String(3), nullable=False, index=True)
+    status = Column(String(40), nullable=False, default="active", index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+
+class CustomerBillingSubscriptionState(Base):
+    """Append-only snapshot of a customer's current plan/subscription state."""
+
+    __tablename__ = "customer_billing_subscription_states"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "billing_account_id"],
+            ["customer_billing_accounts.organization_id", "customer_billing_accounts.id"],
+            name="fk_customer_subscription_account_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_customer_subscription_idempotency",
+        ),
+        UniqueConstraint(
+            "billing_account_id",
+            "version",
+            name="uq_customer_subscription_account_version",
+        ),
+        UniqueConstraint(
+            "previous_state_id",
+            name="uq_customer_subscription_previous_state",
+        ),
+        CheckConstraint("version > 0", name="ck_customer_subscription_version_positive"),
+        CheckConstraint(
+            "status IN ('trialing', 'active', 'paused', 'cancelled', 'expired')",
+            name="ck_customer_subscription_status",
+        ),
+        CheckConstraint(
+            "billing_interval IN ('month', 'year')",
+            name="ck_customer_subscription_interval",
+        ),
+        CheckConstraint(
+            "recurring_amount_minor >= 0",
+            name="ck_customer_subscription_amount_nonnegative",
+        ),
+        CheckConstraint(
+            "included_content_cycles >= 0",
+            name="ck_customer_subscription_included_nonnegative",
+        ),
+        CheckConstraint(
+            "current_period_end IS NULL OR current_period_start IS NOT NULL",
+            name="ck_customer_subscription_period_start_required",
+        ),
+        CheckConstraint(
+            "current_period_end IS NULL OR current_period_end > current_period_start",
+            name="ck_customer_subscription_period_order",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    billing_account_id = Column(Integer, nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    previous_state_id = Column(
+        Integer,
+        ForeignKey("customer_billing_subscription_states.id"),
+        nullable=True,
+        index=True,
+    )
+    plan_code = Column(String(80), nullable=False, index=True)
+    status = Column(String(40), nullable=False, index=True)
+    billing_interval = Column(String(20), nullable=False)
+    recurring_amount_minor = Column(Integer, nullable=False)
+    included_content_cycles = Column(Integer, nullable=False, default=0)
+    currency = Column(String(3), nullable=False, index=True)
+    current_period_start = Column(DateTime, nullable=True)
+    current_period_end = Column(DateTime, nullable=True)
+    effective_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    recorded_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    recorded_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+
+class CustomerInvoice(Base):
+    """Immutable invoice header; authoritative totals come from its ledger."""
+
+    __tablename__ = "customer_invoices"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "billing_account_id"],
+            ["customer_billing_accounts.organization_id", "customer_billing_accounts.id"],
+            name="fk_customer_invoice_account_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "invoice_number",
+            name="uq_customer_invoice_number",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_customer_invoice_idempotency",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "billing_account_id",
+            "id",
+            name="uq_customer_invoice_scope_id",
+        ),
+        CheckConstraint("period_end > period_start", name="ck_customer_invoice_period_order"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    billing_account_id = Column(Integer, nullable=False, index=True)
+    subscription_state_id = Column(
+        Integer,
+        ForeignKey("customer_billing_subscription_states.id"),
+        nullable=False,
+        index=True,
+    )
+    invoice_number = Column(String(80), nullable=False, index=True)
+    currency = Column(String(3), nullable=False, index=True)
+    period_start = Column(Date, nullable=False, index=True)
+    period_end = Column(Date, nullable=False, index=True)
+    issued_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    due_at = Column(DateTime, nullable=False, index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+
+
+class CustomerBillingLedgerEntry(Base):
+    """Immutable customer-facing charge, credit, or reconciled payment fact."""
+
+    __tablename__ = "customer_billing_ledger_entries"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "billing_account_id"],
+            ["customer_billing_accounts.organization_id", "customer_billing_accounts.id"],
+            name="fk_customer_billing_ledger_account_scope",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "billing_account_id", "invoice_id"],
+            [
+                "customer_invoices.organization_id",
+                "customer_invoices.billing_account_id",
+                "customer_invoices.id",
+            ],
+            name="fk_customer_billing_ledger_invoice_scope",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_customer_billing_ledger_idempotency",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "transaction_reference",
+            name="uq_customer_billing_transaction_reference",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "content_cycle_id",
+            "entry_kind",
+            name="uq_customer_billing_cycle_charge",
+        ),
+        UniqueConstraint(
+            "generation_cost_ledger_entry_id",
+            name="uq_customer_billing_generation_cost",
+        ),
+        UniqueConstraint("related_entry_id", name="uq_customer_billing_credit_target"),
+        CheckConstraint("amount_minor > 0", name="ck_customer_billing_amount_positive"),
+        CheckConstraint(
+            "entry_kind IN ('charge', 'credit', 'payment')",
+            name="ck_customer_billing_entry_kind",
+        ),
+        CheckConstraint(
+            "source IN ('content_cycle_usage', 'manual_credit', 'manual_payment')",
+            name="ck_customer_billing_source",
+        ),
+        CheckConstraint(
+            "(entry_kind = 'charge' AND source = 'content_cycle_usage' "
+            "AND content_cycle_id IS NOT NULL AND generation_cost_ledger_entry_id IS NOT NULL "
+            "AND related_entry_id IS NULL AND transaction_reference IS NULL) OR "
+            "(entry_kind = 'credit' AND source = 'manual_credit' "
+            "AND content_cycle_id IS NULL AND generation_cost_ledger_entry_id IS NULL "
+            "AND related_entry_id IS NOT NULL AND transaction_reference IS NULL) OR "
+            "(entry_kind = 'payment' AND source = 'manual_payment' "
+            "AND content_cycle_id IS NULL AND generation_cost_ledger_entry_id IS NULL "
+            "AND related_entry_id IS NULL AND transaction_reference IS NOT NULL)",
+            name="ck_customer_billing_entry_shape",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    billing_account_id = Column(Integer, nullable=False, index=True)
+    invoice_id = Column(Integer, nullable=False, index=True)
+    entry_kind = Column(String(20), nullable=False, index=True)
+    source = Column(String(40), nullable=False, index=True)
+    amount_minor = Column(Integer, nullable=False)
+    currency = Column(String(3), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    content_cycle_id = Column(Integer, ForeignKey("content_cycles.id"), nullable=True, index=True)
+    generation_cost_ledger_entry_id = Column(
+        Integer,
+        ForeignKey("generation_cost_ledger_entries.id"),
+        nullable=True,
+        index=True,
+    )
+    related_entry_id = Column(
+        Integer,
+        ForeignKey("customer_billing_ledger_entries.id"),
+        nullable=True,
+        index=True,
+    )
+    transaction_reference = Column(String(160), nullable=True, index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    recorded_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    occurred_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    recorded_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+
+@event.listens_for(CustomerBillingAccount, "before_update")
+@event.listens_for(CustomerBillingSubscriptionState, "before_update")
+@event.listens_for(CustomerInvoice, "before_update")
+@event.listens_for(CustomerBillingLedgerEntry, "before_update")
+def _prevent_customer_billing_update(_mapper, _connection, _target) -> None:
+    raise ValueError("Customer billing records are append-only and cannot be updated.")
+
+
+@event.listens_for(CustomerBillingAccount, "before_delete")
+@event.listens_for(CustomerBillingSubscriptionState, "before_delete")
+@event.listens_for(CustomerInvoice, "before_delete")
+@event.listens_for(CustomerBillingLedgerEntry, "before_delete")
+def _prevent_customer_billing_delete(_mapper, _connection, _target) -> None:
+    raise ValueError("Customer billing records are append-only and cannot be deleted.")

@@ -10,8 +10,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
-os.environ["QVF_MEDIA_ROOT"] = "test_media"
+os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
+os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 
 import pytest
 import httpx
@@ -23,6 +23,7 @@ from app import models
 from app.ai_brief_contract import AIProductionBriefBuilder, BriefQualityChecker, DirectorPromptBuilder, MarkdownRenderer, SceneBlueprintBuilder
 from app.ai_brief_contract.types import NEGATIVE_PROMPT_TERMS
 from app.output_acceptance import AcceptanceReviewService, FrameExtractor, OutputQualityChecker, RegenerationFeedbackBuilder
+from app.output_acceptance.errors import OutputAcceptanceDataError
 from app.one_video_acceptance import OneVideoAcceptanceService, ProductScenePolicyService
 from app.smoke_readiness import ReadinessReportService, RecoveryService
 from app.assets.asset_kit_builder import AssetKitBuilder
@@ -93,6 +94,7 @@ from app.destination_connectors import (
     TelegramConnector,
     YouTubeAnalyticsConnector,
 )
+from app.destination_connectors.errors import DestinationConnectorDataError
 from app.destination_control_tower import DestinationControlReportService, TowerService
 from app.engine_audit import EngineAuditReportService, EngineAuditScorecardService
 from app.participant_portal import (
@@ -3606,27 +3608,28 @@ def test_frame_extractor_creates_contact_sheet_from_fixture_video():
         assert Path(result.contact_sheet_path).exists()
 
 
-def test_output_acceptance_blocks_missing_contact_sheet():
+def test_output_acceptance_rejects_review_without_contact_sheet_evidence():
     with client() as api:
         _, brief_id, video_job_id = prepare_output_acceptance_fixture(api, title="Output Missing Sheet Product", with_frames=False)
 
         with SessionLocal() as db:
-            acceptance = AcceptanceReviewService(db).review(
-                video_job_id=video_job_id,
-                ai_production_brief_id=brief_id,
-                decision="approve",
-                product_identity_status="pass",
-                packaging_status="pass",
-                geometry_status="pass",
-                blogger_authenticity_status="pass",
-                scene_match_status="pass",
-                proof_moment_status="pass",
-                cta_status="pass",
-            )
-
-        assert acceptance.status == "blocked"
-        assert "contact_sheet_missing" in acceptance.blockers_json
-        assert "extract_frames_before_review" in acceptance.required_fixes_json
+            with pytest.raises(
+                OutputAcceptanceDataError,
+                match="immutable visual evidence snapshot",
+            ):
+                AcceptanceReviewService(db).review(
+                    video_job_id=video_job_id,
+                    ai_production_brief_id=brief_id,
+                    decision="approve",
+                    product_identity_status="pass",
+                    packaging_status="pass",
+                    geometry_status="pass",
+                    blogger_authenticity_status="pass",
+                    scene_match_status="pass",
+                    proof_moment_status="pass",
+                    cta_status="pass",
+                )
+            assert db.scalar(select(func.count()).select_from(models.VideoOutputAcceptance)) == 0
 
 
 def test_output_quality_checker_requires_human_review_for_identity():
@@ -4911,6 +4914,29 @@ def add_campaign_published_task(db, campaign_id: int, final_url: str = "https://
     return product, task
 
 
+def add_campaign_creative_variant(api: TestClient, product_id: int, sku: str) -> int:
+    """Create a real internal variant for campaign-performance FK tests."""
+
+    create_guide(api)
+    create_template(api)
+    add_generator_snapshots(sku)
+    with SessionLocal() as db:
+        creative_spec = CreativeSpecBuilder(db).build_for_product(
+            product_id,
+            platform="Instagram Reels",
+            duration_seconds=15,
+        )
+        asset_kit = AssetKitBuilder(db).build_for_product(product_id)
+        variant_set = CreativeVariantBuilder(db).build_set(
+            creative_spec.id,
+            count=1,
+            asset_kit_id=asset_kit.id,
+        )
+        variant_id = variant_set.variants[0].id
+        db.commit()
+        return variant_id
+
+
 def performance_csv(rows: list[dict]) -> str:
     columns = [
         "campaign_id",
@@ -5435,7 +5461,35 @@ def test_import_performance_missing_metrics_warns_not_fails():
         assert result.imported_count == 1
         assert result.error_count == 0
         assert any("missing_views" in warning for warning in result.warnings)
-        assert any("posted_url_not_matched_to_task" in warning for warning in result.warnings)
+    assert any("posted_url_not_matched_to_task" in warning for warning in result.warnings)
+
+
+def test_import_performance_unknown_variant_is_a_row_error_not_a_db_failure():
+    with client():
+        campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
+        with SessionLocal() as db:
+            product, task = add_campaign_published_task(db, campaign_id)
+            result = CampaignMetricsImporter(db).import_csv_text(
+                campaign_id,
+                performance_csv(
+                    [
+                        {
+                            "sku": product.sku,
+                            "platform": "Instagram Reels",
+                            "posted_url": task.final_url,
+                            "creative_variant_id": 999999,
+                            "views": 100,
+                            "clicks": 5,
+                            "orders": 1,
+                        }
+                    ]
+                ),
+            )
+
+        assert result.status == "failed"
+        assert result.imported_count == 0
+        assert result.error_count == 1
+        assert result.errors == ["row_2:creative_variant_id_not_found"]
 
 
 def test_performance_links_metric_to_publishing_task_by_url():
@@ -5465,19 +5519,24 @@ def test_performance_links_metric_to_publishing_task_by_url():
 
 
 def test_performance_scores_sku_variant_destination():
-    with client():
+    with client() as api:
         campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
         with SessionLocal() as db:
             product, task = add_campaign_published_task(db, campaign_id)
+            product_id = product.id
+            product_sku = product.sku
+            task_url = task.final_url
+        creative_variant_id = add_campaign_creative_variant(api, product_id, product_sku)
+        with SessionLocal() as db:
             CampaignMetricsImporter(db).import_csv_text(
                 campaign_id,
                 performance_csv(
                     [
                         {
-                            "sku": product.sku,
+                            "sku": product_sku,
                             "platform": "Instagram Reels",
-                            "posted_url": task.final_url,
-                            "creative_variant_id": 777,
+                            "posted_url": task_url,
+                            "creative_variant_id": creative_variant_id,
                             "views": 1500,
                             "likes": 100,
                             "comments": 10,
@@ -5496,19 +5555,24 @@ def test_performance_scores_sku_variant_destination():
 
 
 def test_recommendation_scale_variant_for_high_engagement():
-    with client():
+    with client() as api:
         campaign_id = campaign_fixture(row_count=1, target_videos=4, target_destinations=2)
         with SessionLocal() as db:
             product, task = add_campaign_published_task(db, campaign_id)
+            product_id = product.id
+            product_sku = product.sku
+            task_url = task.final_url
+        creative_variant_id = add_campaign_creative_variant(api, product_id, product_sku)
+        with SessionLocal() as db:
             CampaignMetricsImporter(db).import_csv_text(
                 campaign_id,
                 performance_csv(
                     [
                         {
-                            "sku": product.sku,
+                            "sku": product_sku,
                             "platform": "Instagram Reels",
-                            "posted_url": task.final_url,
-                            "creative_variant_id": 1,
+                            "posted_url": task_url,
+                            "creative_variant_id": creative_variant_id,
                             "views": 2000,
                             "likes": 150,
                             "comments": 20,
@@ -6634,11 +6698,15 @@ def test_connection_stores_credential_ref_not_secret(monkeypatch):
 
 
 def test_connection_check_reports_missing_credential(monkeypatch):
-    monkeypatch.delenv("MISSING_TELEGRAM_TOKEN_REF", raising=False)
+    monkeypatch.delenv("MISSING_YOUTUBE_TOKEN_REF", raising=False)
     with client():
         with SessionLocal() as db:
             destination_id = add_campaign_destination(db)
-            connection = ConnectionRegistry(db).create(destination_id, "telegram_bot", credential_ref="MISSING_TELEGRAM_TOKEN_REF")
+            connection = ConnectionRegistry(db).create(
+                destination_id,
+                "youtube_oauth",
+                credential_ref="MISSING_YOUTUBE_TOKEN_REF",
+            )
             result = ConnectionRegistry(db).check(connection.id)
 
     assert result.status == "needs_auth"
@@ -6766,7 +6834,7 @@ def test_metrics_import_idempotent_by_url_period():
     assert performance_count == 1
 
 
-def test_telegram_connector_uses_mock_client_in_tests(monkeypatch):
+def test_telegram_connector_is_honestly_blocked_without_official_adapter(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
     with client():
         with SessionLocal() as db:
@@ -6774,9 +6842,9 @@ def test_telegram_connector_uses_mock_client_in_tests(monkeypatch):
             connection = ConnectionRegistry(db).create(destination_id, "telegram_bot", credential_ref="TELEGRAM_BOT_TOKEN")
             result = TelegramConnector().check(connection)
 
-    assert result.status == "connected"
-    assert result.auth_status == "bot_ready"
-    assert result.credential_configured is True
+    assert result.status == "blocked"
+    assert result.auth_status == "official_adapter_unavailable"
+    assert result.credential_configured is False
 
 
 def test_youtube_connector_requires_oauth_ref():
@@ -6790,36 +6858,20 @@ def test_youtube_connector_requires_oauth_ref():
     assert result.credential_configured is False
 
 
-def test_sync_destination_metrics_creates_destination_post_metrics():
+def test_sync_destination_metrics_rejects_persisted_mock_rows():
     with client():
         campaign_id = campaign_fixture(row_count=1, target_videos=2, target_destinations=1)
         with SessionLocal() as db:
             product, task = add_campaign_published_task(db, campaign_id, final_url="https://example.com/post/sync")
-            connection = ConnectionRegistry(db).create(
-                task.destination_id,
-                "manual",
-                settings_json={
-                    "mock_metrics": [
-                        {
-                            "campaign_id": campaign_id,
-                            "destination_name": task.destination.name,
-                            "platform": task.platform,
-                            "posted_url": task.final_url,
-                            "sku": product.sku,
-                            "views": 500,
-                            "clicks": 10,
-                            "orders": 2,
-                        }
-                    ]
-                },
-            )
-            result = DestinationConnectorSyncService(db).sync(connection.id, period_start=date(2026, 7, 1), period_end=date(2026, 7, 7))
+            with pytest.raises(DestinationConnectorDataError, match="mock_metrics"):
+                ConnectionRegistry(db).create(
+                    task.destination_id,
+                    "manual",
+                    settings_json={"mock_metrics": [{"views": 500}]},
+                )
             metric = db.scalar(select(models.DestinationPostMetric))
 
-    assert result.imported_count == 1
-    assert metric.connection_id == connection.id
-    assert metric.publishing_task_id == task.id
-    assert metric.views == 500
+    assert metric is None
 
 
 def test_metrics_flow_updates_campaign_performance():
@@ -7408,14 +7460,18 @@ def test_platform_metrics_matrix_lists_all_required_platforms():
     platforms = {config.platform for config in PlatformMetricsMatrix.all_configs()}
 
     assert {"facebook", "instagram", "youtube", "tiktok", "telegram", "vk", "ozon", "wb", "partner"}.issubset(platforms)
-    assert PlatformMetricsMatrix.config("youtube_shorts").official_connector_types == ["youtube_oauth", "youtube_analytics"]
+    assert PlatformMetricsMatrix.config("youtube_shorts").official_connector_types == ["youtube_oauth"]
 
 
-def test_official_connector_gateway_is_gated_by_auth_status():
+def test_unimplemented_official_connector_is_blocked_with_manual_fallback():
     with client():
         with SessionLocal() as db:
+            organization = models.Organization(name="Connector Org", slug="connector-org")
+            db.add(organization)
+            db.flush()
             destination_id = add_campaign_destination(db)
             destination = db.get(models.PublishingDestination, destination_id)
+            destination.organization_id = organization.id
             destination.platform = "facebook"
             db.add(
                 models.DestinationConnection(
@@ -7428,10 +7484,14 @@ def test_official_connector_gateway_is_gated_by_auth_status():
                 )
             )
             db.commit()
-            readiness = OfficialConnectorGateway(db).readiness(destination_id)
+            readiness = OfficialConnectorGateway(db).readiness(
+                destination_id,
+                organization_id=organization.id,
+            )
 
     assert readiness["ready"] is False
-    assert "oauth_or_token_not_valid" in readiness["blockers"]
+    assert readiness["status"] == "manual_or_csv_only"
+    assert "official_adapter_not_implemented" in readiness["blockers"]
     assert "manual_csv" in readiness["fallbacks"]
 
 
@@ -8518,7 +8578,10 @@ def test_control_room_ui_renders_role_dashboards():
     assert "Public Pilot Control Room" in response.text
     assert "Executive snapshot" in response.text
     assert "Scores by dimension" in response.text
-    assert "Paid smoke" in response.text
+    assert "Фабрика контента" in response.text
+    assert "Карта завода" in response.text
+    assert response.text.count('data-track-target="module-') == 9
+    assert 'data-track-event="primary_action_clicked"' in response.text
     assert "owner" in response.text
     assert "What is ready" in response.text
     assert "What is blocked" in response.text
@@ -9003,7 +9066,7 @@ def test_smoke_readiness_control_room_section_renders():
     assert response.status_code == 200, response.text
     assert "Paid Smoke Readiness" in response.text
     assert "blocked_by_spend_gate" in response.text
-    assert "Runway key" in response.text
+    assert "<span>Runway</span>" in response.text
 
 
 def test_smoke_readiness_cli_report_latest():

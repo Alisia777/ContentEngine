@@ -147,6 +147,7 @@ from app.public_pilot.gate_matrix import (
     METRICS_IMPORT,
     ONE_VIDEO_REAL_RUN,
     OUTPUT_REVIEW,
+    PAYOUT_MANAGE,
     PUBLISHING_APPROVE,
     VARIANT_REAL_SMOKE,
     VIDEO_APPROVE,
@@ -173,6 +174,7 @@ from app.services.publishing_engine import PublishingEngine
 from app.services.warmup_scheduler import WarmupScheduler
 from app.services.upload_service import UploadService
 from app.services.analytics_service import AnalyticsService
+from app.social_metrics_ingestion import require_legacy_global_metrics_local_mode
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -201,6 +203,27 @@ def require_public_pilot_action(action: str):
         )
 
     return guard
+
+
+def require_real_spend_when_requested(
+    *,
+    requested: bool,
+    db: Session,
+    user: PublicPilotUser,
+    path: str,
+    payload: dict[str, Any],
+) -> None:
+    settings = get_settings()
+    if not requested or (not settings.public_pilot_mode and not settings.auth_required):
+        return
+    PublicPilotAccessService(db).require_action(
+        user_profile_id=user.profile.id,
+        organization_id=user.organization.id,
+        role=user.role,
+        action=ONE_VIDEO_REAL_RUN,
+        spend_gate_confirmed=True,
+        payload={"path": path, **payload},
+    )
 
 
 class EngineRunRequest(BaseModel):
@@ -2124,7 +2147,18 @@ def build_video_generator_prompt_pack_from_variant(payload: VideoGeneratorVarian
 
 
 @router.post("/video-generator/start")
-def start_video_generator(payload: VideoGeneratorStartRequest, db: Session = Depends(get_db)):
+def start_video_generator(
+    payload: VideoGeneratorStartRequest,
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+):
+    require_real_spend_when_requested(
+        requested=payload.confirm_real_spend,
+        db=db,
+        user=user,
+        path="/api/video-generator/start",
+        payload={"provider": payload.video_provider, "generation_variant_id": payload.generation_variant_id},
+    )
     try:
         generator = VideoGenerator(db)
         generation_variant_id = payload.generation_variant_id
@@ -2750,6 +2784,7 @@ async def import_campaign_performance_csv(
     campaign_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         csv_text = (await file.read()).decode("utf-8-sig")
@@ -2763,7 +2798,11 @@ async def import_campaign_performance_csv(
 
 
 @router.get("/campaign-performance/{campaign_id}/summary")
-def get_campaign_performance_summary(campaign_id: int, db: Session = Depends(get_db)):
+def get_campaign_performance_summary(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return CampaignPerformanceAggregator(db).summarize(campaign_id).model_dump(mode="json")
     except CampaignPerformanceDataError as exc:
@@ -2771,7 +2810,11 @@ def get_campaign_performance_summary(campaign_id: int, db: Session = Depends(get
 
 
 @router.get("/campaign-performance/{campaign_id}/scores")
-def get_campaign_performance_scores(campaign_id: int, db: Session = Depends(get_db)):
+def get_campaign_performance_scores(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return [item.model_dump(mode="json") for item in CampaignPerformanceScorer(db).latest_scores(campaign_id)]
     except CampaignPerformanceDataError as exc:
@@ -2779,7 +2822,11 @@ def get_campaign_performance_scores(campaign_id: int, db: Session = Depends(get_
 
 
 @router.get("/campaign-performance/{campaign_id}/recommendations")
-def get_campaign_performance_recommendations(campaign_id: int, db: Session = Depends(get_db)):
+def get_campaign_performance_recommendations(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return [item.model_dump(mode="json") for item in CampaignRecommendationEngine(db).list_recommendations(campaign_id)]
     except CampaignPerformanceDataError as exc:
@@ -2787,7 +2834,11 @@ def get_campaign_performance_recommendations(campaign_id: int, db: Session = Dep
 
 
 @router.post("/campaign-performance/recommendations/{recommendation_id}/accept")
-def accept_campaign_performance_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+def accept_campaign_performance_recommendation(
+    recommendation_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return CampaignRecommendationEngine(db).accept(recommendation_id).model_dump(mode="json")
     except CampaignPerformanceDataError as exc:
@@ -2795,7 +2846,11 @@ def accept_campaign_performance_recommendation(recommendation_id: int, db: Sessi
 
 
 @router.post("/campaign-performance/recommendations/{recommendation_id}/reject")
-def reject_campaign_performance_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
+def reject_campaign_performance_recommendation(
+    recommendation_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return CampaignRecommendationEngine(db).reject(recommendation_id).model_dump(mode="json")
     except CampaignPerformanceDataError as exc:
@@ -2803,7 +2858,11 @@ def reject_campaign_performance_recommendation(recommendation_id: int, db: Sessi
 
 
 @router.get("/campaign-performance/{campaign_id}/report")
-def get_campaign_performance_report(campaign_id: int, db: Session = Depends(get_db)):
+def get_campaign_performance_report(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return CampaignPerformanceReportService(db).build_report(campaign_id).model_dump(mode="json")
     except CampaignPerformanceDataError as exc:
@@ -3381,7 +3440,18 @@ def create_generator_video_job(payload: GeneratorVideoJobRequest, db: Session = 
 
 
 @router.post("/generator/run-real")
-def run_generator_real(payload: GeneratorRealRunRequest, db: Session = Depends(get_db)):
+def run_generator_real(
+    payload: GeneratorRealRunRequest,
+    db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
+):
+    require_real_spend_when_requested(
+        requested=payload.confirm_real_spend,
+        db=db,
+        user=user,
+        path="/api/generator/run-real",
+        payload={"product_id": payload.product_id, "provider": payload.video_provider},
+    )
     try:
         artifacts = GeneratorRunService(db).run_real(
             product_id=payload.product_id,
@@ -3406,7 +3476,15 @@ def run_generator_video_job(
     video_job_id: int,
     payload: GeneratorProviderRunRequest | None = None,
     db: Session = Depends(get_db),
+    user: PublicPilotUser = Depends(get_current_public_user),
 ):
+    require_real_spend_when_requested(
+        requested=bool(payload and payload.confirm_real_spend),
+        db=db,
+        user=user,
+        path=f"/api/generator/video-jobs/{video_job_id}/run",
+        payload={"video_job_id": video_job_id},
+    )
     video_job = get_or_404(db, models.VideoJob, video_job_id)
     try:
         video_job = GeneratorVideoService(db).start_provider_jobs(
@@ -3690,7 +3768,11 @@ def get_analytics_by_account(account_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/destination-connectors/connections")
-def create_destination_connector_connection(payload: DestinationConnectionCreateRequest, db: Session = Depends(get_db)):
+def create_destination_connector_connection(
+    payload: DestinationConnectionCreateRequest,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         connection = ConnectionRegistry(db).create(
             payload.destination_id,
@@ -3704,13 +3786,20 @@ def create_destination_connector_connection(payload: DestinationConnectionCreate
 
 
 @router.get("/destination-connectors/connections")
-def list_destination_connector_connections(db: Session = Depends(get_db)):
+def list_destination_connector_connections(
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     registry = ConnectionRegistry(db)
     return [registry.view(connection).model_dump(mode="json") for connection in registry.list()]
 
 
 @router.get("/destination-connectors/destinations/{destination_id}/connections")
-def list_destination_connections(destination_id: int, db: Session = Depends(get_db)):
+def list_destination_connections(
+    destination_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     registry = ConnectionRegistry(db)
     return [registry.view(connection).model_dump(mode="json") for connection in registry.list_for_destination(destination_id)]
 
@@ -3720,6 +3809,7 @@ def update_destination_connector_connection(
     connection_id: int,
     payload: DestinationConnectionPatchRequest,
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         connection = ConnectionRegistry(db).update(connection_id, **payload.model_dump(exclude_unset=True))
@@ -3729,7 +3819,11 @@ def update_destination_connector_connection(
 
 
 @router.post("/destination-connectors/connections/{connection_id}/check")
-def check_destination_connector_connection(connection_id: int, db: Session = Depends(get_db)):
+def check_destination_connector_connection(
+    connection_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return ConnectionRegistry(db).check(connection_id).model_dump(mode="json")
     except DestinationConnectorError as exc:
@@ -3741,6 +3835,7 @@ def sync_destination_connector_connection(
     connection_id: int,
     payload: DestinationConnectionSyncRequest | None = None,
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         payload = payload or DestinationConnectionSyncRequest()
@@ -3759,6 +3854,7 @@ async def import_destination_connector_metrics_csv(
     campaign_id: int | None = Form(None),
     connection_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     try:
         text = (await file.read()).decode("utf-8-sig")
@@ -3778,6 +3874,7 @@ def list_destination_connector_metrics(
     campaign_id: int | None = None,
     destination_id: int | None = None,
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
 ):
     query = select(models.DestinationPostMetric).order_by(models.DestinationPostMetric.id.desc())
     if campaign_id:
@@ -3809,7 +3906,11 @@ def list_destination_connector_metrics(
 
 
 @router.get("/destination-connectors/syncs/{sync_id}")
-def get_destination_connector_sync(sync_id: int, db: Session = Depends(get_db)):
+def get_destination_connector_sync(
+    sync_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     sync = get_or_404(db, models.DestinationMetricSync, sync_id)
     return {
         "id": sync.id,
@@ -3828,17 +3929,29 @@ def get_destination_connector_sync(sync_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/destination-connectors/destinations/{destination_id}/metrics")
-def list_destination_connector_destination_metrics(destination_id: int, db: Session = Depends(get_db)):
+def list_destination_connector_destination_metrics(
+    destination_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     return list_destination_connector_metrics(destination_id=destination_id, db=db)
 
 
 @router.get("/destination-connectors/campaigns/{campaign_id}/metrics-summary")
-def get_destination_connector_campaign_summary(campaign_id: int, db: Session = Depends(get_db)):
+def get_destination_connector_campaign_summary(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     return DestinationMetricsCollector(db).campaign_summary(campaign_id).model_dump(mode="json")
 
 
 @router.get("/destination-control-tower/campaigns/{campaign_id}/snapshot")
-def get_destination_control_snapshot(campaign_id: int, db: Session = Depends(get_db)):
+def get_destination_control_snapshot(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return TowerService(db).latest_or_refresh(campaign_id).model_dump(mode="json")
     except DestinationControlTowerError as exc:
@@ -3846,7 +3959,11 @@ def get_destination_control_snapshot(campaign_id: int, db: Session = Depends(get
 
 
 @router.post("/destination-control-tower/campaigns/{campaign_id}/refresh")
-def refresh_destination_control_snapshot(campaign_id: int, db: Session = Depends(get_db)):
+def refresh_destination_control_snapshot(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return TowerService(db).refresh(campaign_id).model_dump(mode="json")
     except DestinationControlTowerError as exc:
@@ -3854,7 +3971,11 @@ def refresh_destination_control_snapshot(campaign_id: int, db: Session = Depends
 
 
 @router.get("/destination-control-tower/campaigns/{campaign_id}/rows")
-def get_destination_control_rows(campaign_id: int, db: Session = Depends(get_db)):
+def get_destination_control_rows(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return [row.model_dump(mode="json") for row in TowerService(db).rows(campaign_id)]
     except DestinationControlTowerError as exc:
@@ -3862,7 +3983,11 @@ def get_destination_control_rows(campaign_id: int, db: Session = Depends(get_db)
 
 
 @router.get("/destination-control-tower/campaigns/{campaign_id}/report")
-def get_destination_control_report(campaign_id: int, db: Session = Depends(get_db)):
+def get_destination_control_report(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return DestinationControlReportService(db).build(campaign_id).model_dump(mode="json")
     except DestinationControlTowerError as exc:
@@ -3870,7 +3995,11 @@ def get_destination_control_report(campaign_id: int, db: Session = Depends(get_d
 
 
 @router.post("/destination-control-tower/rows/{row_id}/action")
-def run_destination_control_row_action(row_id: int, db: Session = Depends(get_db)):
+def run_destination_control_row_action(
+    row_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return TowerService(db).apply_action(row_id)
     except DestinationControlTowerError as exc:
@@ -4081,7 +4210,11 @@ def review_participant_submission(submission_id: int, payload: ParticipantSubmis
 
 
 @router.post("/participant-portal/payout-rules")
-def create_payout_rule(payload: PayoutRuleCreateRequest, db: Session = Depends(get_db)):
+def create_payout_rule(
+    payload: PayoutRuleCreateRequest,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(PAYOUT_MANAGE)),
+):
     rule = PayoutService(db).create_rule(**payload.model_dump())
     return {
         "id": rule.id,
@@ -4108,7 +4241,11 @@ def list_participant_payouts(participant_id: int, db: Session = Depends(get_db))
 
 
 @router.post("/participant-portal/payouts/{payout_id}/mark-paid")
-def mark_participant_payout_paid(payout_id: int, db: Session = Depends(get_db)):
+def mark_participant_payout_paid(
+    payout_id: int,
+    db: Session = Depends(get_db),
+    _gate=Depends(require_public_pilot_action(PAYOUT_MANAGE)),
+):
     try:
         return payout_payload(PayoutService(db).mark_paid(payout_id))
     except ParticipantPortalError as exc:
@@ -4183,7 +4320,11 @@ def tracking_link_payload(link: models.TrackingLink) -> dict[str, Any]:
 
 
 @router.post("/metrics-intake/sources")
-def create_metrics_source(payload: MetricsSourceCreateRequest, db: Session = Depends(get_db)):
+def create_metrics_source(
+    payload: MetricsSourceCreateRequest,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         source = MetricsSourceRegistry(db).create(**payload.model_dump())
         return metrics_source_payload(source)
@@ -4192,7 +4333,12 @@ def create_metrics_source(payload: MetricsSourceCreateRequest, db: Session = Dep
 
 
 @router.get("/metrics-intake/sources")
-def list_metrics_sources(platform: str | None = None, source_type: str | None = None, db: Session = Depends(get_db)):
+def list_metrics_sources(
+    platform: str | None = None,
+    source_type: str | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     sources = MetricsSourceRegistry(db).list(platform=platform, source_type=source_type)
     return [metrics_source_payload(source) for source in sources]
 
@@ -4214,12 +4360,21 @@ def get_metrics_platform_matrix():
 
 
 @router.get("/metrics-intake/destinations/{destination_id}/official-readiness")
-def get_metrics_official_readiness(destination_id: int, platform: str | None = None, db: Session = Depends(get_db)):
+def get_metrics_official_readiness(
+    destination_id: int,
+    platform: str | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     return OfficialConnectorGateway(db).readiness(destination_id, platform=platform)
 
 
 @router.post("/metrics-intake/tracking-links")
-def create_tracking_link(payload: TrackingLinkCreateRequest, db: Session = Depends(get_db)):
+def create_tracking_link(
+    payload: TrackingLinkCreateRequest,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         link = TrackingLinkService(db).create_for_task(**payload.model_dump())
         return tracking_link_payload(link)
@@ -4228,7 +4383,12 @@ def create_tracking_link(payload: TrackingLinkCreateRequest, db: Session = Depen
 
 
 @router.get("/metrics-intake/tracking-links")
-def list_tracking_links(campaign_id: int | None = None, publishing_task_id: int | None = None, db: Session = Depends(get_db)):
+def list_tracking_links(
+    campaign_id: int | None = None,
+    publishing_task_id: int | None = None,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     links = TrackingLinkService(db).list(campaign_id=campaign_id, publishing_task_id=publishing_task_id)
     return [tracking_link_payload(link) for link in links]
 
@@ -4237,6 +4397,7 @@ def list_tracking_links(campaign_id: int | None = None, publishing_task_id: int 
 def import_metrics_csv(
     payload: MetricsCSVImportRequest,
     db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
     _gate=Depends(require_public_pilot_action(METRICS_IMPORT)),
 ):
     try:
@@ -4247,7 +4408,11 @@ def import_metrics_csv(
 
 
 @router.get("/metrics-intake/batches/{batch_id}")
-def get_metrics_batch(batch_id: int, db: Session = Depends(get_db)):
+def get_metrics_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     batch = get_or_404(db, models.MetricsIntakeBatch, batch_id)
     return {
         "id": batch.id,
@@ -4267,7 +4432,11 @@ def get_metrics_batch(batch_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/metrics-intake/attribute-batch/{batch_id}")
-def attribute_metrics_batch(batch_id: int, db: Session = Depends(get_db)):
+def attribute_metrics_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     try:
         return AttributionService(db).attribute_batch(batch_id).model_dump(mode="json")
     except MetricsIntakeError as exc:
@@ -4275,12 +4444,20 @@ def attribute_metrics_batch(batch_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/metrics-intake/campaigns/{campaign_id}/funnel")
-def get_campaign_funnel(campaign_id: int, db: Session = Depends(get_db)):
+def get_campaign_funnel(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     return FunnelService(db).campaign_funnel(campaign_id)
 
 
 @router.get("/metrics-intake/campaigns/{campaign_id}/unmatched")
-def get_campaign_unmatched_rows(campaign_id: int, db: Session = Depends(get_db)):
+def get_campaign_unmatched_rows(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    _legacy_scope=Depends(require_legacy_global_metrics_local_mode),
+):
     return {"campaign_id": campaign_id, "unmatched_rows": FunnelService(db).unmatched_rows(campaign_id)}
 
 

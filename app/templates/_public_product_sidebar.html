@@ -16,6 +16,7 @@
     <small>{{ user.profile.email }}</small>
     <span>{{ role }}</span>
     <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
       <button class="public-logout" type="submit">Выйти</button>
     </form>
   </div>

@@ -4,8 +4,8 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
-os.environ["QVF_MEDIA_ROOT"] = "test_media"
+os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
+os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 os.environ["QVF_AUTH_REQUIRED"] = "false"
 
 import pytest
@@ -132,6 +132,7 @@ def test_service_whitelist_source_rules_and_size_limits_are_enforced():
         "session_started",
         "page_viewed",
         "primary_action_clicked",
+        "product_created",
         "product_selected",
         "asset_gate_passed",
         "generation_succeeded",
@@ -153,6 +154,13 @@ def test_service_whitelist_source_rules_and_size_limits_are_enforced():
             service.record_event(event_name="arbitrary_client_event", **base)
         with pytest.raises(TelemetryValidationError, match="server-only"):
             service.record_event(event_name="generation_succeeded", source="web", **base)
+        with pytest.raises(TelemetryValidationError, match="server-only"):
+            service.record_event(
+                event_name="product_created",
+                source="web",
+                idempotency_key="event:product-created-web",
+                **{key: value for key, value in base.items() if key != "idempotency_key"},
+            )
         with pytest.raises(TelemetryValidationError, match="cannot exceed"):
             service.record_event(
                 event_name="page_viewed",

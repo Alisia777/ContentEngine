@@ -21,6 +21,64 @@
     const characterPreview = form.querySelector("[data-character-preview]");
     const productPreview = form.querySelector("[data-product-preview]");
     const previewUrls = new WeakMap();
+    const productId = form.querySelector('[name="product_id"]')?.value || "unknown";
+    const autosaveKey = `qvf.productUgcTextDraft.v1:${productId}`;
+    const autosaveInputs = [...form.querySelectorAll(
+      'input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea',
+    )].filter((input) => input.name);
+    const autosaveStatus = document.createElement("p");
+    autosaveStatus.className = "recipe-autosave-status";
+    autosaveStatus.setAttribute("role", "status");
+    autosaveStatus.textContent = "Текстовый черновик сохраняется в этой вкладке. Фото нужно выбрать заново.";
+    form.querySelector(".recipe-submit-bar")?.prepend(autosaveStatus);
+    let autosaveTimer = null;
+
+    const restoreTextDraft = () => {
+      try {
+        if (form.dataset.draftCreated === "true") {
+          window.sessionStorage.removeItem(autosaveKey);
+          return;
+        }
+        const raw = window.sessionStorage.getItem(autosaveKey);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!saved?.values || Date.now() - Number(saved.savedAt || 0) > 24 * 60 * 60 * 1000) {
+          window.sessionStorage.removeItem(autosaveKey);
+          return;
+        }
+        autosaveInputs.forEach((input) => {
+          if (Object.prototype.hasOwnProperty.call(saved.values, input.name)) {
+            input.value = saved.values[input.name];
+          }
+        });
+        autosaveStatus.textContent = "Текстовый черновик восстановлен. Проверьте поля и заново выберите фото.";
+      } catch (_error) {
+        // Autosave is a convenience and must never block the generation form.
+      }
+    };
+
+    const saveTextDraft = () => {
+      try {
+        const values = {};
+        autosaveInputs.forEach((input) => {
+          values[input.name] = String(input.value || "").slice(0, 5000);
+        });
+        window.sessionStorage.setItem(autosaveKey, JSON.stringify({ savedAt: Date.now(), values }));
+      } catch (_error) {
+        // The form remains fully usable when session storage is unavailable.
+      }
+    };
+
+    const scheduleTextDraftSave = () => {
+      if (autosaveTimer) window.clearTimeout(autosaveTimer);
+      autosaveTimer = window.setTimeout(saveTextDraft, 350);
+    };
+
+    restoreTextDraft();
+    autosaveInputs.forEach((input) => {
+      input.addEventListener("input", scheduleTextDraftSave);
+      input.addEventListener("change", scheduleTextDraftSave);
+    });
 
     const checkedValue = (inputs) => inputs.find((input) => input.checked)?.value;
     const hasFile = (input) => Boolean(input?.files?.length);
@@ -269,7 +327,7 @@
     const active = new Set(["provider_launching", "provider_submitted"]);
     const timer = window.setInterval(async () => {
       try {
-        const response = await fetch(`/api/runway-recipes/product-ugc/${draftId}`, {
+        const response = await fetch(`/api/public-pilot/product-ugc/${draftId}`, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });

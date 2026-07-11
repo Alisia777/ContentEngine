@@ -22,14 +22,46 @@
       <label class="recipe-field">
         <span>Товар / SKU</span>
         <select name="product_id" required data-product-picker>
-          <option value="">Выберите товар</option>
+          <option value="">{{ 'Выберите товар' if products else 'Сначала добавьте товар ниже' }}</option>
           {% for product in products %}
           <option value="{{ product.id }}" {{ 'selected' if selected_product and selected_product.id == product.id else '' }}>{{ product.sku }} · {{ product.title }}</option>
           {% endfor %}
         </select>
       </label>
-      <button class="altea-glow-button" type="submit">Открыть форму</button>
+      <button class="altea-glow-button" type="submit" {{ 'disabled' if not products else '' }}>Продолжить с товаром</button>
     </form>
+
+    <details class="altea-card public-product-create altea-reveal" {{ 'open' if not products else '' }}>
+      <summary>Добавить новый товар</summary>
+      <p>Для старта достаточно SKU, бренда и названия. Фото добавляются на следующем шаге.</p>
+      <form method="post" action="/mvp-launch/products/create" class="recipe-field-grid">
+        <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+        <label class="recipe-field"><span>SKU / ваш артикул</span><input name="sku" maxlength="120" required placeholder="Например: BB-MANGO-01"></label>
+        <label class="recipe-field"><span>Бренд</span><input name="brand" maxlength="120" required></label>
+        <label class="recipe-field recipe-field--wide"><span>Название товара</span><input name="title" maxlength="255" required></label>
+        <label class="recipe-field"><span>Площадка</span><select name="marketplace"><option value="wildberries">Wildberries</option><option value="">Пока не выбрана</option></select></label>
+        <label class="recipe-field"><span>Категория</span><input name="category" maxlength="120" placeholder="Снэк, косметика, одежда..."></label>
+        <label class="recipe-field recipe-field--wide"><span>Ссылка на товар</span><input name="product_url" type="url" maxlength="500" placeholder="https://..."></label>
+        <div class="public-panel-action"><button class="altea-glow-button" type="submit" data-track-event="onboarding_started" data-track-target="product-create">Создать и добавить фото</button></div>
+      </form>
+    </details>
+
+    {% if legacy_products %}
+    <details class="altea-card public-legacy-products altea-reveal">
+      <summary>Ранее созданные товары без владельца · {{ legacy_products|length }}</summary>
+      <p>После обновления старые записи нужно один раз явно закрепить за текущей организацией. Действие доступно только владельцу и сохраняется в аудите.</p>
+      <div class="public-legacy-product-list">
+        {% for product in legacy_products %}
+        <form method="post" action="/mvp-launch/products/{{ product.id }}/claim">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <div><strong>{{ product.sku }}</strong><small>{{ product.title }}</small></div>
+          <label class="recipe-confirm"><input type="checkbox" name="confirm_ownership" value="true" required><span>Это товар нашей организации</span></label>
+          <button class="public-link-button" type="submit">Принять товар</button>
+        </form>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
 
     {% if recipe_draft %}
     {% set recipe_running = recipe_draft.status in ['provider_launching', 'provider_submitted'] %}
@@ -123,6 +155,7 @@
         </div>
         {% if recipe_run_readiness.ready %}
         <form class="recipe-paid-form" method="post" action="/mvp-launch/product-ugc/{{ recipe_draft.id }}/run" data-paid-run-form>
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
           <label class="recipe-confirm">
             <input type="checkbox" name="confirm_single_paid_run" value="true" required>
             <span>Запустить ровно один paid task для этого draft. Повторный клик не создаст второй task.</span>
@@ -174,6 +207,7 @@
 
         {% if recipe_draft.human_review_status == 'needs_human_review' %}
         <form class="recipe-review-form" method="post" action="/mvp-launch/product-ugc/{{ recipe_draft.id }}/review">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
           <div class="recipe-field-grid">
             <label class="recipe-field"><span>Решение</span><select name="review_status" required><option value="">Выберите</option><option value="approved">Approve</option><option value="needs_regeneration">Needs regeneration</option><option value="rejected">Reject</option></select></label>
             <label class="recipe-field"><span>Что увидели в ролике</span><textarea name="review_notes" rows="4" required placeholder="Упаковка, продукт, руки, речь, применение, CTA..."></textarea></label>
@@ -198,8 +232,16 @@
     {% endif %}
 
     {% if selected_product %}
-    <form class="recipe-form altea-reveal" method="post" action="/mvp-launch/product-ugc-draft" enctype="multipart/form-data" data-recipe-form data-product-profile="{{ selected_profile }}">
+    <form class="recipe-form altea-reveal" method="post" action="/mvp-launch/product-ugc-draft" enctype="multipart/form-data" data-recipe-form data-product-profile="{{ selected_profile }}" data-draft-created="{{ 'true' if recipe_draft else 'false' }}">
+      <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
       <input type="hidden" name="product_id" value="{{ selected_product.id }}">
+      <nav class="recipe-step-nav" aria-label="Шаги создания ролика">
+        <a href="#recipe-product-title"><span>1</span>Товар</a>
+        <a href="#recipe-refs-title"><span>2</span>Фото</a>
+        <a href="#recipe-creator-title"><span>3</span>Блогер</a>
+        <a href="#recipe-task-title"><span>4</span>Идея</a>
+        <a href="#recipe-output-title"><span>5</span>Формат</a>
+      </nav>
       <div class="recipe-workspace">
         <div class="recipe-form-fields">
 
@@ -221,6 +263,11 @@
         <label class="recipe-field recipe-field--wide">
           <span>Product info <small>до 2500 знаков</small></span>
           <textarea name="product_info" minlength="20" maxlength="2500" rows="8" required data-brief-required>{{ default_product_info }}</textarea>
+        </label>
+        <label class="recipe-field recipe-field--wide">
+          <span>Точные надписи упаковки для OCR <small>через запятую, 2–12 ключевых фрагментов</small></span>
+          <textarea name="required_packaging_tokens" minlength="2" maxlength="900" rows="3" required data-brief-required placeholder="Например: BOMBBAR, Mango Kunafa, 60 g"></textarea>
+          <small>Перепишите только видимые надписи с выбранного главного фото. Перед одобрением система потребует найти их в настоящих кадрах ролика.</small>
         </label>
       </section>
 

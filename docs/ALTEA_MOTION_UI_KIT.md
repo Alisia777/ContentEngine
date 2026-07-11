@@ -58,11 +58,11 @@ python -m uvicorn app.main:app --reload
 Open:
 
 ```text
-http://127.0.0.1:8000/altea-motion/splash
-http://127.0.0.1:8000/altea-motion/login
-http://127.0.0.1:8000/altea-motion/auth-loading
-http://127.0.0.1:8000/altea-motion/dashboard-loading
-http://127.0.0.1:8000/altea-motion/dashboard
+http://127.0.0.1:8014/altea-motion/splash
+http://127.0.0.1:8014/altea-motion/login
+http://127.0.0.1:8014/altea-motion/auth-loading
+http://127.0.0.1:8014/altea-motion/dashboard-loading
+http://127.0.0.1:8014/altea-motion/dashboard
 ```
 
 ## Verification

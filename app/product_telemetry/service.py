@@ -29,6 +29,7 @@ UX_EVENT_NAMES = frozenset(
 MILESTONE_EVENT_NAMES = frozenset(
     {
         "onboarding_started",
+        "product_created",
         "product_selected",
         "asset_gate_passed",
         "prompt_ready",
@@ -49,6 +50,7 @@ ALLOWED_EVENT_NAMES = UX_EVENT_NAMES | MILESTONE_EVENT_NAMES
 ALLOWED_SOURCES = frozenset({"web", "server"})
 SERVER_ONLY_EVENT_NAMES = frozenset(
     {
+        "product_created",
         "asset_gate_passed",
         "prompt_ready",
         "generation_succeeded",

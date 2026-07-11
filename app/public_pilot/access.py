@@ -58,38 +58,56 @@ class PublicPilotAccessService:
             modules.append(module)
 
             existing_lessons = {lesson.title: lesson for lesson in module.lessons}
+            existing_lessons_by_order = {lesson.order_index: lesson for lesson in module.lessons}
+            retained_lesson_ids: set[int] = set()
             for index, lesson_data in enumerate(module_data.get("lessons", []), start=1):
-                lesson = existing_lessons.get(lesson_data["title"])
+                order_index = index * 10
+                lesson = existing_lessons.get(lesson_data["title"]) or existing_lessons_by_order.get(order_index)
                 if lesson is None:
                     lesson = models.PublicTrainingLesson(module_id=module.id, title=lesson_data["title"], content_markdown="")
                     self.db.add(lesson)
+                    self.db.flush()
+                lesson.title = lesson_data["title"]
                 lesson.content_markdown = lesson_data["content_markdown"]
-                lesson.order_index = index * 10
+                lesson.order_index = order_index
+                retained_lesson_ids.add(lesson.id)
+            for stale_lesson in module.lessons:
+                if stale_lesson.id not in retained_lesson_ids:
+                    self.db.delete(stale_lesson)
 
             existing_questions = {question.question_text: question for question in module.questions}
+            existing_questions_by_order = {question.order_index: question for question in module.questions}
+            retained_question_ids: set[int] = set()
             for index, question_data in enumerate(module_data.get("questions", []), start=1):
-                question = existing_questions.get(question_data["question_text"])
+                order_index = index * 10
+                question = existing_questions.get(question_data["question_text"]) or existing_questions_by_order.get(order_index)
                 if question is None:
                     question = models.TrainingQuestion(module_id=module.id, question_text=question_data["question_text"])
                     self.db.add(question)
+                    self.db.flush()
+                question.question_text = question_data["question_text"]
                 question.question_type = question_data.get("question_type", "single_choice")
                 question.options_json = question_data.get("options", [])
                 question.correct_answer_json = question_data.get("correct_answer", [])
                 question.explanation = question_data.get("explanation")
-                question.order_index = index * 10
+                question.order_index = order_index
+                retained_question_ids.add(question.id)
+            for stale_question in module.questions:
+                if stale_question.id not in retained_question_ids:
+                    self.db.delete(stale_question)
         self.db.commit()
         return modules
 
     def certification_codes(self, user_profile_id: int | None) -> set[str]:
         if user_profile_id is None:
             return set()
-        rows = self.db.scalars(
-            select(models.TrainingCertification).where(
-                models.TrainingCertification.user_profile_id == user_profile_id,
-                models.TrainingCertification.status == "passed",
-            )
-        ).all()
-        return {row.module_code for row in rows}
+        # Local import avoids a package cycle: the learning service reads the
+        # public training catalog, while app.public_pilot exports this service.
+        from app.novice_learning_path import NoviceLearningPathService
+
+        return NoviceLearningPathService(self.db).verified_certification_codes(
+            user_profile_id=user_profile_id
+        )
 
     def grant_certification(self, user_profile_id: int, module_code: str) -> models.TrainingCertification:
         module = self.db.scalar(select(models.TrainingModule).where(models.TrainingModule.code == module_code))

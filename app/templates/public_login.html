@@ -4,15 +4,15 @@
   <div class="public-login__brand altea-reveal">
     <img class="altea-logo-mark altea-logo-mark--large" src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="ALTEA">
     <div class="altea-wordmark" aria-label="ALTEA"><span>A</span><span>L</span><span>T</span><span>E</span><span>A</span></div>
-    <p class="altea-subtitle">CONTENT ENGINE</p>
+    <p class="altea-subtitle">КОНТЕНТ ИИ ЗАВОД · CONTENT ENGINE</p>
   </div>
   <form class="altea-card public-login-card altea-reveal" method="post" action="/login">
     <header class="public-card-head">
       <p class="public-eyebrow">Рабочая платформа</p>
-      <h1>Вход в пространство</h1>
-      <p>После входа система покажет текущее состояние, один следующий шаг и проведёт до проверки результата.</p>
+      <h1>Вход в Контент ИИ Завод</h1>
+      <p>После входа система покажет один следующий шаг и проведёт от товара до измеримого результата.</p>
     </header>
-    {% if error %}<p class="public-alert">Вход не завершён: {{ error }}</p>{% endif %}
+    {% if error_message %}<p class="public-alert" role="alert">{{ error_message }}</p>{% endif %}
     <label class="altea-field">
       <span>Логин</span>
       <span class="altea-input-wrap">
@@ -28,7 +28,7 @@
       </span>
     </label>
     <button class="altea-glow-button" type="submit">Войти</button>
-    <p class="public-muted">Все рабочие кабинеты, видео и generation reports доступны только после входа.</p>
+    <p class="public-muted">Рабочие кабинеты, видео и отчёты генерации доступны только после входа.</p>
     <p class="public-muted">Ключи провайдеров и пароли не выводятся в интерфейс и не сохраняются в репозитории.</p>
   </form>
 </section>

@@ -2,11 +2,72 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      # Auth is disabled only for this loopback development profile.
+      - "127.0.0.1:8014:8014"
+    restart: unless-stopped
     environment:
       QVF_DATABASE_URL: sqlite:///./qharisma.db
       QVF_MEDIA_ROOT: media
+      QVF_PUBLIC_PILOT_MODE: "true"
+      QVF_AUTH_REQUIRED: "false"
+      QVF_PUBLIC_PILOT_INVITE_ONLY: "false"
+      QVF_MOCK_PROVIDER_ENABLED: "true"
+      QVF_GENERATION_MODE: "${QVF_GENERATION_MODE:-mock}"
+      QVF_LLM_PROVIDER: "${QVF_LLM_PROVIDER:-mock}"
+      QVF_VIDEO_PROVIDER: "${QVF_VIDEO_PROVIDER:-mock}"
+      QVF_ALLOW_REAL_SPEND: "${QVF_ALLOW_REAL_SPEND:-false}"
+      QVF_FFMPEG_PATH: ffmpeg
+      QVF_FFPROBE_PATH: ffprobe
+      QVF_TESSERACT_PATH: tesseract
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      RUNWAYML_API_SECRET: "${RUNWAYML_API_SECRET:-}"
     volumes:
       - .:/app
       - ./media:/app/media
+
+  product-ugc-worker:
+    build: .
+    command:
+      - python
+      - scripts/run_product_ugc_queue_worker.py
+      - --poll-seconds
+      - "2"
+      - --lease-seconds
+      - "300"
+      - --stale-after-seconds
+      - "300"
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      QVF_DATABASE_URL: sqlite:///./qharisma.db
+      QVF_MEDIA_ROOT: media
+      QVF_PUBLIC_PILOT_MODE: "true"
+      QVF_AUTH_REQUIRED: "false"
+      QVF_PUBLIC_PILOT_INVITE_ONLY: "false"
+      QVF_MOCK_PROVIDER_ENABLED: "true"
+      QVF_GENERATION_MODE: "${QVF_GENERATION_MODE:-mock}"
+      QVF_LLM_PROVIDER: "${QVF_LLM_PROVIDER:-mock}"
+      QVF_VIDEO_PROVIDER: "${QVF_VIDEO_PROVIDER:-mock}"
+      QVF_ALLOW_REAL_SPEND: "${QVF_ALLOW_REAL_SPEND:-false}"
+      QVF_FFMPEG_PATH: ffmpeg
+      QVF_FFPROBE_PATH: ffprobe
+      QVF_TESSERACT_PATH: tesseract
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      RUNWAYML_API_SECRET: "${RUNWAYML_API_SECRET:-}"
+    volumes:
+      - .:/app
+      - ./media:/app/media
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - scripts/run_product_ugc_queue_worker.py
+        - --health-check
+        - --healthy-within-seconds
+        - "120"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 

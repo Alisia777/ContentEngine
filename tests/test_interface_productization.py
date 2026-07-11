@@ -3,8 +3,8 @@ from __future__ import annotations
 import inspect
 import os
 
-os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
-os.environ["QVF_MEDIA_ROOT"] = "test_media"
+os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
+os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 os.environ["QVF_AUTH_REQUIRED"] = "false"
 os.environ["QVF_GENERATION_MODE"] = "mock"
 os.environ["QVF_ALLOW_REAL_SPEND"] = "false"
@@ -57,7 +57,8 @@ def test_workbench_renders_single_product_interface():
     assert response.status_code == 200
     assert "Рабочая область" in response.text
     assert "Готовность товара" in response.text
-    assert "Продолжить запуск MVP" in response.text
+    assert 'data-track-event="primary_action_clicked"' in response.text
+    assert ">Продолжить</a>" in response.text
     assert "One-video QA" not in response.text
     assert "Metrics intake" not in response.text
 

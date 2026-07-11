@@ -4,8 +4,8 @@ import base64
 import json
 import os
 
-os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
-os.environ["QVF_MEDIA_ROOT"] = "test_media"
+os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
+os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 os.environ["QVF_AUTH_REQUIRED"] = "false"
 os.environ["QVF_GENERATION_MODE"] = "mock"
 os.environ["QVF_ALLOW_REAL_SPEND"] = "false"
@@ -577,6 +577,7 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
     assert 'name="interaction_mode"' in page.text
     assert 'name="proof_reference_type"' in page.text
     assert 'name="character_product_free_confirmed"' in page.text
+    assert 'name="required_packaging_tokens"' in page.text
     assert 'data-recipe-readiness' in page.text
     assert 'data-contract-gate="references"' in page.text
 
@@ -585,6 +586,7 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
         data={
             "product_id": str(product_id),
             "variant_key": "rose-lumiere",
+            "required_packaging_tokens": "ALTEA, Rose Lumiere, 10 ml",
             "task": "Показать блеск в повседневном макияже.",
             "creator_profile": "Русскоязычная beauty-блогер 27 лет.",
             "setting": "Перед зеркалом утром.",
