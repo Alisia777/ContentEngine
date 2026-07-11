@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 
 from app import models
 from app.database import SessionLocal, init_db
+from app.novice_learning_path import NoviceLearningPathService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import ensure_public_pilot_user
 
@@ -52,11 +53,30 @@ def seed(with_certifications: bool, reset: bool) -> dict:
                 display_name=f"ALTEA {role.title()}",
                 role=role,
                 supabase_user_id=f"demo-{role}",
+                update_existing_role=True,
             )
             users.append(user)
             if with_certifications:
                 for module_code in ROLE_CERTIFICATIONS.get(role, []):
-                    access.grant_certification(user.profile.id, module_code)
+                    questions = db.scalars(
+                        select(models.TrainingQuestion)
+                        .join(models.TrainingModule)
+                        .where(models.TrainingModule.code == module_code)
+                    ).all()
+                    answers = {
+                        str(question.id): (
+                            list(question.correct_answer_json)
+                            if question.question_type == "multi_select"
+                            else question.correct_answer_json[0]
+                        )
+                        for question in questions
+                    }
+                    NoviceLearningPathService(db).submit_quiz(
+                        user_profile_id=user.profile.id,
+                        organization_id=user.organization.id,
+                        module_code=module_code,
+                        answers=answers,
+                    )
 
         return {
             "organization": users[0].organization.name if users else "ALTEA Beauty",

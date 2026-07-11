@@ -25,14 +25,14 @@ from app.intelligence.types import AllowedClaim
 from app.one_video_acceptance.errors import OneVideoAcceptanceDataError
 from app.one_video_acceptance.mvp_scorecard import MVPScorecardBuilder
 from app.one_video_acceptance.product_scene_policy import ProductScenePolicyService
-from app.one_video_acceptance.prompt_specializer import ACCEPTANCE_CHECKLIST, BombbarPromptSpecializer
+from app.one_video_acceptance.prompt_specializer import ProductUsePromptSpecializer
 from app.one_video_acceptance.types import OneVideoRenderPlanOutput, OneVideoScene, ProductScenePolicyOutput
 
 
-class BombbarOneVideoRenderPlanner:
+class ProductUseVideoRenderPlanner:
     def __init__(self, db: Session):
         self.db = db
-        self.specializer = BombbarPromptSpecializer()
+        self.specializer = ProductUsePromptSpecializer()
 
     def build(
         self,
@@ -46,7 +46,7 @@ class BombbarOneVideoRenderPlanner:
         if not product:
             raise OneVideoAcceptanceDataError(f"Product {product_id} not found.")
         if duration_seconds != 15:
-            raise OneVideoAcceptanceDataError("Bombbar one-video acceptance currently supports exactly 15 seconds.")
+            raise OneVideoAcceptanceDataError("One-video acceptance currently supports exactly 15 seconds.")
 
         self._ensure_execution_dependencies(product)
         policy = ProductScenePolicyService(self.db).evaluate(product_id, provider=provider, label_accuracy_required=True)
@@ -87,7 +87,7 @@ class BombbarOneVideoRenderPlanner:
             scene_plan_json=[scene.model_dump(mode="json") for scene in scenes],
             prompt_preview_json=prompt_preview,
             negative_prompt=prompt_preview["negative_prompt"],
-            acceptance_checklist_json=ACCEPTANCE_CHECKLIST,
+            acceptance_checklist_json=prompt_preview["quality_checklist"],
             blockers_json=policy.blockers,
             warnings_json=policy.warnings,
         )
@@ -136,6 +136,8 @@ class BombbarOneVideoRenderPlanner:
         )
 
     def _scene_plan(self, product: models.Product, policy: ProductScenePolicyOutput) -> list[OneVideoScene]:
+        if policy.product_profile != "food_snack":
+            return self._generic_scene_plan(product, policy)
         common_safety = [
             "Russian voiceover only, natural speech, no robotic sales tone",
             "sporty woman 25-30 presents the product, no child-looking creator",
@@ -144,20 +146,51 @@ class BombbarOneVideoRenderPlanner:
             "do not show unsafe bite or macro texture when policy blocks edible scenes",
             "keep captions short and inside safe 9:16 margins",
         ]
-        if policy.edible_kit_ready:
+        if policy.edible_kit_ready and policy.provider_generated_product_allowed:
             proof_visual = (
                 "The creator shows an already unwrapped bite-sized piece only if it matches approved edible references, "
                 "then gives a small natural reaction while the locked wrapper stays visible nearby."
             )
             proof_visibility = "Approved edible reference may appear briefly; wrapper remains visible as identity anchor."
             proof_avoid = ["generic bar texture", "wrapper bite", "invented filling"]
-        else:
+        elif policy.edible_kit_ready:
+            proof_visual = (
+                "Use the exact approved bite/use video or edible cutaway as a controlled insert, then return to the creator reaction; "
+                "the provider must not redraw the wrapper, filling or bite texture."
+            )
+            proof_visibility = "Approved edible/use insert plus exact packshot overlay; no provider-generated SKU identity."
+            proof_avoid = ["provider-generated wrapper", "provider-generated filling", "variant substitution"]
+        elif policy.cutaway_proof_allowed:
             proof_visual = (
                 "Show approved cutaway/reference insert as a controlled overlay, then cut back to creator reaction with coffee; "
                 "no AI-generated bite, no chew close-up, no invented texture."
             )
             proof_visibility = "No generated unwrapped bar. Use approved cutaway insert, closed wrapper, packshot overlay."
             proof_avoid = ["bite scene", "chewing close-up", "AI-generated unwrapped macro", "muesli-like texture"]
+        else:
+            proof_visual = (
+                "Keep the creator on camera in a real snack context and use only the exact approved front packshot as a static overlay; "
+                "do not generate wrapper handling, an unwrapped product, a cutaway, a bite, or food texture."
+            )
+            proof_visibility = "Exact packshot overlay only. No provider-generated packaging or edible product."
+            proof_avoid = ["generated wrapper in hand", "unwrapped product", "cutaway", "bite scene", "food macro", "invented filling"]
+
+        generated_wrapper_allowed = policy.wrapper_scene_allowed and policy.provider_generated_packaging_allowed
+        hook_visual = (
+            "Creator looks into camera after a workout or walk, holding the closed product wrapper naturally at chest level."
+            if generated_wrapper_allowed
+            else "Creator looks into camera after a workout or walk; the product appears only as an exact static packshot overlay."
+        )
+        context_visual = (
+            "Creator puts the closed wrapper near a coffee cup or gym bag, talking like a real buyer."
+            if generated_wrapper_allowed
+            else "Creator shows her coffee or gym-bag context while the exact product packshot remains a static overlay."
+        )
+        reason_visual = (
+            "Creator presents the closed wrapper, with a packshot overlay locking all label details."
+            if generated_wrapper_allowed
+            else "Creator explains why the format fits her day; use only the exact approved packshot overlay for product identity."
+        )
 
         scenes = [
             OneVideoScene(
@@ -167,8 +200,8 @@ class BombbarOneVideoRenderPlanner:
                 duration_seconds=2,
                 spoken_line="Если тоже берёшь что-то сладкое на бегу - покажу одну находку.",
                 caption="Сладкое на бегу?",
-                visual="Creator looks into camera after a workout or walk, holding the closed Bombbar wrapper naturally at chest level.",
-                product_visibility="Closed wrapper in hand, readable enough for identity, no close-up deformation.",
+                visual=hook_visual,
+                product_visibility="Reference-safe closed wrapper plus overlay." if generated_wrapper_allowed else "Static approved packshot overlay only.",
                 camera_motion="handheld phone camera, subtle natural movement",
                 safety_constraints=common_safety,
                 must_avoid=["eating wrapper", "floating package", "wrapper deformation"],
@@ -180,8 +213,8 @@ class BombbarOneVideoRenderPlanner:
                 duration_seconds=3,
                 spoken_line="У меня часто бывают дни, когда нормально поесть просто некогда.",
                 caption="Когда нет времени поесть",
-                visual="Creator puts the closed wrapper near a coffee cup or gym bag, talking like a real buyer.",
-                product_visibility="Closed wrapper or packshot overlay only; no invented food texture.",
+                visual=context_visual,
+                product_visibility="Reference-safe wrapper or packshot overlay only; no invented food texture.",
                 camera_motion="smooth handheld pan from creator to product and back",
                 safety_constraints=common_safety,
                 must_avoid=["hard jump cut", "fake ad studio pose"],
@@ -193,8 +226,8 @@ class BombbarOneVideoRenderPlanner:
                 duration_seconds=3,
                 spoken_line="Поэтому такой батончик удобно взять с собой - формат десертный, но на ходу.",
                 caption="Десертный формат с собой",
-                visual="Creator presents the closed wrapper, points to packshot overlay instead of relying on generated label text.",
-                product_visibility="Wrapper reveal plus packshot overlay/end-card lock for label accuracy.",
+                visual=reason_visual,
+                product_visibility="Reference-safe identity reveal plus packshot overlay/end-card lock for label accuracy.",
                 camera_motion="short slow push-in, then stop before label distortion",
                 safety_constraints=common_safety + GEOMETRY_LOCK_PROMPT_LINES,
                 must_avoid=["label redesign", "fake wrapper text", "changed logo"],
@@ -228,6 +261,136 @@ class BombbarOneVideoRenderPlanner:
         ]
         return scenes
 
+    def _generic_scene_plan(self, product: models.Product, policy: ProductScenePolicyOutput) -> list[OneVideoScene]:
+        attributes = product.attributes_json or {}
+        creator = str(attributes.get("creator_persona") or "русскоязычная блогерка 25-35 лет, похожая на реального покупателя")
+        use_context = str(attributes.get("use_context") or attributes.get("application_context") or "обычная повседневная ситуация")
+        safe_benefit = str((product.benefits_json or ["понятно вписывается в повседневное использование"])[0])
+        interaction_copy = {
+            "apply": {
+                "action": "applies the product to the approved area with the reference-matched amount and motion",
+                "spoken": "Покажу, как наношу средство в обычном уходе, без рекламных чудес и лишних обещаний.",
+                "caption": "Как использую в уходе",
+                "avoid": ["wrong application area", "invented amount", "instant skin transformation"],
+            },
+            "try_on": {
+                "action": "shows the exact item on body, its real fit, details and reference-matched movement",
+                "spoken": "Покажу, как вещь сидит и выглядит в движении, без подмены цвета или фасона.",
+                "caption": "Посадка и детали в жизни",
+                "avoid": ["different garment cut", "changed fabric", "impossible fit"],
+            },
+            "demonstrate": {
+                "action": "demonstrates the approved household function and handling sequence in a real home context",
+                "spoken": "Покажу, как использую товар в быту и что именно он делает в реальной ситуации.",
+                "caption": "Использование в быту",
+                "avoid": ["invented function", "unsafe handling", "impossible result"],
+            },
+            "use_case": {
+                "action": "uses the exact product in its approved real-world context and sequence",
+                "spoken": "Покажу реальное применение без рекламных чудес и лишних обещаний.",
+                "caption": "Вот как использую",
+                "avoid": ["invented application", "impossible result", "wrong product variant"],
+            },
+        }[policy.interaction_mode]
+        application_visual = (
+            f"The creator {interaction_copy['action']} for {product.title} in {use_context}, following approved references exactly."
+            if policy.interaction_scene_allowed and policy.provider_generated_product_allowed
+            else (
+                f"Use the exact approved {policy.interaction_mode} use-video/reference insert and return to the creator reaction; "
+                "the provider must not redraw the SKU or invent handling, application or function."
+                if policy.interaction_scene_allowed
+                else (
+                    "Use an approved use-case insert and return to the creator reaction; do not invent handling, application or function."
+                    if policy.use_case_scene_allowed
+                    else "Keep the creator in context and show only the approved static packshot overlay; no generated product interaction."
+                )
+            )
+        )
+        product_visibility = (
+            f"Approved {policy.interaction_mode} interaction insert is allowed; generated identity remains blocked."
+            if policy.interaction_scene_allowed and not policy.provider_generated_product_allowed
+            else (
+                f"Reference-guided {policy.interaction_mode} interaction is allowed; identity remains locked."
+                if policy.interaction_scene_allowed
+                else "Static approved packshot overlay and approved use-case inserts only."
+            )
+        )
+        common_safety = [
+            "natural Russian first-person blogger delivery, not a studio announcer",
+            f"creator profile: {creator}",
+            "preserve exact SKU, label, geometry, color and scale from approved identity references",
+            f"show only the approved {policy.interaction_mode} interaction supported by exact references",
+            "do not invent product functions, results, claims, packaging text or usage method",
+            "keep captions short and inside safe 9:16 margins",
+        ]
+        return [
+            OneVideoScene(
+                scene_number=1,
+                role="hook",
+                starts_at=0,
+                duration_seconds=2,
+                spoken_line="Покажу вещь, которая действительно вписалась в мой обычный день.",
+                caption="Находка для обычного дня",
+                visual=f"{creator.capitalize()} speaks directly to a phone camera in {use_context}; product identity appears only as permitted by the asset contract.",
+                product_visibility="Exact packshot overlay only." if policy.current_asset_tier == "tier_1" else product_visibility,
+                camera_motion="natural handheld phone movement",
+                safety_constraints=common_safety,
+                must_avoid=["generic substitute product", "fake label", "floating object"],
+            ),
+            OneVideoScene(
+                scene_number=2,
+                role="personal_context",
+                starts_at=2,
+                duration_seconds=3,
+                spoken_line=f"Мне было важно понять, как это работает в ситуации: {use_context}.",
+                caption="Проверяю в реальной ситуации",
+                visual=f"Creator establishes the real buyer context: {use_context}. Product use is not shown unless references permit it.",
+                product_visibility="No generated product use before Tier 3; packshot overlay remains exact.",
+                camera_motion="one smooth contextual pan",
+                safety_constraints=common_safety,
+                must_avoid=["hard montage", "unrelated lifestyle stock scene"],
+            ),
+            OneVideoScene(
+                scene_number=3,
+                role="product_reason",
+                starts_at=5,
+                duration_seconds=3,
+                spoken_line=f"Для меня главный плюс — {safe_benefit}.",
+                caption="Почему оставила себе",
+                visual="Creator explains one evidence-backed product reason; exact identity comes from approved references or overlay.",
+                product_visibility=product_visibility,
+                camera_motion="gentle push-in that stops before label distortion",
+                safety_constraints=common_safety + GEOMETRY_LOCK_PROMPT_LINES,
+                must_avoid=["unsupported promise", "medical claim", "label redesign"],
+            ),
+            OneVideoScene(
+                scene_number=4,
+                role="proof_use_case",
+                starts_at=8,
+                duration_seconds=4,
+                spoken_line=interaction_copy["spoken"],
+                caption=interaction_copy["caption"],
+                visual=application_visual,
+                product_visibility=product_visibility,
+                camera_motion="continuous reference-matched action, then natural reaction",
+                safety_constraints=common_safety,
+                must_avoid=[*interaction_copy["avoid"], "wrong product variant"],
+            ),
+            OneVideoScene(
+                scene_number=5,
+                role="cta_end_card",
+                starts_at=12,
+                duration_seconds=3,
+                spoken_line="Сохрани, если хочешь посмотреть этот вариант подробнее.",
+                caption="Сохрани, чтобы не потерять",
+                visual="End card built from the exact approved packshot, product name and short CTA.",
+                product_visibility="Approved packshot/end card only; no generated label.",
+                camera_motion="steady end card",
+                safety_constraints=common_safety + ["end card required", "human review required"],
+                must_avoid=["new package design", "unsupported claim", "auto approval"],
+            ),
+        ]
+
     def _creative_spec(
         self,
         product: models.Product,
@@ -237,6 +400,14 @@ class BombbarOneVideoRenderPlanner:
         platform: str,
         duration_seconds: int,
     ) -> CreativeSpec:
+        if policy.product_profile != "food_snack":
+            return self._generic_creative_spec(
+                product,
+                scenes,
+                policy,
+                platform=platform,
+                duration_seconds=duration_seconds,
+            )
         selected_hook = HookCandidate(
             hook_type="real_life_snack_find",
             hook_text=scenes[0].spoken_line,
@@ -339,6 +510,111 @@ class BombbarOneVideoRenderPlanner:
             cta=scenes[-1].spoken_line,
         )
 
+    def _generic_creative_spec(
+        self,
+        product: models.Product,
+        scenes: list[OneVideoScene],
+        policy: ProductScenePolicyOutput,
+        *,
+        platform: str,
+        duration_seconds: int,
+    ) -> CreativeSpec:
+        source_key = "product_use_case_acceptance_brief"
+        attributes = product.attributes_json or {}
+        creator = str(attributes.get("creator_persona") or "русскоязычная блогерка 25-35 лет")
+        use_context = str(attributes.get("use_context") or attributes.get("application_context") or "повседневное применение")
+        viewer_promise = str((product.benefits_json or ["покажу товар в реальном применении без лишних обещаний"])[0])
+        selected_hook = HookCandidate(
+            hook_type="real_life_product_use",
+            hook_text=scenes[0].spoken_line,
+            viewer_promise=viewer_promise,
+            rationale=f"First-person blogger context plus reference-gated {policy.interaction_mode} interaction.",
+            source_flags=[source_key],
+        )
+        creative_scenes = [
+            CreativeScene(
+                scene_number=scene.scene_number,
+                role=scene.role,
+                starts_at=scene.starts_at,
+                duration_seconds=scene.duration_seconds,
+                visual=scene.visual,
+                caption=scene.caption,
+                voiceover=scene.spoken_line,
+                claim_refs=[source_key],
+                product_display=scene.product_visibility,
+                camera_motion=scene.camera_motion,
+                composition="vertical phone UGC with safe margins and reference-locked product identity",
+                lighting="natural light appropriate to the real use context",
+                emotion="calm, useful, credible buyer experience",
+                cta=scene.spoken_line if scene.role == "cta_end_card" else None,
+            )
+            for scene in scenes
+        ]
+        allowed_claims = [
+            AllowedClaim(claim=str(item), source_type="product_record", source_key=source_key)
+            for item in (product.benefits_json or [])[:3]
+        ]
+        return CreativeSpec(
+            product_id=product.id,
+            sku=product.sku,
+            product_title=product.title,
+            platform=platform,
+            format="short_video",
+            aspect_ratio="9:16",
+            duration_seconds=duration_seconds,
+            creative_objective="Create one product-safe UGC candidate showing a blogger and the category-appropriate product interaction.",
+            creative_angle="first_person_real_use_case",
+            hook_candidates=[selected_hook],
+            selected_hook=selected_hook,
+            hook_type=selected_hook.hook_type,
+            hook_text=selected_hook.hook_text,
+            viewer_promise=selected_hook.viewer_promise,
+            first_frame_spec=FirstFrameSpec(
+                visual_hook=f"{creator.capitalize()} speaks to camera in a real use context.",
+                text_overlay=scenes[0].caption,
+                product_visible_by_second=1.0,
+                product_display=scenes[0].product_visibility,
+                composition="Creator upper body plus reference-safe product identity, 9:16 safe margins.",
+                viewer_promise=viewer_promise,
+            ),
+            scene_plan=creative_scenes,
+            captions=[scene.caption for scene in scenes],
+            voiceover=[scene.spoken_line for scene in scenes],
+            visual_style="realistic Russian UGC, phone camera, natural creator presentation and real use context",
+            product_display_rules=[
+                "Preserve the exact SKU, variant, label, color, geometry and scale from approved references.",
+                "Do not show product handling or interaction above the current Product Asset Contract tier.",
+                "Use static packshot overlay and end card whenever identity cannot be generated safely.",
+                f"Show only the real intended {policy.interaction_mode} interaction supported by approved use-case references.",
+            ],
+            product_geometry_spec=ProductGeometrySpec(
+                product_id=product.id,
+                sku=product.sku,
+                primary_reference_asset_id=policy.reference_readiness.get("primary_reference_asset_id"),
+                human_geometry_notes="Product scale, silhouette, label and handling must match approved references.",
+            ),
+            product_geometry_rules=default_product_geometry_rules(),
+            product_scale_rules=default_product_scale_rules(),
+            product_visibility_rules=default_product_visibility_rules(),
+            must_include=[creator, use_context, "first-person product reason", "reference-supported interaction or safe overlay", "CTA/end card"],
+            must_avoid=["generic substitute product", "wrong SKU variant", "invented product interaction", "unsupported result", "medical or guaranteed claims"],
+            allowed_claims=allowed_claims,
+            allowed_claim_refs=[source_key],
+            reference_images=policy.reference_readiness.get("provider_reference_bundle", {}).get("reference_images", []),
+            source_map={source_key: "Product record and operator-approved use-case brief"},
+            quality_rubric=QualityRubric(
+                items=[
+                    QualityRubricItem(key="product_identity_locked", label="Exact product variant stays locked"),
+                    QualityRubricItem(key="interaction_matches_refs", label="Product interaction matches approved references"),
+                    QualityRubricItem(key="blogger_meaning", label="Blogger has a credible first-person reason"),
+                    QualityRubricItem(key="cta_end_card", label="CTA/end card is present"),
+                ],
+                notes=["Human visual review is mandatory after render."],
+            ),
+            warnings=policy.warnings,
+            cta=scenes[-1].spoken_line,
+        )
+
     def _create_intelligence_pack(self, product: models.Product, policy: ProductScenePolicyOutput) -> models.CreativeIntelligencePackRecord:
         record = models.CreativeIntelligencePackRecord(
             product_id=product.id,
@@ -347,9 +623,11 @@ class BombbarOneVideoRenderPlanner:
             pack_json={
                 "source": "one_video_acceptance",
                 "product_scene_policy": policy.model_dump(mode="json"),
-                "objective": "controlled Bombbar UGC video render",
+                "objective": f"controlled product-safe blogger UGC render with real {policy.interaction_mode} interaction",
+                "product_profile": policy.product_profile,
+                "variant_key": policy.variant_key,
             },
-            source_summary_json={"operator_brief": "Bombbar product-safe UGC acceptance"},
+            source_summary_json={"operator_brief": "Product-safe blogger and use-case acceptance"},
             warnings_json=policy.warnings,
         )
         self.db.add(record)
@@ -362,15 +640,31 @@ class BombbarOneVideoRenderPlanner:
         intelligence: models.CreativeIntelligencePackRecord,
         policy: ProductScenePolicyOutput,
     ) -> models.ScriptBrief:
+        attributes = product.attributes_json or {}
+        is_food = policy.product_profile == "food_snack"
+        use_context = str(attributes.get("use_context") or attributes.get("application_context") or "real everyday use")
         brief = models.ScriptBrief(
             product_id=product.id,
             intelligence_pack_id=intelligence.id,
             status="one_video_plan_ready",
             objective="One controlled product-safe UGC paid smoke candidate.",
-            creative_angle="sporty_real_life_snack_find",
-            target_audience="Russian-speaking marketplace shopper looking for a quick dessert-style snack.",
-            brief_json={"product_scene_policy": policy.model_dump(mode="json")},
-            allowed_claims_json=["convenient snack format", "dessert-style format"],
+            creative_angle="sporty_real_life_snack_find" if is_food else "first_person_real_use_case",
+            target_audience=(
+                "Russian-speaking marketplace shopper looking for a convenient dessert-style snack."
+                if is_food
+                else f"Russian-speaking buyer evaluating {product.title} for {use_context}."
+            ),
+            brief_json={
+                "product_scene_policy": policy.model_dump(mode="json"),
+                "blogger_meaning": "first-person reason to show the product",
+                "real_use_context": use_context,
+                "interaction_mode": policy.interaction_mode,
+            },
+            allowed_claims_json=(
+                ["convenient snack format", "dessert-style format"]
+                if is_food
+                else [str(item) for item in (product.benefits_json or [])[:3]]
+            ),
             missing_data_json=policy.next_actions,
             safety_warnings_json=policy.warnings,
         )
@@ -411,6 +705,7 @@ class BombbarOneVideoRenderPlanner:
         scenes: list[OneVideoScene],
         policy: ProductScenePolicyOutput,
     ) -> tuple[models.CreativeVariantSet, models.CreativeVariant]:
+        source_key = "operator_bombbar_acceptance_brief" if policy.product_profile == "food_snack" else "product_use_case_acceptance_brief"
         variant_set = models.CreativeVariantSet(
             creative_spec_id=spec_record.id,
             asset_kit_id=self._latest_asset_kit_id(spec_record.product_id),
@@ -428,11 +723,11 @@ class BombbarOneVideoRenderPlanner:
                 "role": scene.role,
                 "visual": scene.visual,
                 "voiceover": scene.spoken_line,
-                "claim_refs": ["operator_bombbar_acceptance_brief"],
+                "claim_refs": [source_key],
                 "provider_prompt_text": scene.provider_prompt_text,
                 "negative_prompt": scene.negative_prompt,
                 "safety_constraints": scene.safety_constraints,
-                "scene_policy_allowed": scene.role not in {"proof_use_case"} or policy.edible_kit_ready or "approved_cutaway_insert" in policy.allowed_scene_types,
+                "scene_policy_allowed": True,
             }
             for scene in scenes
         ]
@@ -451,7 +746,11 @@ class BombbarOneVideoRenderPlanner:
             scene_plan_json=scene_json,
             pacing_json={"duration_seconds": 15, "style": "smooth_ugc_no_hard_jumps"},
             cta_framing=scenes[-1].spoken_line,
-            visual_style="realistic Russian Wibes/Reels UGC, sporty woman 25-30, phone camera",
+            visual_style=(
+                "realistic Russian Wibes/Reels UGC, sporty woman 25-30, phone camera"
+                if policy.product_profile == "food_snack"
+                else f"realistic Russian blogger UGC, phone camera, real {policy.interaction_mode} product context"
+            ),
             product_reveal_timing=1.0,
             asset_refs_json=policy.reference_readiness.get("provider_reference_bundle", {}).get("reference_images", []),
             score_json={"total_score": 0.92, "source": "one_video_acceptance"},
@@ -475,6 +774,10 @@ class BombbarOneVideoRenderPlanner:
         prompt_preview: dict[str, Any],
         platform: str,
     ) -> tuple[models.AIProductionBrief, models.DirectorPromptPack]:
+        attributes = product.attributes_json or {}
+        is_food = policy.product_profile == "food_snack"
+        use_context = str(attributes.get("use_context") or attributes.get("application_context") or "повседневное применение")
+        first_benefit = str((product.benefits_json or ["понятный сценарий реального применения"])[0])
         brief_json = {
             "product_scene_policy": policy.model_dump(mode="json"),
             "scene_plan": [scene.model_dump(mode="json") for scene in scenes],
@@ -486,14 +789,30 @@ class BombbarOneVideoRenderPlanner:
             status="ready_for_prompt_only",
             platform=platform,
             format="short_video",
-            one_sentence_thesis="Sporty Russian creator presents Bombbar as a quick dessert-style snack without unsafe product generation.",
-            viewer_takeaway="This is a convenient snack to keep with coffee or on the go.",
-            buyer_situation="Busy day, workout, walk, or coffee break when there is no time for a normal meal.",
-            main_objection="AI may deform wrapper or invent a generic muesli texture.",
-            reason_to_believe="Product is shown through approved wrapper references, controlled cutaway insert, packshot overlay and end card.",
-            proof_moment="Approved cutaway insert plus creator reaction, or bite only if edible kit is ready.",
+            one_sentence_thesis=(
+                "Sporty Russian creator presents the exact snack variant without unsafe packaging or edible generation."
+                if is_food
+                else f"Russian blogger presents the exact {product.title} through a credible first-person use case."
+            ),
+            viewer_takeaway="Convenient dessert-style snack for coffee or on the go." if is_food else first_benefit,
+            buyer_situation=(
+                "Busy day, workout, walk, or coffee break when there is no time for a normal meal."
+                if is_food
+                else use_context
+            ),
+            main_objection=(
+                "AI may deform the wrapper, mix the flavor variant, or invent food texture."
+                if is_food
+                else "AI may replace the SKU, deform the product, or invent an unsupported interaction/result."
+            ),
+            reason_to_believe=f"Product identity and {policy.interaction_mode} interaction are limited by approved Product Asset Contract references.",
+            proof_moment=(
+                "Approved cutaway plus creator reaction, or bite only at Tier 4."
+                if is_food
+                else "Approved use-case insert plus creator reaction; no invented product behavior."
+            ),
             cta=scenes[-1].spoken_line,
-            must_show_json=["creator talking-head", "closed wrapper", "proof/use-case", "CTA/end card"],
+            must_show_json=["creator talking-head", "exact product identity", f"real {policy.interaction_mode} use-case", "CTA/end card"],
             must_say_json=[scene.spoken_line for scene in scenes],
             must_avoid_json=prompt_preview.get("scene_prompts", [{}])[0].get("must_avoid", []),
             product_identity_rules_json=policy.model_dump(mode="json"),
@@ -501,7 +820,7 @@ class BombbarOneVideoRenderPlanner:
             reference_requirements_json=policy.reference_readiness,
             scene_count=len(scenes),
             duration_seconds=15,
-            failure_conditions_json=ACCEPTANCE_CHECKLIST[:3],
+            failure_conditions_json=(prompt_preview.get("quality_checklist") or [])[:4],
             brief_json=brief_json,
             brief_markdown=self._brief_markdown(product, scenes, policy),
             warnings_json=policy.warnings,
@@ -538,11 +857,14 @@ class BombbarOneVideoRenderPlanner:
             asset_instructions_json={
                 "approved_wrapper_asset_ids": policy.approved_wrapper_asset_ids,
                 "approved_edible_asset_ids": policy.approved_edible_asset_ids,
+                "approved_identity_asset_ids": policy.approved_identity_asset_ids,
+                "approved_use_case_asset_ids": policy.approved_use_case_asset_ids,
                 "product_scene_policy": policy.model_dump(mode="json"),
+                "product_asset_contract": policy.asset_contract,
             },
             overlay_instructions_json={"packshot_overlay_required": policy.packshot_overlay_required},
             end_card_instructions_json={"end_card_required": policy.end_card_required, "cta": scenes[-1].spoken_line},
-            quality_checklist_json=ACCEPTANCE_CHECKLIST,
+            quality_checklist_json=prompt_preview.get("quality_checklist") or [],
         )
         self.db.add(director_prompt)
         self.db.flush()
@@ -572,7 +894,7 @@ class BombbarOneVideoRenderPlanner:
                     duration_seconds=15,
                     aspect_ratio="9:16",
                     structure_json=["hook", "personal_context", "product_reason", "proof_use_case", "cta_end_card"],
-                    hook_formula="First-person real-life snack situation.",
+                    hook_formula="First-person real-life product use situation.",
                     cta="Сохрани к кофе или с собой",
                     platform_fit_json=["Instagram Reels", "Wibes", "TikTok"],
                 )
@@ -593,11 +915,17 @@ class BombbarOneVideoRenderPlanner:
         lines = [
             f"# One Video Acceptance: {product.title}",
             "",
-            "Goal: one product-safe Bombbar UGC render candidate.",
-            f"Wrapper refs: {policy.wrapper_reference_count}; edible refs: {policy.edible_reference_count}.",
-            f"Bite scene allowed: {policy.bite_scene_allowed}.",
+            "Goal: one product-safe blogger UGC render with a category-appropriate reference-supported interaction.",
+            f"Product profile: {policy.product_profile}; exact variant: {policy.variant_key or 'product-id boundary'}.",
+            f"Asset tier: {policy.current_asset_tier}; required: {policy.required_asset_tier}.",
+            f"Interaction mode: {policy.interaction_mode}; use-case allowed: {policy.use_case_scene_allowed}; interaction allowed: {policy.interaction_scene_allowed}.",
+            f"Bite scene allowed (food only): {policy.bite_scene_allowed}.",
             "",
             "## Scenes",
         ]
         lines.extend(f"- {scene.starts_at}-{scene.starts_at + scene.duration_seconds}s {scene.role}: {scene.spoken_line}" for scene in scenes)
         return "\n".join(lines)
+
+
+# Backward-compatible name for existing routes, CLI commands and stored plans.
+BombbarOneVideoRenderPlanner = ProductUseVideoRenderPlanner

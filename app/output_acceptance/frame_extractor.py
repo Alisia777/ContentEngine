@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
-import shutil
 import subprocess
+import uuid
 
 from PIL import Image, ImageDraw
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from app.config import get_settings
 from app.output_acceptance.contact_sheet_service import ContactSheetService
 from app.output_acceptance.errors import OutputAcceptanceDataError
 from app.output_acceptance.types import FrameExtractionOutput
+from app.system_tools import resolve_ffmpeg, resolve_ffprobe
 
 
 class FrameExtractor:
@@ -22,7 +24,11 @@ class FrameExtractor:
 
     @property
     def ffmpeg_path(self) -> str | None:
-        return shutil.which("ffmpeg")
+        return resolve_ffmpeg(self.settings).path
+
+    @property
+    def ffprobe_path(self) -> str | None:
+        return resolve_ffprobe(self.settings).path
 
     def extract(self, video_job_id: int, *, max_frames: int = 5) -> models.FrameExtractionResult:
         video_job = self.db.get(models.VideoJob, video_job_id)
@@ -31,13 +37,37 @@ class FrameExtractor:
         if not video_job.output_video_path:
             raise OutputAcceptanceDataError(f"VideoJob {video_job_id} has no output_video_path.")
         video_path = Path(video_job.output_video_path)
-        output_dir = self.settings.media_root / "output_acceptance" / f"video_job_{video_job.id}"
+        desired_frames = self._desired_frame_count(max_frames)
+        source_before = self._stable_source_fingerprint(video_path)
+        extraction_key = uuid.uuid4().hex
+        output_dir = (
+            self.settings.media_root
+            / "output_acceptance"
+            / f"video_job_{video_job.id}"
+            / f"extraction_{extraction_key}"
+        )
         frame_dir = output_dir / "frames"
         frame_dir.mkdir(parents=True, exist_ok=True)
         warnings: list[str] = []
-        frame_paths = self._extract_with_ffmpeg(video_path, frame_dir, max_frames, warnings)
+        frame_paths = self._extract_with_ffmpeg(
+            video_path,
+            frame_dir,
+            desired_frames,
+            warnings,
+            duration_hint=float(video_job.duration_seconds or 0),
+        )
+        source_after = self._stable_source_fingerprint(video_path)
+        if source_before != source_after:
+            raise OutputAcceptanceDataError(
+                "Source video changed during frame extraction; no evidence was recorded."
+            )
         if not frame_paths:
-            frame_paths = self._create_synthetic_frames(video_job, video_path, frame_dir, max_frames)
+            frame_paths = self._create_synthetic_frames(
+                video_job,
+                video_path,
+                frame_dir,
+                desired_frames,
+            )
             warnings.append("synthetic_frames_used_no_cv")
         contact_sheet_path = ContactSheetService().build(frame_paths, output_dir / "contact_sheet.png")
         result = models.FrameExtractionResult(
@@ -48,6 +78,9 @@ class FrameExtractor:
             duration_seconds=float(video_job.duration_seconds or 0),
             fps=round(len(frame_paths) / max(float(video_job.duration_seconds or len(frame_paths)), 1.0), 3),
             warnings_json=warnings,
+            extraction_key=extraction_key,
+            source_video_sha256=(source_before[0] if source_before else None),
+            source_video_size_bytes=(source_before[1] if source_before else None),
         )
         self.db.add(result)
         self.db.commit()
@@ -74,12 +107,26 @@ class FrameExtractor:
             warnings=result.warnings_json or [],
         )
 
-    def _extract_with_ffmpeg(self, video_path: Path, frame_dir: Path, max_frames: int, warnings: list[str]) -> list[str]:
+    def _extract_with_ffmpeg(
+        self,
+        video_path: Path,
+        frame_dir: Path,
+        max_frames: int,
+        warnings: list[str],
+        *,
+        duration_hint: float = 0,
+    ) -> list[str]:
         if not self.ffmpeg_path or not video_path.exists():
             if not video_path.exists():
                 warnings.append("video_file_missing_synthetic_frames_used")
             return []
         pattern = frame_dir / "frame_%02d.png"
+        desired_frames = self._desired_frame_count(max_frames)
+        sample_duration = max(
+            float(self._video_duration_hint(video_path) or duration_hint or 1.0),
+            1.0,
+        )
+        sample_rate = desired_frames / sample_duration
         try:
             subprocess.run(
                 [
@@ -88,19 +135,106 @@ class FrameExtractor:
                     "-i",
                     str(video_path),
                     "-vf",
-                    f"fps=1/{max(max_frames, 1)}",
+                    f"fps={sample_rate:.8f}",
                     "-frames:v",
-                    str(max_frames),
+                    str(desired_frames),
                     str(pattern),
                 ],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                timeout=90,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            OSError,
+        ):
             warnings.append("ffmpeg_extract_failed_synthetic_frames_used")
             return []
-        return [path.as_posix() for path in sorted(frame_dir.glob("frame_*.png"))[:max_frames]]
+        paths = [
+            path.as_posix()
+            for path in sorted(frame_dir.glob("frame_*.png"))[:desired_frames]
+        ]
+        if len(paths) < 2:
+            warnings.append("ffmpeg_extract_incomplete")
+        return paths
+
+    @staticmethod
+    def _desired_frame_count(value: int) -> int:
+        if isinstance(value, bool):
+            raise OutputAcceptanceDataError("max_frames must be an integer from 2 to 30.")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise OutputAcceptanceDataError(
+                "max_frames must be an integer from 2 to 30."
+            ) from exc
+        return min(max(parsed, 2), 30)
+
+    def _video_duration_hint(self, video_path: Path) -> float | None:
+        """Read duration with ffprobe when available; failure remains fail-closed."""
+
+        ffprobe = self.ffprobe_path
+        if not ffprobe:
+            return None
+        try:
+            completed = subprocess.run(
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(video_path),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=15,
+            )
+            duration = float((completed.stdout or "").strip())
+            return duration if duration > 0 else None
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, OSError):
+            return None
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(64 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @classmethod
+    def _stable_source_fingerprint(cls, path: Path) -> tuple[str, int] | None:
+        if not path.is_file():
+            return None
+        try:
+            before = path.stat()
+            digest = cls._sha256(path)
+            after = path.stat()
+        except OSError as exc:
+            raise OutputAcceptanceDataError(
+                "Source video could not be fingerprinted for frame extraction."
+            ) from exc
+        if (
+            before.st_size,
+            before.st_mtime_ns,
+            getattr(before, "st_ino", None),
+        ) != (
+            after.st_size,
+            after.st_mtime_ns,
+            getattr(after, "st_ino", None),
+        ):
+            raise OutputAcceptanceDataError(
+                "Source video changed while it was being fingerprinted."
+            )
+        return digest, after.st_size
 
     @staticmethod
     def _create_synthetic_frames(

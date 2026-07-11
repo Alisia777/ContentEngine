@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app import models
 from app.assets.image_registry import SECRET_QUERY_KEYS, SUPPORTED_EXTENSIONS
 from app.assets.types import ProductReferenceReadiness
+from app.product_asset_contract import ProductAssetTierService
+from app.product_asset_contract.reference_requirement_service import TIER_RANK
 
 
 REFERENCE_TYPES = {"packshot", "product", "label_closeup", "lifestyle", "unknown"}
@@ -24,6 +26,10 @@ class ProductReferenceReadinessChecker:
         warnings: list[str] = []
         usable = [asset for asset in assets if self._is_usable(asset, blockers, warnings)]
         approved = [asset for asset in usable if asset.review_status == "approved"]
+        tier_service = ProductAssetTierService(self.db)
+        tier = tier_service.output(tier_service.evaluate(product_id, publishing_candidate=True))
+        eligible_ids = {item.asset_id for item in tier.classified_assets if item.eligible}
+        approved = [asset for asset in approved if asset.id in eligible_ids]
         primary = next((asset for asset in approved if asset.is_primary_reference), None)
         if not primary:
             blockers.append("missing_approved_primary_reference")
@@ -36,6 +42,11 @@ class ProductReferenceReadinessChecker:
             warnings.append("Missing approved lifestyle asset.")
         if provider != "runway":
             warnings.append(f"Provider reference support is not confirmed for {provider}; bundle is kept for prompt accuracy.")
+        if TIER_RANK[tier.current_tier] < TIER_RANK["tier_2"]:
+            blockers.append("product_asset_contract_requires_tier_2_for_real_generation")
+        if tier.variant_mismatch_asset_ids:
+            blockers.append("product_variant_identity_mismatch")
+        warnings.append(f"product_asset_contract:{tier.current_tier}")
         reference_assets = approved[:4]
         status = "ready" if not blockers else "blocked"
         bundle = {
@@ -45,6 +56,13 @@ class ProductReferenceReadinessChecker:
             "reference_asset_ids": [asset.id for asset in reference_assets],
             "reference_images": [self._public_ref(asset) for asset in reference_assets],
             "notes": ["Internal provider-ready reference bundle; adapter field names must be confirmed before paid use."],
+            "product_asset_contract": {
+                "snapshot_id": tier.id,
+                "current_tier": tier.current_tier,
+                "product_profile": tier.product_profile,
+                "variant_key": tier.variant_key,
+                "variant_mismatch_asset_ids": tier.variant_mismatch_asset_ids,
+            },
         }
         readiness = ProductReferenceReadiness(
             status=status,

@@ -255,6 +255,9 @@ class RecoveryService:
         next_actions: list[str],
     ) -> None:
         policy = plan.product_scene_policy_json or {}
+        contract = policy.get("asset_contract") or {}
+        tier = contract.get("tier") or {}
+        requirement = contract.get("requirement") or {}
         ref_policy = policy.get("reference_policy") or {}
         reference_blockers = list(dict.fromkeys([*(plan.blockers_json or []), *(ref_policy.get("blockers") or [])]))
         if reference_blockers:
@@ -275,6 +278,29 @@ class RecoveryService:
                     recommended_action="Add a second approved wrapper or label reference.",
                 )
             )
+        if requirement and requirement.get("status") != "ready":
+            blockers.append(
+                SmokeReadinessBlockerOutput(
+                    blocker_type="asset_contract_tier_below_required",
+                    severity="blocker",
+                    message=(
+                        f"Product Asset Contract is {tier.get('current_tier', 'tier_0')}; "
+                        f"{requirement.get('required_tier', 'tier_2')} is required for {requirement.get('purpose', 'final_ad')}."
+                    ),
+                    recommended_action="Attach and approve the exact missing identity/use-case assets for this SKU variant.",
+                )
+            )
+            next_actions.append("complete_product_asset_contract_before_paid_smoke")
+        if tier.get("variant_mismatch_asset_ids"):
+            blockers.append(
+                SmokeReadinessBlockerOutput(
+                    blocker_type="variant_identity_mismatch",
+                    severity="blocker",
+                    message="Identity-sensitive references are unverified or belong to another product variant.",
+                    recommended_action="Tag each product asset with the exact variant_key and remove mismatched flavor/color/model refs.",
+                )
+            )
+            next_actions.append("separate_product_variant_reference_sets")
         for action in policy.get("next_actions") or []:
             next_actions.append(action)
 

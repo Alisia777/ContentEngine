@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -97,6 +97,28 @@ class ParticipantMetricsService:
             bucket["revenue"] = round(bucket["revenue"] + (metric.revenue or 0), 2)
         return {**result.model_dump(mode="json"), "by_destination": list(by_destination.values())}
 
+    def attributable_stats_for_assignment(self, assignment: models.ParticipantAssignment) -> dict[str, Any]:
+        """Return only conversion metrics that can be tied to one assignment safely.
+
+        Participant/campaign/destination totals are useful for dashboards, but they are
+        not a payout attribution key.  A payout basis must resolve through a unique
+        publishing task or through the assignment's unique final post URL.
+        """
+        metrics, attribution_method, attribution_error = self._attributable_metrics(assignment)
+        if not attribution_error and not self._metric_periods_are_unambiguous(metrics):
+            metrics = []
+            attribution_method = None
+            attribution_error = "attributable_metric_periods_overlap_or_missing"
+        return {
+            "metric_ids": [metric.id for metric in metrics],
+            "orders_total": sum(metric.orders or 0 for metric in metrics),
+            "revenue_total": round(sum(metric.revenue or 0 for metric in metrics), 2),
+            "orders_complete": bool(metrics) and all(metric.orders is not None for metric in metrics),
+            "revenue_complete": bool(metrics) and all(metric.revenue is not None for metric in metrics),
+            "attribution_method": attribution_method,
+            "attribution_error": attribution_error,
+        }
+
     def _assignments(self, participant_id: int, campaign_id: int | None) -> list[models.ParticipantAssignment]:
         query = select(models.ParticipantAssignment).where(models.ParticipantAssignment.participant_id == participant_id)
         if campaign_id:
@@ -136,8 +158,6 @@ class ParticipantMetricsService:
         if len(clauses) == 1:
             query = query.where(clauses[0])
         else:
-            from sqlalchemy import or_
-
             query = query.where(or_(*clauses))
         if campaign_id:
             query = query.where(models.DestinationPostMetric.campaign_id == campaign_id)
@@ -146,6 +166,116 @@ class ParticipantMetricsService:
         if period_end:
             query = query.where(models.DestinationPostMetric.period_end <= period_end)
         return self.db.scalars(query).all()
+
+    def _attributable_metrics(
+        self,
+        assignment: models.ParticipantAssignment,
+    ) -> tuple[list[models.DestinationPostMetric], str | None, str | None]:
+        if assignment.publishing_task_id:
+            other_assignment_id = self.db.scalar(
+                select(models.ParticipantAssignment.id)
+                .where(
+                    models.ParticipantAssignment.publishing_task_id == assignment.publishing_task_id,
+                    models.ParticipantAssignment.id != assignment.id,
+                )
+                .limit(1)
+            )
+            if other_assignment_id:
+                return [], None, "publishing_task_shared_by_multiple_assignments"
+
+            task_metrics = self.db.scalars(
+                select(models.DestinationPostMetric).where(
+                    models.DestinationPostMetric.publishing_task_id == assignment.publishing_task_id
+                )
+            ).all()
+            if task_metrics:
+                if self._has_campaign_conflict(task_metrics, assignment.campaign_id):
+                    return [], None, "publishing_task_metrics_campaign_mismatch"
+                return task_metrics, "publishing_task_id", None
+
+            task = assignment.publishing_task or self.db.get(models.PublishingTask, assignment.publishing_task_id)
+            if not task or not task.final_url:
+                return [], None, "publishing_task_has_no_attributable_metrics"
+            if not self._post_url_is_unique(task.final_url, assignment):
+                return [], None, "publishing_task_final_url_is_ambiguous"
+            url_metrics = self._unassigned_task_metrics_by_url(task.final_url, assignment.campaign_id)
+            if url_metrics:
+                return url_metrics, "publishing_task_final_url", None
+            return [], None, "publishing_task_has_no_attributable_metrics"
+
+        approved_submissions = self.db.scalars(
+            select(models.ParticipantSubmission).where(
+                models.ParticipantSubmission.participant_assignment_id == assignment.id,
+                models.ParticipantSubmission.review_status == "approved",
+                models.ParticipantSubmission.final_post_url.is_not(None),
+            )
+        ).all()
+        final_urls = {submission.final_post_url for submission in approved_submissions}
+        final_urls.discard("")
+        if not final_urls:
+            return [], None, "assignment_has_no_publishing_task_or_approved_submission_final_url"
+        if len(final_urls) != 1:
+            return [], None, "assignment_has_multiple_submission_final_urls"
+        final_url = next(iter(final_urls))
+        if not self._post_url_is_unique(final_url, assignment):
+            return [], None, "submission_final_url_is_ambiguous"
+        url_metrics = self._unassigned_task_metrics_by_url(final_url, assignment.campaign_id)
+        if url_metrics:
+            return url_metrics, "submission_final_post_url", None
+        return [], None, "submission_has_no_attributable_metrics"
+
+    def _unassigned_task_metrics_by_url(
+        self,
+        final_url: str,
+        campaign_id: int | None,
+    ) -> list[models.DestinationPostMetric]:
+        query = select(models.DestinationPostMetric).where(
+            models.DestinationPostMetric.posted_url == final_url,
+            models.DestinationPostMetric.publishing_task_id.is_(None),
+        )
+        if campaign_id is not None:
+            query = query.where(
+                or_(
+                    models.DestinationPostMetric.campaign_id == campaign_id,
+                    models.DestinationPostMetric.campaign_id.is_(None),
+                )
+            )
+        return self.db.scalars(query).all()
+
+    def _post_url_is_unique(self, final_url: str, assignment: models.ParticipantAssignment) -> bool:
+        task_query = select(models.PublishingTask.id).where(models.PublishingTask.final_url == final_url)
+        if assignment.publishing_task_id:
+            task_query = task_query.where(models.PublishingTask.id != assignment.publishing_task_id)
+        if self.db.scalar(task_query.limit(1)):
+            return False
+        return (
+            self.db.scalar(
+                select(models.ParticipantSubmission.id)
+                .where(
+                    models.ParticipantSubmission.final_post_url == final_url,
+                    models.ParticipantSubmission.participant_assignment_id != assignment.id,
+                )
+                .limit(1)
+            )
+            is None
+        )
+
+    @staticmethod
+    def _metric_periods_are_unambiguous(metrics: list[models.DestinationPostMetric]) -> bool:
+        if len(metrics) <= 1:
+            return True
+        if any(metric.period_start is None or metric.period_end is None for metric in metrics):
+            return False
+        periods = sorted((metric.period_start, metric.period_end) for metric in metrics)
+        if any(period_start > period_end for period_start, period_end in periods):
+            return False
+        return all(current_start > previous_end for (_, previous_end), (current_start, _) in zip(periods, periods[1:]))
+
+    @staticmethod
+    def _has_campaign_conflict(metrics: list[models.DestinationPostMetric], campaign_id: int | None) -> bool:
+        if campaign_id is None:
+            return False
+        return any(metric.campaign_id is not None and metric.campaign_id != campaign_id for metric in metrics)
 
     @staticmethod
     def _ratio(numerator: float | int | None, denominator: float | int | None) -> float | None:

@@ -3,40 +3,33 @@
 <section class="public-login">
   <div class="public-login__brand altea-reveal">
     <img class="altea-logo-mark altea-logo-mark--large" src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="ALTEA">
-    <div class="altea-wordmark" aria-label="ALTEA">
-      <span>A</span><span>L</span><span>T</span><span>E</span><span>A</span>
-    </div>
-    <p class="altea-subtitle">PUBLIC PILOT CONTROL</p>
+    <div class="altea-wordmark" aria-label="ALTEA"><span>A</span><span>L</span><span>T</span><span>E</span><span>A</span></div>
+    <p class="altea-subtitle">КОНТЕНТ ИИ ЗАВОД · CONTENT ENGINE</p>
   </div>
   <form class="altea-card public-login-card altea-reveal" method="post" action="/login">
     <header class="public-card-head">
-      <h1>Secure access</h1>
-      <p>Use the Supabase session once the pilot tenant is connected. Local mode keeps demo access behind role gates only.</p>
+      <p class="public-eyebrow">Рабочая платформа</p>
+      <h1>Вход в Контент ИИ Завод</h1>
+      <p>После входа система покажет один следующий шаг и проведёт от товара до измеримого результата.</p>
     </header>
-    {% if error %}
-    <p class="public-alert">Access is not completed: {{ error }}</p>
-    {% endif %}
+    {% if error_message %}<p class="public-alert" role="alert">{{ error_message }}</p>{% endif %}
     <label class="altea-field">
-      <span>Email</span>
+      <span>Логин</span>
       <span class="altea-input-wrap">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
-        <input name="email" autocomplete="username" placeholder="owner@altea.example" required>
+        <input name="email" autocomplete="username" placeholder="owner@local.contentengine" required>
       </span>
     </label>
     <label class="altea-field">
-      <span>Password</span>
+      <span>Пароль</span>
       <span class="altea-input-wrap">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"/></svg>
-        <input name="password" type="password" autocomplete="current-password" placeholder="Configured in Supabase" required>
+        <input name="password" type="password" autocomplete="current-password" placeholder="Настроен в защищённом контуре" required>
       </span>
     </label>
-    <button class="altea-glow-button" type="submit">Continue</button>
-    <div class="public-login-links">
-      <a href="/altea-motion/login">View motion login</a>
-      <a href="/control-room">Open local dev control room</a>
-    </div>
-    <p class="public-muted">No credentials or provider keys are stored in the repository.</p>
+    <button class="altea-glow-button" type="submit">Войти</button>
+    <p class="public-muted">Рабочие кабинеты, видео и отчёты генерации доступны только после входа.</p>
+    <p class="public-muted">Ключи провайдеров и пароли не выводятся в интерфейс и не сохраняются в репозитории.</p>
   </form>
 </section>
 {% endblock %}
-

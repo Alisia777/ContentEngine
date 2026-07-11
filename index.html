@@ -3,393 +3,1210 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ContentEngine | ALTEA Control Room</title>
-    <meta name="description" content="ContentEngine public shell: ALTEA motion UI, role dashboards, and local Control Room routes.">
+    <meta name="theme-color" content="#080806">
+    <title>Контент ИИ Завод | ALTEA</title>
+    <meta
+      name="description"
+      content="Контент ИИ Завод ALTEA: понятный путь от карточки товара и генерации видео до публикации, данных и измеримых продаж."
+    >
     <style>
       :root {
         color-scheme: dark;
-        --bg: #070707;
-        --panel: rgba(16, 15, 14, 0.82);
-        --panel-strong: rgba(24, 22, 20, 0.94);
-        --border: rgba(217, 183, 122, 0.34);
-        --gold: #d9b77a;
-        --gold-soft: #f4dcb0;
-        --ivory: #f7ead3;
-        --muted: #a99d8b;
-        --line: rgba(255, 255, 255, 0.08);
-        --radius: 18px;
-        --shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+        --ink: #080806;
+        --ink-soft: #0f0e0b;
+        --surface: rgba(20, 18, 14, 0.86);
+        --surface-strong: rgba(29, 25, 18, 0.94);
+        --gold: #d8b36b;
+        --gold-light: #f2dbad;
+        --gold-deep: #806132;
+        --ivory: #f8eedc;
+        --copy: #d7cebf;
+        --muted: #968d80;
+        --line: rgba(216, 179, 107, 0.22);
+        --line-soft: rgba(255, 255, 255, 0.075);
+        --good: #9fca9b;
+        --manual: #e2bd77;
+        --radius-lg: 30px;
+        --radius-md: 20px;
+        --radius-sm: 13px;
+        --shadow: 0 30px 90px rgba(0, 0, 0, 0.48);
       }
 
       * {
         box-sizing: border-box;
       }
 
+      html {
+        scroll-behavior: auto;
+      }
+
       body {
+        position: relative;
+        min-width: 320px;
         min-height: 100vh;
         margin: 0;
         color: var(--ivory);
-        background: var(--bg);
+        background:
+          radial-gradient(circle at 16% 4%, rgba(216, 179, 107, 0.11), transparent 27rem),
+          radial-gradient(circle at 88% 30%, rgba(216, 179, 107, 0.08), transparent 31rem),
+          var(--ink);
         font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 16px;
+        line-height: 1.55;
         overflow-x: hidden;
+      }
+
+      body::before {
+        position: absolute;
+        inset: 0;
+        z-index: -3;
+        content: "";
+        opacity: 0.34;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+        background-size: 72px 72px;
+        mask-image: linear-gradient(to bottom, black, transparent 74%);
       }
 
       a {
         color: inherit;
       }
 
-      .bg {
-        position: fixed;
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      a:focus-visible {
+        outline: 2px solid var(--gold-light);
+        outline-offset: 4px;
+      }
+
+      .ambient {
+        position: absolute;
         inset: 0;
+        z-index: -2;
         overflow: hidden;
         pointer-events: none;
-        background:
-          radial-gradient(circle at 26% 18%, rgba(246, 234, 212, 0.12), transparent 22%),
-          radial-gradient(circle at 76% 38%, rgba(217, 183, 122, 0.11), transparent 25%),
-          linear-gradient(115deg, #040404, #11100d 52%, #050505);
       }
 
-      .bg::after {
-        content: "";
+      .ambient__ribbon {
         position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(circle at 50% 50%, transparent 18%, rgba(0, 0, 0, 0.54) 76%),
-          linear-gradient(90deg, rgba(0, 0, 0, 0.42), transparent 45%, rgba(0, 0, 0, 0.42));
+        width: 74vw;
+        height: 20vw;
+        min-height: 190px;
+        opacity: 0.25;
+        background: url("app/static/altea_motion/assets/light_ribbon.svg") center / 100% 100% no-repeat;
+        filter: sepia(0.4) saturate(0.8);
       }
 
-      .ribbon {
+      .ambient__ribbon--top {
+        top: 11rem;
+        right: -22vw;
+        transform: rotate(-7deg);
+        animation: drift-top 18s ease-in-out infinite alternate;
+      }
+
+      .ambient__ribbon--bottom {
+        bottom: 8rem;
+        left: -26vw;
+        transform: rotate(8deg);
+        animation: drift-bottom 22s ease-in-out infinite alternate;
+      }
+
+      .ambient__petal {
         position: absolute;
-        width: 76vw;
-        height: 20vh;
-        opacity: 0.44;
-        background:
-          linear-gradient(92deg, transparent 0%, rgba(217, 183, 122, 0.04) 32%, rgba(241, 217, 170, 0.52) 50%, rgba(217, 183, 122, 0.08) 62%, transparent 100%),
-          url("app/static/altea_motion/assets/light_ribbon.svg") center / 100% 100% no-repeat;
-        animation: ribbon 14s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
-      }
-
-      .ribbon.left {
-        left: -20vw;
-        bottom: 8vh;
-        transform: rotate(11deg);
-      }
-
-      .ribbon.right {
-        right: -18vw;
-        top: 21vh;
-        transform: rotate(-8deg);
-        animation-delay: -5s;
-      }
-
-      .petal {
-        position: absolute;
-        width: 56px;
-        height: 40px;
+        width: 45px;
+        height: 32px;
+        opacity: 0.24;
         background: url("app/static/altea_motion/assets/petal.svg") center / contain no-repeat;
-        filter: drop-shadow(0 8px 18px rgba(217, 183, 122, 0.18));
-        animation: petal 11s ease-in-out infinite alternate;
+        animation: petal 12s ease-in-out infinite alternate;
       }
 
-      .petal.one { left: 8vw; top: 18vh; }
-      .petal.two { right: 18vw; top: 13vh; animation-delay: -3s; }
-      .petal.three { left: 28vw; bottom: 15vh; animation-delay: -6s; }
-      .petal.four { right: 8vw; bottom: 22vh; animation-delay: -2s; }
+      .ambient__petal--one { top: 16rem; left: 5vw; }
+      .ambient__petal--two { top: 42rem; right: 6vw; animation-delay: -5s; }
+      .ambient__petal--three { bottom: 14rem; left: 13vw; animation-delay: -9s; }
 
-      .page {
-        position: relative;
-        z-index: 1;
+      .shell {
         width: min(1180px, calc(100% - 40px));
         margin: 0 auto;
-        padding: 42px 0 56px;
       }
 
-      .topbar,
-      .hero,
-      .panel,
-      .route-card {
-        border: 1px solid var(--border);
-        background: linear-gradient(145deg, rgba(22, 21, 19, 0.9), rgba(12, 12, 11, 0.78));
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(18px);
-      }
-
-      .topbar {
+      .site-header {
+        position: relative;
+        top: 0;
+        z-index: 10;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 18px;
-        padding: 16px 18px;
-        border-radius: var(--radius);
+        gap: 22px;
+        margin-top: 16px;
+        padding: 13px 14px 13px 18px;
+        border: 1px solid var(--line);
+        border-radius: 17px;
+        background: rgba(10, 9, 7, 0.78);
+        box-shadow: 0 16px 54px rgba(0, 0, 0, 0.36);
+        backdrop-filter: blur(22px);
       }
 
       .brand {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 14px;
+        gap: 12px;
+        min-width: max-content;
         text-decoration: none;
       }
 
       .brand img {
-        width: 44px;
-        height: 44px;
+        width: 37px;
+        height: 37px;
       }
 
-      .brand strong {
+      .brand__name {
         display: block;
-        font-size: 22px;
-        letter-spacing: 0.22em;
         font-family: Georgia, "Times New Roman", serif;
+        font-size: 19px;
         font-weight: 500;
+        letter-spacing: 0.2em;
+        line-height: 1;
       }
 
-      .brand small {
+      .brand__product {
         display: block;
-        margin-top: 3px;
+        margin-top: 5px;
         color: var(--muted);
-        font-size: 11px;
-        letter-spacing: 0.26em;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
         text-transform: uppercase;
       }
 
-      .top-links {
+      .nav {
         display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .nav__link {
+        padding: 9px 12px;
+        border-radius: 10px;
+        color: #bfb5a6;
+        font-size: 13px;
+        font-weight: 650;
+        text-decoration: none;
+        transition: color 160ms ease, background 160ms ease;
+      }
+
+      .nav__link:hover {
+        color: var(--ivory);
+        background: rgba(255, 255, 255, 0.05);
       }
 
       .button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 40px;
-        padding: 0 16px;
-        border: 1px solid rgba(217, 183, 122, 0.42);
-        border-radius: 10px;
-        color: #0a0908;
-        background: linear-gradient(180deg, #f7e5c5, #d6ad6b);
-        font-weight: 700;
+        gap: 9px;
+        min-height: 46px;
+        padding: 0 19px;
+        border: 1px solid rgba(242, 219, 173, 0.48);
+        border-radius: 12px;
+        color: #171108;
+        background: linear-gradient(145deg, #f5e3bd, #d3a960 72%, #b98a42);
+        box-shadow: 0 10px 34px rgba(199, 151, 70, 0.15), inset 0 1px rgba(255, 255, 255, 0.45);
+        font-size: 14px;
+        font-weight: 780;
         text-decoration: none;
+        transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease;
       }
 
-      .button.ghost {
+      .button:hover {
+        transform: translateY(-2px);
+        filter: brightness(1.06);
+        box-shadow: 0 15px 42px rgba(199, 151, 70, 0.22), inset 0 1px rgba(255, 255, 255, 0.5);
+      }
+
+      .button--compact {
+        min-height: 40px;
+        padding: 0 15px;
+        font-size: 13px;
+      }
+
+      .button--ghost {
         color: var(--ivory);
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba(255, 255, 255, 0.035);
+        border-color: var(--line);
+        box-shadow: none;
+      }
+
+      .button__arrow {
+        font-size: 18px;
+        line-height: 1;
       }
 
       .hero {
         position: relative;
         display: grid;
-        grid-template-columns: 1.08fr 0.92fr;
-        gap: 34px;
-        margin-top: 28px;
-        padding: 42px;
-        border-radius: 26px;
-        overflow: hidden;
+        grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
+        align-items: center;
+        gap: 70px;
+        min-height: 670px;
+        padding: 92px 12px 72px;
       }
 
-      .hero::before {
-        content: "";
-        position: absolute;
-        left: -20px;
-        bottom: -84px;
-        width: 380px;
-        height: 380px;
-        opacity: 0.78;
-        background: url("app/static/altea_motion/assets/altea_flower.svg") center / contain no-repeat;
-        filter: drop-shadow(0 22px 44px rgba(217, 183, 122, 0.24));
-      }
-
-      .hero-copy {
+      .hero__copy {
         position: relative;
         z-index: 1;
-        padding-left: 230px;
+        animation: rise 700ms both;
       }
 
       .eyebrow {
-        margin: 0 0 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 18px;
         color: var(--gold);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.22em;
+        font-size: 11px;
+        font-weight: 780;
+        letter-spacing: 0.2em;
         text-transform: uppercase;
       }
 
-      h1 {
-        max-width: 680px;
-        margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: 54px;
-        line-height: 1.02;
-        font-weight: 500;
+      .eyebrow::before {
+        width: 28px;
+        height: 1px;
+        content: "";
+        background: currentColor;
       }
 
-      .lead {
-        max-width: 660px;
-        margin: 20px 0 0;
-        color: #d9cfbd;
-        font-size: 18px;
+      h1,
+      h2,
+      h3,
+      p {
+        text-wrap: pretty;
+      }
+
+      h1 {
+        max-width: 720px;
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(48px, 6.2vw, 78px);
+        font-weight: 400;
+        letter-spacing: -0.045em;
+        line-height: 0.98;
+      }
+
+      h1 em {
+        color: var(--gold-light);
+        font-style: italic;
+        font-weight: 400;
+      }
+
+      .hero__lead {
+        max-width: 650px;
+        margin: 26px 0 0;
+        color: var(--copy);
+        font-size: clamp(17px, 2vw, 20px);
         line-height: 1.65;
       }
 
-      .hero-panel {
+      .hero__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 11px;
+        margin-top: 32px;
+      }
+
+      .hero__hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        max-width: 590px;
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .hero__hint::before {
+        flex: 0 0 auto;
+        width: 6px;
+        height: 6px;
+        margin-top: 6px;
+        border-radius: 50%;
+        content: "";
+        background: var(--good);
+        box-shadow: 0 0 12px rgba(159, 202, 155, 0.5);
+      }
+
+      .product-preview {
         position: relative;
         z-index: 1;
+        padding: 10px;
+        border: 1px solid rgba(216, 179, 107, 0.31);
+        border-radius: 29px;
+        background: rgba(12, 11, 9, 0.62);
+        box-shadow: var(--shadow);
+        transform: rotate(1.2deg);
+        animation: rise 700ms 120ms both;
+      }
+
+      .product-preview::before {
+        position: absolute;
+        top: -94px;
+        right: -62px;
+        z-index: -1;
+        width: 230px;
+        height: 230px;
+        content: "";
+        opacity: 0.42;
+        background: url("app/static/altea_motion/assets/altea_flower.svg") center / contain no-repeat;
+        filter: drop-shadow(0 24px 50px rgba(216, 179, 107, 0.2));
+      }
+
+      .preview__screen {
+        min-height: 500px;
         padding: 22px;
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid var(--line-soft);
+        border-radius: 21px;
+        background:
+          radial-gradient(circle at 100% 0, rgba(216, 179, 107, 0.11), transparent 44%),
+          linear-gradient(155deg, #16140f, #0b0a08 68%);
+        overflow: hidden;
       }
 
-      .status {
-        display: grid;
+      .preview__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
         gap: 12px;
-        margin-top: 16px;
+        margin-bottom: 26px;
       }
 
-      .status div {
+      .preview__brand {
         display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .status span {
-        color: var(--muted);
-      }
-
-      .status strong {
-        color: var(--gold-soft);
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 16px;
-        margin-top: 18px;
-      }
-
-      .panel {
-        margin-top: 18px;
-        padding: 24px;
-        border-radius: var(--radius);
-      }
-
-      .panel-head {
-        display: flex;
-        align-items: end;
-        justify-content: space-between;
-        gap: 18px;
-        margin-bottom: 16px;
-      }
-
-      h2 {
-        margin: 0;
-        font-size: 22px;
-      }
-
-      .panel-head p {
-        margin: 0;
-        color: var(--muted);
-      }
-
-      .route-card {
-        min-height: 184px;
-        padding: 20px;
-        border-radius: 16px;
-        text-decoration: none;
-        transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
-      }
-
-      .route-card:hover {
-        transform: translateY(-3px);
-        border-color: rgba(244, 220, 176, 0.7);
-        background: linear-gradient(145deg, rgba(35, 31, 25, 0.96), rgba(13, 13, 12, 0.88));
-      }
-
-      .route-card small {
-        color: var(--gold);
-        font-weight: 700;
+        align-items: center;
+        gap: 9px;
+        font-size: 11px;
+        font-weight: 750;
         letter-spacing: 0.12em;
         text-transform: uppercase;
       }
 
-      .route-card h3 {
-        margin: 12px 0 10px;
-        font-size: 20px;
+      .preview__brand img {
+        width: 25px;
+        height: 25px;
       }
 
-      .route-card p {
-        margin: 0;
-        color: #c9bead;
-        line-height: 1.5;
+      .preview__badge,
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 26px;
+        padding: 0 9px;
+        border: 1px solid rgba(216, 179, 107, 0.2);
+        border-radius: 999px;
+        color: var(--gold-light);
+        background: rgba(216, 179, 107, 0.075);
+        font-size: 9px;
+        font-weight: 780;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
       }
 
-      .note {
+      .preview__badge::before,
+      .status-pill::before {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        content: "";
+        background: currentColor;
+      }
+
+      .preview__label {
         color: var(--muted);
-        line-height: 1.65;
+        font-size: 11px;
+      }
+
+      .preview__metric {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 7px;
+        padding-bottom: 22px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .preview__metric strong {
+        display: block;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 34px;
+        font-weight: 400;
+        line-height: 1;
+      }
+
+      .preview__metric small {
+        display: block;
+        max-width: 170px;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.45;
+        text-align: right;
+      }
+
+      .preview__action {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid rgba(216, 179, 107, 0.26);
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(216, 179, 107, 0.12), rgba(255, 255, 255, 0.025));
+      }
+
+      .preview__action span {
+        color: var(--gold);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .preview__action h2 {
+        margin: 8px 0 4px;
+        font-size: 19px;
+      }
+
+      .preview__action p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .preview__steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 13px;
+      }
+
+      .preview__step {
+        min-height: 76px;
+        padding: 11px;
+        border: 1px solid var(--line-soft);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.022);
+      }
+
+      .preview__step span {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 21px;
+        height: 21px;
+        margin-bottom: 7px;
+        border-radius: 7px;
+        color: var(--gold-light);
+        background: rgba(216, 179, 107, 0.12);
+        font-size: 9px;
+        font-weight: 800;
+      }
+
+      .preview__step small {
+        color: #c3b9a8;
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 1.25;
+      }
+
+      .cycle {
+        display: grid;
+        grid-template-columns: repeat(9, minmax(0, 1fr));
+        gap: 0;
+        margin: 0 0 110px;
+        padding: 15px 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(18, 16, 12, 0.64);
+        backdrop-filter: blur(14px);
+      }
+
+      .cycle__step {
+        position: relative;
+        min-width: 0;
+        padding: 7px 8px;
+        text-align: center;
+      }
+
+      .cycle__step:not(:last-child)::after {
+        position: absolute;
+        top: 50%;
+        right: -4px;
+        color: var(--gold-deep);
+        content: "›";
+        translate: 0 -50%;
+      }
+
+      .cycle__step span {
+        display: block;
+        color: var(--gold);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.13em;
+      }
+
+      .cycle__step strong {
+        display: block;
+        margin-top: 4px;
+        overflow: hidden;
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .section {
+        margin-bottom: 120px;
+        scroll-margin-top: 110px;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: 1fr minmax(280px, 0.56fr);
+        align-items: end;
+        gap: 40px;
+        margin-bottom: 38px;
+      }
+
+      .section-head h2,
+      .environment-intro h2,
+      .north-star h2,
+      .closing h2 {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(36px, 5vw, 58px);
+        font-weight: 400;
+        letter-spacing: -0.035em;
+        line-height: 1.05;
+      }
+
+      .section-head > p,
+      .environment-intro > p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.7;
+      }
+
+      .environment-grid {
+        display: grid;
+        grid-template-columns: 0.85fr 1.15fr;
+        gap: 18px;
+      }
+
+      .environment-card {
+        position: relative;
+        min-height: 360px;
+        padding: 30px;
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius-lg);
+        background: rgba(15, 14, 11, 0.68);
+        overflow: hidden;
+      }
+
+      .environment-card--app {
+        border-color: rgba(216, 179, 107, 0.36);
+        background:
+          radial-gradient(circle at 92% 10%, rgba(216, 179, 107, 0.16), transparent 45%),
+          linear-gradient(145deg, rgba(31, 27, 19, 0.94), rgba(13, 12, 9, 0.88));
+        box-shadow: var(--shadow);
+      }
+
+      .environment-card__number {
+        display: block;
+        margin-bottom: 50px;
+        color: var(--gold-deep);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 44px;
+        line-height: 1;
+      }
+
+      .environment-card h3 {
+        margin: 0;
+        font-size: 25px;
+      }
+
+      .environment-card > p {
+        max-width: 580px;
+        margin: 12px 0 0;
+        color: var(--copy);
+      }
+
+      .check-list {
+        display: grid;
+        gap: 9px;
+        margin: 22px 0 0;
+        padding: 0;
+        color: var(--muted);
+        font-size: 13px;
+        list-style: none;
+      }
+
+      .check-list li {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+      }
+
+      .check-list li::before {
+        flex: 0 0 auto;
+        width: 17px;
+        height: 17px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        color: var(--gold);
+        content: "✓";
+        font-size: 10px;
+        line-height: 15px;
+        text-align: center;
+      }
+
+      .environment-card .button {
+        margin-top: 25px;
+      }
+
+      .address {
+        display: block;
+        width: fit-content;
+        max-width: 100%;
+        margin-top: 20px;
+        padding: 8px 11px;
+        border: 1px solid var(--line-soft);
+        border-radius: 9px;
+        color: var(--gold-light);
+        background: rgba(0, 0, 0, 0.22);
+        font-family: "Cascadia Code", Consolas, monospace;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+
+      .module-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .module-card {
+        position: relative;
+        display: flex;
+        min-height: 260px;
+        flex-direction: column;
+        padding: 25px;
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius-md);
+        background:
+          linear-gradient(155deg, rgba(25, 22, 16, 0.76), rgba(11, 10, 8, 0.7));
+        overflow: hidden;
+        transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+      }
+
+      .module-card::after {
+        position: absolute;
+        right: -22px;
+        bottom: -46px;
+        color: rgba(216, 179, 107, 0.045);
+        content: attr(data-number);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 138px;
+        line-height: 1;
+      }
+
+      .module-card:hover {
+        transform: translateY(-4px);
+        border-color: rgba(216, 179, 107, 0.38);
+        background: linear-gradient(155deg, rgba(35, 30, 21, 0.88), rgba(12, 11, 8, 0.78));
+      }
+
+      .module-card__top {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .module-card__number {
+        color: var(--gold);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 22px;
+      }
+
+      .module-card__result {
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      .module-card h3 {
+        position: relative;
+        z-index: 1;
+        margin: 33px 0 9px;
+        font-size: 21px;
+      }
+
+      .module-card p {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        color: #bcb2a3;
+        font-size: 14px;
+        line-height: 1.62;
+      }
+
+      .module-card__metric {
+        position: relative;
+        z-index: 1;
+        margin-top: auto;
+        padding-top: 18px;
+        color: var(--gold-light);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .connector-layout {
+        display: grid;
+        grid-template-columns: minmax(250px, 0.7fr) 1.3fr;
+        gap: 18px;
+      }
+
+      .connector-summary,
+      .connector-list {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: rgba(16, 14, 11, 0.72);
+      }
+
+      .connector-summary {
+        padding: 32px;
+        background:
+          radial-gradient(circle at 30% 16%, rgba(216, 179, 107, 0.16), transparent 48%),
+          rgba(18, 16, 12, 0.78);
+      }
+
+      .connector-summary h3 {
+        margin: 52px 0 13px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 34px;
+        font-weight: 400;
+        line-height: 1.1;
+      }
+
+      .connector-summary p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .connector-list {
+        display: grid;
+        align-content: stretch;
+        padding: 8px 28px;
+      }
+
+      .connector-row {
+        display: grid;
+        grid-template-columns: 50px 1fr auto;
+        align-items: center;
+        gap: 17px;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .connector-row:last-child {
+        border-bottom: 0;
+      }
+
+      .connector-row__icon {
+        display: grid;
+        width: 45px;
+        height: 45px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        color: var(--gold-light);
+        background: rgba(216, 179, 107, 0.07);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 18px;
+      }
+
+      .connector-row h3 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .connector-row p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .status-pill--official {
+        color: var(--good);
+        border-color: rgba(159, 202, 155, 0.22);
+        background: rgba(159, 202, 155, 0.07);
+      }
+
+      .status-pill--manual {
+        color: var(--manual);
+      }
+
+      .north-star {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 0.92fr;
+        gap: 54px;
+        padding: 54px;
+        border: 1px solid rgba(216, 179, 107, 0.36);
+        border-radius: var(--radius-lg);
+        background:
+          radial-gradient(circle at 85% 30%, rgba(216, 179, 107, 0.16), transparent 38%),
+          linear-gradient(145deg, rgba(31, 27, 19, 0.93), rgba(12, 11, 9, 0.9));
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .north-star::after {
+        position: absolute;
+        right: -90px;
+        bottom: -120px;
+        width: 360px;
+        height: 360px;
+        content: "";
+        opacity: 0.13;
+        background: url("app/static/altea_motion/assets/altea_flower.svg") center / contain no-repeat;
+      }
+
+      .north-star__copy,
+      .north-star__proof {
+        position: relative;
+        z-index: 1;
+      }
+
+      .north-star__copy > p {
+        max-width: 580px;
+        margin: 20px 0 0;
+        color: var(--copy);
+        font-size: 17px;
+      }
+
+      .metric-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 25px;
+      }
+
+      .metric-tags span {
+        padding: 8px 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 9px;
+        color: var(--muted);
+        background: rgba(0, 0, 0, 0.16);
+        font-size: 10px;
+        font-weight: 760;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .north-star__proof {
+        display: grid;
+        gap: 9px;
+        align-content: center;
+        padding: 20px;
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius-md);
+        background: rgba(0, 0, 0, 0.2);
+      }
+
+      .proof-row {
+        display: grid;
+        grid-template-columns: 29px 1fr;
+        align-items: center;
+        gap: 11px;
+        min-height: 52px;
+        padding: 8px 10px;
+        border-radius: 11px;
+        color: #c9bfaf;
+        background: rgba(255, 255, 255, 0.025);
+        font-size: 13px;
+      }
+
+      .proof-row span {
+        display: grid;
+        width: 27px;
+        height: 27px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: var(--gold-light);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .api-note {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 11px;
       }
 
       code {
-        color: var(--gold-soft);
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid var(--line);
-        border-radius: 7px;
-        padding: 2px 6px;
+        color: var(--gold-light);
+        font-family: "Cascadia Code", Consolas, monospace;
       }
 
-      @keyframes ribbon {
-        from { opacity: 0.3; translate: -2vw -1vh; }
-        to { opacity: 0.65; translate: 3vw 2vh; }
+      .closing {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: end;
+        gap: 40px;
+        margin-bottom: 36px;
+        padding: 58px;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        overflow: hidden;
+      }
+
+      .closing p {
+        max-width: 700px;
+        margin: 18px 0 0;
+        color: var(--muted);
+      }
+
+      .closing__actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      .site-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 0 4px 38px;
+        color: #70695f;
+        font-size: 11px;
+      }
+
+      .site-footer strong {
+        color: #9c917f;
+        letter-spacing: 0.12em;
+      }
+
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(18px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @keyframes drift-top {
+        from { translate: 0 -1rem; opacity: 0.18; }
+        to { translate: -3rem 2rem; opacity: 0.32; }
+      }
+
+      @keyframes drift-bottom {
+        from { translate: 0 1rem; opacity: 0.16; }
+        to { translate: 4rem -1rem; opacity: 0.28; }
       }
 
       @keyframes petal {
-        from { transform: translate3d(0, 0, 0) rotate(-7deg); opacity: 0.55; }
-        to { transform: translate3d(18px, 24px, 0) rotate(9deg); opacity: 0.88; }
+        from { translate: 0 0; rotate: -7deg; }
+        to { translate: 18px 30px; rotate: 10deg; }
       }
 
       @media (max-width: 980px) {
+        .nav__link {
+          display: none;
+        }
+
         .hero {
+          grid-template-columns: 1fr;
+          gap: 80px;
+          padding-top: 85px;
+        }
+
+        .product-preview {
+          width: min(100%, 620px);
+          margin: 0 auto;
+          transform: none;
+        }
+
+        .cycle {
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px 0;
+        }
+
+        .cycle__step:nth-child(3n)::after {
+          display: none;
+        }
+
+        .section-head,
+        .north-star {
           grid-template-columns: 1fr;
         }
 
-        .hero-copy {
-          padding-left: 0;
-          padding-top: 210px;
+        .module-grid {
+          grid-template-columns: repeat(2, 1fr);
         }
 
-        .grid {
-          grid-template-columns: repeat(2, 1fr);
+        .connector-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .connector-summary h3 {
+          margin-top: 25px;
+        }
+
+        .closing {
+          grid-template-columns: 1fr;
+          align-items: start;
+        }
+
+        .closing__actions {
+          flex-direction: row;
+          flex-wrap: wrap;
         }
       }
 
-      @media (max-width: 680px) {
-        .page {
+      @media (max-width: 720px) {
+        .shell {
           width: min(100% - 24px, 1180px);
-          padding-top: 18px;
         }
 
-        .topbar,
-        .panel-head {
-          align-items: flex-start;
-          flex-direction: column;
+        .site-header {
+          top: 0;
+          margin-top: 8px;
+        }
+
+        .brand__product {
+          display: none;
+        }
+
+        .site-header .button {
+          min-height: 38px;
+          padding-inline: 12px;
+        }
+
+        .site-header .button__label {
+          display: none;
         }
 
         .hero {
-          padding: 24px;
+          min-height: auto;
+          padding: 74px 3px 60px;
         }
 
         h1 {
-          font-size: 38px;
+          font-size: clamp(43px, 13vw, 60px);
         }
 
-        .grid {
+        .hero__actions .button {
+          width: 100%;
+        }
+
+        .product-preview::before {
+          right: -30px;
+          width: 170px;
+          height: 170px;
+        }
+
+        .preview__screen {
+          min-height: 0;
+          padding: 16px;
+        }
+
+        .preview__steps {
           grid-template-columns: 1fr;
+        }
+
+        .preview__step {
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          min-height: 0;
+        }
+
+        .preview__step span {
+          flex: 0 0 auto;
+          margin: 0;
+        }
+
+        .cycle {
+          margin-bottom: 82px;
+          padding: 12px;
+        }
+
+        .section {
+          margin-bottom: 88px;
+        }
+
+        .section-head {
+          gap: 18px;
+          margin-bottom: 25px;
+        }
+
+        .environment-grid,
+        .module-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .environment-card {
+          min-height: 0;
+          padding: 24px;
+        }
+
+        .environment-card__number {
+          margin-bottom: 32px;
+        }
+
+        .module-card {
+          min-height: 230px;
+        }
+
+        .connector-list {
+          padding-inline: 18px;
+        }
+
+        .connector-row {
+          grid-template-columns: 43px 1fr;
+        }
+
+        .connector-row .status-pill {
+          grid-column: 2;
+          width: fit-content;
+        }
+
+        .north-star,
+        .closing {
+          padding: 31px 24px;
+        }
+
+        .site-footer {
+          align-items: flex-start;
+          flex-direction: column;
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
         *,
         *::before,
         *::after {
@@ -400,109 +1217,315 @@
     </style>
   </head>
   <body>
-    <div class="bg" aria-hidden="true">
-      <div class="ribbon left"></div>
-      <div class="ribbon right"></div>
-      <div class="petal one"></div>
-      <div class="petal two"></div>
-      <div class="petal three"></div>
-      <div class="petal four"></div>
+    <div class="ambient" aria-hidden="true">
+      <div class="ambient__ribbon ambient__ribbon--top"></div>
+      <div class="ambient__ribbon ambient__ribbon--bottom"></div>
+      <div class="ambient__petal ambient__petal--one"></div>
+      <div class="ambient__petal ambient__petal--two"></div>
+      <div class="ambient__petal ambient__petal--three"></div>
     </div>
 
-    <main class="page">
-      <header class="topbar">
-        <a class="brand" href="./">
-          <img src="app/static/altea_motion/assets/logo_mark.svg" alt="">
-          <span>
-            <strong>ALTEA</strong>
-            <small>ContentEngine shell</small>
-          </span>
+    <header class="site-header shell">
+      <a class="brand" href="#top" aria-label="ALTEA — в начало страницы">
+        <img src="app/static/altea_motion/assets/logo_mark.svg" alt="">
+        <span>
+          <span class="brand__name">ALTEA</span>
+          <span class="brand__product">Контент ИИ Завод</span>
+        </span>
+      </a>
+      <nav class="nav" aria-label="Навигация по витрине">
+        <a class="nav__link" href="#how-it-works">Как работает</a>
+        <a class="nav__link" href="#factory-blocks">9 блоков</a>
+        <a class="nav__link" href="#metrics">Метрики</a>
+        <a
+          class="button button--compact"
+          href="http://127.0.0.1:8014/control-room"
+          target="_blank"
+          rel="noopener"
+        >
+          <span class="button__label">Открыть завод</span><span class="button__arrow" aria-hidden="true">↗</span>
         </a>
-        <nav class="top-links" aria-label="Quick links">
-          <a class="button ghost" href="README.md">README</a>
-          <a class="button ghost" href="docs/CONTROL_ROOM.md">Control Room docs</a>
-          <a class="button" href="https://github.com/Alisia777/ContentEngine/pull/69">PR #69</a>
-        </nav>
-      </header>
+      </nav>
+    </header>
 
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Unified Control Room v3.5</p>
-          <h1>ContentEngine кабинеты и оболочка запуска</h1>
-          <p class="lead">
-            Это публичная статическая витрина GitHub Pages. Рабочие кабинеты, данные, роли,
-            EngineAudit и очереди действий запускаются локально через FastAPI.
+    <main id="top">
+      <section class="hero shell" aria-labelledby="hero-title">
+        <div class="hero__copy">
+          <p class="eyebrow">ALTEA · Контент ИИ Завод</p>
+          <h1 id="hero-title">От товара до <em>измеримой продажи</em> — одним циклом</h1>
+          <p class="hero__lead">
+            Понятная система для человека без опыта: выбрать SKU, подготовить фото, создать видео,
+            проверить качество, опубликовать и увидеть, что действительно принесло результат.
+          </p>
+          <div class="hero__actions">
+            <a
+              class="button"
+              href="http://127.0.0.1:8014/control-room"
+              target="_blank"
+              rel="noopener"
+            >
+              Открыть локальный Control Room <span class="button__arrow" aria-hidden="true">↗</span>
+            </a>
+            <a class="button button--ghost" href="#factory-blocks">Посмотреть 9 блоков</a>
+          </div>
+          <p class="hero__hint">
+            Рабочее приложение доступно на этом устройстве после локального запуска сервера.
+            Публичные рабочие данные и секреты не выставляются; эта страница — только витрина продукта.
           </p>
         </div>
-        <aside class="hero-panel">
-          <p class="eyebrow">Local app</p>
-          <h2>Как открыть настоящие кабинеты</h2>
-          <div class="status">
-            <div><span>Control Room</span><strong>localhost:8013</strong></div>
-            <div><span>Owner dashboard</span><strong>/control-room?role=owner</strong></div>
-            <div><span>ALTEA motion shell</span><strong>/altea-motion/dashboard</strong></div>
+
+        <aside class="product-preview" aria-label="Пример главного экрана Контент ИИ Завода">
+          <div class="preview__screen">
+            <div class="preview__bar">
+              <div class="preview__brand">
+                <img src="app/static/altea_motion/assets/logo_mark.svg" alt="">
+                Control Room
+              </div>
+              <span class="preview__badge">Пример интерфейса</span>
+            </div>
+            <span class="preview__label">Главный показатель</span>
+            <div class="preview__metric">
+              <strong>Измеримые циклы</strong>
+              <small>одобренное видео + публикация + tracking + фактическая метрика</small>
+            </div>
+            <div class="preview__action">
+              <span>Одно следующее действие</span>
+              <h2>Выберите товар и добавьте точные фото</h2>
+              <p>Система объяснит требования до любого платного запуска.</p>
+            </div>
+            <div class="preview__steps" aria-label="Первые шаги">
+              <div class="preview__step"><span>01</span><small>Выбрать SKU</small></div>
+              <div class="preview__step"><span>02</span><small>Проверить фото</small></div>
+              <div class="preview__step"><span>03</span><small>Получить ТЗ</small></div>
+            </div>
           </div>
-          <p class="note">
-            GitHub Pages не запускает Python/FastAPI. Поэтому здесь лежит entry shell,
-            а операционный слой открывается после локального запуска сервера.
-          </p>
         </aside>
       </section>
 
-      <section class="panel">
-        <div class="panel-head">
+      <div class="cycle shell" aria-label="Сквозной контент-цикл">
+        <div class="cycle__step"><span>01</span><strong>Товар</strong></div>
+        <div class="cycle__step"><span>02</span><strong>Фото</strong></div>
+        <div class="cycle__step"><span>03</span><strong>Идея</strong></div>
+        <div class="cycle__step"><span>04</span><strong>Генерация</strong></div>
+        <div class="cycle__step"><span>05</span><strong>Проверка</strong></div>
+        <div class="cycle__step"><span>06</span><strong>Публикация</strong></div>
+        <div class="cycle__step"><span>07</span><strong>Данные</strong></div>
+        <div class="cycle__step"><span>08</span><strong>Продажи</strong></div>
+        <div class="cycle__step"><span>09</span><strong>Гипотеза</strong></div>
+      </div>
+
+      <section class="section shell" id="how-it-works" aria-labelledby="environment-title">
+        <div class="section-head environment-intro">
           <div>
-            <p class="eyebrow">Cabinets</p>
-            <h2>Ролевые рабочие экраны</h2>
+            <p class="eyebrow">Два разных контура</p>
+            <h2 id="environment-title">Витрина показывает. Завод работает.</h2>
           </div>
-          <p>Эти маршруты доступны в локальной версии приложения.</p>
+          <p>
+            GitHub Pages не запускает FastAPI и не получает рабочие данные. Все действия с товарами,
+            видео, деньгами и метриками происходят только в защищённом локальном приложении.
+          </p>
         </div>
-        <div class="grid">
-          <a class="route-card" href="http://localhost:8013/control-room?role=owner">
-            <small>Owner</small>
-            <h3>Executive Control Room</h3>
-            <p>Production readiness, EngineAudit score, blockers, paid smoke status, decisions.</p>
-          </a>
-          <a class="route-card" href="http://localhost:8013/control-room?role=content_lead">
-            <small>Content lead</small>
-            <h3>Quality & Briefs</h3>
-            <p>Product strategy, weak briefs, one-video plans, prompt-only readiness, review queue.</p>
-          </a>
-          <a class="route-card" href="http://localhost:8013/control-room?role=reviewer">
-            <small>Reviewer</small>
-            <h3>Output Acceptance</h3>
-            <p>Human review, product identity, packaging drift, regeneration and QA decisions.</p>
-          </a>
-          <a class="route-card" href="http://localhost:8013/control-room?role=creator">
-            <small>Creator</small>
-            <h3>Assignments & Payouts</h3>
-            <p>Brief cards, final URL blockers, stats, training and payout status.</p>
-          </a>
-          <a class="route-card" href="http://localhost:8013/control-room?role=metrics_operator">
-            <small>Metrics</small>
-            <h3>Metrics Intake</h3>
-            <p>Unmatched rows, missing stats, destinations without stats, funnel coverage.</p>
-          </a>
-          <a class="route-card" href="http://localhost:8013/altea-motion/dashboard">
-            <small>Shell</small>
-            <h3>ALTEA Motion UI</h3>
-            <p>Premium visual shell: gold ribbons, petals, dashboard motion and loading layers.</p>
-          </a>
+        <div class="environment-grid">
+          <article class="environment-card">
+            <span class="environment-card__number">01</span>
+            <span class="status-pill">Публичная витрина</span>
+            <h3>Этот сайт</h3>
+            <p>Объясняет продукт, его девять блоков и правила измерения. Ничего не генерирует и не хранит.</p>
+            <ul class="check-list">
+              <li>Нет доступа к рабочей базе</li>
+              <li>Нет входа и персональных кабинетов</li>
+              <li>Нет демонстрационных продаж</li>
+            </ul>
+          </article>
+          <article class="environment-card environment-card--app">
+            <span class="environment-card__number">02</span>
+            <span class="status-pill status-pill--official">Локальное приложение</span>
+            <h3>Защищённый Контент ИИ Завод</h3>
+            <p>
+              Реальный Control Room показывает состояние вашей организации, одно следующее действие,
+              очередь генерации, проверку качества, воронку и аналитику.
+            </p>
+            <ul class="check-list">
+              <li>Вход, роли и изоляция данных организации</li>
+              <li>Платные действия только после явного подтверждения</li>
+              <li>Метрики считаются по фактическим циклам</li>
+            </ul>
+            <code class="address">http://127.0.0.1:8014/control-room</code>
+            <a
+              class="button"
+              href="http://127.0.0.1:8014/control-room"
+              target="_blank"
+              rel="noopener"
+            >Открыть рабочее приложение <span class="button__arrow" aria-hidden="true">↗</span></a>
+          </article>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-head">
+      <section class="section shell" id="factory-blocks" aria-labelledby="blocks-title">
+        <div class="section-head">
           <div>
-            <p class="eyebrow">Run locally</p>
-            <h2>Команды запуска</h2>
+            <p class="eyebrow">Весь процесс в одном месте</p>
+            <h2 id="blocks-title">Девять блоков завода</h2>
+          </div>
+          <p>
+            Каждый блок отвечает на простой вопрос новичка: что происходит сейчас, что сделать дальше
+            и по какой цифре понять, что получилось.
+          </p>
+        </div>
+        <div class="module-grid">
+          <article class="module-card" data-number="01" data-factory-block="interface">
+            <div class="module-card__top"><span class="module-card__number">01</span><span class="module-card__result">Понятный старт</span></div>
+            <h3>Интерфейс</h3>
+            <p>Одно рекомендуемое действие, честные статусы и понятное объяснение каждого препятствия.</p>
+            <span class="module-card__metric">Активация · время до первого ТЗ</span>
+          </article>
+          <article class="module-card" data-number="02" data-factory-block="generation">
+            <div class="module-card__top"><span class="module-card__number">02</span><span class="module-card__result">Готовый ролик</span></div>
+            <h3>Генерация видео</h3>
+            <p>Точный SKU, бесплатный черновик ТЗ, прозрачная стоимость и контролируемая очередь без двойной оплаты.</p>
+            <span class="module-card__metric">Успех · время · стоимость генерации</span>
+          </article>
+          <article class="module-card" data-number="03" data-factory-block="quality">
+            <div class="module-card__top"><span class="module-card__number">03</span><span class="module-card__result">Безопасная публикация</span></div>
+            <h3>Качество</h3>
+            <p>Реальный MP4, кадры, CV/OCR упаковки и обязательное решение человека перед публикацией.</p>
+            <span class="module-card__metric">First-pass approval · OCR · регенерации</span>
+          </article>
+          <article class="module-card" data-number="04" data-factory-block="funnel">
+            <div class="module-card__top"><span class="module-card__number">04</span><span class="module-card__result">Путь до выручки</span></div>
+            <h3>Воронка</h3>
+            <p>Публикация связывается с tracking-ссылкой и ведёт от просмотра к переходу, заказу и выручке.</p>
+            <span class="module-card__metric">CTR · CVR · выручка на цикл</span>
+          </article>
+          <article class="module-card" data-number="05" data-factory-block="social-data">
+            <div class="module-card__top"><span class="module-card__number">05</span><span class="module-card__result">Проверяемые цифры</span></div>
+            <h3>Данные из сетей</h3>
+            <p>Источник и свежесть каждой строки; код YT, IG, TT и WB готов к credentials, для Telegram и VK работает guided/manual путь.</p>
+            <span class="module-card__metric">Свежесть · покрытие · quarantine</span>
+          </article>
+          <article class="module-card" data-number="06" data-factory-block="billing">
+            <div class="module-card__top"><span class="module-card__number">06</span><span class="module-card__result">Контроль денег</span></div>
+            <h3>Плата и расходы</h3>
+            <p>Отдельно учитываются расходы AI-провайдера, выплаты и клиентский billing — без автоматического эквайринга.</p>
+            <span class="module-card__metric">Цена ролика · выплаты · маржа</span>
+          </article>
+          <article class="module-card" data-number="07" data-factory-block="wildberries">
+            <div class="module-card__top"><span class="module-card__number">07</span><span class="module-card__result">Точный товар</span></div>
+            <h3>Артикулы Wildberries</h3>
+            <p>Связь только собственных nmID, vendorCode и barcode с алиасами и прозрачной историей замен.</p>
+            <span class="module-card__metric">Совпадения · алиасы · спорные строки</span>
+          </article>
+          <article class="module-card" data-number="08" data-factory-block="analytics">
+            <div class="module-card__top"><span class="module-card__number">08</span><span class="module-card__result">Решение на данных</span></div>
+            <h3>Аналитика</h3>
+            <p>Показывает, какой SKU, ролик и канал дали результат, а где данные отсутствуют или устарели.</p>
+            <span class="module-card__metric">Циклы · заказы · выручка · варианты</span>
+          </article>
+          <article class="module-card" data-number="09" data-factory-block="learning">
+            <div class="module-card__top"><span class="module-card__number">09</span><span class="module-card__result">Самостоятельная работа</span></div>
+            <h3>Обучение</h3>
+            <p>Семь коротких практических шагов появляются именно перед новым действием, а не отдельным курсом.</p>
+            <span class="module-card__metric">Прогресс · сертификат · первый успех</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="section shell" id="connectors" aria-labelledby="connectors-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Источники без выдуманных данных</p>
+            <h2 id="connectors-title">Коннекторы и импорт</h2>
+          </div>
+          <p>
+            Система не называет источник подключённым, пока не получила и не проверила реальные данные.
+            Неподтверждённые и неоднозначные строки уходят в quarantine.
+          </p>
+        </div>
+        <div class="connector-layout">
+          <article class="connector-summary">
+            <span class="status-pill">Честный статус</span>
+            <h3>Каждая цифра хранит источник</h3>
+            <p>Организация, площадка, период, свежесть и способ получения остаются видимыми в аналитике.</p>
+          </article>
+          <div class="connector-list" aria-label="Статусы источников данных">
+            <article class="connector-row">
+              <span class="connector-row__icon">YT</span>
+              <div><h3>YouTube Analytics</h3><p>Адаптер reports.query готов; для живой синхронизации нужна OAuth credential reference.</p></div>
+              <span class="status-pill status-pill--manual">Код готов · нужны credentials</span>
+            </article>
+            <article class="connector-row">
+              <span class="connector-row__icon">IG</span>
+              <div><h3>Instagram Insights</h3><p>Код для Insights профессиональных media готов; требуется Instagram OAuth reference.</p></div>
+              <span class="status-pill status-pill--manual">Код готов · нужны credentials</span>
+            </article>
+            <article class="connector-row">
+              <span class="connector-row__icon">TT</span>
+              <div><h3>TikTok Display API</h3><p>Адаптер video.query готов; требуется OAuth reference с разрешением video.list.</p></div>
+              <span class="status-pill status-pill--manual">Код готов · нужны credentials</span>
+            </article>
+            <article class="connector-row">
+              <span class="connector-row__icon">WB</span>
+              <div><h3>Wildberries Seller Analytics</h3><p>История воронки по точным собственным nmID готова; нужен HeaderApiKey через env-reference.</p></div>
+              <span class="status-pill status-pill--manual">Код готов · нужны credentials</span>
+            </article>
+            <article class="connector-row">
+              <span class="connector-row__icon">M</span>
+              <div><h3>Telegram и VK</h3><p>Пошаговая настройка и проверяемый ручной/CSV-ввод до появления официального адаптера.</p></div>
+              <span class="status-pill">Guided setup · manual</span>
+            </article>
           </div>
         </div>
-        <p class="note">
-          Из корня репозитория: <code>python -m uvicorn app.main:app --host 127.0.0.1 --port 8013</code>.
-          После запуска открывай <code>http://localhost:8013/control-room?role=owner</code>.
-        </p>
+      </section>
+
+      <section class="section shell north-star" id="metrics" aria-labelledby="metrics-title">
+        <div class="north-star__copy">
+          <p class="eyebrow">North Star</p>
+          <h2 id="metrics-title">Измеримые контент-циклы за 7 дней</h2>
+          <p>
+            Главный показатель отвечает не на вопрос «сколько мы нажали кнопок», а на вопрос
+            «сколько публикаций прошло весь путь и вернуло фактические данные».
+          </p>
+          <div class="metric-tags" aria-label="Связанные метрики">
+            <span>Время до результата</span>
+            <span>Цена ролика</span>
+            <span>First-pass approval</span>
+            <span>CTR и CVR</span>
+            <span>Заказы и выручка</span>
+          </div>
+        </div>
+        <div class="north-star__proof" aria-label="Условия измеримого цикла">
+          <div class="proof-row"><span>1</span>Реальное видео одобрено человеком</div>
+          <div class="proof-row"><span>2</span>Сохранён публичный final URL</div>
+          <div class="proof-row"><span>3</span>Публикация связана с tracking-ссылкой</div>
+          <div class="proof-row"><span>4</span>Получена хотя бы одна атрибутированная метрика</div>
+          <p class="api-note">Защищённая точка измерения: <code>GET /api/factory-dashboard</code></p>
+        </div>
+      </section>
+
+      <section class="closing shell" aria-labelledby="closing-title">
+        <div>
+          <p class="eyebrow">Начать с одного товара</p>
+          <h2 id="closing-title">Откройте завод и сделайте следующее понятное действие</h2>
+          <p>
+            Никаких ролевых демо-кабинетов: после входа Control Room сам покажет состояние вашей
+            организации, препятствия и ровно один следующий шаг.
+          </p>
+        </div>
+        <div class="closing__actions">
+          <a
+            class="button"
+            href="http://127.0.0.1:8014/control-room"
+            target="_blank"
+            rel="noopener"
+          >Открыть Control Room <span class="button__arrow" aria-hidden="true">↗</span></a>
+          <a class="button button--ghost" href="docs/NOVICE_FIRST_CONTENT_FACTORY.md">Как устроен завод</a>
+        </div>
       </section>
     </main>
+
+    <footer class="site-footer shell">
+      <strong>ALTEA · КОНТЕНТ ИИ ЗАВОД</strong>
+      <span>Публичная витрина · рабочие данные остаются в защищённом приложении</span>
+    </footer>
   </body>
 </html>

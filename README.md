@@ -1,6 +1,8 @@
-# ContentEngine
+# Контент ИИ Завод · ContentEngine
 
-Qharisma Video Factory MVP.
+Единый AI-контур от товара и ролика до публикации, метрик и следующей гипотезы.
+
+Основной интерфейс для человека без опыта — `/control-room`. Продуктовый путь и правила измерения описаны в [docs/NOVICE_FIRST_CONTENT_FACTORY.md](docs/NOVICE_FIRST_CONTENT_FACTORY.md).
 
 Local MVP for an internal product content factory workflow:
 
@@ -19,7 +21,7 @@ The MVP is compliance-first. It uses mock providers by default and does not impl
 - Publishing package generator with UTM links, hashtags, CTA, AI flag, and safety metadata.
 - Owned-account registry and compliance-first warm-up scheduler.
 - MockUploadProvider plus manual-upload-required flow for unconfigured providers.
-- Fake analytics collection.
+- Org-scoped manual/social metrics ingestion with idempotency and quarantine; legacy mock analytics remain local-only.
 - Pytest coverage for the required MVP workflow.
 
 ## Run Locally
@@ -29,10 +31,19 @@ Use Python 3.12 for the pinned dependency set.
 ```bash
 python -m pip install -r requirements.txt
 python scripts/seed.py
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8014 --reload
 ```
 
-Open http://localhost:8000.
+Open http://127.0.0.1:8014/control-room.
+
+Для нового интерфейса включите:
+
+```env
+QVF_PUBLIC_PILOT_MODE=true
+QVF_AUTH_REQUIRED=false
+```
+
+и откройте http://127.0.0.1:8014/control-room. Режим без авторизации предназначен только для изолированной локальной проверки.
 
 ## ALTEA Motion UI Prototype
 
@@ -41,11 +52,11 @@ The ALTEA Motion prototype is a local animated premium UI kit built with FastAPI
 Open:
 
 ```text
-http://localhost:8000/altea-motion/splash
-http://localhost:8000/altea-motion/login
-http://localhost:8000/altea-motion/auth-loading
-http://localhost:8000/altea-motion/dashboard-loading
-http://localhost:8000/altea-motion/dashboard
+http://127.0.0.1:8014/altea-motion/splash
+http://127.0.0.1:8014/altea-motion/login
+http://127.0.0.1:8014/altea-motion/auth-loading
+http://127.0.0.1:8014/altea-motion/dashboard-loading
+http://127.0.0.1:8014/altea-motion/dashboard
 ```
 
 ## Fast Demo
@@ -55,10 +66,10 @@ Run the full mock/local MVP workflow from one command:
 ```bash
 python scripts/seed.py
 python scripts/run_demo_pipeline.py
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8014 --reload
 ```
 
-Then open http://localhost:8000/engine to trigger the same demo pipeline from the admin UI.
+Then open http://127.0.0.1:8014/engine to trigger the same demo pipeline from the admin UI.
 
 The fast demo is local-first and mock-provider based. It generates a script, auto-approves demo review steps, creates a mock video artifact, creates and approves a publishing package, schedules within warm-up limits, runs mock upload, and collects fake analytics. It does not call real LLM, video, or upload APIs.
 
@@ -737,7 +748,7 @@ python scripts/destination_metrics_summary.py --campaign-id 1
 
 Open `/destination-connectors` to review connection status, credential configured yes/no, recent syncs, CSV import results, matched/unmatched URLs, and campaign metrics summaries.
 
-Docs: `docs/DESTINATION_CONNECTORS.md`, `docs/METRICS_COLLECTION.md`, `docs/YOUTUBE_ANALYTICS_CONNECTOR.md`, `docs/TELEGRAM_CONNECTOR.md`, and `docs/MANUAL_METRICS_IMPORT.md`.
+Docs: `docs/DESTINATION_CONNECTORS.md`, `docs/METRICS_COLLECTION.md`, `docs/YOUTUBE_ANALYTICS_CONNECTOR.md`, `docs/OFFICIAL_SOCIAL_CONNECTORS.md`, `docs/WILDBERRIES_SELLER_ANALYTICS_CONNECTOR.md`, `docs/TELEGRAM_CONNECTOR.md`, and `docs/MANUAL_METRICS_IMPORT.md`.
 
 ## v1.6 Destination Control Tower
 
@@ -928,6 +939,13 @@ docker compose up --build
 
 The Docker image installs FFmpeg. Without FFmpeg, the app still writes clear placeholder artifacts and sidecar caption files.
 
+Compose also runs the paid Product UGC queue as a separately supervised worker
+with a durable heartbeat and health check. The workbench and
+`/api/factory-dashboard` show worker readiness and queue lag. Quarantined
+provider submissions can only be reconciled by an owner/admin through the
+append-only evidence workflow; see
+`docs/PRODUCT_UGC_QUEUE_OPERATIONS.md`.
+
 ## Tests
 
 ```bash
@@ -953,8 +971,8 @@ python -m pytest
 ## Useful API Examples
 
 ```bash
-curl http://localhost:8000/api/products
-curl -X POST http://localhost:8000/api/script-jobs/generate \
+curl http://127.0.0.1:8014/api/products
+curl -X POST http://127.0.0.1:8014/api/script-jobs/generate \
   -H "Content-Type: application/json" \
   -d '{"product_id":1,"template_id":1,"brand_guide_id":1}'
 ```
@@ -962,11 +980,17 @@ curl -X POST http://localhost:8000/api/script-jobs/generate \
 ## Limitations
 
 - OpenAI and Runway adapters can call external APIs only when explicitly selected and configured; normal tests do not require real provider keys.
-- Gemini/Veo and upload providers remain scaffolded or manual.
-- Authentication is not implemented in this MVP.
-- FFmpeg text burn-in is intentionally conservative; captions are stored as sidecar files.
-- Background jobs are synchronous in-process calls for local demo simplicity.
-- SQLite is used locally; models are structured to move to PostgreSQL later.
+- Official metric adapters exist for YouTube Analytics, TikTok Display API v2,
+  Instagram professional Media Insights and Wildberries Seller Analytics.
+  They remain fail-closed until exact owned targets and externally managed
+  credential references are configured and verified. Telegram, VK and Facebook
+  retain explicit guided manual/CSV intake.
+- Authentication supports invite-only membership, local signed sessions and verified shared-secret Supabase JWTs. JWKS deployments remain fail-closed until an asymmetric verifier is configured.
+- Paid Product UGC retries require the supervised queue worker; the web background task handles only the first immediate attempt.
+- Client billing is an immutable accounting ledger only. No payment provider, automatic charge, refund or participant transfer is performed.
+- Visual approval requires immutable frame/source fingerprints; OCR packaging checks also require local Tesseract when the contract marks OCR as mandatory.
+- In public/auth mode, legacy global routes are default-denied; only explicitly organization-scoped pilot APIs and the public `/r/{slug}` attribution redirect remain reachable.
+- SQLite is supported for a one-host pilot. PostgreSQL schema compatibility exists, but horizontal workers and production migrations still require an operational rollout plan.
 
 ## Checkpoints
 

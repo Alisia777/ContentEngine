@@ -1,0 +1,23 @@
+<aside class="altea-card public-sidebar altea-reveal">
+  <a class="altea-sidebar__brand" href="/control-room" aria-label="Контент ИИ Завод" data-track-event="navigation_clicked" data-track-target="control-room">
+    <img src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="">
+    <span><strong>КОНТЕНТ ИИ ЗАВОД</strong><small>CONTENT ENGINE · ALTEA</small></span>
+  </a>
+  <nav class="public-nav" aria-label="Основная навигация">
+    <a class="{{ 'is-active' if active_page == 'control-room' else '' }}" href="/control-room" data-track-event="navigation_clicked" data-track-target="control-room">Главная</a>
+    <a class="{{ 'is-active' if active_page == 'mvp-launch' else '' }}" href="/mvp-launch" data-track-event="navigation_clicked" data-track-target="video-generator">Создать видео</a>
+    <a class="{{ 'is-active' if active_page == 'workbench' else '' }}" href="/workbench" data-track-event="navigation_clicked" data-track-target="factory-workbench">Весь завод</a>
+    <a href="/workbench?tab=analytics" data-track-event="navigation_clicked" data-track-target="analytics">Аналитика</a>
+    <a href="/workbench?tab=people" data-track-event="navigation_clicked" data-track-target="training">Обучение</a>
+    <a class="{{ 'is-active' if active_page == 'access' else '' }}" href="/settings/access" data-track-event="navigation_clicked" data-track-target="access">Настройки и доступ</a>
+  </nav>
+  <div class="public-user-card">
+    <strong>{{ user.profile.display_name or user.profile.email }}</strong>
+    <small>{{ user.profile.email }}</small>
+    <span>{{ role }}</span>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+      <button class="public-logout" type="submit">Выйти</button>
+    </form>
+  </div>
+</aside>

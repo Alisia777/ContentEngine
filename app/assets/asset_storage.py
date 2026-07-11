@@ -123,6 +123,11 @@ class ProductAssetStorage:
         for key, value in updates.items():
             if key in allowed and value is not None:
                 setattr(asset, key, value)
+        metadata = dict(asset.metadata_json or {})
+        for key in {"variant_key", "contract_type", "shared_non_identity"}:
+            if key in updates and updates[key] is not None:
+                metadata[key] = updates[key]
+        asset.metadata_json = metadata
         if asset.is_primary_reference:
             asset.asset_role = asset.asset_role or "primary_reference"
             self._mark_primary(asset)
@@ -189,6 +194,7 @@ class ProductAssetStorage:
                 "manual_label": asset.manual_label,
                 "review_status": asset.review_status,
                 "checksum": asset.checksum,
+                "metadata": asset.metadata_json,
                 "warnings": asset.warnings_json,
             }
             for asset in assets

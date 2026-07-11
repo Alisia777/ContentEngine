@@ -1,74 +1,74 @@
 PUBLIC_PILOT_TRAINING_MODULES: list[dict] = [
     {
         "code": "contentengine_overview",
-        "title": "ContentEngine Overview",
-        "description": "How ALTEA content moves from product data to brief, generation, QA, publishing, metrics, and next action.",
+        "title": "Как работает Контент ИИ Завод",
+        "description": "Путь от точной карточки товара до ролика, публикации, метрик и следующего решения.",
         "order_index": 10,
         "required_for_roles": ["trainee", "operator", "producer", "reviewer"],
         "required_for_permissions": [],
         "lessons": [
             {
-                "title": "Factory Workflow",
-                "content_markdown": "ContentEngine is a controlled workflow: product data, creative brief, selected variant, generation, QA, publishing package, metrics, and next action.",
+                "title": "Путь одного ролика",
+                "content_markdown": "Завод ведёт один точный SKU через карточку товара, задание, генерацию, проверку качества, ручную публикацию и фактические метрики. Каждый этап должен быть связан с предыдущим.",
             },
             {
-                "title": "Human Responsibility",
-                "content_markdown": "AI can draft and render. Humans approve product identity, claims, QA verdicts, spend decisions, and publishing readiness.",
+                "title": "За что отвечает человек",
+                "content_markdown": "ИИ готовит материалы и ролик. Человек подтверждает точность товара, обещания, качество, платный запуск и готовность к публикации.",
             },
         ],
         "questions": [
             {
-                "question_text": "What is ContentEngine primarily?",
+                "question_text": "Что такое Контент ИИ Завод в первую очередь?",
                 "question_type": "single_choice",
-                "options": ["A video button", "An operating contour for content production", "A social network", "A password manager"],
-                "correct_answer": ["An operating contour for content production"],
-                "explanation": "The product is a controlled workflow, not just a generation button.",
+                "options": ["Кнопка генерации", "Управляемый путь производства контента", "Социальная сеть", "Хранилище паролей"],
+                "correct_answer": ["Управляемый путь производства контента"],
+                "explanation": "Это управляемый путь от товара до метрики, а не только кнопка генерации.",
             }
         ],
     },
     {
         "code": "review_qa",
-        "title": "Review, QA And Regeneration",
-        "description": "Contact sheet, product identity, claims, output verdicts, and regeneration reasons.",
+        "title": "Проверка качества и пересоздание",
+        "description": "Как смотреть кадры, проверять товар и упаковку, принимать решение и объяснять пересоздание.",
         "order_index": 20,
         "required_for_roles": ["reviewer", "admin", "owner"],
         "required_for_permissions": ["output_review", "video_approve", "video_reject"],
         "lessons": [
             {
-                "title": "Technical Success Is Not Approval",
-                "content_markdown": "Provider success only means a file exists. Commercial approval requires human review of product identity, style, claims, and artifacts.",
+                "title": "Файл создан — ещё не значит одобрен",
+                "content_markdown": "Успех провайдера означает только наличие файла. Человек обязан посмотреть MP4 и проверить точность товара, упаковки, обещаний и визуальных артефактов.",
             }
         ],
         "questions": [
             {
-                "question_text": "Video generated, but product identity drifted. What is the verdict?",
+                "question_text": "Ролик создан, но внешний вид товара изменился. Какое решение принять?",
                 "question_type": "single_choice",
-                "options": ["Approve", "Publish manually", "Mark needs_regeneration and block publishing", "Ignore"],
-                "correct_answer": ["Mark needs_regeneration and block publishing"],
-                "explanation": "Product identity drift blocks approval even when a file was generated.",
+                "options": ["Одобрить", "Опубликовать вручную", "Вернуть на пересоздание и закрыть публикацию", "Игнорировать"],
+                "correct_answer": ["Вернуть на пересоздание и закрыть публикацию"],
+                "explanation": "Подмена внешнего вида товара блокирует публикацию, даже если файл успешно создан.",
             }
         ],
     },
     {
         "code": "publishing_manual_upload",
-        "title": "Publishing Package And Manual Upload",
-        "description": "Approved video, destination, caption, UTM, final URL, analytics, and traceability.",
+        "title": "Ручная публикация и отслеживание",
+        "description": "Как связать одобренный ролик, площадку, tracking-ссылку, final URL и метрики.",
         "order_index": 30,
         "required_for_roles": ["operator", "admin", "owner"],
         "required_for_permissions": ["publishing_approve", "metrics_import"],
         "lessons": [
             {
-                "title": "Traceable Publishing",
-                "content_markdown": "A publishing package is not complete until destination, schedule, caption, tracking link, final URL, and metrics path are traceable.",
+                "title": "Публикация должна быть измеримой",
+                "content_markdown": "Пакет не завершён, пока не указаны площадка, текст, tracking-ссылка и final URL опубликованного поста. Метрики принимаются только при точной связи с этой задачей.",
             }
         ],
         "questions": [
             {
-                "question_text": "Can an unreviewed generated video become publishing-ready?",
+                "question_text": "Можно ли отправить на публикацию ролик без проверки человеком?",
                 "question_type": "true_false",
-                "options": ["true", "false"],
-                "correct_answer": ["false"],
-                "explanation": "Publishing requires review approval and traceability.",
+                "options": ["да", "нет"],
+                "correct_answer": ["нет"],
+                "explanation": "Для публикации нужны human review и точная прослеживаемость.",
             }
         ],
     },

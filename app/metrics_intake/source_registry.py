@@ -6,12 +6,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.destination_connectors.credential_status import validate_credential_ref
+from app.destination_connectors.errors import DestinationConnectorDataError
 from app.metrics_intake.errors import MetricsIntakeDataError
 
 
 SAFE_SOURCE_TYPES = {"csv", "manual", "manual_csv", "tracking_link", "official_api", "partner_report", "marketplace_csv"}
 SAFE_PLATFORMS = {"facebook", "instagram", "youtube", "telegram", "tiktok", "ozon", "wb", "other"}
 FORBIDDEN_SETTING_KEYS = {"token", "access_token", "refresh_token", "password", "cookie", "cookies", "session", "secret"}
+FORBIDDEN_SETTING_MARKERS = ("access_token", "refresh_token", "client_secret", "password", "cookie", "session")
 
 
 class MetricsSourceRegistry:
@@ -70,10 +73,33 @@ class MetricsSourceRegistry:
 
     @classmethod
     def _safe_settings(cls, settings: dict[str, Any]) -> dict[str, Any]:
-        clean: dict[str, Any] = {}
-        for key, value in settings.items():
-            normalized_key = cls._normalize(str(key))
-            if normalized_key in FORBIDDEN_SETTING_KEYS or normalized_key.endswith("_token"):
-                raise MetricsIntakeDataError("Raw platform secrets must not be stored in metrics source settings.")
-            clean[str(key)] = value
-        return clean
+        def clean_value(value: Any) -> Any:
+            if isinstance(value, dict):
+                clean: dict[str, Any] = {}
+                for key, nested in value.items():
+                    normalized_key = cls._normalize(str(key))
+                    if (
+                        normalized_key in FORBIDDEN_SETTING_KEYS
+                        or any(marker in normalized_key for marker in FORBIDDEN_SETTING_MARKERS)
+                        or normalized_key.endswith("_token")
+                        or normalized_key.endswith("_secret")
+                        or normalized_key.endswith("_password")
+                    ):
+                        raise MetricsIntakeDataError(
+                            "Raw platform secrets must not be stored in metrics source settings."
+                        )
+                    if normalized_key == "credential_ref":
+                        try:
+                            clean[str(key)] = validate_credential_ref(str(nested or ""))
+                        except DestinationConnectorDataError as exc:
+                            raise MetricsIntakeDataError(
+                                "credential_ref must be a logical secret reference."
+                            ) from exc
+                    else:
+                        clean[str(key)] = clean_value(nested)
+                return clean
+            if isinstance(value, list):
+                return [clean_value(item) for item in value]
+            return value
+
+        return clean_value(settings)

@@ -14,6 +14,10 @@ VIDEO_APPROVE = "video_approve"
 VIDEO_REJECT = "video_reject"
 PUBLISHING_APPROVE = "publishing_approve"
 METRICS_IMPORT = "metrics_import"
+PAYOUT_MANAGE = "payout_manage"
+MARKETPLACE_LISTING_MANAGE = "marketplace_listing_manage"
+GENERATION_COST_MANAGE = "generation_cost_manage"
+CUSTOMER_BILLING_MANAGE = "customer_billing_manage"
 TRAINING_ATTEMPT = "training_attempt"
 SETTINGS_VIEW = "settings_view"
 
@@ -27,6 +31,10 @@ PUBLIC_PILOT_ACTIONS = [
     VIDEO_REJECT,
     PUBLISHING_APPROVE,
     METRICS_IMPORT,
+    PAYOUT_MANAGE,
+    MARKETPLACE_LISTING_MANAGE,
+    GENERATION_COST_MANAGE,
+    CUSTOMER_BILLING_MANAGE,
     TRAINING_ATTEMPT,
     SETTINGS_VIEW,
 ]
@@ -40,6 +48,10 @@ DANGEROUS_ACTIONS = {
     VIDEO_REJECT,
     PUBLISHING_APPROVE,
     METRICS_IMPORT,
+    PAYOUT_MANAGE,
+    MARKETPLACE_LISTING_MANAGE,
+    GENERATION_COST_MANAGE,
+    CUSTOMER_BILLING_MANAGE,
 }
 
 SPEND_GATED_ACTIONS = {ONE_VIDEO_REAL_RUN, VARIANT_REAL_SMOKE, WORKING_VIDEO_REAL_SMOKE}
@@ -72,6 +84,10 @@ ACTION_LABELS = {
     VIDEO_REJECT: "Reject video",
     PUBLISHING_APPROVE: "Approve publishing",
     METRICS_IMPORT: "Import metrics",
+    PAYOUT_MANAGE: "Manage payouts",
+    MARKETPLACE_LISTING_MANAGE: "Manage marketplace listings",
+    GENERATION_COST_MANAGE: "Manage generation costs",
+    CUSTOMER_BILLING_MANAGE: "Manage customer billing ledger",
     TRAINING_ATTEMPT: "Training attempt",
     SETTINGS_VIEW: "Settings access",
 }

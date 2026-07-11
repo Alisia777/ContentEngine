@@ -20,7 +20,7 @@ class ControlRoomRoleDashboardService:
             "ready": [
                 self._item("Engine scorecard available", "engine_audit", "/engine-audit", detail="Production readiness is measurable."),
             ],
-            "blocked": self._audit_blockers(),
+            "blocked": [*self._provider_failures(), *self._audit_blockers()],
             "review": self._review_queue(),
         }
 
@@ -125,19 +125,68 @@ class ControlRoomRoleDashboardService:
 
     def _review_queue(self) -> list[ControlRoomItem]:
         acceptances = self.db.scalars(
-            select(models.VideoOutputAcceptance).where(models.VideoOutputAcceptance.status.in_(["needs_human_review", "needs_regeneration"]))
+            select(models.VideoOutputAcceptance)
+            .where(models.VideoOutputAcceptance.status.in_(["needs_human_review", "needs_regeneration"]))
+            .order_by(models.VideoOutputAcceptance.id.desc())
         ).all()
-        return [
+        queue = [
             self._item(
                 f"OutputAcceptance #{item.id}: {item.status}",
                 "output_acceptance",
-                "/output-acceptance",
+                f"/output-acceptance?video_job_id={item.video_job_id}",
                 detail=", ".join(item.blockers_json or []) or item.product_identity_status,
                 severity="high" if item.status == "needs_regeneration" else "normal",
-                payload={"output_acceptance_id": item.id},
+                payload={"output_acceptance_id": item.id, "video_job_id": item.video_job_id},
             )
             for item in acceptances
         ]
+        recipe_drafts = self.db.scalars(
+            select(models.ProductUGCRecipeDraft)
+            .where(models.ProductUGCRecipeDraft.status.in_(["generated_needs_human_review", "needs_regeneration"]))
+            .order_by(models.ProductUGCRecipeDraft.id.desc())
+        ).all()
+        queue.extend(
+            self._item(
+                f"Product UGC draft #{item.id}: {item.human_review_status}",
+                "runway_product_ugc",
+                f"/mvp-launch?product_id={item.product_id}&recipe_draft_id={item.id}",
+                detail=f"{item.sku} | provider {item.provider_status or 'unknown'}",
+                severity="high" if item.status == "needs_regeneration" else "normal",
+                payload={"recipe_draft_id": item.id, "product_id": item.product_id},
+            )
+            for item in recipe_drafts
+        )
+        return queue
+
+    def _provider_failures(self) -> list[ControlRoomItem]:
+        drafts = self.db.scalars(
+            select(models.ProductUGCRecipeDraft)
+            .where(models.ProductUGCRecipeDraft.status == "provider_failed")
+            .order_by(models.ProductUGCRecipeDraft.id.desc())
+            .limit(20)
+        ).all()
+        failures: list[ControlRoomItem] = []
+        for draft in drafts:
+            provider_failure = (draft.creative_inputs_json or {}).get("provider_failure") or {}
+            code = provider_failure.get("code") or "PROVIDER_FAILED"
+            detail = provider_failure.get("message") or ((draft.warnings_json or ["Provider task failed."])[-1])
+            failures.append(
+                self._item(
+                    f"Product UGC draft #{draft.id} failed: {code}",
+                    "runway_product_ugc",
+                    f"/mvp-launch?product_id={draft.product_id}&recipe_draft_id={draft.id}",
+                    status="blocked",
+                    detail=detail,
+                    severity="high",
+                    payload={
+                        "recipe_draft_id": draft.id,
+                        "product_id": draft.product_id,
+                        "provider_task_id": draft.provider_task_id,
+                        "retry_allowed": provider_failure.get("retry_allowed", False),
+                    },
+                )
+            )
+        return failures
 
     def _regeneration_items(self) -> list[ControlRoomItem]:
         requests = self.db.scalars(select(models.SceneRegenerationRequest).where(models.SceneRegenerationRequest.status == "requested")).all()
