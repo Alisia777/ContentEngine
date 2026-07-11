@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.engine_audit.types import EngineAuditDimension, EngineAuditOutput
+from app.product_asset_contract import ProductAssetTierService
 
 
 DIMENSION_DEFINITIONS: tuple[tuple[str, str], ...] = (
@@ -230,31 +231,52 @@ class EngineAuditScorecardService:
         edible_refs = [item for item in assets if item.asset_type in {"edible", "cutaway", "texture"}]
         style_refs = [item for item in assets if item.asset_type in {"style", "lifestyle"}]
         lifestyle_refs = [item for item in assets if item.asset_type == "lifestyle"]
+        products = list(self.db.scalars(select(models.Product).order_by(models.Product.id)))
         plans = self._count(models.OneVideoRenderPlan)
-        score = 3.0
+        contracts = []
+        for product in products:
+            tier_service = ProductAssetTierService(self.db)
+            contract = tier_service.output(tier_service.evaluate(product.id))
+            contracts.append(contract)
+
+        tier_rank = {"tier_0": 0, "tier_1": 1, "tier_2": 2, "tier_3": 3, "tier_4": 4}
+        average_tier = (sum(tier_rank[item.current_tier] for item in contracts) / len(contracts)) if contracts else 0
+        score = 2.5 + average_tier * 1.45
         reasons: list[str] = []
         fixes: list[str] = []
-        if len(wrapper_refs) < 2:
+        food_contracts = [item for item in contracts if item.product_profile == "food_snack"]
+        if food_contracts and any(tier_rank[item.current_tier] < 2 for item in food_contracts):
             reasons.append("wrapper_reference_count_below_2")
             fixes.append("Attach front wrapper and label closeup before strict product generation.")
-        else:
-            score += 2.0
-        if len(edible_refs) < 3:
+        if food_contracts and any(tier_rank[item.current_tier] < 3 for item in food_contracts):
             reasons.append("edible_reference_count_below_3")
             fixes.append("Add bitten bar, cutaway texture, and bar-in-hand edible references before bite/macro scenes.")
-        else:
-            score += 2.0
         if style_refs:
-            score += 0.8
+            score += 0.4
         if lifestyle_refs:
-            score += 0.7
+            score += 0.3
         if plans:
-            score += 0.8
-        scene_permissions = {
-            "bite_scene_allowed": len(edible_refs) >= 3,
-            "texture_macro_allowed": len(edible_refs) >= 3,
-            "packshot_overlay_required": len(wrapper_refs) < 2 or len(edible_refs) < 3,
-        }
+            score += 0.5
+        score = min(score, 9.2)
+        low_tier = [item for item in contracts if tier_rank[item.current_tier] < 2]
+        mismatch = [item for item in contracts if item.variant_mismatch_asset_ids]
+        if low_tier:
+            reasons.append("product_asset_contract_below_tier_2")
+            fixes.append("Complete exact identity, angle and handling references per SKU before final product ads.")
+        if mismatch:
+            reasons.append("mixed_or_unverified_product_variants")
+            fixes.append("Separate flavor/color/model reference sets and tag every identity asset with variant_key.")
+        latest_contract = contracts[-1] if contracts else None
+        scene_permissions = (
+            latest_contract.permissions.model_dump(mode="json")
+            if latest_contract
+            else {
+                "bite_scene_allowed": False,
+                "texture_macro_allowed": False,
+                "packshot_overlay_required": True,
+                "application_scene_allowed": False,
+            }
+        )
         return self._dimension(
             "asset_readiness",
             score,
@@ -270,6 +292,25 @@ class EngineAuditScorecardService:
                 "one_video_plans": plans,
                 "scene_permissions": scene_permissions,
                 "missing_references": reasons,
+                "average_asset_tier": round(average_tier, 2),
+                "profiles": {
+                    profile: sum(1 for item in contracts if item.product_profile == profile)
+                    for profile in {item.product_profile for item in contracts}
+                },
+                "product_asset_contracts": [
+                    {
+                        "product_id": item.product_id,
+                        "sku": item.sku,
+                        "variant_key": item.variant_key,
+                        "profile": item.product_profile,
+                        "current_tier": item.current_tier,
+                        "interaction_mode": item.permissions.interaction_mode,
+                        "interaction_scene_allowed": item.permissions.interaction_scene_allowed,
+                        "missing_assets": item.missing_assets,
+                        "variant_mismatch_asset_ids": item.variant_mismatch_asset_ids,
+                    }
+                    for item in contracts
+                ],
             },
         )
 

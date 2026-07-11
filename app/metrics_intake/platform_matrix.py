@@ -53,7 +53,9 @@ class PlatformMetricsMatrix:
         "fb": "facebook",
         "facebook": "facebook",
         "instagram": "instagram",
+        "instagram_reels": "instagram",
         "ig": "instagram",
+        "reels": "instagram",
         "youtube": "youtube",
         "youtube_shorts": "youtube",
         "shorts": "youtube",
@@ -74,57 +76,63 @@ class PlatformMetricsMatrix:
     CONFIGS: dict[str, PlatformMetricsConfig] = {
         "facebook": PlatformMetricsConfig(
             platform="facebook",
-            official_connector_types=["meta_oauth", "facebook_page"],
+            official_connector_types=[],
             supported_metric_columns=["views", "reach", "impressions", "likes", "comments", "shares", "saves", "clicks"],
-            notes="Official Meta access when authorized; otherwise CSV/manual plus tracking links.",
+            notes="No production Meta adapter is implemented; use CSV/manual plus tracking links.",
         ),
         "instagram": PlatformMetricsConfig(
             platform="instagram",
-            official_connector_types=["meta_oauth", "instagram_business"],
+            official_connector_types=["instagram_oauth"],
             supported_metric_columns=["views", "reach", "impressions", "likes", "comments", "shares", "saves", "clicks"],
-            notes="Official Meta/Instagram Business access when authorized; otherwise CSV/manual plus tracking links.",
+            notes=(
+                "Instagram professional media Insights via Instagram Login OAuth; "
+                "manual/CSV remains an explicit fallback."
+            ),
         ),
         "youtube": PlatformMetricsConfig(
             platform="youtube",
-            official_connector_types=["youtube_oauth", "youtube_analytics"],
+            official_connector_types=["youtube_oauth"],
             supported_metric_columns=["views", "likes", "comments", "shares", "clicks", "watch_time_seconds", "retention_rate"],
             notes="YouTube Analytics OAuth when authorized; otherwise CSV/manual plus tracking links.",
         ),
         "tiktok": PlatformMetricsConfig(
             platform="tiktok",
-            official_connector_types=["tiktok_official_api"],
+            official_connector_types=["tiktok_oauth"],
             supported_metric_columns=["views", "likes", "comments", "shares", "clicks"],
-            notes="Official TikTok access only; no private login or scraping fallback.",
+            notes=(
+                "TikTok Display API v2 video.query with video.list OAuth scope; "
+                "authorized exports/manual CSV remain explicit fallbacks."
+            ),
         ),
         "telegram": PlatformMetricsConfig(
             platform="telegram",
-            official_connector_types=["telegram_bot"],
+            official_connector_types=[],
             supported_metric_columns=["views", "comments", "shares", "clicks"],
-            notes="Bot/admin data when available; otherwise manual/CSV plus tracking links.",
+            notes="No production Telegram metrics adapter is implemented; use manual/CSV plus tracking links.",
         ),
         "vk": PlatformMetricsConfig(
             platform="vk",
-            official_connector_types=["vk_api"],
+            official_connector_types=[],
             supported_metric_columns=["views", "likes", "comments", "shares", "clicks"],
-            notes="Official VK API when authorized; otherwise manual/CSV plus tracking links.",
+            notes="No production VK metrics adapter is implemented; use manual/CSV plus tracking links.",
         ),
         "ozon": PlatformMetricsConfig(
             platform="ozon",
-            official_connector_types=["ozon_seller_api"],
+            official_connector_types=[],
             fallback_source_types=["marketplace_csv", "manual_csv"],
             required_identity_columns=["sku", "period_start", "period_end", "coupon_code", "tracking_slug"],
             supported_metric_columns=["orders", "revenue", "spend"],
             conversion_source="marketplace_report",
-            notes="Marketplace conversion source for orders/revenue/returns, not social reach.",
+            notes="No production Ozon API adapter is implemented; use authorized marketplace exports.",
         ),
         "wb": PlatformMetricsConfig(
             platform="wb",
-            official_connector_types=["wildberries_seller_api"],
+            official_connector_types=[],
             fallback_source_types=["marketplace_csv", "manual_csv"],
             required_identity_columns=["sku", "period_start", "period_end", "coupon_code", "tracking_slug"],
             supported_metric_columns=["orders", "revenue", "spend"],
             conversion_source="marketplace_report",
-            notes="Marketplace conversion source for orders/revenue/returns, not social reach.",
+            notes="No production Wildberries API adapter is implemented; use authorized marketplace exports.",
         ),
         "partner": PlatformMetricsConfig(
             platform="partner",

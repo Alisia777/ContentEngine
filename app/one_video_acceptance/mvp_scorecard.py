@@ -8,27 +8,30 @@ class MVPScorecardBuilder:
         roles = {scene.role for scene in scenes}
         proof_scene = next((scene for scene in scenes if scene.role == "proof_use_case"), None)
         cta_scene = next((scene for scene in scenes if scene.role == "cta_end_card"), None)
+        identity_ready = policy.current_asset_tier in {"tier_2", "tier_3", "tier_4"}
+        interaction_ready = policy.tasting_scene_allowed if policy.product_profile == "food_snack" else policy.interaction_scene_allowed
+        sensitive_interaction_blocked = not interaction_ready and bool(policy.blocked_scene_types)
         items = [
             MVPScorecardItem(
                 key="product_identity_stable",
                 label="Product identity stable",
                 weight=20,
-                score=18 if policy.wrapper_reference_count >= 2 and policy.end_card_required else 14,
-                notes="Wrapper identity is protected by wrapper refs plus packshot/end-card lock.",
+                score=18 if identity_ready and policy.end_card_required else 14 if policy.packshot_overlay_required else 8,
+                notes="Exact SKU identity is protected by the Product Asset Contract plus packshot/end-card lock.",
             ),
             MVPScorecardItem(
-                key="edible_identity_stable",
-                label="Edible identity stable",
+                key="product_interaction_stable",
+                label="Product interaction stable",
                 weight=20,
-                score=20 if policy.edible_kit_ready else 12 if not policy.bite_scene_allowed and not policy.texture_macro_allowed else 8,
-                notes="Weak edible kit is acceptable only because bite/macro scenes are blocked or downgraded.",
+                score=20 if interaction_ready else 12 if sensitive_interaction_blocked else 8,
+                notes=f"The {policy.interaction_mode} interaction is reference-gated; unsafe or unsupported actions remain blocked.",
             ),
             MVPScorecardItem(
                 key="scene_policy_followed",
                 label="Scene policy followed",
                 weight=15,
-                score=15 if proof_scene and "bite scene" in " ".join(proof_scene.must_avoid).lower() else 12,
-                notes="Unsafe scenes are replaced with approved cutaway insert / reaction.",
+                score=15 if proof_scene and (interaction_ready or sensitive_interaction_blocked) else 12,
+                notes="Unsupported interaction is replaced with an approved insert, overlay or creator reaction.",
             ),
             MVPScorecardItem(
                 key="blogger_meaning_clear",
@@ -42,7 +45,7 @@ class MVPScorecardBuilder:
                 label="Proof moment present",
                 weight=10,
                 score=10 if proof_scene else 0,
-                notes="Proof is a controlled cutaway insert when edible kit is weak.",
+                notes="Proof is category-appropriate and limited by approved use-case references.",
             ),
             MVPScorecardItem(
                 key="cta_end_card_present",

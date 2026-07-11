@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.visual_evidence.types import VisualEvidenceReport
+
 
 PASS_STATUSES = {"pass", "passed", "ok", "ready", "approved"}
 FAIL_STATUSES = {"fail", "failed", "drift", "missing", "generic_ai", "mismatch", "rejected"}
@@ -40,6 +42,7 @@ class OutputAcceptanceOutput(BaseModel):
     required_fixes: list[str] = Field(default_factory=list)
     contact_sheet_path: str | None = None
     keyframes: list[dict[str, Any]] = Field(default_factory=list)
+    visual_evidence_snapshot_id: int | None = None
     reviewer_notes: str | None = None
 
 
@@ -50,3 +53,4 @@ class OutputQualityResult(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     required_fixes: list[str] = Field(default_factory=list)
     normalized_statuses: dict[str, str] = Field(default_factory=dict)
+    visual_evidence: VisualEvidenceReport | None = None

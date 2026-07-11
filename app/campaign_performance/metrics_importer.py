@@ -73,7 +73,16 @@ class CampaignMetricsImporter:
         product_id = package.product_id if package else (product.id if product else None)
         if sku and not product_id:
             warnings.append("sku_not_matched_to_product")
-        content_run_id = self._content_run_id(product_id, self._int(row.get("creative_variant_id")))
+        requested_variant_id = self._int(row.get("creative_variant_id"))
+        creative_variant_id = requested_variant_id or (package.creative_variant_id if package else None)
+        if creative_variant_id is not None:
+            creative_variant = self.db.get(models.CreativeVariant, creative_variant_id)
+            if creative_variant is None:
+                raise ValueError("creative_variant_id_not_found")
+            variant_product_id = creative_variant.creative_spec.product_id
+            if product_id is not None and variant_product_id != product_id:
+                raise ValueError("creative_variant_product_mismatch")
+        content_run_id = self._content_run_id(product_id, creative_variant_id)
         views = self._int(row.get("views"))
         clicks = self._int(row.get("clicks"))
         orders = self._int(row.get("orders"))
@@ -95,7 +104,7 @@ class CampaignMetricsImporter:
                 product_id=product_id,
                 sku=sku,
                 content_run_id=content_run_id,
-                creative_variant_id=self._int(row.get("creative_variant_id")) or (package.creative_variant_id if package else None),
+                creative_variant_id=creative_variant_id,
                 publishing_task_id=task.id if task else None,
                 destination_id=destination.id if destination else None,
                 platform=platform,

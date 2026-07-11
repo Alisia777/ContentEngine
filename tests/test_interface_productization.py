@@ -3,8 +3,8 @@ from __future__ import annotations
 import inspect
 import os
 
-os.environ["QVF_DATABASE_URL"] = "sqlite:///./test_qharisma.db"
-os.environ["QVF_MEDIA_ROOT"] = "test_media"
+os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
+os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 os.environ["QVF_AUTH_REQUIRED"] = "false"
 os.environ["QVF_GENERATION_MODE"] = "mock"
 os.environ["QVF_ALLOW_REAL_SPEND"] = "false"
@@ -57,7 +57,8 @@ def test_workbench_renders_single_product_interface():
     assert response.status_code == 200
     assert "Рабочая область" in response.text
     assert "Готовность товара" in response.text
-    assert "Продолжить запуск MVP" in response.text
+    assert 'data-track-event="primary_action_clicked"' in response.text
+    assert ">Продолжить</a>" in response.text
     assert "One-video QA" not in response.text
     assert "Metrics intake" not in response.text
 
@@ -137,3 +138,39 @@ def test_launch_wizard_never_calls_paid_provider(monkeypatch):
         assert advanced.status == "spend_gated"
         assert advanced.context_json["provider_calls"] == 0
         assert advanced.context_json["paid_provider_called"] is False
+
+
+def test_workbench_surfaces_exact_product_ugc_provider_failure():
+    product_id = create_product()
+    with SessionLocal() as db:
+        draft = models.ProductUGCRecipeDraft(
+            product_id=product_id,
+            sku="BOMBBAR-PRO-DUBAI-MANGO-KUNAFA",
+            variant_key="mango-kunafa",
+            status="provider_failed",
+            character_image_path="test_media/creator.png",
+            character_image_filename="creator.png",
+            product_info="Exact product info",
+            user_concept="Creator presents the exact product.",
+            creative_inputs_json={
+                "provider_failure": {
+                    "code": "INPUT_PREPROCESSING.SAFETY.THIRD_PARTY",
+                    "message": "Blocked by provider moderation.",
+                    "retry_allowed": False,
+                }
+            },
+            provider_task_id="failed-task-id",
+            provider_status="FAILED",
+            estimated_credits=588,
+        )
+        db.add(draft)
+        db.commit()
+        db.refresh(draft)
+        draft_id = draft.id
+
+    response = client().get("/workbench?tab=video-quality")
+    assert response.status_code == 200
+    assert "INPUT_PREPROCESSING.SAFETY.THIRD_PARTY" in response.text
+    assert "failed-task-id" in response.text
+    assert f'/mvp-launch?product_id={product_id}&amp;recipe_draft_id={draft_id}' in response.text
+    assert "Повторный paid run не выполняется автоматически" in response.text

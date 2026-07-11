@@ -6,6 +6,7 @@ import subprocess
 import textwrap
 
 from app.config import get_settings
+from app.system_tools import resolve_ffmpeg
 
 
 class VideoAssemblyService:
@@ -18,7 +19,7 @@ class VideoAssemblyService:
 
     @property
     def ffmpeg_path(self) -> str | None:
-        return shutil.which("ffmpeg")
+        return resolve_ffmpeg(self.settings).path
 
     def create_mock_clip(
         self,

@@ -7,7 +7,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
-from app.destination_connectors.credential_status import CredentialStatusService, sanitize_payload, validate_credential_ref
+from app.destination_connectors.catalog import connector_definition
+from app.destination_connectors.credential_status import (
+    CredentialStatusService,
+    public_settings,
+    sanitize_payload,
+    validate_credential_ref,
+    validate_non_secret_settings,
+)
 from app.destination_connectors.errors import DestinationConnectorDataError
 from app.destination_connectors.types import (
     CONNECTION_TYPES,
@@ -41,7 +48,7 @@ class ConnectionRegistry:
             status=status,
             auth_status=auth_status,
             credential_ref=safe_ref,
-            settings_json=settings_json or {},
+            settings_json=validate_non_secret_settings(settings_json),
         )
         self.db.add(connection)
         self.db.flush()
@@ -81,6 +88,8 @@ class ConnectionRegistry:
             values["credential_ref"] = validate_credential_ref(values["credential_ref"])
         if "settings_json" in values and values["settings_json"] is None:
             values["settings_json"] = {}
+        if "settings_json" in values:
+            values["settings_json"] = validate_non_secret_settings(values["settings_json"])
         for key, value in values.items():
             if value is not None and hasattr(connection, key):
                 setattr(connection, key, value)
@@ -117,13 +126,21 @@ class ConnectionRegistry:
 
     def readiness(self, connection: models.DestinationConnection) -> DestinationConnectionReadiness:
         check = self.credentials.check(connection)
+        definition = connector_definition(connection.connection_type)
         blockers: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         next_actions: list[dict[str, Any]] = []
         if check.status != "connected":
-            blockers.append({"blocker": "destination_connection_needs_auth", "source": "destination_connectors"})
-            next_actions.append({"action": "configure_credential_ref", "source": "destination_connectors"})
-        if connection.connection_type in {"manual", "csv", "instagram_stub", "tiktok_stub"}:
+            if check.auth_status == "official_adapter_unavailable":
+                blockers.append({"blocker": "official_adapter_unavailable", "source": "destination_connectors"})
+                next_actions.append({"action": "use_manual_or_csv_import", "source": "destination_connectors"})
+            elif check.status == "needs_verification":
+                blockers.append({"blocker": "official_credential_not_verified", "source": "destination_connectors"})
+                next_actions.append({"action": "run_scoped_official_sync", "source": "destination_connectors"})
+            else:
+                blockers.append({"blocker": "destination_connection_needs_auth", "source": "destination_connectors"})
+                next_actions.append({"action": "configure_credential_ref", "source": "destination_connectors"})
+        if connection.connection_type in {"manual", "csv", "instagram_stub", "tiktok_stub", "telegram_bot"}:
             warnings.append({"warning": "manual_or_csv_metrics_required", "source": "destination_connectors"})
         return DestinationConnectionReadiness(
             connection_id=connection.id,
@@ -140,6 +157,9 @@ class ConnectionRegistry:
             blockers=blockers,
             warnings=warnings,
             next_actions=next_actions,
+            required_scopes=list(definition.required_scopes) if definition else [],
+            required_permissions=list(definition.required_permissions) if definition else [],
+            account_requirements=list(definition.account_requirements) if definition else [],
         )
 
     def view(self, connection: models.DestinationConnection) -> DestinationConnectionView:
@@ -154,7 +174,7 @@ class ConnectionRegistry:
             last_checked_at=connection.last_checked_at,
             last_sync_at=connection.last_sync_at,
             error_message=connection.error_message,
-            settings_json=connection.settings_json or {},
+            settings_json=public_settings(connection.settings_json),
         )
 
     def overview(self) -> DestinationConnectorOverview:
@@ -187,8 +207,8 @@ class ConnectionRegistry:
     def _initial_status(connection_type: str, credential_ref: str | None) -> tuple[str, str]:
         if connection_type in {"manual", "csv"}:
             return "connected", "manual_only"
-        if connection_type in {"instagram_stub", "tiktok_stub"}:
-            return "connected", "needs_app_review"
+        if connection_type in {"instagram_stub", "tiktok_stub", "telegram_bot"}:
+            return "blocked", "official_adapter_unavailable"
         return ("not_configured", "needs_auth") if not credential_ref else ("needs_auth", "needs_auth")
 
     def _audit(

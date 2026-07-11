@@ -31,6 +31,12 @@ class MVPModuleLink(BaseModel):
     status: str
     summary: str
     internal_route: str | None = None
+    number: int = 0
+    status_label: str = "Доступно"
+    cta_label: str = "Открыть"
+    metric_value: str | int | float = 0
+    metric_label: str = ""
+    note: str | None = None
 
 
 class MVPWorkspaceSnapshotOutput(BaseModel):
@@ -69,4 +75,3 @@ class MVPLaunchRunOutput(BaseModel):
     smoke_readiness_run_id: int | None = None
     one_video_render_result_id: int | None = None
     output_acceptance_id: int | None = None
-

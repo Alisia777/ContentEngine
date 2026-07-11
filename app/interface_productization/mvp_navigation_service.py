@@ -15,6 +15,38 @@ ACTION_LABELS = {
 }
 
 
+BLOCKED_ITEM_COPY = {
+    "Video quality": (
+        "Качество видео требует решения",
+        "Последний ролик не прошёл проверку точности товара или упаковки.",
+    ),
+    "AI brief quality": (
+        "Креативное задание не завершено",
+        "Нужно уточнить стратегию товара, предложение и сценарий для блогера.",
+    ),
+    "Asset readiness": (
+        "Не хватает точных фото товара",
+        "Добавьте недостающие ракурсы этого SKU — фото другого варианта не засчитываются.",
+    ),
+    "Creator clarity": (
+        "Не назначен ответственный",
+        "Выберите, кто создаёт, проверяет и публикует этот ролик.",
+    ),
+    "Training readiness": (
+        "Обучение ещё не подтверждено",
+        "Пройдите короткую проверку навыка перед защищённым действием.",
+    ),
+    "Metrics traceability": (
+        "Публикации пока нельзя измерить",
+        "Нужны tracking-ссылка, final URL и источник фактических метрик.",
+    ),
+    "Destination readiness": (
+        "Площадка публикации не готова",
+        "Добавьте площадку и проверьте способ публикации и сбора данных.",
+    ),
+}
+
+
 class MVPNavigationService:
     """Turns existing engine state into one human-readable product action."""
 
@@ -22,6 +54,7 @@ class MVPNavigationService:
         self,
         snapshot: ControlRoomSnapshotOutput,
         smoke: SmokeReadinessRunOutput | None,
+        asset_contract: dict | None = None,
     ) -> MVPAction:
         if snapshot.review_queue:
             return MVPAction(
@@ -30,6 +63,20 @@ class MVPNavigationService:
                 url="/workbench?tab=video-quality",
                 detail="Видео ждёт обязательного решения человека.",
                 requires_human=True,
+            )
+
+        requirement = (asset_contract or {}).get("requirement") or {}
+        tier = (asset_contract or {}).get("tier") or {}
+        if requirement and requirement.get("status") != "ready":
+            return MVPAction(
+                action_type="complete_product_asset_contract",
+                label="Собрать недостающие фото товара",
+                url="/mvp-launch",
+                status="missing_assets",
+                detail=(
+                    f"Сейчас {tier.get('current_tier', 'tier_0')}; для {requirement.get('purpose', 'final_ad')} "
+                    f"нужен {requirement.get('required_tier', 'tier_2')}. Варианты SKU не смешиваются."
+                ),
             )
 
         smoke_decision = smoke.report.final_decision if smoke else None
@@ -75,8 +122,31 @@ class MVPNavigationService:
         self,
         snapshot: ControlRoomSnapshotOutput,
         smoke: SmokeReadinessRunOutput | None,
+        asset_contract: dict | None = None,
     ) -> list[MVPBlocker]:
         items: list[MVPBlocker] = []
+        requirement = (asset_contract or {}).get("requirement") or {}
+        tier = (asset_contract or {}).get("tier") or {}
+        if requirement and requirement.get("status") != "ready":
+            items.append(
+                MVPBlocker(
+                    blocker_type="product_asset_contract",
+                    label="Product Asset Contract не готов",
+                    detail="Не хватает: " + ", ".join(requirement.get("missing_asset_types") or tier.get("missing_assets") or ["точных фото товара"]),
+                    severity="blocker",
+                    next_action="complete_product_asset_contract",
+                )
+            )
+        if tier.get("variant_mismatch_asset_ids"):
+            items.append(
+                MVPBlocker(
+                    blocker_type="product_variant_mismatch",
+                    label="Смешаны варианты товара",
+                    detail="Identity/use-case фото другого вкуса, цвета или модели не засчитываются.",
+                    severity="blocker",
+                    next_action="separate_product_variant_reference_sets",
+                )
+            )
         if smoke:
             for blocker in smoke.blockers:
                 items.append(
@@ -89,11 +159,12 @@ class MVPNavigationService:
                     )
                 )
         for item in snapshot.blocked_items[:5]:
+            label, detail = self._blocked_item_copy(item)
             items.append(
                 MVPBlocker(
                     blocker_type=item.target_module,
-                    label=item.label,
-                    detail=item.detail or "Нужна проверка рабочего контура.",
+                    label=label,
+                    detail=detail,
                     severity=item.severity,
                     next_action=item.target_url,
                 )
@@ -102,6 +173,17 @@ class MVPNavigationService:
         for item in items:
             deduped[(item.blocker_type, item.detail)] = item
         return list(deduped.values())
+
+    @staticmethod
+    def _blocked_item_copy(item) -> tuple[str, str]:
+        if item.target_module == "runway_product_ugc":
+            return (
+                "Генератор не принял исходные материалы",
+                "Провайдер остановил запрос. Откройте запуск: данные сохранены, повторная оплата не произойдёт автоматически.",
+            )
+        if item.label in BLOCKED_ITEM_COPY:
+            return BLOCKED_ITEM_COPY[item.label]
+        return item.label, item.detail or "Нужна проверка рабочего контура."
 
     @staticmethod
     def _blocker_label(blocker_type: str) -> str:
@@ -116,4 +198,3 @@ class MVPNavigationService:
             "prompt_only_failed": "Prompt-only требует исправления",
         }
         return labels.get(blocker_type, blocker_type.replace("_", " ").capitalize())
-

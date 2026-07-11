@@ -115,7 +115,17 @@ class ReadinessReportService:
         if not plan:
             return {"status": "unknown"}
         policy = plan.product_scene_policy_json or {}
+        contract = policy.get("asset_contract") or {}
+        tier = contract.get("tier") or {}
+        requirement = contract.get("requirement") or {}
         return {
+            "product_profile": policy.get("product_profile", "general"),
+            "variant_key": policy.get("variant_key"),
+            "current_asset_tier": policy.get("current_asset_tier", tier.get("current_tier", "tier_0")),
+            "required_asset_tier": policy.get("required_asset_tier", requirement.get("required_tier", "tier_2")),
+            "asset_contract_status": requirement.get("status", "unknown"),
+            "asset_contract_missing": requirement.get("missing_asset_types") or tier.get("missing_assets") or [],
+            "variant_mismatch_asset_ids": tier.get("variant_mismatch_asset_ids") or [],
             "wrapper_reference_count": policy.get("wrapper_reference_count", 0),
             "edible_reference_count": policy.get("edible_reference_count", 0),
             "wrapper_scene_allowed": policy.get("wrapper_scene_allowed", False),
@@ -125,6 +135,8 @@ class ReadinessReportService:
             "end_card_required": policy.get("end_card_required", True),
             "blocked_scene_types": policy.get("blocked_scene_types") or [],
             "allowed_scene_types": policy.get("allowed_scene_types") or [],
+            "provider_generated_packaging_allowed": policy.get("provider_generated_packaging_allowed", False),
+            "application_scene_allowed": policy.get("application_scene_allowed", False),
         }
 
     @staticmethod
@@ -147,6 +159,8 @@ class ReadinessReportService:
         if types.intersection({"spend_gate_off", "generation_mode_not_real", "runway_key_missing"}):
             return "blocked_by_spend_gate"
         if types.intersection({"missing_refs", "missing_references", "reference_policy_blocked"}):
+            return "blocked_by_missing_references"
+        if types.intersection({"asset_contract_tier_below_required", "variant_identity_mismatch"}):
             return "blocked_by_missing_references"
         if "runway_credits_unconfirmed" in types:
             return "blocked_by_runway_credits_unconfirmed"

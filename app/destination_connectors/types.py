@@ -5,8 +5,17 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.destination_connectors.catalog import OFFICIAL_CONNECTION_TYPES
 
-CONNECTION_TYPES = {"manual", "csv", "telegram_bot", "youtube_oauth", "instagram_stub", "tiktok_stub"}
+
+CONNECTION_TYPES = {
+    "manual",
+    "csv",
+    "telegram_bot",
+    "instagram_stub",
+    "tiktok_stub",
+    *OFFICIAL_CONNECTION_TYPES,
+}
 
 
 class DestinationConnectionView(BaseModel):
@@ -40,6 +49,9 @@ class DestinationConnectionReadiness(BaseModel):
     blockers: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[dict[str, Any]] = Field(default_factory=list)
     next_actions: list[dict[str, Any]] = Field(default_factory=list)
+    required_scopes: list[str] = Field(default_factory=list)
+    required_permissions: list[str] = Field(default_factory=list)
+    account_requirements: list[str] = Field(default_factory=list)
 
 
 class CredentialCheckResult(BaseModel):
@@ -87,3 +99,20 @@ class DestinationConnectorOverview(BaseModel):
     manual_only: int
     token_expired: int
     last_sync: datetime | None = None
+
+
+class OfficialConnectorSyncResult(BaseModel):
+    status: str
+    organization_id: int
+    destination_id: int
+    connection_id: int
+    platform: str
+    period_start: date
+    period_end: date
+    requested_count: int = 0
+    accepted_count: int = 0
+    unchanged_count: int = 0
+    quarantined_count: int = 0
+    error_count: int = 0
+    results: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

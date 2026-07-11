@@ -6,44 +6,110 @@
   <div class="public-main">
     <header class="public-topline altea-reveal">
       <div>
-        <p class="public-eyebrow">ALTEA Beauty</p>
-        <h1>Центр управления<span class="public-sr-only">Public Pilot Control Room · Unified Control Room</span></h1>
-        <p>Состояние контент-завода и один следующий шаг.</p>
+        <p class="public-eyebrow">Контент ИИ Завод · ALTEA Beauty</p>
+        <h1>Фабрика контента<span class="public-sr-only">Public Pilot Control Room · Unified Control Room</span></h1>
+        <p>От товара до измеримых продаж. Система показывает состояние и ведёт к одному следующему действию.</p>
         {% if control_role == 'creator_publisher' %}<span class="public-sr-only">my assignments</span>{% endif %}
       </div>
       <form class="public-role-form" method="get" action="/control-room">
-        <label for="role">Роль</label>
+        <label for="role">Посмотреть рабочий день роли</label>
         <select id="role" name="role" onchange="this.form.submit()">
-          {% for item in control_roles %}<option value="{{ item }}" {{ 'selected' if item == control_role else '' }}>{{ item.replace('_', ' ') }}</option>{% endfor %}
+          {% for item in control_role_options %}<option value="{{ item.value }}" {{ 'selected' if item.value == control_role else '' }}>{{ item.label }}</option>{% endfor %}
         </select>
       </form>
     </header>
 
     <article class="altea-card public-focus-panel altea-reveal">
       <div>
-        <span class="public-status public-status--{{ primary_action.status }}">{{ primary_action.status.replace('_', ' ') }}</span>
+        <span class="public-status public-status--{{ primary_action.status }}">можно продолжать</span>
         <p class="public-eyebrow">Следующее действие</p>
         <h2>{{ primary_action.label }}</h2>
         <p>{{ primary_action.detail }}</p>
       </div>
-      <a class="altea-glow-button" href="{{ primary_action.url }}">Продолжить</a>
+      <a class="altea-glow-button" href="{{ primary_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ primary_action.action_type }}">Продолжить</a>
     </article>
 
     <div class="public-kpi-grid public-kpi-grid--compact">
-      <article class="altea-card public-kpi altea-reveal"><span>Оценка движка</span><strong>{{ control_snapshot.summary.engine_audit_total_score }}/10</strong><small>{{ control_snapshot.overall_status }}</small></article>
-      <article class="altea-card public-kpi altea-reveal"><span>Качество видео</span><strong>{{ control_snapshot.summary.dimension_scores.video_quality.score if control_snapshot.summary.dimension_scores.video_quality is defined else "—" }}/10</strong><small>{{ control_snapshot.summary.real_video_next_action }}</small></article>
-      <article class="altea-card public-kpi altea-reveal"><span>Paid smoke<span class="public-sr-only">Paid Smoke Readiness</span></span><strong>{{ control_snapshot.summary.paid_smoke_status }}</strong><small>только через spend gate</small></article>
-      <article class="altea-card public-kpi altea-reveal"><span>На проверке</span><strong>{{ control_snapshot.review_queue|length }}</strong><small>решение принимает человек</small></article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>{{ factory_dashboard.north_star.label }}</span>
+        <strong>{{ factory_dashboard.north_star.value }}</strong>
+        <small>{{ factory_dashboard.north_star.period }} · {{ factory_dashboard.north_star.definition }}</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Новые ролики</span>
+        <strong>{{ factory_dashboard.metrics.videos_7d }}</strong>
+        <small>создано за 7 дней</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Заказы из контента</span>
+        <strong>{{ factory_dashboard.metrics.orders }}</strong>
+        <small>{{ factory_dashboard.metrics.revenue }} ₽ атрибутированной выручки</small>
+      </article>
+      <article class="altea-card public-kpi altea-reveal">
+        <span>Нужно моё решение</span>
+        <strong>{{ factory_dashboard.metrics.reviews_waiting }}</strong>
+        <small>роликов ждут ручной проверки</small>
+      </article>
     </div>
+
+    <section class="public-factory-map altea-reveal" aria-labelledby="factory-map-title">
+      <header class="public-section-head">
+        <div>
+          <p class="public-eyebrow">Все блоки в одном месте</p>
+          <h2 id="factory-map-title">Карта завода</h2>
+          <p>Зелёное работает, жёлтое требует действия, серое ещё не настроено. Недоступные функции не маскируются демонстрационными данными.</p>
+        </div>
+        <span class="public-map-progress">{{ factory_dashboard.modules | selectattr('status', 'equalto', 'ready') | list | length }}/9 готовы</span>
+      </header>
+      <div class="public-module-grid">
+        {% for module in factory_dashboard.modules %}
+        <article class="altea-card public-module-card public-module-card--{{ module.status }}">
+          <div class="public-module-card__top">
+            <span class="public-module-number">{{ module.number }}</span>
+            <span class="public-status public-status--{{ module.status }}">{{ module.status_label }}</span>
+          </div>
+          <div>
+            <h3>{{ module.label }}</h3>
+            <p>{{ module.summary }}</p>
+          </div>
+          <div class="public-module-metric"><strong>{{ module.metric_value }}</strong><span>{{ module.metric_label }}</span></div>
+          <a href="{{ module.url }}" data-track-event="navigation_clicked" data-track-target="module-{{ module.key }}">{{ module.cta_label }}</a>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if product_asset_contract %}
+    {% set contract_tier = product_asset_contract.tier %}
+    {% set contract_requirement = product_asset_contract.requirement %}
+    <article class="altea-card public-contract-bar public-contract-bar--simple altea-reveal">
+      <div>
+        <p class="public-eyebrow">Товар в работе</p>
+        <h2>{{ contract_tier.sku }}</h2>
+        <p>Каждый вкус, цвет или модель проверяется отдельно — фото разных вариантов не смешиваются.</p>
+      </div>
+      <div><span>Фото для рекламы</span><strong>{{ 'набор готов' if contract_requirement.status == 'ready' else 'нужно дополнить' }}</strong></div>
+      <div><span>Не хватает</span><strong>{{ contract_requirement.missing_asset_types | length }}</strong></div>
+      <div><span>Можно запускать</span><strong class="public-status public-status--{{ contract_requirement.status }}">{{ 'да' if contract_requirement.status == 'ready' else 'пока нет' }}</strong></div>
+      <a class="public-link-button" href="/mvp-launch" data-track-event="primary_action_clicked" data-track-target="complete-product">Открыть товар</a>
+      <details class="public-contract-technical">
+        <summary>Технические правила товара</summary>
+        <p><span class="public-sr-only">Product Asset Contract</span>Профиль: {{ contract_tier.product_profile }} · вариант: {{ contract_tier.variant_key or 'product-id boundary' }} · уровень: {{ contract_tier.current_tier }} / {{ contract_requirement.required_tier }}.</p>
+        {% if contract_tier.product_profile == 'food_snack' and contract_tier.current_tier != 'tier_4' %}
+        <p>Сцены с укусом и крупной текстурой отключены, пока нет полного набора точных фото продукта.</p>
+        {% endif %}
+      </details>
+    </article>
+    {% endif %}
 
     <div class="public-grid">
       <article class="altea-card public-panel altea-reveal">
-        <header class="public-panel-head"><div><p class="public-eyebrow">Товар и запуск</p><h2>Что мешает двигаться</h2></div><span>{{ product_blockers|length }}</span></header>
+        <header class="public-panel-head"><div><p class="public-eyebrow">Что требует внимания</p><h2>Препятствия на пути</h2></div><span>{{ product_blockers|length }}</span></header>
         <ul class="public-list">
           {% for item in product_blockers[:6] %}
-          <li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">{{ item.severity }}</span></li>
+          <li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">важно</span></li>
           {% else %}
-          <li><div><strong>Критичных блокеров нет</strong><small>Следующая проверка доступна в мастере запуска.</small></div></li>
+          <li><div><strong>Критичных препятствий нет</strong><small>Можно переходить к следующему действию.</small></div></li>
           {% endfor %}
         </ul>
       </article>
@@ -52,7 +118,16 @@
         <header class="public-panel-head"><div><p class="public-eyebrow">Контроль качества</p><h2>Очередь решений</h2></div><span>{{ control_snapshot.review_queue|length }}</span></header>
         <ul class="public-list">
           {% for item in control_snapshot.review_queue[:6] %}
-          <li><div><strong>{{ item.label }}</strong><small>{{ item.detail or 'Требуется ручная проверка.' }}</small></div><a href="/workbench?tab=video-quality">Открыть</a></li>
+          <li>
+            <div>
+              {% if item.target_module == 'output_acceptance' %}
+              <strong>Ролик #{{ item.payload.video_job_id }} нужно проверить повторно</strong><small>Обнаружено расхождение товара, упаковки или сцены. Решение принимает человек.</small>
+              {% else %}
+              <strong>{{ item.label }}</strong><small>{{ item.detail or 'Требуется ручная проверка.' }}</small>
+              {% endif %}
+            </div>
+            <a href="{{ item.target_url }}" data-track-event="navigation_clicked" data-track-target="quality-review">Открыть</a>
+          </li>
           {% else %}
           <li><div><strong>Очередь пуста</strong><small>Ни один результат не будет одобрен автоматически.</small></div></li>
           {% endfor %}
@@ -63,16 +138,16 @@
     <details class="altea-card public-technical altea-reveal">
       <summary>Технические подробности<span class="public-sr-only">Executive snapshot · Scores by dimension · What is ready · What is blocked · Road to 10/10</span></summary>
       <div class="public-technical-grid">
-        <div><span>Campaign readiness</span><strong>{{ control_snapshot.summary.campaign_readiness.status }}</strong></div>
-        <div><span>Destinations</span><strong>{{ control_snapshot.summary.destination_capacity.active_destinations }}/{{ control_snapshot.summary.destination_capacity.destinations }}</strong></div>
-        <div><span>Metrics coverage</span><strong>{{ control_snapshot.summary.metrics_coverage.coverage_percent }}%</strong></div>
-        <div><span>Audit run</span><strong>#{{ control_snapshot.engine_audit_run_id }}</strong></div>
+        <div><span>Оценка движка</span><strong>{{ control_snapshot.summary.engine_audit_total_score }}/10</strong></div>
+        <div><span>Качество видео</span><strong>{{ control_snapshot.summary.dimension_scores.video_quality.score if control_snapshot.summary.dimension_scores.video_quality is defined else '—' }}/10</strong></div>
+        <div><span>Покрытие метриками</span><strong>{{ control_snapshot.summary.metrics_coverage.coverage_percent }}%</strong></div>
+        <div><span>Аудит</span><strong>#{{ control_snapshot.engine_audit_run_id }}</strong></div>
         {% if smoke_readiness %}
         <div><span>Paid Smoke Readiness</span><strong>{{ smoke_readiness.report.final_decision }}</strong></div>
-        <div><span>Runway key</span><strong>{{ 'configured' if smoke_readiness.report.runway_key_configured else 'missing' }}</strong></div>
+        <div><span>Runway</span><strong>{{ 'настроен' if smoke_readiness.report.runway_key_configured else 'не настроен' }}</strong></div>
         {% endif %}
       </div>
-      <p><a href="/engine-audit">EngineAudit</a> · <a href="/settings/access">Роли и gates</a></p>
+      <p><a href="/engine-audit">Открыть технический аудит</a> · <a href="/settings/access">Роли и подтверждения</a></p>
     </details>
   </div>
 </section>

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ page_title or "ALTEA Public Pilot" }}</title>
+    <title>{{ page_title or "Контент ИИ Завод" }}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/altea_motion/altea_motion.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/public_pilot/public_pilot.css') }}">
   </head>
@@ -21,6 +21,7 @@
       {% block content %}{% endblock %}
     </main>
     <script src="{{ url_for('static', path='/altea_motion/altea_motion.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/public_pilot/product_telemetry.js') }}" defer></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

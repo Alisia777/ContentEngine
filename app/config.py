@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+import sys
 from typing import Literal
 
 from pydantic import AliasChoices, ConfigDict, Field
@@ -7,7 +8,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_name: str = "Qharisma Video Factory"
+    app_name: str = "Контент ИИ Завод"
     database_url: str = "sqlite:///./qharisma.db"
     media_root: Path = Path("media")
     mock_provider_enabled: bool = True
@@ -22,9 +23,19 @@ class Settings(BaseSettings):
     runway_model: str = "gen4.5"
     video_ratio: str = "720:1280"
     video_scene_duration: int = 5
+    # Media tools can live outside PATH on Windows and in managed deployments.
+    # Values are executable paths/names only; they are not credentials.
+    tesseract_path: str | None = None
+    tessdata_prefix: str | None = None
+    ffmpeg_path: str | None = None
+    ffprobe_path: str | None = None
     public_pilot_mode: bool = False
     auth_required: bool = False
     auth_dev_bypass_email: str = "owner@local.contentengine"
+    local_auth_email: str | None = None
+    local_auth_password_hash: str | None = None
+    local_session_secret: str | None = None
+    local_session_ttl_seconds: int = 28_800
     supabase_url: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_URL", "QVF_SUPABASE_URL"))
     supabase_project_ref: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_PROJECT_REF", "QVF_SUPABASE_PROJECT_REF"))
     supabase_jwt_secret: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_JWT_SECRET", "QVF_SUPABASE_JWT_SECRET"))
@@ -46,6 +57,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
+    if "pytest" in sys.modules and settings.media_root.resolve() == Path("media").resolve():
+        raise RuntimeError(
+            "Refusing to open the workspace media directory from pytest; "
+            "configure an isolated QVF_MEDIA_ROOT."
+        )
     settings.media_root.mkdir(parents=True, exist_ok=True)
     (settings.media_root / "mock").mkdir(parents=True, exist_ok=True)
     (settings.media_root / "output").mkdir(parents=True, exist_ok=True)

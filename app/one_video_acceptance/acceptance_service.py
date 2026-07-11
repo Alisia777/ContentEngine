@@ -87,14 +87,31 @@ class OneVideoAcceptanceService:
         self.db.add(result)
         self.db.flush()
         try:
+            generation_variant = (
+                self.db.get(models.VideoGenerationVariant, plan.video_generation_variant_id)
+                if plan.video_generation_variant_id
+                else None
+            )
+            if not generation_variant:
+                generation_variant = VideoGenerator(self.db).build_prompt_pack_from_variant(
+                    plan.creative_variant_id,
+                    provider=provider,
+                )
+            self.specializer.apply_to_generation_variant(plan, generation_variant)
+            plan.prompt_pack_id = generation_variant.prompt_pack_id
+            plan.video_generation_variant_id = generation_variant.id
+            result.prompt_pack_id = generation_variant.prompt_pack_id
+            result.video_generation_variant_id = generation_variant.id
+            self.db.commit()
             output = RealSmokeRunner(self.db).run_from_variant(
                 plan.creative_variant_id,
                 provider=provider,
                 max_scenes=max_scenes,
                 full_video=False,
                 allow_real_spend=True,
+                prepared_generation_variant_id=generation_variant.id,
             )
-            generation_variant = self._generation_variant_for_video_job(output.video_job_id)
+            generation_variant = self._generation_variant_for_video_job(output.video_job_id) or generation_variant
             video_job = self.db.get(models.VideoJob, output.video_job_id) if output.video_job_id else None
             if generation_variant:
                 self.specializer.apply_to_generation_variant(plan, generation_variant)
@@ -287,6 +304,7 @@ class OneVideoAcceptanceService:
     def _blockers_from_review(status: str, notes: str | None) -> list[str]:
         blockers = []
         normalized = (notes or "").lower()
+        failed_review = status in {"needs_regeneration", "rejected"}
         edible_drift_explicitly_absent = any(
             marker in normalized
             for marker in [
@@ -297,14 +315,48 @@ class OneVideoAcceptanceService:
                 "no granola drift",
             ]
         )
-        if status in {"needs_regeneration", "rejected"}:
+        if failed_review:
             blockers.append("manual_review_requires_regeneration")
-        if "wrapper" in normalized or "упаков" in normalized or "label" in normalized or "logo" in normalized:
+        if failed_review and ("wrapper" in normalized or "упаков" in normalized or "label" in normalized or "logo" in normalized):
             blockers.append("packaging_drift")
-        if "muesli" in normalized or "granola" in normalized or "мюсли" in normalized or "гранол" in normalized:
+        if failed_review and ("muesli" in normalized or "granola" in normalized or "мюсли" in normalized or "гранол" in normalized):
             blockers.append("edible_product_drift")
-        if "geometry" in normalized or "пропорц" in normalized or "deform" in normalized:
+        if failed_review and ("geometry" in normalized or "пропорц" in normalized or "deform" in normalized):
             blockers.append("geometry_drift")
+        if failed_review and any(
+            marker in normalized
+            for marker in [
+                "wrong sku",
+                "wrong variant",
+                "different product",
+                "variant changed",
+                "color changed",
+                "model changed",
+                "не тот sku",
+                "другой вариант",
+                "другой товар",
+                "цвет измен",
+            ]
+        ):
+            blockers.append("product_variant_drift")
+        if failed_review and any(
+            marker in normalized
+            for marker in [
+                "wrong application",
+                "wrong use",
+                "invented function",
+                "unsafe handling",
+                "wrong fit",
+                "fit changed",
+                "dispenser changed",
+                "неверно нанос",
+                "неверно использ",
+                "выдуманная функц",
+                "небезопас",
+                "неверная посадка",
+            ]
+        ):
+            blockers.append("product_interaction_drift")
         if edible_drift_explicitly_absent:
             blockers = [item for item in blockers if item != "edible_product_drift"]
         return list(dict.fromkeys(blockers))
@@ -318,6 +370,10 @@ class OneVideoAcceptanceService:
             fixes.append("block_bite_scene_until_edible_refs_ready")
         if "geometry_drift" in blockers:
             fixes.append("regenerate_with_geometry_feedback")
+        if "product_variant_drift" in blockers:
+            fixes.append("separate_variant_refs_and_use_exact_packshot_or_compositor")
+        if "product_interaction_drift" in blockers:
+            fixes.append("replace_generated_action_with_approved_use_reference")
         if "manual_review_requires_regeneration" in blockers:
             fixes.append("request_regeneration")
         return list(dict.fromkeys(fixes))
