@@ -12,6 +12,11 @@ Required placeholders are documented in `.env.example`:
 QVF_AUTH_REQUIRED=true
 QVF_PUBLIC_PILOT_MODE=true
 
+QVF_LOCAL_AUTH_EMAIL=
+QVF_LOCAL_AUTH_PASSWORD_HASH=
+QVF_LOCAL_SESSION_SECRET=
+QVF_LOCAL_SESSION_TTL_SECONDS=28800
+
 SUPABASE_URL=
 SUPABASE_PROJECT_REF=
 SUPABASE_JWT_SECRET=
@@ -26,16 +31,20 @@ QVF_SESSION_COOKIE_SAMESITE=lax
 
 Production should set `QVF_SESSION_COOKIE_SECURE=true` behind HTTPS.
 
+For a protected local installation, configure `QVF_LOCAL_AUTH_EMAIL`, a PBKDF2 password hash in `QVF_LOCAL_AUTH_PASSWORD_HASH`, and a random signing secret in `QVF_LOCAL_SESSION_SECRET`. The plaintext password is never stored by ContentEngine. When local auth is configured, `POST /login` creates an eight-hour signed HttpOnly session for the owner role.
+
 ## Session Cookie
 
-The app reads the bearer token from either:
+The app reads the signed token from either:
 
 - `Authorization: Bearer <jwt>`;
 - the HttpOnly session cookie named by `QVF_SESSION_COOKIE_NAME`.
 
-The repository contains no real Supabase secrets, no real account credentials, and no provider keys.
+Every protected request validates the token signature and expiry in middleware. `/media`, dashboards, workbenches, generation reports, and API routes are closed without a valid session. Only `/login`, `/logout`, `/health`, and local static assets remain public.
 
-## Local Dev Mode
+The repository contains no real local password hash, session signing secret, Supabase secret, account credential, or provider key.
+
+## Unprotected Dev Mode
 
 For local acceptance, keep:
 
@@ -44,7 +53,7 @@ QVF_AUTH_REQUIRED=false
 QVF_PUBLIC_PILOT_MODE=true
 ```
 
-When auth is not required, the app creates a local demo user from headers:
+Use this mode only for isolated tests. When auth is not required, the app creates a local demo user from headers:
 
 - `x-public-pilot-email`;
 - `x-public-pilot-role`;

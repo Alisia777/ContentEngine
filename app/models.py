@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -2671,6 +2671,44 @@ class TrainingCertification(Base, TimestampMixin):
     user_profile = relationship("UserProfile", back_populates="public_training_certifications")
     module = relationship("TrainingModule", back_populates="certifications")
     attempt = relationship("UserTrainingAttempt")
+
+
+class FactoryEvent(Base):
+    """Immutable product event used for funnel and UX measurement."""
+
+    __tablename__ = "factory_events"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_factory_events_idempotency_key"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_name = Column(String(120), nullable=False, index=True)
+    event_version = Column(Integer, nullable=False, default=1)
+    occurred_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    received_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    session_id = Column(String(128), nullable=True, index=True)
+    role = Column(String(80), nullable=False, index=True)
+    factory_run_id = Column(String(160), nullable=True, index=True)
+    entity_type = Column(String(120), nullable=True, index=True)
+    entity_id = Column(String(160), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    sku = Column(String(120), nullable=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    source = Column(String(80), nullable=False, default="server", index=True)
+    idempotency_key = Column(String(160), nullable=False, index=True)
+    properties_json = Column(JSON, nullable=False, default=dict)
+
+
+@event.listens_for(FactoryEvent, "before_update")
+def _prevent_factory_event_update(_mapper, _connection, _target) -> None:
+    raise ValueError("FactoryEvent is append-only and cannot be updated.")
+
+
+@event.listens_for(FactoryEvent, "before_delete")
+def _prevent_factory_event_delete(_mapper, _connection, _target) -> None:
+    raise ValueError("FactoryEvent is append-only and cannot be deleted.")
 
 
 class AuditLog(Base):

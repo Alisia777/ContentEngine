@@ -1,64 +1,143 @@
 {% extends "public_pilot_base.html" %}
 {% set active_page = "workbench" %}
+{% set factory = workspace.context.factory_dashboard %}
+{% set metrics = factory.metrics %}
 {% block content %}
 <section class="public-dashboard">
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
     <header class="public-topline altea-reveal">
-      <div><p class="public-eyebrow">Единый рабочий контур</p><h1>Рабочая область</h1><p>Готовность товара, ТЗ, видео и публикации без переходов по техническим модулям.</p></div>
-      <span class="public-status public-status--{{ workspace.status }}">{{ workspace.status.replace('_', ' ') }}</span>
+      <div>
+        <p class="public-eyebrow">Единый рабочий контур</p>
+        <h1>Рабочая область</h1>
+        <p>Девять блоков контент-завода простым языком. Технические модули открываются только когда они действительно нужны.</p>
+      </div>
+      <span class="public-status public-status--{{ workspace.status }}">{{ 'нужно решение' if workspace.status == 'needs_review' else 'можно работать' }}</span>
     </header>
 
     <article class="altea-card public-focus-panel altea-reveal">
-      <div><p class="public-eyebrow">Рекомендуемый шаг</p><h2>{{ workspace.primary_action.label }}</h2><p>{{ workspace.primary_action.detail }}</p></div>
-      <a class="altea-glow-button" href="{{ workspace.primary_action.url }}">Продолжить</a>
+      <div>
+        <p class="public-eyebrow">Рекомендуемый шаг</p>
+        <h2>{{ workspace.primary_action.label }}</h2>
+        <p>{{ workspace.primary_action.detail }}</p>
+      </div>
+      <a class="altea-glow-button" href="{{ workspace.primary_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ workspace.primary_action.action_type }}">Продолжить</a>
     </article>
 
-    <nav class="public-tabs altea-reveal" aria-label="Разделы рабочей области">
-      {% for item in workspace.module_links %}<a class="{{ 'is-active' if item.key == selected_tab else '' }}" href="/workbench?tab={{ item.key }}">{{ item.label }}</a>{% endfor %}
+    <nav class="public-tabs public-tabs--factory altea-reveal" aria-label="Девять блоков контент-завода">
+      {% for item in workspace.module_links %}
+      <a class="{{ 'is-active' if item.key == selected_tab else '' }}" href="/workbench?tab={{ item.key }}" data-track-event="navigation_clicked" data-track-target="workbench-{{ item.key }}">
+        <span>{{ item.number }}</span>
+        <strong>{{ item.label }}</strong>
+        <small>{{ item.status_label }}</small>
+      </a>
+      {% endfor %}
     </nav>
 
     {% for item in workspace.module_links if item.key == selected_tab %}
     <article class="altea-card public-workspace-panel altea-reveal">
       <div class="public-workspace-summary">
-        <div><p class="public-eyebrow">{{ item.label }}</p><h2>{{ item.summary }}</h2></div>
-        <span class="public-status public-status--{{ item.status }}">{{ item.status.replace('_', ' ') }}</span>
+        <div>
+          <p class="public-eyebrow">Блок {{ item.number }} из 9 · {{ item.label }}</p>
+          <h2>{{ item.summary }}</h2>
+        </div>
+        <span class="public-status public-status--{{ item.status }}">{{ item.status_label }}</span>
       </div>
+
       {% if item.key == 'product' %}
-      <div class="public-facts"><div><span>SKU</span><strong>{{ workspace.context.sku or 'не выбран' }}</strong></div><div><span>Smoke readiness</span><strong>{{ workspace.context.smoke_decision }}</strong></div><div><span>Блокеры</span><strong>{{ workspace.blockers|length }}</strong></div></div>
+      <div class="public-onboarding-grid">
+        <div><span>1</span><strong>Выберите товар</strong><small>Один точный SKU без смешивания вкусов и моделей.</small></div>
+        <div><span>2</span><strong>Добавьте фото</strong><small>Система подскажет, каких ракурсов не хватает.</small></div>
+        <div><span>3</span><strong>Получите следующий шаг</strong><small>Платные и опасные действия всегда подтверждаются отдельно.</small></div>
+      </div>
+      <h3 class="public-subheading">Готовность товара</h3>
+      <div class="public-facts">
+        <div><span>SKU</span><strong>{{ workspace.context.sku or 'товар ещё не выбран' }}</strong></div>
+        <div><span>Состояние проверки</span><strong>{{ 'готово' if workspace.context.smoke_decision == 'ready_for_paid_smoke' else 'нужно продолжить' }}</strong></div>
+        <div><span>Препятствия</span><strong>{{ workspace.blockers|length }}</strong></div>
+      </div>
       {% if workspace.context.product_asset_contract %}
       {% set contract_tier = workspace.context.product_asset_contract.tier %}
       {% set contract_requirement = workspace.context.product_asset_contract.requirement %}
       <div class="public-contract-detail">
-        <div class="public-facts"><div><span>Профиль</span><strong>{{ contract_tier.product_profile }}</strong></div><div><span>Variant</span><strong>{{ contract_tier.variant_key or 'product-id boundary' }}</strong></div><div><span>Tier</span><strong>{{ contract_tier.current_tier }} / {{ contract_requirement.required_tier }}</strong></div><div><span>Действие</span><strong>{{ contract_tier.permissions.interaction_mode }} · {{ 'готово' if contract_tier.permissions.interaction_scene_allowed else 'blocked' }}</strong></div></div>
-        <p><strong>Не хватает:</strong> {{ contract_requirement.missing_asset_types | join(', ') if contract_requirement.missing_asset_types else 'набор готов' }}</p>
-        <p><strong>Разрешено:</strong> {{ contract_tier.allowed_scenes | join(', ') }}</p>
-        <p><strong>Заблокировано:</strong> {{ contract_tier.blocked_scenes | join(', ') }}</p>
-        {% if contract_tier.product_profile == 'food_snack' and contract_tier.current_tier != 'tier_4' %}<p class="public-alert">Нельзя генерировать bite/macro: нет полного Tier 4 набора exact variant.</p>{% endif %}
-        {% if contract_tier.product_profile != 'food_snack' and not contract_tier.permissions.interaction_scene_allowed %}<p class="public-alert">Реальное действие {{ contract_tier.permissions.interaction_mode }} заблокировано до Tier 4; разрешены блогерский контекст и точный packshot overlay.</p>{% endif %}
+        <p><strong>Фото для рекламы:</strong> {{ 'набор готов' if contract_requirement.status == 'ready' else 'не хватает ' ~ (contract_requirement.missing_asset_types | length) }}</p>
+        <p><strong>Безопасность:</strong> сцены, для которых нет точного фото товара, автоматически отключаются.</p>
+        <details>
+          <summary>Показать технические правила</summary>
+          <div class="public-facts"><div><span>Профиль</span><strong>{{ contract_tier.product_profile }}</strong></div><div><span>Вариант</span><strong>{{ contract_tier.variant_key or 'граница по product ID' }}</strong></div><div><span>Уровень фото</span><strong>{{ contract_tier.current_tier }} / {{ contract_requirement.required_tier }}</strong></div></div>
+          <p><strong>Не хватает:</strong> {{ contract_requirement.missing_asset_types | join(', ') if contract_requirement.missing_asset_types else 'ничего' }}</p>
+        </details>
       </div>
       {% endif %}
+      <div class="public-panel-action"><a class="altea-glow-button" href="/mvp-launch" data-track-event="onboarding_started" data-track-target="first-product">Начать с товара</a></div>
+
+      {% elif item.key == 'video' %}
+      <div class="public-facts">
+        <div><span>Последний запуск</span><strong>{{ metrics.latest_draft_status | replace('_', ' ') }}</strong></div>
+        <div><span>Всего роликов</span><strong>{{ metrics.videos }}</strong></div>
+        <div><span>За 7 дней</span><strong>{{ metrics.videos_7d }}</strong></div>
+      </div>
+      <div class="public-guidance">
+        <strong>Что понадобится</strong>
+        <p>Точный товар, 3–4 его фото, фотография или образ блогера и одна простая идея. Сначала система проверит ТЗ без платного вызова.</p>
+      </div>
+      <div class="public-panel-action"><a class="altea-glow-button" href="/mvp-launch" data-track-event="primary_action_clicked" data-track-target="ugc-generator">Создать новый ролик</a></div>
+
       {% elif item.key == 'video-quality' %}
-      <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'unknown' }}</strong></div><div><span>Оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/10</strong></div><div><span>На проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
-      {% elif item.key == 'creative' %}
-      <p>Мастер запуска собирает сценарий и prompt-only только после проверки товара. Платный провайдер на этом этапе не вызывается.</p>
-      {% elif item.key == 'publishing' %}
-      <p>В публикацию попадёт только ролик с ручным решением <strong>approved</strong>, final URL и traceable destination.</p>
-      {% elif item.key == 'metrics' %}
-      <p>После публикации сюда возвращаются final URL, tracking slug и платформенные метрики.</p>
+      <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'ещё не проверялось' }}</strong></div><div><span>Техническая оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/10</strong></div><div><span>На ручной проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
+      <p class="public-safety-note">Оценка движка — только предварительный сигнал. Публикацию открывает человек после просмотра реального видео.</p>
+      {% include "_public_video_quality_workspace.html" %}
+
+      {% elif item.key == 'funnel' %}
+      <div class="public-funnel-strip" aria-label="Воронка контента">
+        <div><span>Просмотры</span><strong>{{ metrics.views }}</strong></div><i>→</i>
+        <div><span>Переходы</span><strong>{{ metrics.clicks }}</strong></div><i>→</i>
+        <div><span>Заказы</span><strong>{{ metrics.orders }}</strong></div><i>→</i>
+        <div><span>Выручка</span><strong>{{ metrics.revenue }} ₽</strong></div>
+      </div>
+      <p>Чтобы воронка считалась честно, до публикации создаётся tracking-ссылка, а после публикации сохраняется final URL.</p>
+      <div class="public-panel-action"><a class="public-link-button" href="/metrics-intake" data-track-event="navigation_clicked" data-track-target="metrics-intake">Загрузить или проверить метрики</a></div>
+
+      {% elif item.key == 'sources' %}
+      <div class="public-facts"><div><span>Подключения</span><strong>{{ metrics.connections }}</strong></div><div><span>Синхронизированы</span><strong>{{ metrics.synced_connections }}</strong></div><div><span>Строк метрик</span><strong>{{ metrics.metric_rows }}</strong></div></div>
+      <div class="public-guidance public-guidance--warning"><strong>Честный статус</strong><p>CSV и ручной импорт работают. Автоматические коннекторы соцсетей ещё не считаются подключёнными, пока не пройдут реальную проверку данных.</p></div>
+      <div class="public-panel-action"><a class="public-link-button" href="/destination-connectors" data-track-event="navigation_clicked" data-track-target="connectors">Настроить источник</a></div>
+
+      {% elif item.key == 'payments' %}
+      <div class="public-facts"><div><span>Расчётов</span><strong>{{ metrics.payout_entries }}</strong></div><div><span>Подтверждено</span><strong>{{ metrics.payouts_paid }}</strong></div><div><span>Ожидает</span><strong>{{ metrics.payout_pending_amount }} ₽</strong></div></div>
+      <div class="public-guidance public-guidance--warning"><strong>Пока ручной контур</strong><p>Система может подготовить расчёт, но фактический перевод денег и клиентский биллинг пока не автоматизированы.</p></div>
+      <div class="public-panel-action"><a class="public-link-button" href="/participant-portal" data-track-event="navigation_clicked" data-track-target="payout-ledger">Открыть расчёты</a></div>
+
+      {% elif item.key == 'wb' %}
+      <div class="public-facts"><div><span>Товаров</span><strong>{{ metrics.products }}</strong></div><div><span>Связей артикулов</span><strong>0</strong></div><div><span>Автоподмена</span><strong>выключена</strong></div></div>
+      <div class="public-guidance public-guidance--warning"><strong>Безопасный принцип</strong><p>Подменный артикул можно будет связать только с вашей подтверждённой карточкой Wildberries: nmID, vendorCode, срок действия и история изменений. Неоднозначные совпадения отправляются на ручную проверку.</p></div>
+      <p>До появления этой модели завод не угадывает артикулы и не переносит метрики между SKU.</p>
+
+      {% elif item.key == 'analytics' %}
+      <div class="public-analytics-hero">
+        <span>{{ factory.north_star.label }} · {{ factory.north_star.period }}</span>
+        <strong>{{ factory.north_star.value }}</strong>
+        <p>{{ factory.north_star.definition }}</p>
+      </div>
+      <div class="public-facts"><div><span>Ролики за 7 дней</span><strong>{{ metrics.videos_7d }}</strong></div><div><span>Заказы</span><strong>{{ metrics.orders }}</strong></div><div><span>Выручка</span><strong>{{ metrics.revenue }} ₽</strong></div></div>
+      <p>Следом считаем время до первого ролика, одобрение с первой попытки, стоимость одобренного видео и конверсию до заказа.</p>
+      <div class="public-panel-action"><a class="public-link-button" href="/campaign-performance" data-track-event="navigation_clicked" data-track-target="campaign-performance">Подробная аналитика</a></div>
+
       {% elif item.key == 'people' %}
-      <p>Задания, обучение и сертификация остаются частью одного рабочего процесса, но не мешают запуску одного SKU.</p>
-      {% else %}
-      <p>Доступ к платным, публикационным и approve-действиям зависит от роли и обязательных gates.</p>
+      <div class="public-facts"><div><span>Мои сертификаты</span><strong>{{ metrics.certifications }}</strong></div><div><span>Формат</span><strong>урок → действие → проверка</strong></div><div><span>Цель</span><strong>первый результат без помощи</strong></div></div>
+      <div class="public-guidance"><strong>Обучение по месту работы</strong><p>Новичку не нужно изучать весь завод заранее. Нужный короткий урок появляется перед конкретным действием: запуском, проверкой, публикацией или импортом данных.</p></div>
+      <div class="public-panel-action"><a class="public-link-button" href="/training-academy" data-track-event="navigation_clicked" data-track-target="academy">Открыть обучение</a></div>
       {% endif %}
+
+      {% if item.note %}<p class="public-module-note">{{ item.note }}</p>{% endif %}
     </article>
     {% endfor %}
 
     {% if workspace.blockers %}
-    <article class="altea-card public-panel altea-reveal">
-      <header class="public-panel-head"><h2>Блокеры</h2><span>{{ workspace.blockers|length }}</span></header>
-      <ul class="public-list">{% for item in workspace.blockers[:8] %}<li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">{{ item.severity }}</span></li>{% endfor %}</ul>
-    </article>
+    <details class="altea-card public-technical altea-reveal">
+      <summary>Что сейчас мешает результату · {{ workspace.blockers|length }}</summary>
+      <ul class="public-list">{% for item in workspace.blockers[:8] %}<li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">важно</span></li>{% endfor %}</ul>
+    </details>
     {% endif %}
 
     <details class="altea-card public-technical altea-reveal">

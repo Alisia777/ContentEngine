@@ -17,6 +17,7 @@ from app.database import Base, SessionLocal, engine
 from app.main import app
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import ensure_public_pilot_user
+from app.public_pilot.local_auth import hash_local_password
 from app.public_pilot.gate_matrix import (
     DANGEROUS_ACTIONS,
     METRICS_IMPORT,
@@ -37,6 +38,9 @@ def reset_public_pilot_db():
         "QVF_AUTH_REQUIRED",
         "QVF_PUBLIC_PILOT_MODE",
         "QVF_PUBLIC_PILOT_STRICT_TRAINING_GATES",
+        "QVF_LOCAL_AUTH_EMAIL",
+        "QVF_LOCAL_AUTH_PASSWORD_HASH",
+        "QVF_LOCAL_SESSION_SECRET",
     ]
     previous_env = {key: os.environ.get(key) for key in env_keys}
     get_settings.cache_clear()
@@ -63,6 +67,10 @@ def test_public_pilot_env_example_documents_auth_vars():
     for name in [
         "QVF_AUTH_REQUIRED=true",
         "QVF_PUBLIC_PILOT_MODE=true",
+        "QVF_LOCAL_AUTH_EMAIL=",
+        "QVF_LOCAL_AUTH_PASSWORD_HASH=",
+        "QVF_LOCAL_SESSION_SECRET=",
+        "QVF_LOCAL_SESSION_TTL_SECONDS=28800",
         "SUPABASE_URL=",
         "SUPABASE_PROJECT_REF=",
         "SUPABASE_JWT_SECRET=",
@@ -76,6 +84,51 @@ def test_public_pilot_env_example_documents_auth_vars():
         assert name in env_text
     assert Path("docs/PUBLIC_PILOT_AUTH_SETUP.md").exists()
     assert Path("docs/ALTEA_PUBLIC_PILOT_BRIEF_EMAIL.md").exists()
+
+
+def test_local_password_auth_closes_workspaces_media_and_rejects_tampered_cookie(tmp_path):
+    password = "Owner-Local-Only-2026!"
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    os.environ["QVF_LOCAL_AUTH_EMAIL"] = "owner@local.contentengine"
+    os.environ["QVF_LOCAL_AUTH_PASSWORD_HASH"] = hash_local_password(password)
+    os.environ["QVF_LOCAL_SESSION_SECRET"] = "local-session-secret-for-tests-only-32-bytes"
+    get_settings.cache_clear()
+
+    protected_media = Path("test_media") / "protected.mp4"
+    protected_media.parent.mkdir(parents=True, exist_ok=True)
+    protected_media.write_bytes(b"protected-video")
+
+    with TestClient(app) as client:
+        blocked = client.get("/control-room", follow_redirects=False)
+        assert blocked.status_code == 303
+        assert blocked.headers["location"] == "/login"
+        blocked_media = client.get("/media/protected.mp4", follow_redirects=False)
+        assert blocked_media.status_code == 303
+
+        denied = client.post(
+            "/login",
+            data={"email": "owner@local.contentengine", "password": "wrong-password"},
+            follow_redirects=False,
+        )
+        assert denied.status_code == 303
+        assert "invalid_credentials" in denied.headers["location"]
+
+        signed_in = client.post(
+            "/login",
+            data={"email": "owner@local.contentengine", "password": password},
+            follow_redirects=False,
+        )
+        assert signed_in.status_code == 303
+        cookie = signed_in.headers["set-cookie"]
+        assert "HttpOnly" in cookie
+        assert "SameSite=lax" in cookie
+        assert client.get("/control-room").status_code == 200
+        assert client.get("/media/protected.mp4").content == b"protected-video"
+
+        client.cookies.set("qvf_session", "tampered-token")
+        tampered = client.get("/workbench", follow_redirects=False)
+        assert tampered.status_code == 303
+        assert tampered.headers["location"] == "/login"
 
 
 def test_public_pilot_seed_creates_org_profiles_memberships():

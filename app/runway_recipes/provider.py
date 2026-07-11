@@ -112,6 +112,7 @@ class RunwayRecipeProvider:
             "id": data.get("id") or data.get("task_id") or data.get("uuid"),
             "status": data.get("status"),
             "failure": data.get("failure") or data.get("failureCode"),
+            "failure_code": data.get("failureCode"),
             "output_count": output_count,
         }
 

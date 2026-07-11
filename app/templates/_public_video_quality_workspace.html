@@ -1,0 +1,52 @@
+{% if workspace.context.provider_failures %}
+<section class="public-review-alert" aria-labelledby="provider-failure-title">
+  <div>
+    <p class="public-eyebrow">Provider failure</p>
+    <h3 id="provider-failure-title">Платный task завершился без MP4</h3>
+  </div>
+  <ul class="public-list">
+    {% for failure in workspace.context.provider_failures %}
+    <li>
+      <div>
+        <strong>{{ failure.label }}</strong>
+        <small>{{ failure.detail }}</small>
+        {% if failure.payload.provider_task_id %}<code>{{ failure.payload.provider_task_id }}</code>{% endif %}
+      </div>
+      <a href="{{ failure.target_url }}">Открыть отчёт</a>
+    </li>
+    {% endfor %}
+  </ul>
+  <p>Повторный paid run не выполняется автоматически. Сначала исправляются входные данные и создаётся новый draft.</p>
+</section>
+{% endif %}
+
+{% if workspace.context.review_queue %}
+<section class="public-review-queue" aria-labelledby="review-queue-title">
+  <header class="public-panel-head">
+    <div><p class="public-eyebrow">Human review</p><h3 id="review-queue-title">Конкретные ролики на проверке</h3></div>
+    <span>{{ workspace.context.review_queue|length }}</span>
+  </header>
+  <div class="public-review-grid">
+    {% for review in workspace.context.review_queue %}
+    <article class="public-review-item">
+      {% if review.output_url %}
+      <video controls preload="metadata" playsinline src="{{ review.output_url }}"></video>
+      {% else %}
+      <div class="public-review-placeholder"><span>MP4 недоступен</span><small>Откройте карточку для диагностики.</small></div>
+      {% endif %}
+      <div class="public-review-copy">
+        <div><strong>{{ review.label }}</strong><small>{{ review.detail or 'Требуется ручное решение.' }}</small></div>
+        <dl>
+          {% if review.video_job_id %}<div><dt>Video job</dt><dd>#{{ review.video_job_id }}</dd></div>{% endif %}
+          {% if review.score is defined %}<div><dt>Score</dt><dd>{{ review.score }}/10</dd></div>{% endif %}
+          <div><dt>Publishing</dt><dd>{{ review.publishing_readiness or 'blocked' }}</dd></div>
+        </dl>
+        <a class="altea-outline-button" href="{{ review.target_url }}">Открыть проверку</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<div class="public-review-empty"><strong>Очередь пуста</strong><p>Ни один ролик не будет одобрен автоматически.</p></div>
+{% endif %}

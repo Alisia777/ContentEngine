@@ -17,7 +17,8 @@ from app.interface_productization import InterfaceProductizationError, MVPLaunch
 from app.product_asset_contract import ProductAssetClassifier
 from app.product_asset_contract.reference_requirement_service import product_profile, product_variant_key
 from app.public_pilot.access import PublicPilotAccessService
-from app.public_pilot.auth import PublicPilotUser, get_current_public_user
+from app.public_pilot.auth import PublicPilotUser, ensure_public_pilot_user, get_current_public_user
+from app.public_pilot.local_auth import authenticate_local_user, local_auth_configured
 from app.public_pilot.control_room import PublicPilotControlRoomService
 from app.public_pilot.gate_matrix import (
     ACTION_LABELS,
@@ -138,12 +139,40 @@ def public_login(request: Request, error: str | None = None) -> HTMLResponse:
 
 
 @router.post("/login")
-def public_login_submit(email: str = Form(...), password: str = Form(...)) -> RedirectResponse:
+def public_login_submit(
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
     settings = get_settings()
     if not settings.auth_required:
         return RedirectResponse("/control-room", status_code=303)
+    if local_auth_configured():
+        token = authenticate_local_user(email, password)
+        if not token:
+            return RedirectResponse("/login?error=invalid_credentials", status_code=303)
+        normalized_email = str(settings.local_auth_email).strip().casefold()
+        ensure_public_pilot_user(
+            db,
+            email=normalized_email,
+            display_name=None,
+            role="owner",
+            supabase_user_id=f"local:{normalized_email}",
+            mark_login=True,
+        )
+        response = RedirectResponse("/control-room", status_code=303)
+        response.set_cookie(
+            settings.session_cookie_name,
+            token,
+            max_age=settings.local_session_ttl_seconds,
+            httponly=True,
+            secure=settings.session_cookie_secure,
+            samesite=settings.session_cookie_samesite,
+            path="/",
+        )
+        return response
     if not settings.supabase_url:
-        return RedirectResponse("/login?error=supabase_not_configured", status_code=303)
+        return RedirectResponse("/login?error=local_auth_not_configured", status_code=303)
     if not password:
         return RedirectResponse("/login?error=password_required", status_code=303)
     # Real Supabase password exchange is intentionally not performed in tests/local acceptance.
@@ -168,7 +197,7 @@ def control_room(
     context = PublicPilotControlRoomService(db).context(user, role=role)
     return templates.TemplateResponse(
         "public_control_room.html",
-        {"request": request, "page_title": "ALTEA Control Room", **context},
+        {"request": request, "page_title": "Контент ИИ Завод · Главная", **context},
     )
 
 
@@ -180,16 +209,25 @@ def mvp_workbench(
     db: Session = Depends(get_db),
     user: PublicPilotUser = Depends(get_current_public_user),
 ) -> HTMLResponse:
-    selected_role = role or (user.role if user.role in {"owner", "admin", "reviewer", "operator"} else "owner")
+    selected_role = role or (
+        user.role if user.role in {"owner", "admin", "reviewer", "operator"} else "creator_publisher"
+    )
     service = MVPWorkspaceService(db)
-    snapshot = service.output(service.build(role=selected_role))
+    snapshot = service.output(service.build(role=selected_role, user_profile_id=user.profile.id))
     allowed_tabs = {item.key for item in snapshot.module_links}
-    selected_tab = tab if tab in allowed_tabs else "product"
+    tab_aliases = {
+        "creative": "video",
+        "publishing": "funnel",
+        "metrics": "analytics",
+        "access": "product",
+    }
+    requested_tab = tab_aliases.get(tab, tab)
+    selected_tab = requested_tab if requested_tab in allowed_tabs else "product"
     return templates.TemplateResponse(
         "public_workbench.html",
         {
             "request": request,
-            "page_title": "ALTEA Рабочая область",
+            "page_title": "Контент ИИ Завод · Рабочая область",
             "user": user,
             "role": selected_role,
             "workspace": snapshot,

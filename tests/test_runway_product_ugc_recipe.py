@@ -515,6 +515,56 @@ def test_recipe_runner_downloads_output_and_keeps_it_blocked_for_human_review(mo
         assert reviewed.publishing_readiness == "ready_for_package"
 
 
+def test_recipe_runner_persists_provider_failure_code_and_blocks_blind_retry(monkeypatch):
+    product_id = create_product()
+    with SessionLocal() as db:
+        draft = create_draft(db, product_id)
+        draft_id = draft.id
+
+    class ModeratedProvider:
+        def create_product_ugc(self, request):
+            return ProviderVideoJob(
+                provider="runway_product_ugc_recipe",
+                provider_job_id="moderated-task",
+                status="PENDING",
+                raw_response={"id": "moderated-task", "status": "PENDING"},
+            )
+
+        def get_status(self, provider_job_id):
+            return ProviderVideoStatus(
+                provider_job_id=provider_job_id,
+                status="FAILED",
+                raw_response={
+                    "id": provider_job_id,
+                    "status": "FAILED",
+                    "failure": "Blocked by provider moderation.",
+                    "failure_code": "INPUT_PREPROCESSING.SAFETY.THIRD_PARTY",
+                    "output_count": 0,
+                },
+            )
+
+    monkeypatch.setenv("QVF_GENERATION_MODE", "real")
+    monkeypatch.setenv("QVF_ALLOW_REAL_SPEND", "true")
+    monkeypatch.setenv("RUNWAYML_API_SECRET", "test-secret")
+    get_settings.cache_clear()
+    with SessionLocal() as db:
+        with pytest.raises(RunwayRecipeError, match="Do not retry this input"):
+            ProductUGCRecipeRunner(db, provider_factory=ModeratedProvider, sleep=lambda _: None).run(
+                draft_id,
+                real_run=True,
+            )
+        draft = ProductUGCRecipeService(db).get(draft_id)
+        failure = draft.creative_inputs_json["provider_failure"]
+        assert failure == {
+            "code": "INPUT_PREPROCESSING.SAFETY.THIRD_PARTY",
+            "message": "Blocked by provider moderation.",
+            "retry_allowed": False,
+        }
+        assert draft.status == "provider_failed"
+        report = json.loads(open(draft.generation_report_path, encoding="utf-8").read())
+        assert report["provider_failure"] == failure
+
+
 def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
     product_id = create_product()
     api = TestClient(app)

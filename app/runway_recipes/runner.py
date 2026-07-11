@@ -126,7 +126,22 @@ class ProductUGCRecipeRunner:
             if normalized in SUCCESS_STATUSES:
                 return
             if normalized in FAILURE_STATUSES:
-                raise RunwayRecipeError(f"Runway Product UGC task ended with status {normalized}.")
+                metadata = status.raw_response or {}
+                failure_code = str(metadata.get("failure_code") or "PROVIDER_FAILED")
+                failure = str(metadata.get("failure") or "Provider task failed.")
+                non_retryable = failure_code.startswith("SAFETY.INPUT") or failure_code.startswith("INPUT_PREPROCESSING.SAFETY")
+                creative_inputs = dict(draft.creative_inputs_json or {})
+                creative_inputs["provider_failure"] = {
+                    "code": failure_code,
+                    "message": failure,
+                    "retry_allowed": not non_retryable,
+                }
+                draft.creative_inputs_json = creative_inputs
+                self.db.commit()
+                retry_note = " Do not retry this input." if non_retryable else ""
+                raise RunwayRecipeError(
+                    f"Runway Product UGC task ended with status {normalized} ({failure_code}): {failure}.{retry_note}"
+                )
             self.sleep(3)
         raise RunwayRecipeError("Runway Product UGC task timed out before completion.")
 
@@ -151,6 +166,7 @@ class ProductUGCRecipeRunner:
             "provider": "runway",
             "provider_task_id": draft.provider_task_id,
             "provider_status": draft.provider_status,
+            "provider_failure": (draft.creative_inputs_json or {}).get("provider_failure"),
             "product_asset_ids": draft.product_asset_ids_json or [],
             "primary_product_asset_id": draft.primary_product_asset_id,
             "payload_preview": draft.provider_payload_preview_json or {},

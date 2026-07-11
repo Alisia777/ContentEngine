@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
+import json
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -8,7 +9,8 @@ from sqlalchemy import func, select
 from app import models
 from app.config import get_settings
 from app.database import SessionLocal, init_db
-from app.routers import altea_motion, api, pages, public_pilot
+from app.public_pilot.auth import SupabaseJWTValidator
+from app.routers import altea_motion, api, pages, product_events, public_pilot
 from app.ui import templates
 
 settings = get_settings()
@@ -30,17 +32,29 @@ def create_app() -> FastAPI:
         current_settings = get_settings()
         if current_settings.auth_required:
             path = request.url.path
-            public_prefixes = ("/login", "/logout", "/static", "/media", "/health", "/altea-motion")
-            if not path.startswith(public_prefixes):
+            public_path = path in {"/login", "/logout", "/health"} or path.startswith("/static/")
+            if not public_path:
                 token = request.cookies.get(current_settings.session_cookie_name)
                 auth_header = request.headers.get("authorization", "")
-                if not token and not auth_header.lower().startswith("bearer "):
+                if not token and auth_header.lower().startswith("bearer "):
+                    token = auth_header.split(" ", 1)[1].strip()
+                authenticated = False
+                if token:
+                    try:
+                        SupabaseJWTValidator().validate(token)
+                        authenticated = True
+                    except (HTTPException, ValueError, TypeError, json.JSONDecodeError):
+                        authenticated = False
+                if not authenticated:
                     if path.startswith("/api"):
                         return JSONResponse({"detail": "authentication_required"}, status_code=401)
-                    return RedirectResponse("/login", status_code=303)
+                    response = RedirectResponse("/login", status_code=303)
+                    response.delete_cookie(current_settings.session_cookie_name, path="/")
+                    return response
         return await call_next(request)
 
     app.include_router(api.router)
+    app.include_router(product_events.router)
     app.include_router(altea_motion.router)
     app.include_router(public_pilot.router)
 
@@ -49,7 +63,10 @@ def create_app() -> FastAPI:
         return {"status": "ok", "app": settings.app_name}
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request) -> HTMLResponse:
+    def dashboard(request: Request):
+        current_settings = get_settings()
+        if current_settings.public_pilot_mode or current_settings.auth_required:
+            return RedirectResponse("/control-room", status_code=302)
         with SessionLocal() as db:
             metrics = {
                 "Products": db.scalar(select(func.count()).select_from(models.Product)) or 0,

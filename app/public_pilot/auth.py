@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.database import get_db
+from app.public_pilot.local_auth import LOCAL_ISSUER
 
 
 def _slugify(value: str) -> str:
@@ -41,17 +43,21 @@ class SupabaseJWTValidator:
         self.settings = get_settings()
 
     def validate(self, token: str) -> dict[str, Any]:
-        parts = token.split(".")
-        if len(parts) != 3:
-            raise HTTPException(status_code=401, detail="invalid_token")
-
-        header = json.loads(_b64url_decode(parts[0]))
-        payload = json.loads(_b64url_decode(parts[1]))
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                raise ValueError("invalid token parts")
+            header = json.loads(_b64url_decode(parts[0]))
+            payload = json.loads(_b64url_decode(parts[1]))
+        except (ValueError, TypeError, UnicodeDecodeError, binascii.Error) as exc:
+            raise HTTPException(status_code=401, detail="invalid_token") from exc
         algorithm = header.get("alg")
 
-        if algorithm == "HS256" and self.settings.supabase_jwt_secret:
+        local_session = payload.get("auth_source") == "local"
+        signing_secret = self.settings.local_session_secret if local_session else self.settings.supabase_jwt_secret
+        if algorithm == "HS256" and signing_secret:
             signed = ".".join(parts[:2]).encode("utf-8")
-            expected = hmac.new(self.settings.supabase_jwt_secret.encode("utf-8"), signed, hashlib.sha256).digest()
+            expected = hmac.new(signing_secret.encode("utf-8"), signed, hashlib.sha256).digest()
             actual = _b64url_decode(parts[2])
             if not hmac.compare_digest(expected, actual):
                 raise HTTPException(status_code=401, detail="invalid_token_signature")
@@ -65,7 +71,9 @@ class SupabaseJWTValidator:
         now = int(datetime.now(UTC).timestamp())
         if payload.get("exp") and int(payload["exp"]) < now:
             raise HTTPException(status_code=401, detail="token_expired")
-        if self.settings.supabase_issuer and payload.get("iss") != self.settings.supabase_issuer:
+        if local_session and payload.get("iss") != LOCAL_ISSUER:
+            raise HTTPException(status_code=401, detail="invalid_issuer")
+        if not local_session and self.settings.supabase_issuer and payload.get("iss") != self.settings.supabase_issuer:
             raise HTTPException(status_code=401, detail="invalid_issuer")
         audience = payload.get("aud")
         expected_audience = self.settings.supabase_audience
@@ -91,6 +99,8 @@ def ensure_public_pilot_user(
     display_name: str | None,
     role: str,
     supabase_user_id: str | None = None,
+    mark_login: bool = False,
+    authenticated_at: datetime | None = None,
 ) -> PublicPilotUser:
     settings = get_settings()
     org_slug = _slugify(settings.public_pilot_default_org)
@@ -116,7 +126,10 @@ def ensure_public_pilot_user(
     else:
         profile.email = email
         profile.display_name = display_name or profile.display_name
+    if mark_login:
         profile.last_login_at = datetime.now(UTC).replace(tzinfo=None)
+    elif authenticated_at and (profile.last_login_at is None or authenticated_at > profile.last_login_at):
+        profile.last_login_at = authenticated_at
 
     membership = db.scalar(
         select(models.Membership).where(
@@ -151,12 +164,17 @@ def get_current_public_user(request: Request, db: Session = Depends(get_db)) -> 
         email = payload.get("email") or payload.get("user_metadata", {}).get("email") or f"{payload['sub']}@supabase.local"
         display_name = payload.get("user_metadata", {}).get("name") or payload.get("user_metadata", {}).get("full_name")
         role = payload.get("app_metadata", {}).get("role") or payload.get("role") or "viewer"
+        issued_at = payload.get("iat")
+        authenticated_at = None
+        if isinstance(issued_at, (int, float)) and not isinstance(issued_at, bool):
+            authenticated_at = datetime.fromtimestamp(issued_at, UTC).replace(tzinfo=None)
         return ensure_public_pilot_user(
             db,
             email=email,
             display_name=display_name,
             role=role,
             supabase_user_id=payload["sub"],
+            authenticated_at=authenticated_at,
         )
 
     if settings.auth_required:

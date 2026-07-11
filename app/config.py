@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     public_pilot_mode: bool = False
     auth_required: bool = False
     auth_dev_bypass_email: str = "owner@local.contentengine"
+    local_auth_email: str | None = None
+    local_auth_password_hash: str | None = None
+    local_session_secret: str | None = None
+    local_session_ttl_seconds: int = 28_800
     supabase_url: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_URL", "QVF_SUPABASE_URL"))
     supabase_project_ref: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_PROJECT_REF", "QVF_SUPABASE_PROJECT_REF"))
     supabase_jwt_secret: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_JWT_SECRET", "QVF_SUPABASE_JWT_SECRET"))

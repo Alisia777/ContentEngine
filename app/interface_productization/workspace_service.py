@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.config import get_settings
 from app.control_room import ControlRoomSnapshotService
+from app.interface_productization.factory_dashboard_service import FactoryDashboardService
 from app.interface_productization.mvp_navigation_service import MVPNavigationService
 from app.interface_productization.types import MVPAction, MVPModuleLink, MVPWorkspaceSnapshotOutput
 from app.smoke_readiness import ReadinessReportService
@@ -17,8 +21,9 @@ class MVPWorkspaceService:
     def __init__(self, db: Session):
         self.db = db
         self.navigation = MVPNavigationService()
+        self.settings = get_settings()
 
-    def build(self, *, role: str = "owner") -> models.MVPWorkspaceSnapshot:
+    def build(self, *, role: str = "owner", user_profile_id: int | None = None) -> models.MVPWorkspaceSnapshot:
         control_service = ControlRoomSnapshotService(self.db)
         control = control_service.output(control_service.refresh(role=role))
         smoke_service = ReadinessReportService(self.db)
@@ -31,7 +36,8 @@ class MVPWorkspaceService:
         if control.review_queue:
             status = "needs_review"
 
-        modules = self._module_links(control, smoke)
+        factory_dashboard = FactoryDashboardService(self.db).snapshot(user_profile_id=user_profile_id)
+        modules = self._module_links(factory_dashboard)
         secondary = [
             MVPAction(
                 action_type="open_workbench",
@@ -53,10 +59,17 @@ class MVPWorkspaceService:
             "ready_count": len(control.ready_items),
             "blocked_count": len(control.blocked_items),
             "review_count": len(control.review_queue),
+            "review_queue": self._review_queue(control.review_queue),
+            "provider_failures": [
+                item.model_dump(mode="json")
+                for item in control.blocked_items
+                if item.target_module == "runway_product_ugc"
+            ],
             "smoke_decision": smoke.report.final_decision if smoke else "not_checked",
             "product_id": smoke.product_id if smoke else None,
             "sku": smoke.sku if smoke else None,
             "product_asset_contract": asset_contract,
+            "factory_dashboard": factory_dashboard,
             "technical": {
                 "engine_audit_run_id": control.engine_audit_run_id,
                 "control_room_snapshot_id": control.id,
@@ -79,6 +92,53 @@ class MVPWorkspaceService:
         self.db.commit()
         self.db.refresh(record)
         return record
+
+    def _review_queue(self, items) -> list[dict]:
+        queue: list[dict] = []
+        for item in items:
+            output = item.model_dump(mode="json")
+            payload = output.get("payload") or {}
+            acceptance_id = payload.get("output_acceptance_id")
+            recipe_draft_id = payload.get("recipe_draft_id")
+            if acceptance_id:
+                acceptance = self.db.get(models.VideoOutputAcceptance, acceptance_id)
+                video_job = self.db.get(models.VideoJob, acceptance.video_job_id) if acceptance else None
+                if acceptance and video_job:
+                    output.update(
+                        {
+                            "video_job_id": video_job.id,
+                            "output_url": self._media_url(video_job.output_video_path),
+                            "score": acceptance.score,
+                            "publishing_readiness": acceptance.publishing_readiness,
+                            "target_url": f"/output-acceptance?video_job_id={video_job.id}",
+                        }
+                    )
+            elif recipe_draft_id:
+                draft = self.db.get(models.ProductUGCRecipeDraft, recipe_draft_id)
+                if draft:
+                    paths = draft.local_output_paths_json or []
+                    output.update(
+                        {
+                            "output_url": self._media_url(paths[0]) if paths else None,
+                            "publishing_readiness": draft.publishing_readiness,
+                        }
+                    )
+            queue.append(output)
+        return queue
+
+    def _media_url(self, source_ref: str | None) -> str | None:
+        if not source_ref:
+            return None
+        source = Path(source_ref)
+        root = Path(self.settings.media_root)
+        try:
+            relative = source.relative_to(root)
+        except ValueError:
+            try:
+                relative = source.resolve().relative_to(root.resolve())
+            except ValueError:
+                return None
+        return f"/media/{relative.as_posix()}"
 
     def _latest_asset_contract(self, product_id: int | None) -> dict | None:
         if not product_id:
@@ -111,15 +171,17 @@ class MVPWorkspaceService:
         )
 
     @staticmethod
-    def _module_links(control, smoke) -> list[MVPModuleLink]:
-        video_status = (control.summary.get("dimension_scores") or {}).get("video_quality", {}).get("status", "unknown")
-        smoke_status = smoke.report.final_decision if smoke else "not_checked"
+    def _module_links(factory_dashboard: dict[str, object]) -> list[MVPModuleLink]:
+        internal_routes = {
+            "video": "/mvp-launch",
+            "video-quality": "/output-acceptance",
+            "funnel": "/metrics-intake",
+            "sources": "/destination-connectors",
+            "payments": "/participant-portal",
+            "analytics": "/campaign-performance",
+            "people": "/training-academy",
+        }
         return [
-            MVPModuleLink(key="product", label="Готовность товара", url="/mvp-launch", status=smoke_status, summary="Фото, SKU и разрешённые сцены.", internal_route="/one-video-acceptance"),
-            MVPModuleLink(key="creative", label="Креативное ТЗ", url="/mvp-launch", status="guided", summary="Сценарий и prompt-only без платного вызова.", internal_route="/ai-brief-studio"),
-            MVPModuleLink(key="video-quality", label="Качество видео", url="/workbench?tab=video-quality", status=video_status, summary="Результат, drift и ручное решение.", internal_route="/output-acceptance"),
-            MVPModuleLink(key="publishing", label="Публикация", url="/workbench?tab=publishing", status="human_gated", summary="Только approved video и traceable URL."),
-            MVPModuleLink(key="metrics", label="Метрики", url="/workbench?tab=metrics", status="available", summary="Импорт и атрибуция после публикации.", internal_route="/metrics-intake"),
-            MVPModuleLink(key="people", label="Люди и обучение", url="/workbench?tab=people", status="available", summary="Роли, задания и сертификация.", internal_route="/participant-portal"),
-            MVPModuleLink(key="access", label="Доступ", url="/settings/access", status="gated", summary="Роли, права и подтверждение расходов."),
+            MVPModuleLink(**item, internal_route=internal_routes.get(str(item["key"])))
+            for item in factory_dashboard.get("modules", [])
         ]

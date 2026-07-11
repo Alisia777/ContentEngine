@@ -137,3 +137,39 @@ def test_launch_wizard_never_calls_paid_provider(monkeypatch):
         assert advanced.status == "spend_gated"
         assert advanced.context_json["provider_calls"] == 0
         assert advanced.context_json["paid_provider_called"] is False
+
+
+def test_workbench_surfaces_exact_product_ugc_provider_failure():
+    product_id = create_product()
+    with SessionLocal() as db:
+        draft = models.ProductUGCRecipeDraft(
+            product_id=product_id,
+            sku="BOMBBAR-PRO-DUBAI-MANGO-KUNAFA",
+            variant_key="mango-kunafa",
+            status="provider_failed",
+            character_image_path="test_media/creator.png",
+            character_image_filename="creator.png",
+            product_info="Exact product info",
+            user_concept="Creator presents the exact product.",
+            creative_inputs_json={
+                "provider_failure": {
+                    "code": "INPUT_PREPROCESSING.SAFETY.THIRD_PARTY",
+                    "message": "Blocked by provider moderation.",
+                    "retry_allowed": False,
+                }
+            },
+            provider_task_id="failed-task-id",
+            provider_status="FAILED",
+            estimated_credits=588,
+        )
+        db.add(draft)
+        db.commit()
+        db.refresh(draft)
+        draft_id = draft.id
+
+    response = client().get("/workbench?tab=video-quality")
+    assert response.status_code == 200
+    assert "INPUT_PREPROCESSING.SAFETY.THIRD_PARTY" in response.text
+    assert "failed-task-id" in response.text
+    assert f'/mvp-launch?product_id={product_id}&amp;recipe_draft_id={draft_id}' in response.text
+    assert "Повторный paid run не выполняется автоматически" in response.text

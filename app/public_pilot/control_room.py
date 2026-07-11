@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.control_room import ControlRoomSnapshotService
+from app.interface_productization import FactoryDashboardService
 from app.interface_productization.mvp_navigation_service import MVPNavigationService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import PublicPilotUser
@@ -36,17 +37,29 @@ class PublicPilotControlRoomService:
         smoke_output = smoke_service.output(smoke_run) if smoke_run else None
         contract = self._asset_contract(smoke_output.product_id if smoke_output else None)
         navigation = MVPNavigationService()
+        factory_dashboard = FactoryDashboardService(self.db).snapshot(user_profile_id=user.profile.id)
+        control_role_options = [
+            {"value": "owner", "label": "Владелец"},
+            {"value": "content_lead", "label": "Руководитель контента"},
+            {"value": "campaign_operator", "label": "Оператор кампании"},
+            {"value": "reviewer", "label": "Проверяющий"},
+            {"value": "creator", "label": "Автор"},
+            {"value": "creator_publisher", "label": "Автор и публикатор"},
+            {"value": "metrics_operator", "label": "Оператор метрик"},
+        ]
         return {
             "user": user,
             "settings": self.settings,
             "role": user.role,
             "control_role": snapshot_output.role,
             "control_roles": ["owner", "content_lead", "campaign_operator", "reviewer", "creator", "creator_publisher", "metrics_operator"],
+            "control_role_options": control_role_options,
             "control_snapshot": snapshot_output,
             "smoke_readiness": smoke_output,
             "primary_action": navigation.primary_action(snapshot_output, smoke_output, contract),
             "product_blockers": navigation.blockers(snapshot_output, smoke_output, contract),
             "product_asset_contract": contract,
+            "factory_dashboard": factory_dashboard,
             "certifications": sorted(certifications),
             "training_modules": modules,
             "gate_summary": matrix.summary(),
