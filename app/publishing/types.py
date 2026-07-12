@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
+PUBLISHABLE_MEDIA_ARTIFACT_KINDS = frozenset({"master_video", "provider_output"})
+
+
 @dataclass(frozen=True)
 class PublishingReadiness:
     ready: bool

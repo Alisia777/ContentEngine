@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
-from app.publishing.errors import PublishingError
+from app.publishing.errors import (
+    PublishingAuthorizationError,
+    PublishingError,
+    PublishingSourceNotFound,
+    PublishingSourceStateError,
+)
+from app.publishing.types import PUBLISHABLE_MEDIA_ARTIFACT_KINDS
 
 
 class PublishingPackageService:
+    ARTIFACT_APPROVER_ROLES = frozenset({"owner", "admin", "reviewer"})
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -56,6 +66,146 @@ class PublishingPackageService:
         self.db.refresh(package)
         return package
 
+    def create_from_media_artifact(
+        self,
+        *,
+        public_id: str | None = None,
+        media_artifact_id: int | None = None,
+        organization_id: int,
+        actor_user_profile_id: int,
+        platform: str,
+        confirm_human_review: bool,
+        title: str | None = None,
+        description: str | None = None,
+        hashtags: list[str] | None = None,
+        cta: str | None = None,
+    ) -> models.PublishingPackage:
+        """Approve one durable tenant video and create its package exactly once.
+
+        This path deliberately never asks a storage backend for a signed URL.
+        The package stores only the MediaArtifact foreign key and immutable
+        integrity/audit facts; access capabilities remain short-lived.
+        """
+
+        membership, profile = self._require_artifact_approver(
+            organization_id=organization_id,
+            actor_user_profile_id=actor_user_profile_id,
+        )
+        if confirm_human_review is not True:
+            raise PublishingSourceStateError(
+                "Explicit human review confirmation is required before packaging media."
+            )
+
+        artifact_query = select(models.MediaArtifact).where(
+            models.MediaArtifact.organization_id == int(organization_id)
+        )
+        if public_id is not None:
+            artifact_query = artifact_query.where(
+                models.MediaArtifact.public_id == str(public_id)
+            )
+        if media_artifact_id is not None:
+            artifact_query = artifact_query.where(
+                models.MediaArtifact.id == int(media_artifact_id)
+            )
+        artifact = (
+            self.db.scalar(artifact_query)
+            if public_id is not None or media_artifact_id is not None
+            else None
+        )
+        if artifact is None:
+            raise PublishingSourceNotFound("Media artifact was not found in this organization.")
+        product, video_job = self._validate_media_artifact_source(
+            artifact,
+            organization_id=organization_id,
+        )
+        normalized_platform = self._platform(platform)
+
+        existing = self._artifact_package(
+            organization_id=organization_id,
+            media_artifact_id=artifact.id,
+            platform=normalized_platform,
+        )
+        if existing is not None:
+            if existing.status != "approved" or existing.review_status != "approved":
+                raise PublishingSourceStateError(
+                    "A package already exists for this artifact and platform but is not approved."
+                )
+            return existing
+
+        generation_variant = (
+            self._generation_variant_for_video(video_job.id) if video_job is not None else None
+        )
+        reviewed_at = models.utcnow()
+        package = models.PublishingPackage(
+            organization_id=organization_id,
+            video_job_id=video_job.id if video_job is not None else None,
+            media_artifact_id=artifact.id,
+            creative_variant_id=generation_variant.creative_variant_id if generation_variant else None,
+            product_id=product.id,
+            brand=product.brand,
+            target_platform=normalized_platform,
+            title=title or self._title(product, normalized_platform),
+            description=description or self._description(product, normalized_platform),
+            hashtags_json=(
+                hashtags if hashtags is not None else self._hashtags(product, normalized_platform)
+            ),
+            cta=cta or (self._cta(video_job) if video_job is not None else "Open the product card"),
+            product_url=product.product_url,
+            utm_url=self._utm(product.product_url, normalized_platform),
+            cover_image_path=None,
+            video_file_path=None,
+            metadata_json={
+                "workflow": "cloud_media_artifact_publishing_v1",
+                "source_media": {
+                    "type": "media_artifact",
+                    "media_artifact_id": artifact.id,
+                    "sha256": artifact.sha256,
+                    "mime_type": artifact.mime_type,
+                    "size_bytes": artifact.size_bytes,
+                },
+                "human_review": {
+                    "confirmed": True,
+                    "reviewer_user_profile_id": profile.id,
+                    "reviewer_role": membership.role,
+                    "reviewed_at": reviewed_at.isoformat(),
+                },
+                "safety_rules": [
+                    "Tenant-owned ready video only",
+                    "Human review required",
+                    "No persisted signed media URL",
+                    "No auto-publish before destination validation",
+                ],
+            },
+            ai_generated_flag=True,
+            review_status="approved",
+            status="approved",
+        )
+        self.db.add(package)
+        try:
+            self.db.flush()
+            self.db.add(
+                models.Review(
+                    entity_type="publishing_package",
+                    entity_id=package.id,
+                    reviewer_name=profile.display_name or profile.email,
+                    status="approved",
+                    comment="Human reviewed the ready cloud video artifact for publishing.",
+                )
+            )
+            self.db.commit()
+            self.db.refresh(package)
+            return package
+        except IntegrityError:
+            self.db.rollback()
+            winner = self._artifact_package(
+                organization_id=organization_id,
+                media_artifact_id=artifact.id,
+                platform=normalized_platform,
+            )
+            if winner is not None and winner.status == "approved" and winner.review_status == "approved":
+                return winner
+            raise
+
     def approve(
         self,
         package: models.PublishingPackage,
@@ -64,6 +214,10 @@ class PublishingPackageService:
         manual_override: bool = False,
         notes: str | None = None,
     ) -> models.PublishingPackage:
+        if package.media_artifact_id is not None:
+            raise PublishingAuthorizationError(
+                "Media artifact packages require organization-scoped human review approval."
+            )
         self._validate_video_file(package.video_file_path)
         quality_status = self._review_status(package.video_job)
         if quality_status != "approved" and not manual_override:
@@ -115,6 +269,98 @@ class PublishingPackageService:
         if video_job.script_variant and video_job.script_variant.script_job:
             return video_job.script_variant.script_job.product
         raise PublishingError("Cannot resolve product for video job.")
+
+    def _require_artifact_approver(
+        self,
+        *,
+        organization_id: int,
+        actor_user_profile_id: int,
+    ) -> tuple[models.Membership, models.UserProfile]:
+        organization = self.db.get(models.Organization, organization_id)
+        profile = self.db.get(models.UserProfile, actor_user_profile_id)
+        membership = self.db.scalar(
+            select(models.Membership).where(
+                models.Membership.organization_id == int(organization_id),
+                models.Membership.user_profile_id == int(actor_user_profile_id),
+                models.Membership.status == "active",
+            )
+        )
+        if (
+            organization is None
+            or organization.status != "active"
+            or profile is None
+            or not profile.is_active
+            or profile.status != "active"
+            or membership is None
+            or str(membership.role).casefold() not in self.ARTIFACT_APPROVER_ROLES
+        ):
+            raise PublishingAuthorizationError(
+                "Owner, admin, or reviewer membership is required for media approval."
+            )
+        return membership, profile
+
+    def _validate_media_artifact_source(
+        self,
+        artifact: models.MediaArtifact,
+        *,
+        organization_id: int,
+    ) -> tuple[models.Product, models.VideoJob | None]:
+        if (
+            artifact.organization_id != int(organization_id)
+            or artifact.status != "ready"
+            or artifact.archived_at is not None
+            or artifact.delete_requested_at is not None
+            or artifact.deleted_at is not None
+            or artifact.kind not in PUBLISHABLE_MEDIA_ARTIFACT_KINDS
+            or not str(artifact.mime_type or "").casefold().startswith("video/")
+            or int(artifact.size_bytes or 0) <= 0
+            or not re.fullmatch(r"[a-f0-9]{64}", str(artifact.sha256 or "").casefold())
+            or not artifact.object_key.startswith(
+                f"organizations/{int(organization_id):08d}/"
+            )
+        ):
+            raise PublishingSourceStateError(
+                "Only a ready, non-archived video artifact can be packaged."
+            )
+        if artifact.product_id is None:
+            raise PublishingSourceStateError("Publishing media must be linked to a product.")
+        product = self.db.get(models.Product, artifact.product_id)
+        if product is None or product.organization_id != int(organization_id):
+            raise PublishingSourceStateError(
+                "Media artifact product ownership does not match the organization."
+            )
+        video_job = self.db.get(models.VideoJob, artifact.video_job_id) if artifact.video_job_id else None
+        if artifact.video_job_id and (
+            video_job is None
+            or video_job.organization_id != int(organization_id)
+            or video_job.product_id != product.id
+        ):
+            raise PublishingSourceStateError(
+                "Media artifact video lineage does not match its organization and product."
+            )
+        return product, video_job
+
+    def _artifact_package(
+        self,
+        *,
+        organization_id: int,
+        media_artifact_id: int,
+        platform: str,
+    ) -> models.PublishingPackage | None:
+        return self.db.scalar(
+            select(models.PublishingPackage).where(
+                models.PublishingPackage.organization_id == int(organization_id),
+                models.PublishingPackage.media_artifact_id == int(media_artifact_id),
+                models.PublishingPackage.target_platform == platform,
+            )
+        )
+
+    @staticmethod
+    def _platform(value: str) -> str:
+        platform = " ".join(str(value or "").strip().casefold().split())
+        if not platform or len(platform) > 120 or any(ord(character) < 32 for character in platform):
+            raise PublishingSourceStateError("A valid target platform is required.")
+        return platform
 
     def _generation_variant_for_video(self, video_job_id: int) -> models.VideoGenerationVariant | None:
         return self.db.scalar(

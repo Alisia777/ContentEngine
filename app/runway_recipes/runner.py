@@ -6,7 +6,7 @@ import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -14,6 +14,9 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.intelligence.errors import ProviderConfigurationError
+from app.media_storage.backend import StorageBackend
+from app.media_storage.product_ugc_sync import ProductUGCMediaArtifactSyncService
+from app.media_storage.recipe_inputs import ProductUGCRecipeInputMaterializer
 from app.product_ugc_queue import (
     ProductUGCGenerationQueueService,
     ProductUGCQueueConflict,
@@ -37,15 +40,22 @@ class ProductUGCRecipeRunner:
         *,
         provider_factory: Callable[[], RunwayRecipeProvider] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        storage_backends: Mapping[str, StorageBackend] | None = None,
     ):
         self.db = db
         self.settings = get_settings()
         self.provider_factory = provider_factory or RunwayRecipeProvider
         self.sleep = sleep
+        self.storage_backends = (
+            dict(storage_backends) if storage_backends is not None else None
+        )
 
     def validate_preflight(self, draft_id: int, *, real_run: bool = False):
         self._preflight(real_run=real_run)
-        service = ProductUGCRecipeService(self.db)
+        service = ProductUGCRecipeService(
+            self.db,
+            storage_backends=self.storage_backends,
+        )
         draft = service.get(draft_id)
         service.provider_request(draft)
         return service.output(draft)
@@ -76,7 +86,10 @@ class ProductUGCRecipeRunner:
         errors: list[str] = []
         try:
             self._preflight(real_run=real_run)
-            service = ProductUGCRecipeService(self.db)
+            service = ProductUGCRecipeService(
+                self.db,
+                storage_backends=self.storage_backends,
+            )
             draft = service.get(draft_id)
             durable_job = self.db.scalar(
                 select(models.ProductUGCGenerationJob).where(
@@ -162,8 +175,10 @@ class ProductUGCRecipeRunner:
         draft = None
         errors: list[str] = []
         try:
-            self._preflight(real_run=real_run)
-            service = ProductUGCRecipeService(self.db)
+            service = ProductUGCRecipeService(
+                self.db,
+                storage_backends=self.storage_backends,
+            )
             draft = service.get(draft_id)
             provider = self.provider_factory()
             target_dir = self.settings.media_root / "provider" / "runway_product_ugc" / f"draft_{draft.id}"
@@ -176,23 +191,43 @@ class ProductUGCRecipeRunner:
                 draft.status = "provider_submitted"
                 self.db.commit()
             else:
-                request = service.provider_request(draft)
-                queue.begin_provider_submission(
-                    job.id,
-                    lease_token=lease_token,
-                    lease_seconds=queue_lease_seconds,
+                # Spend configuration gates only a new provider POST. Once a
+                # provider task id is durable, disabling new spend must not
+                # prevent polling/downloading an already-paid result.
+                self._preflight(real_run=real_run)
+                materializer = ProductUGCRecipeInputMaterializer(
+                    self.db,
+                    backends=self.storage_backends,
                 )
-                # The spend guard above is committed before this network call.
-                # Any exception before the task id is durably recorded becomes
-                # quarantine, because the provider may still have accepted it.
-                task = provider.create_product_ugc(request)
-                job = queue.record_provider_submission(
-                    job.id,
-                    lease_token=lease_token,
-                    provider_task_id=task.provider_job_id,
-                    provider_status=task.status,
-                    lease_seconds=queue_lease_seconds,
-                )
+                with materializer.materialize(
+                    draft,
+                    organization_id=job.organization_id,
+                    generation_job_id=job.id,
+                ) as inputs:
+                    if inputs.character_path is None and inputs.product_path is None:
+                        request = service.provider_request(draft)
+                    else:
+                        request = service.provider_request(
+                            draft,
+                            materialized_character_path=inputs.character_path,
+                            materialized_product_path=inputs.product_path,
+                        )
+                    queue.begin_provider_submission(
+                        job.id,
+                        lease_token=lease_token,
+                        lease_seconds=queue_lease_seconds,
+                    )
+                    # The spend guard above is committed before this network call.
+                    # Any exception before the task id is durably recorded becomes
+                    # quarantine, because the provider may still have accepted it.
+                    task = provider.create_product_ugc(request)
+                    job = queue.record_provider_submission(
+                        job.id,
+                        lease_token=lease_token,
+                        provider_task_id=task.provider_job_id,
+                        provider_status=task.status,
+                        lease_seconds=queue_lease_seconds,
+                    )
                 draft = service.get(draft_id)
 
             self._poll(
@@ -219,6 +254,24 @@ class ProductUGCRecipeRunner:
             draft.publishing_readiness = "blocked"
             draft.generation_report_path = self._write_report(draft, errors=errors)
             self.db.commit()
+            # The queue is not terminally successful until its output and
+            # report are durable in shared tenant storage.  A storage failure
+            # therefore follows the ordinary leased retry path and cannot
+            # leave a "succeeded" job whose web process cannot read the file.
+            media_sync = ProductUGCMediaArtifactSyncService(
+                self.db,
+                backends=self.storage_backends,
+            )
+            artifacts = media_sync.sync_generation_job(job.id)
+            # Stage the creator-task projection in the same transaction that
+            # commits terminal queue success. A lost lease cannot expose a
+            # review task for a job that did not become succeeded.
+            media_sync.mark_creator_work_ready(
+                job.id,
+                artifacts,
+                require_succeeded=False,
+                commit=False,
+            )
             queue.mark_succeeded(job.id, lease_token=lease_token)
         except Exception as exc:
             self.db.rollback()

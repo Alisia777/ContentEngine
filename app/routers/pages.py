@@ -171,6 +171,7 @@ def tracking_redirect(slug: str, request: Request, db: Session = Depends(get_db)
 def products_page(request: Request, db: Session = Depends(get_db)):
     products = db.scalars(select(models.Product).order_by(models.Product.created_at.desc())).all()
     return templates.TemplateResponse(
+        request,
         "products.html",
         {"request": request, "page_title": "Products", "products": products},
     )
@@ -213,6 +214,7 @@ def product_detail_page(product_id: int, request: Request, db: Session = Depends
     if not product:
         return redirect("/products")
     return templates.TemplateResponse(
+        request,
         "product_detail.html",
         {"request": request, "page_title": product.title, "product": product},
     )
@@ -222,6 +224,7 @@ def product_detail_page(product_id: int, request: Request, db: Session = Depends
 def scripts_page(request: Request, db: Session = Depends(get_db)):
     script_jobs = db.scalars(select(models.ScriptJob).order_by(models.ScriptJob.created_at.desc())).all()
     return templates.TemplateResponse(
+        request,
         "scripts.html",
         {"request": request, "page_title": "Scripts", "script_jobs": script_jobs},
     )
@@ -234,6 +237,7 @@ def script_form_page(request: Request, db: Session = Depends(get_db)):
     brand_guides = db.scalars(select(models.BrandGuide).order_by(models.BrandGuide.brand)).all()
     creative_templates = db.scalars(select(models.CreativeTemplate).order_by(models.CreativeTemplate.name)).all()
     return templates.TemplateResponse(
+        request,
         "script_form.html",
         {
             "request": request,
@@ -263,6 +267,7 @@ def script_detail_page(script_job_id: int, request: Request, db: Session = Depen
     if not script_job:
         return redirect("/scripts")
     return templates.TemplateResponse(
+        request,
         "script_detail.html",
         {"request": request, "page_title": "Script Review", "script_job": script_job},
     )
@@ -294,6 +299,7 @@ def reject_script_variant_ui(
 def videos_page(request: Request, db: Session = Depends(get_db)):
     video_jobs = db.scalars(select(models.VideoJob).order_by(models.VideoJob.created_at.desc())).all()
     return templates.TemplateResponse(
+        request,
         "videos.html",
         {"request": request, "page_title": "Videos", "video_jobs": video_jobs},
     )
@@ -308,6 +314,7 @@ def video_form_page(request: Request, db: Session = Depends(get_db)):
         .order_by(models.ScriptVariant.created_at.desc())
     ).all()
     return templates.TemplateResponse(
+        request,
         "video_form.html",
         {
             "request": request,
@@ -334,6 +341,7 @@ def video_detail_page(video_job_id: int, request: Request, db: Session = Depends
     if not video_job:
         return redirect("/videos")
     return templates.TemplateResponse(
+        request,
         "video_detail.html",
         {"request": request, "page_title": "Video Review", "video_job": video_job},
     )
@@ -367,6 +375,7 @@ def reject_video_ui(video_job_id: int, reason: str = Form("Needs revision"), db:
 def generator_page(request: Request, db: Session = Depends(get_db)):
     products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
     return templates.TemplateResponse(
+        request,
         "generator.html",
         {
             "request": request,
@@ -422,6 +431,7 @@ def run_generator_page(
     except IntelligenceError as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "generator.html",
         {
             "request": request,
@@ -453,6 +463,7 @@ async def import_generator_csv_ui(
 @router.get("/working-video-generator", response_class=HTMLResponse)
 def working_video_generator_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "working_video_generator.html",
         {
             "request": request,
@@ -499,6 +510,7 @@ def run_working_video_generator_page(
     except (DemandError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "working_video_generator.html",
         {
             "request": request,
@@ -547,6 +559,7 @@ def one_video_acceptance_page(
 ):
     selected_plan = db.get(models.OneVideoRenderPlan, plan_id) if plan_id else BombbarOneVideoRenderPlanner(db).latest()
     return templates.TemplateResponse(
+        request,
         "one_video_acceptance.html",
         {
             "request": request,
@@ -611,6 +624,7 @@ def run_one_video_acceptance_page(
     except (OneVideoAcceptanceError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "one_video_acceptance.html",
         {
             "request": request,
@@ -649,6 +663,7 @@ def one_video_acceptance_context(db: Session, selected_plan_id: int | None) -> d
 @router.get("/ugc-video-strategy", response_class=HTMLResponse)
 def ugc_video_strategy_page(request: Request, product_id: int | None = None, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "ugc_video_strategy.html",
         {
             "request": request,
@@ -700,6 +715,7 @@ def run_ugc_video_strategy_page(
     except (BloggerBriefError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "ugc_video_strategy.html",
         {
             "request": request,
@@ -773,6 +789,7 @@ def latest_ugc_script(db: Session, product_id: int) -> models.UGCAdScript | None
 @router.get("/product-strategy", response_class=HTMLResponse)
 def product_strategy_page(request: Request, product_id: int | None = None, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "product_strategy.html",
         {
             "request": request,
@@ -814,6 +831,7 @@ def run_product_strategy_page(
     except (ProductStrategyDataError, CreativeQualityDataError, BloggerBriefError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "product_strategy.html",
         {
             "request": request,
@@ -868,6 +886,7 @@ def product_strategy_result(
 @router.get("/creative-quality", response_class=HTMLResponse)
 def creative_quality_page(request: Request, product_id: int | None = None, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "creative_quality.html",
         {
             "request": request,
@@ -935,6 +954,7 @@ def run_creative_quality_page(
     except (CreativeQualityDataError, BloggerBriefError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "creative_quality.html",
         {
             "request": request,
@@ -1004,6 +1024,7 @@ def creative_workbench_page(
         session = latest_workbench_session(db, product_id)
         result = WorkbenchService(db).as_output(session).model_dump(mode="json") if session else None
     return templates.TemplateResponse(
+        request,
         "creative_workbench.html",
         {
             "request": request,
@@ -1092,6 +1113,7 @@ def run_creative_workbench_page(
     except (CreativeWorkbenchError, CreativeQualityDataError, BloggerBriefError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "creative_workbench.html",
         {
             "request": request,
@@ -1150,6 +1172,7 @@ def ai_brief_studio_page(
         brief = AIProductionBriefBuilder(db).latest_for_product(product_id)
         result = ai_brief_studio_result(db, brief.id) if brief else None
     return templates.TemplateResponse(
+        request,
         "ai_brief_studio.html",
         {
             "request": request,
@@ -1195,6 +1218,7 @@ def run_ai_brief_studio_page(
     except (AIBriefContractError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "ai_brief_studio.html",
         {
             "request": request,
@@ -1239,6 +1263,7 @@ def output_acceptance_page(
 ):
     result = output_acceptance_result(db, video_job_id) if video_job_id else None
     return templates.TemplateResponse(
+        request,
         "output_acceptance.html",
         {
             "request": request,
@@ -1299,6 +1324,7 @@ def run_output_acceptance_page(
     except (OutputAcceptanceError, VideoGeneratorError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "output_acceptance.html",
         {
             "request": request,
@@ -1366,6 +1392,7 @@ def latest_rewrite_request(db: Session, ugc_script_id: int) -> models.CreativeRe
 @router.get("/content-factory", response_class=HTMLResponse)
 def content_factory_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "content_factory.html",
         {
             "request": request,
@@ -1401,6 +1428,7 @@ def run_content_factory_page(
     except (ContentFactoryError, DemandError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "content_factory.html",
         {
             "request": request,
@@ -1446,6 +1474,7 @@ def content_factory_context(db: Session) -> dict:
 @router.get("/video-generator", response_class=HTMLResponse)
 def video_generator_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "video_generator.html",
         {
             "request": request,
@@ -1600,6 +1629,7 @@ def run_video_generator_page(
     except (AssetKitError, CreativeSpecError, VariantError, VideoGeneratorError, IntelligenceError, ValueError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "video_generator.html",
         {
             "request": request,
@@ -1657,6 +1687,7 @@ def publishing_page(request: Request, db: Session = Depends(get_db)):
         timespec="minutes"
     )
     return templates.TemplateResponse(
+        request,
         "publishing.html",
         {
             "request": request,
@@ -1836,6 +1867,7 @@ def safe_publishing_task_page(task_id: int, request: Request, db: Session = Depe
     if not tracking_link:
         warnings.append("tracking_link_missing")
     return templates.TemplateResponse(
+        request,
         "publishing_task.html",
         {
             "request": request,
@@ -1882,6 +1914,7 @@ def engine_page(request: Request, db: Session = Depends(get_db)):
     products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
     accounts = db.scalars(select(models.PublishingAccount).order_by(models.PublishingAccount.platform)).all()
     return templates.TemplateResponse(
+        request,
         "engine.html",
         {
             "request": request,
@@ -1900,6 +1933,7 @@ def engine_audit_page(request: Request, db: Session = Depends(get_db)):
     if not report:
         report = service.run()
     return templates.TemplateResponse(
+        request,
         "engine_audit.html",
         {
             "request": request,
@@ -1930,6 +1964,7 @@ def run_engine_page(
     products = db.scalars(select(models.Product).order_by(models.Product.title)).all()
     accounts = db.scalars(select(models.PublishingAccount).order_by(models.PublishingAccount.platform)).all()
     return templates.TemplateResponse(
+        request,
         "engine.html",
         {
             "request": request,
@@ -1947,6 +1982,7 @@ def run_engine_page(
 def publishing_packages_page(request: Request, db: Session = Depends(get_db)):
     packages = db.scalars(select(models.PublishingPackage).order_by(models.PublishingPackage.created_at.desc())).all()
     return templates.TemplateResponse(
+        request,
         "publishing_packages.html",
         {"request": request, "page_title": "Publishing Packages", "packages": packages},
     )
@@ -1961,6 +1997,7 @@ def publishing_package_form_page(request: Request, db: Session = Depends(get_db)
         .order_by(models.VideoJob.created_at.desc())
     ).all()
     return templates.TemplateResponse(
+        request,
         "publishing_package_form.html",
         {
             "request": request,
@@ -1991,6 +2028,7 @@ def publishing_package_detail_page(package_id: int, request: Request, db: Sessio
         timespec="minutes"
     )
     return templates.TemplateResponse(
+        request,
         "publishing_package_detail.html",
         {
             "request": request,
@@ -2053,6 +2091,7 @@ def schedule_publishing_job_ui(
 def publishing_calendar_page(request: Request, db: Session = Depends(get_db)):
     jobs = db.scalars(select(models.PublishingJob).order_by(models.PublishingJob.scheduled_at)).all()
     return templates.TemplateResponse(
+        request,
         "publishing_calendar.html",
         {"request": request, "page_title": "Publishing Calendar", "jobs": jobs},
     )
@@ -2064,6 +2103,7 @@ def publishing_job_detail_page(job_id: int, request: Request, db: Session = Depe
     if not job:
         return redirect("/publishing-calendar")
     return templates.TemplateResponse(
+        request,
         "publishing_job_detail.html",
         {"request": request, "page_title": "Publishing Job", "job": job},
     )
@@ -2091,6 +2131,7 @@ def manual_upload_page(job_id: int, request: Request, db: Session = Depends(get_
     if not job:
         return redirect("/publishing-calendar")
     return templates.TemplateResponse(
+        request,
         "manual_upload.html",
         {"request": request, "page_title": "Manual Upload", "job": job},
     )
@@ -2113,6 +2154,7 @@ def complete_manual_upload(
 def analytics_page(request: Request, db: Session = Depends(get_db)):
     analytics = db.scalars(select(models.PublishAnalytics).order_by(models.PublishAnalytics.collected_at.desc())).all()
     return templates.TemplateResponse(
+        request,
         "analytics.html",
         {"request": request, "page_title": "Analytics", "analytics": analytics},
     )
@@ -2123,6 +2165,7 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     brand_guides = db.scalars(select(models.BrandGuide).order_by(models.BrandGuide.brand)).all()
     templates_ = db.scalars(select(models.CreativeTemplate).order_by(models.CreativeTemplate.name)).all()
     return templates.TemplateResponse(
+        request,
         "settings.html",
         {
             "request": request,
@@ -2137,6 +2180,7 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
 def accounts_page(request: Request, db: Session = Depends(get_db)):
     accounts = db.scalars(select(models.PublishingAccount).order_by(models.PublishingAccount.platform)).all()
     return templates.TemplateResponse(
+        request,
         "accounts.html",
         {"request": request, "page_title": "Publishing Accounts", "accounts": accounts},
     )
@@ -2146,6 +2190,7 @@ def accounts_page(request: Request, db: Session = Depends(get_db)):
 def warmup_plans_page(request: Request, db: Session = Depends(get_db)):
     plans = db.scalars(select(models.WarmupPlan).order_by(models.WarmupPlan.name)).all()
     return templates.TemplateResponse(
+        request,
         "warmup_plans.html",
         {"request": request, "page_title": "Warm-up Plans", "plans": plans},
     )
@@ -2182,6 +2227,7 @@ def campaign_autopilot_page(request: Request, campaign_id: int | None = None, db
         except CampaignAutopilotDataError:
             state = None
     return templates.TemplateResponse(
+        request,
         "campaign_autopilot.html",
         {
             "request": request,
@@ -2248,6 +2294,7 @@ def bombar_launch_page(request: Request, campaign_id: int | None = None, db: Ses
                     .order_by(models.PublishingTask.id.desc())
                 ).all()
     return templates.TemplateResponse(
+        request,
         "bombar_launch.html",
         {
             "request": request,
@@ -2279,6 +2326,7 @@ def bombar_production_dry_run_page(request: Request, campaign_id: int | None = N
         except BombarProductionError:
             report = None
     return templates.TemplateResponse(
+        request,
         "bombar_production_dry_run.html",
         {
             "request": request,
@@ -2319,6 +2367,7 @@ def launch_operations_page(request: Request, campaign_id: int | None = None, db:
         except LaunchOperationsError:
             report = None
     return templates.TemplateResponse(
+        request,
         "launch_operations.html",
         {
             "request": request,
@@ -2358,6 +2407,7 @@ def destination_setup_page(request: Request, campaign_id: int | None = None, db:
         except DestinationSetupError as exc:
             error = str(exc)
     return templates.TemplateResponse(
+        request,
         "destination_setup.html",
         {
             "request": request,
@@ -2474,6 +2524,7 @@ def destination_crm_page(request: Request, campaign_id: int | None = None, db: S
     except DestinationCRMError as exc:
         error = str(exc)
     return templates.TemplateResponse(
+        request,
         "destination_crm.html",
         {
             "request": request,
@@ -2533,6 +2584,7 @@ def destination_connectors_page(
     metrics = db.scalars(select(models.DestinationPostMetric).order_by(models.DestinationPostMetric.id.desc()).limit(20)).all()
     summary = metrics_service.campaign_summary(selected_campaign.id) if selected_campaign else None
     return templates.TemplateResponse(
+        request,
         "destination_connectors.html",
         {
             "request": request,
@@ -2652,6 +2704,7 @@ def destination_control_tower_page(
         except DestinationControlTowerError as exc:
             error = str(exc)
     return templates.TemplateResponse(
+        request,
         "destination_control_tower.html",
         {
             "request": request,
@@ -2711,6 +2764,7 @@ def metrics_intake_page(
     unmatched = FunnelService(db).unmatched_rows(selected_campaign_id)
     platform_matrix = PlatformMetricsMatrix.all_configs()
     return templates.TemplateResponse(
+        request,
         "metrics_intake.html",
         {
             "request": request,
@@ -2848,6 +2902,7 @@ def participant_portal_page(request: Request, participant_id: int | None = None,
         except ParticipantPortalError as exc:
             error = str(exc)
     return templates.TemplateResponse(
+        request,
         "participant_portal.html",
         {
             "request": request,
@@ -3029,6 +3084,7 @@ def training_academy_page(
     if selected_participant:
         progress = ProgressService(db).progress(selected_participant.id).model_dump(mode="json")
     return templates.TemplateResponse(
+        request,
         "training_academy.html",
         {
             "request": request,
@@ -3139,6 +3195,7 @@ def campaign_execution_page(request: Request, campaign_id: int | None = None, db
         except CampaignExecutionDataError:
             snapshot = None
     return templates.TemplateResponse(
+        request,
         "campaign_execution.html",
         {
             "request": request,
@@ -3209,6 +3266,7 @@ def campaign_batch_page(
     elif latest_runs:
         report = BatchReporter(db).build_report(latest_runs[0].id)
     return templates.TemplateResponse(
+        request,
         "campaign_batch.html",
         {
             "request": request,
@@ -3274,6 +3332,7 @@ def campaign_performance_page(
         except CampaignPerformanceDataError:
             summary = None
     return templates.TemplateResponse(
+        request,
         "campaign_performance.html",
         {
             "request": request,
@@ -3346,6 +3405,7 @@ def factory_os_page(request: Request, campaign_id: int | None = None, db: Sessio
             report = None
             runbook = None
     return templates.TemplateResponse(
+        request,
         "factory_os.html",
         {
             "request": request,

@@ -42,6 +42,23 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def stale_lease_reconciliation_query(now: datetime):
+    """Lock expired leases so concurrent reconcilers cannot erase a fresh lease."""
+
+    return (
+        select(models.ProductUGCGenerationJob)
+        .where(
+            models.ProductUGCGenerationJob.status.in_(LEASED_STATUSES),
+            or_(
+                models.ProductUGCGenerationJob.lease_expires_at.is_(None),
+                models.ProductUGCGenerationJob.lease_expires_at <= now,
+            ),
+        )
+        .order_by(models.ProductUGCGenerationJob.id)
+        .with_for_update(skip_locked=True)
+    )
+
+
 class ProductUGCGenerationQueueService:
     """Transactional queue with leases and an at-most-once provider spend guard."""
 
@@ -1111,17 +1128,11 @@ class ProductUGCGenerationQueueService:
         cutoff = now - timedelta(seconds=max(0, stale_after_seconds))
         released = terminal = quarantined = recovered = 0
 
-        stale_jobs = list(
-            self.db.scalars(
-                select(models.ProductUGCGenerationJob).where(
-                    models.ProductUGCGenerationJob.status.in_(LEASED_STATUSES),
-                    or_(
-                        models.ProductUGCGenerationJob.lease_expires_at.is_(None),
-                        models.ProductUGCGenerationJob.lease_expires_at <= now,
-                    ),
-                )
-            )
-        )
+        # PostgreSQL compiles this as FOR UPDATE SKIP LOCKED. A leasing worker
+        # or another reconciler therefore cannot change the row between the
+        # stale predicate and the state transition committed below. SQLite
+        # ignores the locking clause in isolated development/tests.
+        stale_jobs = list(self.db.scalars(stale_lease_reconciliation_query(now)))
         for job in stale_jobs:
             draft = self.db.get(models.ProductUGCRecipeDraft, job.draft_id)
             if job.spend_guarded_at and not job.provider_task_id:

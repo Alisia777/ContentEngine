@@ -48,6 +48,11 @@ class ManualUploadProvider:
     def payload(self, task: models.PublishingTask) -> dict:
         package = task.publishing_package
         destination = task.destination
+        artifact = (
+            self.db.get(models.MediaArtifact, package.media_artifact_id)
+            if package.media_artifact_id is not None
+            else None
+        )
         tracking_link = self.db.scalar(
             select(models.TrackingLink)
             .where(models.TrackingLink.publishing_task_id == task.id)
@@ -60,6 +65,16 @@ class ManualUploadProvider:
             warnings.append("use_tracking_link_in_post_not_direct_product_url")
         return {
             "video_file_path": package.video_file_path,
+            "media_artifact": (
+                {
+                    "public_id": artifact.public_id,
+                    "download_path": f"/media-library/{artifact.public_id}/access?download=true",
+                }
+                if artifact is not None
+                and package.organization_id == artifact.organization_id
+                and package.product_id == artifact.product_id
+                else None
+            ),
             "title": package.title,
             "description": package.description,
             "hashtags": package.hashtags_json,

@@ -9,6 +9,7 @@ os.environ["QVF_AUTH_REQUIRED"] = "false"
 
 import pytest
 from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -25,6 +26,7 @@ from app.product_ugc_queue import (
     ProductUGCQueueOwnershipError,
     ProductUGCSubmissionAmbiguous,
 )
+from app.product_ugc_queue.service import stale_lease_reconciliation_query
 from app.runway_recipes import ProductUGCRecipeRunner, RunwayRecipeError
 
 
@@ -43,6 +45,17 @@ QueueTestSession = sessionmaker(
 
 def naive_utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def test_stale_reconciliation_locks_and_skips_rows_owned_by_another_reconciler():
+    compiled = str(
+        stale_lease_reconciliation_query(naive_utcnow()).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).upper()
+
+    assert "FOR UPDATE SKIP LOCKED" in compiled
 
 
 @pytest.fixture(autouse=True)

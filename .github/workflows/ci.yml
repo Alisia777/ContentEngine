@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      QVF_DATABASE_URL: sqlite:///./ci-qharisma.db
+      QVF_MEDIA_ROOT: ci-media
+      QVF_AUTH_REQUIRED: "false"
+      QVF_PUBLIC_PILOT_MODE: "true"
+      QVF_PUBLIC_PILOT_INVITE_ONLY: "false"
+      QVF_ALLOW_REAL_SPEND: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Validate deployment YAML syntax
+        run: python -c "import pathlib, yaml; [yaml.safe_load(path.read_text(encoding='utf-8')) for path in [pathlib.Path('render.yaml'), *pathlib.Path('.github/workflows').glob('*.yml')]]"
+
+      - name: Compile application
+        run: python -m compileall -q app scripts
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build production image
+        run: docker build --tag contentengine:${{ github.sha }} .
+
+  postgres-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: contentengine
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d contentengine"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      QVF_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/contentengine
+      QVF_MEDIA_ROOT: ci-media
+      QVF_RUNTIME_PROFILE: test
+      QVF_AUTH_REQUIRED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Apply historical first cloud revision
+        run: python -m alembic upgrade 24aaca5b4358
+
+      - name: Simulate database stamped before forward integrity revision
+        run: |
+          python - <<'PY'
+          from app.database import engine
+          from app.postgres_integrity import drop_postgresql_integrity_guards
+
+          with engine.begin() as connection:
+              drop_postgresql_integrity_guards(connection)
+          print("Historical PostgreSQL guard state prepared")
+          PY
+
+      - name: Apply production migrations from historical revision
+        run: python scripts/predeploy.py
+
+      - name: Verify PostgreSQL integrity guards
+        run: python scripts/verify_postgres_integrity.py
+
+      - name: Verify models match the migration head
+        run: python -m alembic check
+
+      - name: Verify migration is current
+        run: |
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.runtime.migration import MigrationContext
+          from alembic.script import ScriptDirectory
+          from app.database import engine
+
+          config = Config("alembic.ini")
+          expected = set(ScriptDirectory.from_config(config).get_heads())
+          with engine.connect() as connection:
+              actual = set(MigrationContext.configure(connection).get_current_heads())
+          if actual != expected:
+              raise SystemExit(f"database heads {sorted(actual)} != migration heads {sorted(expected)}")
+          print(f"PostgreSQL migration head verified: {sorted(actual)}")
+          PY

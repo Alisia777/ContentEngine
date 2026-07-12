@@ -1,0 +1,68 @@
+{% extends "public_pilot_base.html" %}
+{% set active_page = "team" %}
+{% block content %}
+<section class="public-dashboard">
+  {% include "_public_product_sidebar.html" %}
+  <div class="public-main">
+    <header class="public-topline altea-reveal">
+      <div><p class="public-eyebrow">Доступ к рабочему пространству</p><h1>Команда креаторов</h1><p>Приглашайте участников по email, назначайте минимально необходимую роль и временно приостанавливайте доступ без удаления профиля или результатов работы.</p></div>
+      <span class="public-status public-status--ready">{{ roster_total }} участников</span>
+    </header>
+
+    {% if notice %}<div class="public-guidance"><strong>Готово</strong><p>{% if notice == 'invited' %}Приглашение отправлено, участник добавлен в организацию.{% elif notice == 'added' %}Существующий пользователь добавлен без повторного приглашения.{% elif notice == 'suspended' %}Доступ участника приостановлен.{% else %}Доступ участника восстановлен.{% endif %}</p></div>{% endif %}
+    {% if error %}<div class="public-guidance public-guidance--warning"><strong>Действие не выполнено</strong><p>{% if error == 'permission_denied' %}Только владелец или администратор с достаточными полномочиями может выполнить это действие.{% elif error == 'provider_unavailable' %}Сервис приглашений временно недоступен. Секреты и ответ провайдера не сохранены.{% elif error == 'state_conflict' %}Проверьте состояние участника: нельзя менять себя, последнего владельца или чужую организацию.{% elif error == 'confirmation_required' %}Подтвердите изменение доступа участника.{% else %}Проверьте email, роль, имя и HTTPS-ссылку возврата.{% endif %}</p></div>{% endif %}
+
+    <article class="altea-card altea-reveal">
+      <p class="public-eyebrow">Новый участник</p><h2>Пригласить или добавить существующего</h2>
+      <form class="public-inline-form" method="post" action="/team/invite">
+        <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+        <label>Email<input name="email" type="email" maxlength="254" required autocomplete="email" placeholder="creator@example.com"></label>
+        <label>Имя<input name="display_name" maxlength="180" autocomplete="name" placeholder="Имя креатора"></label>
+        <label>Роль<select name="role" required>{% for item in roles %}<option value="{{ item }}" {% if item == 'producer' %}selected{% endif %}>{{ role_labels.get(item, item) }}</option>{% endfor %}</select></label>
+        <label class="public-form-wide">Куда открыть портал после приглашения<input name="redirect_to" type="url" value="{{ default_redirect_to }}" placeholder="Настраивается владельцем облачного портала" {{ 'readonly' if default_redirect_to else '' }}></label>
+        <button class="altea-glow-button" type="submit">Добавить в команду</button>
+      </form>
+      <p class="public-safety-note">Для нового автора обычно достаточно роли «Продюсер». Если профиль уже существует в ContentEngine или Supabase Auth, повторное письмо не отправляется.</p>
+    </article>
+
+    <article class="altea-card altea-reveal">
+      <form class="public-inline-form" method="get" action="/team">
+        <label class="public-form-wide">Найти по имени, email, роли или ID<input name="q" maxlength="120" value="{{ search_query }}" placeholder="Например: producer или creator@example.com"></label>
+        <button class="public-link-button" type="submit">Найти</button>
+        {% if search_query %}<a class="public-link-button" href="/team">Сбросить</a>{% endif %}
+      </form>
+      <p class="public-safety-note">Показано {{ roster | length }} из {{ roster_total }} участников. Поиск не меняет доступ и данные команды.</p>
+    </article>
+
+    <div class="public-listing-cards altea-reveal">
+      {% for member in roster %}
+      <article>
+        <div><strong>{{ member.display_name or member.email }}</strong><small>{{ member.email }} · profile #{{ member.user_profile_id }}</small></div>
+        <span class="public-status public-status--{{ 'ready' if member.status == 'active' and member.profile_active else 'needs_attention' }}">{{ role_labels.get(member.role, member.role) }} · {{ 'активен' if member.status == 'active' else 'приостановлен' if member.status == 'suspended' else member.status }}</span>
+        {% if member.user_profile_id == user.profile.id %}
+        <p class="public-safety-note">Это ваш текущий доступ; изменять его из этой карточки нельзя.</p>
+        {% elif user.role == 'admin' and member.role in ['owner', 'admin'] %}
+        <p class="public-safety-note">Администратор не может менять доступ владельцев и других администраторов.</p>
+        {% elif member.status == 'active' %}
+        <form method="post" action="/team/memberships/{{ member.membership_id }}/suspend">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label class="recipe-confirm"><input type="checkbox" name="confirm_action" value="true" required><span>Приостановить доступ только к этой организации</span></label>
+          <button class="public-link-button" type="submit">Приостановить</button>
+        </form>
+        {% elif member.status == 'suspended' %}
+        <form method="post" action="/team/memberships/{{ member.membership_id }}/reactivate">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label class="recipe-confirm"><input type="checkbox" name="confirm_action" value="true" required><span>Восстановить эту роль в организации</span></label>
+          <button class="public-link-button" type="submit">Восстановить</button>
+        </form>
+        {% else %}
+        <p class="public-safety-note">Это состояние может изменить только администратор идентификации.</p>
+        {% endif %}
+      </article>
+      {% else %}
+      <article><strong>Участники не найдены</strong><small>Измените запрос или сбросьте фильтр.</small></article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

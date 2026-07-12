@@ -1,0 +1,94 @@
+{% extends "public_pilot_base.html" %}
+{% set active_page = "media-library" %}
+{% block content %}
+<section class="public-dashboard">
+  {% include "_public_product_sidebar.html" %}
+  <div class="public-main">
+    <header class="public-topline altea-reveal">
+      <div>
+        <p class="public-eyebrow">{{ 'Общее защищённое хранилище команды' if team_media_access else 'Ваше защищённое рабочее хранилище' }}</p>
+        <h1>Библиотека видео</h1>
+        {% if team_media_access %}
+        <p>Видео команды хранятся в облаке и не зависят от конкретного worker. Доступ к файлу выдаётся временно после проверки рабочего пространства.</p>
+        {% else %}
+        <p>Здесь видны только ваши файлы и материалы, явно прикреплённые к вашим задачам. Чужие ролики команды недоступны.</p>
+        {% endif %}
+      </div>
+      <span class="public-status public-status--ready">{{ artifact_views | length }} файлов</span>
+    </header>
+
+    {% if created_package %}
+    <article class="altea-card public-guidance altea-reveal">
+      <strong>Пакет #{{ created_package.id }} готов к размещению</strong>
+      <p>Видео прошло явную проверку человеком. Дальше выберите площадку и время в календаре размещения.</p>
+      <a class="public-link-button" href="/creator-operations?tab=placement">Открыть размещение</a>
+    </article>
+    {% endif %}
+
+    <form class="altea-card public-inline-form altea-reveal" method="get" action="/media-library">
+      <label>Товар
+        <select name="product_id"><option value="">Все товары</option>{% for product in products %}<option value="{{ product.id }}" {{ 'selected' if selected_product_id == product.id else '' }}>{{ product.sku }} · {{ product.title }}</option>{% endfor %}</select>
+      </label>
+      <label>Креатор
+        {% if team_media_access %}
+        <select name="creator_id"><option value="">Вся команда</option>{% for creator in creators %}<option value="{{ creator.id }}" {{ 'selected' if selected_creator_id == creator.id else '' }}>{{ creator.display_name or creator.email }}</option>{% endfor %}</select>
+        {% else %}
+        <span>Только мои и назначенные материалы</span>
+        {% endif %}
+      </label>
+      <label>Тип
+        <select name="kind"><option value="">Все файлы</option><option value="master_video" {{ 'selected' if selected_kind == 'master_video' else '' }}>Готовое видео</option><option value="generation_report" {{ 'selected' if selected_kind == 'generation_report' else '' }}>Отчёт генерации</option><option value="thumbnail" {{ 'selected' if selected_kind == 'thumbnail' else '' }}>Обложка</option></select>
+      </label>
+      <label class="recipe-confirm"><input type="checkbox" name="include_archived" value="true" {{ 'checked' if include_archived else '' }}><span>Показывать архив</span></label>
+      <button class="public-link-button" type="submit">Применить</button>
+    </form>
+
+    {% if artifact_views %}
+    <div class="recipe-video-grid altea-reveal">
+      {% for item in artifact_views %}
+      {% set artifact = item.artifact %}
+      <article class="recipe-video-item">
+        {% if item.is_video %}
+        <video controls preload="metadata" playsinline src="/media-library/{{ artifact.public_id }}/access"></video>
+        {% else %}
+        <div class="public-guidance"><strong>{{ artifact.kind | replace('_', ' ') }}</strong><p>{{ artifact.original_filename or artifact.public_id }}</p></div>
+        {% endif %}
+        <footer>
+          <strong>{{ item.product.sku if item.product else 'Без товара' }} · {{ artifact.kind | replace('_', ' ') }}</strong>
+          <small>{{ (item.creator.display_name or item.creator.email) if item.creator else 'Системный worker' }} · {{ item.size_mb }} MB · {{ artifact.status }}</small>
+          <a href="/media-library/{{ artifact.public_id }}/access?download=true">Скачать</a>
+        </footer>
+        {% if item.can_create_package %}
+        <form class="public-inline-form" method="post" action="/media-library/{{ artifact.public_id }}/publishing-package">
+          <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+          <label>Площадка
+            <select name="platform" required>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+              <option value="youtube">YouTube Shorts</option>
+              <option value="vk">VK Клипы</option>
+              <option value="telegram">Telegram</option>
+            </select>
+          </label>
+          <label class="recipe-confirm">
+            <input type="checkbox" name="confirm_human_review" value="true" required>
+            <span>Я полностью посмотрел ролик и подтверждаю товар, упаковку, смысл и CTA</span>
+          </label>
+          <button class="public-link-button" type="submit">Создать пакет размещения</button>
+        </form>
+        {% elif item.is_video and artifact.kind in ['master_video', 'provider_output'] and artifact.status == 'ready' and artifact.archived_at is none and artifact.product_id %}
+        <p class="public-form-hint">Подтвердить ролик для размещения может владелец, администратор или проверяющий.</p>
+        {% endif %}
+        <div class="recipe-output-facts">
+          <div><span>SHA-256</span><strong>{{ artifact.sha256[:12] }}…</strong></div>
+          <div><span>Хранить до</span><strong>{{ artifact.retention_until.strftime('%d.%m.%Y') if artifact.retention_until else 'по политике' }}</strong></div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <article class="altea-card public-guidance altea-reveal"><strong>Библиотека пока пуста</strong><p>После успешной генерации worker сохранит видео и технический отчёт сюда автоматически.</p><a class="altea-glow-button" href="/mvp-launch">Создать первое видео</a></article>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

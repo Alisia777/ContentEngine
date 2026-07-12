@@ -7,14 +7,19 @@ import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
 from app import models
 from app.assets import ProductAssetStorage
+from app.assets.errors import AssetKitDataError
 from app.config import get_settings
+from app.media_storage.backend import StorageBackend
+from app.media_storage.errors import MediaArtifactError, StorageError
+from app.media_storage.factory import get_storage_backends
+from app.media_storage.service import MediaArtifactService
 from app.product_asset_contract.asset_classifier import ProductAssetClassifier, normalize_key
 from app.product_asset_contract.reference_requirement_service import product_profile, product_variant_key
 from app.runway_recipes.errors import RunwayRecipeError
@@ -104,11 +109,19 @@ class ProductImageUpload:
 class ProductUGCRecipeService:
     """Builds the official Runway Product UGC request behind local quality gates."""
 
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        *,
+        storage_backends: Mapping[str, StorageBackend] | None = None,
+    ):
         self.db = db
         self.settings = get_settings()
         self.classifier = ProductAssetClassifier()
         self._gate_rows: list[tuple[str, str, str]] = []
+        self.storage_backends = (
+            dict(storage_backends) if storage_backends is not None else None
+        )
 
     def create_draft(
         self,
@@ -117,6 +130,7 @@ class ProductUGCRecipeService:
         variant_key: str | None,
         character_filename: str,
         character_content: bytes,
+        created_by_user_profile_id: int | None = None,
         existing_asset_ids: list[int] | None = None,
         primary_asset_id: int | None = None,
         product_uploads: list[ProductImageUpload] | None = None,
@@ -163,16 +177,20 @@ class ProductUGCRecipeService:
         if platform not in SUPPORTED_PRODUCT_UGC_PLATFORMS:
             raise RunwayRecipeError("Выберите поддерживаемую площадку Product UGC.")
         assets = self._selected_existing_assets(product.id, existing_asset_ids or [])
-        storage = ProductAssetStorage(self.db)
+        storage = ProductAssetStorage(self.db, backends=self.storage_backends)
         for upload in uploads:
-            asset = storage.upload_file(
-                product.id,
-                filename=upload.filename,
-                content=upload.content,
-                asset_type=upload.contract_type,
-                manual_label=f"Product UGC · {upload.slot}",
-                is_primary_reference=upload.primary,
-            )
+            try:
+                asset = storage.upload_file(
+                    product.id,
+                    filename=upload.filename,
+                    content=upload.content,
+                    asset_type=upload.contract_type,
+                    manual_label=f"Product UGC · {upload.slot}",
+                    is_primary_reference=upload.primary,
+                    created_by_user_profile_id=created_by_user_profile_id,
+                )
+            except AssetKitDataError as exc:
+                raise RunwayRecipeError(str(exc)) from exc
             asset = storage.update_asset(
                 asset.id,
                 review_status="approved" if exact_variant_confirmed else "pending",
@@ -213,7 +231,12 @@ class ProductUGCRecipeService:
         }
         rendered_product_info = (product_info or "").strip() or self.default_product_info(product, expected_variant)
         user_concept = self.build_user_concept(product, creative_inputs, expected_variant, language=language)
-        character_path = self._save_character_image(character_filename, character_content)
+        character_path, character_artifact = self._store_character_image(
+            product=product,
+            created_by_user_profile_id=created_by_user_profile_id,
+            filename=character_filename,
+            content=character_content,
+        )
 
         gates, blockers, warnings = self._preflight(
             product=product,
@@ -233,13 +256,17 @@ class ProductUGCRecipeService:
         status = "ready_for_paid_preflight" if not blockers else "blocked"
         draft = models.ProductUGCRecipeDraft(
             product_id=product.id,
+            created_by_user_profile_id=created_by_user_profile_id,
             sku=product.sku,
             variant_key=expected_variant,
             status=status,
             recipe_version=RECIPE_VERSION,
             platform=platform,
             language=language,
-            character_image_path=character_path.as_posix(),
+            character_image_path=character_path.as_posix() if character_path else None,
+            character_media_artifact_id=(
+                character_artifact.id if character_artifact else None
+            ),
             character_image_filename=ProductAssetStorage.safe_filename(character_filename),
             likeness_consent=likeness_consent,
             exact_variant_confirmed=exact_variant_confirmed,
@@ -258,6 +285,8 @@ class ProductUGCRecipeService:
         )
         self.db.add(draft)
         self.db.flush()
+        if character_artifact is not None:
+            character_artifact.product_ugc_recipe_draft_id = draft.id
         draft.provider_payload_preview_json = self._payload_preview(draft)
         self.db.commit()
         self.db.refresh(draft)
@@ -330,18 +359,44 @@ class ProductUGCRecipeService:
             publishing_readiness=draft.publishing_readiness,
         )
 
-    def provider_request(self, draft: models.ProductUGCRecipeDraft) -> ProductUGCRecipeRequest:
+    def provider_request(
+        self,
+        draft: models.ProductUGCRecipeDraft,
+        *,
+        materialized_character_path: Path | None = None,
+        materialized_product_path: Path | None = None,
+    ) -> ProductUGCRecipeRequest:
         draft = self.refresh_preflight(draft)
         if draft.status not in {"ready_for_paid_preflight", "provider_launching"} or draft.blockers_json:
             raise RunwayRecipeError("Product UGC draft is blocked; fix every preflight gate before a provider call.")
-        character_path = Path(draft.character_image_path)
         product_asset = self.db.get(models.ProductAsset, draft.primary_product_asset_id)
-        if not character_path.exists() or not product_asset:
+        if not product_asset:
             raise RunwayRecipeError("Recipe media is missing.")
+        if materialized_character_path is not None:
+            character_uri = self._asset_uri(
+                materialized_character_path.as_posix(),
+                "local",
+            )
+        else:
+            if draft.character_media_artifact_id is not None:
+                raise RunwayRecipeError(
+                    "Private creator input must be materialized by the durable worker."
+                )
+            if not draft.character_image_path:
+                raise RunwayRecipeError("Recipe creator image is missing.")
+            character_uri = self._asset_uri(draft.character_image_path, "local")
+        if materialized_product_path is not None:
+            product_uri = self._asset_uri(materialized_product_path.as_posix(), "local")
+        else:
+            if product_asset.media_artifact_id is not None or product_asset.source_type == "media_artifact":
+                raise RunwayRecipeError(
+                    "Private product input must be materialized by the durable worker."
+                )
+            product_uri = self._asset_uri(product_asset.source_ref, product_asset.source_type)
         return ProductUGCRecipeRequest(
             version=draft.recipe_version,
-            character_image=RecipeImageInput(uri=self._asset_uri(character_path.as_posix(), "local")),
-            product_image=RecipeImageInput(uri=self._asset_uri(product_asset.source_ref, product_asset.source_type)),
+            character_image=RecipeImageInput(uri=character_uri),
+            product_image=RecipeImageInput(uri=product_uri),
             product_info=draft.product_info,
             user_concept=draft.user_concept,
             duration=draft.duration_seconds,
@@ -660,6 +715,49 @@ class ProductUGCRecipeService:
         target = target_dir / f"{uuid4().hex}_{safe_name}"
         target.write_bytes(content)
         return target
+
+    def _store_character_image(
+        self,
+        *,
+        product: models.Product,
+        created_by_user_profile_id: int | None,
+        filename: str,
+        content: bytes,
+    ) -> tuple[Path | None, models.MediaArtifact | None]:
+        durable = self.settings.runtime_profile == "production" or self.storage_backends is not None
+        if not durable:
+            return self._save_character_image(filename, content), None
+        if product.organization_id is None or created_by_user_profile_id is None:
+            raise RunwayRecipeError(
+                "Durable creator-reference upload requires an organization and attributable user."
+            )
+        backends = (
+            dict(self.storage_backends)
+            if self.storage_backends is not None
+            else get_storage_backends()
+        )
+        preferred = backends.get(str(self.settings.storage_backend))
+        backend = preferred or (next(iter(backends.values())) if len(backends) == 1 else None)
+        if backend is None:
+            raise RunwayRecipeError("Private media storage backend is not configured.")
+        if self.settings.runtime_profile == "production" and backend.name == "local":
+            raise RunwayRecipeError("Local creator-reference storage is forbidden in production.")
+        safe_name = ProductAssetStorage.safe_filename(filename)
+        try:
+            artifact = MediaArtifactService(self.db, backends).store_bytes(
+                organization_id=product.organization_id,
+                created_by_user_profile_id=created_by_user_profile_id,
+                backend_name=backend.name,
+                kind="creator_reference",
+                content=content,
+                mime_type=mimetypes.guess_type(safe_name)[0] or "application/octet-stream",
+                original_filename=safe_name,
+                product_id=product.id,
+                metadata={"source": "product_ugc_creator_upload"},
+            )
+        except (MediaArtifactError, StorageError) as exc:
+            raise RunwayRecipeError("Creator reference could not be stored privately.") from exc
+        return None, artifact
 
     @staticmethod
     def _payload_preview(draft: models.ProductUGCRecipeDraft) -> dict[str, Any]:

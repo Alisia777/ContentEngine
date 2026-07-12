@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import io
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -8599,7 +8600,18 @@ def test_control_room_creator_alias_uses_creator_publisher_dashboard():
 
 def test_control_room_is_main_post_login_entrypoint():
     with client() as api:
-        response = api.post("/login", data={"email": "owner@example.com", "password": "local"}, follow_redirects=False)
+        page = api.get("/login")
+        nonce = re.search(r'name="login_nonce" value="([A-Za-z0-9_-]+)"', page.text)
+        assert nonce is not None
+        response = api.post(
+            "/login",
+            data={
+                "email": "owner@example.com",
+                "password": "local",
+                "login_nonce": nonce.group(1),
+            },
+            follow_redirects=False,
+        )
 
     assert response.status_code == 303
     assert response.headers["location"] == "/control-room"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 from pathlib import Path
+import re
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.publishing.destination_service import PublishingDestinationService
 from app.publishing.errors import PublishingError
+from app.publishing.types import PUBLISHABLE_MEDIA_ARTIFACT_KINDS
 
 
 class PublishingScheduler:
@@ -34,8 +36,9 @@ class PublishingScheduler:
             blockers.append("Package platform must match destination platform.")
         if package.brand != destination.brand:
             blockers.append("Package brand must match destination brand.")
-        if not package.video_file_path or not Path(package.video_file_path).exists() or Path(package.video_file_path).stat().st_size <= 0:
-            blockers.append("Video file must exist and be non-empty.")
+        if package.organization_id is not None and destination.organization_id != package.organization_id:
+            blockers.append("Package and destination must belong to the same organization.")
+        media_source = self._validate_media_source(package, blockers)
 
         day_count = self._count(destination.id, self._day_window(scheduled_at))
         week_count = self._count(destination.id, self._week_window(scheduled_at))
@@ -51,6 +54,7 @@ class PublishingScheduler:
             "weekly_count": week_count,
             "daily_limit": destination.daily_limit,
             "weekly_limit": destination.weekly_limit,
+            "media_source": media_source,
         }
 
     def schedule(
@@ -177,6 +181,53 @@ class PublishingScheduler:
             )
             or 0
         )
+
+    def _validate_media_source(
+        self,
+        package: models.PublishingPackage,
+        blockers: list[str],
+    ) -> str:
+        if package.media_artifact_id is not None:
+            artifact = self.db.get(models.MediaArtifact, package.media_artifact_id)
+            human_review = (package.metadata_json or {}).get("human_review")
+            review_role = (
+                str(human_review.get("reviewer_role") or "").casefold()
+                if isinstance(human_review, dict)
+                else ""
+            )
+            valid_review = (
+                isinstance(human_review, dict)
+                and human_review.get("confirmed") is True
+                and review_role in {"owner", "admin", "reviewer"}
+            )
+            if (
+                artifact is None
+                or package.organization_id is None
+                or artifact.organization_id != package.organization_id
+                or artifact.product_id != package.product_id
+                or artifact.status != "ready"
+                or artifact.archived_at is not None
+                or artifact.delete_requested_at is not None
+                or artifact.deleted_at is not None
+                or artifact.kind not in PUBLISHABLE_MEDIA_ARTIFACT_KINDS
+                or not str(artifact.mime_type or "").casefold().startswith("video/")
+                or int(artifact.size_bytes or 0) <= 0
+                or not re.fullmatch(r"[a-f0-9]{64}", str(artifact.sha256 or "").casefold())
+                or not artifact.object_key.startswith(
+                    f"organizations/{int(package.organization_id or 0):08d}/"
+                )
+            ):
+                blockers.append(
+                    "Media artifact must be a ready, non-archived tenant video for this product."
+                )
+            if not valid_review:
+                blockers.append("Media artifact package requires organization-scoped human review.")
+            return "media_artifact"
+
+        path = Path(package.video_file_path) if package.video_file_path else None
+        if path is None or not path.is_file() or path.stat().st_size <= 0:
+            blockers.append("Video file must exist and be non-empty.")
+        return "legacy_local_file"
 
     @staticmethod
     def _day_window(value: datetime) -> tuple[datetime, datetime]:
