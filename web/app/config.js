@@ -6,7 +6,7 @@
 window.CONTENTENGINE_CONFIG = Object.freeze({
   APP_NAME: "Контент ИИ Завод",
   SUPABASE_URL: "https://iyckwryrucqrxwlowxow.supabase.co",
-  SUPABASE_PUBLISHABLE_KEY: "__SET_SUPABASE_PUBLISHABLE_KEY__",
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_PztMtkcraVy_A2ymze1Unw_I1rOjrlw",
   RPC_SCHEMA: "public",
   STORAGE_BUCKET: "contentengine-private",
   MOCK_ONLY: true,

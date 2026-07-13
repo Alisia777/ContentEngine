@@ -34,7 +34,9 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
 def test_pages_config_contains_only_browser_safe_coordinates_and_mock_gate() -> None:
     config = _text("config.js")
     assert 'SUPABASE_URL: "https://iyckwryrucqrxwlowxow.supabase.co"' in config
-    assert 'SUPABASE_PUBLISHABLE_KEY: "__SET_SUPABASE_PUBLISHABLE_KEY__"' in config
+    assert re.search(
+        r'SUPABASE_PUBLISHABLE_KEY: "sb_publishable_[A-Za-z0-9_-]{20,}"', config
+    )
     assert 'STORAGE_BUCKET: "contentengine-private"' in config
     assert "MOCK_ONLY: true" in config
     assert "MAX_BATCH_SIZE: 50" in config
