@@ -369,6 +369,41 @@ def test_private_payload_rejects_incomplete_catalog_case_projection() -> None:
         decode_private_exam_sql(encoded)
 
 
+def test_private_payload_rejects_broadened_catalog_scope() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "q.module_code = 'operator_final_exam'",
+        "q.module_code ~ '.*'",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_select_inside_upsert_assignment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "correct_answers = excluded.correct_answers,",
+        "correct_answers = (select q.correct_answers "
+        "from content_factory_private.training_answer_keys q "
+        "where q.question_code = 'test_00'),",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_operator_inside_upsert_assignment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "correct_answers = excluded.correct_answers,",
+        "correct_answers = excluded.correct_answers - 'guessed_answer',",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
 def test_private_payload_cannot_smuggle_privileged_statement_in_one_line() -> None:
     payload = PRIVATE_EXAM_SQL.replace(
         "do $catalog_contract$",

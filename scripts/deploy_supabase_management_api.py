@@ -285,14 +285,18 @@ PRIVATE_EXAM_CONTRACT_SQL = """
 do $contentengine_exam_contract$
 declare
   answer_total integer;
+  exam_answer_total integer;
 begin
   select count(*) into answer_total
+  from content_factory_private.training_answer_keys;
+
+  select count(*) into exam_answer_total
   from content_factory_private.training_answer_keys answer_key
   join content_factory.training_questions question
     on question.code = answer_key.question_code
   where question.module_code = 'operator_final_exam';
 
-  if answer_total <> 12 then
+  if answer_total <> 12 or exam_answer_total <> 12 then
     raise exception using
       errcode = '23514',
       message = 'private_exam_key_contract_failed';
@@ -355,6 +359,38 @@ def _is_approved_catalog_case_select(tokens: tuple[str, ...]) -> bool:
             return False
         case_count += 1
     return cursor == case_limit and case_count == 12
+
+
+SQL_LITERAL = re.compile(r"'(?:''|[^'])*'", flags=re.DOTALL)
+APPROVED_UPSERT_CLAUSE = re.compile(
+    r"""
+    on\s+conflict\s*\(\s*question_code\s*\)\s+do\s+update\s+set\s+
+    correct_answers\s*=\s*excluded\s*\.\s*correct_answers\s*,\s*
+    rubric\s*=\s*excluded\s*\.\s*rubric
+    (?:\s*,\s*updated_at\s*=\s*now\s*\(\s*\))?
+    \s*;\s*\Z
+    """,
+    flags=re.IGNORECASE | re.VERBOSE,
+)
+APPROVED_CATALOG_SCOPE = re.compile(
+    r"""
+    from\s+content_factory\s*\.\s*training_questions\s+q\s+
+    where\s+q\s*\.\s*module_code\s*=\s*
+    __operator_final_exam_literal__\s+
+    on\s+conflict\s*\(\s*question_code\s*\)
+    """,
+    flags=re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _masked_sql_structure(sql: str) -> str:
+    def replace_literal(match: re.Match[str]) -> str:
+        value = match.group(0)[1:-1].replace("''", "'")
+        if value == "operator_final_exam":
+            return " __operator_final_exam_literal__ "
+        return " __literal__ "
+
+    return SQL_LITERAL.sub(replace_literal, sql)
 
 
 def decode_private_exam_sql(encoded: str) -> str:
@@ -442,10 +478,16 @@ def decode_private_exam_sql(encoded: str) -> str:
             insert.tokens[source_index:upsert_index]
         )
     )
+    masked_insert = _masked_sql_structure(insert.raw)
     if (
         upsert_index < 0
         or source_keyword not in {"select", "values"}
         or (source_keyword == "select" and not approved_catalog_select)
+        or APPROVED_UPSERT_CLAUSE.search(masked_insert) is None
+        or (
+            approved_catalog_select
+            and APPROVED_CATALOG_SCOPE.search(masked_insert) is None
+        )
     ):
         raise ConfigurationError(
             "Private exam-key payload may only upsert the approved answer table"
