@@ -36,6 +36,38 @@ commit;
 """
 
 
+def _catalog_case_select_sql(*, case_count: int = 12) -> str:
+    cases = "\n".join(
+        "when 'test_%02d' then jsonb_build_array(q.options -> %d)"
+        % (index, index % 4)
+        for index in range(case_count)
+    )
+    return f"""begin;
+insert into content_factory_private.training_answer_keys (
+  question_code, correct_answers, rubric
+)
+select
+  q.code,
+  case q.code
+    {cases}
+    else '[]'::jsonb
+  end,
+  'catalog_contract'
+from content_factory.training_questions q
+where q.module_code = 'operator_final_exam'
+on conflict (question_code) do update set
+  correct_answers = excluded.correct_answers,
+  rubric = excluded.rubric,
+  updated_at = now();
+do $catalog_contract$
+begin
+  perform 1;
+end;
+$catalog_contract$;
+commit;
+"""
+
+
 class FakeResponse:
     def __init__(self, payload=(), *, status: int = 200) -> None:
         self.status = status
@@ -304,6 +336,115 @@ def test_private_payload_safely_normalizes_existing_double_commit_envelope() -> 
     assert "commit" not in tuple(
         token.casefold() for token in re.findall(r"[A-Za-z_]+", validated)
     )
+
+
+def test_private_payload_accepts_exact_catalog_case_projection() -> None:
+    encoded = base64.b64encode(_catalog_case_select_sql().encode()).decode()
+
+    validated = decode_private_exam_sql(encoded)
+
+    assert "from content_factory.training_questions q" in validated
+    assert validated.count("jsonb_build_array") == 12
+    assert "perform 1" not in validated
+    assert "private_exam_key_contract_failed" in validated
+
+
+def test_private_payload_rejects_case_projection_from_another_table() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "from content_factory.training_questions q",
+        "from auth.users q",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_incomplete_catalog_case_projection() -> None:
+    encoded = base64.b64encode(
+        _catalog_case_select_sql(case_count=11).encode()
+    ).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_broadened_catalog_scope() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "q.module_code = 'operator_final_exam'",
+        "q.module_code ~ '.*'",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_select_inside_upsert_assignment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "correct_answers = excluded.correct_answers,",
+        "correct_answers = (select q.correct_answers "
+        "from content_factory_private.training_answer_keys q "
+        "where q.question_code = 'test_00'),",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_operator_inside_upsert_assignment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "correct_answers = excluded.correct_answers,",
+        "correct_answers = excluded.correct_answers - 'guessed_answer',",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_scope_spoofed_by_line_comment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "where q.module_code = 'operator_final_exam'",
+        "where q.module_code ~ '.*'\n"
+        "-- from content_factory.training_questions q "
+        "where q.module_code = 'operator_final_exam' "
+        "on conflict (question_code)",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_upsert_spoofed_by_line_comment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "correct_answers = excluded.correct_answers,",
+        "correct_answers = excluded.correct_answers - 'guessed_answer',",
+    ).replace(
+        "updated_at = now();",
+        "updated_at = now()\n"
+        "-- on conflict (question_code) do update set "
+        "correct_answers = excluded.correct_answers, "
+        "rubric = excluded.rubric, updated_at = now()\n"
+        ";",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_escape_string_literals() -> None:
+    payload = PRIVATE_EXAM_SQL.replace(
+        "'catalog_contract')",
+        "E'catalog\\'contract')",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="unapproved expression"):
+        decode_private_exam_sql(encoded)
 
 
 def test_private_payload_cannot_smuggle_privileged_statement_in_one_line() -> None:
