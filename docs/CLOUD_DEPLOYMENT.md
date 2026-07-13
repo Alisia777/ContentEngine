@@ -202,6 +202,9 @@ organization access through the application contract.
    secure administrative context, call the service-role-only
    `system_initialize_owner` once for that exact user. Never expose the
    service-role credential or this operation to Pages.
+   The invariant after initialization is **Exactly one active membership** for
+   the first owner. Bootstrap never falls back to a sole-organization autojoin
+   or silently restores an inactive membership.
 7. Invite subsequent creators through the **Team** tab. The authenticated Edge
    Function uses Auth Admin and then calls `system_provision_invited_member` to
    create a `trainee` membership in the caller's organization. A separately
@@ -252,6 +255,18 @@ a `trainee` and must independently complete all four modules plus the
 12-scenario final exam; a bulk invite never grants operator access. Creating an
 Auth user outside this path does not create a membership.
 
+Configure the Supabase **Invite user** email template to return the one-time
+token to the public application, where it is exchanged server-side by Auth:
+
+```text
+<PUBLIC_APP_URL>/auth/accept#token_hash={{ .TokenHash }}&type=invite
+```
+
+Replace `<PUBLIC_APP_URL>` with the canonical HTTPS application origin. Do not
+put access tokens, service-role keys, or database credentials into the template.
+The default fragment redirect is insufficient because GitHub Pages must first
+serve the committed `/auth/accept` bridge without discarding the token hash.
+
 Do not promise external invitation delivery until custom SMTP is configured.
 Supabase's built-in sender is for exploration only: it sends only to addresses
 pre-authorized as members of the Supabase organization and is currently limited
@@ -265,6 +280,10 @@ controlled batches rather than creating an email spike.
 The Python commands, SQLite databases, local media folders, Dockerfile, and
 `127.0.0.1` routes are developer/reference tools. They are not the creator
 login surface and are not a production deployment method.
+
+The historical reference bootstrap remains available as
+`python scripts/bootstrap_cloud_owner.py`; it is not the Supabase-native
+production initializer and must not be used in the GitHub Pages release path.
 
 For local Supabase contract work, use the CLI against the local stack and apply
 the committed migrations:
