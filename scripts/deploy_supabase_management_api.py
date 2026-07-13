@@ -479,7 +479,10 @@ def decode_private_exam_sql(encoded: str) -> str:
         )
     )
     masked_insert = _masked_sql_structure(insert.raw)
-    contains_comment = "--" in masked_insert or "/*" in masked_insert
+    # Fail closed even when a marker appears inside a literal. Private grading
+    # data has no reason to contain SQL comments, and checking the original
+    # statement prevents a literal masker from hiding comment-based structure.
+    contains_comment = "--" in insert.raw or "/*" in insert.raw
     if (
         upsert_index < 0
         or source_keyword not in {"select", "values"}
@@ -514,7 +517,6 @@ def decode_private_exam_sql(encoded: str) -> str:
         "content_factory_private",
         "correct_answers",
         "do",
-        "e",
         "excluded",
         "insert",
         "into",

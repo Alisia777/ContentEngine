@@ -436,6 +436,17 @@ def test_private_payload_rejects_upsert_spoofed_by_line_comment() -> None:
         decode_private_exam_sql(encoded)
 
 
+def test_private_payload_rejects_escape_string_literals() -> None:
+    payload = PRIVATE_EXAM_SQL.replace(
+        "'catalog_contract')",
+        "E'catalog\\'contract')",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="unapproved expression"):
+        decode_private_exam_sql(encoded)
+
+
 def test_private_payload_cannot_smuggle_privileged_statement_in_one_line() -> None:
     payload = PRIVATE_EXAM_SQL.replace(
         "do $catalog_contract$",
