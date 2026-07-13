@@ -404,6 +404,38 @@ def test_private_payload_rejects_operator_inside_upsert_assignment() -> None:
         decode_private_exam_sql(encoded)
 
 
+def test_private_payload_rejects_scope_spoofed_by_line_comment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "where q.module_code = 'operator_final_exam'",
+        "where q.module_code ~ '.*'\n"
+        "-- from content_factory.training_questions q "
+        "where q.module_code = 'operator_final_exam' "
+        "on conflict (question_code)",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_rejects_upsert_spoofed_by_line_comment() -> None:
+    payload = _catalog_case_select_sql().replace(
+        "correct_answers = excluded.correct_answers,",
+        "correct_answers = excluded.correct_answers - 'guessed_answer',",
+    ).replace(
+        "updated_at = now();",
+        "updated_at = now()\n"
+        "-- on conflict (question_code) do update set "
+        "correct_answers = excluded.correct_answers, "
+        "rubric = excluded.rubric, updated_at = now()\n"
+        ";",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="approved answer table"):
+        decode_private_exam_sql(encoded)
+
+
 def test_private_payload_cannot_smuggle_privileged_statement_in_one_line() -> None:
     payload = PRIVATE_EXAM_SQL.replace(
         "do $catalog_contract$",

@@ -479,10 +479,12 @@ def decode_private_exam_sql(encoded: str) -> str:
         )
     )
     masked_insert = _masked_sql_structure(insert.raw)
+    contains_comment = "--" in masked_insert or "/*" in masked_insert
     if (
         upsert_index < 0
         or source_keyword not in {"select", "values"}
         or (source_keyword == "select" and not approved_catalog_select)
+        or contains_comment
         or APPROVED_UPSERT_CLAUSE.search(masked_insert) is None
         or (
             approved_catalog_select
