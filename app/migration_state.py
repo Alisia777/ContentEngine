@@ -66,8 +66,8 @@ def serialized_database_migration(engine: Engine) -> Iterator[None]:
         return
 
     with engine.connect() as lock_connection:
-        # Render pre-deploy commands have a finite lifetime.  Bound lock wait
-        # below that window so a wedged deploy fails instead of hanging.
+        # Managed pre-deploy commands have a finite lifetime. Bound lock wait
+        # below that window so a wedged reference deploy fails instead of hanging.
         lock_connection.execute(text("SET lock_timeout = '10min'"))
         lock_connection.execute(
             text("SELECT pg_advisory_lock(:lock_id)"),

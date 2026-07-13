@@ -221,10 +221,20 @@ def test_ci_and_cloud_runbook_enforce_public_schema_security_contract() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     runbook = (ROOT / "docs/CLOUD_DEPLOYMENT.md").read_text(encoding="utf-8")
     readiness = (ROOT / "app/readiness.py").read_text(encoding="utf-8")
+    supabase_config = (ROOT / "supabase/config.toml").read_text(encoding="utf-8")
+    supabase_security = (
+        ROOT / "supabase/migrations/202607130003_rls_and_storage.sql"
+    ).read_text(encoding="utf-8")
 
     assert "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public" in workflow
     assert "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public" in workflow
     assert "python scripts/verify_postgres_schema_security.py" in workflow
-    assert "Disable the **Data API**" in runbook
+    assert "Keep the Supabase Data API enabled" in runbook
+    assert "narrow `public.creator_*` functions" in runbook
+    assert 'schemas = ["public", "graphql_public"]' in supabase_config
+    assert (
+        "revoke all on all tables in schema content_factory "
+        "from public, anon, authenticated"
+    ) in supabase_security
     assert "database_rls" in readiness
     assert "database_api_roles_restricted" in readiness

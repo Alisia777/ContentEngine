@@ -145,7 +145,7 @@ def test_production_rejects_every_local_auth_setting(field, environment_name, va
     assert value == "" or value not in str(exc_info.value)
 
 
-def test_render_supabase_environment_keys_build_the_private_backend(tmp_path) -> None:
+def test_supabase_environment_keys_build_the_private_reference_backend(tmp_path) -> None:
     settings = SimpleNamespace(
         runtime_profile="production",
         storage_backend="supabase",

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#183a35" />
+    <meta
+      name="description"
+      content="Контент ИИ Завод — обучение, массовая подготовка роликов, размещение и измеримые результаты в одном кабинете."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; media-src 'self' blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests"
+    />
+    <title>Контент ИИ Завод</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержанию</a>
+
+    <div id="app" class="app-root">
+      <main id="main-content" class="boot-screen" tabindex="-1" aria-live="polite">
+        <div class="boot-mark" aria-hidden="true">A</div>
+        <p class="eyebrow">ALTEA · КОНТЕНТ ИИ ЗАВОД</p>
+        <h1>Открываем рабочее место…</h1>
+        <p class="muted">Проверяем безопасное подключение и вашу сессию.</p>
+        <div class="loading-line" aria-hidden="true"><span></span></div>
+      </main>
+    </div>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <noscript>
+      <div class="noscript-card">
+        Для работы кабинета нужен JavaScript. Включите его в настройках браузера и обновите страницу.
+      </div>
+    </noscript>
+
+    <!-- config.js contains only browser-safe project coordinates. Never add a secret/service key here. -->
+    <script src="./config.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

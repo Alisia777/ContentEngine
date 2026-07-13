@@ -26,10 +26,10 @@ jobs:
       QVF_ALLOW_REAL_SPEND: "false"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
           cache: pip
@@ -37,8 +37,8 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
-      - name: Validate deployment YAML syntax
-        run: python -c "import pathlib, yaml; [yaml.safe_load(path.read_text(encoding='utf-8')) for path in [pathlib.Path('render.yaml'), *pathlib.Path('.github/workflows').glob('*.yml')]]"
+      - name: Validate GitHub workflow YAML syntax
+        run: python -c "import pathlib, yaml; [yaml.safe_load(path.read_text(encoding='utf-8')) for path in pathlib.Path('.github/workflows').glob('*.yml')]"
 
       - name: Compile application
         run: python -m compileall -q app scripts
@@ -46,17 +46,70 @@ jobs:
       - name: Run test suite
         run: python -m pytest -q
 
-  image:
+  supabase-migrations:
+    name: Validate Supabase migrations and RPC contract
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Build production image
-        run: docker build --tag contentengine:${{ github.sha }} .
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.109.1
+          github-token: ${{ github.token }}
 
-  postgres-migration:
+      - name: Start local Supabase database and apply migrations
+        run: supabase db start
+
+      - name: Lint migrated database
+        run: supabase db lint --local --level error
+
+      - name: Run database security and workflow contract tests
+        run: supabase test db
+
+  creator-invite-function:
+    name: Validate authenticated creator invitation function
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.8.1
+
+      - name: Require JWT verification and entrypoint
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          entrypoint = Path("supabase/functions/creator-invite/index.ts")
+          if not entrypoint.is_file():
+              raise SystemExit("Missing creator-invite Edge Function entrypoint")
+          config = tomllib.loads(
+              Path("supabase/config.toml").read_text(encoding="utf-8")
+          )
+          function_config = config.get("functions", {}).get("creator-invite", {})
+          if function_config.get("verify_jwt") is not True:
+              raise SystemExit("creator-invite must set verify_jwt = true")
+          PY
+
+      - name: Check function formatting
+        run: deno fmt --check supabase/functions/creator-invite
+
+      - name: Lint function
+        run: deno lint supabase/functions/creator-invite/index.ts
+
+      - name: Type-check function
+        run: deno check supabase/functions/creator-invite/index.ts
+
+  reference-postgres-migration:
+    name: Validate reference Alembic/PostgreSQL model
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -80,10 +133,10 @@ jobs:
       QVF_AUTH_REQUIRED: "false"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
           cache: pip
@@ -133,7 +186,7 @@ jobs:
           print("Historical PostgreSQL guard and exposed API-role state prepared")
           PY
 
-      - name: Apply production migrations from historical revision
+      - name: Apply reference Alembic migrations from historical revision
         run: python scripts/predeploy.py
 
       - name: Verify PostgreSQL integrity guards

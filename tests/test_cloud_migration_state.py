@@ -78,7 +78,7 @@ def test_postgresql_migrations_are_serialized_by_bounded_advisory_lock() -> None
     assert "pg_advisory_unlock" in statements[-1][0]
 
 
-def test_forward_guard_revision_and_both_render_services_own_migration_barrier() -> None:
+def test_reference_alembic_guard_remains_while_production_uses_supabase_migrations() -> None:
     forward = (
         ROOT
         / "migrations/versions/8f2d31c4a9b7_install_postgres_integrity_guards.py"
@@ -87,7 +87,9 @@ def test_forward_guard_revision_and_both_render_services_own_migration_barrier()
         ROOT
         / "migrations/versions/c8a91f6e2d44_harden_supabase_public_schema.py"
     ).read_text(encoding="utf-8")
-    render = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    production = (ROOT / ".github/workflows/supabase-pages.yml").read_text(
+        encoding="utf-8"
+    )
     predeploy = (ROOT / "scripts/predeploy.py").read_text(encoding="utf-8")
     worker = (ROOT / "scripts/run_product_ugc_queue_worker.py").read_text(
         encoding="utf-8"
@@ -99,7 +101,10 @@ def test_forward_guard_revision_and_both_render_services_own_migration_barrier()
     assert "install_postgresql_integrity_guards(bind)" in forward
     assert 'down_revision: Union[str, Sequence[str], None] = "8f2d31c4a9b7"' in security
     assert "install_postgresql_public_schema_security(bind)" in security
-    assert render.count("preDeployCommand: python scripts/predeploy.py") == 2
+    assert not (ROOT / "render.yaml").exists()
+    assert "supabase db push --linked" in production
+    assert "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e" in production
+    assert "migrate" in production
     assert predeploy.index("validate_runtime_settings") < predeploy.index("command.upgrade")
     assert "serialized_database_migration(engine)" in predeploy
     assert "require_database_at_migration_head(connection)" in predeploy
