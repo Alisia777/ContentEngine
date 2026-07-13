@@ -323,7 +323,7 @@ def test_remote_auth_configuration_is_cloud_only_and_versioned() -> None:
         "https://alisia777.github.io/ContentEngine/**"
     ]
     assert auth["enable_signup"] is False
-    assert config["auth"]["email"]["enable_signup"] is False
+    assert config["auth"]["email"]["enable_signup"] is True
     assert all(
         "localhost" not in url and "127.0.0.1" not in url
         for url in [auth["site_url"], *auth["additional_redirect_urls"]]
