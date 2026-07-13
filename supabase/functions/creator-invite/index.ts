@@ -27,6 +27,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_reconcile_invited_member: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
     };
   };
 };
@@ -225,39 +229,57 @@ const inviteCreators = withSupabase<ContentEngineDatabase>({
         redirectTo: PUBLIC_APP_URL.href,
       });
 
-    if (inviteError) {
+    const inviteFailure = inviteError
+      ? classifyInviteFailure(inviteError.message)
+      : null;
+    if (inviteFailure && inviteFailure !== "already_exists") {
       results.push({
         email,
-        status: classifyInviteFailure(inviteError.message),
+        status: inviteFailure,
       });
       continue;
     }
 
-    const invitedUserId = inviteData.user?.id;
-    if (!invitedUserId) {
-      results.push({ email, status: "failed" });
-      continue;
-    }
-
-    const { error: provisionError } = await context.supabaseAdmin.rpc(
-      "system_provision_invited_member",
-      {
-        p_payload: {
-          organization_id: organizationId,
-          user_id: invitedUserId,
-          invited_by: invitedBy,
-          role: "trainee",
-          idempotency_key: `invite:${organizationId}:${invitedUserId}`,
+    let membershipProvisioned = false;
+    if (inviteFailure === "already_exists") {
+      const { error: reconciliationError } = await context.supabaseAdmin.rpc(
+        "system_reconcile_invited_member",
+        {
+          p_payload: {
+            organization_id: organizationId,
+            email,
+            invited_by: invitedBy,
+          },
         },
-      },
-    );
+      );
+      membershipProvisioned = reconciliationError === null;
+    } else {
+      const invitedUserId = inviteData.user?.id;
+      if (invitedUserId) {
+        const { error: provisionError } = await context.supabaseAdmin.rpc(
+          "system_provision_invited_member",
+          {
+            p_payload: {
+              organization_id: organizationId,
+              user_id: invitedUserId,
+              invited_by: invitedBy,
+              role: "trainee",
+              idempotency_key: `invite:${organizationId}:${invitedUserId}`,
+            },
+          },
+        );
+        membershipProvisioned = provisionError === null;
+      }
+    }
 
     // Do not compensate an ambiguous RPC/network failure by deleting the auth
     // user: the transaction may have committed before the response was lost.
-    // The stable idempotency key makes service-role reconciliation safe.
+    // Both service-role paths use stable idempotency for safe reconciliation.
     results.push({
       email,
-      status: provisionError ? "failed" : "invited",
+      status: membershipProvisioned
+        ? (inviteFailure === "already_exists" ? "already_exists" : "invited")
+        : "failed",
     });
   }
 

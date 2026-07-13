@@ -1109,10 +1109,43 @@ begin
       idempotency_key,
       request_payload
     );
-    if replay is null then
-      raise exception using errcode = '23505', message = 'target_membership_already_exists';
+    if replay is not null then
+      return replay;
     end if;
-    return replay;
+
+    result := jsonb_build_object(
+      'ok', true,
+      'organization_id', organization_id,
+      'user_id', target_user_id,
+      'membership_id', membership_row.id,
+      'role', membership_row.role,
+      'status', membership_row.status,
+      'already_active', true
+    );
+
+    perform content_factory_private.emit_event(
+      organization_id,
+      invited_by_id,
+      'member_invite_reconciled',
+      'membership',
+      membership_row.id::text,
+      jsonb_build_object(
+        'target_user_id', target_user_id,
+        'role', membership_row.role,
+        'already_active', true
+      ),
+      'system-invite:' || idempotency_key,
+      'system'
+    );
+
+    return content_factory_private.finish_command(
+      organization_id,
+      invited_by_id,
+      'system_provision_invited_member',
+      idempotency_key,
+      request_payload,
+      result
+    );
   end if;
 
   replay := content_factory_private.begin_command(
@@ -1169,6 +1202,90 @@ begin
     request_payload,
     result
   );
+end;
+$$;
+
+-- Safe reconciliation for an Auth user that already existed before the
+-- invitation attempt. Only a unique, confirmed, active exact normalized email
+-- is resolved; provisioning still passes through the same guarded RPC.
+create or replace function public.system_reconcile_invited_member(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_variable
+declare
+  organization_id uuid;
+  invited_by_id uuid;
+  email_value text;
+  target_count integer;
+  target_user_id uuid;
+  target_email_confirmed_at timestamptz;
+  target_banned_until timestamptz;
+  target_deleted_at timestamptz;
+  stable_idempotency_key text;
+begin
+  p_payload := content_factory_private.require_payload(p_payload);
+  organization_id := content_factory_private.require_uuid(p_payload, 'organization_id');
+  invited_by_id := content_factory_private.require_uuid(p_payload, 'invited_by');
+  email_value := lower(content_factory_private.require_text(
+    p_payload,
+    'email',
+    3,
+    320
+  ));
+
+  if email_value !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception using errcode = '22023', message = 'email_invalid';
+  end if;
+
+  select count(*), (array_agg(auth_user.id order by auth_user.id))[1]
+    into target_count, target_user_id
+  from auth.users auth_user
+  where lower(btrim(auth_user.email)) = email_value;
+
+  if target_count = 0 or target_user_id is null then
+    raise exception using errcode = 'P0002', message = 'reconciliation_auth_user_not_found';
+  end if;
+  if target_count <> 1 then
+    raise exception using errcode = '55000', message = 'reconciliation_auth_user_ambiguous';
+  end if;
+
+  select
+    auth_user.email_confirmed_at,
+    auth_user.banned_until,
+    auth_user.deleted_at
+  into
+    target_email_confirmed_at,
+    target_banned_until,
+    target_deleted_at
+  from auth.users auth_user
+  where auth_user.id = target_user_id;
+
+  if target_email_confirmed_at is null then
+    raise exception using errcode = '42501', message = 'reconciliation_email_not_confirmed';
+  end if;
+  if target_deleted_at is not null
+     or (target_banned_until is not null and target_banned_until > now()) then
+    raise exception using errcode = '42501', message = 'target_auth_user_not_active';
+  end if;
+
+  stable_idempotency_key := 'reconcile:' || content_factory_private.json_hash(
+    jsonb_build_object(
+      'organization_id', organization_id,
+      'user_id', target_user_id
+    )
+  );
+
+  return public.system_provision_invited_member(jsonb_build_object(
+    'organization_id', organization_id,
+    'user_id', target_user_id,
+    'invited_by', invited_by_id,
+    'idempotency_key', stable_idempotency_key
+  ));
 end;
 $$;
 
@@ -3534,6 +3651,8 @@ revoke all on function public.system_initialize_owner(jsonb)
   from public, anon, authenticated;
 revoke all on function public.system_provision_invited_member(jsonb)
   from public, anon, authenticated;
+revoke all on function public.system_reconcile_invited_member(jsonb)
+  from public, anon, authenticated;
 
 grant execute on function public.creator_bootstrap(jsonb) to authenticated;
 grant execute on function public.creator_complete_module(jsonb) to authenticated;
@@ -3551,5 +3670,6 @@ grant execute on function public.creator_capture_event(jsonb) to authenticated;
 
 grant execute on function public.system_initialize_owner(jsonb) to service_role;
 grant execute on function public.system_provision_invited_member(jsonb) to service_role;
+grant execute on function public.system_reconcile_invited_member(jsonb) to service_role;
 
 commit;

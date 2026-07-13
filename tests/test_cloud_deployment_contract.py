@@ -248,9 +248,12 @@ def test_creator_invite_function_is_explicitly_jwt_verified() -> None:
     assert 'const MAX_INVITES = 50' in source
     assert 'bootstrap.workspaceOpen' in source
     assert '"system_provision_invited_member"' in source
+    assert '"system_reconcile_invited_member"' in source
     assert "inviteData.user?.id" in source
     assert "deleteUser" not in source
     assert "idempotency_key:" in source
+    assert 'inviteFailure === "already_exists"' in source
+    assert "membershipProvisioned" in source
     assert "localhost" not in source
     assert "127.0.0.1" not in source
     workflow = _text(PRODUCTION_WORKFLOW)
