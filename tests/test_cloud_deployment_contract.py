@@ -331,6 +331,13 @@ def test_remote_auth_configuration_is_cloud_only_and_versioned() -> None:
     assert "supabase config push" in _text(PRODUCTION_WORKFLOW)
 
 
+def test_remote_storage_does_not_require_paid_vector_buckets() -> None:
+    config = tomllib.loads(_text("supabase/config.toml"))
+
+    assert config["storage"]["enabled"] is True
+    assert config["storage"]["vector"]["enabled"] is False
+
+
 def test_supabase_migrations_own_schema_training_storage_and_mock_only_guards() -> None:
     sql = _production_migration_sql().casefold()
 

@@ -43,6 +43,9 @@ port = 54324
 enabled = true
 file_size_limit = "250MiB"
 
+[storage.vector]
+enabled = false
+
 [auth]
 enabled = true
 site_url = "https://alisia777.github.io/ContentEngine/"
