@@ -247,8 +247,7 @@ const inviteCreators = withSupabase<ContentEngineDatabase>({
           user_id: invitedUserId,
           invited_by: invitedBy,
           role: "trainee",
-          idempotency_key:
-            `invite:${organizationId}:${invitedUserId}`,
+          idempotency_key: `invite:${organizationId}:${invitedUserId}`,
         },
       },
     );
