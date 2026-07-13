@@ -313,6 +313,50 @@ def _contains_token_sequence(
     )
 
 
+def _is_approved_catalog_case_select(tokens: tuple[str, ...]) -> bool:
+    """Accept the existing secret's data-only catalog answer projection."""
+
+    prefix = ("select", "q", "code", "case", "q", "code")
+    suffix = (
+        "else",
+        "jsonb",
+        "end",
+        "from",
+        "content_factory",
+        "training_questions",
+        "q",
+        "where",
+        "q",
+        "module_code",
+    )
+    if (
+        len(tokens) <= len(prefix) + len(suffix)
+        or tokens[: len(prefix)] != prefix
+        or tokens[-len(suffix) :] != suffix
+    ):
+        return False
+
+    cursor = len(prefix)
+    case_limit = len(tokens) - len(suffix)
+    case_count = 0
+    while cursor < case_limit:
+        if tokens[cursor : cursor + 3] != (
+            "when",
+            "then",
+            "jsonb_build_array",
+        ):
+            return False
+        cursor += 3
+        option_count = 0
+        while tokens[cursor : cursor + 2] == ("q", "options"):
+            cursor += 2
+            option_count += 1
+        if option_count < 1:
+            return False
+        case_count += 1
+    return cursor == case_limit and case_count == 12
+
+
 def decode_private_exam_sql(encoded: str) -> str:
     if not encoded or not encoded.strip():
         raise ConfigurationError("SUPABASE_EXAM_KEYS_B64 is required")
@@ -369,10 +413,39 @@ def decode_private_exam_sql(encoded: str) -> str:
         "update",
         "set",
     )
+    if insert.tokens[: len(required_prefix)] != required_prefix:
+        raise ConfigurationError(
+            "Private exam-key payload may only upsert the approved answer table"
+        )
+    source_index = len(required_prefix)
+    upsert_index = next(
+        (
+            index
+            for index in range(
+                source_index + 1,
+                len(insert.tokens) - len(required_upsert) + 1,
+            )
+            if insert.tokens[index : index + len(required_upsert)]
+            == required_upsert
+        ),
+        -1,
+    )
+    source_keyword = (
+        insert.tokens[source_index]
+        if source_index < len(insert.tokens)
+        else ""
+    )
+    approved_catalog_select = (
+        source_keyword == "select"
+        and upsert_index > source_index
+        and _is_approved_catalog_case_select(
+            insert.tokens[source_index:upsert_index]
+        )
+    )
     if (
-        insert.tokens[: len(required_prefix)] != required_prefix
-        or "values" not in insert.tokens[len(required_prefix) :]
-        or not _contains_token_sequence(insert.tokens, required_upsert)
+        upsert_index < 0
+        or source_keyword not in {"select", "values"}
+        or (source_keyword == "select" and not approved_catalog_select)
     ):
         raise ConfigurationError(
             "Private exam-key payload may only upsert the approved answer table"
@@ -389,7 +462,8 @@ def decode_private_exam_sql(encoded: str) -> str:
         "select",
         "truncate",
     }
-    if forbidden_tokens.intersection(insert.tokens):
+    allowed_source_keyword = {"select"} if approved_catalog_select else set()
+    if forbidden_tokens.intersection(insert.tokens) - allowed_source_keyword:
         raise ConfigurationError("Private exam-key payload contains forbidden SQL")
     allowed_insert_tokens = {
         "conflict",
@@ -413,6 +487,25 @@ def decode_private_exam_sql(encoded: str) -> str:
         "updated_at",
         "values",
     }
+    if approved_catalog_select:
+        allowed_insert_tokens.update(
+            {
+                "case",
+                "code",
+                "content_factory",
+                "else",
+                "end",
+                "from",
+                "module_code",
+                "options",
+                "q",
+                "select",
+                "then",
+                "training_questions",
+                "when",
+                "where",
+            }
+        )
     if set(insert.tokens) - allowed_insert_tokens:
         raise ConfigurationError(
             "Private exam-key payload contains an unapproved expression"
