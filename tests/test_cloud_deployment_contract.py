@@ -335,6 +335,7 @@ def test_remote_storage_does_not_require_paid_vector_buckets() -> None:
     config = tomllib.loads(_text("supabase/config.toml"))
 
     assert config["storage"]["enabled"] is True
+    assert config["storage"]["file_size_limit"] == "50MiB"
     assert config["storage"]["vector"]["enabled"] is False
 
 
