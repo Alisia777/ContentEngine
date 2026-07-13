@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(25);
+select plan(28);
 
 -- TEST-ONLY grading material. These deliberately synthetic keys are derived
 -- from the first option and disappear with the transaction rollback.
@@ -94,7 +94,8 @@ select is(
     where namespace.nspname = 'public'
       and procedure.proname in (
         'system_initialize_owner',
-        'system_provision_invited_member'
+        'system_provision_invited_member',
+        'system_reconcile_invited_member'
       )
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
@@ -110,12 +111,13 @@ select is(
     where namespace.nspname = 'public'
       and procedure.proname in (
         'system_initialize_owner',
-        'system_provision_invited_member'
+        'system_provision_invited_member',
+        'system_reconcile_invited_member'
       )
       and has_function_privilege('service_role', procedure.oid, 'execute')
   ),
-  2,
-  'service_role can execute both system onboarding RPCs'
+  3,
+  'service_role can execute all system onboarding RPCs'
 );
 
 insert into auth.users (
@@ -338,6 +340,61 @@ select set_config(
   'request.jwt.claim.sub',
   '11111111-1111-4111-8111-111111111111',
   true
+);
+
+insert into auth.users (
+  id, instance_id, aud, role, email, encrypted_password,
+  email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at
+) values (
+  '33333333-3333-4333-8333-333333333333'::uuid,
+  '00000000-0000-0000-0000-000000000000'::uuid,
+  'authenticated',
+  'authenticated',
+  'existing-confirmed@example.test',
+  extensions.crypt('test-only-password', extensions.gen_salt('bf')),
+  now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{"display_name":"Existing Confirmed Creator"}'::jsonb,
+  now(),
+  now()
+);
+
+select is(
+  public.system_reconcile_invited_member(jsonb_build_object(
+    'organization_id', (select organization_id from creator_test_context),
+    'email', ' Existing-Confirmed@Example.Test ',
+    'invited_by', '11111111-1111-4111-8111-111111111111'
+  )) ->> 'role',
+  'trainee',
+  'exact normalized confirmed email is safely reconciled'
+);
+
+select ok(
+  (public.system_provision_invited_member(jsonb_build_object(
+    'organization_id', (select organization_id from creator_test_context),
+    'user_id', '33333333-3333-4333-8333-333333333333',
+    'invited_by', '11111111-1111-4111-8111-111111111111',
+    'idempotency_key', 'pgtap-existing-active-member-0001'
+  )) ->> 'already_active')::boolean,
+  'active existing membership is idempotently confirmed'
+);
+
+update content_factory.memberships
+set status = 'suspended'
+where profile_id = '33333333-3333-4333-8333-333333333333';
+
+select throws_ok(
+  $$
+    select public.system_reconcile_invited_member(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'email', 'existing-confirmed@example.test',
+      'invited_by', '11111111-1111-4111-8111-111111111111'
+    ))
+  $$,
+  '23505',
+  'target_membership_history_conflict',
+  'reconciliation never restores a suspended membership'
 );
 
 insert into storage.objects (bucket_id, name, metadata)

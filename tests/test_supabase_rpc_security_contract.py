@@ -187,7 +187,11 @@ def test_bootstrap_is_fail_closed_and_never_autojoins_or_reactivates() -> None:
 
 
 def test_system_onboarding_rpcs_are_service_role_only() -> None:
-    for name in ("system_initialize_owner", "system_provision_invited_member"):
+    for name in (
+        "system_initialize_owner",
+        "system_provision_invited_member",
+        "system_reconcile_invited_member",
+    ):
         assert re.search(
             rf"create\s+or\s+replace\s+function\s+public\.{name}"
             rf"\s*\(\s*p_payload\s+jsonb[^)]*\).*?security\s+definer"
@@ -210,6 +214,10 @@ def test_system_onboarding_rpcs_are_service_role_only() -> None:
     assert "target_membership_history_conflict" in RPC_SQL
     assert "inviter_not_authorized" in RPC_SQL
     assert "'trainee'" in RPC_SQL
+    assert "reconciliation_email_not_confirmed" in RPC_SQL
+    assert "reconciliation_auth_user_ambiguous" in RPC_SQL
+    assert "lower(btrim(auth_user.email)) = email_value" in RPC_SQL
+    assert "'already_active', true" in RPC_SQL
 
 
 def test_storage_is_active_immutable_and_metadata_bound() -> None:
