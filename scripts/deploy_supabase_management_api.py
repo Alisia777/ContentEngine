@@ -25,6 +25,7 @@ EXPECTED_PROJECT_REF = "iyckwryrucqrxwlowxow"
 MANAGEMENT_API_ORIGIN = "https://api.supabase.com"
 HISTORY_SCHEMA = "contentengine_deploy"
 HISTORY_TABLE = "schema_migrations"
+DEPLOYMENT_LOCK_NAME = "contentengine_deploy:production"
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_PRIVATE_SQL_BYTES = 1_048_576
 MIGRATION_NAME = re.compile(
@@ -34,10 +35,7 @@ TRANSACTION_WRAPPER = re.compile(
     r"\A(?:\ufeff)?\s*begin\s*;(?P<body>.*)commit\s*;\s*\Z",
     flags=re.IGNORECASE | re.DOTALL,
 )
-INNER_TRANSACTION_CONTROL = re.compile(
-    r"^\s*(?:begin|commit|rollback|start\s+transaction)\s*;\s*(?:--.*)?$",
-    flags=re.IGNORECASE | re.MULTILINE,
-)
+DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -57,11 +55,181 @@ class Migration:
     body: str
 
 
+@dataclass(frozen=True)
+class SqlStatement:
+    raw: str
+    tokens: tuple[str, ...]
+
+
 def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _top_level_statements(sql: str, *, source_label: str) -> list[SqlStatement]:
+    """Split SQL on real top-level semicolons, ignoring quoted bodies."""
+
+    statements: list[SqlStatement] = []
+    tokens: list[str] = []
+    statement_start = 0
+    index = 0
+    length = len(sql)
+    while index < length:
+        char = sql[index]
+        if char.isspace():
+            index += 1
+            continue
+        if sql.startswith("--", index):
+            newline = sql.find("\n", index + 2)
+            index = length if newline < 0 else newline + 1
+            continue
+        if sql.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < length and depth:
+                if sql.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif sql.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            if depth:
+                raise ConfigurationError(f"{source_label} has an unterminated comment")
+            continue
+        if char == "'":
+            escape_string = (
+                index > 0
+                and sql[index - 1] in {"e", "E"}
+                and (
+                    index == 1
+                    or not (
+                        sql[index - 2].isalnum()
+                        or sql[index - 2] in {"_", "$"}
+                    )
+                )
+            )
+            index += 1
+            while index < length:
+                if escape_string and sql[index] == "\\":
+                    if index + 1 >= length:
+                        raise ConfigurationError(
+                            f"{source_label} has an unterminated escape string"
+                        )
+                    index += 2
+                    continue
+                if (
+                    not escape_string
+                    and sql[index] == "\\"
+                    and index + 1 < length
+                    and sql[index + 1] == "'"
+                ):
+                    raise ConfigurationError(
+                        f"{source_label} has an ambiguous backslash quote"
+                    )
+                if sql[index] == "'":
+                    if index + 1 < length and sql[index + 1] == "'":
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
+            else:
+                raise ConfigurationError(f"{source_label} has an unterminated string")
+            continue
+        if char == '"':
+            tokens.append("__quoted_identifier__")
+            index += 1
+            while index < length:
+                if sql[index] == '"':
+                    if index + 1 < length and sql[index + 1] == '"':
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
+            else:
+                raise ConfigurationError(
+                    f"{source_label} has an unterminated quoted identifier"
+                )
+            continue
+        if char == "$":
+            delimiter_match = DOLLAR_QUOTE.match(sql, index)
+            if delimiter_match is not None:
+                tokens.append("__dollar_quote__")
+                delimiter = delimiter_match.group(0)
+                closing = sql.find(delimiter, delimiter_match.end())
+                if closing < 0:
+                    raise ConfigurationError(
+                        f"{source_label} has an unterminated dollar quote"
+                    )
+                index = closing + len(delimiter)
+                continue
+        if char.isalpha() or char == "_":
+            end = index + 1
+            while end < length and (
+                sql[end].isalnum() or sql[end] in {"_", "$"}
+            ):
+                end += 1
+            tokens.append(sql[index:end].casefold())
+            index = end
+            continue
+        if char == ";":
+            if tokens:
+                statements.append(
+                    SqlStatement(
+                        raw=sql[statement_start : index + 1].strip(),
+                        tokens=tuple(tokens),
+                    )
+                )
+            tokens = []
+            statement_start = index + 1
+            index += 1
+            continue
+        index += 1
+
+    if tokens:
+        statements.append(
+            SqlStatement(raw=sql[statement_start:].strip(), tokens=tuple(tokens))
+        )
+    return statements
+
+
+def _is_transaction_control(tokens: tuple[str, ...]) -> bool:
+    if not tokens:
+        return False
+    first = tokens[0]
+    if first in {
+        "abort",
+        "begin",
+        "commit",
+        "end",
+        "prepare",
+        "release",
+        "rollback",
+        "savepoint",
+        "start",
+    }:
+        return True
+    return first == "set" and len(tokens) > 1 and tokens[1] in {
+        "session",
+        "transaction",
+    }
+
+
 def _unwrap_transaction(sql: str, *, source_label: str) -> str:
+    statements = _top_level_statements(sql, source_label=source_label)
+    if (
+        len(statements) < 3
+        or statements[0].tokens != ("begin",)
+        or statements[-1].tokens != ("commit",)
+    ):
+        raise ConfigurationError(
+            f"{source_label} must have one explicit BEGIN/COMMIT wrapper"
+        )
+    if any(_is_transaction_control(item.tokens) for item in statements[1:-1]):
+        raise ConfigurationError(f"{source_label} contains transaction control")
+
     match = TRANSACTION_WRAPPER.fullmatch(sql)
     if match is None:
         raise ConfigurationError(
@@ -70,10 +238,6 @@ def _unwrap_transaction(sql: str, *, source_label: str) -> str:
     body = match.group("body").strip()
     if not body:
         raise ConfigurationError(f"{source_label} is empty")
-    if INNER_TRANSACTION_CONTROL.search(body):
-        raise ConfigurationError(
-            f"{source_label} contains nested transaction control"
-        )
     return body
 
 
@@ -117,6 +281,38 @@ def load_migrations(directory: Path) -> list[Migration]:
     return migrations
 
 
+PRIVATE_EXAM_CONTRACT_SQL = """
+do $contentengine_exam_contract$
+declare
+  answer_total integer;
+begin
+  select count(*) into answer_total
+  from content_factory_private.training_answer_keys answer_key
+  join content_factory.training_questions question
+    on question.code = answer_key.question_code
+  where question.module_code = 'operator_final_exam';
+
+  if answer_total <> 12 then
+    raise exception using
+      errcode = '23514',
+      message = 'private_exam_key_contract_failed';
+  end if;
+end;
+$contentengine_exam_contract$;
+""".strip()
+
+
+def _contains_token_sequence(
+    tokens: tuple[str, ...],
+    expected: tuple[str, ...],
+) -> bool:
+    width = len(expected)
+    return any(
+        tokens[index : index + width] == expected
+        for index in range(len(tokens) - width + 1)
+    )
+
+
 def decode_private_exam_sql(encoded: str) -> str:
     if not encoded or not encoded.strip():
         raise ConfigurationError("SUPABASE_EXAM_KEYS_B64 is required")
@@ -131,23 +327,112 @@ def decode_private_exam_sql(encoded: str) -> str:
     except UnicodeDecodeError as exc:
         raise ConfigurationError("Private exam-key payload is not valid UTF-8") from exc
 
-    normalized = sql.casefold()
-    required_markers = (
-        "content_factory_private.training_answer_keys",
-        "correct_answers",
-        "catalog_contract",
+    all_statements = _top_level_statements(
+        sql,
+        source_label="Private exam-key payload",
     )
-    if any(marker not in normalized for marker in required_markers):
-        raise ConfigurationError("Private exam-key payload targets an unexpected contract")
+    if not all_statements or all_statements[0].tokens != ("begin",):
+        raise ConfigurationError(
+            "Private exam-key payload must have an explicit transaction wrapper"
+        )
+    statements = all_statements[1:]
+    trailing_commits = 0
+    while statements and statements[-1].tokens == ("commit",):
+        statements = statements[:-1]
+        trailing_commits += 1
+    # The already-provisioned secret may contain the original migration COMMIT
+    # plus its envelope COMMIT. Neither is ever sent back to the database.
+    if trailing_commits not in {1, 2}:
+        raise ConfigurationError(
+            "Private exam-key payload must have an explicit transaction wrapper"
+        )
+    if any(_is_transaction_control(item.tokens) for item in statements):
+        raise ConfigurationError("Private exam-key payload contains transaction control")
+    if len(statements) != 2:
+        raise ConfigurationError("Private exam-key payload has an unexpected shape")
 
-    # The private payload is data provisioning, never a schema/role management path.
-    forbidden = re.compile(
-        r"^\s*(?:drop|alter|create|truncate|grant|revoke|copy|call)\b",
-        flags=re.IGNORECASE | re.MULTILINE,
+    insert, supplied_contract = statements
+    required_prefix = (
+        "insert",
+        "into",
+        "content_factory_private",
+        "training_answer_keys",
+        "question_code",
+        "correct_answers",
+        "rubric",
     )
-    if forbidden.search(sql):
+    required_upsert = (
+        "on",
+        "conflict",
+        "question_code",
+        "do",
+        "update",
+        "set",
+    )
+    if (
+        insert.tokens[: len(required_prefix)] != required_prefix
+        or "values" not in insert.tokens[len(required_prefix) :]
+        or not _contains_token_sequence(insert.tokens, required_upsert)
+    ):
+        raise ConfigurationError(
+            "Private exam-key payload may only upsert the approved answer table"
+        )
+    forbidden_tokens = {
+        "alter",
+        "call",
+        "copy",
+        "create",
+        "delete",
+        "drop",
+        "grant",
+        "revoke",
+        "select",
+        "truncate",
+    }
+    if forbidden_tokens.intersection(insert.tokens):
         raise ConfigurationError("Private exam-key payload contains forbidden SQL")
-    return _unwrap_transaction(sql, source_label="Private exam-key payload")
+    allowed_insert_tokens = {
+        "conflict",
+        "content_factory_private",
+        "correct_answers",
+        "do",
+        "e",
+        "excluded",
+        "insert",
+        "into",
+        "jsonb",
+        "jsonb_build_array",
+        "now",
+        "null",
+        "on",
+        "question_code",
+        "rubric",
+        "set",
+        "training_answer_keys",
+        "update",
+        "updated_at",
+        "values",
+    }
+    if set(insert.tokens) - allowed_insert_tokens:
+        raise ConfigurationError(
+            "Private exam-key payload contains an unapproved expression"
+        )
+
+    # Validate but do not execute the secret-supplied DO block. The deployer owns
+    # the exact contract check below, so the secret can only provide answer data.
+    if (
+        supplied_contract.tokens != ("do", "__dollar_quote__")
+        or re.match(
+            r"^\s*do\s+\$catalog_contract\$",
+            supplied_contract.raw,
+            flags=re.IGNORECASE,
+        )
+        is None
+    ):
+        raise ConfigurationError(
+            "Private exam-key payload has an unexpected catalog contract"
+        )
+    return f"{insert.raw}\n{PRIVATE_EXAM_CONTRACT_SQL}"
 
 
 class ManagementApiClient:
@@ -230,6 +515,7 @@ class ManagementApiClient:
 
 HISTORY_BOOTSTRAP_SQL = f"""
 begin;
+select pg_advisory_xact_lock(hashtextextended('{DEPLOYMENT_LOCK_NAME}', 0));
 create schema if not exists {HISTORY_SCHEMA};
 revoke all on schema {HISTORY_SCHEMA} from public, anon, authenticated;
 create table if not exists {HISTORY_SCHEMA}.{HISTORY_TABLE} (
@@ -306,26 +592,68 @@ def _validate_history_prefix(
         raise DeploymentError("Remote migration history is not a valid local prefix")
 
 
-def _migration_transaction(migration: Migration) -> str:
-    version = _sql_literal(migration.version)
-    checksum = _sql_literal(migration.sha256)
-    return f"""
-begin;
-select pg_advisory_xact_lock(hashtextextended('contentengine_deploy:migrations', 0));
+def _deployment_transaction(
+    *,
+    migrations: list[Migration],
+    remote_history: dict[str, str],
+    private_exam_sql_body: str,
+) -> tuple[str, list[str]]:
+    pending = [
+        migration
+        for migration in migrations
+        if migration.version not in remote_history
+    ]
+    expected_rows = ",\n".join(
+        f"({_sql_literal(version)}, {_sql_literal(checksum)})"
+        for version, checksum in sorted(remote_history.items())
+    )
+    if expected_rows:
+        history_match = f"""
+if exists (
+  select 1
+  from (values {expected_rows}) expected(version, sha256)
+  left join {HISTORY_SCHEMA}.{HISTORY_TABLE} actual
+    on actual.version = expected.version
+  where actual.sha256 is distinct from expected.sha256
+) then
+  raise exception using message = 'deployment_history_changed_retry';
+end if;
+""".strip()
+    else:
+        history_match = ""
+
+    migration_blocks: list[str] = []
+    for migration in pending:
+        version = _sql_literal(migration.version)
+        checksum = _sql_literal(migration.sha256)
+        migration_blocks.append(
+            f"""
 {migration.body}
 insert into {HISTORY_SCHEMA}.{HISTORY_TABLE} (version, sha256)
 values ({version}, {checksum});
-commit;
 """.strip()
+        )
 
-
-def _private_exam_transaction(private_sql_body: str) -> str:
-    return f"""
+    guard = f"""
+do $contentengine_deployment_guard$
+begin
+  if (select count(*) from {HISTORY_SCHEMA}.{HISTORY_TABLE})
+       <> {len(remote_history)} then
+    raise exception using message = 'deployment_history_changed_retry';
+  end if;
+  {history_match}
+end;
+$contentengine_deployment_guard$;
+""".strip()
+    sql = f"""
 begin;
-select pg_advisory_xact_lock(hashtextextended('contentengine_deploy:exam-keys', 0));
-{private_sql_body}
+select pg_advisory_xact_lock(hashtextextended('{DEPLOYMENT_LOCK_NAME}', 0));
+{guard}
+{os.linesep.join(migration_blocks)}
+{private_exam_sql_body}
 commit;
 """.strip()
+    return sql, [migration.version for migration in pending]
 
 
 def deploy(
@@ -338,15 +666,12 @@ def deploy(
     remote_history = read_remote_history(client)
     _validate_history_prefix(migrations, remote_history)
 
-    applied: list[str] = []
-    for migration in migrations:
-        if migration.version in remote_history:
-            continue
-        client.execute(_migration_transaction(migration))
-        remote_history[migration.version] = migration.sha256
-        applied.append(migration.version)
-
-    client.execute(_private_exam_transaction(private_exam_sql_body))
+    deployment_sql, applied = _deployment_transaction(
+        migrations=migrations,
+        remote_history=remote_history,
+        private_exam_sql_body=private_exam_sql_body,
+    )
+    client.execute(deployment_sql)
     return applied
 
 

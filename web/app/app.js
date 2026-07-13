@@ -138,7 +138,7 @@ async function consumeAuthLink() {
   if (errorDescription) throw new Error(errorDescription);
 
   let purpose = query.get("type") || query.get("auth") || fragment.get("type");
-  const tokenHash = query.get("token_hash");
+  const tokenHash = query.get("token_hash") || fragment.get("token_hash");
   const code = query.get("code");
   const accessToken = fragment.get("access_token");
   const refreshToken = fragment.get("refresh_token");

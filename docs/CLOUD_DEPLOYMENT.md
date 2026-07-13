@@ -117,6 +117,7 @@ encrypted secrets in that environment:
 | --- | --- |
 | `SUPABASE_ACCESS_TOKEN` | Revocable Supabase personal access token used only by the production migration/configuration steps |
 | `SUPABASE_EXAM_KEYS_B64` | Base64-encoded, idempotent SQL payload that provisions the private exam grading keys after migrations |
+| `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 
 Configure these as repository **Variables**, because the independent Pages
 build job must read them:
@@ -149,8 +150,20 @@ Actions. No database password is stored in GitHub.
 
 The invitation Function receives the standard Supabase runtime credentials in
 its managed server environment; no service-role/secret key is copied into
-GitHub variables or the Pages artifact. It must authenticate the caller and
-enforce owner/admin organization scope before using Auth Admin operations.
+GitHub variables or the Pages artifact. The first-owner step uses the protected
+Management API token to reveal one service-role server key only in runner
+memory (preferring a scoped `sb_secret_*` key over the legacy JWT), creates a
+confirmed identity only when `SUPABASE_OWNER_EMAIL` does not exist, calls the
+service-role-only initializer, sends one password-recovery link, and marks that
+delivery idempotently. The key and recovery token are never printed or stored.
+An existing unconfirmed identity fails closed for manual review instead of
+being admin-confirmed, because it may carry an attacker-selected password from
+earlier configuration drift.
+The owner job depends on the successful Pages deployment, so the password link
+is not sent until the committed `/auth/accept/` bridge is live at the canonical
+URL.
+Subsequent invitations must authenticate the caller and enforce owner/admin
+organization scope before using Auth Admin operations.
 
 ## Existing paid Supabase project
 
@@ -201,10 +214,12 @@ organization access through the application contract.
 5. If the Management API deployer reports an immutable checksum mismatch or a
    failed migration, stop and inspect `contentengine_deploy.schema_migrations`.
    Do not publish a frontend against a partially migrated RPC contract.
-6. Create and confirm the first Auth user from the Supabase dashboard. From a
-   secure administrative context, call the service-role-only
-   `system_initialize_owner` once for that exact user. Never expose the
-   service-role credential or this operation to Pages.
+6. Confirm the protected owner-bootstrap step created or reconciled the exact
+   `SUPABASE_OWNER_EMAIL`, called the service-role-only
+   `system_initialize_owner`, and reported `recovery=sent` (or
+   `recovery=not_required` on a safe replay). Open the recovery email and set a
+   strong password through the committed `/auth/accept/` route. Never expose
+   the service-role credential or initializer to Pages.
    The invariant after initialization is **Exactly one active membership** for
    the first owner. Bootstrap never falls back to a sole-organization autojoin
    or silently restores an inactive membership.

@@ -63,6 +63,7 @@ def test_production_path_is_supabase_native_pages_without_render_or_container_pu
     workflow = _text(PRODUCTION_WORKFLOW)
     assert "Deploy Supabase and GitHub Pages" in workflow
     assert "python scripts/deploy_supabase_management_api.py" in workflow
+    assert "python scripts/bootstrap_supabase_owner.py" in workflow
     assert "supabase db push" not in workflow
     assert _pinned("actions/upload-pages-artifact") in workflow
     assert _pinned("actions/deploy-pages") in workflow
@@ -77,6 +78,7 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     migrate = jobs["migrate"]
     build = jobs["build-pages"]
     deploy = jobs["deploy-pages"]
+    owner = jobs["bootstrap-owner"]
 
     assert migrate["environment"] == "production"
     assert "workflow_run.conclusion == 'success'" in migrate["if"]
@@ -87,6 +89,9 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert "SUPABASE_ACCESS_TOKEN" not in migrate["env"]
     assert "SUPABASE_DB_PASSWORD" not in migrate["env"]
     assert migrate["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
+    assert migrate["env"]["SUPABASE_PUBLISHABLE_KEY"] == (
+        "${{ vars.SUPABASE_PUBLISHABLE_KEY }}"
+    )
     assert migrate["env"]["EXPECTED_SUPABASE_PROJECT_REF"] == "iyckwryrucqrxwlowxow"
     assert any(
         step.get("uses") == _pinned("supabase/setup-cli")
@@ -128,6 +133,18 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     )
     assert "--no-verify-jwt" not in invite_deploy["run"]
     assert "--prune" not in invite_deploy["run"]
+    owner_step = next(
+        step
+        for step in owner["steps"]
+        if step.get("name") == "Provision first owner and send password setup"
+    )
+    assert owner_step["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+        "SUPABASE_OWNER_EMAIL": "${{ secrets.SUPABASE_OWNER_EMAIL }}",
+    }
+    assert owner_step["run"] == (
+        'python scripts/bootstrap_supabase_owner.py --display-name "Alisia777"'
+    )
 
     assert build["env"]["SUPABASE_PUBLISHABLE_KEY"] == (
         "${{ vars.SUPABASE_PUBLISHABLE_KEY }}"
@@ -136,7 +153,7 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert "workflow_run.conclusion == 'success'" in build["if"]
     assert "workflow_run.event == 'push'" in build["if"]
     assert "workflow_run.head_repository.full_name == github.repository" in build["if"]
-    assert build["permissions"] == {"contents": "read", "pages": "write"}
+    assert build["permissions"] == {"contents": "read", "pages": "read"}
     assert any(
         step.get("uses") == _pinned("actions/configure-pages")
         for step in build["steps"]
@@ -152,6 +169,13 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert deploy["permissions"] == {"pages": "write", "id-token": "write"}
     assert deploy["environment"]["name"] == "github-pages"
     assert deploy["steps"][-1]["uses"] == _pinned("actions/deploy-pages")
+    assert owner["needs"] == ["deploy-pages"]
+    assert owner["environment"] == "production"
+    assert owner["permissions"] == {"contents": "read"}
+    assert owner["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
+    assert owner["env"]["SUPABASE_PUBLISHABLE_KEY"] == (
+        "${{ vars.SUPABASE_PUBLISHABLE_KEY }}"
+    )
 
 
 def test_every_external_action_is_pinned_to_an_immutable_commit() -> None:
@@ -176,8 +200,8 @@ def test_production_workflow_releases_the_successful_main_ci_commit() -> None:
     assert "push:" not in workflow_text
     assert workflow_text.count(
         "ref: ${{ github.event.workflow_run.head_sha || github.sha }}"
-    ) == 2
-    assert workflow_text.count("persist-credentials: false") == 2
+    ) == 3
+    assert workflow_text.count("persist-credentials: false") == 3
 
 
 def test_pages_build_accepts_only_browser_safe_configuration() -> None:
@@ -230,6 +254,38 @@ def test_private_exam_keys_are_step_scoped_and_never_printed() -> None:
     assert "traceback" not in deployer
     assert "set -x" not in command
     assert "SUPABASE_EXAM_KEYS_B64" not in build.get("env", {})
+
+
+def test_first_owner_bootstrap_keeps_server_credentials_out_of_pages() -> None:
+    workflow = _yaml(PRODUCTION_WORKFLOW)
+    migrate = workflow["jobs"]["migrate"]
+    build = workflow["jobs"]["build-pages"]
+    owner = workflow["jobs"]["bootstrap-owner"]
+    owner_step = next(
+        step
+        for step in owner["steps"]
+        if step.get("name") == "Provision first owner and send password setup"
+    )
+    source = _text("scripts/bootstrap_supabase_owner.py")
+
+    assert "SUPABASE_OWNER_EMAIL" not in migrate["env"]
+    assert "SUPABASE_ACCESS_TOKEN" not in migrate["env"]
+    assert "SUPABASE_OWNER_EMAIL" not in build["env"]
+    assert "SUPABASE_ACCESS_TOKEN" not in build["env"]
+    assert "SUPABASE_OWNER_EMAIL" not in owner["env"]
+    assert "SUPABASE_ACCESS_TOKEN" not in owner["env"]
+    assert owner["needs"] == ["deploy-pages"]
+    assert owner_step["env"]["SUPABASE_OWNER_EMAIL"] == (
+        "${{ secrets.SUPABASE_OWNER_EMAIL }}"
+    )
+    assert "/api-keys?reveal=true" in source
+    assert '== "service_role"' in source
+    assert "/auth/v1/admin/users" in source
+    assert "system_initialize_owner" in source
+    assert "/auth/v1/recover?redirect_to=" in source
+    assert "write_text" not in source
+    assert "write_bytes" not in source
+    assert "traceback" not in source
 
 
 def test_creator_invite_function_is_explicitly_jwt_verified() -> None:

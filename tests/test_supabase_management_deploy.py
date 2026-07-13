@@ -23,7 +23,15 @@ from scripts.deploy_supabase_management_api import (
 PRIVATE_EXAM_SQL = """begin;
 insert into content_factory_private.training_answer_keys (
   question_code, correct_answers, rubric
-) values ('test_only', '[]'::jsonb, 'catalog_contract');
+) values ('test_only', '[]'::jsonb, 'catalog_contract')
+on conflict (question_code) do update set
+  correct_answers = excluded.correct_answers,
+  rubric = excluded.rubric;
+do $catalog_contract$
+begin
+  perform 1;
+end;
+$catalog_contract$;
 commit;
 """
 
@@ -68,15 +76,15 @@ class FakeManagementApi:
                     for version, checksum in sorted(self.history.items())
                 ]
             )
-        migration_insert = re.search(
+        migration_inserts = list(re.finditer(
             r"insert into contentengine_deploy[.]schema_migrations"
             r"\s*[(]version, sha256[)]\s*values\s*"
             r"[(]'([0-9]+)', '([0-9a-f]{64})'[)]",
             sql,
             flags=re.IGNORECASE,
-        )
-        if migration_insert:
-            version, checksum = migration_insert.groups()
+        ))
+        planned_history = [match.groups() for match in migration_inserts]
+        for version, _checksum in planned_history:
             if version == self.fail_version:
                 raise error.HTTPError(
                     api_request.full_url,
@@ -85,8 +93,6 @@ class FakeManagementApi:
                     {},
                     BytesIO(sql.encode("utf-8")),
                 )
-            # This update represents the atomic transaction succeeding.
-            self.history[version] = checksum
         if "test_only" in sql and self.fail_private:
             raise error.HTTPError(
                 api_request.full_url,
@@ -95,6 +101,9 @@ class FakeManagementApi:
                 {},
                 BytesIO(sql.encode("utf-8")),
             )
+        # This update represents the entire outer transaction succeeding.
+        for version, checksum in planned_history:
+            self.history[version] = checksum
         return FakeResponse([])
 
 
@@ -194,7 +203,7 @@ def test_partial_failure_cannot_record_failed_migration(tmp_path: Path) -> None:
             private_exam_sql_body="select 1;",
         )
 
-    assert fake_http.history == {migrations[0].version: migrations[0].sha256}
+    assert fake_http.history == {}
     failed_query = fake_http.requests[-1]["query"].casefold()
     assert failed_query.startswith("begin;")
     assert "insert into contentengine_deploy.schema_migrations" in failed_query
@@ -246,8 +255,86 @@ def test_each_migration_is_wrapped_with_history_in_one_transaction(
         for item in fake_http.requests
         if "insert into contentengine_deploy.schema_migrations" in item["query"]
     ]
-    assert len(migration_queries) == 2
-    for query in migration_queries:
-        assert query.startswith("begin;")
-        assert "pg_advisory_xact_lock" in query
-        assert query.endswith("commit;")
+    assert len(migration_queries) == 1
+    query = migration_queries[0]
+    assert query.startswith("begin;")
+    assert query.count("insert into contentengine_deploy.schema_migrations") == 2
+    assert "pg_advisory_xact_lock" in query
+    assert "deployment_history_changed_retry" in query
+    assert query.endswith("commit;")
+
+
+@pytest.mark.parametrize(
+    "nested_control",
+    [
+        "select 1; commit; select 2;",
+        "select 1; END; select 2;",
+        "select 1; COMMIT AND CHAIN; select 2;",
+        "select 1; ROLLBACK TO SAVEPOINT risky; select 2;",
+    ],
+)
+def test_migration_transaction_escape_is_rejected(
+    tmp_path: Path,
+    nested_control: str,
+) -> None:
+    _write_migration(tmp_path, "202607130001", nested_control)
+
+    with pytest.raises(ConfigurationError, match="transaction control"):
+        load_migrations(tmp_path)
+
+
+def test_private_payload_executes_only_validated_upsert_not_supplied_do_block() -> None:
+    encoded = base64.b64encode(PRIVATE_EXAM_SQL.encode()).decode()
+
+    validated = decode_private_exam_sql(encoded)
+
+    assert "insert into content_factory_private.training_answer_keys" in validated
+    assert "test_only" in validated
+    assert "perform 1" not in validated
+    assert "private_exam_key_contract_failed" in validated
+
+
+def test_private_payload_safely_normalizes_existing_double_commit_envelope() -> None:
+    payload = PRIVATE_EXAM_SQL.removesuffix("commit;\n") + "commit;\ncommit;\n"
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    validated = decode_private_exam_sql(encoded)
+
+    assert "test_only" in validated
+    assert "commit" not in tuple(
+        token.casefold() for token in re.findall(r"[A-Za-z_]+", validated)
+    )
+
+
+def test_private_payload_cannot_smuggle_privileged_statement_in_one_line() -> None:
+    payload = PRIVATE_EXAM_SQL.replace(
+        "do $catalog_contract$",
+        "delete from auth.users; do $catalog_contract$",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="unexpected shape"):
+        decode_private_exam_sql(encoded)
+
+
+def test_private_payload_cannot_call_side_effect_function() -> None:
+    payload = PRIVATE_EXAM_SQL.replace(
+        "'test_only'",
+        "setval('content_factory.some_sequence', 1)::text",
+    )
+    encoded = base64.b64encode(payload.encode()).decode()
+
+    with pytest.raises(ConfigurationError, match="unapproved expression"):
+        decode_private_exam_sql(encoded)
+
+
+def test_escape_string_cannot_hide_real_transaction_control(tmp_path: Path) -> None:
+    (tmp_path / "202607130001_test.sql").write_text(
+        "begin;\n"
+        "select E'a\\''; COMMIT; SELECT 'b'; --';\n"
+        "commit;\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="transaction control"):
+        load_migrations(tmp_path)
