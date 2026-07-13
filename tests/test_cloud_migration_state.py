@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_live_alembic_revision_must_equal_repository_head() -> None:
     expected_migration_heads.cache_clear()
     expected = expected_migration_heads()
-    assert expected == frozenset({"8f2d31c4a9b7"})
+    assert expected == frozenset({"c8a91f6e2d44"})
 
     database = create_engine("sqlite:///:memory:")
     with database.begin() as connection:
@@ -31,6 +31,10 @@ def test_live_alembic_revision_must_equal_repository_head() -> None:
         assert not database_is_at_migration_head(connection)
         connection.execute(
             text("UPDATE alembic_version SET version_num = '8f2d31c4a9b7'")
+        )
+        assert not database_is_at_migration_head(connection)
+        connection.execute(
+            text("UPDATE alembic_version SET version_num = 'c8a91f6e2d44'")
         )
         assert database_is_at_migration_head(connection)
 
@@ -79,6 +83,10 @@ def test_forward_guard_revision_and_both_render_services_own_migration_barrier()
         ROOT
         / "migrations/versions/8f2d31c4a9b7_install_postgres_integrity_guards.py"
     ).read_text(encoding="utf-8")
+    security = (
+        ROOT
+        / "migrations/versions/c8a91f6e2d44_harden_supabase_public_schema.py"
+    ).read_text(encoding="utf-8")
     render = (ROOT / "render.yaml").read_text(encoding="utf-8")
     predeploy = (ROOT / "scripts/predeploy.py").read_text(encoding="utf-8")
     worker = (ROOT / "scripts/run_product_ugc_queue_worker.py").read_text(
@@ -89,6 +97,8 @@ def test_forward_guard_revision_and_both_render_services_own_migration_barrier()
 
     assert 'down_revision: Union[str, Sequence[str], None] = "5b7130c8f42e"' in forward
     assert "install_postgresql_integrity_guards(bind)" in forward
+    assert 'down_revision: Union[str, Sequence[str], None] = "8f2d31c4a9b7"' in security
+    assert "install_postgresql_public_schema_security(bind)" in security
     assert render.count("preDeployCommand: python scripts/predeploy.py") == 2
     assert predeploy.index("validate_runtime_settings") < predeploy.index("command.upgrade")
     assert "serialized_database_migration(engine)" in predeploy

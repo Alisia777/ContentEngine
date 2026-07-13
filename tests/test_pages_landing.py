@@ -10,8 +10,13 @@ def test_pages_landing_represents_the_novice_first_factory() -> None:
     html = PAGES_LANDING.read_text(encoding="utf-8")
 
     assert "Контент ИИ Завод" in html
-    assert "QVF_PUBLIC_APP_URL/control-room" in html
+    assert "QVF_PUBLIC_APP_URL" not in html
     assert "http://127.0.0.1" not in html
+    assert "Открыть локальный" not in html
+    assert "после локального запуска" not in html
+    assert 'href="docs/CLOUD_DEPLOYMENT.md"' not in html
+    assert html.count('data-runtime-cta="pending"') == 4
+    assert html.count('aria-disabled="true"') >= 4
     assert len(re.findall(r'data-factory-block="[^"]+"', html)) == 9
     assert "Публичная витрина" in html
     assert "Облачное приложение" in html

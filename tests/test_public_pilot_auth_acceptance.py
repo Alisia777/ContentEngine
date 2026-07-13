@@ -8,6 +8,7 @@ import hmac
 import json
 import re
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,12 +21,13 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import models
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.main import app, settings as app_settings
+from app.metrics_intake.click_tracker import ClickTracker
 from app.novice_learning_path import NoviceLearningPathService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import (
@@ -510,7 +512,7 @@ def test_supabase_password_login_sets_http_only_session_and_keeps_membership_aut
             db,
             email="creator@example.test",
             display_name="Invited Creator",
-            role="operator",
+            role="producer",
             supabase_user_id="creator-one",
         )
         membership_id = invited.membership.id
@@ -532,14 +534,14 @@ def test_supabase_password_login_sets_http_only_session_and_keeps_membership_aut
             password="Creator-Password-2026!",
         )
         assert signed_in.status_code == 303
-        assert signed_in.headers["location"] == "/control-room"
+        assert signed_in.headers["location"] == "/creator-operations?tab=generation"
         set_cookies = signed_in.headers.get_list("set-cookie")
         assert any("qvf_session=" in value and "HttpOnly" in value for value in set_cookies)
         assert any("qvf_refresh=" in value and "HttpOnly" in value for value in set_cookies)
-        assert client.get("/control-room").status_code == 200
+        assert client.get("/creator-operations?tab=generation").status_code == 200
 
     with SessionLocal() as db:
-        assert db.get(models.Membership, membership_id).role == "operator"
+        assert db.get(models.Membership, membership_id).role == "producer"
 
     with TestClient(app) as client:
         denied = post_login(
@@ -946,7 +948,10 @@ def test_tracking_redirect_is_public_and_records_click():
     with TestClient(app) as client:
         redirected = client.get(
             "/r/public-pilot-click",
-            headers={"referer": "https://social.example.test/post/42"},
+            headers={
+                "referer": "https://social.example.test/post/42?access_token=must-not-persist",
+                "user-agent": "Mozilla/5.0 Test Browser",
+            },
             follow_redirects=False,
         )
 
@@ -957,8 +962,220 @@ def test_tracking_redirect_is_public_and_records_click():
             select(models.TrackingClick).where(models.TrackingClick.tracking_link_id == link_id)
         )
         assert click is not None
-        assert click.referrer == "https://social.example.test/post/42"
-        assert click.metadata_json == {"path": "/r/public-pilot-click"}
+        assert click.referrer == "https://social.example.test"
+        assert click.metadata_json["path"] == "/r/public-pilot-click"
+        tracking = click.metadata_json["tracking_v1"]
+        assert tracking["schema_version"] == 1
+        assert tracking["classification"] == "human"
+        assert tracking["bot_reason"] is None
+        assert tracking["accepted_for_raw_kpi"] is True
+        assert tracking["accepted_for_human_kpi"] is True
+        assert re.fullmatch(r"[a-f0-9]{64}", tracking["visitor_fingerprint"])
+        assert "access_token" not in str(click.metadata_json)
+
+
+def test_click_tracker_deduplicates_one_privacy_safe_visitor():
+    now = datetime(2026, 7, 12, 12, 0, tzinfo=UTC)
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="dedupe-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        tracker = ClickTracker(db, clock=lambda: now)
+
+        first = tracker.record(
+            link.slug,
+            referrer="https://social.example.test/post/42?token=private",
+            user_agent="Mozilla/5.0 Dedupe Browser",
+            accept_language="ru-RU,ru;q=0.9",
+            visitor_token="visitor-dedupe-00000001",
+            metadata={"path": f"/r/{link.slug}"},
+        )
+        repeated = tracker.record(
+            link.slug,
+            referrer="https://social.example.test/another/path?secret=private",
+            user_agent="Mozilla/5.0 Dedupe Browser",
+            accept_language="ru-RU,ru;q=0.9",
+            visitor_token="visitor-dedupe-00000001",
+            metadata={"path": f"/r/{link.slug}"},
+        )
+
+        assert first.disposition == "recorded"
+        assert first.click is not None
+        assert repeated.disposition == "duplicate"
+        assert repeated.click is None
+        assert repeated.duplicate_of_click_id == first.click.id
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link.id
+            )
+        ) == 1
+        db.refresh(first.click)
+        assert first.click.referrer == "https://social.example.test"
+        contract = first.click.metadata_json["tracking_v1"]
+        assert contract == {
+            "schema_version": 1,
+            "classification": "human",
+            "bot_reason": None,
+            "accepted_for_raw_kpi": True,
+            "accepted_for_human_kpi": True,
+            "visitor_fingerprint": contract["visitor_fingerprint"],
+        }
+        assert re.fullmatch(r"[a-f0-9]{64}", contract["visitor_fingerprint"])
+
+
+def test_tracking_redirect_uses_short_lived_cookie_for_browser_dedupe():
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="browser-dedupe-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        link_id = link.id
+
+    headers = {
+        "user-agent": "Mozilla/5.0 Cookie Dedupe Browser",
+        "referer": "https://social.example.test/post/42",
+    }
+    with TestClient(app) as client:
+        first = client.get(
+            "/r/browser-dedupe-click",
+            headers=headers,
+            follow_redirects=False,
+        )
+        repeated = client.get(
+            "/r/browser-dedupe-click",
+            headers=headers,
+            follow_redirects=False,
+        )
+
+    assert first.status_code == repeated.status_code == 307
+    visitor_cookie = next(
+        value
+        for value in first.headers.get_list("set-cookie")
+        if value.startswith("qvf_tracking_visitor=")
+    )
+    assert "HttpOnly" in visitor_cookie
+    assert "Max-Age=600" in visitor_cookie
+    assert "Path=/r" in visitor_cookie
+    with SessionLocal() as db:
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link_id
+            )
+        ) == 1
+
+
+def test_click_tracker_classifies_social_preview_bot_outside_human_kpi():
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="bot-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+
+        result = ClickTracker(db).record(
+            link.slug,
+            user_agent="TelegramBot (like TwitterBot)",
+            visitor_token="visitor-preview-0000001",
+            metadata={"path": f"/r/{link.slug}"},
+        )
+
+        assert result.disposition == "recorded"
+        assert result.classification == "bot"
+        assert result.accepted_for_human_kpi is False
+        assert result.click is not None
+        contract = result.click.metadata_json["tracking_v1"]
+        assert contract["classification"] == "bot"
+        assert contract["bot_reason"] == "social_preview"
+        assert contract["accepted_for_raw_kpi"] is True
+        assert contract["accepted_for_human_kpi"] is False
+
+
+def test_click_tracker_caps_persisted_rows_per_slug_window():
+    now = datetime(2026, 7, 12, 12, 15, tzinfo=UTC)
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="capped-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        tracker = ClickTracker(
+            db,
+            clock=lambda: now,
+            max_events_per_window=2,
+            rate_window_seconds=60,
+        )
+
+        results = [
+            tracker.record(
+                link.slug,
+                user_agent=f"Mozilla/5.0 Visitor {index}",
+                visitor_token=f"visitor-cap-0000000{index}",
+            )
+            for index in range(1, 4)
+        ]
+
+        assert [item.disposition for item in results] == [
+            "recorded",
+            "recorded",
+            "rate_limited",
+        ]
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link.id
+            )
+        ) == 2
+
+
+def test_tracking_redirect_fails_open_when_telemetry_insert_fails(monkeypatch):
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    os.environ["QVF_PUBLIC_PILOT_MODE"] = "true"
+    get_settings.cache_clear()
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="fail-open-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        link_id = link.id
+
+    def fail_insert(_self, _link, **_kwargs):
+        raise RuntimeError("database URL and secret must never escape")
+
+    monkeypatch.setattr(ClickTracker, "record_resolved", fail_insert)
+    with TestClient(app) as client:
+        redirected = client.get("/r/fail-open-click", follow_redirects=False)
+
+    assert redirected.status_code == 307
+    assert redirected.headers["location"] == "https://shop.example.test/product"
+    assert redirected.headers["cache-control"] == "private, no-store"
+    assert "database URL" not in redirected.text
+    with SessionLocal() as db:
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link_id
+            )
+        ) == 0
+
+
+def test_tracking_redirect_preserves_not_found_behavior():
+    with TestClient(app) as client:
+        response = client.get("/r/missing-tracking-link", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/metrics-intake?error=tracking_link_not_found"
 
 
 def test_jwks_verifies_es256_and_rs256_with_cached_client_and_rejects_bad_signature(monkeypatch):

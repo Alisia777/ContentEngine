@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
+from app.config import get_settings
 from app.content_cycles.errors import (
     ContentCycleConflictError,
     ContentCycleError,
@@ -17,6 +19,10 @@ from app.content_cycles.errors import (
     ContentCycleStateError,
 )
 from app.content_cycles.types import ContentCycleTrace
+from app.media_storage.backend import StorageBackend
+from app.media_storage.errors import MediaArtifactError, StorageError
+from app.media_storage.factory import get_storage_backends
+from app.media_storage.service import MediaArtifactService
 from app.output_acceptance.types import PASS_STATUSES
 from app.publishing.scheduler import PublishingScheduler
 from app.visual_evidence import (
@@ -39,12 +45,21 @@ class ContentCycleService:
     """Builds one exact Product UGC -> measurement-ready manual-publish lineage.
 
     This service never calls a provider, publishes a post, or creates a payout.
-    It only materializes local canonical records after each prior safety gate has
+    It only materializes canonical records after each prior safety gate has
     passed. Legacy unscoped products and destinations are deliberately rejected.
     """
 
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        *,
+        storage_backends: Mapping[str, StorageBackend] | None = None,
+    ):
         self.db = db
+        self.settings = get_settings()
+        self.storage_backends = (
+            dict(storage_backends) if storage_backends is not None else None
+        )
 
     def start_from_product_ugc(
         self,
@@ -84,7 +99,15 @@ class ContentCycleService:
         if not draft:
             raise ContentCycleStateError(f"ProductUGCRecipeDraft {product_ugc_recipe_draft_id} not found.")
         product = self._require_owned_product(draft.product_id, organization_id)
-        output_path = self._validated_product_ugc_output(draft)
+        output_path, output_artifact = self._validated_product_ugc_output(
+            draft,
+            organization_id=organization_id,
+        )
+        if output_artifact is not None:
+            raise ContentCycleStateError(
+                "Durable Product UGC media must use the artifact-native media and "
+                "publishing flow; a legacy ContentCycle cannot be created for it."
+            )
 
         template = models.CreativeTemplate(
             name=f"__canonical_product_ugc_draft_{draft.id}__",
@@ -158,7 +181,7 @@ class ContentCycleService:
             status="video_generated",
             aspect_ratio=self._aspect_ratio(draft.ratio),
             duration_seconds=draft.duration_seconds,
-            output_video_path=output_path.as_posix(),
+            output_video_path=output_path.as_posix() if output_path is not None else None,
             cost_estimate=0,
         )
         self.db.add(video_job)
@@ -228,6 +251,9 @@ class ContentCycleService:
             brief_json={
                 "source_type": "product_ugc_recipe_draft",
                 "source_id": draft.id,
+                "source_media_artifact_id": (
+                    output_artifact.id if output_artifact is not None else None
+                ),
                 "provider_task_id": draft.provider_task_id,
                 "human_review_notes": draft.human_review_notes,
             },
@@ -268,7 +294,13 @@ class ContentCycleService:
                 status="allowed",
                 entity_type="product_ugc_recipe_draft",
                 entity_id=str(draft.id),
-                metadata_json={"idempotency_key": key, "video_job_id": video_job.id},
+                metadata_json={
+                    "idempotency_key": key,
+                    "video_job_id": video_job.id,
+                    "source_media_artifact_id": (
+                        output_artifact.id if output_artifact is not None else None
+                    ),
+                },
             )
         )
         try:
@@ -588,10 +620,18 @@ class ContentCycleService:
                 "Video or extracted frames changed after visual review."
             ) from exc
 
-    def _validated_product_ugc_output(self, draft: models.ProductUGCRecipeDraft) -> Path:
+    def _validated_product_ugc_output(
+        self,
+        draft: models.ProductUGCRecipeDraft,
+        *,
+        organization_id: int,
+    ) -> tuple[Path | None, models.MediaArtifact | None]:
         if draft.status != "approved" or draft.human_review_status != "approved":
             raise ContentCycleStateError("Product UGC draft must be explicitly approved by a human.")
-        if draft.publishing_readiness != "ready_for_package":
+        if draft.publishing_readiness not in {
+            "ready_for_package",
+            "ready_for_publishing_package",
+        }:
             raise ContentCycleStateError("Product UGC draft is not ready for a publishing package.")
         if draft.blockers_json:
             raise ContentCycleStateError("Product UGC draft still contains blockers.")
@@ -601,6 +641,42 @@ class ContentCycleService:
             raise ContentCycleStateError("Product UGC approval requires explicit human review notes.")
         if not draft.provider_task_id or str(draft.provider_status or "").upper() not in SUCCESS_PROVIDER_STATUSES:
             raise ContentCycleStateError("Product UGC output must come from a successful real provider task.")
+        try:
+            backends = (
+                dict(self.storage_backends)
+                if self.storage_backends is not None
+                else get_storage_backends()
+            )
+            artifact = MediaArtifactService(
+                self.db,
+                backends,
+            ).resolve_ready_product_ugc_video(
+                organization_id=organization_id,
+                draft_id=draft.id,
+            )
+        except (MediaArtifactError, StorageError) as exc:
+            raise ContentCycleStateError(
+                "Product UGC durable output is outside the organization or unavailable."
+            ) from exc
+        if artifact is not None:
+            values = [
+                str(artifact.original_filename or ""),
+                *(str(item) for item in (draft.warnings_json or [])),
+            ]
+            if any(self._contains_blocking_marker(item) for item in values):
+                raise ContentCycleStateError(
+                    "Synthetic, placeholder, or failed Product UGC output is blocked."
+                )
+            return None, artifact
+
+        strict_cloud_media = (
+            self.settings.runtime_profile == "production"
+            or self.storage_backends is not None
+        )
+        if strict_cloud_media:
+            raise ContentCycleStateError(
+                "Canonical cloud cycle requires exactly one ready Product UGC video artifact."
+            )
         output_paths = list(draft.local_output_paths_json or [])
         if len(output_paths) != 1:
             raise ContentCycleStateError("Canonical cycle requires exactly one unambiguous Product UGC output.")
@@ -608,7 +684,7 @@ class ContentCycleService:
         values = [output_path.as_posix(), *(str(item) for item in (draft.warnings_json or []))]
         if any(self._contains_blocking_marker(item) for item in values):
             raise ContentCycleStateError("Synthetic, placeholder, or failed Product UGC output is blocked.")
-        return output_path
+        return output_path, None
 
     def _require_actor(self, organization_id: int, actor_user_profile_id: int) -> None:
         organization = self.db.get(models.Organization, organization_id)

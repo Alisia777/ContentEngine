@@ -3332,8 +3332,15 @@ def mark_bombar_publishing_task_done(
     db: Session = Depends(get_db),
 ):
     task = get_or_404(db, models.PublishingTask, task_id)
+    try:
+        ManualUploadProvider(db).mark_published(
+            task,
+            str(payload.get("final_url") or ""),
+            str(payload.get("operator_name") or "bombar-operator"),
+        )
+    except PublishingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     task.status = "done"
-    task.final_url = payload.get("final_url")
     task.raw_response_json = {**(task.raw_response_json or {}), "bombar_manual_upload": payload.get("stats", {})}
     db.commit()
     db.refresh(task)

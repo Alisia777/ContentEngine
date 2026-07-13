@@ -5,10 +5,10 @@ import hashlib
 import mimetypes
 from pathlib import Path
 import re
-from typing import Mapping
+from typing import Iterable, Mapping
 from uuid import uuid4
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import and_, exists, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -356,6 +356,65 @@ class MediaArtifactService:
         self._assert_tenant_key(artifact)
         return artifact
 
+    def resolve_ready_product_ugc_video(
+        self,
+        *,
+        organization_id: int,
+        draft_id: int,
+    ) -> models.MediaArtifact | None:
+        """Return the canonical ready video for one tenant-owned UGC draft.
+
+        Both the draft and artifact are resolved through the organization
+        boundary.  A caller can therefore never turn a foreign draft id into
+        an object capability, and non-video, archived, deleting, or deleted
+        rows are not accepted as evidence that human review can begin.
+        """
+
+        draft = self.db.scalar(
+            select(models.ProductUGCRecipeDraft)
+            .join(models.Product, models.Product.id == models.ProductUGCRecipeDraft.product_id)
+            .where(
+                models.ProductUGCRecipeDraft.id == int(draft_id),
+                models.Product.organization_id == int(organization_id),
+            )
+        )
+        if draft is None:
+            raise MediaArtifactOwnershipError(
+                "Product UGC draft was not found in this organization."
+            )
+
+        artifacts = list(
+            self.db.scalars(
+                select(models.MediaArtifact)
+                .where(
+                    models.MediaArtifact.organization_id == int(organization_id),
+                    models.MediaArtifact.product_id == draft.product_id,
+                    models.MediaArtifact.product_ugc_recipe_draft_id == draft.id,
+                    models.MediaArtifact.kind.in_(("master_video", "provider_output")),
+                    models.MediaArtifact.mime_type.like("video/%"),
+                    models.MediaArtifact.size_bytes > 0,
+                    models.MediaArtifact.status == "ready",
+                    models.MediaArtifact.archived_at.is_(None),
+                    models.MediaArtifact.delete_requested_at.is_(None),
+                    models.MediaArtifact.deleted_at.is_(None),
+                )
+                .order_by(
+                    (models.MediaArtifact.kind == "master_video").desc(),
+                    models.MediaArtifact.created_at.desc(),
+                    models.MediaArtifact.id.desc(),
+                )
+                .limit(2)
+            )
+        )
+        if len(artifacts) > 1:
+            raise MediaArtifactStateError(
+                "Product UGC review requires exactly one ready video artifact."
+            )
+        artifact = artifacts[0] if artifacts else None
+        if artifact is not None:
+            self._assert_tenant_key(artifact)
+        return artifact
+
     def read_worker_input(
         self,
         artifact_id: int,
@@ -486,17 +545,17 @@ class MediaArtifactService:
             )
         return artifact
 
-    def list_owned(
+    def _owned_query(
         self,
         *,
         organization_id: int,
         product_id: int | None = None,
         created_by_user_profile_id: int | None = None,
         kind: str | None = None,
+        kinds: Iterable[str] | None = None,
         include_archived: bool = True,
-        limit: int = 100,
         visible_to_user_profile_id: int | None = None,
-    ) -> list[models.MediaArtifact]:
+    ):
         query = select(models.MediaArtifact).where(
             models.MediaArtifact.organization_id == organization_id,
             models.MediaArtifact.deleted_at.is_(None),
@@ -508,11 +567,39 @@ class MediaArtifactService:
         if product_id is not None:
             query = query.where(models.MediaArtifact.product_id == product_id)
         if created_by_user_profile_id is not None:
+            effective_creator_id = int(created_by_user_profile_id)
+            assigned_draft = exists(
+                select(models.ProductUGCRecipeDraft.id).where(
+                    models.ProductUGCRecipeDraft.id
+                    == models.MediaArtifact.product_ugc_recipe_draft_id,
+                    models.ProductUGCRecipeDraft.assigned_to_user_profile_id
+                    == effective_creator_id,
+                )
+            )
+            draft_has_assignee = exists(
+                select(models.ProductUGCRecipeDraft.id).where(
+                    models.ProductUGCRecipeDraft.id
+                    == models.MediaArtifact.product_ugc_recipe_draft_id,
+                    models.ProductUGCRecipeDraft.assigned_to_user_profile_id.is_not(None),
+                )
+            )
             query = query.where(
-                models.MediaArtifact.created_by_user_profile_id == created_by_user_profile_id
+                or_(
+                    assigned_draft,
+                    and_(
+                        ~draft_has_assignee,
+                        models.MediaArtifact.created_by_user_profile_id == effective_creator_id,
+                    ),
+                )
             )
         if kind is not None:
             query = query.where(models.MediaArtifact.kind == self._kind(kind))
+        if kinds is not None:
+            normalized_kinds = tuple(dict.fromkeys(self._kind(value) for value in kinds))
+            if not normalized_kinds:
+                query = query.where(false())
+            else:
+                query = query.where(models.MediaArtifact.kind.in_(normalized_kinds))
         if visible_to_user_profile_id is not None:
             actor_id = int(visible_to_user_profile_id)
             self._require_actor(organization_id, actor_id)
@@ -530,11 +617,60 @@ class MediaArtifactService:
                     assigned_task,
                 )
             )
+        return query
+
+    def count_owned(
+        self,
+        *,
+        organization_id: int,
+        product_id: int | None = None,
+        created_by_user_profile_id: int | None = None,
+        kind: str | None = None,
+        kinds: Iterable[str] | None = None,
+        include_archived: bool = True,
+        visible_to_user_profile_id: int | None = None,
+    ) -> int:
+        """Count the complete tenant-scoped result set behind one library page."""
+
+        query = self._owned_query(
+            organization_id=organization_id,
+            product_id=product_id,
+            created_by_user_profile_id=created_by_user_profile_id,
+            kind=kind,
+            kinds=kinds,
+            include_archived=include_archived,
+            visible_to_user_profile_id=visible_to_user_profile_id,
+        )
+        count_query = select(func.count()).select_from(query.order_by(None).subquery())
+        return int(self.db.scalar(count_query) or 0)
+
+    def list_owned(
+        self,
+        *,
+        organization_id: int,
+        product_id: int | None = None,
+        created_by_user_profile_id: int | None = None,
+        kind: str | None = None,
+        kinds: Iterable[str] | None = None,
+        include_archived: bool = True,
+        limit: int = 100,
+        offset: int = 0,
+        visible_to_user_profile_id: int | None = None,
+    ) -> list[models.MediaArtifact]:
+        query = self._owned_query(
+            organization_id=organization_id,
+            product_id=product_id,
+            created_by_user_profile_id=created_by_user_profile_id,
+            kind=kind,
+            kinds=kinds,
+            include_archived=include_archived,
+            visible_to_user_profile_id=visible_to_user_profile_id,
+        )
         return list(
             self.db.scalars(
-                query.order_by(models.MediaArtifact.created_at.desc(), models.MediaArtifact.id.desc()).limit(
-                    min(max(int(limit), 1), 200)
-                )
+                query.order_by(models.MediaArtifact.created_at.desc(), models.MediaArtifact.id.desc())
+                .offset(min(max(int(offset), 0), 1_000_000))
+                .limit(min(max(int(limit), 1), 200))
             )
         )
 

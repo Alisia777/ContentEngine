@@ -18,6 +18,11 @@ from app.publishing.errors import (
 from app.publishing.types import PUBLISHABLE_MEDIA_ARTIFACT_KINDS
 
 
+SUCCESS_PROVIDER_STATUSES = frozenset(
+    {"SUCCEEDED", "SUCCESS", "COMPLETED", "COMPLETE", "DONE"}
+)
+
+
 class PublishingPackageService:
     ARTIFACT_APPROVER_ROLES = frozenset({"owner", "admin", "reviewer"})
 
@@ -329,6 +334,17 @@ class PublishingPackageService:
             raise PublishingSourceStateError(
                 "Media artifact product ownership does not match the organization."
             )
+        if artifact.product_ugc_recipe_draft_id is not None:
+            draft = self.db.get(
+                models.ProductUGCRecipeDraft,
+                artifact.product_ugc_recipe_draft_id,
+            )
+            self._validate_product_ugc_review_lineage(
+                artifact,
+                draft=draft,
+                organization_id=organization_id,
+                product_id=product.id,
+            )
         video_job = self.db.get(models.VideoJob, artifact.video_job_id) if artifact.video_job_id else None
         if artifact.video_job_id and (
             video_job is None
@@ -339,6 +355,122 @@ class PublishingPackageService:
                 "Media artifact video lineage does not match its organization and product."
             )
         return product, video_job
+
+    def _validate_product_ugc_review_lineage(
+        self,
+        artifact: models.MediaArtifact,
+        *,
+        draft: models.ProductUGCRecipeDraft | None,
+        organization_id: int,
+        product_id: int,
+    ) -> None:
+        """Bind packaging to the exact Product UGC bytes a human approved."""
+
+        if (
+            draft is None
+            or draft.product_id != int(product_id)
+            or draft.product is None
+            or draft.product.organization_id != int(organization_id)
+        ):
+            raise PublishingSourceStateError(
+                "Product UGC review lineage does not match this organization and product."
+            )
+        if (
+            draft.human_review_status != "approved"
+            or draft.publishing_readiness != "ready_for_publishing_package"
+            or bool(draft.blockers_json)
+        ):
+            raise PublishingSourceStateError(
+                "Product UGC video must be approved and ready for a publishing package."
+            )
+        if (
+            not draft.provider_task_id
+            or str(draft.provider_status or "").upper()
+            not in SUCCESS_PROVIDER_STATUSES
+        ):
+            raise PublishingSourceStateError(
+                "Product UGC package requires a successful provider generation."
+            )
+
+        ready_video_ids = list(
+            self.db.scalars(
+                select(models.MediaArtifact.id)
+                .where(
+                    models.MediaArtifact.organization_id == int(organization_id),
+                    models.MediaArtifact.product_id == int(product_id),
+                    models.MediaArtifact.product_ugc_recipe_draft_id == draft.id,
+                    models.MediaArtifact.kind.in_(PUBLISHABLE_MEDIA_ARTIFACT_KINDS),
+                    models.MediaArtifact.mime_type.like("video/%"),
+                    models.MediaArtifact.size_bytes > 0,
+                    models.MediaArtifact.status == "ready",
+                    models.MediaArtifact.archived_at.is_(None),
+                    models.MediaArtifact.delete_requested_at.is_(None),
+                    models.MediaArtifact.deleted_at.is_(None),
+                )
+                .order_by(models.MediaArtifact.id)
+                .limit(2)
+            )
+        )
+        if ready_video_ids != [artifact.id]:
+            raise PublishingSourceStateError(
+                "Product UGC packaging requires exactly one reviewed ready video output."
+            )
+
+        artifact_provider_task_id = str(
+            (artifact.metadata_json or {}).get("provider_task_id") or ""
+        ).strip()
+        if artifact_provider_task_id != str(draft.provider_task_id).strip():
+            raise PublishingSourceStateError(
+                "Product UGC artifact does not match the successful provider task."
+            )
+
+        creative_inputs = dict(draft.creative_inputs_json or {})
+        blocked_identities = [
+            item
+            for item in list(creative_inputs.get("blocked_media_artifacts_v1") or [])
+            if isinstance(item, dict)
+        ]
+        if any(
+            item.get("media_artifact_id") == artifact.id
+            or item.get("public_id") == artifact.public_id
+            or item.get("sha256") == artifact.sha256
+            for item in blocked_identities
+        ):
+            raise PublishingSourceStateError(
+                "This exact Product UGC output was rejected; generate a new output before packaging."
+            )
+
+        approved_identity = creative_inputs.get("approved_media_artifact_v1")
+        identity_matches = bool(
+            isinstance(approved_identity, dict)
+            and approved_identity.get("media_artifact_id") == artifact.id
+            and approved_identity.get("public_id") == artifact.public_id
+            and approved_identity.get("sha256") == artifact.sha256
+            and str(approved_identity.get("provider_task_id") or "").strip()
+            == str(draft.provider_task_id).strip()
+        )
+        if not identity_matches:
+            approved_tasks = list(
+                self.db.scalars(
+                    select(models.CreatorTask).where(
+                        models.CreatorTask.organization_id == int(organization_id),
+                        models.CreatorTask.product_ugc_recipe_draft_id == draft.id,
+                        models.CreatorTask.media_artifact_id == artifact.id,
+                        models.CreatorTask.task_type == "review_generated_video",
+                        models.CreatorTask.status == "done",
+                    )
+                )
+            )
+            identity_matches = any(
+                dict(task.result_json or {}).get("review_decision") == "approve"
+                and dict(task.result_json or {}).get("media_artifact_public_id")
+                == artifact.public_id
+                for task in approved_tasks
+            )
+        if not identity_matches:
+            raise PublishingSourceStateError(
+                "Product UGC package must reference the exact artifact approved by human review."
+            )
 
     def _artifact_package(
         self,

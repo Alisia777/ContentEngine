@@ -22,6 +22,7 @@ from app.product_ugc_queue import (
     ProductUGCQueueConflict,
     ProductUGCQueueLeaseError,
     ProductUGCQueueOwnershipError,
+    ProductUGCSpendValidationError,
 )
 from app.runway_recipes.errors import RunwayRecipeError
 from app.runway_recipes.product_ugc_service import ProductUGCRecipeService
@@ -195,6 +196,10 @@ class ProductUGCRecipeRunner:
                 # provider task id is durable, disabling new spend must not
                 # prevent polling/downloading an already-paid result.
                 self._preflight(real_run=real_run)
+                queue.validate_provider_submission_inputs(
+                    job.id,
+                    lease_token=lease_token,
+                )
                 materializer = ProductUGCRecipeInputMaterializer(
                     self.db,
                     backends=self.storage_backends,
@@ -216,6 +221,7 @@ class ProductUGCRecipeRunner:
                         job.id,
                         lease_token=lease_token,
                         lease_seconds=queue_lease_seconds,
+                        provider_payload=request,
                     )
                     # The spend guard above is committed before this network call.
                     # Any exception before the task id is durably recorded becomes
@@ -279,10 +285,23 @@ class ProductUGCRecipeRunner:
             draft = self.db.get(models.ProductUGCRecipeDraft, draft_id)
             provider_status = (draft.provider_status or "").upper() if draft else ""
             provider_terminal = provider_status in FAILURE_STATUSES
+            metadata = dict(job.metadata_json or {})
+            mass_preflight_blocked = bool(
+                isinstance(exc, RunwayRecipeError)
+                and draft is not None
+                and draft.status == "blocked"
+                and not job.provider_task_id
+                and not job.spend_guarded_at
+                and metadata.get("generation_template_snapshot_schema")
+                == "generation_template_snapshot_v1"
+            )
             retryable = not provider_terminal and not isinstance(
                 exc,
-                ProductUGCQueueOwnershipError,
-            )
+                (
+                    ProductUGCQueueOwnershipError,
+                    ProductUGCSpendValidationError,
+                ),
+            ) and not mass_preflight_blocked
             if draft:
                 provider_failure = (draft.creative_inputs_json or {}).get("provider_failure") or {}
                 if provider_failure.get("retry_allowed") is False:

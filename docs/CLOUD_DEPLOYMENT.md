@@ -27,6 +27,15 @@ source of truth for media. A container may use its ephemeral filesystem only
 while processing one artifact; a restart must not lose an accepted artifact.
 Do not attach a Render disk and do not set `QVF_STORAGE_BACKEND=local`.
 
+The application never reads or writes application rows through the Supabase
+Data API (PostgREST). Disable the **Data API** for the project before launch.
+This is defense in depth, not the primary boundary: the database migration also
+enables non-forced RLS on every public application table and revokes all table
+and sequence privileges from `anon`, `authenticated`, and `service_role` when
+those roles exist. It leaves schema usage and extension functions intact for
+Supabase-managed Auth and Storage, while the direct table-owner SQLAlchemy
+connection continues to work.
+
 ## Production environment contract
 
 `render.yaml` shares non-secret defaults through
@@ -35,14 +44,15 @@ Do not attach a Render disk and do not set `QVF_STORAGE_BACKEND=local`.
 enables application readiness checks and the second makes the storage adapter
 reject a local backend.
 
-Enter these values for `contentengine-web` during the initial Blueprint setup.
-The worker obtains the same values through Render `fromService` references, so
-they are entered once and never committed:
+Render derives `QVF_PUBLIC_APP_URL` from the web service's own
+`RENDER_EXTERNAL_URL`; there is no placeholder URL to copy during the first
+deploy. Enter the remaining values for `contentengine-web` during the initial
+Blueprint setup. The worker obtains the same values through Render
+`fromService` references, so they are entered once and never committed:
 
 | Variable | Required value |
 | --- | --- |
 | `QVF_DATABASE_URL` | Supabase PostgreSQL session-pooler URL, with the SQLAlchemy scheme changed to `postgresql+psycopg://` and `sslmode=require` (or stricter `verify-ca`/`verify-full`) |
-| `QVF_PUBLIC_APP_URL` | The final public `https://...` creator URL |
 | `SUPABASE_URL` | Project URL, for example `https://<project-ref>.supabase.co` |
 | `SUPABASE_PUBLISHABLE_KEY` | Publishable/anon client key |
 | `SUPABASE_SECRET_KEY` | Server-only Supabase secret key (`sb_secret_...` preferred) |
@@ -50,6 +60,11 @@ they are entered once and never committed:
 | `QVF_SUPABASE_ISSUER` | Exactly `https://<project-ref>.supabase.co/auth/v1`; another origin is rejected |
 | `OPENAI_API_KEY` | Server-only OpenAI key; may remain unused while the provider is `mock` |
 | `RUNWAYML_API_SECRET` | Server-only Runway key; may remain unused while the provider is `mock` |
+| `QVF_GENERATION_MODE` | `mock` for spend-free acceptance; `real` only after owner approval |
+| `QVF_LLM_PROVIDER` | `mock` for acceptance or the explicitly approved production provider |
+| `QVF_VIDEO_PROVIDER` | `mock` for acceptance or `runway` after a one-video paid smoke succeeds |
+| `QVF_ALLOW_REAL_SPEND` | `false` by default; `true` only as a separate owner budget decision |
+| `QVF_MASS_GENERATION_CREDIT_LIMIT` | Non-secret hard cap per mass batch; default `30000`, enough for 50 standard 15-second 720×1280 estimates (`50 × 588 = 29400`) |
 
 Enter one canonical server secret in `SUPABASE_SECRET_KEY`. Auth Admin,
 Storage, bootstrap, and readiness all resolve that same value. The legacy
@@ -64,43 +79,50 @@ values. Production startup rejects those local-only settings. The shared
 `QVF_SUPABASE_READINESS_TIMEOUT_SECONDS=5` bounds the read-only Auth and
 Storage probes performed by `/ready`.
 
-The committed launch defaults keep LLM/video providers and paid generation in
-mock mode. Enabling a paid run is a separate owner decision: configure the
-provider, set `QVF_GENERATION_MODE=real`, then set
-`QVF_ALLOW_REAL_SPEND=true` only with the committed duration/scene limits and
-an explicit real-run confirmation in the product.
+The Blueprint requires an explicit capability selection instead of committing
+one production mode. For the first spend-free acceptance deploy, enter
+`mock`, `mock`, `mock`, and `false`. Enabling a paid run remains a separate
+owner decision: configure the provider, set `QVF_GENERATION_MODE=real`, then
+set `QVF_ALLOW_REAL_SPEND=true` only with the committed duration/scene limits
+and an explicit real-run confirmation in the product.
 
 ## First deployment
 
-1. Create one Supabase project in the same region as the Render services.
-2. Enable an asymmetric Auth signing key and verify that the JWKS endpoint
+1. Reuse the paid dedicated Supabase project (or create one if none exists) in
+   the same region as the Render services. Do not create a second paid project
+   merely for deployment.
+2. Disable the project **Data API** in Supabase API settings. Do not expose the
+   `public` schema through PostgREST for this application.
+3. Enable an asymmetric Auth signing key and verify that the JWKS endpoint
    returns a non-empty `keys` array before inviting users.
-3. Create a private Storage bucket named `contentengine-private`.
-4. Connect the GitHub repository to a Render Blueprint using `render.yaml`.
-5. Enter every `sync: false` value in the Render dashboard. Never commit those
+4. Create a private Storage bucket named `contentengine-private`.
+5. Connect the GitHub repository to a Render Blueprint using `render.yaml`.
+6. Enter every `sync: false` value in the Render dashboard. Never commit those
    values to GitHub.
-6. Use the Supabase session-pooler connection string for `QVF_DATABASE_URL`.
+7. Use the Supabase session-pooler connection string for `QVF_DATABASE_URL`.
    URL-encode special characters in the password, use
    `postgresql+psycopg://`, and append `?sslmode=require`. Missing TLS mode and
    `disable`, `allow`, or `prefer` are rejected before the process serves.
-7. Confirm both serialized pre-deploy migrations succeed and `/ready` returns
+8. Confirm both serialized pre-deploy migrations succeed and `/ready` returns
    HTTP 200. Readiness verifies the exact Alembic head, fetches a usable
    ES256/RS256 JWKS, checks the publishable key with the read-only Auth settings
    endpoint, and reads only the configured bucket metadata with the canonical
-   server key. It fails if the schema is behind, a key is rejected, the bucket
-   is missing, or `public` is not exactly `false`. It never writes a probe
-   object.
-8. Confirm the generation worker heartbeat is current in the control room.
-9. Before sending any invite, set the Supabase Auth **Invite user** email
+   server key. It also checks RLS and effective API-role table privileges on
+   every critical application table. It fails if the schema is behind, a key
+   is rejected, the bucket is missing, `public` is not exactly `false`, RLS is
+   missing, or an API role can access a critical table. It never writes a
+   probe object.
+9. Confirm the generation worker heartbeat is current in the control room.
+10. Before sending any invite, set the Supabase Auth **Invite user** email
    template link to
    `<PUBLIC_APP_URL>/auth/accept#token_hash={{ .TokenHash }}&type=invite`.
-   The fragment is never sent to Render request logs: the local bridge clears
+   The fragment is never sent to Render request logs: the browser bridge clears
    it immediately and submits the one-time hash in a same-site POST. The
-   The default fragment redirect is insufficient for this server-rendered
+   default fragment redirect is insufficient for this server-rendered
    confirmation flow.
-10. Bootstrap the first cloud owner once, using the command below. Then use the
+11. Bootstrap the first cloud owner once, using the command below. Then use the
     authenticated **Команда** page for subsequent creator invitations.
-11. Sign in as a creator in a private browser session and verify that another
+12. Sign in as a creator in a private browser session and verify that another
    organization is neither listed nor addressable by a guessed URL.
 
 ### One-time first-owner bootstrap

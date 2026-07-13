@@ -6,41 +6,40 @@ import hashlib
 import json
 import re
 from typing import Iterable
-from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import select
+from sqlalchemy import case, exists, func, select, union_all
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app import models
 from app.config import get_settings
 from app.destination_connectors.errors import DestinationConnectorDataError
 from app.destination_connectors.owned_targets import normalize_platform, safe_public_url
 from app.novice_learning_path import NoviceLearningPathService
+from app.product_ugc_queue.generation_snapshot_guard import (
+    GENERATION_TEMPLATE_SNAPSHOT_SCHEMA,
+    canonical_json_sha256,
+)
+from app.publishing.manual_upload import ManualUploadProvider
+from app.publishing.publication_identity import (
+    PublicationIdentityError,
+    canonical_publication_url,
+    claim_publication_identity,
+)
 from app.publishing.scheduler import PublishingScheduler
 
 
 FINAL_EXAM_CODE = "portal_operator_exam"
 GENERATION_BATCH_LIMIT = 50
 GENERATION_ASSIGNEE_LIMIT = 50
-GENERATION_CREDIT_LIMIT = 500
 PLACEMENT_BATCH_LIMIT = 250
 PLACEMENT_DESTINATION_LIMIT = 50
 PLACEMENT_INTERVAL_MAX_MINUTES = 10_080
 PLACEMENT_MAX_HORIZON_DAYS = 180
-PLACEMENT_PLATFORM_HOSTS = {
-    "instagram": frozenset({"instagram.com", "www.instagram.com"}),
-    "tiktok": frozenset({"tiktok.com", "www.tiktok.com", "m.tiktok.com"}),
-    "youtube": frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}),
-    "vk": frozenset({"vk.com", "www.vk.com", "m.vk.com"}),
-    "vk_clips": frozenset({"vk.com", "www.vk.com", "m.vk.com"}),
-    "rutube": frozenset({"rutube.ru", "www.rutube.ru"}),
-    "facebook": frozenset({"facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"}),
-    "telegram": frozenset({"t.me", "telegram.me"}),
-    "pinterest": frozenset({"pinterest.com", "www.pinterest.com", "pin.it"}),
-    "x": frozenset({"x.com", "www.x.com", "twitter.com", "www.twitter.com"}),
-    "twitter": frozenset({"x.com", "www.x.com", "twitter.com", "www.twitter.com"}),
-}
+PLACEMENT_PAYOUT_MAX_MINOR = 100_000_000
+MANUAL_METRIC_COUNT_MAX = 10_000_000_000
+MANUAL_METRIC_REVENUE_MAX_MINOR = 100_000_000_000
 
 
 class CreatorOperationsError(ValueError):
@@ -72,6 +71,9 @@ class CreatorOperationsService:
         dry_run: bool,
         confirm_real_spend: bool,
         confirmed_total_credits: int | None = None,
+        _expected_template_snapshot: dict[str, object] | None = None,
+        _expected_template_snapshot_sha256: str | None = None,
+        _source_dry_run_batch_id: int | None = None,
     ) -> models.MassOperationBatch:
         actor = self._membership(organization_id, actor_user_profile_id)
         if actor.role not in {"owner", "admin", "producer"}:
@@ -100,36 +102,81 @@ class CreatorOperationsService:
             confirmed_total_credits,
             "confirmed_total_credits",
         )
-        fingerprint = self._request_fingerprint(
-            "generation",
-            {
-                "actor_user_profile_id": actor_user_profile_id,
-                "template_draft_id": template_draft_id,
-                "assignee_user_profile_ids": assignee_ids,
-                "quantity": quantity,
-                "name": normalized_name,
-                "dry_run": bool(dry_run),
-                "confirm_real_spend": bool(confirm_real_spend),
-                "confirmed_total_credits": confirmed_credits,
-            },
-        )
+        fingerprint_payload: dict[str, object] = {
+            "actor_user_profile_id": actor_user_profile_id,
+            "template_draft_id": template_draft_id,
+            "assignee_user_profile_ids": assignee_ids,
+            "quantity": quantity,
+            "name": normalized_name,
+            "dry_run": bool(dry_run),
+            "confirm_real_spend": bool(confirm_real_spend),
+            "confirmed_total_credits": confirmed_credits,
+        }
+        if _expected_template_snapshot_sha256 is not None:
+            fingerprint_payload["template_snapshot_sha256"] = (
+                _expected_template_snapshot_sha256
+            )
+        if _source_dry_run_batch_id is not None:
+            fingerprint_payload["source_dry_run_batch_id"] = int(
+                _source_dry_run_batch_id
+            )
+        fingerprint = self._request_fingerprint("generation", fingerprint_payload)
         existing = self._existing_batch(organization_id, key)
         if existing is not None:
             return self._validate_existing_batch(existing, "generation", fingerprint)
 
-        template_query = select(models.ProductUGCRecipeDraft).where(
-            models.ProductUGCRecipeDraft.id == template_draft_id
+        template_query = (
+            select(models.ProductUGCRecipeDraft)
+            .where(models.ProductUGCRecipeDraft.id == template_draft_id)
+            .with_for_update()
         )
-        if not dry_run:
-            template_query = template_query.with_for_update()
         template = self.db.scalar(template_query)
-        if template is None or template.product.organization_id != organization_id:
+        if template is None:
             raise CreatorOperationsError("template_draft_not_found")
+        product = self.db.scalar(
+            select(models.Product)
+            .where(models.Product.id == template.product_id)
+            .with_for_update()
+        )
+        if product is None or product.organization_id != organization_id:
+            raise CreatorOperationsError("template_draft_not_found")
+        template_snapshot = self._generation_template_snapshot(
+            template,
+            product=product,
+            organization_id=organization_id,
+            lock_related=True,
+        )
+        template_snapshot_sha256 = self._generation_template_snapshot_hash(
+            template_snapshot
+        )
+        if (
+            _expected_template_snapshot is not None
+            or _expected_template_snapshot_sha256 is not None
+        ):
+            if (
+                not self._valid_generation_template_snapshot(
+                    _expected_template_snapshot,
+                    _expected_template_snapshot_sha256,
+                )
+            ):
+                raise CreatorOperationsError(
+                    "dry_run_template_snapshot_integrity_invalid:create_new_dry_run"
+                )
+            if template_snapshot_sha256 != _expected_template_snapshot_sha256:
+                changed_fields = self._generation_template_snapshot_changes(
+                    _expected_template_snapshot,
+                    template_snapshot,
+                )
+                raise CreatorOperationsError(
+                    "generation_template_changed_since_dry_run:"
+                    f"{','.join(changed_fields)}:create_new_dry_run"
+                )
         if template.status != "ready_for_paid_preflight" or template.blockers_json:
             raise CreatorOperationsError("template_draft_not_ready")
         assignees = self._qualified_assignees(organization_id, assignee_ids)
         estimated_credit_per_item = max(int(template.estimated_credits or 0), 0)
         estimated_credits = estimated_credit_per_item * quantity
+        credit_limit = int(self.settings.mass_generation_credit_limit)
         if not dry_run:
             if actor.role not in {"owner", "admin"}:
                 raise CreatorOperationsError("real_spend_owner_admin_required")
@@ -137,9 +184,9 @@ class CreatorOperationsService:
                 raise CreatorOperationsError("real_spend_gate_required")
             if estimated_credit_per_item < 1:
                 raise CreatorOperationsError("template_credit_estimate_required")
-            if estimated_credits > GENERATION_CREDIT_LIMIT:
+            if estimated_credits > credit_limit:
                 raise CreatorOperationsError(
-                    f"generation_credit_limit_exceeded:{estimated_credits}>{GENERATION_CREDIT_LIMIT}"
+                    f"generation_credit_limit_exceeded:{estimated_credits}>{credit_limit}"
                 )
             if confirmed_credits != estimated_credits:
                 raise CreatorOperationsError(
@@ -172,8 +219,11 @@ class CreatorOperationsService:
                 "quantity": quantity,
                 "estimated_credits": estimated_credits,
                 "confirmed_total_credits": confirmed_credits,
-                "credit_limit": GENERATION_CREDIT_LIMIT,
+                "credit_limit": credit_limit,
                 "real_spend_requested": not dry_run,
+                "template_snapshot": template_snapshot,
+                "template_snapshot_sha256": template_snapshot_sha256,
+                "source_dry_run_batch_id": _source_dry_run_batch_id,
                 "request_fingerprint": fingerprint,
             },
             results_json=planned if dry_run else [],
@@ -194,6 +244,7 @@ class CreatorOperationsService:
                 assignee_id = assignees[(sequence - 1) % len(assignees)]
                 draft = self._clone_draft(
                     template,
+                    template_snapshot=template_snapshot,
                     batch=batch,
                     sequence=sequence,
                     actor_user_profile_id=actor_user_profile_id,
@@ -258,6 +309,8 @@ class CreatorOperationsService:
         idempotency_key: str,
         dry_run: bool,
         assignee_user_profile_ids: list[int] | None = None,
+        payout_per_post_minor: int = 0,
+        start_timezone: str = "Europe/Moscow",
     ) -> models.MassOperationBatch:
         actor = self._membership(organization_id, actor_user_profile_id)
         if actor.role not in {"owner", "admin", "operator"}:
@@ -286,6 +339,16 @@ class CreatorOperationsService:
         if not assignee_ids:
             raise CreatorOperationsError("at_least_one_assignee_required")
         assignees = self._qualified_assignees(organization_id, assignee_ids)
+        payout_minor = self._nonnegative_int(
+            payout_per_post_minor,
+            "payout_per_post_minor",
+        )
+        if payout_minor > PLACEMENT_PAYOUT_MAX_MINOR:
+            raise CreatorOperationsError(
+                f"payout_per_post_minor_exceeds_{PLACEMENT_PAYOUT_MAX_MINOR}"
+            )
+        if payout_minor and actor.role not in {"owner", "admin"}:
+            raise CreatorOperationsError("payout_rate_owner_admin_required")
         try:
             interval_minutes = int(interval_minutes)
         except (TypeError, ValueError) as exc:
@@ -294,7 +357,7 @@ class CreatorOperationsService:
             raise CreatorOperationsError(
                 f"interval_minutes_must_be_1_to_{PLACEMENT_INTERVAL_MAX_MINUTES}"
             )
-        start_at = self._normalize_placement_start(start_at)
+        start_at = self._normalize_placement_start(start_at, start_timezone)
         normalized_name = self._name(name)
         key = self._idempotency_key(idempotency_key)
         fingerprint = self._request_fingerprint(
@@ -305,7 +368,9 @@ class CreatorOperationsService:
                 "destination_ids": destination_ids,
                 "assignee_user_profile_ids": assignees,
                 "start_at": start_at.isoformat(),
+                "start_timezone": start_timezone,
                 "interval_minutes": interval_minutes,
+                "payout_per_post_minor": payout_minor,
                 "name": normalized_name,
                 "dry_run": bool(dry_run),
             },
@@ -341,7 +406,9 @@ class CreatorOperationsService:
                 "destination_ids": destination_ids,
                 "assignee_user_profile_ids": assignees,
                 "start_at": start_at.isoformat(),
+                "start_timezone": start_timezone,
                 "interval_minutes": interval_minutes,
+                "payout_per_post_minor": payout_minor,
                 "request_fingerprint": fingerprint,
             },
             started_at=models.utcnow(),
@@ -363,35 +430,112 @@ class CreatorOperationsService:
                 ).all()
             )
             for index, package_id in enumerate(package_ids):
-                destination_id = destination_ids[index % len(destination_ids)]
                 assignee_id = assignees[index % len(assignees)]
                 package = packages[package_id]
-                destination = destinations[destination_id]
                 scheduled_at = start_at + timedelta(minutes=index * interval_minutes)
-                blockers: list[str] = []
+                common_blockers: list[str] = []
                 if package_id in existing_scheduled_packages:
-                    blockers.append("publishing_package_already_scheduled")
-                with self.db.no_autoflush:
-                    validation = scheduler.validate(package, destination, scheduled_at)
-                blockers.extend(self._media_aware_blockers(package, organization_id, validation["blockers"]))
-                day_key = (destination.id, scheduled_at.date())
-                week_start = scheduled_at.date() - timedelta(days=scheduled_at.weekday())
-                week_key = (destination.id, week_start)
-                if validation["daily_count"] + reserved_daily.get(day_key, 0) >= destination.daily_limit:
-                    blockers.append("daily_publishing_limit_reached_in_batch")
-                if validation["weekly_count"] + reserved_weekly.get(week_key, 0) >= destination.weekly_limit:
-                    blockers.append("weekly_publishing_limit_reached_in_batch")
-                blockers = list(dict.fromkeys(blockers))
-                if blockers:
+                    common_blockers.append("publishing_package_already_scheduled")
+                try:
+                    self._tracking_target_url(package)
+                except CreatorOperationsError as exc:
+                    common_blockers.append(str(exc))
+                compatible_destinations = [
+                    destinations[destination_id]
+                    for destination_id in destination_ids
+                    if normalize_platform(destinations[destination_id].platform)
+                    == normalize_platform(package.target_platform)
+                    and destinations[destination_id].brand.strip().casefold()
+                    == package.brand.strip().casefold()
+                ]
+                if not compatible_destinations:
                     errors.append(
                         {
                             "package_id": package.id,
-                            "destination_id": destination.id,
+                            "destination_id": None,
                             "scheduled_at": scheduled_at.isoformat(),
-                            "error": ";".join(blockers),
+                            "error": "compatible_destination_required",
+                            "error_codes": ["compatible_destination_required"],
+                            "package_platform": normalize_platform(package.target_platform),
+                            "package_brand": package.brand,
+                            "action": "Выберите активную площадку с той же платформой и брендом.",
                         }
                     )
                     continue
+                rotation = index % len(compatible_destinations)
+                compatible_destinations = (
+                    compatible_destinations[rotation:] + compatible_destinations[:rotation]
+                )
+                selected: tuple[
+                    models.PublishingDestination,
+                    dict[str, object],
+                    tuple[int, object],
+                    tuple[int, object],
+                ] | None = None
+                candidate_errors: list[dict[str, object]] = []
+                for destination in compatible_destinations:
+                    with self.db.no_autoflush:
+                        validation = scheduler.validate(package, destination, scheduled_at)
+                    blockers = [
+                        *common_blockers,
+                        *self._media_aware_blockers(
+                            package,
+                            organization_id,
+                            validation["blockers"],
+                        ),
+                    ]
+                    day_key = (destination.id, scheduled_at.date())
+                    week_start = scheduled_at.date() - timedelta(days=scheduled_at.weekday())
+                    week_key = (destination.id, week_start)
+                    if (
+                        validation["daily_count"]
+                        + reserved_daily.get(day_key, 0)
+                        >= destination.daily_limit
+                    ):
+                        blockers.append("daily_publishing_limit_reached_in_batch")
+                    if (
+                        validation["weekly_count"]
+                        + reserved_weekly.get(week_key, 0)
+                        >= destination.weekly_limit
+                    ):
+                        blockers.append("weekly_publishing_limit_reached_in_batch")
+                    blockers = list(
+                        dict.fromkeys(
+                            self._placement_blocker_code(item) for item in blockers
+                        )
+                    )
+                    if blockers:
+                        candidate_errors.append(
+                            {
+                                "destination_id": destination.id,
+                                "destination_name": destination.name,
+                                "error_codes": blockers,
+                            }
+                        )
+                        continue
+                    selected = (destination, validation, day_key, week_key)
+                    break
+                if selected is None:
+                    error_codes = list(
+                        dict.fromkeys(
+                            code
+                            for candidate in candidate_errors
+                            for code in list(candidate.get("error_codes") or [])
+                        )
+                    )
+                    errors.append(
+                        {
+                            "package_id": package.id,
+                            "destination_id": None,
+                            "scheduled_at": scheduled_at.isoformat(),
+                            "error": ";".join(error_codes) or "compatible_destination_unavailable",
+                            "error_codes": error_codes or ["compatible_destination_unavailable"],
+                            "candidate_errors": candidate_errors,
+                            "action": "Устраните препятствия площадки или выберите другую совместимую площадку.",
+                        }
+                    )
+                    continue
+                destination, validation, day_key, week_key = selected
                 reserved_daily[day_key] = reserved_daily.get(day_key, 0) + 1
                 reserved_weekly[week_key] = reserved_weekly.get(week_key, 0) + 1
                 planned.append(
@@ -399,7 +543,14 @@ class CreatorOperationsService:
                         "package_id": package.id,
                         "destination_id": destination.id,
                         "assignee_user_profile_id": assignee_id,
+                        "payout_per_post_minor": payout_minor,
                         "scheduled_at": scheduled_at.isoformat(),
+                        "matched_destination": {
+                            "id": destination.id,
+                            "name": destination.name,
+                            "platform": normalize_platform(destination.platform),
+                            "brand": destination.brand,
+                        },
                         "schedule_validation": {
                             **validation,
                             "allowed": True,
@@ -452,6 +603,18 @@ class CreatorOperationsService:
                 )
                 self.db.add(task)
                 self.db.flush()
+                tracking_link = self._ensure_tracking_link(
+                    publishing_task=task,
+                    package=package,
+                    destination=destination,
+                    batch=batch,
+                    sequence=sequence,
+                )
+                manual_upload = ManualUploadProvider(self.db).payload(task)
+                task.raw_response_json = {
+                    **dict(task.raw_response_json or {}),
+                    "manual_upload": manual_upload,
+                }
                 creator_task = self._placement_task(
                     batch=batch,
                     package=package,
@@ -460,6 +623,8 @@ class CreatorOperationsService:
                     assignee_user_profile_id=int(plan["assignee_user_profile_id"]),
                     actor_user_profile_id=actor_user_profile_id,
                     sequence=sequence,
+                    tracking_link=tracking_link,
+                    manual_upload=manual_upload,
                 )
                 created_results.append(
                     {
@@ -467,6 +632,7 @@ class CreatorOperationsService:
                         "publishing_task_id": task.id,
                         "creator_task_id": creator_task.id,
                         "media_artifact_id": package.media_artifact_id,
+                        "tracking_link_id": tracking_link.id,
                         "status": "todo",
                     }
                 )
@@ -494,27 +660,209 @@ class CreatorOperationsService:
             self.db.rollback()
             raise CreatorOperationsError("placement_batch_transaction_failed") from exc
 
+    def promote_dry_run_batch(
+        self,
+        *,
+        organization_id: int,
+        actor_user_profile_id: int,
+        batch_id: int,
+        confirm_real_spend: bool = False,
+        confirmed_total_credits: int = 0,
+    ) -> models.MassOperationBatch:
+        """Revalidate and launch an immutable dry-run without re-entering it."""
+
+        self._membership(organization_id, actor_user_profile_id)
+        preview = self.db.scalar(
+            select(models.MassOperationBatch)
+            .where(
+                models.MassOperationBatch.id == int(batch_id),
+                models.MassOperationBatch.organization_id == organization_id,
+                models.MassOperationBatch.dry_run.is_(True),
+            )
+            .with_for_update()
+        )
+        if preview is None:
+            raise CreatorOperationsError("dry_run_batch_not_found")
+        if (
+            preview.status != "validated"
+            or int(preview.total_failed or 0) != 0
+            or bool(preview.errors_json)
+        ):
+            raise CreatorOperationsError("dry_run_batch_must_be_clean_before_launch")
+        parameters = dict(preview.parameters_json or {})
+        promoted_id = parameters.get("promoted_to_batch_id")
+        if promoted_id is not None:
+            promoted = self.db.scalar(
+                select(models.MassOperationBatch).where(
+                    models.MassOperationBatch.id == int(promoted_id),
+                    models.MassOperationBatch.organization_id == organization_id,
+                    models.MassOperationBatch.dry_run.is_(False),
+                )
+            )
+            if promoted is None:
+                raise CreatorOperationsError("dry_run_promotion_lineage_invalid")
+            return promoted
+
+        launch_name = f"{preview.name[:164].rstrip()} · запуск"
+        launch_key = (
+            f"promote:{preview.operation_type}:{organization_id}:{preview.id}"
+        )
+        if preview.operation_type == "generation":
+            template_snapshot = parameters.get("template_snapshot")
+            template_snapshot_sha256 = parameters.get("template_snapshot_sha256")
+            if not self._valid_generation_template_snapshot(
+                template_snapshot,
+                template_snapshot_sha256,
+            ):
+                raise CreatorOperationsError(
+                    "dry_run_template_snapshot_missing_or_invalid:create_new_dry_run"
+                )
+            recovered = self._existing_batch(organization_id, launch_key)
+            if recovered is not None:
+                recovered_parameters = dict(recovered.parameters_json or {})
+                if (
+                    recovered.operation_type != "generation"
+                    or recovered.dry_run
+                    or int(recovered_parameters.get("source_dry_run_batch_id") or 0)
+                    != preview.id
+                    or not self._valid_generation_template_snapshot(
+                        recovered_parameters.get("template_snapshot"),
+                        recovered_parameters.get("template_snapshot_sha256"),
+                    )
+                    or recovered_parameters.get("template_snapshot_sha256")
+                    != template_snapshot_sha256
+                    or int(recovered_parameters.get("template_draft_id") or 0)
+                    != int(parameters.get("template_draft_id") or 0)
+                ):
+                    raise CreatorOperationsError(
+                        "dry_run_promotion_orphan_lineage_invalid"
+                    )
+                promoted = recovered
+            else:
+                promoted = self.generation_batch(
+                    organization_id=organization_id,
+                    actor_user_profile_id=actor_user_profile_id,
+                    template_draft_id=int(parameters.get("template_draft_id") or 0),
+                    assignee_user_profile_ids=list(
+                        parameters.get("assignee_user_profile_ids") or []
+                    ),
+                    quantity=int(parameters.get("quantity") or 0),
+                    name=launch_name,
+                    idempotency_key=launch_key,
+                    dry_run=False,
+                    confirm_real_spend=confirm_real_spend,
+                    confirmed_total_credits=confirmed_total_credits,
+                    _expected_template_snapshot=template_snapshot,
+                    _expected_template_snapshot_sha256=template_snapshot_sha256,
+                    _source_dry_run_batch_id=preview.id,
+                )
+        elif preview.operation_type == "placement":
+            try:
+                stored_start = datetime.fromisoformat(
+                    str(parameters.get("start_at") or "")
+                )
+            except ValueError as exc:
+                raise CreatorOperationsError("dry_run_start_at_invalid") from exc
+            if stored_start.tzinfo is None:
+                stored_start = stored_start.replace(tzinfo=UTC)
+            promoted = self.placement_batch(
+                organization_id=organization_id,
+                actor_user_profile_id=actor_user_profile_id,
+                package_ids=list(parameters.get("package_ids") or []),
+                destination_ids=list(parameters.get("destination_ids") or []),
+                assignee_user_profile_ids=list(
+                    parameters.get("assignee_user_profile_ids") or []
+                ),
+                start_at=stored_start,
+                start_timezone=str(parameters.get("start_timezone") or "UTC"),
+                interval_minutes=int(parameters.get("interval_minutes") or 0),
+                payout_per_post_minor=int(
+                    parameters.get("payout_per_post_minor") or 0
+                ),
+                name=launch_name,
+                idempotency_key=launch_key,
+                dry_run=False,
+            )
+        else:
+            raise CreatorOperationsError("dry_run_operation_not_supported")
+
+        refreshed_preview = self.db.get(models.MassOperationBatch, preview.id)
+        if refreshed_preview is None:
+            raise CreatorOperationsError("dry_run_batch_not_found")
+        refreshed_preview.parameters_json = {
+            **dict(refreshed_preview.parameters_json or {}),
+            "promoted_to_batch_id": promoted.id,
+            "promoted_by_user_profile_id": actor_user_profile_id,
+            "promoted_at": models.utcnow().isoformat(),
+        }
+        promoted.parameters_json = {
+            **dict(promoted.parameters_json or {}),
+            "source_dry_run_batch_id": refreshed_preview.id,
+        }
+        self.db.commit()
+        self.db.refresh(promoted)
+        return promoted
+
     def task_inbox(
         self,
         *,
         organization_id: int,
         viewer_user_profile_id: int,
         status: str | None = None,
+        status_group: str = "all",
+        assignee_user_profile_id: int | None = None,
+        mass_operation_batch_id: int | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[models.CreatorTask]:
         membership = self._membership(organization_id, viewer_user_profile_id)
         query = select(models.CreatorTask).where(models.CreatorTask.organization_id == organization_id)
         if membership.role not in {"owner", "admin"}:
             query = query.where(models.CreatorTask.assignee_user_profile_id == viewer_user_profile_id)
+            if (
+                assignee_user_profile_id is not None
+                and int(assignee_user_profile_id) != viewer_user_profile_id
+            ):
+                raise CreatorOperationsError("task_assignee_filter_not_allowed")
+        elif assignee_user_profile_id is not None:
+            query = query.where(
+                models.CreatorTask.assignee_user_profile_id
+                == int(assignee_user_profile_id)
+            )
+        if mass_operation_batch_id is not None:
+            query = query.where(
+                models.CreatorTask.mass_operation_batch_id
+                == int(mass_operation_batch_id)
+            )
         if status:
             query = query.where(models.CreatorTask.status == status)
+        normalized_group = str(status_group or "all").strip().casefold()
+        if normalized_group == "active":
+            query = query.where(models.CreatorTask.status.not_in(["done", "cancelled"]))
+        elif normalized_group == "completed":
+            query = query.where(models.CreatorTask.status.in_(["done", "cancelled"]))
+        elif normalized_group != "all":
+            raise CreatorOperationsError("invalid_task_status_group")
+        if normalized_group == "completed":
+            ordering = (
+                models.CreatorTask.completed_at.desc(),
+                models.CreatorTask.id.desc(),
+            )
+        else:
+            ordering = (
+                case(
+                    (models.CreatorTask.status.not_in(["done", "cancelled"]), 0),
+                    else_=1,
+                ),
+                models.CreatorTask.priority.desc(),
+                models.CreatorTask.due_at,
+                models.CreatorTask.id,
+            )
         return list(
             self.db.scalars(
-                query.order_by(
-                    models.CreatorTask.priority.desc(),
-                    models.CreatorTask.due_at,
-                    models.CreatorTask.id,
-                ).limit(min(max(int(limit), 1), 250))
+                query.order_by(*ordering)
+                .offset(min(max(int(offset), 0), 1_000_000))
+                .limit(min(max(int(limit), 1), 250))
             )
         )
 
@@ -524,6 +872,7 @@ class CreatorOperationsService:
         organization_id: int,
         viewer_user_profile_id: int,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[models.CreatorPayout]:
         membership = self._membership(organization_id, viewer_user_profile_id)
         query = select(models.CreatorPayout).where(models.CreatorPayout.organization_id == organization_id)
@@ -531,11 +880,372 @@ class CreatorOperationsService:
             query = query.where(models.CreatorPayout.user_profile_id == viewer_user_profile_id)
         return list(
             self.db.scalars(
-                query.order_by(models.CreatorPayout.created_at.desc(), models.CreatorPayout.id.desc()).limit(
-                    min(max(int(limit), 1), 250)
-                )
+                query.order_by(models.CreatorPayout.created_at.desc(), models.CreatorPayout.id.desc())
+                .offset(min(max(int(offset), 0), 1_000_000))
+                .limit(min(max(int(limit), 1), 250))
             )
         )
+
+    def workload_snapshot(
+        self,
+        *,
+        organization_id: int,
+        viewer_user_profile_id: int,
+    ) -> dict[str, int]:
+        membership = self._membership(organization_id, viewer_user_profile_id)
+        task_scope = [models.CreatorTask.organization_id == organization_id]
+        payout_scope = [models.CreatorPayout.organization_id == organization_id]
+        if membership.role not in {"owner", "admin"}:
+            task_scope.append(
+                models.CreatorTask.assignee_user_profile_id == viewer_user_profile_id
+            )
+            payout_scope.append(
+                models.CreatorPayout.user_profile_id == viewer_user_profile_id
+            )
+        task_totals = self.db.execute(
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (models.CreatorTask.status.not_in(["done", "cancelled"]), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("tasks_open"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (models.CreatorTask.status == "done", 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("tasks_done"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (models.CreatorTask.status == "cancelled", 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("tasks_cancelled"),
+            ).where(*task_scope)
+        ).one()
+        payout_totals = self.db.execute(
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                models.CreatorPayout.status.in_(["pending", "approved"]),
+                                models.CreatorPayout.amount_minor,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("payout_pending_minor"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                models.CreatorPayout.status == "paid",
+                                models.CreatorPayout.amount_minor,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("payout_paid_minor"),
+            ).where(*payout_scope)
+        ).one()
+        tasks_done = int(task_totals.tasks_done or 0)
+        tasks_cancelled = int(task_totals.tasks_cancelled or 0)
+        return {
+            "tasks_open": int(task_totals.tasks_open or 0),
+            "tasks_done": tasks_done,
+            "tasks_cancelled": tasks_cancelled,
+            "tasks_closed": tasks_done + tasks_cancelled,
+            "payout_pending_minor": int(payout_totals.payout_pending_minor or 0),
+            "payout_paid_minor": int(payout_totals.payout_paid_minor or 0),
+        }
+
+    def performance_snapshot(
+        self,
+        *,
+        organization_id: int,
+        viewer_user_profile_id: int,
+    ) -> dict[str, int | float]:
+        """Return tenant-safe latest-snapshot metrics for measurable placements.
+
+        Canonical imports may contain several non-overlapping reporting periods;
+        those periods are summed. Manual cumulative snapshots have no period and
+        only their newest row is used. If canonical periods exist for a post,
+        they take precedence over manual snapshots to prevent double counting.
+        """
+
+        membership = self._membership(organization_id, viewer_user_profile_id)
+        publication_scope = [
+            models.PublishingPackage.organization_id == organization_id,
+        ]
+        if membership.role not in {"owner", "admin"}:
+            publication_scope.append(
+                exists(
+                    select(models.CreatorTask.id).where(
+                        models.CreatorTask.organization_id == organization_id,
+                        models.CreatorTask.publishing_task_id == models.PublishingTask.id,
+                        models.CreatorTask.assignee_user_profile_id == viewer_user_profile_id,
+                        models.CreatorTask.task_type == "manual_placement",
+                        models.CreatorTask.status != "cancelled",
+                    )
+                )
+            )
+
+        published_placements = self.db.scalar(
+            select(func.count(models.PublishingTask.id))
+            .select_from(models.PublishingTask)
+            .join(
+                models.PublishingPackage,
+                models.PublishingPackage.id == models.PublishingTask.publishing_package_id,
+            )
+            .where(
+                *publication_scope,
+                models.PublishingTask.final_url.is_not(None),
+                models.PublishingTask.final_url != "",
+            )
+        ) or 0
+        tracking_click_scope = (
+            select(func.count(models.TrackingClick.id))
+            .select_from(models.TrackingClick)
+            .join(
+                models.PublishingTask,
+                models.PublishingTask.id == models.TrackingClick.publishing_task_id,
+            )
+            .join(
+                models.PublishingPackage,
+                models.PublishingPackage.id
+                == models.PublishingTask.publishing_package_id,
+            )
+            .where(*publication_scope)
+        )
+        tracking_clicks_raw = self.db.scalar(tracking_click_scope) or 0
+        tracking_clicks = self.db.scalar(
+            tracking_click_scope.where(
+                models.TrackingClick.metadata_json["tracking_v1"][
+                    "accepted_for_human_kpi"
+                ]
+                .as_boolean()
+                .is_(True)
+            )
+        ) or 0
+        overlapping_period_metric = aliased(models.DestinationPostMetric)
+        period_row_has_overlap = exists(
+            select(overlapping_period_metric.id).where(
+                overlapping_period_metric.publishing_task_id
+                == models.DestinationPostMetric.publishing_task_id,
+                overlapping_period_metric.id != models.DestinationPostMetric.id,
+                overlapping_period_metric.period_start.is_not(None),
+                overlapping_period_metric.period_end.is_not(None),
+                overlapping_period_metric.period_start
+                <= models.DestinationPostMetric.period_end,
+                overlapping_period_metric.period_end
+                >= models.DestinationPostMetric.period_start,
+            )
+        )
+        quarantined_metric_rows = self.db.scalar(
+            select(func.count(models.DestinationPostMetric.id))
+            .select_from(models.DestinationPostMetric)
+            .join(
+                models.PublishingTask,
+                models.PublishingTask.id
+                == models.DestinationPostMetric.publishing_task_id,
+            )
+            .join(
+                models.PublishingPackage,
+                models.PublishingPackage.id
+                == models.PublishingTask.publishing_package_id,
+            )
+            .where(
+                *publication_scope,
+                models.DestinationPostMetric.period_start.is_not(None),
+                models.DestinationPostMetric.period_end.is_not(None),
+                period_row_has_overlap,
+            )
+        ) or 0
+        period_rows = (
+            select(
+                models.DestinationPostMetric.publishing_task_id.label("publishing_task_id"),
+                func.coalesce(func.sum(models.DestinationPostMetric.views), 0).label("views"),
+                func.coalesce(func.sum(models.DestinationPostMetric.clicks), 0).label("clicks"),
+                func.coalesce(func.sum(models.DestinationPostMetric.orders), 0).label("orders"),
+                func.coalesce(func.sum(models.DestinationPostMetric.revenue), 0.0).label("revenue"),
+            )
+            .select_from(models.DestinationPostMetric)
+            .join(
+                models.PublishingTask,
+                models.PublishingTask.id == models.DestinationPostMetric.publishing_task_id,
+            )
+            .join(
+                models.PublishingPackage,
+                models.PublishingPackage.id == models.PublishingTask.publishing_package_id,
+            )
+            .where(
+                *publication_scope,
+                models.DestinationPostMetric.period_start.is_not(None),
+                models.DestinationPostMetric.period_end.is_not(None),
+                ~period_row_has_overlap,
+            )
+            .group_by(models.DestinationPostMetric.publishing_task_id)
+        )
+        usable_period_metric = aliased(models.DestinationPostMetric)
+        conflicting_period_metric = aliased(models.DestinationPostMetric)
+        usable_period_has_overlap = exists(
+            select(conflicting_period_metric.id).where(
+                conflicting_period_metric.publishing_task_id
+                == usable_period_metric.publishing_task_id,
+                conflicting_period_metric.id != usable_period_metric.id,
+                conflicting_period_metric.period_start.is_not(None),
+                conflicting_period_metric.period_end.is_not(None),
+                conflicting_period_metric.period_start
+                <= usable_period_metric.period_end,
+                conflicting_period_metric.period_end
+                >= usable_period_metric.period_start,
+            )
+        ).correlate(usable_period_metric)
+        has_period_rows = exists(
+            select(usable_period_metric.id).where(
+                usable_period_metric.publishing_task_id
+                == models.DestinationPostMetric.publishing_task_id,
+                usable_period_metric.period_start.is_not(None),
+                usable_period_metric.period_end.is_not(None),
+                ~usable_period_has_overlap,
+            )
+        )
+        latest_unperioded_metric_ids = (
+            select(func.max(models.DestinationPostMetric.id).label("metric_id"))
+            .select_from(models.DestinationPostMetric)
+            .join(
+                models.PublishingTask,
+                models.PublishingTask.id == models.DestinationPostMetric.publishing_task_id,
+            )
+            .join(
+                models.PublishingPackage,
+                models.PublishingPackage.id == models.PublishingTask.publishing_package_id,
+            )
+            .where(
+                *publication_scope,
+                models.DestinationPostMetric.publishing_task_id.is_not(None),
+                models.DestinationPostMetric.period_start.is_(None),
+                models.DestinationPostMetric.period_end.is_(None),
+                ~has_period_rows,
+            )
+            .group_by(models.DestinationPostMetric.publishing_task_id)
+            .subquery()
+        )
+        latest_unperioded_rows = select(
+            models.DestinationPostMetric.publishing_task_id.label("publishing_task_id"),
+            func.coalesce(models.DestinationPostMetric.views, 0).label("views"),
+            func.coalesce(models.DestinationPostMetric.clicks, 0).label("clicks"),
+            func.coalesce(models.DestinationPostMetric.orders, 0).label("orders"),
+            func.coalesce(models.DestinationPostMetric.revenue, 0.0).label("revenue"),
+        ).join(
+            latest_unperioded_metric_ids,
+            latest_unperioded_metric_ids.c.metric_id == models.DestinationPostMetric.id,
+        )
+        canonical_rows = union_all(period_rows, latest_unperioded_rows).subquery()
+        totals = self.db.execute(
+            select(
+                func.count(func.distinct(canonical_rows.c.publishing_task_id)).label(
+                    "tracked_placements"
+                ),
+                func.coalesce(func.sum(canonical_rows.c.views), 0).label("views"),
+                func.coalesce(func.sum(canonical_rows.c.clicks), 0).label("clicks"),
+                func.coalesce(func.sum(canonical_rows.c.orders), 0).label("orders"),
+                func.coalesce(func.sum(canonical_rows.c.revenue), 0.0).label("revenue"),
+            )
+            .select_from(canonical_rows)
+        ).one()
+        return {
+            "published_placements": int(published_placements),
+            "tracking_clicks": int(tracking_clicks),
+            "tracking_clicks_raw": int(tracking_clicks_raw),
+            "tracked_placements": int(totals.tracked_placements or 0),
+            "views": int(totals.views or 0),
+            "clicks": int(totals.clicks or 0),
+            "orders": int(totals.orders or 0),
+            "revenue": float(totals.revenue or 0.0),
+            "quarantined_metric_rows": int(quarantined_metric_rows),
+        }
+
+    def decide_payout(
+        self,
+        *,
+        organization_id: int,
+        actor_user_profile_id: int,
+        payout_id: int,
+        decision: str,
+        notes: str | None = None,
+    ) -> models.CreatorPayout:
+        membership = self._membership(organization_id, actor_user_profile_id)
+        if membership.role not in {"owner", "admin"}:
+            raise CreatorOperationsError("payout_manager_role_required")
+        normalized_decision = str(decision or "").strip().lower()
+        if normalized_decision not in {"approve", "reject"}:
+            raise CreatorOperationsError("invalid_payout_decision")
+        cleaned_notes = " ".join(str(notes or "").strip().split())[:2000]
+        if normalized_decision == "reject" and len(cleaned_notes) < 10:
+            raise CreatorOperationsError("payout_rejection_reason_too_short")
+        payout = self._payout_for_update(organization_id, payout_id)
+        if normalized_decision == "approve":
+            if payout.status in {"approved", "paid"}:
+                return payout
+            if payout.status != "pending":
+                raise CreatorOperationsError("payout_not_approvable")
+            payout.status = "approved"
+            payout.approved_by_user_profile_id = actor_user_profile_id
+            payout.approved_at = models.utcnow()
+        else:
+            if payout.status == "rejected":
+                return payout
+            if payout.status != "pending":
+                raise CreatorOperationsError("payout_not_rejectable")
+            payout.status = "rejected"
+            payout.reason = (
+                f"{str(payout.reason or 'Начисление').strip()} · Отклонено: {cleaned_notes}"
+            )
+        self.db.commit()
+        self.db.refresh(payout)
+        return payout
+
+    def mark_payout_paid(
+        self,
+        *,
+        organization_id: int,
+        actor_user_profile_id: int,
+        payout_id: int,
+        external_payment_reference: str,
+    ) -> models.CreatorPayout:
+        membership = self._membership(organization_id, actor_user_profile_id)
+        if membership.role not in {"owner", "admin"}:
+            raise CreatorOperationsError("payout_manager_role_required")
+        reference = " ".join(str(external_payment_reference or "").strip().split())
+        if not 3 <= len(reference) <= 180 or any(ord(char) < 32 for char in reference):
+            raise CreatorOperationsError("external_payment_reference_invalid")
+        payout = self._payout_for_update(organization_id, payout_id)
+        if payout.status == "paid":
+            if payout.external_payment_reference == reference:
+                return payout
+            raise CreatorOperationsError("external_payment_reference_mismatch")
+        if payout.status != "approved" or payout.approved_by_user_profile_id is None:
+            raise CreatorOperationsError("payout_must_be_approved_first")
+        payout.status = "paid"
+        payout.external_payment_reference = reference
+        payout.paid_at = models.utcnow()
+        self.db.commit()
+        self.db.refresh(payout)
+        return payout
 
     def review_generated_task(
         self,
@@ -543,16 +1253,26 @@ class CreatorOperationsService:
         organization_id: int,
         actor_user_profile_id: int,
         task_id: int,
+        expected_media_artifact_id: int,
+        expected_media_artifact_public_id: str,
+        expected_media_artifact_sha256: str,
         decision: str,
         notes: str | None = None,
+        confirm_video_watched: bool = False,
     ) -> models.CreatorTask:
         membership = self._membership(organization_id, actor_user_profile_id)
         normalized_decision = str(decision or "").strip().lower()
         if normalized_decision not in {"approve", "reject"}:
             raise CreatorOperationsError("invalid_review_decision")
         cleaned_notes = " ".join(str(notes or "").strip().split())[:2000]
-        if normalized_decision == "reject" and len(cleaned_notes) < 10:
-            raise CreatorOperationsError("rejection_reason_too_short")
+        if confirm_video_watched is not True:
+            raise CreatorOperationsError("video_review_watch_confirmation_required")
+        if len(cleaned_notes) < 10:
+            raise CreatorOperationsError(
+                "rejection_reason_too_short"
+                if normalized_decision == "reject"
+                else "approval_review_notes_too_short"
+            )
 
         task = self.db.scalar(
             select(models.CreatorTask)
@@ -570,24 +1290,71 @@ class CreatorOperationsService:
         ):
             raise CreatorOperationsError("review_task_assignee_required")
 
+        artifact = self.db.scalar(
+            select(models.MediaArtifact)
+            .where(
+                models.MediaArtifact.id == task.media_artifact_id,
+                models.MediaArtifact.organization_id == organization_id,
+            )
+            .with_for_update()
+        )
+        if (
+            artifact is None
+            or artifact.status != "ready"
+            or artifact.deleted_at is not None
+            or artifact.kind not in {"master_video", "provider_output"}
+            or str(artifact.mime_type or "").split(";", 1)[0].strip().lower()
+            != "video/mp4"
+            or artifact.size_bytes <= 0
+            or re.fullmatch(r"[0-9a-f]{64}", str(artifact.sha256 or "")) is None
+        ):
+            raise CreatorOperationsError("review_video_not_ready")
+
+        # The browser posts the immutable identity of the exact MP4 opened by
+        # the reviewer.  Compare it only after locking both the task pointer
+        # and artifact row, so a worker cannot replace the pointer or bytes in
+        # the gap between page rendering and the approval transaction.
+        if (
+            not isinstance(expected_media_artifact_id, int)
+            or isinstance(expected_media_artifact_id, bool)
+            or expected_media_artifact_id != artifact.id
+            or expected_media_artifact_public_id != artifact.public_id
+            or expected_media_artifact_sha256 != artifact.sha256
+        ):
+            raise CreatorOperationsError("review_video_identity_mismatch")
+
         previous = dict(task.result_json or {}).get("review_decision")
         if task.status in {"done", "cancelled"}:
             if previous == normalized_decision:
                 return task
             raise CreatorOperationsError("review_task_already_finalized")
-        artifact = self.db.get(models.MediaArtifact, task.media_artifact_id)
-        if (
-            artifact is None
-            or artifact.organization_id != organization_id
-            or artifact.status != "ready"
-            or artifact.deleted_at is not None
-            or artifact.kind not in {"master_video", "provider_output"}
-            or artifact.size_bytes <= 0
-        ):
-            raise CreatorOperationsError("review_video_not_ready")
-        draft = self.db.get(models.ProductUGCRecipeDraft, task.product_ugc_recipe_draft_id)
+        draft = self.db.scalar(
+            select(models.ProductUGCRecipeDraft)
+            .where(models.ProductUGCRecipeDraft.id == task.product_ugc_recipe_draft_id)
+            .with_for_update()
+        )
         if draft is None or draft.product.organization_id != organization_id:
             raise CreatorOperationsError("review_draft_not_found")
+
+        creative_inputs = dict(draft.creative_inputs_json or {})
+        blocked_artifacts = [
+            dict(item)
+            for item in list(creative_inputs.get("blocked_media_artifacts_v1") or [])
+            if isinstance(item, dict)
+        ]
+        artifact_was_rejected = any(
+            item.get("media_artifact_id") == artifact.id
+            or item.get("public_id") == artifact.public_id
+            or item.get("sha256") == artifact.sha256
+            for item in blocked_artifacts
+        )
+        if normalized_decision == "approve" and artifact_was_rejected:
+            raise CreatorOperationsError("review_rejected_artifact_requires_regeneration")
+        if task.status == "blocked" and previous == "reject":
+            if normalized_decision == "reject" and artifact_was_rejected:
+                return task
+            if artifact_was_rejected:
+                raise CreatorOperationsError("review_rejected_artifact_requires_regeneration")
 
         now = models.utcnow()
         task.submitted_at = now
@@ -597,7 +1364,9 @@ class CreatorOperationsService:
             "review_notes": cleaned_notes,
             "reviewed_by_user_profile_id": actor_user_profile_id,
             "reviewed_at": now.isoformat(),
+            "media_artifact_id": artifact.id,
             "media_artifact_public_id": artifact.public_id,
+            "media_artifact_sha256": artifact.sha256,
         }
         draft.human_review_notes = cleaned_notes or None
         if normalized_decision == "approve":
@@ -606,6 +1375,14 @@ class CreatorOperationsService:
             task.blockers_json = []
             draft.human_review_status = "approved"
             draft.publishing_readiness = "ready_for_publishing_package"
+            creative_inputs["approved_media_artifact_v1"] = {
+                "media_artifact_id": artifact.id,
+                "public_id": artifact.public_id,
+                "sha256": artifact.sha256,
+                "provider_task_id": draft.provider_task_id,
+                "reviewed_by_user_profile_id": actor_user_profile_id,
+                "reviewed_at": now.isoformat(),
+            }
         else:
             task.status = "blocked"
             task.completed_at = None
@@ -617,6 +1394,20 @@ class CreatorOperationsService:
             ]
             draft.human_review_status = "changes_requested"
             draft.publishing_readiness = "blocked"
+            rejected_identity = {
+                "media_artifact_id": artifact.id,
+                "public_id": artifact.public_id,
+                "sha256": artifact.sha256,
+                "provider_task_id": draft.provider_task_id,
+                "rejected_by_user_profile_id": actor_user_profile_id,
+                "rejected_at": now.isoformat(),
+                "reason": cleaned_notes,
+            }
+            if not artifact_was_rejected:
+                blocked_artifacts.append(rejected_identity)
+            creative_inputs["blocked_media_artifacts_v1"] = blocked_artifacts
+            creative_inputs.pop("approved_media_artifact_v1", None)
+        draft.creative_inputs_json = creative_inputs
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -630,6 +1421,16 @@ class CreatorOperationsService:
         final_url: str,
     ) -> models.CreatorTask:
         membership = self._membership(organization_id, actor_user_profile_id)
+        # Serialize final-URL acceptance across every placement batch in the
+        # organization. A batch-only lock would allow two concurrent batches
+        # to accept the same post and create duplicate payouts.
+        organization_lock = self.db.scalar(
+            select(models.Organization.id)
+            .where(models.Organization.id == organization_id)
+            .with_for_update()
+        )
+        if organization_lock is None:
+            raise CreatorOperationsError("active_membership_required")
         task_lookup = self.db.scalar(
             select(models.CreatorTask)
             .where(
@@ -698,7 +1499,14 @@ class CreatorOperationsService:
         ):
             raise CreatorOperationsError("placement_task_lineage_invalid")
 
-        canonical_url = self._canonical_placement_url(final_url, destination)
+        try:
+            canonical_url = claim_publication_identity(
+                self.db,
+                task=publishing_task,
+                final_url=final_url,
+            )
+        except PublicationIdentityError as exc:
+            raise CreatorOperationsError(exc.code) from exc
         task_result = dict(task.result_json or {})
         existing_task_url = str(task_result.get("final_url") or "").strip()
         existing_publishing_url = str(publishing_task.final_url or "").strip()
@@ -760,6 +1568,27 @@ class CreatorOperationsService:
             "completed_by_user_profile_id": actor_user_profile_id,
             "completed_at": now.isoformat(),
         }
+        payout_minor = self._nonnegative_int(
+            dict(batch.parameters_json or {}).get("payout_per_post_minor", 0),
+            "payout_per_post_minor",
+        )
+        if payout_minor:
+            self.db.add(
+                models.CreatorPayout(
+                    organization_id=organization_id,
+                    user_profile_id=task.assignee_user_profile_id,
+                    creator_task_id=task.id,
+                    publishing_task_id=publishing_task.id,
+                    amount_minor=payout_minor,
+                    currency="RUB",
+                    status="pending",
+                    reason=(
+                        f"Подтверждённое размещение · {destination.platform} · "
+                        f"задача #{task.id}"
+                    ),
+                    idempotency_key=f"placement:{batch.id}:task:{task.id}:payout",
+                )
+            )
         result_index = result_indexes[0]
         results[result_index] = {
             **results[result_index],
@@ -771,54 +1600,472 @@ class CreatorOperationsService:
         all_done = all(item.status == "done" for item in batch_tasks)
         batch.status = "completed" if all_done else "running"
         batch.completed_at = now if all_done else None
+        event_key = f"publication_completed:publishing_task:{publishing_task.id}"
+        existing_event = self.db.scalar(
+            select(models.FactoryEvent).where(models.FactoryEvent.idempotency_key == event_key)
+        )
+        if existing_event is None:
+            self.db.add(
+                models.FactoryEvent(
+                    event_name="publication_completed",
+                    event_version=1,
+                    occurred_at=now,
+                    received_at=now,
+                    organization_id=organization_id,
+                    user_profile_id=actor_user_profile_id,
+                    role=membership.role,
+                    factory_run_id=f"mass_placement:{batch.id}",
+                    entity_type="publishing_task",
+                    entity_id=str(publishing_task.id),
+                    product_id=package.product_id,
+                    sku=product.sku,
+                    publishing_task_id=publishing_task.id,
+                    source="server",
+                    idempotency_key=event_key,
+                    properties_json={
+                        "platform": destination.platform,
+                        "mass_operation_batch_id": batch.id,
+                        "creator_task_id": task.id,
+                        "assignee_user_profile_id": task.assignee_user_profile_id,
+                    },
+                )
+            )
         self.db.commit()
         self.db.refresh(task)
         return task
+
+    def record_manual_metrics(
+        self,
+        *,
+        organization_id: int,
+        actor_user_profile_id: int,
+        task_id: int,
+        views: int,
+        clicks: int,
+        orders: int,
+        revenue_minor: int,
+        allow_correction: bool = False,
+        correction_reason: str | None = None,
+    ) -> models.DestinationPostMetric:
+        membership = self._membership(organization_id, actor_user_profile_id)
+        counts = {
+            "views": self._nonnegative_int(views, "views"),
+            "clicks": self._nonnegative_int(clicks, "clicks"),
+            "orders": self._nonnegative_int(orders, "orders"),
+        }
+        if any(value > MANUAL_METRIC_COUNT_MAX for value in counts.values()):
+            raise CreatorOperationsError("manual_metric_count_too_large")
+        normalized_revenue_minor = self._nonnegative_int(revenue_minor, "revenue_minor")
+        if normalized_revenue_minor > MANUAL_METRIC_REVENUE_MAX_MINOR:
+            raise CreatorOperationsError("manual_metric_revenue_too_large")
+        creator_task = self.db.scalar(
+            select(models.CreatorTask)
+            .where(
+                models.CreatorTask.id == int(task_id),
+                models.CreatorTask.organization_id == organization_id,
+                models.CreatorTask.task_type == "manual_placement",
+            )
+            .with_for_update()
+        )
+        if creator_task is None:
+            raise CreatorOperationsError("placement_task_not_found")
+        if (
+            membership.role not in {"owner", "admin"}
+            and creator_task.assignee_user_profile_id != actor_user_profile_id
+        ):
+            raise CreatorOperationsError("placement_task_assignee_required")
+        publishing_task = self.db.get(models.PublishingTask, creator_task.publishing_task_id)
+        package = (
+            self.db.get(models.PublishingPackage, publishing_task.publishing_package_id)
+            if publishing_task is not None
+            else None
+        )
+        destination = (
+            self.db.get(models.PublishingDestination, publishing_task.destination_id)
+            if publishing_task is not None
+            else None
+        )
+        product = self.db.get(models.Product, package.product_id) if package is not None else None
+        if (
+            creator_task.status != "done"
+            or publishing_task is None
+            or publishing_task.status != "published_manual"
+            or not publishing_task.final_url
+            or package is None
+            or destination is None
+            or product is None
+            or package.organization_id != organization_id
+            or destination.organization_id != organization_id
+            or product.organization_id != organization_id
+            or creator_task.product_id != product.id
+        ):
+            raise CreatorOperationsError("manual_metrics_publication_required")
+        prior_metric = next(
+            (
+                item
+                for item in self.db.scalars(
+                    select(models.DestinationPostMetric)
+                    .where(
+                        models.DestinationPostMetric.publishing_task_id
+                        == publishing_task.id,
+                        models.DestinationPostMetric.period_start.is_(None),
+                        models.DestinationPostMetric.period_end.is_(None),
+                    )
+                    .order_by(models.DestinationPostMetric.id.desc())
+                    .limit(50)
+                )
+                if dict(item.raw_json or {}).get("source")
+                == "manual_creator_cumulative_snapshot"
+            ),
+            None,
+        )
+        decreases = []
+        if prior_metric is not None:
+            prior_values = {
+                "views": int(prior_metric.views or 0),
+                "clicks": int(prior_metric.clicks or 0),
+                "orders": int(prior_metric.orders or 0),
+                "revenue_minor": int(round(float(prior_metric.revenue or 0.0) * 100)),
+            }
+            submitted_values = {**counts, "revenue_minor": normalized_revenue_minor}
+            decreases = [
+                key
+                for key, prior_value in prior_values.items()
+                if submitted_values[key] < prior_value
+            ]
+        cleaned_correction_reason = " ".join(
+            str(correction_reason or "").strip().split()
+        )[:2000]
+        if decreases:
+            if allow_correction is not True:
+                raise CreatorOperationsError(
+                    "manual_metrics_cumulative_decrease_requires_correction"
+                )
+            if membership.role not in {"owner", "admin"}:
+                raise CreatorOperationsError("manual_metrics_correction_manager_required")
+            if len(cleaned_correction_reason) < 10:
+                raise CreatorOperationsError("manual_metrics_correction_reason_too_short")
+        metric = models.DestinationPostMetric(
+            destination_id=destination.id,
+            publishing_task_id=publishing_task.id,
+            product_id=product.id,
+            sku=product.sku,
+            platform=normalize_platform(destination.platform),
+            posted_url=publishing_task.final_url,
+            views=counts["views"],
+            clicks=counts["clicks"],
+            orders=counts["orders"],
+            revenue=normalized_revenue_minor / 100.0,
+            raw_json={
+                "source": "manual_creator_cumulative_snapshot",
+                "submitted_by_user_profile_id": actor_user_profile_id,
+                "creator_task_id": creator_task.id,
+                "mass_operation_batch_id": creator_task.mass_operation_batch_id,
+                "previous_manual_metric_id": (
+                    prior_metric.id if prior_metric is not None else None
+                ),
+                "cumulative_correction": (
+                    {
+                        "confirmed": True,
+                        "reason": cleaned_correction_reason,
+                        "decreased_fields": decreases,
+                    }
+                    if decreases
+                    else None
+                ),
+            },
+        )
+        self.db.add(metric)
+        self.db.commit()
+        self.db.refresh(metric)
+        return metric
+
+    def _payout_for_update(
+        self,
+        organization_id: int,
+        payout_id: int,
+    ) -> models.CreatorPayout:
+        payout = self.db.scalar(
+            select(models.CreatorPayout)
+            .where(
+                models.CreatorPayout.id == int(payout_id),
+                models.CreatorPayout.organization_id == organization_id,
+            )
+            .with_for_update()
+        )
+        if payout is None:
+            raise CreatorOperationsError("payout_not_found")
+        return payout
+
+    def _generation_template_snapshot(
+        self,
+        template: models.ProductUGCRecipeDraft,
+        *,
+        product: models.Product,
+        organization_id: int,
+        lock_related: bool,
+    ) -> dict[str, object]:
+        raw_asset_ids = deepcopy(template.product_asset_ids_json or [])
+        referenced_asset_ids: set[int] = set()
+        for raw_id in [*raw_asset_ids, template.primary_product_asset_id]:
+            try:
+                asset_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if asset_id > 0:
+                referenced_asset_ids.add(asset_id)
+
+        assets: list[models.ProductAsset] = []
+        if referenced_asset_ids:
+            asset_query = (
+                select(models.ProductAsset)
+                .where(
+                    models.ProductAsset.id.in_(sorted(referenced_asset_ids)),
+                    models.ProductAsset.product_id == template.product_id,
+                )
+                .order_by(models.ProductAsset.id)
+            )
+            if lock_related:
+                asset_query = asset_query.with_for_update()
+            assets = list(self.db.scalars(asset_query).all())
+
+        referenced_artifact_ids: set[int] = set()
+        for raw_id in [
+            template.character_media_artifact_id,
+            *(asset.media_artifact_id for asset in assets),
+        ]:
+            try:
+                artifact_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if artifact_id > 0:
+                referenced_artifact_ids.add(artifact_id)
+
+        artifacts: list[models.MediaArtifact] = []
+        if referenced_artifact_ids:
+            artifact_query = (
+                select(models.MediaArtifact)
+                .where(
+                    models.MediaArtifact.id.in_(sorted(referenced_artifact_ids)),
+                    models.MediaArtifact.organization_id == organization_id,
+                )
+                .order_by(models.MediaArtifact.id)
+            )
+            if lock_related:
+                artifact_query = artifact_query.with_for_update()
+            artifacts = list(self.db.scalars(artifact_query).all())
+
+        found_asset_ids = {int(asset.id) for asset in assets}
+        found_artifact_ids = {int(artifact.id) for artifact in artifacts}
+        return {
+            "schema": GENERATION_TEMPLATE_SNAPSHOT_SCHEMA,
+            "draft": {
+                "id": int(template.id),
+                "organization_id": int(organization_id),
+                "product_id": int(template.product_id),
+                "sku": template.sku,
+                "variant_key": template.variant_key,
+                "status": template.status,
+                "recipe_version": template.recipe_version,
+                "platform": template.platform,
+                "language": template.language,
+                "character_image_path": template.character_image_path,
+                "character_media_artifact_id": template.character_media_artifact_id,
+                "character_image_filename": template.character_image_filename,
+                "likeness_consent": bool(template.likeness_consent),
+                "exact_variant_confirmed": bool(template.exact_variant_confirmed),
+                "product_asset_ids_json": raw_asset_ids,
+                "primary_product_asset_id": template.primary_product_asset_id,
+                "product_info": template.product_info,
+                "user_concept": template.user_concept,
+                "creative_inputs_json": deepcopy(template.creative_inputs_json or {}),
+                "duration_seconds": int(template.duration_seconds),
+                "ratio": template.ratio,
+                "audio_enabled": bool(template.audio_enabled),
+                "estimated_credits": int(template.estimated_credits or 0),
+                "provider_payload_preview_json": deepcopy(
+                    template.provider_payload_preview_json or {}
+                ),
+                "blockers_json": deepcopy(template.blockers_json or []),
+                "warnings_json": deepcopy(template.warnings_json or []),
+            },
+            "product": {
+                "id": int(product.id),
+                "organization_id": int(organization_id),
+                "sku": product.sku,
+                "brand": product.brand,
+                "title": product.title,
+                "description": product.description,
+                "category": product.category,
+                "attributes_json": deepcopy(product.attributes_json or {}),
+                "benefits_json": deepcopy(product.benefits_json or []),
+                "restrictions_json": deepcopy(product.restrictions_json or []),
+            },
+            "product_assets": [
+                {
+                    "id": int(asset.id),
+                    "product_id": int(asset.product_id),
+                    "asset_kit_id": int(asset.asset_kit_id),
+                    "media_artifact_id": asset.media_artifact_id,
+                    "source_ref": asset.source_ref,
+                    "source_type": asset.source_type,
+                    "asset_type": asset.asset_type,
+                    "asset_role": asset.asset_role,
+                    "filename": asset.filename,
+                    "extension": asset.extension,
+                    "mime_type": asset.mime_type,
+                    "width": asset.width,
+                    "height": asset.height,
+                    "exists": bool(asset.exists),
+                    "status": asset.status,
+                    "is_primary_reference": bool(asset.is_primary_reference),
+                    "is_safe_for_real_generation": bool(
+                        asset.is_safe_for_real_generation
+                    ),
+                    "manual_label": asset.manual_label,
+                    "review_status": asset.review_status,
+                    "review_notes": asset.review_notes,
+                    "checksum": asset.checksum,
+                    "metadata_json": deepcopy(asset.metadata_json or {}),
+                }
+                for asset in assets
+            ],
+            "missing_product_asset_ids": sorted(
+                referenced_asset_ids - found_asset_ids
+            ),
+            "media_artifacts": [
+                {
+                    "id": int(artifact.id),
+                    "public_id": artifact.public_id,
+                    "organization_id": int(artifact.organization_id),
+                    "product_id": artifact.product_id,
+                    "kind": artifact.kind,
+                    "backend_name": artifact.backend_name,
+                    "bucket": artifact.bucket,
+                    "object_key": artifact.object_key,
+                    "object_version": artifact.object_version,
+                    "etag": artifact.etag,
+                    "original_filename": artifact.original_filename,
+                    "mime_type": artifact.mime_type,
+                    "size_bytes": int(artifact.size_bytes),
+                    "sha256": artifact.sha256,
+                    "status": artifact.status,
+                    "archived_at": self._snapshot_datetime(artifact.archived_at),
+                    "delete_requested_at": self._snapshot_datetime(
+                        artifact.delete_requested_at
+                    ),
+                    "deleted_at": self._snapshot_datetime(artifact.deleted_at),
+                }
+                for artifact in artifacts
+            ],
+            "missing_media_artifact_ids": sorted(
+                referenced_artifact_ids - found_artifact_ids
+            ),
+        }
+
+    @staticmethod
+    def _generation_template_snapshot_hash(snapshot: dict[str, object]) -> str:
+        return canonical_json_sha256(snapshot)
+
+    @staticmethod
+    def _generation_template_snapshot_changes(
+        expected: dict[str, object],
+        current: dict[str, object],
+    ) -> list[str]:
+        changes: list[str] = []
+        expected_draft = expected.get("draft")
+        current_draft = current.get("draft")
+        if isinstance(expected_draft, dict) and isinstance(current_draft, dict):
+            for key in sorted(set(expected_draft) | set(current_draft)):
+                if expected_draft.get(key) != current_draft.get(key):
+                    changes.append(f"draft.{key}")
+        elif expected_draft != current_draft:
+            changes.append("draft")
+        for section in (
+            "schema",
+            "product",
+            "product_assets",
+            "missing_product_asset_ids",
+            "media_artifacts",
+            "missing_media_artifact_ids",
+        ):
+            if expected.get(section) != current.get(section):
+                changes.append(section)
+        return changes[:8] or ["snapshot"]
+
+    @classmethod
+    def _valid_generation_template_snapshot(
+        cls,
+        snapshot: object,
+        snapshot_sha256: object,
+    ) -> bool:
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("schema") != GENERATION_TEMPLATE_SNAPSHOT_SCHEMA
+            or not isinstance(snapshot_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", snapshot_sha256) is None
+        ):
+            return False
+        try:
+            return cls._generation_template_snapshot_hash(snapshot) == snapshot_sha256
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _snapshot_datetime(value: datetime | None) -> str | None:
+        return value.isoformat() if value is not None else None
 
     def _clone_draft(
         self,
         template: models.ProductUGCRecipeDraft,
         *,
+        template_snapshot: dict[str, object],
         batch: models.MassOperationBatch,
         sequence: int,
         actor_user_profile_id: int,
         assignee_user_profile_id: int,
     ) -> models.ProductUGCRecipeDraft:
-        suffix = f"batch-{batch.id}-{sequence}"
-        variant_base = str(template.variant_key or template.sku or "variant")[: max(1, 159 - len(suffix))]
-        creative_inputs = deepcopy(template.creative_inputs_json or {})
+        source = template_snapshot.get("draft")
+        if not isinstance(source, dict) or int(source.get("id") or 0) != int(template.id):
+            raise CreatorOperationsError("generation_template_snapshot_invalid")
+        creative_inputs = deepcopy(source.get("creative_inputs_json") or {})
         creative_inputs["mass_batch"] = {
             "batch_id": batch.id,
             "sequence": sequence,
             "assignee_user_profile_id": assignee_user_profile_id,
         }
         draft = models.ProductUGCRecipeDraft(
-            product_id=template.product_id,
+            product_id=int(source["product_id"]),
             created_by_user_profile_id=actor_user_profile_id,
             assigned_to_user_profile_id=assignee_user_profile_id,
-            sku=template.sku,
-            variant_key=f"{variant_base}-{suffix}"[:160],
+            sku=source["sku"],
+            # Catalog variant identity is a preflight input, not a row-unique
+            # execution id. Per-clone identity lives in the durable job key and
+            # mass_batch lineage below.
+            variant_key=source.get("variant_key"),
             status="ready_for_paid_preflight",
-            recipe_version=template.recipe_version,
-            platform=template.platform,
-            language=template.language,
-            character_image_path=template.character_image_path,
-            character_media_artifact_id=template.character_media_artifact_id,
-            character_image_filename=template.character_image_filename,
-            likeness_consent=template.likeness_consent,
-            exact_variant_confirmed=template.exact_variant_confirmed,
-            product_asset_ids_json=deepcopy(template.product_asset_ids_json or []),
-            primary_product_asset_id=template.primary_product_asset_id,
-            product_info=template.product_info,
-            user_concept=template.user_concept,
+            recipe_version=source["recipe_version"],
+            platform=source["platform"],
+            language=source["language"],
+            character_image_path=source.get("character_image_path"),
+            character_media_artifact_id=source.get("character_media_artifact_id"),
+            character_image_filename=source["character_image_filename"],
+            likeness_consent=source["likeness_consent"],
+            exact_variant_confirmed=source["exact_variant_confirmed"],
+            product_asset_ids_json=deepcopy(source.get("product_asset_ids_json") or []),
+            primary_product_asset_id=source.get("primary_product_asset_id"),
+            product_info=source["product_info"],
+            user_concept=source["user_concept"],
             creative_inputs_json=creative_inputs,
-            duration_seconds=template.duration_seconds,
-            ratio=template.ratio,
-            audio_enabled=template.audio_enabled,
-            estimated_credits=template.estimated_credits,
-            provider_payload_preview_json=deepcopy(template.provider_payload_preview_json or {}),
+            duration_seconds=source["duration_seconds"],
+            ratio=source["ratio"],
+            audio_enabled=source["audio_enabled"],
+            estimated_credits=source["estimated_credits"],
+            provider_payload_preview_json=deepcopy(
+                source.get("provider_payload_preview_json") or {}
+            ),
             blockers_json=[],
-            warnings_json=deepcopy(template.warnings_json or []),
+            warnings_json=deepcopy(source.get("warnings_json") or []),
             provider_task_id=None,
             provider_status=None,
             local_output_paths_json=[],
@@ -839,6 +2086,18 @@ class CreatorOperationsService:
         actor_user_profile_id: int,
         sequence: int,
     ) -> models.ProductUGCGenerationJob:
+        batch_parameters = dict(batch.parameters_json or {})
+        template_snapshot = batch_parameters.get("template_snapshot")
+        snapshot_draft = (
+            template_snapshot.get("draft")
+            if isinstance(template_snapshot, dict)
+            else None
+        )
+        if not isinstance(snapshot_draft, dict):
+            raise CreatorOperationsError("generation_template_snapshot_invalid")
+        provider_payload = snapshot_draft.get("provider_payload_preview_json") or {}
+        if not isinstance(provider_payload, dict):
+            raise CreatorOperationsError("generation_provider_payload_snapshot_invalid")
         job = models.ProductUGCGenerationJob(
             draft_id=draft.id,
             organization_id=batch.organization_id,
@@ -855,6 +2114,24 @@ class CreatorOperationsService:
                 "mass_operation_batch_id": batch.id,
                 "sequence": sequence,
                 "spend_policy": "at_most_once",
+                "generation_template_snapshot_schema": template_snapshot.get(
+                    "schema"
+                ),
+                "generation_template_snapshot_hash": batch_parameters.get(
+                    "template_snapshot_sha256"
+                ),
+                "source_preview_batch_id": batch_parameters.get(
+                    "source_dry_run_batch_id"
+                ),
+                "source_batch_id": batch.id,
+                "source_template_draft_id": snapshot_draft.get("id"),
+                "launch_draft_id": draft.id,
+                "estimated_credits_per_item": int(
+                    snapshot_draft.get("estimated_credits") or 0
+                ),
+                "provider_payload_sha256": self._generation_template_snapshot_hash(
+                    provider_payload
+                ),
             },
         )
         draft.status = "provider_launching"
@@ -906,6 +2183,8 @@ class CreatorOperationsService:
         assignee_user_profile_id: int,
         actor_user_profile_id: int,
         sequence: int,
+        tracking_link: models.TrackingLink,
+        manual_upload: dict[str, object],
     ) -> models.CreatorTask:
         destination_label = " · ".join(
             part
@@ -924,13 +2203,16 @@ class CreatorOperationsService:
             title=f"Разместить видео · {destination.platform} · {sequence}/{batch.total_requested}",
             instructions=(
                 f"Опубликуйте одобренное видео в направлении {destination_label}. "
-                "Используйте подготовленные текст и ссылку, затем вставьте публичный HTTPS URL публикации."
+                "Скопируйте подготовленные текст, CTA и отслеживаемую ссылку ниже, "
+                "затем вставьте публичный HTTPS URL публикации."
             ),
             status="todo",
             priority=3,
             due_at=publishing_task.scheduled_at,
             checklist_json=[
                 "Открыть одобренное видео",
+                "Скопировать подготовленный текст без изменения фактов",
+                "Использовать отслеживаемую ссылку вместо прямой ссылки на товар",
                 f"Опубликовать в {destination_label}",
                 "Проверить публичную публикацию",
                 "Сохранить финальный URL публикации",
@@ -943,6 +2225,8 @@ class CreatorOperationsService:
                 "destination_url": destination.url,
                 "publishing_task_id": publishing_task.id,
                 "media_artifact_id": package.media_artifact_id,
+                "tracking_link_id": tracking_link.id,
+                "manual_upload": manual_upload,
             },
             blockers_json=[],
             idempotency_key=f"mass-placement:{batch.id}:task:{sequence}",
@@ -950,6 +2234,60 @@ class CreatorOperationsService:
         self.db.add(task)
         self.db.flush()
         return task
+
+    def _tracking_target_url(self, package: models.PublishingPackage) -> str:
+        candidate = str(
+            package.utm_url
+            or package.product_url
+            or getattr(package.product, "product_url", None)
+            or ""
+        ).strip()
+        if not candidate:
+            raise CreatorOperationsError("tracking_target_url_required")
+        try:
+            return safe_public_url(candidate, error_code="tracking_target_url_invalid")
+        except DestinationConnectorDataError as exc:
+            raise CreatorOperationsError("tracking_target_url_invalid") from exc
+
+    def _ensure_tracking_link(
+        self,
+        *,
+        publishing_task: models.PublishingTask,
+        package: models.PublishingPackage,
+        destination: models.PublishingDestination,
+        batch: models.MassOperationBatch,
+        sequence: int,
+    ) -> models.TrackingLink:
+        target_url = self._tracking_target_url(package)
+        existing = self.db.scalar(
+            select(models.TrackingLink).where(
+                models.TrackingLink.publishing_task_id == publishing_task.id
+            )
+        )
+        if existing is not None:
+            if (
+                existing.target_url != target_url
+                or existing.destination_id != destination.id
+                or existing.product_id != package.product_id
+            ):
+                raise CreatorOperationsError("tracking_link_lineage_invalid")
+            return existing
+        slug_seed = (
+            f"{batch.id}:{sequence}:{publishing_task.id}:{package.id}:{destination.id}"
+        )
+        link = models.TrackingLink(
+            slug=f"mp-{publishing_task.id}-{hashlib.sha256(slug_seed.encode('utf-8')).hexdigest()[:12]}",
+            target_url=target_url,
+            publishing_task_id=publishing_task.id,
+            destination_id=destination.id,
+            product_id=package.product_id,
+            sku=package.product.sku,
+            creative_variant_id=package.creative_variant_id,
+            status="active",
+        )
+        self.db.add(link)
+        self.db.flush()
+        return link
 
     def _qualified_assignees(self, organization_id: int, values: Iterable[int]) -> list[int]:
         result: list[int] = []
@@ -965,6 +2303,12 @@ class CreatorOperationsService:
     def final_exam_passed(self, user_profile_id: int) -> bool:
         return FINAL_EXAM_CODE in NoviceLearningPathService(self.db).verified_certification_codes(
             user_profile_id=int(user_profile_id)
+        )
+
+    def final_exam_passed_user_ids(self, user_profile_ids: Iterable[int]) -> set[int]:
+        return NoviceLearningPathService(self.db).verified_user_ids_for_module(
+            user_profile_ids=tuple(int(item) for item in user_profile_ids),
+            module_code=FINAL_EXAM_CODE,
         )
 
     def _membership(self, organization_id: int, user_profile_id: int) -> models.Membership:
@@ -1056,6 +2400,34 @@ class CreatorOperationsService:
             result.remove(missing_local_video)
         return result
 
+    @staticmethod
+    def _placement_blocker_code(value: str) -> str:
+        message = " ".join(str(value or "").split())
+        exact = {
+            "PublishingPackage must be approved before scheduling.": "publishing_package_not_approved",
+            "PublishingPackage review_status must be approved before scheduling.": "publishing_package_review_required",
+            "Package platform must match destination platform.": "package_platform_mismatch",
+            "Package brand must match destination brand.": "package_brand_mismatch",
+            "Package and destination must belong to the same organization.": "package_destination_organization_mismatch",
+            "Posting mode is disabled.": "destination_posting_disabled",
+            "API posting requires configured valid platform credentials.": "destination_api_credentials_required",
+            "Daily limit must be at least 1.": "destination_daily_limit_invalid",
+            "Weekly limit must be at least 1.": "destination_weekly_limit_invalid",
+            "Video file must exist and be non-empty.": "publishing_video_missing",
+            "Media artifact package requires organization-scoped human review.": "publishing_media_review_required",
+        }
+        if message in exact:
+            return exact[message]
+        if message.startswith("Destination must be active;"):
+            return "destination_not_active"
+        if message.startswith("Daily publishing limit reached:"):
+            return "daily_publishing_limit_reached"
+        if message.startswith("Weekly publishing limit reached:"):
+            return "weekly_publishing_limit_reached"
+        if message.startswith("Media artifact"):
+            return "publishing_media_artifact_invalid"
+        return message or "placement_validation_failed"
+
     def _existing_batch(self, organization_id: int, idempotency_key: str) -> models.MassOperationBatch | None:
         return self.db.scalar(
             select(models.MassOperationBatch).where(
@@ -1142,12 +2514,47 @@ class CreatorOperationsService:
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _normalize_placement_start(value: datetime) -> datetime:
+    def _normalize_placement_start(
+        value: datetime,
+        timezone_name: str = "Europe/Moscow",
+    ) -> datetime:
         if not isinstance(value, datetime):
             raise CreatorOperationsError("invalid_start_at")
         if value.tzinfo is not None:
             return value.astimezone(UTC).replace(tzinfo=None)
-        return value
+        normalized_timezone = str(timezone_name or "").strip()
+        if (
+            not normalized_timezone
+            or len(normalized_timezone) > 64
+            or not re.fullmatch(r"[A-Za-z0-9_+./-]+", normalized_timezone)
+        ):
+            raise CreatorOperationsError("invalid_start_timezone")
+        try:
+            local_timezone = ZoneInfo(normalized_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise CreatorOperationsError("invalid_start_timezone") from exc
+        fold_zero = value.replace(tzinfo=local_timezone, fold=0)
+        fold_one = value.replace(tzinfo=local_timezone, fold=1)
+        if fold_zero.utcoffset() != fold_one.utcoffset():
+            zero_round_trip = (
+                fold_zero.astimezone(UTC)
+                .astimezone(local_timezone)
+                .replace(tzinfo=None)
+            )
+            one_round_trip = (
+                fold_one.astimezone(UTC)
+                .astimezone(local_timezone)
+                .replace(tzinfo=None)
+            )
+            if zero_round_trip == value and one_round_trip == value:
+                raise CreatorOperationsError("start_at_is_ambiguous_in_timezone")
+        localized = fold_zero
+        utc_value = localized.astimezone(UTC)
+        # Reject wall-clock values that do not exist during a DST jump.  A
+        # silent normalization would schedule a creator at a different hour.
+        if utc_value.astimezone(local_timezone).replace(tzinfo=None) != value:
+            raise CreatorOperationsError("start_at_does_not_exist_in_timezone")
+        return utc_value.replace(tzinfo=None)
 
     @staticmethod
     def _validate_placement_window(start_at: datetime, end_at: datetime) -> None:
@@ -1170,33 +2577,9 @@ class CreatorOperationsService:
         destination: models.PublishingDestination,
     ) -> str:
         try:
-            canonical = safe_public_url(
-                value,
-                error_code="placement_final_url_invalid",
-            )
-        except DestinationConnectorDataError as exc:
-            raise CreatorOperationsError("placement_final_url_invalid") from exc
-        if len(canonical) > 500:
-            raise CreatorOperationsError("placement_final_url_invalid")
-        platform = normalize_platform(destination.platform)
-        allowed_hosts = set(PLACEMENT_PLATFORM_HOSTS.get(platform, ()))
-        if not allowed_hosts and destination.url:
-            try:
-                destination_url = safe_public_url(
-                    destination.url,
-                    error_code="placement_destination_url_invalid",
-                )
-            except DestinationConnectorDataError as exc:
-                raise CreatorOperationsError("placement_destination_url_invalid") from exc
-            destination_host = (urlsplit(destination_url).hostname or "").lower().rstrip(".")
-            if destination_host:
-                allowed_hosts.add(destination_host)
-        if not allowed_hosts:
-            raise CreatorOperationsError("placement_destination_domain_required")
-        host = (urlsplit(canonical).hostname or "").lower().rstrip(".")
-        if host not in allowed_hosts:
-            raise CreatorOperationsError("placement_final_url_host_mismatch")
-        return canonical
+            return canonical_publication_url(value, destination)
+        except PublicationIdentityError as exc:
+            raise CreatorOperationsError(exc.code) from exc
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:

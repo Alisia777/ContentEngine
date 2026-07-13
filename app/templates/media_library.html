@@ -14,7 +14,7 @@
         <p>Здесь видны только ваши файлы и материалы, явно прикреплённые к вашим задачам. Чужие ролики команды недоступны.</p>
         {% endif %}
       </div>
-      <span class="public-status public-status--ready">{{ artifact_views | length }} файлов</span>
+      <span class="public-status public-status--ready">Всего {{ artifact_count_label }}</span>
     </header>
 
     {% if created_package %}
@@ -25,7 +25,24 @@
     </article>
     {% endif %}
 
+    {% if reviewed_artifact %}
+    <article class="altea-card public-guidance altea-reveal">
+      <strong>Проверка завершена: одобрен именно этот файл</strong>
+      <p>Создайте пакет размещения ниже. Отклонённый или заменённый результат система упаковать не позволит.</p>
+    </article>
+    {% endif %}
+
+    <nav class="workspace-navigation altea-reveal" aria-label="Папки библиотеки видео">
+      <div class="workspace-navigation__secondary">
+        {% for folder in media_folders %}
+        <a class="{{ 'is-active' if folder.selected else '' }}" href="{{ folder.url }}" title="{{ folder.detail }}">{{ folder.label }}</a>
+        {% endfor %}
+      </div>
+    </nav>
+
     <form class="altea-card public-inline-form altea-reveal" method="get" action="/media-library">
+      <input type="hidden" name="folder" value="all">
+      <input type="hidden" name="page" value="1">
       <label>Товар
         <select name="product_id"><option value="">Все товары</option>{% for product in products %}<option value="{{ product.id }}" {{ 'selected' if selected_product_id == product.id else '' }}>{{ product.sku }} · {{ product.title }}</option>{% endfor %}</select>
       </label>
@@ -37,7 +54,7 @@
         {% endif %}
       </label>
       <label>Тип
-        <select name="kind"><option value="">Все файлы</option><option value="master_video" {{ 'selected' if selected_kind == 'master_video' else '' }}>Готовое видео</option><option value="generation_report" {{ 'selected' if selected_kind == 'generation_report' else '' }}>Отчёт генерации</option><option value="thumbnail" {{ 'selected' if selected_kind == 'thumbnail' else '' }}>Обложка</option></select>
+        <select name="kind"><option value="">Все файлы</option><option value="master_video" {{ 'selected' if selected_kind == 'master_video' else '' }}>Готовое видео</option><option value="provider_output" {{ 'selected' if selected_kind == 'provider_output' else '' }}>Результат провайдера</option><option value="product_reference" {{ 'selected' if selected_kind == 'product_reference' else '' }}>Фото товара</option><option value="creator_reference" {{ 'selected' if selected_kind == 'creator_reference' else '' }}>Референс креатора</option><option value="generation_report" {{ 'selected' if selected_kind == 'generation_report' else '' }}>Отчёт генерации</option><option value="thumbnail" {{ 'selected' if selected_kind == 'thumbnail' else '' }}>Обложка</option><option value="publishing_export" {{ 'selected' if selected_kind == 'publishing_export' else '' }}>Файл для размещения</option></select>
       </label>
       <label class="recipe-confirm"><input type="checkbox" name="include_archived" value="true" {{ 'checked' if include_archived else '' }}><span>Показывать архив</span></label>
       <button class="public-link-button" type="submit">Применить</button>
@@ -49,7 +66,9 @@
       {% set artifact = item.artifact %}
       <article class="recipe-video-item">
         {% if item.is_video %}
-        <video controls preload="metadata" playsinline src="/media-library/{{ artifact.public_id }}/access"></video>
+        <video controls preload="none" playsinline src="/media-library/{{ artifact.public_id }}/access"></video>
+        {% elif item.is_image %}
+        <img loading="lazy" decoding="async" src="/media-library/{{ artifact.public_id }}/access" alt="{{ artifact.original_filename or 'Изображение из библиотеки' }}">
         {% else %}
         <div class="public-guidance"><strong>{{ artifact.kind | replace('_', ' ') }}</strong><p>{{ artifact.original_filename or artifact.public_id }}</p></div>
         {% endif %}
@@ -77,7 +96,7 @@
           <button class="public-link-button" type="submit">Создать пакет размещения</button>
         </form>
         {% elif item.is_video and artifact.kind in ['master_video', 'provider_output'] and artifact.status == 'ready' and artifact.archived_at is none and artifact.product_id %}
-        <p class="public-form-hint">Подтвердить ролик для размещения может владелец, администратор или проверяющий.</p>
+        <p class="public-form-hint">{{ item.package_blocker or 'Подтвердить ролик для размещения может владелец, администратор или проверяющий.' }}</p>
         {% endif %}
         <div class="recipe-output-facts">
           <div><span>SHA-256</span><strong>{{ artifact.sha256[:12] }}…</strong></div>
@@ -86,6 +105,15 @@
       </article>
       {% endfor %}
     </div>
+    {% if previous_page_url or next_page_url %}
+    <nav class="workspace-navigation altea-reveal" aria-label="Страницы библиотеки">
+      <div class="workspace-navigation__secondary">
+        {% if previous_page_url %}<a href="{{ previous_page_url }}">← Предыдущие</a>{% endif %}
+        <span class="public-status">Страница {{ page }} · {{ page_start }}–{{ page_end }} из {{ total_artifacts }}</span>
+        {% if next_page_url %}<a href="{{ next_page_url }}">Следующие →</a>{% endif %}
+      </div>
+    </nav>
+    {% endif %}
     {% else %}
     <article class="altea-card public-guidance altea-reveal"><strong>Библиотека пока пуста</strong><p>После успешной генерации worker сохранит видео и технический отчёт сюда автоматически.</p><a class="altea-glow-button" href="/mvp-launch">Создать первое видео</a></article>
     {% endif %}

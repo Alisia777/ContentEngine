@@ -14,6 +14,7 @@ from app.media_storage.backend import StorageBackend
 from app.media_storage.errors import MediaArtifactOwnershipError, MediaArtifactStateError
 from app.media_storage.factory import get_storage_backends
 from app.media_storage.service import MediaArtifactService
+from app.product_ugc_queue.mass_projection import project_mass_generation_ready
 
 
 class ProductUGCMediaArtifactSyncService:
@@ -45,6 +46,10 @@ class ProductUGCMediaArtifactSyncService:
         output_paths = [Path(value) for value in (draft.local_output_paths_json or [])]
         if not output_paths:
             raise MediaArtifactStateError("Successful Product UGC generation has no downloaded output.")
+        if len(output_paths) != 1:
+            raise MediaArtifactStateError(
+                "Product UGC MVP requires exactly one provider video output."
+            )
 
         scratch_paths = list(output_paths)
         now = models.utcnow()
@@ -143,19 +148,19 @@ class ProductUGCMediaArtifactSyncService:
             not require_succeeded and job.status not in {"downloading", "succeeded"}
         ):
             raise MediaArtifactStateError("Generation job must succeed before creator review.")
-        primary = next(
-            (
-                item
-                for item in artifacts
-                if item.kind in {"master_video", "provider_output"}
-                and item.organization_id == job.organization_id
-                and item.status == "ready"
-                and item.deleted_at is None
-            ),
-            None,
-        )
-        if primary is None:
-            raise MediaArtifactStateError("Successful generation has no ready video artifact.")
+        ready_videos = [
+            item
+            for item in artifacts
+            if item.kind in {"master_video", "provider_output"}
+            and item.organization_id == job.organization_id
+            and item.status == "ready"
+            and item.deleted_at is None
+        ]
+        if len(ready_videos) != 1:
+            raise MediaArtifactStateError(
+                "Successful generation must project exactly one ready video artifact."
+            )
+        primary = ready_videos[0]
 
         tasks = list(
             self.db.scalars(
@@ -166,34 +171,22 @@ class ProductUGCMediaArtifactSyncService:
                 )
             )
         )
+        ready_at = models.utcnow()
         for task in tasks:
             task.media_artifact_id = primary.id
             task.result_json = {
                 **dict(task.result_json or {}),
                 "media_artifact_public_id": primary.public_id,
                 "generation_job_id": job.id,
-                "ready_for_review_at": models.utcnow().isoformat(),
+                "ready_for_review_at": ready_at.isoformat(),
             }
 
-        metadata = dict(job.metadata_json or {})
-        raw_batch_id = metadata.get("mass_operation_batch_id")
-        try:
-            batch_id = int(raw_batch_id) if raw_batch_id is not None else None
-        except (TypeError, ValueError):
-            batch_id = None
-        if batch_id is not None:
-            batch = self.db.get(models.MassOperationBatch, batch_id)
-            if batch is not None and batch.organization_id == job.organization_id:
-                results = [dict(item) for item in (batch.results_json or [])]
-                for item in results:
-                    if int(item.get("generation_job_id") or 0) == job.id:
-                        item["status"] = "ready_for_review"
-                        item["media_artifact_public_id"] = primary.public_id
-                batch.results_json = results
-                ready_count = sum(item.get("status") == "ready_for_review" for item in results)
-                batch.status = "completed" if results and ready_count == len(results) else "running"
-                if batch.status == "completed":
-                    batch.completed_at = models.utcnow()
+        project_mass_generation_ready(
+            self.db,
+            job,
+            media_artifact_public_id=primary.public_id,
+            now=ready_at,
+        )
 
         if commit:
             self.db.commit()

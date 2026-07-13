@@ -1645,7 +1645,8 @@
   min-width: 0;
 }
 
-.recipe-video-item video {
+.recipe-video-item video,
+.recipe-video-item img {
   width: 100%;
   aspect-ratio: 9 / 16;
   border: 1px solid rgba(246, 234, 212, 0.12);
@@ -2443,6 +2444,84 @@
   display: block;
   margin-top: 10px;
   color: var(--altea-muted);
+}
+
+.bulk-picker {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(246, 234, 212, 0.12);
+  border-radius: 12px;
+  background: rgba(6, 7, 7, 0.42);
+}
+
+.bulk-picker > strong {
+  color: var(--altea-text);
+}
+
+.bulk-picker__actions,
+.task-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-picker__actions button,
+.task-view-switch a {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(246, 234, 212, 0.16);
+  border-radius: 999px;
+  color: var(--altea-text);
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.task-view-switch a.is-active {
+  border-color: rgba(204, 255, 95, 0.48);
+  background: rgba(204, 255, 95, 0.12);
+}
+
+.bulk-picker__actions span {
+  margin-left: auto;
+  color: var(--altea-muted);
+  font-size: 12px;
+}
+
+.bulk-picker__options {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.bulk-picker__options label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  color: var(--altea-text);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.bulk-picker__options label:hover {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.bulk-picker__options input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 1px;
+}
+
+.bulk-picker__options span {
+  display: grid;
+  gap: 2px;
 }
 
 .public-listing-cards {

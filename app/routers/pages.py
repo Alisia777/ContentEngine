@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import re
+import secrets
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -147,6 +149,9 @@ from app.services.analytics_service import AnalyticsService
 from app.ui import templates
 
 router = APIRouter(tags=["pages"])
+TRACKING_VISITOR_COOKIE = "qvf_tracking_visitor"
+TRACKING_VISITOR_COOKIE_MAX_AGE_SECONDS = 600
+TRACKING_VISITOR_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 
 
 def redirect(path: str) -> RedirectResponse:
@@ -155,16 +160,59 @@ def redirect(path: str) -> RedirectResponse:
 
 @router.get("/r/{slug}")
 def tracking_redirect(slug: str, request: Request, db: Session = Depends(get_db)):
+    tracker = ClickTracker(db)
     try:
-        link, _ = ClickTracker(db).record(
-            slug,
-            referrer=request.headers.get("referer"),
-            user_agent=request.headers.get("user-agent"),
-            metadata={"path": request.url.path},
-        )
+        link = tracker.resolve(slug)
     except MetricsIntakeError:
         return redirect("/metrics-intake?error=tracking_link_not_found")
-    return RedirectResponse(link.target_url, status_code=307)
+
+    # Capture the redirect capability before best-effort telemetry starts. A
+    # failed insert/commit must never make an already resolved product link
+    # unavailable or require another database read after rollback.
+    target_url = str(link.target_url)
+    user_agent = request.headers.get("user-agent")
+    request_classification, _bot_reason = tracker.classify_user_agent(user_agent)
+    supplied_visitor = str(request.cookies.get(TRACKING_VISITOR_COOKIE) or "").strip()
+    use_visitor_cookie = request_classification == "human"
+    visitor_token_is_new = use_visitor_cookie and not bool(
+        TRACKING_VISITOR_TOKEN_RE.fullmatch(supplied_visitor)
+    )
+    visitor_token = (
+        secrets.token_urlsafe(24)
+        if visitor_token_is_new
+        else (supplied_visitor if use_visitor_cookie else None)
+    )
+    try:
+        tracker.record_resolved(
+            link,
+            referrer=request.headers.get("referer"),
+            user_agent=user_agent,
+            accept_language=request.headers.get("accept-language"),
+            visitor_token=visitor_token,
+            metadata={"path": request.url.path},
+        )
+    except Exception:
+        # Tracking is telemetry, not part of the customer's redirect
+        # capability. Never expose provider/database exception text here.
+        db.rollback()
+
+    response = RedirectResponse(
+        target_url,
+        status_code=307,
+        headers={"Cache-Control": "private, no-store"},
+    )
+    if visitor_token_is_new:
+        settings = get_settings()
+        response.set_cookie(
+            TRACKING_VISITOR_COOKIE,
+            visitor_token,
+            max_age=TRACKING_VISITOR_COOKIE_MAX_AGE_SECONDS,
+            httponly=True,
+            secure=bool(settings.session_cookie_secure),
+            samesite="lax",
+            path="/r",
+        )
+    return response
 
 
 @router.get("/products", response_class=HTMLResponse)

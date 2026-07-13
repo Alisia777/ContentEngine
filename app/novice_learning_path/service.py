@@ -239,6 +239,68 @@ class NoviceLearningPathService:
 
         return set(self._verified_training(user_profile_id))
 
+    def verified_user_ids_for_module(
+        self,
+        *,
+        user_profile_ids: list[int] | set[int] | tuple[int, ...],
+        module_code: str,
+    ) -> set[int]:
+        """Batch-rescore one certificate for a team without per-user queries."""
+
+        user_ids = sorted({int(item) for item in user_profile_ids if int(item) > 0})
+        if not user_ids:
+            return set()
+        module = self.db.scalar(
+            select(models.TrainingModule).where(
+                models.TrainingModule.code == str(module_code),
+                models.TrainingModule.is_active.is_(True),
+            )
+        )
+        if module is None:
+            return set()
+        questions = list(
+            self.db.scalars(
+                select(models.TrainingQuestion)
+                .where(models.TrainingQuestion.module_id == module.id)
+                .order_by(
+                    models.TrainingQuestion.order_index,
+                    models.TrainingQuestion.id,
+                )
+            )
+        )
+        rows = self.db.execute(
+            select(models.TrainingCertification, models.UserTrainingAttempt)
+            .join(
+                models.UserTrainingAttempt,
+                models.TrainingCertification.attempt_id
+                == models.UserTrainingAttempt.id,
+            )
+            .where(
+                models.TrainingCertification.user_profile_id.in_(user_ids),
+                models.TrainingCertification.module_code == module.code,
+                models.TrainingCertification.status == "passed",
+            )
+            .order_by(
+                models.TrainingCertification.user_profile_id,
+                models.TrainingCertification.granted_at.desc(),
+                models.TrainingCertification.id.desc(),
+            )
+        ).all()
+        verified: set[int] = set()
+        for certification, attempt in rows:
+            user_id = int(certification.user_profile_id)
+            if user_id in verified:
+                continue
+            if self._is_verified_attempt_loaded(
+                certification,
+                attempt,
+                user_profile_id=user_id,
+                module=module,
+                questions=questions,
+            ):
+                verified.add(user_id)
+        return verified
+
     def submit_quiz(
         self,
         *,
@@ -419,6 +481,38 @@ class NoviceLearningPathService:
         *,
         user_profile_id: int,
     ) -> bool:
+        module = self.db.get(models.TrainingModule, attempt.module_id)
+        questions = (
+            list(
+                self.db.scalars(
+                    select(models.TrainingQuestion)
+                    .where(models.TrainingQuestion.module_id == module.id)
+                    .order_by(
+                        models.TrainingQuestion.order_index,
+                        models.TrainingQuestion.id,
+                    )
+                )
+            )
+            if module is not None
+            else []
+        )
+        return self._is_verified_attempt_loaded(
+            certification,
+            attempt,
+            user_profile_id=user_profile_id,
+            module=module,
+            questions=questions,
+        )
+
+    def _is_verified_attempt_loaded(
+        self,
+        certification: models.TrainingCertification,
+        attempt: models.UserTrainingAttempt,
+        *,
+        user_profile_id: int,
+        module: models.TrainingModule | None,
+        questions: list[models.TrainingQuestion],
+    ) -> bool:
         if certification.expires_at is not None and _utc_naive(certification.expires_at) <= self.now:
             return False
         if certification.user_profile_id != user_profile_id or attempt.user_profile_id != user_profile_id:
@@ -435,14 +529,8 @@ class NoviceLearningPathService:
         lowered_keys = {str(key).strip().casefold() for key in answers}
         if lowered_keys.intersection(_REJECTED_ATTEMPT_MARKERS):
             return False
-        module = self.db.get(models.TrainingModule, attempt.module_id)
         if module is None or not module.is_active or module.code != certification.module_code:
             return False
-        questions = self.db.scalars(
-            select(models.TrainingQuestion)
-            .where(models.TrainingQuestion.module_id == module.id)
-            .order_by(models.TrainingQuestion.order_index, models.TrainingQuestion.id)
-        ).all()
         if not questions:
             return False
         correct_count = 0

@@ -10,6 +10,10 @@ class ProductUGCQueueConflict(ProductUGCQueueError):
     """Raised when an idempotency or state transition conflicts."""
 
 
+class ProductUGCSpendValidationError(ProductUGCQueueConflict):
+    """Raised before spend when immutable mass-generation approval is stale."""
+
+
 class ProductUGCQueueLeaseError(ProductUGCQueueError):
     """Raised when a worker does not own a live lease."""
 

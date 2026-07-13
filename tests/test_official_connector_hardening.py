@@ -26,6 +26,7 @@ from app.metrics_intake import OfficialConnectorGateway
 
 
 VIDEO_ID = "AbCdEf12345"
+OTHER_VIDEO_ID = "ZyXwVu98765"
 FINAL_URL = f"https://www.youtube.com/watch?v={VIDEO_ID}"
 PERIOD_START = date(2026, 7, 1)
 PERIOD_END = date(2026, 7, 7)
@@ -429,7 +430,7 @@ def test_official_attribution_errors_are_quarantined_without_cross_post_fallback
         "video_ids": [VIDEO_ID],
         "video_map": {
             VIDEO_ID: {
-                "final_url": f"https://youtu.be/{VIDEO_ID}",
+                "final_url": f"https://youtu.be/{OTHER_VIDEO_ID}",
                 "publishing_task_id": task.id,
             }
         },

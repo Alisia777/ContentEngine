@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import models
+from app.content_cycles import ContentCycleService, ContentCycleStateError
 from app.database import Base
 from app.media_storage import (
     LocalStorage,
@@ -30,7 +31,8 @@ from app.media_storage import (
     build_storage_backend,
 )
 from app.public_pilot.auth import PublicPilotUser, get_current_public_user
-from app.routers import media_library
+from app.runway_recipes import ProductUGCRecipeService, RunwayRecipeError
+from app.routers import media_library, public_pilot
 
 
 engine = create_engine(
@@ -99,6 +101,49 @@ def create_scope(db: Session, *, slug: str):
     db.add(product)
     db.commit()
     return organization, user, product
+
+
+def create_review_draft(
+    db: Session,
+    *,
+    product: models.Product,
+    user: models.UserProfile,
+    suffix: str = "one",
+) -> models.ProductUGCRecipeDraft:
+    draft = models.ProductUGCRecipeDraft(
+        product_id=product.id,
+        created_by_user_profile_id=user.id,
+        assigned_to_user_profile_id=user.id,
+        sku=product.sku,
+        variant_key=f"variant-{suffix}",
+        status="generated_needs_human_review",
+        recipe_version="2026-06",
+        platform="Instagram Reels",
+        language="ru",
+        character_image_filename="creator.png",
+        likeness_consent=True,
+        exact_variant_confirmed=True,
+        product_asset_ids_json=[],
+        product_info="Exact tenant product",
+        user_concept="Creator demonstrates the exact tenant product",
+        creative_inputs_json={},
+        duration_seconds=15,
+        ratio="720:1280",
+        audio_enabled=True,
+        estimated_credits=100,
+        provider_payload_preview_json={},
+        blockers_json=[],
+        warnings_json=[],
+        provider_task_id=f"provider-{suffix}",
+        provider_status="SUCCEEDED",
+        local_output_paths_json=[],
+        human_review_status="needs_human_review",
+        publishing_readiness="blocked",
+    )
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return draft
 
 
 def local_backend(tmp_path: Path, *, now: datetime | None = None) -> LocalStorage:
@@ -191,6 +236,334 @@ def test_artifact_service_persists_tenant_metadata_but_never_signed_url(db: Sess
     )
     assert "signature=" not in persisted_text
     assert "https://media.test" not in persisted_text
+
+
+def test_ready_cloud_video_allows_human_review_after_worker_paths_are_cleared(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, user, product = create_scope(db, slug="cloud-review")
+    draft = create_review_draft(db, product=product, user=user)
+    backend = local_backend(tmp_path)
+    artifact_service = MediaArtifactService(db, {backend.name: backend})
+    artifact = artifact_service.store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=user.id,
+        backend_name=backend.name,
+        kind="master_video",
+        content=b"durable-product-ugc-video",
+        mime_type="video/mp4",
+        original_filename="generated.mp4",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=draft.id,
+    )
+
+    resolved = artifact_service.resolve_ready_product_ugc_video(
+        organization_id=organization.id,
+        draft_id=draft.id,
+    )
+    assert resolved is not None
+    assert resolved.id == artifact.id
+    assert draft.local_output_paths_json == []
+
+    reviewed = ProductUGCRecipeService(
+        db,
+        storage_backends={backend.name: backend},
+    ).record_human_review(
+        draft.id,
+        status="approved",
+        notes="Exact product, natural motion, and readable packaging verified.",
+    )
+    assert reviewed.human_review_status == "approved"
+    assert reviewed.publishing_readiness == "ready_for_publishing_package"
+
+
+def test_product_ugc_review_fails_closed_when_two_ready_videos_exist(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, user, product = create_scope(db, slug="ambiguous-review-output")
+    draft = create_review_draft(db, product=product, user=user)
+    backend = local_backend(tmp_path)
+    service = MediaArtifactService(db, {backend.name: backend})
+    for index in range(2):
+        service.store_bytes(
+            organization_id=organization.id,
+            created_by_user_profile_id=user.id,
+            backend_name=backend.name,
+            kind="master_video" if index == 0 else "provider_output",
+            content=f"output-{index}".encode(),
+            mime_type="video/mp4",
+            original_filename=f"output-{index}.mp4",
+            product_id=product.id,
+            product_ugc_recipe_draft_id=draft.id,
+            metadata={"provider_task_id": draft.provider_task_id},
+        )
+
+    with pytest.raises(MediaArtifactError, match="exactly one ready video"):
+        service.resolve_ready_product_ugc_video(
+            organization_id=organization.id,
+            draft_id=draft.id,
+        )
+    with pytest.raises(RunwayRecipeError, match="exactly one ready video"):
+        ProductUGCRecipeService(
+            db,
+            storage_backends={backend.name: backend},
+        ).record_human_review(
+            draft.id,
+            status="approved",
+            notes="Ambiguous output must never receive a human approval.",
+        )
+
+
+def test_rejected_product_ugc_output_requires_a_new_generation_before_approval(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, user, product = create_scope(db, slug="immutable-review-decision")
+    draft = create_review_draft(db, product=product, user=user)
+    backend = local_backend(tmp_path)
+    MediaArtifactService(db, {backend.name: backend}).store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=user.id,
+        backend_name=backend.name,
+        kind="master_video",
+        content=b"rejected-product-ugc-output",
+        mime_type="video/mp4",
+        original_filename="rejected.mp4",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=draft.id,
+        metadata={"provider_task_id": draft.provider_task_id},
+    )
+    service = ProductUGCRecipeService(
+        db,
+        storage_backends={backend.name: backend},
+    )
+    rejected = service.record_human_review(
+        draft.id,
+        status="needs_regeneration",
+        notes="Packaging geometry changed; generate a new output.",
+    )
+    assert rejected.publishing_readiness == "blocked"
+    assert rejected.creative_inputs_json["blocked_media_artifacts_v1"][0][
+        "decision"
+    ] == "needs_regeneration"
+
+    with pytest.raises(RunwayRecipeError, match="new generation draft"):
+        service.record_human_review(
+            draft.id,
+            status="approved",
+            notes="Trying to approve the unchanged rejected bytes.",
+        )
+
+
+def test_ready_product_ugc_video_resolution_rejects_foreign_and_wrong_drafts(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, user, product = create_scope(db, slug="video-scope-a")
+    foreign_organization, _foreign_user, _foreign_product = create_scope(
+        db,
+        slug="video-scope-b",
+    )
+    linked_draft = create_review_draft(db, product=product, user=user, suffix="linked")
+    other_draft = create_review_draft(db, product=product, user=user, suffix="other")
+    backend = local_backend(tmp_path)
+    service = MediaArtifactService(db, {backend.name: backend})
+    service.store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=user.id,
+        backend_name=backend.name,
+        kind="master_video",
+        content=b"linked-video",
+        mime_type="video/mp4",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=linked_draft.id,
+    )
+
+    with pytest.raises(MediaArtifactOwnershipError):
+        service.resolve_ready_product_ugc_video(
+            organization_id=foreign_organization.id,
+            draft_id=linked_draft.id,
+        )
+    assert service.resolve_ready_product_ugc_video(
+        organization_id=organization.id,
+        draft_id=other_draft.id,
+    ) is None
+
+
+def test_ready_product_ugc_video_resolution_rejects_deleted_and_non_video_rows(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, user, product = create_scope(db, slug="video-state")
+    deleted_draft = create_review_draft(db, product=product, user=user, suffix="deleted")
+    non_video_draft = create_review_draft(db, product=product, user=user, suffix="non-video")
+    backend = local_backend(tmp_path)
+    service = MediaArtifactService(db, {backend.name: backend})
+    deleted = service.store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=user.id,
+        backend_name=backend.name,
+        kind="master_video",
+        content=b"deleted-video",
+        mime_type="video/mp4",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=deleted_draft.id,
+    )
+    deleted.status = "deleted"
+    deleted.deleted_at = models.utcnow()
+    db.commit()
+    service.store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=user.id,
+        backend_name=backend.name,
+        kind="master_video",
+        content=b'{"not":"video"}',
+        mime_type="application/json",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=non_video_draft.id,
+    )
+
+    assert service.resolve_ready_product_ugc_video(
+        organization_id=organization.id,
+        draft_id=deleted_draft.id,
+    ) is None
+    assert service.resolve_ready_product_ugc_video(
+        organization_id=organization.id,
+        draft_id=non_video_draft.id,
+    ) is None
+    for rejected_draft in (deleted_draft, non_video_draft):
+        with pytest.raises(RunwayRecipeError, match="ready durable"):
+            ProductUGCRecipeService(
+                db,
+                storage_backends={backend.name: backend},
+            ).record_human_review(
+                rejected_draft.id,
+                status="approved",
+                notes="This must not be accepted as durable review media.",
+            )
+
+
+def test_mvp_launch_uses_authenticated_artifact_route_without_capability_leakage(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch,
+):
+    organization, user, product = create_scope(db, slug="cloud-mvp-video")
+    membership = db.scalar(
+        select(models.Membership).where(
+            models.Membership.organization_id == organization.id,
+            models.Membership.user_profile_id == user.id,
+        )
+    )
+    draft = create_review_draft(db, product=product, user=user)
+    backend = local_backend(tmp_path)
+    service = MediaArtifactService(db, {backend.name: backend})
+    artifact = service.store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=user.id,
+        backend_name=backend.name,
+        kind="master_video",
+        content=b"cloud-page-video",
+        mime_type="video/mp4",
+        original_filename="cloud-result.mp4",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=draft.id,
+        metadata={"provider_task_id": draft.provider_task_id},
+    )
+    monkeypatch.setattr(
+        "app.runway_recipes.product_ugc_service.get_storage_backends",
+        lambda: {backend.name: backend},
+    )
+    monkeypatch.setattr(
+        "app.content_cycles.service.get_storage_backends",
+        lambda: {backend.name: backend},
+    )
+
+    test_app = FastAPI()
+    test_app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    test_app.include_router(public_pilot.router)
+    test_app.include_router(media_library.router)
+
+    def override_db():
+        yield db
+
+    test_app.dependency_overrides[public_pilot.get_db] = override_db
+    test_app.dependency_overrides[media_library.get_db] = override_db
+    test_app.dependency_overrides[media_library.get_media_artifact_service] = (
+        lambda: service
+    )
+    test_app.dependency_overrides[get_current_public_user] = lambda: PublicPilotUser(
+        profile=user,
+        organization=organization,
+        membership=membership,
+    )
+    client = TestClient(test_app)
+    page = client.get(
+        f"/mvp-launch?product_id={product.id}&recipe_draft_id={draft.id}"
+    )
+
+    access_path = f"/media-library/{artifact.public_id}/access"
+    assert page.status_code == 200
+    assert access_path in page.text
+    assert "cloud-result.mp4" in page.text
+    assert "signature=" not in page.text
+    assert artifact.object_key not in page.text
+    assert "https://media.test/local" not in page.text
+
+    reviewed_page = client.post(
+        f"/mvp-launch/product-ugc/{draft.id}/review",
+        data={
+            "review_status": "approved",
+            "review_notes": "Exact product and natural creator action verified in the full video.",
+            "confirm_visual_review": "true",
+        },
+        follow_redirects=True,
+    )
+    assert reviewed_page.status_code == 200
+    assert "Проверка завершена: одобрен именно этот файл" in reviewed_page.text
+    assert f"/media-library/{artifact.public_id}/publishing-package" in reviewed_page.text
+    assert "signature=" not in reviewed_page.text
+    assert artifact.object_key not in reviewed_page.text
+    assert "https://media.test/local" not in reviewed_page.text
+
+    db.expire_all()
+    cycle = db.scalar(
+        select(models.ContentCycle).where(
+            models.ContentCycle.product_ugc_recipe_draft_id == draft.id,
+            models.ContentCycle.organization_id == organization.id,
+        )
+    )
+    assert cycle is None
+    linked_artifact = db.get(models.MediaArtifact, artifact.id)
+    assert linked_artifact.product_ugc_recipe_draft_id == draft.id
+    assert linked_artifact.video_job_id is None
+    assert db.query(models.VideoJob).count() == 0
+    assert db.query(models.AIProductionBrief).count() == 0
+    db.refresh(draft)
+    assert draft.publishing_readiness == "ready_for_publishing_package"
+    assert draft.creative_inputs_json["approved_media_artifact_v1"] == {
+        "media_artifact_id": artifact.id,
+        "public_id": artifact.public_id,
+        "sha256": artifact.sha256,
+        "provider_task_id": draft.provider_task_id,
+        "reviewed_at": draft.creative_inputs_json["approved_media_artifact_v1"][
+            "reviewed_at"
+        ],
+    }
+
+    with pytest.raises(ContentCycleStateError, match="artifact-native"):
+        ContentCycleService(
+            db,
+            storage_backends={backend.name: backend},
+        ).start_from_product_ugc(
+            organization_id=organization.id,
+            actor_user_profile_id=user.id,
+            product_ugc_recipe_draft_id=draft.id,
+        )
+    assert db.query(models.ContentCycle).count() == 0
+    assert db.query(models.VideoJob).count() == 0
 
 
 def test_store_bytes_keeps_committed_object_when_refresh_fails(
@@ -549,6 +922,44 @@ def test_backend_factory_refuses_local_or_implicit_storage_in_production(tmp_pat
     assert isinstance(backend, LocalStorage)
 
 
+def test_product_ugc_sync_rejects_ambiguous_provider_video_outputs(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, user, product = create_scope(db, slug="ambiguous-sync")
+    draft = create_review_draft(db, product=product, user=user, suffix="ambiguous-sync")
+    first = tmp_path / "provider-output-1.mp4"
+    second = tmp_path / "provider-output-2.mp4"
+    first.write_bytes(b"first-real-provider-video")
+    second.write_bytes(b"second-real-provider-video")
+    draft.local_output_paths_json = [first.as_posix(), second.as_posix()]
+    generation_job = models.ProductUGCGenerationJob(
+        draft_id=draft.id,
+        organization_id=organization.id,
+        requested_by_user_profile_id=user.id,
+        idempotency_key=f"product-ugc-paid:d{draft.id}:ambiguous",
+        status="downloading",
+        attempt_count=1,
+        max_attempts=5,
+        next_attempt_at=models.utcnow(),
+        provider="runway_product_ugc_recipe",
+        provider_task_id=draft.provider_task_id,
+        provider_status="SUCCEEDED",
+        metadata_json={},
+    )
+    db.add(generation_job)
+    db.commit()
+    backend = local_backend(tmp_path / "object-store")
+
+    with pytest.raises(MediaArtifactError, match="exactly one provider video output"):
+        ProductUGCMediaArtifactSyncService(
+            db,
+            {backend.name: backend},
+        ).sync_generation_job(generation_job.id)
+
+    assert db.query(models.MediaArtifact).count() == 0
+
+
 def test_worker_sync_and_library_survive_without_worker_filesystem(
     db: Session,
     tmp_path: Path,
@@ -853,3 +1264,264 @@ def test_creator_media_visibility_is_limited_to_owned_or_assigned_artifacts(
         f"/media-library/{artifact.public_id}/access",
         follow_redirects=False,
     ).status_code == 404
+
+
+def test_media_library_folders_and_pagination_keep_large_team_history_reachable(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, owner, product = create_scope(db, slug="folders-pagination")
+    membership = db.scalar(
+        select(models.Membership).where(
+            models.Membership.organization_id == organization.id,
+            models.Membership.user_profile_id == owner.id,
+        )
+    )
+    generated_public_ids = []
+    for index in range(1, 66):
+        public_id = f"{index:032x}"
+        generated_public_ids.append(public_id)
+        db.add(
+            models.MediaArtifact(
+                public_id=public_id,
+                idempotency_key=f"folders-generated-{index}",
+                organization_id=organization.id,
+                created_by_user_profile_id=owner.id,
+                product_id=product.id,
+                kind="master_video",
+                backend_name="local",
+                bucket="private-media",
+                object_key=f"organizations/{organization.id}/generated/{index}.mp4",
+                original_filename=f"generated-{index}.mp4",
+                mime_type="video/mp4",
+                size_bytes=index,
+                sha256=f"{index:064x}",
+                status="ready",
+                metadata_json={},
+                retention_class="master_365d",
+                legal_hold=False,
+            )
+        )
+    report_public_id = "f" * 32
+    db.add(
+        models.MediaArtifact(
+            public_id=report_public_id,
+            idempotency_key="folders-report-1",
+            organization_id=organization.id,
+            created_by_user_profile_id=owner.id,
+            product_id=product.id,
+            kind="generation_report",
+            backend_name="local",
+            bucket="private-media",
+            object_key=f"organizations/{organization.id}/reports/report.json",
+            original_filename="report.json",
+            mime_type="application/json",
+            size_bytes=20,
+            sha256="f" * 64,
+            status="ready",
+            metadata_json={},
+            retention_class="standard",
+            legal_hold=False,
+        )
+    )
+    preview_public_id = "e" * 32
+    db.add(
+        models.MediaArtifact(
+            public_id=preview_public_id,
+            idempotency_key="folders-preview-1",
+            organization_id=organization.id,
+            created_by_user_profile_id=owner.id,
+            product_id=product.id,
+            kind="thumbnail",
+            backend_name="local",
+            bucket="private-media",
+            object_key=f"organizations/{organization.id}/previews/cover.webp",
+            original_filename="cover.webp",
+            mime_type="image/webp",
+            size_bytes=30,
+            sha256="e" * 64,
+            status="ready",
+            metadata_json={},
+            retention_class="standard",
+            legal_hold=False,
+        )
+    )
+    db.commit()
+
+    backend = local_backend(tmp_path)
+    service = MediaArtifactService(db, {backend.name: backend})
+    assert len(
+        service.list_owned(
+            organization_id=organization.id,
+            kinds=["master_video", "provider_output"],
+            limit=5,
+            offset=60,
+        )
+    ) == 5
+    assert service.count_owned(
+        organization_id=organization.id,
+        kinds=["master_video", "provider_output"],
+    ) == 65
+
+    app = FastAPI()
+    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    app.include_router(media_library.router)
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[media_library.get_db] = override_db
+    app.dependency_overrides[media_library.get_media_artifact_service] = lambda: service
+    app.dependency_overrides[get_current_public_user] = lambda: PublicPilotUser(
+        profile=owner,
+        organization=organization,
+        membership=membership,
+    )
+    client = TestClient(app)
+
+    first_page = client.get("/media-library?folder=generated")
+    assert first_page.status_code == 200
+    assert "Готовые видео" in first_page.text
+    assert "Страница 1" in first_page.text
+    assert "Всего 65 файлов" in first_page.text
+    assert "1–60 из 65" in first_page.text
+    assert "page=2" in first_page.text
+    assert 'preload="none"' in first_page.text
+    assert 'preload="metadata"' not in first_page.text
+    assert "signature=" not in first_page.text
+    assert report_public_id not in first_page.text
+    assert generated_public_ids[-1] in first_page.text
+    assert generated_public_ids[0] not in first_page.text
+
+    second_page = client.get("/media-library?folder=generated&page=2")
+    assert second_page.status_code == 200
+    assert "Страница 2" in second_page.text
+    assert "61–65 из 65" in second_page.text
+    assert generated_public_ids[0] in second_page.text
+    assert report_public_id not in second_page.text
+    quality_page = client.get("/media-library?folder=quality")
+    assert quality_page.status_code == 200
+    assert report_public_id in quality_page.text
+    assert generated_public_ids[-1] not in quality_page.text
+    previews_page = client.get("/media-library?folder=previews")
+    assert previews_page.status_code == 200
+    assert (
+        f'<img loading="lazy" decoding="async" '
+        f'src="/media-library/{preview_public_id}/access" alt="cover.webp">'
+    ) in previews_page.text
+    assert "signature=" not in previews_page.text
+
+
+def test_generated_media_is_grouped_by_assigned_creator_not_batch_owner(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, owner, product = create_scope(db, slug="assigned-media")
+    creator = models.UserProfile(
+        supabase_user_id="media:assigned-creator",
+        email="assigned@example.test",
+        display_name="Assigned Creator",
+        status="active",
+        is_active=True,
+        metadata_json={},
+    )
+    db.add(creator)
+    db.flush()
+    db.add(
+        models.Membership(
+            organization_id=organization.id,
+            user_profile_id=creator.id,
+            role="producer",
+            status="active",
+            permissions_json=[],
+        )
+    )
+    draft = models.ProductUGCRecipeDraft(
+        product_id=product.id,
+        created_by_user_profile_id=owner.id,
+        assigned_to_user_profile_id=creator.id,
+        sku=product.sku,
+        status="ready_for_paid_preflight",
+        character_image_filename="creator.jpg",
+        likeness_consent=True,
+        exact_variant_confirmed=True,
+        product_asset_ids_json=[],
+        product_info="Validated product information.",
+        user_concept="A compliant creator concept.",
+        creative_inputs_json={},
+        provider_payload_preview_json={},
+        blockers_json=[],
+        warnings_json=[],
+        local_output_paths_json=[],
+    )
+    db.add(draft)
+    db.flush()
+    artifact = models.MediaArtifact(
+        public_id="a" * 32,
+        idempotency_key="assigned-media-artifact",
+        organization_id=organization.id,
+        created_by_user_profile_id=owner.id,
+        product_id=product.id,
+        product_ugc_recipe_draft_id=draft.id,
+        kind="master_video",
+        backend_name="local",
+        bucket="private-media",
+        object_key=f"organizations/{organization.id}/assigned/video.mp4",
+        original_filename="video.mp4",
+        mime_type="video/mp4",
+        size_bytes=100,
+        sha256="a" * 64,
+        status="ready",
+        metadata_json={},
+        retention_class="master_365d",
+        legal_hold=False,
+    )
+    db.add(artifact)
+    db.commit()
+
+    backend = local_backend(tmp_path)
+    service = MediaArtifactService(db, {backend.name: backend})
+    assert [
+        item.public_id
+        for item in service.list_owned(
+            organization_id=organization.id,
+            created_by_user_profile_id=creator.id,
+        )
+    ] == [artifact.public_id]
+    assert service.count_owned(
+        organization_id=organization.id,
+        created_by_user_profile_id=creator.id,
+    ) == 1
+    assert service.list_owned(
+        organization_id=organization.id,
+        created_by_user_profile_id=owner.id,
+    ) == []
+    assert service.count_owned(
+        organization_id=organization.id,
+        created_by_user_profile_id=owner.id,
+    ) == 0
+
+    owner_membership = db.scalar(
+        select(models.Membership).where(
+            models.Membership.organization_id == organization.id,
+            models.Membership.user_profile_id == owner.id,
+        )
+    )
+    app = FastAPI()
+    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    app.include_router(media_library.router)
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[media_library.get_db] = override_db
+    app.dependency_overrides[media_library.get_media_artifact_service] = lambda: service
+    app.dependency_overrides[get_current_public_user] = lambda: PublicPilotUser(
+        profile=owner,
+        organization=organization,
+        membership=owner_membership,
+    )
+    page = TestClient(app).get(f"/media-library?creator_id={creator.id}")
+    assert page.status_code == 200
+    assert artifact.public_id in page.text
+    assert "Assigned Creator" in page.text

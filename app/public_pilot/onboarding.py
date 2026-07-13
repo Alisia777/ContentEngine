@@ -23,9 +23,22 @@ from app.public_pilot.training_catalog import (
 
 ONBOARDING_ALLOWED_PATHS = frozenset({"/onboarding"})
 ONBOARDING_ALLOWED_PREFIXES = ("/onboarding/", "/static/", "/r/")
+CREATOR_GENERATION_ROLES = frozenset({"producer"})
+CREATOR_GENERATION_WORKSPACE = "/creator-operations?tab=generation"
+CONTROL_WORKSPACE = "/control-room"
 
 
-def safe_workspace_next(value: str | None) -> str:
+def workspace_home_for_role(role: str | None) -> str:
+    """Send hands-on creators to their primary job instead of an admin dashboard."""
+
+    normalized_role = str(role or "").strip().casefold()
+    if normalized_role in CREATOR_GENERATION_ROLES:
+        return CREATOR_GENERATION_WORKSPACE
+    return CONTROL_WORKSPACE
+
+
+def safe_workspace_next(value: str | None, *, role: str | None = None) -> str:
+    fallback = workspace_home_for_role(role)
     candidate = str(value or "").strip()
     if (
         not candidate.startswith("/")
@@ -34,7 +47,7 @@ def safe_workspace_next(value: str | None) -> str:
         or "\r" in candidate
         or "\n" in candidate
     ):
-        return "/control-room"
+        return fallback
     return candidate[:1000]
 
 

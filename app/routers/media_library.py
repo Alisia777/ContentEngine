@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -32,6 +34,57 @@ from app.ui import templates
 
 
 router = APIRouter(tags=["media-library"])
+MEDIA_FOLDERS = (
+    {
+        "slug": "all",
+        "label": "Все материалы",
+        "detail": "Вся доступная библиотека",
+        "kinds": None,
+    },
+    {
+        "slug": "generated",
+        "label": "Готовые видео",
+        "detail": "Результаты генерации и мастер-файлы",
+        "kinds": ("provider_output", "master_video"),
+    },
+    {
+        "slug": "references",
+        "label": "Исходники",
+        "detail": "Фото товара и референсы креатора",
+        "kinds": ("product_reference", "creator_reference"),
+    },
+    {
+        "slug": "previews",
+        "label": "Обложки и превью",
+        "detail": "Быстрый просмотр материалов",
+        "kinds": ("video_preview", "thumbnail"),
+    },
+    {
+        "slug": "quality",
+        "label": "Проверка качества",
+        "detail": "Кадры, контакт-листы и отчёты",
+        "kinds": ("quality_frame", "contact_sheet", "generation_report"),
+    },
+    {
+        "slug": "publishing",
+        "label": "Для размещения",
+        "detail": "Подготовленные экспортные файлы",
+        "kinds": ("publishing_export",),
+    },
+)
+MEDIA_FOLDER_BY_SLUG = {item["slug"]: item for item in MEDIA_FOLDERS}
+MEDIA_PAGE_SIZE = 60
+
+
+def _file_count_label(value: int) -> str:
+    count = max(int(value), 0)
+    if count % 10 == 1 and count % 100 != 11:
+        noun = "файл"
+    elif count % 10 in {2, 3, 4} and count % 100 not in {12, 13, 14}:
+        noun = "файла"
+    else:
+        noun = "файлов"
+    return f"{count} {noun}"
 
 
 def get_media_artifact_service(db: Session = Depends(get_db)) -> MediaArtifactService:
@@ -44,8 +97,11 @@ def media_library_page(
     product_id: int | None = None,
     creator_id: int | None = None,
     kind: str | None = None,
-    include_archived: bool = True,
+    folder: str = "all",
+    include_archived: bool = False,
+    page: int = Query(1, ge=1, le=10_000),
     package_id: int | None = None,
+    reviewed: str | None = None,
     db: Session = Depends(get_db),
     user: PublicPilotUser = Depends(get_current_public_user),
     service: MediaArtifactService = Depends(get_media_artifact_service),
@@ -53,18 +109,65 @@ def media_library_page(
     team_media_access = str(user.role).casefold() in {"owner", "admin"}
     if not team_media_access and creator_id not in {None, user.profile.id}:
         raise HTTPException(status_code=400, detail="invalid_media_library_filter")
+    selected_folder = str(folder or "all").strip().lower()
+    folder_definition = MEDIA_FOLDER_BY_SLUG.get(selected_folder)
+    if folder_definition is None:
+        raise HTTPException(status_code=400, detail="invalid_media_library_filter")
+    selected_kind = str(kind or "").strip().lower()
+    folder_kinds = folder_definition["kinds"]
+    if selected_kind and folder_kinds is not None and selected_kind not in folder_kinds:
+        raise HTTPException(status_code=400, detail="invalid_media_library_filter")
+    effective_kinds = (selected_kind,) if selected_kind else folder_kinds
     try:
-        artifacts = service.list_owned(
+        total_artifacts = service.count_owned(
             organization_id=user.organization.id,
             product_id=product_id,
             created_by_user_profile_id=creator_id,
-            kind=kind or None,
+            kinds=effective_kinds,
             include_archived=include_archived,
-            limit=200,
+            visible_to_user_profile_id=(None if team_media_access else user.profile.id),
+        )
+        artifact_page = service.list_owned(
+            organization_id=user.organization.id,
+            product_id=product_id,
+            created_by_user_profile_id=creator_id,
+            kinds=effective_kinds,
+            include_archived=include_archived,
+            limit=MEDIA_PAGE_SIZE + 1,
+            offset=(page - 1) * MEDIA_PAGE_SIZE,
             visible_to_user_profile_id=(None if team_media_access else user.profile.id),
         )
     except MediaArtifactError as exc:
         raise HTTPException(status_code=400, detail="invalid_media_library_filter") from exc
+    has_next_page = len(artifact_page) > MEDIA_PAGE_SIZE
+    artifacts = artifact_page[:MEDIA_PAGE_SIZE]
+
+    def library_url(*, target_page: int, target_folder: str = selected_folder, keep_kind: bool = True) -> str:
+        parameters: list[tuple[str, str]] = [
+            ("folder", target_folder),
+            ("include_archived", "true" if include_archived else "false"),
+            ("page", str(target_page)),
+        ]
+        if product_id is not None:
+            parameters.append(("product_id", str(product_id)))
+        if team_media_access and creator_id is not None:
+            parameters.append(("creator_id", str(creator_id)))
+        if keep_kind and selected_kind:
+            parameters.append(("kind", selected_kind))
+        return f"/media-library?{urlencode(parameters)}"
+
+    folder_views = [
+        {
+            **item,
+            "selected": item["slug"] == selected_folder,
+            "url": library_url(
+                target_page=1,
+                target_folder=str(item["slug"]),
+                keep_kind=False,
+            ),
+        }
+        for item in MEDIA_FOLDERS
+    ]
     products = list(
         db.scalars(
             select(models.Product)
@@ -89,6 +192,102 @@ def media_library_page(
     )
     product_map = {item.id: item for item in products}
     creator_map = {item.id: item for item in creators}
+    draft_ids = {
+        artifact.product_ugc_recipe_draft_id
+        for artifact in artifacts
+        if artifact.product_ugc_recipe_draft_id is not None
+    }
+    draft_map = {
+        draft.id: draft
+        for draft in (
+            db.scalars(
+                select(models.ProductUGCRecipeDraft).where(
+                    models.ProductUGCRecipeDraft.id.in_(draft_ids)
+                )
+            ).all()
+            if draft_ids
+            else []
+        )
+    }
+    approved_task_artifact_ids = {
+        task.media_artifact_id
+        for task in (
+            db.scalars(
+                select(models.CreatorTask).where(
+                    models.CreatorTask.organization_id == user.organization.id,
+                    models.CreatorTask.media_artifact_id.in_(
+                        [artifact.id for artifact in artifacts]
+                    ),
+                    models.CreatorTask.task_type == "review_generated_video",
+                    models.CreatorTask.status == "done",
+                )
+            ).all()
+            if artifacts
+            else []
+        )
+        if task.media_artifact_id is not None
+        and dict(task.result_json or {}).get("review_decision") == "approve"
+        and dict(task.result_json or {}).get("media_artifact_public_id")
+        == next(
+            (
+                artifact.public_id
+                for artifact in artifacts
+                if artifact.id == task.media_artifact_id
+            ),
+            None,
+        )
+    }
+    ready_video_counts = {
+        draft_id: (int(count), int(artifact_id))
+        for draft_id, count, artifact_id in (
+            db.execute(
+                select(
+                    models.MediaArtifact.product_ugc_recipe_draft_id,
+                    func.count(models.MediaArtifact.id),
+                    func.min(models.MediaArtifact.id),
+                )
+                .where(
+                    models.MediaArtifact.organization_id == user.organization.id,
+                    models.MediaArtifact.product_ugc_recipe_draft_id.in_(draft_ids),
+                    models.MediaArtifact.kind.in_(PUBLISHABLE_MEDIA_ARTIFACT_KINDS),
+                    models.MediaArtifact.mime_type.like("video/%"),
+                    models.MediaArtifact.size_bytes > 0,
+                    models.MediaArtifact.status == "ready",
+                    models.MediaArtifact.archived_at.is_(None),
+                    models.MediaArtifact.delete_requested_at.is_(None),
+                    models.MediaArtifact.deleted_at.is_(None),
+                )
+                .group_by(models.MediaArtifact.product_ugc_recipe_draft_id)
+            ).all()
+            if draft_ids
+            else []
+        )
+    }
+
+    def product_ugc_review_ready(artifact: models.MediaArtifact) -> bool:
+        if artifact.product_ugc_recipe_draft_id is None:
+            return True
+        draft = draft_map.get(artifact.product_ugc_recipe_draft_id)
+        if (
+            draft is None
+            or draft.human_review_status != "approved"
+            or draft.publishing_readiness != "ready_for_publishing_package"
+            or bool(draft.blockers_json)
+            or ready_video_counts.get(draft.id) != (1, artifact.id)
+            or str((artifact.metadata_json or {}).get("provider_task_id") or "")
+            != str(draft.provider_task_id or "")
+        ):
+            return False
+        approved_identity = dict(draft.creative_inputs_json or {}).get(
+            "approved_media_artifact_v1"
+        )
+        marker_matches = bool(
+            isinstance(approved_identity, dict)
+            and approved_identity.get("media_artifact_id") == artifact.id
+            and approved_identity.get("public_id") == artifact.public_id
+            and approved_identity.get("sha256") == artifact.sha256
+        )
+        return marker_matches or artifact.id in approved_task_artifact_ids
     can_approve = (
         str(user.role).casefold() in PublishingPackageService.ARTIFACT_APPROVER_ROLES
     )
@@ -96,8 +295,16 @@ def media_library_page(
         {
             "artifact": artifact,
             "product": product_map.get(artifact.product_id),
-            "creator": creator_map.get(artifact.created_by_user_profile_id),
+            "creator": creator_map.get(
+                (
+                    draft_map.get(artifact.product_ugc_recipe_draft_id).assigned_to_user_profile_id
+                    if draft_map.get(artifact.product_ugc_recipe_draft_id) is not None
+                    else None
+                )
+                or artifact.created_by_user_profile_id
+            ),
             "is_video": artifact.mime_type.startswith("video/"),
+            "is_image": artifact.mime_type.startswith("image/"),
             "size_mb": round(float(artifact.size_bytes or 0) / 1_048_576, 2),
             "can_create_package": (
                 can_approve
@@ -108,6 +315,13 @@ def media_library_page(
                 and artifact.product_id is not None
                 and artifact.kind in PUBLISHABLE_MEDIA_ARTIFACT_KINDS
                 and artifact.mime_type.startswith("video/")
+                and product_ugc_review_ready(artifact)
+            ),
+            "package_blocker": (
+                "Сначала одобрите именно этот результат после новой успешной генерации."
+                if artifact.product_ugc_recipe_draft_id is not None
+                and not product_ugc_review_ready(artifact)
+                else None
             ),
         }
         for artifact in artifacts
@@ -121,6 +335,15 @@ def media_library_page(
         )
         if package_id is not None
         else None
+    )
+    reviewed_artifact = next(
+        (
+            artifact
+            for artifact in artifacts
+            if reviewed and artifact.public_id == reviewed
+            and product_ugc_review_ready(artifact)
+        ),
+        None,
     )
     return templates.TemplateResponse(
         request,
@@ -137,9 +360,23 @@ def media_library_page(
             "creators": creators,
             "selected_product_id": product_id,
             "selected_creator_id": creator_id,
-            "selected_kind": kind or "",
+            "selected_kind": selected_kind,
+            "selected_folder": selected_folder,
+            "media_folders": folder_views,
             "include_archived": include_archived,
+            "page": page,
+            "total_artifacts": total_artifacts,
+            "artifact_count_label": _file_count_label(total_artifacts),
+            "page_start": ((page - 1) * MEDIA_PAGE_SIZE + 1 if artifacts else 0),
+            "page_end": ((page - 1) * MEDIA_PAGE_SIZE + len(artifacts)),
+            "previous_page_url": (
+                library_url(target_page=page - 1) if page > 1 else None
+            ),
+            "next_page_url": (
+                library_url(target_page=page + 1) if has_next_page else None
+            ),
             "created_package": created_package,
+            "reviewed_artifact": reviewed_artifact,
             "team_media_access": team_media_access,
         },
     )

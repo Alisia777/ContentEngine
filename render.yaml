@@ -27,20 +27,14 @@ envVarGroups:
         value: authenticated
       - key: QVF_SUPABASE_READINESS_TIMEOUT_SECONDS
         value: "5"
-      - key: QVF_GENERATION_MODE
-        value: mock
-      - key: QVF_LLM_PROVIDER
-        value: mock
-      - key: QVF_VIDEO_PROVIDER
-        value: mock
-      - key: QVF_ALLOW_REAL_SPEND
-        value: "false"
       - key: QVF_MAX_VIDEO_SECONDS_PER_RUN
         value: "5"
       - key: QVF_MAX_SCENES_PER_REAL_RUN
         value: "1"
       - key: QVF_MAX_PROVIDER_POLL_SECONDS
         value: "600"
+      - key: QVF_MASS_GENERATION_CREDIT_LIMIT
+        value: "30000"
 
 services:
   - type: web
@@ -59,6 +53,20 @@ services:
       - key: QVF_DATABASE_URL
         sync: false
       - key: QVF_PUBLIC_APP_URL
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: RENDER_EXTERNAL_URL
+      # Capability selection is intentionally explicit at deploy time. Use
+      # mock/mock/mock/false for a spend-free acceptance deployment, or switch
+      # to real/openai/runway/true only after the owner approves provider spend.
+      - key: QVF_GENERATION_MODE
+        sync: false
+      - key: QVF_LLM_PROVIDER
+        sync: false
+      - key: QVF_VIDEO_PROVIDER
+        sync: false
+      - key: QVF_ALLOW_REAL_SPEND
         sync: false
       - key: SUPABASE_URL
         sync: false
@@ -97,6 +105,26 @@ services:
           type: web
           name: contentengine-web
           envVarKey: QVF_PUBLIC_APP_URL
+      - key: QVF_GENERATION_MODE
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_GENERATION_MODE
+      - key: QVF_LLM_PROVIDER
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_LLM_PROVIDER
+      - key: QVF_VIDEO_PROVIDER
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_VIDEO_PROVIDER
+      - key: QVF_ALLOW_REAL_SPEND
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_ALLOW_REAL_SPEND
       - key: SUPABASE_URL
         fromService:
           type: web

@@ -31,18 +31,22 @@
     {% if selected_tab == 'generation' %}
     <section class="altea-card public-workspace-panel altea-reveal">
       <header class="public-workspace-summary"><div><p class="public-eyebrow">СНАЧАЛА DRY-RUN</p><h2>Партия генерации</h2><p>Берём один полностью проверенный шаблон, создаём независимые draft и durable job для каждого ролика, распределяем проверку по креаторам.</p></div></header>
-      {% if can_create_generation and ready_drafts and team|selectattr('final_exam_passed')|list %}
+      {% if can_create_generation and ready_drafts and assignable_team %}
       <form method="post" action="/creator-operations/generation-batches" class="public-inline-form">
         <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
         <input type="hidden" name="idempotency_key" value="{{ generation_idempotency_key }}">
         <label>Название партии<input name="name" value="Новая партия роликов" minlength="3" maxlength="180" required></label>
         <label>Проверенный шаблон<select name="template_draft_id" required>{% for draft in ready_drafts %}<option value="{{ draft.id }}">#{{ draft.id }} · {{ draft.sku }} · {{ draft.platform }} · {{ draft.estimated_credits }} кредитов/ролик</option>{% endfor %}</select></label>
         <label>Количество<input name="quantity" type="number" min="1" max="50" value="10" required></label>
-        <label>Креаторы<select name="assignee_user_profile_ids" multiple size="6" required>{% for member in team if member.final_exam_passed %}<option value="{{ member.profile.id }}">{{ member.profile.display_name or member.profile.email }} · {{ member.membership.role }}</option>{% endfor %}</select></label>
-        <label>Режим<select name="mode"><option value="dry_run">Проверить без расходов</option>{% if can_enqueue_generation %}<option value="enqueue">Поставить в очередь</option>{% endif %}</select></label>
-        <label>Подтверждённый общий лимит<input name="confirmed_total_credits" type="number" min="0" max="500" value="0" required><small>Для enqueue укажите точное произведение «кредиты/ролик × количество», максимум 500.</small></label>
+        <div class="bulk-picker public-form-wide" data-bulk-picker data-required="true" data-max="50">
+          <strong>Креаторы</strong><small>Только сотрудники, прошедшие итоговый экзамен.</small>
+          <input type="search" data-bulk-search placeholder="Найти по имени, почте или роли" aria-label="Поиск креаторов">
+          <div class="bulk-picker__actions"><button type="button" data-bulk-all>Выбрать до 50 сертифицированных</button><button type="button" data-bulk-clear>Очистить</button><span data-bulk-count>Выбрано: 0</span></div>
+          <div class="bulk-picker__options">{% for member in assignable_team %}<label data-bulk-option data-search="{{ (member.profile.display_name or member.profile.email)|lower }} {{ member.profile.email|lower }} {{ member.membership.role|lower }} нагрузка {{ member.open_tasks }}"><input type="checkbox" name="assignee_user_profile_ids" value="{{ member.profile.id }}"><span>{{ member.profile.display_name or member.profile.email }} <small>{{ member.membership.role }} · открыто задач {{ member.open_tasks }}</small></span></label>{% endfor %}</div>
+        </div>
+        <label>Подтверждённый общий лимит<input name="confirmed_total_credits" type="number" min="0" max="{{ mass_generation_credit_limit }}" value="0" required><small>Для enqueue укажите точное произведение «кредиты/ролик × количество», максимум {{ mass_generation_credit_limit }}.</small></label>
         <label class="recipe-confirm"><input type="checkbox" name="confirm_real_spend" value="true"><span>Для режима «в очередь»: подтверждаю лимит и реальный расход провайдера.</span></label>
-        <button class="altea-glow-button" type="submit">Создать партию</button>
+        <button class="altea-glow-button" type="submit" name="mode" value="dry_run">Проверить без расходов</button>{% if can_enqueue_generation %}<button class="public-link-button" type="submit" name="mode" value="enqueue">Сразу поставить в очередь</button>{% endif %}
       </form>
       {% else %}
       <div class="public-guidance public-guidance--warning"><strong>Партия пока недоступна</strong><p>Нужны owner/admin, хотя бы один preflight-ready draft и креатор с итоговым сертификатом.</p></div>
@@ -52,58 +56,172 @@
     {% elif selected_tab == 'placement' %}
     <section class="altea-card public-workspace-panel altea-reveal">
       <header class="public-workspace-summary"><div><p class="public-eyebrow">ЛИМИТЫ ПЛОЩАДОК СОХРАНЯЮТСЯ</p><h2>Партия размещения</h2><p>Система распределяет одобренные пакеты по принадлежащим команде площадкам и сначала показывает dry-run.</p></div></header>
-      {% if can_create_placement and packages and destinations and team|selectattr('final_exam_passed')|list %}
+      {% if can_create_placement and packages and destinations and assignable_team %}
       <form method="post" action="/creator-operations/placement-batches" class="public-inline-form">
         <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
         <input type="hidden" name="idempotency_key" value="{{ placement_idempotency_key }}">
         <label>Название партии<input name="name" value="Размещение одобренных роликов" minlength="3" maxlength="180" required></label>
-        <label>Пакеты<select name="package_ids" multiple size="7" required>{% for package in packages %}<option value="{{ package.id }}">#{{ package.id }} · {{ package.product.sku }} · {{ package.target_platform }}</option>{% endfor %}</select></label>
-        <label>Площадки<select name="destination_ids" multiple size="7" required>{% for destination in destinations %}<option value="{{ destination.id }}">{{ destination.platform }} · {{ destination.name }}</option>{% endfor %}</select></label>
-        <label>Ответственные креаторы<select name="assignee_user_profile_ids" multiple size="7" required>{% for member in team if member.final_exam_passed %}<option value="{{ member.profile.id }}">{{ member.profile.display_name or member.profile.email }} · {{ member.membership.role }}</option>{% endfor %}</select></label>
-        <label>Начало<input name="start_at" type="datetime-local" value="{{ default_start_at }}" required></label>
+        <div class="bulk-picker public-form-wide" data-bulk-picker data-required="true" data-max="250"><strong>Пакеты</strong><small>Уже запланированные пакеты скрыты. Dry-run сам подберёт совместимую площадку по платформе и бренду.</small><input type="search" data-bulk-search placeholder="Найти SKU, платформу или бренд" aria-label="Поиск пакетов"><div class="bulk-picker__actions"><button type="button" data-bulk-all>Выбрать все доступные</button><button type="button" data-bulk-clear>Очистить</button><span data-bulk-count>Выбрано: 0</span></div><div class="bulk-picker__options">{% for package in packages %}<label data-bulk-option data-search="{{ package.product.sku|lower }} {{ package.target_platform|lower }} {{ package.brand|lower }}"><input type="checkbox" name="package_ids" value="{{ package.id }}"><span>#{{ package.id }} · {{ package.product.sku }} <small>{{ package.target_platform }} · {{ package.brand }}</small></span></label>{% endfor %}</div></div>
+        <div class="bulk-picker public-form-wide" data-bulk-picker data-required="true" data-max="50"><strong>Площадки</strong><small>Можно выбрать до 50. Система распределит пакет только на совпадающую платформу и бренд с доступным лимитом.</small><input type="search" data-bulk-search placeholder="Найти площадку, платформу или бренд" aria-label="Поиск площадок"><div class="bulk-picker__actions"><button type="button" data-bulk-all>Выбрать все активные</button><button type="button" data-bulk-clear>Очистить</button><span data-bulk-count>Выбрано: 0</span></div><div class="bulk-picker__options">{% for destination in destinations %}<label data-bulk-option data-search="{{ destination.platform|lower }} {{ destination.name|lower }} {{ destination.brand|lower }} {{ (destination.handle or '')|lower }}"><input type="checkbox" name="destination_ids" value="{{ destination.id }}"><span>{{ destination.name }} <small>{{ destination.platform }} · {{ destination.brand }} · лимит {{ destination.daily_limit }}/день</small></span></label>{% endfor %}</div></div>
+        <div class="bulk-picker public-form-wide" data-bulk-picker data-required="true" data-max="50"><strong>Ответственные креаторы</strong><small>Распределение идёт по кругу от наименее загруженных сотрудников. За одну партию — до 50.</small><input type="search" data-bulk-search placeholder="Найти креатора, роль или нагрузку" aria-label="Поиск ответственных"><div class="bulk-picker__actions"><button type="button" data-bulk-all>Выбрать до 50 наименее загруженных</button><button type="button" data-bulk-clear>Очистить</button><span data-bulk-count>Выбрано: 0</span></div><div class="bulk-picker__options">{% for member in assignable_team %}<label data-bulk-option data-search="{{ (member.profile.display_name or member.profile.email)|lower }} {{ member.profile.email|lower }} {{ member.membership.role|lower }} нагрузка {{ member.open_tasks }}"><input type="checkbox" name="assignee_user_profile_ids" value="{{ member.profile.id }}"><span>{{ member.profile.display_name or member.profile.email }} <small>{{ member.membership.role }} · открыто задач {{ member.open_tasks }}</small></span></label>{% endfor %}</div></div>
+        <label>Начало<input name="start_at" type="datetime-local" value="{{ default_start_at }}" data-local-start required><input name="start_timezone" type="hidden" value="{{ default_start_timezone }}" data-start-timezone><small>Местное время браузера · <span data-timezone-label>{{ default_start_timezone }}</span>. В базе сохраняется UTC без сдвига.</small></label>
         <label>Интервал, минут<input name="interval_minutes" type="number" min="1" max="10080" value="60" required></label>
-        <label>Режим<select name="mode"><option value="dry_run">Проверить расписание</option><option value="schedule">Создать задачи размещения</option></select></label>
-        <button class="altea-glow-button" type="submit">Проверить партию</button>
+        <label>Ставка за принятую публикацию, ₽<input name="payout_per_post_rub" type="number" min="0" max="1000000" step="0.01" value="0" required><small>Начисление появится только после подтверждённой HTTPS-ссылки. 0 ₽ — без начисления.</small></label>
+        <button class="altea-glow-button" type="submit" name="mode" value="dry_run">Проверить расписание</button><button class="public-link-button" type="submit" name="mode" value="schedule">Создать задачи сразу</button>
       </form>
       {% else %}<div class="public-guidance public-guidance--warning"><strong>Нечего распределять</strong><p>Нужны одобренные publishing packages и активные площадки этой организации.</p></div>{% endif %}
     </section>
 
     {% elif selected_tab == 'stats' %}
     <div class="public-kpi-grid">
-      <article class="altea-card public-kpi"><span>Команда</span><strong>{{ stats.team_members }}</strong><small>{{ stats.certified_creators }} прошли итоговый экзамен</small></article>
-      <article class="altea-card public-kpi"><span>Открытые задачи</span><strong>{{ stats.tasks_open }}</strong><small>{{ stats.tasks_done }} завершено</small></article>
-      <article class="altea-card public-kpi"><span>Видео в библиотеке</span><strong>{{ stats.videos_ready }}</strong><small>только существующие private objects</small></article>
-      <article class="altea-card public-kpi"><span>Очередь</span><strong>{{ queue_health.ready_jobs }}</strong><small>лаг {{ queue_health.queue_lag_seconds }} сек.</small></article>
+      <article class="altea-card public-kpi"><span>{{ 'Публикации команды' if owner_view else 'Мои публикации' }}</span><strong>{{ stats.published_placements }}</strong><small>{{ stats.tracked_placements }} имеют импортированный снимок метрик</small></article>
+      <article class="altea-card public-kpi"><span>Просмотры</span><strong>{{ stats.views }}</strong><small>канонические периоды или последний накопительный снимок</small></article>
+      <article class="altea-card public-kpi"><span>Учтённые переходы по ссылке</span><strong>{{ stats.tracking_clicks }}</strong><small>человеческие события после защиты от ботов и повторов</small></article>
+      <article class="altea-card public-kpi"><span>Все события ссылки</span><strong>{{ stats.tracking_clicks_raw }}</strong><small>включая события, помеченные как автоматические; отдельно от KPI</small></article>
+      <article class="altea-card public-kpi"><span>Клики площадок</span><strong>{{ stats.clicks }}</strong><small>отдельный источник: официальные импорты и ручные снимки</small></article>
+      <article class="altea-card public-kpi"><span>Заказы</span><strong>{{ stats.orders }}</strong><small>атрибуция по подтверждённым публикациям</small></article>
+      <article class="altea-card public-kpi"><span>Выручка</span><strong>{{ '%.2f'|format(stats.revenue) }} ₽</strong><small>без пересечения периодов и повторных накопительных снимков</small></article>
+      <article class="altea-card public-kpi"><span>Видео в библиотеке</span><strong>{{ stats.videos_ready }}</strong><small>готовые записи приватной библиотеки</small></article>
+      <article class="altea-card public-kpi"><span>Открытые задачи</span><strong>{{ stats.tasks_open }}</strong><small>{{ stats.tasks_done }} завершено · {{ stats.tasks_cancelled }} отменено</small></article>
+      <article class="altea-card public-kpi"><span>Очередь генерации</span><strong>{{ queue_health.ready_jobs }}</strong><small>лаг {{ queue_health.queue_lag_seconds }} сек.</small></article>
     </div>
+    <p class="public-safety-note">Непересекающиеся канонические периоды суммируются. Пересекающиеся строки не попадают в KPI и отправляются в карантин: {{ stats.quarantined_metric_rows }}. Для ручных накопительных снимков используется только последний. Переходы своей ссылки и клики площадок не складываются, чтобы не было двойного счёта. Креатор видит только свою работу, owner/admin — всю команду.</p>
 
     {% elif selected_tab == 'payouts' %}
-    <section class="altea-card public-workspace-panel"><header class="public-workspace-summary"><div><p class="public-eyebrow">ЛИЧНЫЙ ИЛИ КОМАНДНЫЙ LEDGER</p><h2>Выплаты креаторам</h2></div><div><strong>{{ '%.2f'|format(stats.payout_pending_minor / 100) }} ₽</strong><small>ожидает</small></div></header>
-      <ul class="public-list">{% for payout in payouts %}<li><div><strong>{{ '%.2f'|format(payout.amount_minor / 100) }} {{ payout.currency }}</strong><small>user #{{ payout.user_profile_id }} · {{ payout.reason or 'оплата измеримой работы' }}</small></div><span class="public-status">{{ payout.status }}</span></li>{% else %}<li><div><strong>Начислений пока нет</strong><small>Они появятся после принятой и прослеживаемой работы.</small></div></li>{% endfor %}</ul>
+    <section class="altea-card public-workspace-panel"><header class="public-workspace-summary"><div><p class="public-eyebrow">ЛИЧНЫЙ ИЛИ КОМАНДНЫЙ РЕЕСТР</p><h2>Выплаты креаторам</h2><p>Ставка задаётся в партии размещения. Начисление создаётся только после принятой публичной ссылки.</p></div><div><strong>{{ '%.2f'|format(stats.payout_pending_minor / 100) }} ₽</strong><small>ожидает или согласовано · {{ '%.2f'|format(stats.payout_paid_minor / 100) }} ₽ оплачено</small></div></header>
+      <ul class="public-list">
+        {% for payout in payouts %}
+        {% set payout_profile = payout_profiles.get(payout.user_profile_id) %}
+        <li><div>
+          <strong>{{ '%.2f'|format(payout.amount_minor / 100) }} ₽</strong>
+          <small>{{ (payout_profile.display_name or payout_profile.email) if payout_profile else 'Креатор' }} · {{ payout.reason or 'оплата измеримой работы' }}</small>
+          {% if owner_view and payout.status == 'pending' %}
+          <form method="post" action="/creator-operations/payouts/{{ payout.id }}/decision" class="public-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+            <label>Причина, если отклоняете<input name="notes" maxlength="2000" placeholder="Не менее 10 знаков для отклонения"></label>
+            <button class="public-link-button" type="submit" name="decision" value="approve">Согласовать</button>
+            <button class="public-link-button" type="submit" name="decision" value="reject">Отклонить</button>
+          </form>
+          {% elif owner_view and payout.status == 'approved' %}
+          <form method="post" action="/creator-operations/payouts/{{ payout.id }}/paid" class="public-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+            <label>Внешний номер платежа<input name="external_payment_reference" minlength="3" maxlength="180" autocomplete="off" placeholder="Например, PAY-2026-000123" required><small>Без банковских реквизитов и персональных данных.</small></label>
+            <button class="public-link-button" type="submit">Отметить оплаченным</button>
+          </form>
+          {% elif payout.status == 'paid' and payout.external_payment_reference %}
+          <small>Номер сверки: {{ payout.external_payment_reference }}</small>
+          {% endif %}
+        </div><span class="public-status">{{ payout_status_labels.get(payout.status, payout.status) }}</span></li>
+        {% else %}<li><div><strong>Начислений пока нет</strong><small>Задайте ставку в партии размещения. После принятой HTTPS-ссылки начисление появится автоматически.</small></div></li>{% endfor %}
+      </ul>
+      {% if previous_payout_page_url or next_payout_page_url %}<nav class="workspace-navigation" aria-label="Страницы начислений"><div class="workspace-navigation__secondary">{% if previous_payout_page_url %}<a href="{{ previous_payout_page_url }}">← Предыдущие</a>{% endif %}<span class="public-status">Страница {{ payout_page }}</span>{% if next_payout_page_url %}<a href="{{ next_payout_page_url }}">Следующие →</a>{% endif %}</div></nav>{% endif %}
       <p class="public-safety-note">Банковские реквизиты не хранятся здесь. ContentEngine ведёт начисление и внешнюю ссылку сверки.</p>
     </section>
 
     {% elif selected_tab == 'tasks' %}
-    <section class="altea-card public-workspace-panel" id="workspace-tasks"><header class="public-workspace-summary"><div><p class="public-eyebrow">{{ 'КОМАНДНАЯ ОЧЕРЕДЬ' if owner_view else 'МОИ ЗАДАЧИ' }}</p><h2>Что делать сейчас</h2></div><span>{{ tasks|length }}</span></header>
+    <section class="altea-card public-workspace-panel" id="workspace-tasks"><header class="public-workspace-summary"><div><p class="public-eyebrow">{{ 'КОМАНДНАЯ ОЧЕРЕДЬ' if owner_view else 'МОИ ЗАДАЧИ' }}</p><h2>{{ 'Что делать сейчас' if task_view == 'active' else 'История задач' }}</h2><nav class="task-view-switch" aria-label="Состояние задач"><a class="{{ 'is-active' if task_view == 'active' else '' }}" href="/creator-operations?tab=tasks&task_view=active">Активные · {{ stats.tasks_open }}</a><a class="{{ 'is-active' if task_view == 'completed' else '' }}" href="/creator-operations?tab=tasks&task_view=completed">Завершённые/отменённые · {{ stats.tasks_closed }}</a></nav></div><span>{{ stats.tasks_open if task_view == 'active' else stats.tasks_closed }}</span></header>
+      {% if owner_view %}<form method="get" action="/creator-operations" class="public-inline-form"><input type="hidden" name="tab" value="tasks"><input type="hidden" name="task_view" value="{{ task_view }}"><label>Исполнитель<select name="task_creator_id"><option value="">Вся команда</option>{% for member in team %}<option value="{{ member.profile.id }}" {{ 'selected' if task_creator_id == member.profile.id else '' }}>{{ member.profile.display_name or member.profile.email }} · {{ member.membership.role }}</option>{% endfor %}</select></label><label>Партия<select name="task_batch_id"><option value="">Все партии</option>{% for batch in batches %}<option value="{{ batch.id }}" {{ 'selected' if task_batch_id == batch.id else '' }}>#{{ batch.id }} · {{ batch.name }}</option>{% endfor %}</select></label><button class="public-link-button" type="submit">Применить фильтр</button></form>{% endif %}
       <ul class="public-list">
         {% for task in tasks %}
         <li><div>
           <strong>{{ task.title }}</strong>
-          <small>{{ task.task_type }} · приоритет {{ task.priority }}{% if task.due_at %} · до {{ task.due_at }}{% endif %}</small>
+          {% set task_profile = task_profiles.get(task.assignee_user_profile_id) %}<small>{{ task.task_type }} · исполнитель {{ (task_profile.display_name or task_profile.email) if task_profile else ('ID ' ~ task.assignee_user_profile_id) }} · приоритет {{ task.priority }}{% if task.due_at %} · до <time datetime="{{ task.due_at.isoformat() }}Z" data-utc-time>{{ task.due_at }} UTC</time>{% endif %}{% if task.mass_operation_batch_id %} · партия #{{ task.mass_operation_batch_id }}{% endif %}</small>
           {% if task.instructions %}<p>{{ task.instructions }}</p>{% endif %}
-          {% if task.media_artifact_id and task_artifacts.get(task.media_artifact_id) %}<a href="/media-library/{{ task_artifacts.get(task.media_artifact_id) }}/access" target="_blank" rel="noopener">Открыть готовое видео</a>{% endif %}
-          {% if task.task_type == 'review_generated_video' and task.status not in ['done', 'cancelled'] and task.media_artifact_id %}<form method="post" action="/creator-operations/tasks/{{ task.id }}/review" class="public-inline-form"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Комментарий к проверке<input name="notes" maxlength="2000" placeholder="Для возврата укажите конкретную причину"></label><button class="public-link-button" type="submit" name="decision" value="approve">Одобрить</button><button class="public-link-button" type="submit" name="decision" value="reject">Вернуть на доработку</button></form>{% endif %}
+          {% if task.blockers_json %}{% set blocker = task.blockers_json[0] %}<div class="public-guidance public-guidance--warning"><strong>{{ blocker.get('message') or operation_messages.get(blocker.get('code')) or blocker.get('code') or 'Задача остановлена' }}</strong>{% if blocker.get('action') %}<p>Что делать: {{ blocker.get('action') }}</p>{% endif %}{% if blocker.get('action_url') %}<a href="{{ blocker.get('action_url') }}">Открыть экран исправления →</a>{% endif %}</div>{% endif %}
+          {% set task_artifact = task_artifacts.get(task.media_artifact_id) if task.media_artifact_id else none %}
+          {% if task_artifact %}<a href="/media-library/{{ task_artifact.public_id }}/access" target="_blank" rel="noopener">Открыть готовое видео</a>{% endif %}
+          {% if task.task_type == 'manual_placement' and task.result_json.get('manual_upload') %}
+          {% set upload = task.result_json.get('manual_upload') %}
+          <div class="public-guidance">
+            <strong>Готовый пакет публикации</strong>
+            <p><b>Аккаунт:</b> {{ upload.get('destination', {}).get('platform') }} · {{ upload.get('destination', {}).get('name') }}{% if upload.get('destination', {}).get('handle') %} · {{ upload.get('destination', {}).get('handle') }}{% endif %}</p>
+            {% if upload.get('title') %}<p><b>Заголовок:</b> {{ upload.get('title') }}</p>{% endif %}
+            {% if upload.get('description') %}<p><b>Текст:</b> {{ upload.get('description') }}</p>{% endif %}
+            {% if upload.get('hashtags') %}<p><b>Хэштеги:</b> {{ upload.get('hashtags') | join(' ') }}</p>{% endif %}
+            {% if upload.get('cta') %}<p><b>CTA:</b> {{ upload.get('cta') }}</p>{% endif %}
+            {% if upload.get('tracking_link') %}<label>Отслеживаемая ссылка<input readonly value="{{ public_app_url }}{{ upload.get('tracking_link') }}" onclick="this.select()"><small>Используйте её вместо прямой ссылки на товар — так считаются переходы.</small></label>{% endif %}
+          </div>
+          {% endif %}
+          {% if task.task_type == 'review_generated_video' and task.status in ['todo', 'in_progress', 'submitted', 'review'] and task_artifact %}<form method="post" action="/creator-operations/tasks/{{ task.id }}/review" class="public-inline-form"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><input type="hidden" name="expected_media_artifact_id" value="{{ task_artifact.id }}"><input type="hidden" name="expected_media_artifact_public_id" value="{{ task_artifact.public_id }}"><input type="hidden" name="expected_media_artifact_sha256" value="{{ task_artifact.sha256 }}"><div class="public-guidance"><strong>Чек-лист перед решением</strong><p>Полностью посмотрите MP4; сверьте SKU и упаковку; проверьте достоверность товара, claims, монтаж и правила площадки.</p></div><label class="recipe-confirm"><input type="checkbox" name="confirm_video_watched" value="true" required><span>Я полностью посмотрел именно этот MP4 и выполнил чек-лист.</span></label><label>Что проверено или что исправить<input name="notes" minlength="10" maxlength="2000" placeholder="Не менее 10 знаков — комментарий обязателен для любого решения" required></label><button class="public-link-button" type="submit" name="decision" value="approve">Одобрить после проверки</button><button class="public-link-button" type="submit" name="decision" value="reject">Вернуть на новую генерацию</button></form>{% elif task.task_type == 'review_generated_video' and task.status == 'blocked' %}<p class="public-safety-note">Этот файл отклонён. Кнопки проверки появятся только после успешной новой генерации.</p>{% endif %}
           {% if task.task_type == 'manual_placement' and task.status in ['todo', 'in_progress', 'submitted', 'review'] %}<form method="post" action="/creator-operations/tasks/{{ task.id }}/complete-placement" class="public-inline-form"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Публичная HTTPS-ссылка на публикацию<input name="final_url" type="url" inputmode="url" maxlength="500" placeholder="https://www.instagram.com/reel/..." required></label><button class="public-link-button" type="submit">Подтвердить размещение</button></form>{% endif %}
           {% if task.task_type == 'manual_placement' and task.result_json.get('final_url') %}<a href="{{ task.result_json.get('final_url') }}" target="_blank" rel="noopener">Открыть публикацию</a>{% endif %}
+          {% if task.task_type == 'manual_placement' and task.status == 'done' %}{% set latest_metric = task_latest_metrics.get(task.id) %}<details><summary>{{ 'Обновить' if latest_metric else 'Добавить' }} накопительные метрики публикации</summary><form method="post" action="/creator-operations/tasks/{{ task.id }}/metrics" class="public-inline-form"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Просмотры<input name="views" type="number" min="0" max="10000000000" value="{{ latest_metric.views if latest_metric else 0 }}" required></label><label>Клики площадки<input name="clicks" type="number" min="0" max="10000000000" value="{{ latest_metric.clicks if latest_metric else 0 }}" required></label><label>Заказы<input name="orders" type="number" min="0" max="10000000000" value="{{ latest_metric.orders if latest_metric else 0 }}" required></label><label>Выручка, ₽<input name="revenue_rub" type="number" min="0" max="1000000000" step="0.01" value="{{ '%.2f'|format(latest_metric.revenue) if latest_metric else '0.00' }}" required></label><small>Поля предзаполнены последним накопительным снимком. Увеличивайте значения; переходы своей tracking-ссылки сюда не добавляйте.</small>{% if owner_view and latest_metric %}<details class="public-form-wide"><summary>Исправить ошибочно завышенный снимок</summary><label class="recipe-confirm"><input type="checkbox" name="allow_correction" value="true"><span>Подтверждаю уменьшение накопительных значений как отдельную коррекцию.</span></label><label>Причина коррекции<input name="correction_reason" minlength="10" maxlength="2000" placeholder="Например: площадка удалила ошибочно учтённые просмотры"></label></details>{% endif %}<button class="public-link-button" type="submit">Сохранить новый снимок</button></form></details>{% endif %}
         </div><span class="public-status">{{ task.status }}</span></li>
         {% else %}<li><div><strong>Активных задач нет</strong><small>Owner может создать партию генерации или размещения.</small></div></li>{% endfor %}
       </ul>
+      {% if previous_task_page_url or next_task_page_url %}<nav class="workspace-navigation" aria-label="Страницы задач"><div class="workspace-navigation__secondary">{% if previous_task_page_url %}<a href="{{ previous_task_page_url }}">← Предыдущие</a>{% endif %}<span class="public-status">Страница {{ task_page }}</span>{% if next_task_page_url %}<a href="{{ next_task_page_url }}">Следующие →</a>{% endif %}</div></nav>{% endif %}
     </section>
 
     {% elif selected_tab == 'needs' %}
     <section class="altea-card public-workspace-panel" id="what-to-add"><header class="public-workspace-summary"><div><p class="public-eyebrow">ПРОВЕРЕНО ПО ФАКТАМ</p><h2>Что нужно добавить</h2></div></header><ul class="public-list">{% for item in needs %}<li><div><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></div></li>{% endfor %}</ul></section>
     {% endif %}
 
-    {% if batches %}<details class="altea-card public-technical"><summary>Последние массовые операции · {{ batches|length }}</summary><ul class="public-list">{% for batch in batches %}<li><div><strong>#{{ batch.id }} · {{ batch.name }}</strong><small>{{ batch.operation_type }} · {{ batch.total_accepted }}/{{ batch.total_requested }} принято · ошибок {{ batch.total_failed }}</small></div><span class="public-status">{{ batch.status }}</span></li>{% endfor %}</ul></details>{% endif %}
+    {% if batches %}<details class="altea-card public-technical" open><summary>Последние массовые операции · {{ batches|length }}</summary><ul class="public-list">{% for batch in batches %}<li><div><strong>#{{ batch.id }} · {{ batch.name }}</strong><small>{{ batch.operation_type }} · {{ batch.total_accepted }}/{{ batch.total_requested }} принято · ошибок {{ batch.total_failed }}</small>{% if batch.dry_run and batch.status == 'validated' and not batch.parameters_json.get('promoted_to_batch_id') %}{% if batch.operation_type == 'placement' and can_create_placement %}<form method="post" action="/creator-operations/batches/{{ batch.id }}/promote" class="public-inline-form"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><button class="altea-glow-button" type="submit">Запустить проверенную партию</button><small>Перед созданием задач сервер повторно проверит лимиты, файлы и площадки.</small></form>{% elif batch.operation_type == 'generation' and can_enqueue_generation %}<form method="post" action="/creator-operations/batches/{{ batch.id }}/promote" class="public-inline-form"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><input type="hidden" name="confirmed_total_credits" value="{{ batch.parameters_json.get('estimated_credits', 0) }}"><label class="recipe-confirm"><input type="checkbox" name="confirm_real_spend" value="true" required><span>Подтверждаю реальный расход {{ batch.parameters_json.get('estimated_credits', 0) }} кредитов после повторной серверной проверки.</span></label><button class="altea-glow-button" type="submit">Запустить проверенную генерацию</button></form>{% endif %}{% elif batch.parameters_json.get('promoted_to_batch_id') %}<p class="public-safety-note">Запущено как рабочая партия #{{ batch.parameters_json.get('promoted_to_batch_id') }}.</p>{% endif %}{% if batch.results_json %}<details {% if loop.first %}open{% endif %}><summary>Показать распределение · {{ batch.results_json|length }}</summary><ul>{% for item in batch.results_json %}<li>Пакет/draft #{{ item.get('package_id') or item.get('draft_id') }}{% if item.get('matched_destination') %} → {{ item.get('matched_destination', {}).get('name') }} · <time datetime="{{ item.get('scheduled_at') }}Z" data-utc-time>{{ item.get('scheduled_at') }} UTC</time>{% endif %} · {{ item.get('status') or 'готово к запуску' }}</li>{% endfor %}</ul></details>{% endif %}{% if batch.errors_json %}<details open><summary>Что исправить · {{ batch.errors_json|length }}</summary><ul>{% for item in batch.errors_json %}{% set codes = item.get('error_codes') or [item.get('error')] %}<li><strong>{% if item.get('package_id') %}Пакет #{{ item.get('package_id') }}{% else %}Партия{% endif %}</strong>{% for code in codes if code %}<p>{{ operation_messages.get(code, code|replace('_', ' ')) }}</p>{% endfor %}{% if item.get('action') %}<small>{{ item.get('action') }}</small>{% endif %}{% if item.get('candidate_errors') %}<details><summary>Причины по площадкам · {{ item.get('candidate_errors')|length }}</summary>{% for candidate in item.get('candidate_errors') %}<p><b>{{ candidate.get('destination_name') or ('Площадка #' ~ candidate.get('destination_id')) }}</b>: {% for code in candidate.get('error_codes', []) %}{{ operation_messages.get(code, code|replace('_', ' ')) }}{% if not loop.last %}; {% endif %}{% endfor %}</p>{% endfor %}</details>{% endif %}</li>{% endfor %}</ul></details>{% endif %}</div><span class="public-status">{{ batch.status }}</span></li>{% endfor %}</ul></details>{% endif %}
   </main>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const normalize = (value) => String(value || '').trim().toLocaleLowerCase('ru');
+  document.querySelectorAll('[data-bulk-picker]').forEach((picker) => {
+    const search = picker.querySelector('[data-bulk-search]');
+    const options = Array.from(picker.querySelectorAll('[data-bulk-option]'));
+    const boxes = options.map((option) => option.querySelector('input[type="checkbox"]'));
+    const count = picker.querySelector('[data-bulk-count]');
+    const max = Number(picker.dataset.max || boxes.length || 1);
+    const sync = () => {
+      const selected = boxes.filter((box) => box.checked).length;
+      count.textContent = `Выбрано: ${selected} · максимум ${max}`;
+      if (picker.dataset.required === 'true' && search) {
+        search.setCustomValidity(selected === 0 ? 'Выберите хотя бы один вариант.' : '');
+      }
+    };
+    search?.addEventListener('input', () => {
+      const query = normalize(search.value);
+      options.forEach((option) => {
+        option.hidden = query && !normalize(option.dataset.search).includes(query);
+      });
+    });
+    picker.querySelector('[data-bulk-all]')?.addEventListener('click', () => {
+      boxes.forEach((box) => { box.checked = false; });
+      options.filter((option) => !option.hidden).slice(0, max).forEach((option) => {
+        option.querySelector('input').checked = true;
+      });
+      sync();
+    });
+    picker.querySelector('[data-bulk-clear]')?.addEventListener('click', () => {
+      boxes.forEach((box) => { box.checked = false; });
+      sync();
+    });
+    boxes.forEach((box) => box.addEventListener('change', () => {
+      if (box.checked && boxes.filter((item) => item.checked).length > max) {
+        box.checked = false;
+      }
+      sync();
+    }));
+    sync();
+  });
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
+  document.querySelectorAll('[data-start-timezone]').forEach((input) => { input.value = timezone; });
+  document.querySelectorAll('[data-timezone-label]').forEach((label) => { label.textContent = timezone; });
+  document.querySelectorAll('[data-local-start]').forEach((input) => {
+    const local = new Date(Date.now() + 60 * 60 * 1000);
+    const offset = local.getTimezoneOffset() * 60 * 1000;
+    input.value = new Date(local.getTime() - offset).toISOString().slice(0, 16);
+  });
+  document.querySelectorAll('[data-utc-time]').forEach((element) => {
+    const instant = new Date(element.dateTime);
+    if (!Number.isNaN(instant.getTime())) {
+      element.textContent = new Intl.DateTimeFormat('ru-RU', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(instant);
+      element.title = `${element.dateTime} · UTC`;
+    }
+  });
+})();
+</script>
 {% endblock %}

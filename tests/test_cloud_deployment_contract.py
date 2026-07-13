@@ -65,7 +65,6 @@ def test_render_blueprint_never_commits_production_credentials() -> None:
 
     for secret_name in (
         "QVF_DATABASE_URL",
-        "QVF_PUBLIC_APP_URL",
         "SUPABASE_URL",
         "SUPABASE_PUBLISHABLE_KEY",
         "SUPABASE_SECRET_KEY",
@@ -79,6 +78,28 @@ def test_render_blueprint_never_commits_production_credentials() -> None:
             "type": "web",
             "name": "contentengine-web",
             "envVarKey": secret_name,
+        }
+    assert web_env["QVF_PUBLIC_APP_URL"]["fromService"] == {
+        "type": "web",
+        "name": "contentengine-web",
+        "envVarKey": "RENDER_EXTERNAL_URL",
+    }
+    assert worker_env["QVF_PUBLIC_APP_URL"]["fromService"] == {
+        "type": "web",
+        "name": "contentengine-web",
+        "envVarKey": "QVF_PUBLIC_APP_URL",
+    }
+    for capability_name in (
+        "QVF_GENERATION_MODE",
+        "QVF_LLM_PROVIDER",
+        "QVF_VIDEO_PROVIDER",
+        "QVF_ALLOW_REAL_SPEND",
+    ):
+        assert web_env[capability_name] == {"key": capability_name, "sync": False}
+        assert worker_env[capability_name]["fromService"] == {
+            "type": "web",
+            "name": "contentengine-web",
+            "envVarKey": capability_name,
         }
     assert "SUPABASE_SERVICE_ROLE_KEY" not in web_env
     assert "SUPABASE_SERVICE_ROLE_KEY" not in worker_env
@@ -143,3 +164,12 @@ def test_cloud_documentation_rejects_localhost_as_creator_product() -> None:
     assert "It never writes a probe object" in normalized
     assert "Local profile" in guide
     assert "not a hosting method" in normalized
+
+
+def test_creator_templates_never_offer_localhost_or_local_mock_workflows() -> None:
+    template_root = ROOT / "app" / "templates"
+    forbidden = ("http://127.0.0.1", "http://localhost", "Mock local", "локаль")
+    for path in template_root.glob("*.html"):
+        content = path.read_text(encoding="utf-8")
+        for marker in forbidden:
+            assert marker not in content, f"{path.name} exposes creator-local marker {marker!r}"

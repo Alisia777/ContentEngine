@@ -97,12 +97,40 @@ jobs:
       - name: Simulate database stamped before forward integrity revision
         run: |
           python - <<'PY'
+          from sqlalchemy import text
+
           from app.database import engine
           from app.postgres_integrity import drop_postgresql_integrity_guards
 
           with engine.begin() as connection:
               drop_postgresql_integrity_guards(connection)
-          print("Historical PostgreSQL guard state prepared")
+              for role_name in ("anon", "authenticated", "service_role"):
+                  connection.execute(text(f"CREATE ROLE {role_name} NOLOGIN"))
+                  connection.execute(
+                      text(
+                          "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public "
+                          f"TO {role_name}"
+                      )
+                  )
+                  connection.execute(
+                      text(
+                          "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public "
+                          f"TO {role_name}"
+                      )
+                  )
+                  connection.execute(
+                      text(
+                          "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                          f"GRANT ALL PRIVILEGES ON TABLES TO {role_name}"
+                      )
+                  )
+                  connection.execute(
+                      text(
+                          "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                          f"GRANT ALL PRIVILEGES ON SEQUENCES TO {role_name}"
+                      )
+                  )
+          print("Historical PostgreSQL guard and exposed API-role state prepared")
           PY
 
       - name: Apply production migrations from historical revision
@@ -110,6 +138,9 @@ jobs:
 
       - name: Verify PostgreSQL integrity guards
         run: python scripts/verify_postgres_integrity.py
+
+      - name: Verify PostgreSQL public-schema security
+        run: python scripts/verify_postgres_schema_security.py
 
       - name: Verify models match the migration head
         run: python -m alembic check

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     mock_provider_enabled: bool = True
     generation_mode: Literal["mock", "real"] = "mock"
     allow_real_spend: bool = False
+    mass_generation_credit_limit: int = Field(default=30_000, ge=1, le=300_000)
     max_video_seconds_per_run: int = 5
     max_scenes_per_real_run: int = 1
     max_provider_poll_seconds: int = 600

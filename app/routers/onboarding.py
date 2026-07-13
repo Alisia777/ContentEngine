@@ -42,7 +42,7 @@ def onboarding_page(
             "user": user,
             "result": result if result in {"passed", "failed"} else None,
             "score": score,
-            "next_url": safe_workspace_next(next),
+            "next_url": safe_workspace_next(next, role=user.role),
             "form_csrf_token": form_csrf_token(request),
             **context,
         },
@@ -58,7 +58,10 @@ async def submit_onboarding_module(
 ) -> RedirectResponse:
     form = await request.form()
     require_form_csrf(request, str(form.get("csrf_token") or ""))
-    next_url = safe_workspace_next(str(form.get("next") or ""))
+    next_url = safe_workspace_next(
+        str(form.get("next") or ""),
+        role=user.role,
+    )
     service = CloudOnboardingService(db)
     context = service.context(user, selected_code=module_code)
     active_codes = {str(item["code"]) for item in context["modules"]}

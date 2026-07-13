@@ -130,6 +130,87 @@ def _destination(db: Session, organization, *, platform: str = "instagram"):
     return destination
 
 
+def _reviewed_product_ugc_artifact(
+    db: Session,
+    tmp_path: Path,
+    organization: models.Organization,
+    profile: models.UserProfile,
+    product: models.Product,
+    *,
+    decision: str = "approved",
+):
+    provider_task_id = f"provider-{organization.id}-{decision}"
+    draft = models.ProductUGCRecipeDraft(
+        product_id=product.id,
+        created_by_user_profile_id=profile.id,
+        assigned_to_user_profile_id=profile.id,
+        sku=product.sku,
+        variant_key=f"reviewed-{organization.id}-{decision}",
+        status="approved" if decision == "approved" else decision,
+        recipe_version="2026-06",
+        platform="instagram",
+        language="ru",
+        character_image_filename="creator.png",
+        likeness_consent=True,
+        exact_variant_confirmed=True,
+        product_asset_ids_json=[],
+        product_info="Exact reviewed product",
+        user_concept="Exact reviewed Product UGC output",
+        creative_inputs_json={},
+        duration_seconds=15,
+        ratio="720:1280",
+        audio_enabled=True,
+        estimated_credits=100,
+        provider_payload_preview_json={},
+        blockers_json=[],
+        warnings_json=[],
+        provider_task_id=provider_task_id,
+        provider_status="SUCCEEDED",
+        local_output_paths_json=[],
+        human_review_status=decision,
+        publishing_readiness=(
+            "ready_for_publishing_package" if decision == "approved" else "blocked"
+        ),
+        human_review_notes="Exact product and packaging reviewed.",
+    )
+    db.add(draft)
+    db.commit()
+    artifact, backend = _artifact(
+        db,
+        tmp_path,
+        organization,
+        profile,
+        product,
+        kind="master_video",
+    )
+    artifact.product_ugc_recipe_draft_id = draft.id
+    artifact.metadata_json = {"provider_task_id": provider_task_id}
+    if decision == "approved":
+        draft.creative_inputs_json = {
+            "approved_media_artifact_v1": {
+                "media_artifact_id": artifact.id,
+                "public_id": artifact.public_id,
+                "sha256": artifact.sha256,
+                "provider_task_id": provider_task_id,
+                "reviewed_at": models.utcnow().isoformat(),
+            }
+        }
+    else:
+        draft.creative_inputs_json = {
+            "blocked_media_artifacts_v1": [
+                {
+                    "media_artifact_id": artifact.id,
+                    "public_id": artifact.public_id,
+                    "sha256": artifact.sha256,
+                    "provider_task_id": provider_task_id,
+                    "decision": decision,
+                }
+            ]
+        }
+    db.commit()
+    return draft, artifact, backend
+
+
 def test_ready_cloud_artifact_creates_one_approved_package_without_local_path_or_capability(
     db: Session,
     tmp_path: Path,
@@ -174,6 +255,96 @@ def test_ready_cloud_artifact_creates_one_approved_package_without_local_path_or
     assert "signed_url" not in persisted
     assert "signature=" not in persisted
     assert "secret" not in persisted
+
+
+def test_product_ugc_package_requires_exact_approved_artifact_lineage(
+    db: Session,
+    tmp_path: Path,
+):
+    organization, owner, _membership, product = _scope(
+        db,
+        slug="product-ugc-package-lineage",
+    )
+    draft, artifact, backend = _reviewed_product_ugc_artifact(
+        db,
+        tmp_path,
+        organization,
+        owner,
+        product,
+    )
+
+    package = PublishingPackageService(db).create_from_media_artifact(
+        public_id=artifact.public_id,
+        organization_id=organization.id,
+        actor_user_profile_id=owner.id,
+        platform="instagram",
+        confirm_human_review=True,
+    )
+    assert package.media_artifact_id == artifact.id
+
+    second = MediaArtifactService(db, {backend.name: backend}).store_bytes(
+        organization_id=organization.id,
+        created_by_user_profile_id=owner.id,
+        backend_name=backend.name,
+        kind="provider_output",
+        content=b"different-provider-output",
+        mime_type="video/mp4",
+        original_filename="different.mp4",
+        product_id=product.id,
+        product_ugc_recipe_draft_id=draft.id,
+        metadata={"provider_task_id": draft.provider_task_id},
+    )
+    with pytest.raises(PublishingSourceStateError, match="exactly one reviewed"):
+        PublishingPackageService(db).create_from_media_artifact(
+            public_id=second.public_id,
+            organization_id=organization.id,
+            actor_user_profile_id=owner.id,
+            platform="telegram",
+            confirm_human_review=True,
+        )
+
+
+@pytest.mark.parametrize("decision", ["needs_regeneration", "rejected"])
+def test_rejected_product_ugc_artifact_cannot_be_repackaged(
+    db: Session,
+    tmp_path: Path,
+    decision: str,
+):
+    organization, owner, _membership, product = _scope(
+        db,
+        slug=f"blocked-product-ugc-{decision.replace('_', '-')}",
+    )
+    draft, artifact, _backend = _reviewed_product_ugc_artifact(
+        db,
+        tmp_path,
+        organization,
+        owner,
+        product,
+        decision=decision,
+    )
+    service = PublishingPackageService(db)
+    with pytest.raises(PublishingSourceStateError, match="must be approved"):
+        service.create_from_media_artifact(
+            public_id=artifact.public_id,
+            organization_id=organization.id,
+            actor_user_profile_id=owner.id,
+            platform="instagram",
+            confirm_human_review=True,
+        )
+
+    # Flipping only the mutable status fields must not resurrect rejected bytes.
+    draft.human_review_status = "approved"
+    draft.publishing_readiness = "ready_for_publishing_package"
+    draft.blockers_json = []
+    db.commit()
+    with pytest.raises(PublishingSourceStateError, match="was rejected"):
+        service.create_from_media_artifact(
+            public_id=artifact.public_id,
+            organization_id=organization.id,
+            actor_user_profile_id=owner.id,
+            platform="instagram",
+            confirm_human_review=True,
+        )
 
 
 @pytest.mark.parametrize("role", ["owner", "admin", "reviewer"])

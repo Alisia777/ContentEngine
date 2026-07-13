@@ -17,7 +17,11 @@ from app.assets import ProductAssetStorage
 from app.assets.errors import AssetKitDataError
 from app.config import get_settings
 from app.media_storage.backend import StorageBackend
-from app.media_storage.errors import MediaArtifactError, StorageError
+from app.media_storage.errors import (
+    MediaArtifactError,
+    MediaArtifactStateError,
+    StorageError,
+)
 from app.media_storage.factory import get_storage_backends
 from app.media_storage.service import MediaArtifactService
 from app.product_asset_contract.asset_classifier import ProductAssetClassifier, normalize_key
@@ -453,18 +457,105 @@ class ProductUGCRecipeService:
         allowed = {"approved", "needs_regeneration", "rejected"}
         if status not in allowed:
             raise RunwayRecipeError(f"Unsupported Product UGC review status: {status}.")
-        output_paths = [Path(path) for path in (draft.local_output_paths_json or [])]
-        if not output_paths or any(not path.exists() or path.stat().st_size <= 0 for path in output_paths):
-            raise RunwayRecipeError("Human review requires a downloaded, non-empty Product UGC output.")
+        if draft.human_review_status in {"approved", "needs_regeneration", "rejected"}:
+            raise RunwayRecipeError(
+                "This generated output already has a final human decision. "
+                "Create a new generation draft before another approval."
+            )
+        durable_artifact = self.ready_video_artifact(draft)
+        strict_cloud_media = (
+            self.settings.runtime_profile == "production"
+            or self.storage_backends is not None
+        )
+        if durable_artifact is None:
+            if strict_cloud_media:
+                raise RunwayRecipeError(
+                    "Human review requires a ready durable Product UGC video artifact."
+                )
+            output_paths = [Path(path) for path in (draft.local_output_paths_json or [])]
+            if not output_paths or any(
+                not path.exists() or path.stat().st_size <= 0 for path in output_paths
+            ):
+                raise RunwayRecipeError(
+                    "Human review requires a downloaded, non-empty Product UGC output."
+                )
         if not notes.strip():
             raise RunwayRecipeError("Human review notes are required.")
+        creative_inputs = dict(draft.creative_inputs_json or {})
+        if durable_artifact is not None:
+            artifact_identity = {
+                "media_artifact_id": durable_artifact.id,
+                "public_id": durable_artifact.public_id,
+                "sha256": durable_artifact.sha256,
+                "provider_task_id": draft.provider_task_id,
+                "reviewed_at": models.utcnow().isoformat(),
+            }
+            if status == "approved":
+                creative_inputs["approved_media_artifact_v1"] = artifact_identity
+            else:
+                creative_inputs.pop("approved_media_artifact_v1", None)
+                blocked = [
+                    item
+                    for item in list(
+                        creative_inputs.get("blocked_media_artifacts_v1") or []
+                    )
+                    if isinstance(item, dict)
+                    and item.get("media_artifact_id") != durable_artifact.id
+                ]
+                blocked.append({**artifact_identity, "decision": status})
+                creative_inputs["blocked_media_artifacts_v1"] = blocked[-20:]
+            draft.creative_inputs_json = creative_inputs
         draft.human_review_status = status
         draft.human_review_notes = notes.strip()
-        draft.publishing_readiness = "ready_for_package" if status == "approved" else "blocked"
+        draft.publishing_readiness = (
+            "ready_for_publishing_package" if status == "approved" else "blocked"
+        )
         draft.status = "approved" if status == "approved" else status
         self.db.commit()
         self.db.refresh(draft)
         return draft
+
+    def ready_video_artifact(
+        self,
+        draft: models.ProductUGCRecipeDraft,
+        *,
+        organization_id: int | None = None,
+    ) -> models.MediaArtifact | None:
+        """Resolve review media without persisting or minting an object URL."""
+
+        draft_organization_id = (
+            draft.product.organization_id if draft.product is not None else None
+        )
+        if draft_organization_id is None:
+            return None
+        expected_organization_id = int(
+            organization_id
+            if organization_id is not None
+            else draft_organization_id
+        )
+        if int(draft_organization_id) != expected_organization_id:
+            raise RunwayRecipeError(
+                "Product UGC draft is outside the requested organization."
+            )
+        try:
+            backends = (
+                dict(self.storage_backends)
+                if self.storage_backends is not None
+                else get_storage_backends()
+            )
+            return MediaArtifactService(
+                self.db,
+                backends,
+            ).resolve_ready_product_ugc_video(
+                organization_id=expected_organization_id,
+                draft_id=draft.id,
+            )
+        except MediaArtifactStateError as exc:
+            raise RunwayRecipeError(str(exc)) from exc
+        except (MediaArtifactError, StorageError) as exc:
+            raise RunwayRecipeError(
+                "Product UGC review media is outside the organization or unavailable."
+            ) from exc
 
     @staticmethod
     def validate_image(filename: str, content: bytes, *, label: str) -> None:

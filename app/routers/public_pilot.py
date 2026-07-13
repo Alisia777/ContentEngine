@@ -67,6 +67,7 @@ from app.product_ugc_queue import (
 )
 from app.publishing import ManualUploadProvider
 from app.publishing.errors import PublishingError
+from app.publishing.publication_identity import canonical_publication_url
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import (
     PublicPilotUser,
@@ -78,6 +79,7 @@ from app.public_pilot.auth import (
     require_form_csrf,
 )
 from app.public_pilot.local_auth import authenticate_local_user, local_auth_configured
+from app.public_pilot.onboarding import workspace_home_for_role
 from app.public_pilot.supabase_auth import (
     SupabaseAuthClient,
     SupabaseAuthError,
@@ -631,7 +633,7 @@ async def public_login_submit(
     else:
         user.profile.last_login_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
-    response = _login_redirect("/control-room")
+    response = _login_redirect(workspace_home_for_role(user.role))
     set_supabase_session_cookies(response, session)
     return response
 
@@ -1862,24 +1864,7 @@ def _canonical_https_url(value: str) -> str:
 
 
 def _canonical_final_post_url(value: str, destination: models.PublishingDestination) -> str:
-    canonical = _canonical_https_url(value)
-    hostname = (urlsplit(canonical).hostname or "").casefold()
-    platform_domains = {
-        "instagram": ("instagram.com",),
-        "instagram reels": ("instagram.com",),
-        "tiktok": ("tiktok.com",),
-        "youtube": ("youtube.com", "youtu.be"),
-        "youtube shorts": ("youtube.com", "youtu.be"),
-        "facebook": ("facebook.com", "fb.watch"),
-        "vk": ("vk.com",),
-        "telegram": ("t.me", "telegram.me"),
-    }
-    allowed = platform_domains.get(destination.platform.strip().casefold(), ())
-    if not allowed and destination.url:
-        allowed = ((urlsplit(destination.url).hostname or "").casefold(),)
-    if not allowed or not any(hostname == domain or hostname.endswith(f".{domain}") for domain in allowed if domain):
-        raise ValueError("Final URL host does not match the owned destination.")
-    return canonical
+    return canonical_publication_url(value, destination)
 
 
 def _metrics_redirect(*, notice: str | None = None, error: str | None = None) -> RedirectResponse:
@@ -2784,10 +2769,24 @@ def mvp_launch(
             recipe_draft = recipe_service.output(recipe_record)
             selected_product = recipe_record.product
             recipe_run_readiness = _recipe_run_readiness(db, user, recipe_record)
-            recipe_output_media = _recipe_media_items(
-                recipe_draft.local_output_paths,
-                draft_id=recipe_record.id,
+            durable_video = recipe_service.ready_video_artifact(
+                recipe_record,
+                organization_id=(user.organization.id if strict_org_scope else None),
             )
+            if durable_video is not None:
+                recipe_output_media = [
+                    {
+                        "name": durable_video.original_filename
+                        or f"product-ugc-{recipe_record.id}.mp4",
+                        "url": f"/media-library/{durable_video.public_id}/access",
+                        "size_bytes": durable_video.size_bytes,
+                    }
+                ]
+            else:
+                recipe_output_media = _recipe_media_items(
+                    recipe_draft.local_output_paths,
+                    draft_id=recipe_record.id,
+                )
             if recipe_record.character_media_artifact:
                 recipe_character_url = (
                     f"/media-library/{recipe_record.character_media_artifact.public_id}/access"
@@ -3307,13 +3306,25 @@ def review_product_ugc_recipe_from_ui(
             **common_event,
         )
         content_cycle = None
+        artifact_native_url = None
         if review_status == "approved" and reviewed.product.organization_id == user.organization.id:
-            content_cycle = ContentCycleService(db).start_from_product_ugc(
+            reviewed_artifact = service.ready_video_artifact(
+                reviewed,
                 organization_id=user.organization.id,
-                actor_user_profile_id=user.profile.id,
-                product_ugc_recipe_draft_id=reviewed.id,
-                idempotency_key=f"product-ugc:{reviewed.id}",
             )
+            if reviewed_artifact is not None:
+                artifact_native_url = (
+                    "/media-library?folder=generated"
+                    f"&product_id={reviewed.product_id}"
+                    f"&reviewed={reviewed_artifact.public_id}"
+                )
+            else:
+                content_cycle = ContentCycleService(db).start_from_product_ugc(
+                    organization_id=user.organization.id,
+                    actor_user_profile_id=user.profile.id,
+                    product_ugc_recipe_draft_id=reviewed.id,
+                    idempotency_key=f"product-ugc:{reviewed.id}",
+                )
     except HTTPException as exc:
         return RedirectResponse(
             f"/mvp-launch?recipe_draft_id={draft_id}&error={quote(str(exc.detail))}",
@@ -3324,6 +3335,8 @@ def review_product_ugc_recipe_from_ui(
             f"/mvp-launch?recipe_draft_id={draft_id}&error={quote(str(exc))}",
             status_code=303,
         )
+    if artifact_native_url is not None:
+        return RedirectResponse(artifact_native_url, status_code=303)
     notice = (
         "Human review сохранён. Создан канонический цикл; следующий шаг — покадровая проверка качества."
         if content_cycle is not None

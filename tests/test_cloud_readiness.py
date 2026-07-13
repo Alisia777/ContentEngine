@@ -9,6 +9,7 @@ from app.readiness import (
     SupabaseReadinessProbe,
     SupabaseReadinessResult,
 )
+from app.postgres_security import PostgresPublicSchemaSecurityResult
 
 
 def _settings(**overrides):
@@ -274,6 +275,13 @@ class _FixedProbe:
         return self.result
 
 
+def _secure_database(_connection, _table_names) -> PostgresPublicSchemaSecurityResult:
+    return PostgresPublicSchemaSecurityResult(
+        rls_enabled=True,
+        api_roles_restricted=True,
+    )
+
+
 def test_application_readiness_turns_probe_failure_into_nonready(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.readiness.inspect",
@@ -293,6 +301,7 @@ def test_application_readiness_turns_probe_failure_into_nonready(monkeypatch) ->
         database_engine=_FakePostgresEngine(),
         supabase_probe=probe,
         migration_head_checker=lambda _connection: True,
+        database_security_checker=_secure_database,
     ).check()
 
     assert not result.ready
@@ -319,6 +328,7 @@ def test_application_readiness_never_returns_probe_exception_text(monkeypatch) -
         database_engine=_FakePostgresEngine(),
         supabase_probe=ExplodingProbe(),
         migration_head_checker=lambda _connection: True,
+        database_security_checker=_secure_database,
     ).check()
     payload = result.payload()
 
@@ -346,11 +356,46 @@ def test_application_readiness_fails_when_database_is_not_at_alembic_head(monkey
         database_engine=_FakePostgresEngine(),
         supabase_probe=probe,
         migration_head_checker=lambda _connection: False,
+        database_security_checker=_secure_database,
     ).check()
 
     assert not result.ready
     assert result.checks["migration_head"] is False
     assert "migration_head_mismatch" in result.errors
+
+
+def test_application_readiness_fails_closed_on_public_schema_exposure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.readiness.inspect",
+        lambda _engine: SimpleNamespace(get_table_names=lambda: list(CRITICAL_TABLES)),
+    )
+    probe = _FixedProbe(
+        SupabaseReadinessResult(
+            jwks_ready=True,
+            auth_api_ready=True,
+            storage_private=True,
+            errors=(),
+        )
+    )
+
+    result = ApplicationReadinessService(
+        settings=_settings(),
+        database_engine=_FakePostgresEngine(),
+        supabase_probe=probe,
+        migration_head_checker=lambda _connection: True,
+        database_security_checker=lambda _connection, _tables: (
+            PostgresPublicSchemaSecurityResult(
+                rls_enabled=False,
+                api_roles_restricted=False,
+            )
+        ),
+    ).check()
+
+    assert not result.ready
+    assert result.checks["database_rls"] is False
+    assert result.checks["database_api_roles_restricted"] is False
+    assert "database_rls_not_enabled" in result.errors
+    assert "database_api_roles_have_table_privileges" in result.errors
 
 
 def test_readiness_endpoint_is_repository_managed() -> None:
@@ -367,4 +412,6 @@ def test_readiness_endpoint_is_repository_managed() -> None:
     assert "supabase_auth_api" in service
     assert "supabase_storage_private" in service
     assert "migration_head" in service
+    assert "database_rls" in service
+    assert "database_api_roles_restricted" in service
     assert "media_artifacts" in service

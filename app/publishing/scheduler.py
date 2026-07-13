@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.destination_connectors.owned_targets import normalize_platform
 from app.publishing.destination_service import PublishingDestinationService
 from app.publishing.errors import PublishingError
 from app.publishing.types import PUBLISHABLE_MEDIA_ARTIFACT_KINDS
@@ -32,9 +33,9 @@ class PublishingScheduler:
             blockers.append("PublishingPackage must be approved before scheduling.")
         if package.review_status != "approved":
             blockers.append("PublishingPackage review_status must be approved before scheduling.")
-        if package.target_platform.lower() != destination.platform.lower():
+        if normalize_platform(package.target_platform) != normalize_platform(destination.platform):
             blockers.append("Package platform must match destination platform.")
-        if package.brand != destination.brand:
+        if package.brand.strip().casefold() != destination.brand.strip().casefold():
             blockers.append("Package brand must match destination brand.")
         if package.organization_id is not None and destination.organization_id != package.organization_id:
             blockers.append("Package and destination must belong to the same organization.")

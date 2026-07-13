@@ -19,6 +19,7 @@ from app.main import app
 from app.novice_learning_path import NoviceLearningPathService
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import ensure_public_pilot_user
+from app.public_pilot.onboarding import safe_workspace_next, workspace_home_for_role
 from app.public_pilot.training_catalog import (
     ONBOARDING_EXAM_CODE,
     ONBOARDING_PREREQUISITE_CODES,
@@ -111,6 +112,17 @@ def _correct_answers(db, module_code: str) -> dict[str, object]:
     }
 
 
+def test_creator_workspace_default_is_generation_but_management_keeps_control_room():
+    generation = "/creator-operations?tab=generation"
+    assert workspace_home_for_role("producer") == generation
+    assert workspace_home_for_role(" PRODUCER ") == generation
+    assert workspace_home_for_role("owner") == "/control-room"
+    assert workspace_home_for_role("admin") == "/control-room"
+    assert safe_workspace_next(None, role="producer") == generation
+    assert safe_workspace_next("https://attacker.test", role="producer") == generation
+    assert safe_workspace_next("/control-room", role="producer") == "/control-room"
+
+
 def test_versioned_catalog_has_complex_exam_and_deactivates_stale_modules():
     exam = next(
         item for item in PUBLIC_PILOT_TRAINING_MODULES if item["code"] == ONBOARDING_EXAM_CODE
@@ -182,7 +194,6 @@ def test_exam_requires_courses_then_certificate_opens_workspace_and_navigation()
             answers = _correct_answers(db, ONBOARDING_EXAM_CODE)
         data: dict[str, object] = {
             "csrf_token": csrf.group(1),
-            "next": "/control-room",
         }
         for question_id, answer in answers.items():
             data[f"answer_{question_id}"] = answer
@@ -192,9 +203,12 @@ def test_exam_requires_courses_then_certificate_opens_workspace_and_navigation()
             data=data,
         )
         assert passed.status_code == 303
-        assert passed.headers["location"] == "/control-room"
+        assert passed.headers["location"] == "/creator-operations?tab=generation"
 
-        workspace = client.get("/control-room", headers=headers)
+        workspace = client.get(
+            "/creator-operations?tab=generation",
+            headers=headers,
+        )
         assert workspace.status_code == 200
         for label in (
             "Генерация",
@@ -202,7 +216,7 @@ def test_exam_requires_courses_then_certificate_opens_workspace_and_navigation()
             "Статистика",
             "Выплаты",
             "Задачи",
-            "Что нужно добавить",
+            "Что добавить",
         ):
             assert label in workspace.text
 

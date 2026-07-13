@@ -110,6 +110,6 @@ There is no mock fallback in this command. A successful result is downloaded loc
 - `human_review_status = needs_human_review`;
 - `publishing_readiness = blocked`.
 
-Human review is recorded through `POST /api/runway-recipes/product-ugc/{draft_id}/review` with `status` equal to `approved`, `needs_regeneration` or `rejected`, plus mandatory notes. Review is rejected until a non-empty local output exists. Only an explicit `approved` decision changes `publishing_readiness` to `ready_for_package`.
+Human review is recorded through `POST /api/runway-recipes/product-ugc/{draft_id}/review` with `status` equal to `approved`, `needs_regeneration` or `rejected`, plus mandatory notes. Review is rejected until exactly one non-empty durable output exists in cloud mode (or one local output in local development). Only an explicit `approved` decision changes `publishing_readiness` to `ready_for_publishing_package`, and the exact reviewed artifact identity is persisted for package lineage.
 
 API keys, image data URIs and signed output URLs are not persisted in the draft or report.

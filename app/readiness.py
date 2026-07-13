@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 import os
 import time
@@ -20,6 +20,10 @@ from app.config import (
 from app.database import engine
 from app.media_storage.factory import resolve_supabase_storage_runtime_config
 from app.migration_state import database_is_at_migration_head
+from app.postgres_security import (
+    PostgresPublicSchemaSecurityResult,
+    inspect_postgresql_public_schema_security,
+)
 from app.supabase_keys import server_api_key_headers
 
 
@@ -352,12 +356,21 @@ class ApplicationReadinessService:
         database_engine=None,
         supabase_probe: SupabaseProbe | None = None,
         migration_head_checker: Callable[[object], bool] | None = None,
+        database_security_checker: Callable[
+            [object, Collection[str]],
+            PostgresPublicSchemaSecurityResult,
+        ]
+        | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.engine = database_engine or engine
         self.supabase_probe = supabase_probe
         self.migration_head_checker = (
             migration_head_checker or database_is_at_migration_head
+        )
+        self.database_security_checker = (
+            database_security_checker
+            or inspect_postgresql_public_schema_security
         )
 
     def check(self) -> ReadinessResult:
@@ -404,6 +417,32 @@ class ApplicationReadinessService:
         )
         if not checks["production_database"]:
             errors.append("production_requires_postgresql")
+
+        checks["database_rls"] = not production
+        checks["database_api_roles_restricted"] = not production
+        if production and self.engine.dialect.name == "postgresql":
+            try:
+                with self.engine.connect() as connection:
+                    database_security = self.database_security_checker(
+                        connection,
+                        CRITICAL_TABLES,
+                    )
+            except Exception:
+                checks["database_rls"] = False
+                checks["database_api_roles_restricted"] = False
+                errors.append("database_security_state_unavailable")
+            else:
+                checks["database_rls"] = database_security.rls_enabled
+                checks["database_api_roles_restricted"] = (
+                    database_security.api_roles_restricted
+                )
+            if not checks["database_rls"]:
+                errors.append("database_rls_not_enabled")
+            if not checks["database_api_roles_restricted"]:
+                errors.append("database_api_roles_have_table_privileges")
+        elif production:
+            checks["database_rls"] = False
+            checks["database_api_roles_restricted"] = False
 
         auth_values = (
             bool(settings.auth_required),
