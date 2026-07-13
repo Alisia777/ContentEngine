@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import hashlib
+import hmac
 import re
+import secrets
 import calendar
 from datetime import UTC, date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -15,6 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
+from starlette.concurrency import run_in_threadpool
 
 from app import models
 from app.config import get_settings
@@ -64,15 +67,25 @@ from app.product_ugc_queue import (
 )
 from app.publishing import ManualUploadProvider
 from app.publishing.errors import PublishingError
+from app.publishing.publication_identity import canonical_publication_url
 from app.public_pilot.access import PublicPilotAccessService
 from app.public_pilot.auth import (
     PublicPilotUser,
+    SupabaseJWTValidator,
+    active_public_pilot_user_from_payload,
     ensure_public_pilot_user,
     form_csrf_token,
     get_current_public_user,
     require_form_csrf,
 )
 from app.public_pilot.local_auth import authenticate_local_user, local_auth_configured
+from app.public_pilot.onboarding import workspace_home_for_role
+from app.public_pilot.supabase_auth import (
+    SupabaseAuthClient,
+    SupabaseAuthError,
+    clear_session_cookies,
+    set_supabase_session_cookies,
+)
 from app.public_pilot.control_room import PublicPilotControlRoomService
 from app.public_pilot.gate_matrix import (
     ACTION_LABELS,
@@ -94,6 +107,7 @@ from app.runway_recipes import (
     ProductUGCRecipeService,
     RunwayRecipeError,
 )
+from app.runway_recipes.product_ugc_service import MAX_IMAGE_BYTES
 from app.routers.authorized_media import (
     authorized_media_url,
     frame_contact_sheet_url,
@@ -118,6 +132,63 @@ from app.wildberries_analytics import (
 )
 
 router = APIRouter(tags=["public-pilot"])
+LOGIN_NONCE_COOKIE = "qvf_login_nonce"
+LOGIN_NONCE_MAX_AGE_SECONDS = 300
+
+
+def _read_bounded_recipe_upload_sync(upload: UploadFile, *, label: str) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        while total <= MAX_IMAGE_BYTES:
+            chunk = upload.file.read(min(1024 * 1024, MAX_IMAGE_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        if total > MAX_IMAGE_BYTES:
+            raise RunwayRecipeError(
+                f"{label}: файл превышает лимит {MAX_IMAGE_BYTES // (1024 * 1024)} МБ."
+            )
+        return b"".join(chunks)
+    finally:
+        upload.file.close()
+
+
+async def _read_bounded_recipe_upload(upload: UploadFile, *, label: str) -> bytes:
+    """Compatibility helper that keeps blocking file IO off the event loop."""
+
+    return await run_in_threadpool(
+        _read_bounded_recipe_upload_sync,
+        upload,
+        label=label,
+    )
+
+
+def _clear_login_nonce(response: RedirectResponse) -> RedirectResponse:
+    settings = get_settings()
+    response.delete_cookie(
+        LOGIN_NONCE_COOKIE,
+        path="/login",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite=settings.session_cookie_samesite,
+    )
+    return response
+
+
+def _login_redirect(path: str) -> RedirectResponse:
+    return _clear_login_nonce(RedirectResponse(path, status_code=303))
+
+
+def _valid_login_nonce(request: Request, submitted: str | None) -> bool:
+    candidate = str(submitted or "")
+    cookie = str(request.cookies.get(LOGIN_NONCE_COOKIE) or "")
+    return bool(
+        20 <= len(candidate) <= 200
+        and len(cookie) == len(candidate)
+        and hmac.compare_digest(cookie, candidate)
+    )
 
 
 def _require_ui_form_csrf(
@@ -450,37 +521,64 @@ def _run_product_ugc_background(
 
 @router.get("/login", response_class=HTMLResponse)
 def public_login(request: Request, error: str | None = None) -> HTMLResponse:
+    login_nonce = secrets.token_urlsafe(32)
     error_messages = {
+        "invalid_login_request": "Форма входа устарела или открыта не с этого сайта. Обновите страницу и войдите снова.",
         "invalid_credentials": "Проверьте логин и пароль.",
         "local_auth_not_configured": "Вход ещё не настроен. Обратитесь к владельцу пространства.",
         "password_required": "Введите пароль.",
         "oauth_exchange_not_configured_locally": "Внешний вход ещё не подключён.",
+        "auth_unavailable": "Сервис входа временно недоступен. Повторите попытку через минуту.",
+        "auth_rate_limited": "Слишком много попыток входа. Подождите и попробуйте снова.",
+        "invite_required": "Для этого аккаунта ещё нет активного приглашения в рабочее пространство.",
+        "invalid_invite": "Ссылка приглашения недействительна или уже истекла. Попросите владельца отправить новую.",
+        "session_expired": "Сессия завершилась. Войдите снова.",
     }
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
+        request,
         "public_login.html",
         {
             "request": request,
             "page_title": "Контент ИИ Завод · Вход",
             "error": error,
+            "login_nonce": login_nonce,
             "error_message": error_messages.get(error, "Не удалось войти. Повторите попытку.") if error else None,
         },
     )
+    settings = get_settings()
+    response.headers["cache-control"] = "no-store, max-age=0"
+    response.set_cookie(
+        LOGIN_NONCE_COOKIE,
+        login_nonce,
+        max_age=LOGIN_NONCE_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite=settings.session_cookie_samesite,
+        path="/login",
+    )
+    return response
 
 
 @router.post("/login")
-def public_login_submit(
+async def public_login_submit(
+    request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    login_nonce: str = Form(""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    if not _valid_login_nonce(request, login_nonce):
+        return _login_redirect("/login?error=invalid_login_request")
     settings = get_settings()
     if not settings.auth_required:
-        return RedirectResponse("/control-room", status_code=303)
-    if local_auth_configured():
+        return _login_redirect("/control-room")
+    normalized_supplied_email = email.strip().casefold()
+    local_email = str(settings.local_auth_email or "").strip().casefold()
+    if local_auth_configured() and normalized_supplied_email == local_email:
         token = authenticate_local_user(email, password)
         if not token:
-            return RedirectResponse("/login?error=invalid_credentials", status_code=303)
-        normalized_email = str(settings.local_auth_email).strip().casefold()
+            return _login_redirect("/login?error=invalid_credentials")
+        normalized_email = local_email
         ensure_public_pilot_user(
             db,
             email=normalized_email,
@@ -489,7 +587,16 @@ def public_login_submit(
             supabase_user_id=f"local:{normalized_email}",
             mark_login=True,
         )
-        response = RedirectResponse("/control-room", status_code=303)
+        response = _login_redirect("/control-room")
+        # A local owner login must not inherit a stale Supabase refresh token
+        # from a previous browser session.
+        response.delete_cookie(
+            settings.session_refresh_cookie_name,
+            path="/",
+            secure=settings.session_cookie_secure,
+            httponly=True,
+            samesite=settings.session_cookie_samesite,
+        )
         response.set_cookie(
             settings.session_cookie_name,
             token,
@@ -500,19 +607,64 @@ def public_login_submit(
             path="/",
         )
         return response
-    if not settings.supabase_url:
-        return RedirectResponse("/login?error=local_auth_not_configured", status_code=303)
+    auth_client = SupabaseAuthClient()
+    if not auth_client.configured:
+        return _login_redirect("/login?error=local_auth_not_configured")
     if not password:
-        return RedirectResponse("/login?error=password_required", status_code=303)
-    # Real Supabase password exchange is intentionally not performed in tests/local acceptance.
-    return RedirectResponse("/login?error=oauth_exchange_not_configured_locally", status_code=303)
+        return _login_redirect("/login?error=password_required")
+    try:
+        session = await auth_client.exchange_password(email=email, password=password)
+        payload = SupabaseJWTValidator().validate(session.access_token)
+        user = active_public_pilot_user_from_payload(db, payload)
+    except SupabaseAuthError as exc:
+        error = "auth_rate_limited" if exc.status_code == 429 else (
+            "auth_unavailable" if exc.status_code >= 500 else "invalid_credentials"
+        )
+        return _login_redirect(f"/login?error={error}")
+    except HTTPException as exc:
+        error = "invite_required" if exc.status_code == 403 else (
+            "auth_unavailable" if exc.status_code >= 500 else "invalid_credentials"
+        )
+        return _login_redirect(f"/login?error={error}")
+
+    issued_at = payload.get("iat")
+    if isinstance(issued_at, (int, float)) and not isinstance(issued_at, bool):
+        user.profile.last_login_at = datetime.fromtimestamp(issued_at, UTC).replace(tzinfo=None)
+    else:
+        user.profile.last_login_at = datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
+    response = _login_redirect(workspace_home_for_role(user.role))
+    set_supabase_session_cookies(response, session)
+    return response
 
 
 @router.post("/logout", dependencies=[Depends(_require_ui_form_csrf)])
-def public_logout() -> RedirectResponse:
+async def public_logout(request: Request) -> RedirectResponse:
     settings = get_settings()
+    access_token = request.cookies.get(settings.session_cookie_name)
+    refresh_token = request.cookies.get(settings.session_refresh_cookie_name)
+    auth_client = SupabaseAuthClient()
+    if auth_client.configured and (access_token or refresh_token):
+        remote_access_token = access_token
+        local_session = False
+        if access_token:
+            try:
+                local_session = SupabaseJWTValidator().validate(access_token).get("auth_source") == "local"
+            except HTTPException:
+                remote_access_token = None
+        if not local_session:
+            try:
+                if not remote_access_token and refresh_token:
+                    refreshed = await auth_client.refresh_session(refresh_token)
+                    remote_access_token = refreshed.access_token
+                if remote_access_token:
+                    await auth_client.revoke(remote_access_token)
+            except SupabaseAuthError:
+                # Browser logout is fail-closed locally even if the remote Auth
+                # service is temporarily unavailable.
+                pass
     response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie(settings.session_cookie_name)
+    clear_session_cookies(response)
     return response
 
 
@@ -525,6 +677,7 @@ def control_room(
 ) -> HTMLResponse:
     context = PublicPilotControlRoomService(db).context(user, role=role)
     return templates.TemplateResponse(
+        request,
         "public_control_room.html",
         {
             "request": request,
@@ -975,6 +1128,7 @@ def mvp_workbench(
         organization_id=user.organization.id
     )
     return templates.TemplateResponse(
+        request,
         "public_workbench.html",
         {
             "request": request,
@@ -1710,24 +1864,7 @@ def _canonical_https_url(value: str) -> str:
 
 
 def _canonical_final_post_url(value: str, destination: models.PublishingDestination) -> str:
-    canonical = _canonical_https_url(value)
-    hostname = (urlsplit(canonical).hostname or "").casefold()
-    platform_domains = {
-        "instagram": ("instagram.com",),
-        "instagram reels": ("instagram.com",),
-        "tiktok": ("tiktok.com",),
-        "youtube": ("youtube.com", "youtu.be"),
-        "youtube shorts": ("youtube.com", "youtu.be"),
-        "facebook": ("facebook.com", "fb.watch"),
-        "vk": ("vk.com",),
-        "telegram": ("t.me", "telegram.me"),
-    }
-    allowed = platform_domains.get(destination.platform.strip().casefold(), ())
-    if not allowed and destination.url:
-        allowed = ((urlsplit(destination.url).hostname or "").casefold(),)
-    if not allowed or not any(hostname == domain or hostname.endswith(f".{domain}") for domain in allowed if domain):
-        raise ValueError("Final URL host does not match the owned destination.")
-    return canonical
+    return canonical_publication_url(value, destination)
 
 
 def _metrics_redirect(*, notice: str | None = None, error: str | None = None) -> RedirectResponse:
@@ -2122,13 +2259,14 @@ def retry_product_ugc_generation_from_workbench(
             organization_id=user.organization.id,
             actor_user_profile_id=user.profile.id,
         )
-        background_tasks.add_task(
-            _run_product_ugc_background,
-            job.id,
-            user.organization.id,
-            user.profile.id,
-            user.role,
-        )
+        if get_settings().runtime_profile != "production":
+            background_tasks.add_task(
+                _run_product_ugc_background,
+                job.id,
+                user.organization.id,
+                user.profile.id,
+                user.role,
+            )
     except HTTPException:
         return _queue_redirect(error="У вашей роли нет права продолжать paid generation.")
     except ProductUGCQueueError as exc:
@@ -2216,7 +2354,10 @@ def reconcile_product_ugc_quarantine_from_workbench(
                 confirmed_no_submission=True,
             )
             notice = "reconciled_no_submission"
-        if result.job.status in {"queued", "retry_wait"}:
+        if (
+            result.job.status in {"queued", "retry_wait"}
+            and get_settings().runtime_profile != "production"
+        ):
             background_tasks.add_task(
                 _run_product_ugc_background,
                 result.job.id,
@@ -2628,24 +2769,48 @@ def mvp_launch(
             recipe_draft = recipe_service.output(recipe_record)
             selected_product = recipe_record.product
             recipe_run_readiness = _recipe_run_readiness(db, user, recipe_record)
-            recipe_output_media = _recipe_media_items(
-                recipe_draft.local_output_paths,
-                draft_id=recipe_record.id,
+            durable_video = recipe_service.ready_video_artifact(
+                recipe_record,
+                organization_id=(user.organization.id if strict_org_scope else None),
             )
-            recipe_character_url = authorized_media_url(
-                recipe_record.character_image_path,
-                f"/media/product-ugc-drafts/{recipe_record.id}/character",
-            )
+            if durable_video is not None:
+                recipe_output_media = [
+                    {
+                        "name": durable_video.original_filename
+                        or f"product-ugc-{recipe_record.id}.mp4",
+                        "url": f"/media-library/{durable_video.public_id}/access",
+                        "size_bytes": durable_video.size_bytes,
+                    }
+                ]
+            else:
+                recipe_output_media = _recipe_media_items(
+                    recipe_draft.local_output_paths,
+                    draft_id=recipe_record.id,
+                )
+            if recipe_record.character_media_artifact:
+                recipe_character_url = (
+                    f"/media-library/{recipe_record.character_media_artifact.public_id}/access"
+                )
+            else:
+                recipe_character_url = authorized_media_url(
+                    recipe_record.character_image_path,
+                    f"/media/product-ugc-drafts/{recipe_record.id}/character",
+                )
             provider_asset = recipe_record.primary_product_asset
             if provider_asset:
-                recipe_provider_product_url = (
-                    authorized_media_url(
+                if provider_asset.media_artifact:
+                    recipe_provider_product_url = (
+                        f"/media-library/{provider_asset.media_artifact.public_id}/access"
+                    )
+                else:
+                    recipe_provider_product_url = (
+                        authorized_media_url(
                         provider_asset.source_ref,
                         f"/media/product-assets/{provider_asset.id}/source",
+                        )
+                        if provider_asset.source_type == "local"
+                        else provider_asset.source_ref
                     )
-                    if provider_asset.source_type == "local"
-                    else provider_asset.source_ref
-                )
             if recipe_draft.generation_report_path:
                 recipe_report_url = authorized_media_url(
                     recipe_draft.generation_report_path,
@@ -2672,12 +2837,16 @@ def mvp_launch(
                     "variant_status": classification.variant_status,
                     "is_primary": asset.is_primary_reference,
                     "media_url": (
-                        authorized_media_url(
+                        f"/media-library/{asset.media_artifact.public_id}/access"
+                        if asset.media_artifact
+                        else (
+                            authorized_media_url(
                             asset.source_ref,
                             f"/media/product-assets/{asset.id}/source",
+                            )
+                            if asset.source_type == "local"
+                            else asset.source_ref
                         )
-                        if asset.source_type == "local"
-                        else asset.source_ref
                     ),
                 }
             )
@@ -2697,6 +2866,7 @@ def mvp_launch(
             sku=selected_product.sku,
         )
     return templates.TemplateResponse(
+        request,
         "public_mvp_launch.html",
         {
             "request": request,
@@ -2845,7 +3015,7 @@ def claim_legacy_product_from_ui(
 
 
 @router.post("/mvp-launch/product-ugc-draft", dependencies=[Depends(_require_ui_form_csrf)])
-async def product_ugc_recipe_draft(
+def product_ugc_recipe_draft(
     product_id: int = Form(...),
     variant_key: str = Form(...),
     existing_asset_ids: list[int] = Form([]),
@@ -2909,23 +3079,40 @@ async def product_ugc_recipe_draft(
         ("proof", "Доказательство применения", proof_image, proof_type),
     ]
     uploads: list[ProductImageUpload] = []
-    for slot_key, slot, upload, contract_type in upload_specs:
-        if upload and upload.filename:
-            uploads.append(
-                ProductImageUpload(
-                    slot=slot,
-                    filename=upload.filename,
-                    content=await upload.read(),
-                    contract_type=contract_type,
-                    primary=primary_asset_id is None and provider_image_slot == slot_key,
+    try:
+        for slot_key, slot, upload, contract_type in upload_specs:
+            if upload and upload.filename:
+                uploads.append(
+                    ProductImageUpload(
+                        slot=slot,
+                        filename=upload.filename,
+                        content=_read_bounded_recipe_upload_sync(upload, label=slot),
+                        contract_type=contract_type,
+                        primary=primary_asset_id is None and provider_image_slot == slot_key,
+                    )
                 )
-            )
+            elif upload:
+                upload.file.close()
+        character_content = _read_bounded_recipe_upload_sync(
+            character_image,
+            label="Фото блогера",
+        )
+    except RunwayRecipeError as exc:
+        for _slot_key, _slot, pending_upload, _contract_type in upload_specs:
+            if pending_upload:
+                pending_upload.file.close()
+        character_image.file.close()
+        return RedirectResponse(
+            f"/mvp-launch?product_id={product_id}&error={quote(str(exc))}",
+            status_code=303,
+        )
     try:
         draft = ProductUGCRecipeService(db).create_draft(
             product_id=product_id,
             variant_key=variant_key,
             character_filename=character_image.filename or "creator.png",
-            character_content=await character_image.read(),
+            character_content=character_content,
+            created_by_user_profile_id=user.profile.id,
             existing_asset_ids=existing_asset_ids,
             primary_asset_id=primary_asset_id,
             product_uploads=uploads,
@@ -3043,13 +3230,14 @@ def run_product_ugc_recipe_from_ui(
             sku=draft.sku,
             properties={"estimated_credits": draft.estimated_credits, "provider": "runway"},
         )
-        background_tasks.add_task(
-            _run_product_ugc_background,
-            enqueue_result.job.id,
-            user.organization.id,
-            user.profile.id,
-            user.role,
-        )
+        if settings.runtime_profile != "production":
+            background_tasks.add_task(
+                _run_product_ugc_background,
+                enqueue_result.job.id,
+                user.organization.id,
+                user.profile.id,
+                user.role,
+            )
     except HTTPException as exc:
         return RedirectResponse(
             f"/mvp-launch?product_id={draft.product_id if 'draft' in locals() else ''}&recipe_draft_id={draft_id}&error={quote(str(exc.detail))}",
@@ -3118,13 +3306,25 @@ def review_product_ugc_recipe_from_ui(
             **common_event,
         )
         content_cycle = None
+        artifact_native_url = None
         if review_status == "approved" and reviewed.product.organization_id == user.organization.id:
-            content_cycle = ContentCycleService(db).start_from_product_ugc(
+            reviewed_artifact = service.ready_video_artifact(
+                reviewed,
                 organization_id=user.organization.id,
-                actor_user_profile_id=user.profile.id,
-                product_ugc_recipe_draft_id=reviewed.id,
-                idempotency_key=f"product-ugc:{reviewed.id}",
             )
+            if reviewed_artifact is not None:
+                artifact_native_url = (
+                    "/media-library?folder=generated"
+                    f"&product_id={reviewed.product_id}"
+                    f"&reviewed={reviewed_artifact.public_id}"
+                )
+            else:
+                content_cycle = ContentCycleService(db).start_from_product_ugc(
+                    organization_id=user.organization.id,
+                    actor_user_profile_id=user.profile.id,
+                    product_ugc_recipe_draft_id=reviewed.id,
+                    idempotency_key=f"product-ugc:{reviewed.id}",
+                )
     except HTTPException as exc:
         return RedirectResponse(
             f"/mvp-launch?recipe_draft_id={draft_id}&error={quote(str(exc.detail))}",
@@ -3135,6 +3335,8 @@ def review_product_ugc_recipe_from_ui(
             f"/mvp-launch?recipe_draft_id={draft_id}&error={quote(str(exc))}",
             status_code=303,
         )
+    if artifact_native_url is not None:
+        return RedirectResponse(artifact_native_url, status_code=303)
     notice = (
         "Human review сохранён. Создан канонический цикл; следующий шаг — покадровая проверка качества."
         if content_cycle is not None
@@ -3192,6 +3394,7 @@ def settings_access(
     settings = get_settings()
     matrix_service = PublicPilotGateMatrix(strict_training=settings.public_pilot_strict_training_gates)
     return templates.TemplateResponse(
+        request,
         "settings_access.html",
         {
             "request": request,

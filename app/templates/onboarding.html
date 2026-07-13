@@ -1,0 +1,77 @@
+{% extends "public_pilot_base.html" %}
+{% block content %}
+<main class="cloud-onboarding">
+  <header class="cloud-onboarding__hero altea-reveal">
+    <div>
+      <p class="public-eyebrow">Обязательный onboarding</p>
+      <h1>Научитесь работать без ошибок</h1>
+      <p>Каждый участник облачного workspace проходит четыре коротких курса и сложный сценарный экзамен.</p>
+    </div>
+    <div class="cloud-onboarding__identity">
+      <span>{{ user.profile.display_name or user.profile.email }}</span>
+      <strong>{{ user.role }}</strong>
+      <small>{{ user.organization.name }}</small>
+    </div>
+  </header>
+
+  <section class="altea-card cloud-onboarding__progress altea-reveal" aria-label="Прогресс обучения">
+    <div><span>Короткие курсы</span><strong>{{ prerequisite_completed }} / {{ prerequisite_count }}</strong></div>
+    <div><span>Итоговый экзамен</span><strong>{{ 'пройден' if workspace_open else 'ещё не пройден' }}</strong></div>
+    <div><span>Workspace</span><strong>{{ 'открыт' if workspace_open else 'откроется после экзамена' }}</strong></div>
+    {% if workspace_open %}<a class="altea-glow-button" href="{{ next_url }}">Перейти в workspace</a>{% endif %}
+  </section>
+
+  {% if result %}
+  <section class="public-guidance {{ '' if result == 'passed' else 'public-guidance--warning' }}" role="status">
+    <strong>{{ 'Модуль пройден' if result == 'passed' else 'Пока не пройден' }}</strong>
+    <p>Результат: {{ score or 0 }}%. Для сертификата нужно не менее 80%.</p>
+  </section>
+  {% endif %}
+
+  <div class="cloud-onboarding__layout">
+    <nav class="cloud-onboarding__modules" aria-label="Курсы onboarding">
+      {% for item in modules %}
+      <a class="{{ 'is-active' if selected and item.code == selected.code else '' }} {{ 'is-complete' if item.completed else '' }} {{ 'is-locked' if not item.available else '' }}" href="/onboarding?module={{ item.code }}&next={{ next_url | urlencode }}">
+        <span>{{ loop.index }}</span>
+        <div><strong>{{ item.module.title }}</strong><small>{{ item.question_count }} {{ 'сценариев' if item.is_exam else 'вопросов' }}</small></div>
+        <em>{{ '✓' if item.completed else ('🔒' if not item.available else '→') }}</em>
+      </a>
+      {% endfor %}
+    </nav>
+
+    {% if selected %}
+    {% set module = selected.module %}
+    <article class="altea-card cloud-onboarding__course altea-reveal">
+      <header>
+        <div><p class="public-eyebrow">{{ 'Экзамен' if selected.is_exam else 'Короткий курс' }}</p><h2>{{ module.title }}</h2><p>{{ module.description }}</p></div>
+        <span class="public-status public-status--{{ 'ready' if selected.completed else ('blocked' if not selected.available else 'in_progress') }}">{{ 'пройден' if selected.completed else ('сначала курсы' if not selected.available else 'доступен') }}</span>
+      </header>
+
+      {% for lesson in module.lessons|sort(attribute='order_index') %}
+      <section class="cloud-onboarding__lesson"><h3>{{ lesson.title }}</h3><p>{{ lesson.content_markdown }}</p></section>
+      {% endfor %}
+
+      {% if not selected.available %}
+      <div class="public-guidance public-guidance--warning"><strong>Экзамен пока закрыт</strong><p>Завершите курсы: {{ missing_prerequisites | join(', ') }}.</p></div>
+      {% elif selected.completed %}
+      <div class="public-guidance"><strong>Навык подтверждён</strong><p>Результат хранится в вашем профиле и не засчитывается другому креатору.</p></div>
+      {% else %}
+      <form class="cloud-onboarding__exam" method="post" action="/onboarding/modules/{{ module.code }}/submit">
+        <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% for question in module.questions|sort(attribute='order_index') %}
+        <fieldset>
+          <legend>{{ loop.index }}. {{ question.question_text }}</legend>
+          {% for option in question.options_json %}
+          <label><input type="{{ 'checkbox' if question.question_type == 'multi_select' else 'radio' }}" name="answer_{{ question.id }}" value="{{ option }}" {% if question.question_type != 'multi_select' %}required{% endif %}><span>{{ option }}</span></label>
+          {% endfor %}
+        </fieldset>
+        {% endfor %}
+        <button class="altea-glow-button" type="submit">{{ 'Сдать итоговый экзамен' if selected.is_exam else 'Проверить знания' }}</button>
+      </form>
+      {% endif %}
+    </article>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

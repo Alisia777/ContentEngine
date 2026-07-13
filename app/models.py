@@ -288,9 +288,21 @@ class WarmupRule(Base):
 
 class PublishingPackage(Base, TimestampMixin):
     __tablename__ = "publishing_packages"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "media_artifact_id",
+            "target_platform",
+            name="uq_publishing_package_org_artifact_platform",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    # Cloud-native packages can originate from a durable MediaArtifact after
+    # the worker scratch path and even the legacy VideoJob link are gone.
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True)
+    media_artifact_id = Column(Integer, ForeignKey("media_artifacts.id"), nullable=True, index=True)
     creative_variant_id = Column(Integer, ForeignKey("creative_variants.id"), nullable=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     brand = Column(String(120), nullable=False, index=True)
@@ -309,6 +321,7 @@ class PublishingPackage(Base, TimestampMixin):
     status = Column(String(80), nullable=False, default="draft", index=True)
 
     video_job = relationship("VideoJob", back_populates="publishing_packages")
+    media_artifact = relationship("MediaArtifact")
     creative_variant = relationship("CreativeVariant")
     product = relationship("Product", back_populates="publishing_packages")
     publishing_jobs = relationship("PublishingJob", back_populates="publishing_package")
@@ -847,10 +860,27 @@ class ProductAssetKit(Base, TimestampMixin):
 
 class ProductAsset(Base, TimestampMixin):
     __tablename__ = "product_assets"
+    # Production PostgreSQL adds these reverse MediaArtifact links with ALTER
+    # so the existing MediaArtifact -> draft links do not form an unsortable
+    # DDL cycle. SQLite create_all fixtures omit only the reverse constraints;
+    # Alembic migration tests still exercise the real named FKs.
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["media_artifact_id"],
+            ["media_artifacts.id"],
+            name="fk_product_assets_media_artifact",
+            use_alter=True,
+        ).ddl_if(dialect=("postgresql",)),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     asset_kit_id = Column(Integer, ForeignKey("product_asset_kits.id"), nullable=False, index=True)
+    media_artifact_id = Column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
     source_ref = Column(String(1000), nullable=False)
     source_type = Column(String(40), nullable=False, default="unknown")
     asset_type = Column(String(80), nullable=False, default="unknown", index=True)
@@ -873,6 +903,7 @@ class ProductAsset(Base, TimestampMixin):
 
     product = relationship("Product")
     asset_kit = relationship("ProductAssetKit", back_populates="assets")
+    media_artifact = relationship("MediaArtifact", foreign_keys=[media_artifact_id])
 
 
 class ProductReferenceBundle(Base, TimestampMixin):
@@ -2427,6 +2458,8 @@ class MVPWorkspaceSnapshot(Base, TimestampMixin):
     __tablename__ = "mvp_workspace_snapshots"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
     role = Column(String(80), nullable=False, default="owner", index=True)
     status = Column(String(80), nullable=False, default="needs_attention", index=True)
     current_step = Column(String(120), nullable=False, default="review_workspace", index=True)
@@ -2468,16 +2501,36 @@ class MVPLaunchRun(Base, TimestampMixin):
 
 class ProductUGCRecipeDraft(Base, TimestampMixin):
     __tablename__ = "product_ugc_recipe_drafts"
+    # See ProductAsset: the production FK is real and named, while SQLite ORM
+    # fixtures remain droppable with PRAGMA foreign_keys=ON.
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["character_media_artifact_id"],
+            ["media_artifacts.id"],
+            name="fk_ugc_drafts_character_artifact",
+            use_alter=True,
+        ).ddl_if(dialect=("postgresql",)),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+    assigned_to_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
     sku = Column(String(120), nullable=False, index=True)
     variant_key = Column(String(160), nullable=True, index=True)
     status = Column(String(80), nullable=False, default="blocked", index=True)
     recipe_version = Column(String(40), nullable=False, default="2026-06")
     platform = Column(String(120), nullable=False, default="Instagram Reels")
     language = Column(String(20), nullable=False, default="ru")
-    character_image_path = Column(String(1000), nullable=False)
+    # Development/test drafts may still point at an isolated local file.  A
+    # production draft instead references a private immutable MediaArtifact;
+    # no signed object URL is ever persisted here.
+    character_image_path = Column(String(1000), nullable=True)
+    character_media_artifact_id = Column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
     character_image_filename = Column(String(255), nullable=False)
     likeness_consent = Column(Boolean, default=False, nullable=False)
     exact_variant_confirmed = Column(Boolean, default=False, nullable=False)
@@ -2503,6 +2556,10 @@ class ProductUGCRecipeDraft(Base, TimestampMixin):
 
     product = relationship("Product")
     primary_product_asset = relationship("ProductAsset", foreign_keys=[primary_product_asset_id])
+    character_media_artifact = relationship(
+        "MediaArtifact",
+        foreign_keys=[character_media_artifact_id],
+    )
     generation_job = relationship(
         "ProductUGCGenerationJob",
         back_populates="draft",
@@ -2902,6 +2959,13 @@ class UserProfile(Base, TimestampMixin):
 
 class Membership(Base, TimestampMixin):
     __tablename__ = "memberships"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "user_profile_id",
+            name="uq_membership_organization_user",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
@@ -3980,6 +4044,202 @@ class CustomerBillingLedgerEntry(Base):
     recorded_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
     occurred_at = Column(DateTime, nullable=False, default=utcnow, index=True)
     recorded_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+
+class MediaArtifact(Base, TimestampMixin):
+    """Tenant-owned immutable media object metadata.
+
+    Object bytes live behind a ``StorageBackend``.  Database rows keep stable
+    object coordinates and integrity metadata only; short-lived signed URLs
+    are deliberately never persisted.
+    """
+
+    __tablename__ = "media_artifacts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "product_id"],
+            ["products.organization_id", "products.id"],
+            name="fk_media_artifact_organization_product",
+        ),
+        UniqueConstraint("public_id", name="uq_media_artifact_public_id"),
+        UniqueConstraint(
+            "backend_name",
+            "bucket",
+            "object_key",
+            name="uq_media_artifact_storage_object",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_media_artifact_org_idempotency",
+        ),
+        CheckConstraint("size_bytes >= 0", name="ck_media_artifact_size_nonnegative"),
+        CheckConstraint(
+            "status IN ('uploading', 'ready', 'archived', 'pending_delete', 'deleted', 'failed')",
+            name="ck_media_artifact_status",
+        ),
+        Index(
+            "ix_media_artifact_org_created",
+            "organization_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_media_artifact_org_product_kind",
+            "organization_id",
+            "product_id",
+            "kind",
+        ),
+        Index(
+            "ix_media_artifact_retention",
+            "status",
+            "retention_until",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    public_id = Column(String(64), nullable=False, index=True)
+    idempotency_key = Column(String(200), nullable=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    created_by_user_profile_id = Column(
+        Integer,
+        ForeignKey("user_profiles.id"),
+        nullable=False,
+        index=True,
+    )
+    product_id = Column(Integer, nullable=True, index=True)
+    product_ugc_recipe_draft_id = Column(
+        Integer,
+        ForeignKey("product_ugc_recipe_drafts.id"),
+        nullable=True,
+        index=True,
+    )
+    video_job_id = Column(Integer, ForeignKey("video_jobs.id"), nullable=True, index=True)
+
+    kind = Column(String(80), nullable=False, index=True)
+    backend_name = Column(String(40), nullable=False, index=True)
+    bucket = Column(String(255), nullable=False)
+    object_key = Column(String(1000), nullable=False)
+    object_version = Column(String(255), nullable=True)
+    etag = Column(String(255), nullable=True)
+    original_filename = Column(String(255), nullable=True)
+    mime_type = Column(String(160), nullable=False)
+    size_bytes = Column(BigInteger, nullable=False)
+    sha256 = Column(String(64), nullable=False, index=True)
+    status = Column(String(40), nullable=False, default="uploading", index=True)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+
+    retention_class = Column(String(80), nullable=False, default="standard", index=True)
+    retention_until = Column(DateTime, nullable=True, index=True)
+    legal_hold = Column(Boolean, nullable=False, default=False, index=True)
+    archived_at = Column(DateTime, nullable=True, index=True)
+    delete_requested_at = Column(DateTime, nullable=True, index=True)
+    deleted_at = Column(DateTime, nullable=True, index=True)
+
+
+class MassOperationBatch(Base, TimestampMixin):
+    """Auditable bulk generation or placement request for one organization."""
+
+    __tablename__ = "mass_operation_batches"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_mass_batch_org_idempotency"),
+        CheckConstraint(
+            "operation_type IN ('generation', 'placement')",
+            name="ck_mass_batch_operation_type",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'validated', 'queued', 'running', 'completed', 'completed_with_errors', 'blocked')",
+            name="ck_mass_batch_status",
+        ),
+        CheckConstraint("total_requested >= 0", name="ck_mass_batch_requested_nonnegative"),
+        CheckConstraint("total_accepted >= 0", name="ck_mass_batch_accepted_nonnegative"),
+        CheckConstraint("total_failed >= 0", name="ck_mass_batch_failed_nonnegative"),
+        Index("ix_mass_batch_org_type_status", "organization_id", "operation_type", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    operation_type = Column(String(40), nullable=False, index=True)
+    name = Column(String(180), nullable=False)
+    idempotency_key = Column(String(180), nullable=False, index=True)
+    status = Column(String(40), nullable=False, default="draft", index=True)
+    dry_run = Column(Boolean, nullable=False, default=True, index=True)
+    total_requested = Column(Integer, nullable=False, default=0)
+    total_accepted = Column(Integer, nullable=False, default=0)
+    total_failed = Column(Integer, nullable=False, default=0)
+    parameters_json = Column(JSON, nullable=False, default=dict)
+    results_json = Column(JSON, nullable=False, default=list)
+    errors_json = Column(JSON, nullable=False, default=list)
+    started_at = Column(DateTime, nullable=True, index=True)
+    completed_at = Column(DateTime, nullable=True, index=True)
+
+
+class CreatorTask(Base, TimestampMixin):
+    """One creator-visible unit of work with organization ownership."""
+
+    __tablename__ = "creator_tasks"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_creator_task_org_idempotency"),
+        CheckConstraint(
+            "status IN ('todo', 'in_progress', 'submitted', 'review', 'done', 'blocked', 'cancelled')",
+            name="ck_creator_task_status",
+        ),
+        CheckConstraint("priority BETWEEN 1 AND 5", name="ck_creator_task_priority"),
+        Index("ix_creator_task_assignee_status", "organization_id", "assignee_user_profile_id", "status", "due_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    assignee_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    created_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    mass_operation_batch_id = Column(Integer, ForeignKey("mass_operation_batches.id"), nullable=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    product_ugc_recipe_draft_id = Column(Integer, ForeignKey("product_ugc_recipe_drafts.id"), nullable=True, index=True)
+    media_artifact_id = Column(Integer, ForeignKey("media_artifacts.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    task_type = Column(String(80), nullable=False, default="create_video", index=True)
+    title = Column(String(240), nullable=False)
+    instructions = Column(Text, nullable=True)
+    status = Column(String(40), nullable=False, default="todo", index=True)
+    priority = Column(Integer, nullable=False, default=3, index=True)
+    due_at = Column(DateTime, nullable=True, index=True)
+    checklist_json = Column(JSON, nullable=False, default=list)
+    result_json = Column(JSON, nullable=False, default=dict)
+    blockers_json = Column(JSON, nullable=False, default=list)
+    idempotency_key = Column(String(180), nullable=False, index=True)
+    submitted_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class CreatorPayout(Base, TimestampMixin):
+    """Creator earnings ledger; bank details remain outside ContentEngine."""
+
+    __tablename__ = "creator_payouts"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_creator_payout_org_idempotency"),
+        CheckConstraint("amount_minor >= 0", name="ck_creator_payout_amount_nonnegative"),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'paid', 'rejected', 'cancelled')",
+            name="ck_creator_payout_status",
+        ),
+        Index("ix_creator_payout_user_status", "organization_id", "user_profile_id", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    creator_task_id = Column(Integer, ForeignKey("creator_tasks.id"), nullable=True, index=True)
+    publishing_task_id = Column(Integer, ForeignKey("publishing_tasks.id"), nullable=True, index=True)
+    approved_by_user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True, index=True)
+    amount_minor = Column(Integer, nullable=False, default=0)
+    currency = Column(String(12), nullable=False, default="RUB")
+    status = Column(String(40), nullable=False, default="pending", index=True)
+    reason = Column(Text, nullable=True)
+    external_payment_reference = Column(String(180), nullable=True)
+    idempotency_key = Column(String(180), nullable=False, index=True)
+    approved_at = Column(DateTime, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
 
 
 @event.listens_for(CustomerBillingAccount, "before_update")

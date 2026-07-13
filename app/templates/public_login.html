@@ -7,6 +7,7 @@
     <p class="altea-subtitle">КОНТЕНТ ИИ ЗАВОД · CONTENT ENGINE</p>
   </div>
   <form class="altea-card public-login-card altea-reveal" method="post" action="/login">
+    <input type="hidden" name="login_nonce" value="{{ login_nonce }}">
     <header class="public-card-head">
       <p class="public-eyebrow">Рабочая платформа</p>
       <h1>Вход в Контент ИИ Завод</h1>
@@ -17,7 +18,7 @@
       <span>Логин</span>
       <span class="altea-input-wrap">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
-        <input name="email" autocomplete="username" placeholder="owner@local.contentengine" required>
+        <input name="email" autocomplete="username" inputmode="email" placeholder="name@company.ru" required>
       </span>
     </label>
     <label class="altea-field">

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import base64
 import hashlib
@@ -7,23 +8,36 @@ import hmac
 import json
 import re
 import time
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QVF_DATABASE_URL", "sqlite:///./test_qharisma.db")
 os.environ.setdefault("QVF_MEDIA_ROOT", "test_media")
 
+import httpx
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import models
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.main import app, settings as app_settings
+from app.metrics_intake.click_tracker import ClickTracker
+from app.novice_learning_path import NoviceLearningPathService
 from app.public_pilot.access import PublicPilotAccessService
-from app.public_pilot.auth import SupabaseJWTValidator, ensure_public_pilot_user
-from app.public_pilot.local_auth import hash_local_password
+from app.public_pilot.auth import (
+    SupabaseJWTValidator,
+    clear_supabase_jwks_cache,
+    ensure_public_pilot_user,
+)
+from app.public_pilot.local_auth import hash_local_password, issue_local_session
+from app.public_pilot.supabase_auth import SupabaseAuthClient, SupabaseSessionTokens
+from app.public_pilot.training_catalog import ONBOARDING_EXAM_CODE
 from app.public_pilot.gate_matrix import (
     DANGEROUS_ACTIONS,
     CUSTOMER_BILLING_MANAGE,
@@ -42,6 +56,43 @@ from app.public_pilot.gate_matrix import (
 from scripts.public_pilot_seed import seed
 
 
+def post_login(
+    client: TestClient,
+    *,
+    email: str,
+    password: str,
+    follow_redirects: bool = False,
+):
+    page = client.get("/login")
+    assert page.status_code == 200
+    match = re.search(r'name="login_nonce" value="([A-Za-z0-9_-]+)"', page.text)
+    assert match is not None
+    return client.post(
+        "/login",
+        data={"email": email, "password": password, "login_nonce": match.group(1)},
+        follow_redirects=follow_redirects,
+    )
+
+
+def test_password_login_requires_one_time_same_site_nonce():
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        missing = client.post(
+            "/login",
+            data={"email": "attacker@example.test", "password": "attacker-password"},
+            follow_redirects=False,
+        )
+
+    assert missing.status_code == 303
+    assert missing.headers["location"] == "/login?error=invalid_login_request"
+    assert not any(
+        "qvf_session=" in value and "Max-Age=0" not in value
+        for value in missing.headers.get_list("set-cookie")
+    )
+
+
 @pytest.fixture(autouse=True)
 def reset_public_pilot_db():
     env_keys = [
@@ -52,13 +103,21 @@ def reset_public_pilot_db():
         "QVF_LOCAL_AUTH_EMAIL",
         "QVF_LOCAL_AUTH_PASSWORD_HASH",
         "QVF_LOCAL_SESSION_SECRET",
+        "SUPABASE_URL",
+        "QVF_SUPABASE_URL",
+        "SUPABASE_PUBLISHABLE_KEY",
+        "SUPABASE_ANON_KEY",
+        "QVF_SUPABASE_PUBLISHABLE_KEY",
         "QVF_SUPABASE_JWT_SECRET",
         "QVF_SUPABASE_JWKS_URL",
         "QVF_SUPABASE_ISSUER",
         "QVF_SUPABASE_AUDIENCE",
+        "QVF_SESSION_REFRESH_COOKIE_NAME",
+        "QVF_SESSION_REFRESH_COOKIE_MAX_AGE_SECONDS",
     ]
     previous_env = {key: os.environ.get(key) for key in env_keys}
     get_settings.cache_clear()
+    clear_supabase_jwks_cache()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
@@ -68,6 +127,7 @@ def reset_public_pilot_db():
         else:
             os.environ[key] = value
     get_settings.cache_clear()
+    clear_supabase_jwks_cache()
 
 
 def api_client() -> TestClient:
@@ -77,7 +137,13 @@ def api_client() -> TestClient:
     return TestClient(app)
 
 
-def external_token(*, subject: str, secret: str, role: str = "owner") -> str:
+def external_token(
+    *,
+    subject: str,
+    secret: str,
+    role: str = "owner",
+    expires_in: int = 600,
+) -> str:
     def encoded(value: dict) -> str:
         raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
         return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -91,7 +157,7 @@ def external_token(*, subject: str, secret: str, role: str = "owner") -> str:
             "iss": "https://auth.example.test",
             "aud": "authenticated",
             "iat": now,
-            "exp": now + 600,
+            "exp": now + expires_in,
             "app_metadata": {"role": role},
         }
     )
@@ -99,6 +165,46 @@ def external_token(*, subject: str, secret: str, role: str = "owner") -> str:
         hmac.new(secret.encode("utf-8"), f"{header}.{payload}".encode("utf-8"), hashlib.sha256).digest()
     ).decode("ascii").rstrip("=")
     return f"{header}.{payload}.{signature}"
+
+
+def complete_verified_onboarding_exam(
+    db,
+    *,
+    user_profile_id: int,
+    organization_id: int,
+) -> None:
+    PublicPilotAccessService(db).ensure_training_catalog()
+    module = db.scalar(
+        select(models.TrainingModule).where(
+            models.TrainingModule.code == ONBOARDING_EXAM_CODE,
+            models.TrainingModule.is_active.is_(True),
+        )
+    )
+    assert module is not None
+    questions = db.scalars(
+        select(models.TrainingQuestion)
+        .where(models.TrainingQuestion.module_id == module.id)
+        .order_by(models.TrainingQuestion.order_index, models.TrainingQuestion.id)
+    ).all()
+    assert questions
+    answers = {
+        str(question.id): (
+            list(question.correct_answer_json or [])
+            if question.question_type == "multi_select"
+            else (question.correct_answer_json or [None])[0]
+        )
+        for question in questions
+    }
+    result = NoviceLearningPathService(db).submit_quiz(
+        user_profile_id=user_profile_id,
+        organization_id=organization_id,
+        module_code=ONBOARDING_EXAM_CODE,
+        answers=answers,
+    )
+    assert result.passed is True
+    assert ONBOARDING_EXAM_CODE in NoviceLearningPathService(db).verified_certification_codes(
+        user_profile_id=user_profile_id
+    )
 
 
 def test_public_pilot_env_example_documents_auth_vars():
@@ -113,11 +219,14 @@ def test_public_pilot_env_example_documents_auth_vars():
         "QVF_LOCAL_SESSION_TTL_SECONDS=28800",
         "SUPABASE_URL=",
         "SUPABASE_PROJECT_REF=",
+        "SUPABASE_PUBLISHABLE_KEY=",
         "SUPABASE_JWT_SECRET=",
         "SUPABASE_JWKS_URL=",
         "SUPABASE_ISSUER=",
         "SUPABASE_AUDIENCE=authenticated",
         "QVF_SESSION_COOKIE_NAME=qvf_session",
+        "QVF_SESSION_REFRESH_COOKIE_NAME=qvf_refresh",
+        "QVF_SESSION_REFRESH_COOKIE_MAX_AGE_SECONDS=2592000",
         "QVF_SESSION_COOKIE_SECURE=false",
         "QVF_SESSION_COOKIE_SAMESITE=lax",
     ]:
@@ -259,18 +368,18 @@ def test_local_password_auth_closes_workspaces_media_and_rejects_tampered_cookie
             follow_redirects=False,
         ).status_code == 303
 
-        denied = client.post(
-            "/login",
-            data={"email": "owner@local.contentengine", "password": "wrong-password"},
-            follow_redirects=False,
+        denied = post_login(
+            client,
+            email="owner@local.contentengine",
+            password="wrong-password",
         )
         assert denied.status_code == 303
         assert "invalid_credentials" in denied.headers["location"]
 
-        signed_in = client.post(
-            "/login",
-            data={"email": "owner@local.contentengine", "password": password},
-            follow_redirects=False,
+        signed_in = post_login(
+            client,
+            email="owner@local.contentengine",
+            password=password,
         )
         assert signed_in.status_code == 303
         cookie = signed_in.headers["set-cookie"]
@@ -340,6 +449,190 @@ def test_local_password_auth_closes_workspaces_media_and_rejects_tampered_cookie
         assert tampered.headers["location"] == "/login"
 
 
+def test_supabase_auth_rest_uses_password_and_refresh_grants():
+    os.environ["SUPABASE_URL"] = "https://project.supabase.co"
+    os.environ["SUPABASE_PUBLISHABLE_KEY"] = "sb_publishable_test"
+    get_settings.cache_clear()
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/auth/v1/logout":
+            assert request.url.params["scope"] == "local"
+            assert request.headers["authorization"] == "Bearer header.payload.signature"
+            return httpx.Response(204)
+        grant_type = request.url.params["grant_type"]
+        body = json.loads(request.content)
+        assert request.headers["apikey"] == "sb_publishable_test"
+        if grant_type == "password":
+            assert body == {"email": "creator@example.test", "password": "strong-password"}
+            refresh = "refresh-token-password"
+        else:
+            assert body == {"refresh_token": "refresh-token-password"}
+            refresh = "refresh-token-rotated"
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "header.payload.signature",
+                "refresh_token": refresh,
+                "expires_in": 3600,
+                "token_type": "bearer",
+            },
+        )
+
+    auth_client = SupabaseAuthClient(transport=httpx.MockTransport(handler))
+    password_session = asyncio.run(
+        auth_client.exchange_password(email="creator@example.test", password="strong-password")
+    )
+    refreshed_session = asyncio.run(auth_client.refresh_session(password_session.refresh_token))
+    asyncio.run(auth_client.revoke(password_session.access_token))
+
+    assert [request.url.path for request in requests] == [
+        "/auth/v1/token",
+        "/auth/v1/token",
+        "/auth/v1/logout",
+    ]
+    assert [request.url.params["grant_type"] for request in requests[:2]] == ["password", "refresh_token"]
+    assert refreshed_session.refresh_token == "refresh-token-rotated"
+
+
+def test_supabase_password_login_sets_http_only_session_and_keeps_membership_authoritative(monkeypatch):
+    secret = "supabase-password-login-shared-secret"
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    os.environ["QVF_PUBLIC_PILOT_MODE"] = "true"
+    os.environ["QVF_PUBLIC_PILOT_INVITE_ONLY"] = "true"
+    os.environ["SUPABASE_URL"] = "https://project.supabase.co"
+    os.environ["SUPABASE_PUBLISHABLE_KEY"] = "sb_publishable_test"
+    os.environ["QVF_SUPABASE_JWT_SECRET"] = secret
+    os.environ["QVF_SUPABASE_ISSUER"] = "https://auth.example.test"
+    get_settings.cache_clear()
+
+    with SessionLocal() as db:
+        invited = ensure_public_pilot_user(
+            db,
+            email="creator@example.test",
+            display_name="Invited Creator",
+            role="producer",
+            supabase_user_id="creator-one",
+        )
+        membership_id = invited.membership.id
+
+    async def fake_exchange(_self, *, email: str, password: str):
+        assert password == "Creator-Password-2026!"
+        subject = "creator-one" if email == "creator@example.test" else "not-invited"
+        return SupabaseSessionTokens(
+            access_token=external_token(subject=subject, secret=secret, role="owner"),
+            refresh_token=f"refresh-token-{subject}",
+            expires_in=3600,
+        )
+
+    monkeypatch.setattr(SupabaseAuthClient, "exchange_password", fake_exchange)
+    with TestClient(app) as client:
+        signed_in = post_login(
+            client,
+            email="creator@example.test",
+            password="Creator-Password-2026!",
+        )
+        assert signed_in.status_code == 303
+        assert signed_in.headers["location"] == "/creator-operations?tab=generation"
+        set_cookies = signed_in.headers.get_list("set-cookie")
+        assert any("qvf_session=" in value and "HttpOnly" in value for value in set_cookies)
+        assert any("qvf_refresh=" in value and "HttpOnly" in value for value in set_cookies)
+        assert client.get("/creator-operations?tab=generation").status_code == 200
+
+    with SessionLocal() as db:
+        assert db.get(models.Membership, membership_id).role == "producer"
+
+    with TestClient(app) as client:
+        denied = post_login(
+            client,
+            email="unknown@example.test",
+            password="Creator-Password-2026!",
+        )
+        assert denied.status_code == 303
+        assert denied.headers["location"] == "/login?error=invite_required"
+        assert not any("qvf_session=" in value for value in denied.headers.get_list("set-cookie"))
+
+
+def test_expired_supabase_access_cookie_refreshes_and_rotates_browser_session(monkeypatch):
+    secret = "supabase-refresh-shared-secret"
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    os.environ["QVF_PUBLIC_PILOT_MODE"] = "true"
+    os.environ["SUPABASE_URL"] = "https://project.supabase.co"
+    os.environ["SUPABASE_PUBLISHABLE_KEY"] = "sb_publishable_test"
+    os.environ["QVF_SUPABASE_JWT_SECRET"] = secret
+    os.environ["QVF_SUPABASE_ISSUER"] = "https://auth.example.test"
+    get_settings.cache_clear()
+    with SessionLocal() as db:
+        ensure_public_pilot_user(
+            db,
+            email="refresh@example.test",
+            display_name="Refresh User",
+            role="viewer",
+            supabase_user_id="refresh-user",
+        )
+
+    expired_access = external_token(subject="refresh-user", secret=secret, expires_in=-120)
+    new_access = external_token(subject="refresh-user", secret=secret)
+    refresh_calls = []
+
+    async def fake_refresh(_self, refresh_token: str):
+        refresh_calls.append(refresh_token)
+        return SupabaseSessionTokens(
+            access_token=new_access,
+            refresh_token="rotated-refresh-token",
+            expires_in=3600,
+        )
+
+    monkeypatch.setattr(SupabaseAuthClient, "refresh_session", fake_refresh)
+    with TestClient(app) as client:
+        client.cookies.set("qvf_session", expired_access)
+        client.cookies.set("qvf_refresh", "original-refresh-token")
+        response = client.get("/onboarding")
+        assert response.status_code == 200, response.text
+        set_cookies = response.headers.get_list("set-cookie")
+        assert any(f"qvf_session={new_access}" in value for value in set_cookies)
+        assert any("qvf_refresh=rotated-refresh-token" in value for value in set_cookies)
+    assert refresh_calls == ["original-refresh-token"]
+
+
+def test_logout_revokes_supabase_session_best_effort_and_clears_both_cookies(monkeypatch):
+    secret = "supabase-logout-shared-secret"
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    os.environ["QVF_PUBLIC_PILOT_MODE"] = "true"
+    os.environ["SUPABASE_URL"] = "https://project.supabase.co"
+    os.environ["SUPABASE_PUBLISHABLE_KEY"] = "sb_publishable_test"
+    os.environ["QVF_SUPABASE_JWT_SECRET"] = secret
+    os.environ["QVF_SUPABASE_ISSUER"] = "https://auth.example.test"
+    get_settings.cache_clear()
+    access_token = external_token(subject="logout-user", secret=secret)
+    revoked = []
+
+    async def fake_revoke(_self, token: str):
+        revoked.append(token)
+
+    monkeypatch.setattr(SupabaseAuthClient, "revoke", fake_revoke)
+    csrf_token = hmac.new(
+        b"qvf-public-pilot-form-csrf-v1",
+        access_token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    with TestClient(app) as client:
+        client.cookies.set("qvf_session", access_token)
+        client.cookies.set("qvf_refresh", "logout-refresh-token")
+        response = client.post(
+            "/logout",
+            data={"csrf_token": csrf_token},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+        deleted = response.headers.get_list("set-cookie")
+        assert any("qvf_session=" in value and "Max-Age=0" in value for value in deleted)
+        assert any("qvf_refresh=" in value and "Max-Age=0" in value for value in deleted)
+    assert revoked == [access_token]
+
+
 def test_authenticated_billing_write_requires_session_bound_csrf_token():
     password = "Owner-Csrf-Only-2026!"
     os.environ["QVF_AUTH_REQUIRED"] = "true"
@@ -350,10 +643,10 @@ def test_authenticated_billing_write_requires_session_bound_csrf_token():
     get_settings.cache_clear()
 
     with TestClient(app) as client:
-        signed_in = client.post(
-            "/login",
-            data={"email": "owner@local.contentengine", "password": password},
-            follow_redirects=False,
+        signed_in = post_login(
+            client,
+            email="owner@local.contentengine",
+            password=password,
         )
         assert signed_in.status_code == 303
 
@@ -461,10 +754,32 @@ def test_invite_only_supabase_token_cannot_auto_join_or_escalate_default_org():
             supabase_user_id="invited-user",
         )
         membership_id = invited.membership.id
+        profile_id = invited.profile.id
+        organization_id = invited.organization.id
 
     escalated_claim = external_token(subject="invited-user", secret=secret, role="owner")
     with TestClient(app) as client:
-        accepted = client.get("/api/social-metrics", headers={"authorization": f"Bearer {escalated_claim}"})
+        onboarding_blocked = client.get(
+            "/api/social-metrics",
+            headers={"authorization": f"Bearer {escalated_claim}"},
+        )
+    assert onboarding_blocked.status_code == 403
+    assert onboarding_blocked.json() == {
+        "detail": "onboarding_required",
+        "onboarding_url": "/onboarding",
+        "required_certification": ONBOARDING_EXAM_CODE,
+    }
+    with SessionLocal() as db:
+        complete_verified_onboarding_exam(
+            db,
+            user_profile_id=profile_id,
+            organization_id=organization_id,
+        )
+    with TestClient(app) as client:
+        accepted = client.get(
+            "/api/social-metrics",
+            headers={"authorization": f"Bearer {escalated_claim}"},
+        )
     assert accepted.status_code == 200
     with SessionLocal() as db:
         assert db.get(models.Membership, membership_id).role == "viewer"
@@ -522,11 +837,27 @@ def test_invited_user_can_only_reach_explicit_scoped_allowlist():
         )
         db.add_all([owned_draft, foreign_draft])
         db.commit()
+        scoped_profile_id = scoped_user.profile.id
+        scoped_organization_id = scoped_user.organization.id
         owned_draft_id = owned_draft.id
         foreign_draft_id = foreign_draft.id
 
     token = external_token(subject="scoped-owner", secret=secret, role="owner")
     headers = {"authorization": f"Bearer {token}"}
+    with TestClient(app) as client:
+        onboarding_blocked = client.get("/api/factory-dashboard", headers=headers)
+    assert onboarding_blocked.status_code == 403
+    assert onboarding_blocked.json() == {
+        "detail": "onboarding_required",
+        "onboarding_url": "/onboarding",
+        "required_certification": ONBOARDING_EXAM_CODE,
+    }
+    with SessionLocal() as db:
+        complete_verified_onboarding_exam(
+            db,
+            user_profile_id=scoped_profile_id,
+            organization_id=scoped_organization_id,
+        )
     with TestClient(app) as client:
         scoped_dashboard = client.get("/api/factory-dashboard", headers=headers)
         legacy_products = client.get("/api/products", headers=headers)
@@ -617,7 +948,10 @@ def test_tracking_redirect_is_public_and_records_click():
     with TestClient(app) as client:
         redirected = client.get(
             "/r/public-pilot-click",
-            headers={"referer": "https://social.example.test/post/42"},
+            headers={
+                "referer": "https://social.example.test/post/42?access_token=must-not-persist",
+                "user-agent": "Mozilla/5.0 Test Browser",
+            },
             follow_redirects=False,
         )
 
@@ -628,22 +962,277 @@ def test_tracking_redirect_is_public_and_records_click():
             select(models.TrackingClick).where(models.TrackingClick.tracking_link_id == link_id)
         )
         assert click is not None
-        assert click.referrer == "https://social.example.test/post/42"
-        assert click.metadata_json == {"path": "/r/public-pilot-click"}
+        assert click.referrer == "https://social.example.test"
+        assert click.metadata_json["path"] == "/r/public-pilot-click"
+        tracking = click.metadata_json["tracking_v1"]
+        assert tracking["schema_version"] == 1
+        assert tracking["classification"] == "human"
+        assert tracking["bot_reason"] is None
+        assert tracking["accepted_for_raw_kpi"] is True
+        assert tracking["accepted_for_human_kpi"] is True
+        assert re.fullmatch(r"[a-f0-9]{64}", tracking["visitor_fingerprint"])
+        assert "access_token" not in str(click.metadata_json)
 
 
-def test_jwks_configuration_never_accepts_an_unverified_signature():
+def test_click_tracker_deduplicates_one_privacy_safe_visitor():
+    now = datetime(2026, 7, 12, 12, 0, tzinfo=UTC)
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="dedupe-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        tracker = ClickTracker(db, clock=lambda: now)
+
+        first = tracker.record(
+            link.slug,
+            referrer="https://social.example.test/post/42?token=private",
+            user_agent="Mozilla/5.0 Dedupe Browser",
+            accept_language="ru-RU,ru;q=0.9",
+            visitor_token="visitor-dedupe-00000001",
+            metadata={"path": f"/r/{link.slug}"},
+        )
+        repeated = tracker.record(
+            link.slug,
+            referrer="https://social.example.test/another/path?secret=private",
+            user_agent="Mozilla/5.0 Dedupe Browser",
+            accept_language="ru-RU,ru;q=0.9",
+            visitor_token="visitor-dedupe-00000001",
+            metadata={"path": f"/r/{link.slug}"},
+        )
+
+        assert first.disposition == "recorded"
+        assert first.click is not None
+        assert repeated.disposition == "duplicate"
+        assert repeated.click is None
+        assert repeated.duplicate_of_click_id == first.click.id
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link.id
+            )
+        ) == 1
+        db.refresh(first.click)
+        assert first.click.referrer == "https://social.example.test"
+        contract = first.click.metadata_json["tracking_v1"]
+        assert contract == {
+            "schema_version": 1,
+            "classification": "human",
+            "bot_reason": None,
+            "accepted_for_raw_kpi": True,
+            "accepted_for_human_kpi": True,
+            "visitor_fingerprint": contract["visitor_fingerprint"],
+        }
+        assert re.fullmatch(r"[a-f0-9]{64}", contract["visitor_fingerprint"])
+
+
+def test_tracking_redirect_uses_short_lived_cookie_for_browser_dedupe():
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="browser-dedupe-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        link_id = link.id
+
+    headers = {
+        "user-agent": "Mozilla/5.0 Cookie Dedupe Browser",
+        "referer": "https://social.example.test/post/42",
+    }
+    with TestClient(app) as client:
+        first = client.get(
+            "/r/browser-dedupe-click",
+            headers=headers,
+            follow_redirects=False,
+        )
+        repeated = client.get(
+            "/r/browser-dedupe-click",
+            headers=headers,
+            follow_redirects=False,
+        )
+
+    assert first.status_code == repeated.status_code == 307
+    visitor_cookie = next(
+        value
+        for value in first.headers.get_list("set-cookie")
+        if value.startswith("qvf_tracking_visitor=")
+    )
+    assert "HttpOnly" in visitor_cookie
+    assert "Max-Age=600" in visitor_cookie
+    assert "Path=/r" in visitor_cookie
+    with SessionLocal() as db:
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link_id
+            )
+        ) == 1
+
+
+def test_click_tracker_classifies_social_preview_bot_outside_human_kpi():
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="bot-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+
+        result = ClickTracker(db).record(
+            link.slug,
+            user_agent="TelegramBot (like TwitterBot)",
+            visitor_token="visitor-preview-0000001",
+            metadata={"path": f"/r/{link.slug}"},
+        )
+
+        assert result.disposition == "recorded"
+        assert result.classification == "bot"
+        assert result.accepted_for_human_kpi is False
+        assert result.click is not None
+        contract = result.click.metadata_json["tracking_v1"]
+        assert contract["classification"] == "bot"
+        assert contract["bot_reason"] == "social_preview"
+        assert contract["accepted_for_raw_kpi"] is True
+        assert contract["accepted_for_human_kpi"] is False
+
+
+def test_click_tracker_caps_persisted_rows_per_slug_window():
+    now = datetime(2026, 7, 12, 12, 15, tzinfo=UTC)
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="capped-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        tracker = ClickTracker(
+            db,
+            clock=lambda: now,
+            max_events_per_window=2,
+            rate_window_seconds=60,
+        )
+
+        results = [
+            tracker.record(
+                link.slug,
+                user_agent=f"Mozilla/5.0 Visitor {index}",
+                visitor_token=f"visitor-cap-0000000{index}",
+            )
+            for index in range(1, 4)
+        ]
+
+        assert [item.disposition for item in results] == [
+            "recorded",
+            "recorded",
+            "rate_limited",
+        ]
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link.id
+            )
+        ) == 2
+
+
+def test_tracking_redirect_fails_open_when_telemetry_insert_fails(monkeypatch):
+    os.environ["QVF_AUTH_REQUIRED"] = "true"
+    os.environ["QVF_PUBLIC_PILOT_MODE"] = "true"
+    get_settings.cache_clear()
+    with SessionLocal() as db:
+        link = models.TrackingLink(
+            slug="fail-open-click",
+            target_url="https://shop.example.test/product",
+            status="active",
+        )
+        db.add(link)
+        db.commit()
+        link_id = link.id
+
+    def fail_insert(_self, _link, **_kwargs):
+        raise RuntimeError("database URL and secret must never escape")
+
+    monkeypatch.setattr(ClickTracker, "record_resolved", fail_insert)
+    with TestClient(app) as client:
+        redirected = client.get("/r/fail-open-click", follow_redirects=False)
+
+    assert redirected.status_code == 307
+    assert redirected.headers["location"] == "https://shop.example.test/product"
+    assert redirected.headers["cache-control"] == "private, no-store"
+    assert "database URL" not in redirected.text
+    with SessionLocal() as db:
+        assert db.scalar(
+            select(func.count()).select_from(models.TrackingClick).where(
+                models.TrackingClick.tracking_link_id == link_id
+            )
+        ) == 0
+
+
+def test_tracking_redirect_preserves_not_found_behavior():
+    with TestClient(app) as client:
+        response = client.get("/r/missing-tracking-link", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/metrics-intake?error=tracking_link_not_found"
+
+
+def test_jwks_verifies_es256_and_rs256_with_cached_client_and_rejects_bad_signature(monkeypatch):
     os.environ.pop("QVF_SUPABASE_JWT_SECRET", None)
     os.environ["QVF_SUPABASE_JWKS_URL"] = "https://auth.example.test/.well-known/jwks.json"
+    os.environ["QVF_SUPABASE_ISSUER"] = "https://auth.example.test"
     get_settings.cache_clear()
-    header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').decode("ascii").rstrip("=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"sub": "attacker", "aud": "authenticated"}).encode("utf-8")
-    ).decode("ascii").rstrip("=")
+    clear_supabase_jwks_cache()
+
+    rsa_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    es_private = ec.generate_private_key(ec.SECP256R1())
+    public_keys = {"RS256": rsa_private.public_key(), "ES256": es_private.public_key()}
+    constructed = []
+
+    class FakeJWKClient:
+        def __init__(self, *args, **kwargs):
+            constructed.append((args, kwargs))
+
+        def get_signing_key_from_jwt(self, token):
+            algorithm = jwt.get_unverified_header(token)["alg"]
+            return SimpleNamespace(key=public_keys[algorithm])
+
+    monkeypatch.setattr(jwt, "PyJWKClient", FakeJWKClient)
+    now = int(time.time())
+    payload = {
+        "sub": "jwks-user",
+        "email": "jwks-user@example.test",
+        "iss": "https://auth.example.test",
+        "aud": "authenticated",
+        "iat": now,
+        "exp": now + 600,
+    }
+    for algorithm, private_key in (("RS256", rsa_private), ("ES256", es_private)):
+        token = jwt.encode(payload, private_key, algorithm=algorithm, headers={"kid": f"{algorithm}-key"})
+        assert SupabaseJWTValidator().validate(token)["sub"] == "jwks-user"
+
+    # One cached client serves both validations for the configured JWKS URL.
+    assert len(constructed) == 1
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    bad_token = jwt.encode(payload, attacker_key, algorithm="RS256", headers={"kid": "RS256-key"})
     with pytest.raises(HTTPException) as exc_info:
-        SupabaseJWTValidator().validate(f"{header}.{payload}.ZmFrZQ")
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "jwks_signature_verifier_not_configured"
+        SupabaseJWTValidator().validate(bad_token)
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "invalid_token"
+
+
+def test_jwt_validator_keeps_local_and_legacy_supabase_hs256_compatibility():
+    os.environ["QVF_LOCAL_SESSION_SECRET"] = "local-backward-compatible-session-secret"
+    os.environ["QVF_SUPABASE_JWT_SECRET"] = "legacy-supabase-hs256-secret"
+    os.environ["QVF_SUPABASE_ISSUER"] = "https://auth.example.test"
+    get_settings.cache_clear()
+
+    local_token = issue_local_session(email="owner@local.contentengine", role="owner")
+    external = external_token(subject="legacy-hs-user", secret="legacy-supabase-hs256-secret")
+
+    assert SupabaseJWTValidator().validate(local_token)["auth_source"] == "local"
+    assert SupabaseJWTValidator().validate(external)["sub"] == "legacy-hs-user"
 
 
 def test_global_legacy_participant_workspace_is_closed_in_public_mode():

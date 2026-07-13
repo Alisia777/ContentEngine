@@ -3,6 +3,7 @@ from app.product_ugc_queue.errors import (
     ProductUGCQueueError,
     ProductUGCQueueLeaseError,
     ProductUGCQueueOwnershipError,
+    ProductUGCSpendValidationError,
     ProductUGCSubmissionAmbiguous,
 )
 from app.product_ugc_queue.service import ProductUGCGenerationQueueService
@@ -22,6 +23,7 @@ __all__ = [
     "ProductUGCQueueError",
     "ProductUGCQueueLeaseError",
     "ProductUGCQueueOwnershipError",
+    "ProductUGCSpendValidationError",
     "ProductUGCSubmissionAmbiguous",
     "QuarantineReconciliationResult",
     "ReconciliationResult",

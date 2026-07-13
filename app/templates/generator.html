@@ -22,13 +22,13 @@
         </label>
         <label>LLM provider
           <select name="llm_provider">
-            <option value="mock" {% if selected_llm_provider == "mock" %}selected{% endif %}>Mock local</option>
+            <option value="mock" {% if selected_llm_provider == "mock" %}selected{% endif %}>Тестовый режим без расходов</option>
             <option value="openai" {% if selected_llm_provider == "openai" %}selected{% endif %}>OpenAI</option>
           </select>
         </label>
         <label>Video provider
           <select name="video_provider">
-            <option value="mock" {% if selected_video_provider == "mock" %}selected{% endif %}>Mock local</option>
+            <option value="mock" {% if selected_video_provider == "mock" %}selected{% endif %}>Тестовый режим без расходов</option>
             <option value="runway" {% if selected_video_provider == "runway" %}selected{% endif %}>Runway</option>
             <option value="gemini" {% if selected_video_provider == "gemini" %}selected{% endif %}>Gemini</option>
           </select>

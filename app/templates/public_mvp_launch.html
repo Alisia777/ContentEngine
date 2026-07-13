@@ -4,6 +4,7 @@
 <section class="public-dashboard">
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
+    {% include "_public_workspace_navigation.html" %}
     <header class="public-topline altea-reveal">
       <div>
         <p class="public-eyebrow">Official Runway Recipe · Product UGC</p>
@@ -65,7 +66,7 @@
 
     {% if recipe_draft %}
     {% set recipe_running = recipe_draft.status in ['provider_launching', 'provider_submitted'] %}
-    {% set recipe_generated = recipe_draft.local_output_paths | length > 0 %}
+    {% set recipe_generated = recipe_output_media | length > 0 %}
     <section class="recipe-result altea-reveal" aria-labelledby="recipe-result-title">
       <header class="recipe-section-head">
         <div>
@@ -226,7 +227,7 @@
       {% elif recipe_running %}
       <p class="public-safety-note">Paid task уже зарезервирован. Повторный запуск этого draft заблокирован.</p>
       {% elif recipe_generated %}
-      <p class="public-safety-note">Файл скачан локально. Auto-approve и auto-publish отсутствуют.</p>
+      <p class="public-safety-note">Результат сохранён в защищённой библиотеке. Автоодобрения и автопубликации нет: ролик сначала проверяет человек.</p>
       {% endif %}
     </section>
     {% endif %}

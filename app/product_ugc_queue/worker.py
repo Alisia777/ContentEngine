@@ -6,7 +6,7 @@ import time
 import uuid
 from collections.abc import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -168,8 +168,21 @@ class ProductUGCGenerationWorker:
             )
         ) or "system_worker"
         event_name = "generation_succeeded" if job.status == "succeeded" else "generation_failed"
+        durable_output_count = self.db.scalar(
+            select(func.count(models.MediaArtifact.id)).where(
+                models.MediaArtifact.organization_id == job.organization_id,
+                models.MediaArtifact.product_ugc_recipe_draft_id == draft.id,
+                models.MediaArtifact.kind.in_(("master_video", "provider_output")),
+                models.MediaArtifact.status == "ready",
+                models.MediaArtifact.deleted_at.is_(None),
+            )
+        ) or 0
         properties = (
-            {"output_count": len(draft.local_output_paths_json or []), "queue_status": job.status}
+            {
+                "output_count": int(durable_output_count)
+                or len(draft.local_output_paths_json or []),
+                "queue_status": job.status,
+            }
             if job.status == "succeeded"
             else {
                 "provider_status": draft.provider_status or draft.status,

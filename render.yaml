@@ -1,0 +1,162 @@
+envVarGroups:
+  - name: contentengine-production-defaults
+    envVars:
+      - key: QVF_RUNTIME_PROFILE
+        value: production
+      - key: QVF_DEPLOYMENT_ENV
+        value: production
+      - key: QVF_AUTO_INIT_DB
+        value: "false"
+      - key: QVF_STORAGE_BACKEND
+        value: supabase
+      - key: QVF_STORAGE_BUCKET
+        value: contentengine-private
+      - key: QVF_SUPABASE_STORAGE_BUCKET
+        value: contentengine-private
+      - key: QVF_AUTH_REQUIRED
+        value: "true"
+      - key: QVF_PUBLIC_PILOT_MODE
+        value: "true"
+      - key: QVF_PUBLIC_PILOT_INVITE_ONLY
+        value: "true"
+      - key: QVF_SESSION_COOKIE_SECURE
+        value: "true"
+      - key: QVF_SESSION_COOKIE_SAMESITE
+        value: strict
+      - key: QVF_SUPABASE_AUDIENCE
+        value: authenticated
+      - key: QVF_SUPABASE_READINESS_TIMEOUT_SECONDS
+        value: "5"
+      - key: QVF_MAX_VIDEO_SECONDS_PER_RUN
+        value: "5"
+      - key: QVF_MAX_SCENES_PER_REAL_RUN
+        value: "1"
+      - key: QVF_MAX_PROVIDER_POLL_SECONDS
+        value: "600"
+      - key: QVF_MASS_GENERATION_CREDIT_LIMIT
+        value: "30000"
+
+services:
+  - type: web
+    name: contentengine-web
+    runtime: docker
+    plan: starter
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python scripts/run_web.py
+    preDeployCommand: python scripts/predeploy.py
+    healthCheckPath: /ready
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - fromGroup: contentengine-production-defaults
+      - key: QVF_DATABASE_URL
+        sync: false
+      - key: QVF_PUBLIC_APP_URL
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: RENDER_EXTERNAL_URL
+      # Capability selection is intentionally explicit at deploy time. Use
+      # mock/mock/mock/false for a spend-free acceptance deployment, or switch
+      # to real/openai/runway/true only after the owner approves provider spend.
+      - key: QVF_GENERATION_MODE
+        sync: false
+      - key: QVF_LLM_PROVIDER
+        sync: false
+      - key: QVF_VIDEO_PROVIDER
+        sync: false
+      - key: QVF_ALLOW_REAL_SPEND
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: QVF_SUPABASE_JWKS_URL
+        sync: false
+      - key: QVF_SUPABASE_ISSUER
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: RUNWAYML_API_SECRET
+        sync: false
+
+  - type: worker
+    name: contentengine-generation-worker
+    runtime: docker
+    plan: starter
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python scripts/run_product_ugc_queue_worker.py --poll-seconds 2 --lease-seconds 300 --stale-after-seconds 300
+    preDeployCommand: python scripts/predeploy.py
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - fromGroup: contentengine-production-defaults
+      - key: QVF_DATABASE_URL
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_DATABASE_URL
+      - key: QVF_PUBLIC_APP_URL
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_PUBLIC_APP_URL
+      - key: QVF_GENERATION_MODE
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_GENERATION_MODE
+      - key: QVF_LLM_PROVIDER
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_LLM_PROVIDER
+      - key: QVF_VIDEO_PROVIDER
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_VIDEO_PROVIDER
+      - key: QVF_ALLOW_REAL_SPEND
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_ALLOW_REAL_SPEND
+      - key: SUPABASE_URL
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: SUPABASE_URL
+      - key: SUPABASE_PUBLISHABLE_KEY
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: SUPABASE_PUBLISHABLE_KEY
+      - key: SUPABASE_SECRET_KEY
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: SUPABASE_SECRET_KEY
+      - key: QVF_SUPABASE_JWKS_URL
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_SUPABASE_JWKS_URL
+      - key: QVF_SUPABASE_ISSUER
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: QVF_SUPABASE_ISSUER
+      - key: OPENAI_API_KEY
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: OPENAI_API_KEY
+      - key: RUNWAYML_API_SECRET
+        fromService:
+          type: web
+          name: contentengine-web
+          envVarKey: RUNWAYML_API_SECRET

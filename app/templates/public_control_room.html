@@ -4,6 +4,7 @@
 <section class="public-dashboard">
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
+    {% include "_public_workspace_navigation.html" %}
     <header class="public-topline altea-reveal">
       <div>
         <p class="public-eyebrow">Контент ИИ Завод · ALTEA Beauty</p>
@@ -19,7 +20,7 @@
       </form>
     </header>
 
-    <article class="altea-card public-focus-panel altea-reveal">
+    <article class="altea-card public-focus-panel altea-reveal" id="workspace-tasks">
       <div>
         <span class="public-status public-status--{{ primary_action.status }}">можно продолжать</span>
         <p class="public-eyebrow">Следующее действие</p>
@@ -103,7 +104,7 @@
     {% endif %}
 
     <div class="public-grid">
-      <article class="altea-card public-panel altea-reveal">
+      <article class="altea-card public-panel altea-reveal" id="what-to-add">
         <header class="public-panel-head"><div><p class="public-eyebrow">Что требует внимания</p><h2>Препятствия на пути</h2></div><span>{{ product_blockers|length }}</span></header>
         <ul class="public-list">
           {% for item in product_blockers[:6] %}

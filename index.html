@@ -228,6 +228,16 @@
         box-shadow: 0 15px 42px rgba(199, 151, 70, 0.22), inset 0 1px rgba(255, 255, 255, 0.5);
       }
 
+      .button--disabled,
+      .button--disabled:hover {
+        cursor: not-allowed;
+        color: rgba(23, 17, 8, 0.7);
+        filter: grayscale(0.45);
+        opacity: 0.72;
+        transform: none;
+        box-shadow: none;
+      }
+
       .button--compact {
         min-height: 40px;
         padding: 0 15px;
@@ -1237,14 +1247,9 @@
         <a class="nav__link" href="#how-it-works">Как работает</a>
         <a class="nav__link" href="#factory-blocks">9 блоков</a>
         <a class="nav__link" href="#metrics">Метрики</a>
-        <a
-          class="button button--compact"
-          href="http://127.0.0.1:8014/control-room"
-          target="_blank"
-          rel="noopener"
-        >
-          <span class="button__label">Открыть завод</span><span class="button__arrow" aria-hidden="true">↗</span>
-        </a>
+        <span class="button button--compact button--disabled" data-runtime-cta="pending" aria-disabled="true">
+          <span class="button__label">Облачный запуск готовится</span>
+        </span>
       </nav>
     </header>
 
@@ -1258,18 +1263,13 @@
             проверить качество, опубликовать и увидеть, что действительно принесло результат.
           </p>
           <div class="hero__actions">
-            <a
-              class="button"
-              href="http://127.0.0.1:8014/control-room"
-              target="_blank"
-              rel="noopener"
-            >
-              Открыть локальный Control Room <span class="button__arrow" aria-hidden="true">↗</span>
-            </a>
+            <span class="button button--disabled" data-runtime-cta="pending" aria-disabled="true">
+              Публичный вход готовится
+            </span>
             <a class="button button--ghost" href="#factory-blocks">Посмотреть 9 блоков</a>
           </div>
           <p class="hero__hint">
-            Рабочее приложение доступно на этом устройстве после локального запуска сервера.
+            После облачного запуска здесь появится единый HTTPS-вход для всей команды.
             Публичные рабочие данные и секреты не выставляются; эта страница — только витрина продукта.
           </p>
         </div>
@@ -1322,7 +1322,7 @@
           </div>
           <p>
             GitHub Pages не запускает FastAPI и не получает рабочие данные. Все действия с товарами,
-            видео, деньгами и метриками происходят только в защищённом локальном приложении.
+            видео, деньгами и метриками происходят только в защищённом облачном приложении.
           </p>
         </div>
         <div class="environment-grid">
@@ -1339,7 +1339,7 @@
           </article>
           <article class="environment-card environment-card--app">
             <span class="environment-card__number">02</span>
-            <span class="status-pill status-pill--official">Локальное приложение</span>
+            <span class="status-pill status-pill--official">Облачное приложение</span>
             <h3>Защищённый Контент ИИ Завод</h3>
             <p>
               Реальный Control Room показывает состояние вашей организации, одно следующее действие,
@@ -1350,13 +1350,8 @@
               <li>Платные действия только после явного подтверждения</li>
               <li>Метрики считаются по фактическим циклам</li>
             </ul>
-            <code class="address">http://127.0.0.1:8014/control-room</code>
-            <a
-              class="button"
-              href="http://127.0.0.1:8014/control-room"
-              target="_blank"
-              rel="noopener"
-            >Открыть рабочее приложение <span class="button__arrow" aria-hidden="true">↗</span></a>
+            <span class="address">Единый HTTPS-адрес появится после облачного запуска</span>
+            <span class="button button--disabled" data-runtime-cta="pending" aria-disabled="true">Рабочий вход готовится</span>
           </article>
         </div>
       </section>
@@ -1512,12 +1507,7 @@
           </p>
         </div>
         <div class="closing__actions">
-          <a
-            class="button"
-            href="http://127.0.0.1:8014/control-room"
-            target="_blank"
-            rel="noopener"
-          >Открыть Control Room <span class="button__arrow" aria-hidden="true">↗</span></a>
+          <span class="button button--disabled" data-runtime-cta="pending" aria-disabled="true">Облачный запуск готовится</span>
           <a class="button button--ghost" href="docs/NOVICE_FIRST_CONTENT_FACTORY.md">Как устроен завод</a>
         </div>
       </section>

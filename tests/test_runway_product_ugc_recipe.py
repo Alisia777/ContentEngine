@@ -512,7 +512,7 @@ def test_recipe_runner_downloads_output_and_keeps_it_blocked_for_human_review(mo
             notes="Exact product and natural creator action verified by a human.",
         )
         assert reviewed.human_review_status == "approved"
-        assert reviewed.publishing_readiness == "ready_for_package"
+        assert reviewed.publishing_readiness == "ready_for_publishing_package"
 
 
 def test_recipe_runner_persists_provider_failure_code_and_blocks_blind_retry(monkeypatch):
@@ -708,8 +708,8 @@ def test_paid_product_ugc_ui_runs_once_downloads_output_and_records_human_review
     )
     assert reviewed_page.status_code == 200
     assert "Ролик одобрен человеком" in reviewed_page.text
-    assert "ready_for_package" in reviewed_page.text
+    assert "ready_for_publishing_package" in reviewed_page.text
     with SessionLocal() as db:
         reviewed = db.get(models.ProductUGCRecipeDraft, draft_id)
         assert reviewed.human_review_status == "approved"
-        assert reviewed.publishing_readiness == "ready_for_package"
+        assert reviewed.publishing_readiness == "ready_for_publishing_package"

@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.database import SessionLocal, init_db
+from app.config import get_settings, validate_runtime_settings
+from app.database import SessionLocal, engine, init_db
+from app.migration_state import require_database_at_migration_head
 from app.product_ugc_queue import ProductUGCGenerationQueueService, ProductUGCGenerationWorker
 
 
@@ -35,6 +37,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    settings = validate_runtime_settings(get_settings())
+    if settings.runtime_profile == "production":
+        with engine.connect() as connection:
+            require_database_at_migration_head(connection)
     if args.health_check:
         with SessionLocal() as db:
             health = ProductUGCGenerationQueueService(db).operational_health(
@@ -48,7 +54,8 @@ def main() -> int:
         )
         return 0 if health["worker_ready"] else 1
 
-    init_db()
+    if settings.auto_init_db:
+        init_db()
     worker_id = ProductUGCGenerationWorker.default_worker_id()
     signal.signal(signal.SIGTERM, _request_shutdown)
     with SessionLocal() as db:

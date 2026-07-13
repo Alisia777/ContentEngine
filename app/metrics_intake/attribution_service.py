@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.publishing.publication_identity import find_task_by_publication_url
 from app.metrics_intake.errors import MetricsIntakeDataError
 from app.metrics_intake.funnel_service import FunnelService
 from app.metrics_intake.platform_matrix import PlatformMetricsMatrix
@@ -77,7 +78,7 @@ class AttributionService:
             if link:
                 match_method = "tracking_slug"
         if not task:
-            task = self._task_by_url(row.get("posted_url"))
+            task = self._task_by_url(row.get("posted_url"), platform=platform)
             if task:
                 match_method = "final_url"
         destination = task.destination if task else None
@@ -140,7 +141,7 @@ class AttributionService:
         destination: models.PublishingDestination | None = match["destination"]
         product: models.Product | None = match["product"]
         platform = self._text(row.get("platform")) or (task.platform if task else (destination.platform if destination else "other"))
-        posted_url = self._text(row.get("posted_url")) or (task.final_url if task else None)
+        posted_url = task.final_url if task else self._text(row.get("posted_url")) or None
         period_start = self._date(row.get("period_start"))
         period_end = self._date(row.get("period_end"))
         existing = self._existing_metric(platform, posted_url, period_start, period_end, destination.id if destination else None)
@@ -245,11 +246,17 @@ class AttributionService:
             return None
         return self.db.scalar(select(models.TrackingLink).where(models.TrackingLink.slug == text))
 
-    def _task_by_url(self, posted_url: Any) -> models.PublishingTask | None:
-        text = self._text(posted_url)
-        if not text:
-            return None
-        return self.db.scalar(select(models.PublishingTask).where(models.PublishingTask.final_url == text))
+    def _task_by_url(
+        self,
+        posted_url: Any,
+        *,
+        platform: str | None = None,
+    ) -> models.PublishingTask | None:
+        return find_task_by_publication_url(
+            self.db,
+            self._text(posted_url),
+            platform=platform,
+        )
 
     def _destination_by_handle(self, handle: Any, platform: Any) -> models.PublishingDestination | None:
         text = self._text(handle)

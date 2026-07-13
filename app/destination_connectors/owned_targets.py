@@ -34,6 +34,9 @@ def normalize_platform(value: str | None) -> str:
         "reels": "instagram",
         "youtube_shorts": "youtube",
         "shorts": "youtube",
+        "vkontakte": "vk",
+        "facebook_reels": "facebook",
+        "rutube_shorts": "rutube",
     }.get(normalized, normalized)
 
 
@@ -105,8 +108,20 @@ def require_owned_published_target(
         or not task.final_url
     ):
         raise DestinationConnectorDataError(f"{error_prefix}_target_not_owned_by_destination")
-    mapped_url = safe_public_url(final_url, error_code=f"{error_prefix}_final_url_is_invalid")
-    task_url = safe_public_url(task.final_url, error_code=f"{error_prefix}_owned_final_url_is_invalid")
+    # Import lazily: publication identity is infrastructure-neutral, while the
+    # destination_connectors package eagerly registers connector modules.
+    from app.publishing.publication_identity import (
+        PublicationIdentityError,
+        canonical_publication_url,
+    )
+
+    try:
+        mapped_url = canonical_publication_url(final_url, destination)
+        task_url = canonical_publication_url(task.final_url, destination)
+    except PublicationIdentityError as exc:
+        raise DestinationConnectorDataError(
+            f"{error_prefix}_final_url_is_invalid"
+        ) from exc
     if mapped_url != task_url:
         raise DestinationConnectorDataError(f"{error_prefix}_target_final_url_mismatch")
     return task

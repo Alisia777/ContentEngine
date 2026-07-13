@@ -49,6 +49,7 @@ def altea_motion_home() -> RedirectResponse:
 @router.get("/altea-motion/splash", response_class=HTMLResponse)
 def altea_motion_splash(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "altea_motion/splash.html",
         {"request": request, "page_title": "ALTEA Motion Splash"},
     )
@@ -57,6 +58,7 @@ def altea_motion_splash(request: Request) -> HTMLResponse:
 @router.get("/altea-motion/login", response_class=HTMLResponse)
 def altea_motion_login(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "altea_motion/login.html",
         {"request": request, "page_title": "ALTEA Login"},
     )
@@ -65,6 +67,7 @@ def altea_motion_login(request: Request) -> HTMLResponse:
 @router.get("/altea-motion/auth-loading", response_class=HTMLResponse)
 def altea_motion_auth_loading(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "altea_motion/auth_loading.html",
         {"request": request, "page_title": "ALTEA Access Check"},
     )
@@ -73,6 +76,7 @@ def altea_motion_auth_loading(request: Request) -> HTMLResponse:
 @router.get("/altea-motion/dashboard-loading", response_class=HTMLResponse)
 def altea_motion_dashboard_loading(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "altea_motion/dashboard_loading.html",
         {"request": request, "page_title": "ALTEA Dashboard Loading"},
     )
@@ -81,6 +85,7 @@ def altea_motion_dashboard_loading(request: Request) -> HTMLResponse:
 @router.get("/altea-motion/dashboard", response_class=HTMLResponse)
 def altea_motion_dashboard(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "altea_motion/dashboard.html",
         {"request": request, "page_title": "ALTEA Dashboard", **_dashboard_context()},
     )

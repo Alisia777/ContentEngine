@@ -39,6 +39,12 @@ class PublicPilotAccessService:
 
     def ensure_training_catalog(self) -> list[models.TrainingModule]:
         modules: list[models.TrainingModule] = []
+        catalog_codes = {str(item["code"]) for item in PUBLIC_PILOT_TRAINING_MODULES}
+        for stale_module in self.db.scalars(select(models.TrainingModule)).all():
+            if stale_module.code not in catalog_codes:
+                # Historical modules must not remain visible or satisfy a gate
+                # after they have been removed from the versioned curriculum.
+                stale_module.is_active = False
         for module_data in PUBLIC_PILOT_TRAINING_MODULES:
             module = self.db.scalar(select(models.TrainingModule).where(models.TrainingModule.code == module_data["code"]))
             if module is None:

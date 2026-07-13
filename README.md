@@ -4,6 +4,18 @@
 
 Основной интерфейс для человека без опыта — `/control-room`. Продуктовый путь и правила измерения описаны в [docs/NOVICE_FIRST_CONTENT_FACTORY.md](docs/NOVICE_FIRST_CONTENT_FACTORY.md).
 
+## Продакшен: общий облачный продукт
+
+Рабочий режим ContentEngine — один HTTPS-интерфейс для команды: Render запускает
+web-сервис без локального состояния и отдельный worker, а Supabase предоставляет Auth,
+PostgreSQL и приватное объектное хранилище. Пользователь не запускает Python,
+не открывает `127.0.0.1` и не передаёт коллегам локальный пароль или папку с
+роликами. SQLite, локальные media-файлы и обход авторизации предназначены только
+для изолированной разработки и тестов.
+
+Инструкция запуска, обязательные переменные и release checklist:
+[docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md).
+
 Local MVP for an internal product content factory workflow:
 
 Product -> Script -> Video -> Review -> Package -> Schedule -> Upload -> Analytics.
@@ -13,7 +25,7 @@ The MVP is compliance-first. It uses mock providers by default and does not impl
 ## What Is Included
 
 - FastAPI app with server-rendered Jinja admin pages.
-- SQLite database through SQLAlchemy models.
+- PostgreSQL in shared production and isolated SQLite for local development/tests through SQLAlchemy models.
 - Product, brand guide, creative template, review, video, publishing, warm-up, upload, analytics, and export models.
 - MockLLMClient for strict JSON script generation and validation.
 - MockVideoProvider and FFmpeg-based assembly when FFmpeg is available.
@@ -990,7 +1002,7 @@ curl -X POST http://127.0.0.1:8014/api/script-jobs/generate \
 - Client billing is an immutable accounting ledger only. No payment provider, automatic charge, refund or participant transfer is performed.
 - Visual approval requires immutable frame/source fingerprints; OCR packaging checks also require local Tesseract when the contract marks OCR as mandatory.
 - In public/auth mode, legacy global routes are default-denied; only explicitly organization-scoped pilot APIs and the public `/r/{slug}` attribution redirect remain reachable.
-- SQLite is supported for a one-host pilot. PostgreSQL schema compatibility exists, but horizontal workers and production migrations still require an operational rollout plan.
+- SQLite is limited to isolated local development/tests. Shared production requires migrated PostgreSQL and private object storage as defined in `docs/CLOUD_DEPLOYMENT.md`.
 
 ## Checkpoints
 

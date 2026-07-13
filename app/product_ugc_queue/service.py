@@ -17,6 +17,10 @@ from app.product_ugc_queue.errors import (
     ProductUGCQueueOwnershipError,
     ProductUGCSubmissionAmbiguous,
 )
+from app.product_ugc_queue.generation_snapshot_guard import (
+    validate_mass_generation_pre_spend,
+)
+from app.product_ugc_queue.mass_projection import project_mass_generation_queue_state
 from app.product_ugc_queue.types import (
     EnqueueResult,
     FailureDisposition,
@@ -40,6 +44,23 @@ RECONCILIATION_CONFIRM_NO_SUBMISSION = "confirm_no_provider_submission"
 
 def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def stale_lease_reconciliation_query(now: datetime):
+    """Lock expired leases so concurrent reconcilers cannot erase a fresh lease."""
+
+    return (
+        select(models.ProductUGCGenerationJob)
+        .where(
+            models.ProductUGCGenerationJob.status.in_(LEASED_STATUSES),
+            or_(
+                models.ProductUGCGenerationJob.lease_expires_at.is_(None),
+                models.ProductUGCGenerationJob.lease_expires_at <= now,
+            ),
+        )
+        .order_by(models.ProductUGCGenerationJob.id)
+        .with_for_update(skip_locked=True)
+    )
 
 
 class ProductUGCGenerationQueueService:
@@ -277,6 +298,7 @@ class ProductUGCGenerationQueueService:
         *,
         lease_token: str,
         lease_seconds: int = 30,
+        provider_payload: object | None = None,
     ) -> models.ProductUGCGenerationJob:
         job = self.require_live_lease(job_id, lease_token=lease_token)
         if job.provider_task_id:
@@ -286,6 +308,11 @@ class ProductUGCGenerationQueueService:
                 "Provider submission was already spend-guarded but has no provider task id."
             )
         self._validate_initial_spend_authority(job)
+        validate_mass_generation_pre_spend(
+            self.db,
+            job,
+            provider_payload=provider_payload,
+        )
         now = self.clock()
         result = self.db.execute(
             update(models.ProductUGCGenerationJob)
@@ -295,6 +322,7 @@ class ProductUGCGenerationQueueService:
                 models.ProductUGCGenerationJob.status == "leased",
                 models.ProductUGCGenerationJob.spend_guarded_at.is_(None),
                 models.ProductUGCGenerationJob.provider_task_id.is_(None),
+                models.ProductUGCGenerationJob.lease_expires_at > now,
             )
             .values(
                 status="provider_launching",
@@ -319,6 +347,30 @@ class ProductUGCGenerationQueueService:
             draft.provider_status = "SUBMITTING"
         self.db.commit()
         return self._require_job(job_id)
+
+    def validate_provider_submission_inputs(
+        self,
+        job_id: int,
+        *,
+        lease_token: str,
+    ) -> models.ProductUGCGenerationJob:
+        """Validate immutable mass inputs before request materialization/preflight."""
+
+        job = self.require_live_lease(job_id, lease_token=lease_token)
+        if job.provider_task_id:
+            return job
+        validate_mass_generation_pre_spend(
+            self.db,
+            job,
+            provider_payload=None,
+            require_provider_payload=False,
+        )
+        # This is an early, DB-only stale-input check. Release its row locks
+        # before private-object materialization so up to 50 jobs in one batch
+        # do not serialize behind remote storage I/O. begin_provider_submission
+        # repeats the full validation and commits the atomic spend guard.
+        self.db.commit()
+        return job
 
     def record_provider_submission(
         self,
@@ -585,6 +637,7 @@ class ProductUGCGenerationQueueService:
             else:
                 draft.status = "provider_launching"
                 draft.provider_status = "RETRY_WAIT"
+        project_mass_generation_queue_state(self.db, job, now=now)
         if worker_id:
             self._touch_worker_heartbeat(
                 worker_id=worker_id,
@@ -640,6 +693,7 @@ class ProductUGCGenerationQueueService:
         if draft:
             draft.status = "provider_submitted" if job.provider_task_id else "provider_launching"
             draft.provider_status = job.provider_status or "RETRY_WAIT"
+        project_mass_generation_queue_state(self.db, job, now=now)
         self.db.commit()
         self.db.refresh(job)
         return job
@@ -1034,6 +1088,14 @@ class ProductUGCGenerationQueueService:
                     draft.provider_status = "RETRY_APPROVED_NO_SUBMISSION"
                     draft.status = "provider_launching"
 
+            # The SQL update intentionally bypasses ORM synchronization. Load
+            # the new retry state before reopening the linked creator work and
+            # mass-operation batch in this same transaction.
+            self.db.flush()
+            self.db.expire(job)
+            job = self._require_job(job.id)
+            project_mass_generation_queue_state(self.db, job, now=now)
+
             self.db.add(
                 models.AuditLog(
                     user_profile_id=actor_user_profile_id,
@@ -1111,30 +1173,28 @@ class ProductUGCGenerationQueueService:
         cutoff = now - timedelta(seconds=max(0, stale_after_seconds))
         released = terminal = quarantined = recovered = 0
 
-        stale_jobs = list(
-            self.db.scalars(
-                select(models.ProductUGCGenerationJob).where(
-                    models.ProductUGCGenerationJob.status.in_(LEASED_STATUSES),
-                    or_(
-                        models.ProductUGCGenerationJob.lease_expires_at.is_(None),
-                        models.ProductUGCGenerationJob.lease_expires_at <= now,
-                    ),
-                )
-            )
-        )
+        # PostgreSQL compiles this as FOR UPDATE SKIP LOCKED. A leasing worker
+        # or another reconciler therefore cannot change the row between the
+        # stale predicate and the state transition committed below. SQLite
+        # ignores the locking clause in isolated development/tests.
+        stale_jobs = list(self.db.scalars(stale_lease_reconciliation_query(now)))
         for job in stale_jobs:
             draft = self.db.get(models.ProductUGCRecipeDraft, job.draft_id)
             if job.spend_guarded_at and not job.provider_task_id:
                 self._quarantine_reconciled_job(job, draft, now)
+                project_mass_generation_queue_state(self.db, job, now=now)
                 quarantined += 1
             elif (job.provider_status or "").upper() in PROVIDER_FAILURE_STATUSES:
                 self._terminal_reconciled_job(job, draft, now, "provider_terminal_failure")
+                project_mass_generation_queue_state(self.db, job, now=now)
                 terminal += 1
             elif job.attempt_count >= job.max_attempts:
                 self._terminal_reconciled_job(job, draft, now, "retry_exhausted")
+                project_mass_generation_queue_state(self.db, job, now=now)
                 terminal += 1
             else:
                 self._release_reconciled_job(job, draft, now)
+                project_mass_generation_queue_state(self.db, job, now=now)
                 released += 1
 
         exhausted_ready_jobs = list(
@@ -1149,6 +1209,7 @@ class ProductUGCGenerationQueueService:
         for job in exhausted_ready_jobs:
             draft = self.db.get(models.ProductUGCRecipeDraft, job.draft_id)
             self._terminal_reconciled_job(job, draft, now, "retry_exhausted")
+            project_mass_generation_queue_state(self.db, job, now=now)
             terminal += 1
 
         job_exists = exists(
@@ -1455,21 +1516,39 @@ class ProductUGCGenerationQueueService:
             raise ProductUGCQueueOwnershipError(
                 "Initial provider submission requires an attributable active owner or admin."
             )
-        organization = self.db.get(models.Organization, job.organization_id)
-        profile = self.db.get(models.UserProfile, requester_id)
+        # Hold authority rows through the spend-guard commit. A concurrent
+        # suspension/revocation must serialize either wholly before this check
+        # (and reject) or wholly after the paid-submit reservation.
+        organization = self.db.scalar(
+            select(models.Organization)
+            .where(models.Organization.id == job.organization_id)
+            .with_for_update()
+        )
+        profile = self.db.scalar(
+            select(models.UserProfile)
+            .where(models.UserProfile.id == requester_id)
+            .with_for_update()
+        )
         membership = self.db.scalar(
-            select(models.Membership).where(
+            select(models.Membership)
+            .where(
                 models.Membership.organization_id == job.organization_id,
                 models.Membership.user_profile_id == requester_id,
-                models.Membership.status == "active",
-                models.Membership.role.in_(["owner", "admin"]),
             )
+            .with_for_update()
         )
         if not organization or organization.status != "active":
             raise ProductUGCQueueOwnershipError(
                 "Organization is inactive; a new paid provider submission is forbidden."
             )
-        if not profile or not profile.is_active or profile.status != "active" or membership is None:
+        if (
+            not profile
+            or not profile.is_active
+            or profile.status != "active"
+            or membership is None
+            or membership.status != "active"
+            or membership.role not in {"owner", "admin"}
+        ):
             raise ProductUGCQueueOwnershipError(
                 "Paid generation authority was revoked before provider submission."
             )

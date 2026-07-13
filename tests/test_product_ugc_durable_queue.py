@@ -9,6 +9,7 @@ os.environ["QVF_AUTH_REQUIRED"] = "false"
 
 import pytest
 from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -25,6 +26,11 @@ from app.product_ugc_queue import (
     ProductUGCQueueOwnershipError,
     ProductUGCSubmissionAmbiguous,
 )
+from app.product_ugc_queue.mass_projection import (
+    project_mass_generation_queue_state,
+    project_mass_generation_ready,
+)
+from app.product_ugc_queue.service import stale_lease_reconciliation_query
 from app.runway_recipes import ProductUGCRecipeRunner, RunwayRecipeError
 
 
@@ -43,6 +49,17 @@ QueueTestSession = sessionmaker(
 
 def naive_utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def test_stale_reconciliation_locks_and_skips_rows_owned_by_another_reconciler():
+    compiled = str(
+        stale_lease_reconciliation_query(naive_utcnow()).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).upper()
+
+    assert "FOR UPDATE SKIP LOCKED" in compiled
 
 
 @pytest.fixture(autouse=True)
@@ -127,6 +144,132 @@ def create_draft(db, org, *, status: str = "ready_for_paid_preflight", suffix: s
     db.commit()
     db.refresh(draft)
     return draft
+
+
+def test_success_telemetry_counts_durable_cloud_video_after_local_paths_are_cleared():
+    with QueueTestSession() as db:
+        org, user = create_scope(db, slug="telemetry-cloud-output")
+        draft = create_draft(db, org, status="generated_needs_human_review", suffix="telemetry")
+        draft.local_output_paths_json = []
+        job = models.ProductUGCGenerationJob(
+            draft_id=draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="telemetry-cloud-output-job",
+            status="succeeded",
+            attempt_count=1,
+            max_attempts=5,
+            next_attempt_at=naive_utcnow(),
+            provider="runway_product_ugc_recipe",
+            provider_task_id="provider-telemetry-cloud-output",
+            provider_status="SUCCEEDED",
+            completed_at=naive_utcnow(),
+            metadata_json={},
+        )
+        db.add(job)
+        db.flush()
+        db.add(
+            models.MediaArtifact(
+                public_id="1" * 32,
+                idempotency_key="telemetry-cloud-output-artifact",
+                organization_id=org.id,
+                created_by_user_profile_id=user.id,
+                product_id=draft.product_id,
+                product_ugc_recipe_draft_id=draft.id,
+                kind="master_video",
+                backend_name="supabase",
+                bucket="private-media",
+                object_key=(
+                    f"organizations/{org.id:08d}/products/{draft.product_id:08d}/"
+                    f"drafts/{draft.id:08d}/videos/{job.id:08d}/master_video/"
+                    f"{'1' * 32}/video.mp4"
+                ),
+                original_filename="video.mp4",
+                mime_type="video/mp4",
+                size_bytes=1_024,
+                sha256="1" * 64,
+                status="ready",
+                metadata_json={},
+                retention_class="master_365d",
+                legal_hold=False,
+            )
+        )
+        db.commit()
+
+        ProductUGCGenerationWorker(db)._record_terminal_event(job)
+
+        event = db.scalar(
+            select(models.FactoryEvent).where(
+                models.FactoryEvent.event_name == "generation_succeeded"
+            )
+        )
+        assert event is not None
+        assert event.properties_json["output_count"] == 1
+        assert event.properties_json["queue_status"] == "succeeded"
+
+
+def attach_mass_generation(db, org, user, *jobs):
+    batch = models.MassOperationBatch(
+        organization_id=org.id,
+        created_by_user_profile_id=user.id,
+        operation_type="generation",
+        name="Durable queue projection batch",
+        idempotency_key=f"queue-projection:{jobs[0].id}",
+        status="queued",
+        dry_run=False,
+        total_requested=len(jobs),
+        total_accepted=len(jobs),
+        total_failed=0,
+        parameters_json={},
+        results_json=[],
+        errors_json=[],
+        started_at=models.utcnow(),
+    )
+    db.add(batch)
+    db.flush()
+    tasks = []
+    results = []
+    for sequence, job in enumerate(jobs, start=1):
+        draft = db.get(models.ProductUGCRecipeDraft, job.draft_id)
+        metadata = dict(job.metadata_json or {})
+        metadata.update(
+            {
+                "source": "mass_operation",
+                "mass_operation_batch_id": batch.id,
+                "sequence": sequence,
+            }
+        )
+        job.metadata_json = metadata
+        task = models.CreatorTask(
+            organization_id=org.id,
+            assignee_user_profile_id=user.id,
+            created_by_user_profile_id=user.id,
+            mass_operation_batch_id=batch.id,
+            product_id=draft.product_id,
+            product_ugc_recipe_draft_id=draft.id,
+            task_type="review_generated_video",
+            title=f"Review generated video {sequence}",
+            status="todo",
+            priority=3,
+            blockers_json=[],
+            result_json={},
+            idempotency_key=f"queue-projection:{batch.id}:task:{sequence}",
+        )
+        db.add(task)
+        db.flush()
+        tasks.append(task)
+        results.append(
+            {
+                "sequence": sequence,
+                "draft_id": draft.id,
+                "generation_job_id": job.id,
+                "creator_task_id": task.id,
+                "status": "queued",
+            }
+        )
+    batch.results_json = results
+    db.commit()
+    return batch, tasks
 
 
 def quarantine_ambiguous_job(db, org, user, *, key: str = "ambiguous-for-reconciliation"):
@@ -312,6 +455,270 @@ def test_retry_backoff_is_bounded_and_becomes_terminal_at_attempt_limit():
         assert terminal.job.status == "failed_terminal"
         assert terminal.job.terminal_reason == "retry_exhausted"
         assert terminal.job.attempt_count == terminal.job.max_attempts == 2
+
+
+def test_retry_wait_keeps_mass_generation_task_and_batch_actionable():
+    now = [datetime(2026, 7, 11, 11, 30, 0)]
+    with QueueTestSession() as db:
+        org, user = create_scope(db, slug="projection-retry")
+        draft = create_draft(db, org, suffix="projection-retry")
+        service = ProductUGCGenerationQueueService(db, clock=lambda: now[0])
+        job = service.enqueue(
+            draft_id=draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="projection-retry-job",
+            max_attempts=2,
+        ).job
+        batch, tasks = attach_mass_generation(db, org, user, job)
+
+        leased = service.lease_job(job.id, worker_id="projection-retry-worker")
+        disposition = service.fail(
+            job.id,
+            lease_token=leased.lease_token,
+            error="temporary download timeout",
+            error_code="DOWNLOAD_TIMEOUT",
+            retryable=True,
+        )
+
+        db.refresh(batch)
+        db.refresh(tasks[0])
+        assert disposition.will_retry is True
+        assert tasks[0].status == "todo"
+        assert tasks[0].blockers_json == []
+        assert tasks[0].result_json["generation_queue_status"] == "retry_wait"
+        assert batch.status == "queued"
+        assert batch.total_failed == 0
+        assert batch.completed_at is None
+        assert batch.errors_json == []
+        assert batch.results_json[0]["status"] == "retry_wait"
+
+
+def test_terminal_generation_failure_blocks_linked_work_with_action_and_is_idempotent():
+    now = [datetime(2026, 7, 11, 11, 45, 0)]
+    with QueueTestSession() as db:
+        org, user = create_scope(db, slug="projection-terminal")
+        draft = create_draft(db, org, suffix="projection-terminal")
+        service = ProductUGCGenerationQueueService(db, clock=lambda: now[0])
+        job = service.enqueue(
+            draft_id=draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="projection-terminal-job",
+            max_attempts=1,
+        ).job
+        batch, tasks = attach_mass_generation(db, org, user, job)
+
+        foreign_org, foreign_user = create_scope(
+            db,
+            slug="projection-foreign",
+            email="foreign@projection.test",
+        )
+        foreign_task = models.CreatorTask(
+            organization_id=foreign_org.id,
+            assignee_user_profile_id=foreign_user.id,
+            created_by_user_profile_id=foreign_user.id,
+            mass_operation_batch_id=batch.id,
+            product_ugc_recipe_draft_id=draft.id,
+            task_type="review_generated_video",
+            title="Must remain outside projection",
+            status="todo",
+            priority=3,
+            blockers_json=[],
+            result_json={},
+            idempotency_key="projection-foreign-task",
+        )
+        db.add(foreign_task)
+        db.commit()
+
+        leased = service.lease_job(job.id, worker_id="projection-terminal-worker")
+        disposition = service.fail(
+            job.id,
+            lease_token=leased.lease_token,
+            error="provider permanently rejected the request",
+            error_code="PROVIDER_REJECTED",
+            retryable=False,
+        )
+        project_mass_generation_queue_state(db, disposition.job, now=now[0])
+        project_mass_generation_queue_state(db, disposition.job, now=now[0])
+        db.commit()
+
+        db.refresh(batch)
+        db.refresh(tasks[0])
+        db.refresh(foreign_task)
+        assert disposition.will_retry is False
+        assert tasks[0].status == "blocked"
+        assert len(tasks[0].blockers_json) == 1
+        blocker = tasks[0].blockers_json[0]
+        assert blocker["code"] == "generation_terminal_failure"
+        assert blocker["generation_job_id"] == job.id
+        assert "Owner/admin" in blocker["action"]
+        failure = tasks[0].result_json["generation_failure"]
+        assert failure["error_code"] == "PROVIDER_REJECTED"
+        assert "ручной повтор" in failure["action"]
+        assert batch.status == "completed_with_errors"
+        assert batch.total_failed == 1
+        assert batch.results_json[0]["status"] == "failed_terminal"
+        assert len(batch.errors_json) == 1
+        assert batch.errors_json[0]["generation_job_id"] == job.id
+        assert foreign_task.status == "todo"
+        assert foreign_task.blockers_json == []
+
+
+def test_manual_retry_reopens_only_generation_failure_projection():
+    now = [datetime(2026, 7, 11, 11, 50, 0)]
+    with QueueTestSession() as db:
+        org, user = create_scope(db, slug="projection-manual-retry")
+        draft = create_draft(db, org, suffix="projection-manual-retry")
+        service = ProductUGCGenerationQueueService(db, clock=lambda: now[0])
+        job = service.enqueue(
+            draft_id=draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="projection-manual-retry-job",
+            max_attempts=1,
+        ).job
+        batch, tasks = attach_mass_generation(db, org, user, job)
+        leased = service.lease_job(job.id, worker_id="projection-manual-retry-worker")
+        terminal = service.fail(
+            job.id,
+            lease_token=leased.lease_token,
+            error="local storage was temporarily unavailable",
+            error_code="STORAGE_UNAVAILABLE",
+            retryable=True,
+        )
+        assert terminal.job.terminal_reason == "retry_exhausted"
+
+        retried = service.manual_retry(
+            job.id,
+            organization_id=org.id,
+            actor_user_profile_id=user.id,
+        )
+
+        db.refresh(batch)
+        db.refresh(tasks[0])
+        assert retried.status == "retry_wait"
+        assert tasks[0].status == "todo"
+        assert tasks[0].blockers_json == []
+        assert "generation_failure" not in tasks[0].result_json
+        assert tasks[0].result_json["last_generation_failure"]["error_code"] == "STORAGE_UNAVAILABLE"
+        assert batch.status == "queued"
+        assert batch.total_failed == 0
+        assert batch.completed_at is None
+        assert batch.errors_json == []
+        assert batch.results_json[0]["status"] == "retry_wait"
+
+
+def test_quarantine_blocks_mass_work_until_owner_reconciliation_reopens_it():
+    now = [datetime(2026, 7, 11, 11, 52, 0)]
+    with QueueTestSession() as db:
+        org, user = create_scope(db, slug="projection-quarantine")
+        draft = create_draft(db, org, suffix="projection-quarantine")
+        service = ProductUGCGenerationQueueService(db, clock=lambda: now[0])
+        job = service.enqueue(
+            draft_id=draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="projection-quarantine-job",
+        ).job
+        leased = service.lease_job(job.id, worker_id="projection-quarantine-worker")
+        service.begin_provider_submission(job.id, lease_token=leased.lease_token)
+        # This test exercises failure projection after an already-ambiguous
+        # legacy submit. Attach the synthetic mass lineage only after the spend
+        # guard; real mass jobs must carry the full immutable snapshot contract.
+        batch, tasks = attach_mass_generation(db, org, user, job)
+
+        quarantined = service.fail(
+            job.id,
+            lease_token=leased.lease_token,
+            error="provider response was lost after the paid submit",
+        )
+        db.refresh(batch)
+        db.refresh(tasks[0])
+        assert quarantined.will_retry is False
+        assert quarantined.quarantined is True
+        assert tasks[0].status == "blocked"
+        assert tasks[0].blockers_json[0]["code"] == (
+            "generation_quarantine_requires_reconciliation"
+        )
+        assert "Автоматический повтор запрещён" in tasks[0].blockers_json[0]["action"]
+        assert batch.status == "completed_with_errors"
+        assert batch.total_failed == 1
+
+        reconciled = service.reconcile_confirm_no_provider_submission(
+            job.id,
+            organization_id=org.id,
+            actor_user_profile_id=user.id,
+            evidence_reference="provider-console-case-projection-quarantine",
+            reason=(
+                "Provider console history and support evidence confirm that no generation "
+                "submission exists."
+            ),
+            idempotency_key="projection-quarantine-reconciliation",
+            confirmed_no_submission=True,
+        )
+
+        db.refresh(batch)
+        db.refresh(tasks[0])
+        assert reconciled.job.status == "retry_wait"
+        assert tasks[0].status == "todo"
+        assert tasks[0].blockers_json == []
+        assert batch.status == "queued"
+        assert batch.total_failed == 0
+        assert batch.errors_json == []
+
+
+def test_multi_item_batch_finishes_with_errors_after_other_output_is_ready():
+    now = datetime(2026, 7, 11, 11, 55, 0)
+    with QueueTestSession() as db:
+        org, user = create_scope(db, slug="projection-multi")
+        first_draft = create_draft(db, org, suffix="projection-multi-1")
+        second_draft = create_draft(db, org, suffix="projection-multi-2")
+        service = ProductUGCGenerationQueueService(db, clock=lambda: now)
+        first_job = service.enqueue(
+            draft_id=first_draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="projection-multi-job-1",
+            max_attempts=1,
+        ).job
+        second_job = service.enqueue(
+            draft_id=second_draft.id,
+            organization_id=org.id,
+            requested_by_user_profile_id=user.id,
+            idempotency_key="projection-multi-job-2",
+            max_attempts=1,
+        ).job
+        batch, tasks = attach_mass_generation(db, org, user, first_job, second_job)
+
+        leased = service.lease_job(first_job.id, worker_id="projection-multi-worker")
+        service.fail(
+            first_job.id,
+            lease_token=leased.lease_token,
+            error="first item failed permanently",
+            retryable=False,
+        )
+        db.refresh(batch)
+        assert batch.status == "running"
+        assert batch.total_failed == 1
+        assert batch.completed_at is None
+
+        project_mass_generation_ready(
+            db,
+            second_job,
+            media_artifact_public_id="artifact-ready-2",
+            now=now,
+        )
+        db.commit()
+        db.refresh(batch)
+        db.refresh(tasks[1])
+        assert batch.status == "completed_with_errors"
+        assert batch.total_failed == 1
+        assert batch.completed_at == now
+        assert [item["status"] for item in batch.results_json] == [
+            "failed_terminal",
+            "ready_for_review",
+        ]
 
 
 def test_spend_guard_without_provider_task_is_quarantined_and_never_retryable():

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.destination_connectors.types import DestinationMetricSyncResult, DestinationMetricsSummary
+from app.publishing.publication_identity import find_task_by_publication_url
 
 
 class DestinationMetricsCollector:
@@ -158,9 +159,15 @@ class DestinationMetricsCollector:
         platform = self._text(row.get("platform")) or (connection.platform if connection else "")
         if not platform:
             raise ValueError("platform is required")
-        task = self._task_by_url(posted_url)
+        task = self._task_by_url(
+            posted_url,
+            platform=platform,
+            destination_id=(connection.destination_id if connection else None),
+        )
         if posted_url and not task:
             warnings.append("posted_url_not_matched_to_task")
+        if task is not None:
+            posted_url = task.final_url
         destination = task.destination if task else (connection.destination if connection else self._destination(row.get("destination_name"), platform))
         campaign_id = self._int(row.get("campaign_id")) or default_campaign_id
         if not campaign_id:
@@ -273,10 +280,19 @@ class DestinationMetricsCollector:
             query = query.where(models.DestinationPostMetric.destination_id == destination_id)
         return self.db.scalar(query)
 
-    def _task_by_url(self, posted_url: str | None) -> models.PublishingTask | None:
-        if not posted_url:
-            return None
-        return self.db.scalar(select(models.PublishingTask).where(models.PublishingTask.final_url == posted_url))
+    def _task_by_url(
+        self,
+        posted_url: str | None,
+        *,
+        platform: str | None = None,
+        destination_id: int | None = None,
+    ) -> models.PublishingTask | None:
+        return find_task_by_publication_url(
+            self.db,
+            posted_url,
+            platform=platform,
+            destination_id=destination_id,
+        )
 
     def _destination(self, name: Any, platform: str) -> models.PublishingDestination | None:
         destination_name = self._text(name)

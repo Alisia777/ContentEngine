@@ -15,6 +15,10 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.metrics_intake.platform_matrix import PlatformMetricsMatrix
+from app.publishing.publication_identity import (
+    PublicationIdentityError,
+    canonical_publication_url,
+)
 from app.social_metrics_ingestion.errors import SocialMetricAccessError, SocialMetricValidationError
 from app.social_metrics_ingestion.types import SocialMetricIngestionResult, SocialMetricObservation
 
@@ -463,8 +467,12 @@ class SocialMetricIngestionService:
         if observation.final_url:
             url_ids = set()
             for task in platform_tasks:
-                task_url = self._normalized_stored_url(task.final_url)
-                if task_url and task_url == observation.final_url:
+                task_url = self._publication_identity(task.final_url, task.destination)
+                observed_url = self._publication_identity(
+                    observation.final_url,
+                    task.destination,
+                )
+                if task_url and observed_url and task_url == observed_url:
                     url_ids.add(task.id)
             if not url_ids:
                 return self._quarantine(
@@ -547,7 +555,7 @@ class SocialMetricIngestionService:
                 candidate_count=len(candidate_ids),
             )
         task = task_by_id[next(iter(candidate_ids))]
-        normalized_task_url = self._normalized_stored_url(task.final_url)
+        normalized_task_url = self._publication_identity(task.final_url, task.destination)
         if task.status not in PUBLISHED_TASK_STATUSES or not normalized_task_url:
             return self._quarantine(
                 observation,
@@ -562,7 +570,11 @@ class SocialMetricIngestionService:
                 payload_hash=payload_hash,
                 reason="publishing_task_final_url_is_not_a_real_platform_post",
             )
-        if observation.final_url and normalized_task_url != observation.final_url:
+        observed_identity = self._publication_identity(
+            observation.final_url,
+            task.destination,
+        )
+        if observation.final_url and normalized_task_url != observed_identity:
             return self._quarantine(
                 observation,
                 observation_key=observation_key,
@@ -651,8 +663,8 @@ class SocialMetricIngestionService:
                     canonical_key=canonical_key,
                     reason="canonical_metric_scope_conflict",
                 )
-            metric_url = self._normalized_stored_url(metric.posted_url)
-            task_url = self._normalized_stored_url(task.final_url)
+            metric_url = self._publication_identity(metric.posted_url, task.destination)
+            task_url = self._publication_identity(task.final_url, task.destination)
             if metric.posted_url and (metric_url is None or metric_url != task_url):
                 return self._quarantine(
                     observation,
@@ -671,7 +683,7 @@ class SocialMetricIngestionService:
                 )
             return metric
 
-        task_final_url = self._normalized_stored_url(task.final_url)
+        task_final_url = self._publication_identity(task.final_url, task.destination)
         identity_clauses = [models.DestinationPostMetric.posted_url.is_not(None)]
         if observation.external_post_id:
             identity_clauses.append(models.DestinationPostMetric.provider_post_id == observation.external_post_id)
@@ -687,7 +699,8 @@ class SocialMetricIngestionService:
                 continue
             url_matches = bool(
                 task_final_url
-                and self._normalized_stored_url(metric.posted_url) == task_final_url
+                and self._publication_identity(metric.posted_url, task.destination)
+                == task_final_url
             )
             external_id_matches = bool(
                 observation.external_post_id
@@ -731,7 +744,7 @@ class SocialMetricIngestionService:
         metric.product_id = product.id
         metric.sku = product.sku
         metric.platform = observation.platform
-        metric.posted_url = self._normalized_stored_url(task.final_url)
+        metric.posted_url = self._publication_identity(task.final_url, task.destination)
         metric.provider_post_id = observation.external_post_id or metric.provider_post_id
         metric.period_start = observation.period_start
         metric.period_end = observation.period_end
@@ -1088,6 +1101,19 @@ class SocialMetricIngestionService:
             return cls._normalize_url(value)
         except SocialMetricValidationError:
             return None
+
+    @classmethod
+    def _publication_identity(
+        cls,
+        value: str | None,
+        destination: models.PublishingDestination | None,
+    ) -> str | None:
+        if not value or destination is None:
+            return None
+        try:
+            return canonical_publication_url(value, destination)
+        except PublicationIdentityError:
+            return cls._normalized_stored_url(value)
 
     @classmethod
     def _safe_public_url(cls, value: str | None) -> str | None:

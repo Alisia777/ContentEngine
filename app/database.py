@@ -8,6 +8,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import get_settings
+from app.postgres_integrity import install_postgresql_integrity_guards
 
 
 class Base(DeclarativeBase):
@@ -33,7 +34,12 @@ def _refuse_workspace_database_under_pytest(database_url: str) -> None:
 
 _refuse_workspace_database_under_pytest(settings.database_url)
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+engine_options = {"connect_args": connect_args}
+if not settings.database_url.startswith("sqlite"):
+    # Supabase/managed poolers can recycle server connections independently of
+    # the web process; validate a checkout before handing it to a request.
+    engine_options.update({"pool_pre_ping": True, "pool_recycle": 300})
+engine = create_engine(settings.database_url, **engine_options)
 
 
 if settings.database_url.startswith("sqlite"):
@@ -65,6 +71,9 @@ def init_db() -> None:
     _ensure_customer_billing_schema(engine)
     _ensure_visual_evidence_schema(engine)
     _ensure_wildberries_seller_analytics_schema(engine)
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            install_postgresql_integrity_guards(connection)
 
 
 def _ensure_sqlite_schema() -> None:
@@ -119,6 +128,8 @@ def _ensure_sqlite_schema() -> None:
         {
             "creative_variant_id": "ALTER TABLE publishing_packages ADD COLUMN creative_variant_id INTEGER",
             "review_status": "ALTER TABLE publishing_packages ADD COLUMN review_status VARCHAR(80) DEFAULT 'needs_review'",
+            "organization_id": "ALTER TABLE publishing_packages ADD COLUMN organization_id INTEGER",
+            "media_artifact_id": "ALTER TABLE publishing_packages ADD COLUMN media_artifact_id INTEGER",
         },
     )
     _add_missing_sqlite_columns(
@@ -134,11 +145,21 @@ def _ensure_sqlite_schema() -> None:
         inspector,
         "product_ugc_recipe_drafts",
         {
+            "created_by_user_profile_id": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN created_by_user_profile_id INTEGER",
+            "assigned_to_user_profile_id": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN assigned_to_user_profile_id INTEGER",
             "local_output_paths_json": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN local_output_paths_json TEXT DEFAULT '[]'",
             "generation_report_path": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN generation_report_path VARCHAR(1000)",
             "human_review_status": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN human_review_status VARCHAR(80) DEFAULT 'not_generated'",
             "publishing_readiness": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN publishing_readiness VARCHAR(80) DEFAULT 'blocked'",
             "human_review_notes": "ALTER TABLE product_ugc_recipe_drafts ADD COLUMN human_review_notes TEXT",
+        },
+    )
+    _add_missing_sqlite_columns(
+        inspector,
+        "campaigns",
+        {
+            "organization_id": "ALTER TABLE campaigns ADD COLUMN organization_id INTEGER",
+            "created_by_user_profile_id": "ALTER TABLE campaigns ADD COLUMN created_by_user_profile_id INTEGER",
         },
     )
     _add_missing_sqlite_columns(
@@ -313,31 +334,6 @@ def _ensure_product_ugc_generation_queue_schema(bind) -> None:
             )
         return
 
-    if bind.dialect.name == "postgresql":
-        with bind.begin() as connection:
-            connection.execute(
-                text(
-                    "CREATE OR REPLACE FUNCTION prevent_product_ugc_queue_reconciliation_mutation() "
-                    "RETURNS trigger AS $$ BEGIN "
-                    "RAISE EXCEPTION 'product ugc queue reconciliation is append-only'; "
-                    "END; $$ LANGUAGE plpgsql"
-                )
-            )
-            connection.execute(
-                text(
-                    "DROP TRIGGER IF EXISTS product_ugc_queue_reconciliation_no_mutation "
-                    "ON product_ugc_queue_reconciliations"
-                )
-            )
-            connection.execute(
-                text(
-                    "CREATE TRIGGER product_ugc_queue_reconciliation_no_mutation "
-                    "BEFORE UPDATE OR DELETE ON product_ugc_queue_reconciliations "
-                    "FOR EACH ROW EXECUTE FUNCTION "
-                    "prevent_product_ugc_queue_reconciliation_mutation()"
-                )
-            )
-
 
 def _ensure_customer_billing_schema(bind) -> None:
     """Install isolated append-only customer billing tables and SQLite guards."""
@@ -385,54 +381,6 @@ def _ensure_customer_billing_schema(bind) -> None:
                     "ELSE -amount_minor END), 0) FROM customer_billing_ledger_entries "
                     "WHERE invoice_id = NEW.invoice_id AND organization_id = NEW.organization_id"
                     ") BEGIN SELECT RAISE(ABORT, 'customer billing entry exceeds outstanding balance'); END"
-                )
-            )
-    elif bind.dialect.name == "postgresql":
-        with bind.begin() as connection:
-            connection.execute(
-                text(
-                    "CREATE OR REPLACE FUNCTION qvf_customer_billing_append_only() "
-                    "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-                    "RAISE EXCEPTION 'customer billing records are append-only'; END; $$;"
-                )
-            )
-            for table_name in (
-                "customer_billing_accounts",
-                "customer_billing_subscription_states",
-                "customer_invoices",
-                "customer_billing_ledger_entries",
-            ):
-                trigger_name = f"{table_name}_append_only"
-                connection.execute(
-                    text(
-                        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = "
-                        f"'{trigger_name}') THEN CREATE TRIGGER {trigger_name} "
-                        f"BEFORE UPDATE OR DELETE ON {table_name} FOR EACH ROW "
-                        "EXECUTE FUNCTION qvf_customer_billing_append_only(); END IF; END; $$;"
-                    )
-                )
-            connection.execute(
-                text(
-                    "CREATE OR REPLACE FUNCTION qvf_customer_billing_no_overapply() "
-                    "RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE outstanding BIGINT; BEGIN "
-                    "IF NEW.entry_kind IN ('credit', 'payment') THEN "
-                    "PERFORM id FROM customer_invoices WHERE id = NEW.invoice_id FOR UPDATE; "
-                    "SELECT COALESCE(SUM(CASE WHEN entry_kind = 'charge' THEN amount_minor "
-                    "ELSE -amount_minor END), 0) INTO outstanding "
-                    "FROM customer_billing_ledger_entries WHERE invoice_id = NEW.invoice_id "
-                    "AND organization_id = NEW.organization_id; "
-                    "IF NEW.amount_minor > outstanding THEN "
-                    "RAISE EXCEPTION 'customer billing entry exceeds outstanding balance'; "
-                    "END IF; END IF; RETURN NEW; END; $$;"
-                )
-            )
-            connection.execute(
-                text(
-                    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = "
-                    "'customer_billing_ledger_no_overapply') THEN "
-                    "CREATE TRIGGER customer_billing_ledger_no_overapply "
-                    "BEFORE INSERT ON customer_billing_ledger_entries FOR EACH ROW "
-                    "EXECUTE FUNCTION qvf_customer_billing_no_overapply(); END IF; END; $$;"
                 )
             )
 
@@ -587,22 +535,6 @@ def _ensure_visual_evidence_schema(bind) -> None:
                     "END IF; END; $$;"
                 )
             )
-            connection.execute(
-                text(
-                    "CREATE OR REPLACE FUNCTION qvf_visual_evidence_append_only() "
-                    "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-                    "RAISE EXCEPTION 'visual evidence snapshots are append-only'; END; $$;"
-                )
-            )
-            connection.execute(
-                text(
-                    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = "
-                    "'visual_evidence_snapshot_append_only') THEN "
-                    "CREATE TRIGGER visual_evidence_snapshot_append_only "
-                    "BEFORE UPDATE OR DELETE ON visual_evidence_snapshots FOR EACH ROW "
-                    "EXECUTE FUNCTION qvf_visual_evidence_append_only(); END IF; END; $$;"
-                )
-            )
 
 
 def _ensure_wildberries_seller_analytics_schema(bind) -> None:
@@ -639,25 +571,6 @@ def _ensure_wildberries_seller_analytics_schema(bind) -> None:
                         f"CREATE TRIGGER IF NOT EXISTS {trigger_prefix}_no_delete "
                         f"BEFORE DELETE ON {table_name} "
                         "BEGIN SELECT RAISE(ABORT, 'Wildberries analytics evidence is append-only'); END"
-                    )
-                )
-    elif bind.dialect.name == "postgresql":
-        with bind.begin() as connection:
-            connection.execute(
-                text(
-                    "CREATE OR REPLACE FUNCTION qvf_wildberries_analytics_append_only() "
-                    "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-                    "RAISE EXCEPTION 'Wildberries analytics evidence is append-only'; END; $$;"
-                )
-            )
-            for table_name in immutable_tables:
-                trigger_name = f"{table_name}_append_only"
-                connection.execute(
-                    text(
-                        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = "
-                        f"'{trigger_name}') THEN CREATE TRIGGER {trigger_name} "
-                        f"BEFORE UPDATE OR DELETE ON {table_name} FOR EACH ROW "
-                        "EXECUTE FUNCTION qvf_wildberries_analytics_append_only(); END IF; END; $$;"
                     )
                 )
 

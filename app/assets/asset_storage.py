@@ -4,6 +4,7 @@ import hashlib
 import mimetypes
 import re
 from pathlib import Path
+from typing import Mapping
 
 from sqlalchemy.orm import Session
 
@@ -11,13 +12,23 @@ from app import models
 from app.assets.errors import AssetKitDataError
 from app.assets.image_registry import ImageRegistry, SUPPORTED_EXTENSIONS
 from app.config import get_settings
+from app.media_storage.backend import StorageBackend
+from app.media_storage.errors import MediaArtifactError, StorageError
+from app.media_storage.factory import get_storage_backends
+from app.media_storage.service import MediaArtifactService
 
 
 class ProductAssetStorage:
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        *,
+        backends: Mapping[str, StorageBackend] | None = None,
+    ):
         self.db = db
         self.settings = get_settings()
         self.registry = ImageRegistry()
+        self.backends = dict(backends) if backends is not None else None
 
     def upload_file(
         self,
@@ -28,44 +39,88 @@ class ProductAssetStorage:
         asset_type: str | None = None,
         manual_label: str | None = None,
         is_primary_reference: bool = False,
+        created_by_user_profile_id: int | None = None,
     ) -> models.ProductAsset:
         product = self._product(product_id)
         kit = self._latest_or_create_kit(product.id)
         safe_name = self.safe_filename(filename)
         checksum = hashlib.sha256(content).hexdigest()
+        artifact: models.MediaArtifact | None = None
+        durable = self.settings.runtime_profile == "production" or self.backends is not None
+        if durable:
+            if product.organization_id is None or created_by_user_profile_id is None:
+                raise AssetKitDataError(
+                    "Durable product-reference upload requires an organization and attributable user."
+                )
+            backends, backend = self._artifact_backend()
+            try:
+                artifact = MediaArtifactService(self.db, backends).store_bytes(
+                    organization_id=product.organization_id,
+                    created_by_user_profile_id=created_by_user_profile_id,
+                    backend_name=backend.name,
+                    kind="product_reference",
+                    content=content,
+                    mime_type=mimetypes.guess_type(safe_name)[0] or "application/octet-stream",
+                    original_filename=safe_name,
+                    product_id=product.id,
+                    metadata={"source": "product_asset_upload"},
+                )
+            except (MediaArtifactError, StorageError) as exc:
+                raise AssetKitDataError("Product reference could not be stored privately.") from exc
         asset = models.ProductAsset(
             product_id=product.id,
             asset_kit_id=kit.id,
-            source_ref="pending",
-            source_type="local",
+            media_artifact_id=artifact.id if artifact else None,
+            source_ref=f"media-artifact://{artifact.public_id}" if artifact else "pending",
+            source_type="media_artifact" if artifact else "local",
             asset_type=asset_type or self.registry.classify(safe_name),
             asset_role="primary_reference" if is_primary_reference else None,
             filename=safe_name,
             extension=Path(safe_name).suffix.lower() or None,
             mime_type=mimetypes.guess_type(safe_name)[0],
-            exists=False,
+            exists=artifact is not None,
             status="ready",
             is_primary_reference=is_primary_reference,
             is_safe_for_real_generation=False,
             manual_label=manual_label,
             review_status="pending",
             checksum=checksum,
-            metadata_json={"storage": "local_upload"},
+            metadata_json=(
+                {
+                    "storage": "private_media_artifact",
+                    "artifact_public_id": artifact.public_id,
+                }
+                if artifact
+                else {"storage": "local_upload"}
+            ),
             warnings_json=[],
         )
         self.db.add(asset)
         self.db.flush()
-        target_dir = self.settings.media_root / "products" / str(product.id) / "assets"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{asset.id}_{safe_name}"
-        target_path.write_bytes(content)
-        asset.source_ref = target_path.as_posix()
-        asset.exists = target_path.exists()
+        if artifact is None:
+            target_dir = self.settings.media_root / "products" / str(product.id) / "assets"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_path = target_dir / f"{asset.id}_{safe_name}"
+            target_path.write_bytes(content)
+            asset.source_ref = target_path.as_posix()
+            asset.exists = target_path.exists()
         self._mark_primary(asset)
         self._sync_kit(kit)
         self.db.commit()
         self.db.refresh(asset)
         return asset
+
+    def _artifact_backend(self) -> tuple[dict[str, StorageBackend], StorageBackend]:
+        backends = dict(self.backends) if self.backends is not None else get_storage_backends()
+        if not backends:
+            raise AssetKitDataError("Private media storage is not configured.")
+        preferred = backends.get(str(self.settings.storage_backend))
+        backend = preferred or (next(iter(backends.values())) if len(backends) == 1 else None)
+        if backend is None:
+            raise AssetKitDataError("Private media storage backend is ambiguous.")
+        if self.settings.runtime_profile == "production" and backend.name == "local":
+            raise AssetKitDataError("Local product-reference storage is forbidden in production.")
+        return backends, backend
 
     def attach_url(
         self,
@@ -179,6 +234,7 @@ class ProductAssetStorage:
         kit.assets_json = [
             {
                 "id": asset.id,
+                "media_artifact_id": asset.media_artifact_id,
                 "source_ref": asset.source_ref,
                 "source_type": asset.source_type,
                 "asset_type": asset.asset_type,

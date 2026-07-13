@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.campaign_performance.errors import CampaignPerformanceDataError
 from app.campaign_performance.types import PerformanceImportResult
+from app.publishing.publication_identity import find_task_by_publication_url
 
 
 class CampaignMetricsImporter:
@@ -64,9 +65,11 @@ class CampaignMetricsImporter:
         posted_url = self._text(row.get("posted_url")) or None
         if not platform:
             raise ValueError("platform is required")
-        task = self._task_by_url(posted_url)
+        task = self._task_by_url(posted_url, platform=platform)
         if posted_url and not task:
             warnings.append("posted_url_not_matched_to_task")
+        if task is not None:
+            posted_url = task.final_url
         package = task.publishing_package if task else None
         destination = task.destination if task else self._destination_by_name(row.get("destination_name"))
         product = self.db.scalar(select(models.Product).where(models.Product.sku == sku)) if sku else None
@@ -152,10 +155,17 @@ class CampaignMetricsImporter:
             )
         )
 
-    def _task_by_url(self, posted_url: str | None) -> models.PublishingTask | None:
-        if not posted_url:
-            return None
-        return self.db.scalar(select(models.PublishingTask).where(models.PublishingTask.final_url == posted_url))
+    def _task_by_url(
+        self,
+        posted_url: str | None,
+        *,
+        platform: str | None = None,
+    ) -> models.PublishingTask | None:
+        return find_task_by_publication_url(
+            self.db,
+            posted_url,
+            platform=platform,
+        )
 
     def _destination_by_name(self, value: str | None) -> models.PublishingDestination | None:
         name = self._text(value)

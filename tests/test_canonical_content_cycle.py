@@ -555,7 +555,7 @@ def test_public_cycle_routes_reach_publish_metric_and_cost_without_external_acti
         published = client.post(
             f"/workbench/content-cycles/{cycle_id}/mark-published",
             data={
-                "final_url": "https://www.instagram.com/reel/real-post-1?token=removed",
+                "final_url": "https://www.instagram.com/reel/real-post-1?utm_source=removed",
                 "confirm_uploaded": "true",
             },
             follow_redirects=False,

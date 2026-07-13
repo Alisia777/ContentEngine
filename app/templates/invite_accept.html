@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>{{ page_title }}</title>
+    <style nonce="{{ csp_nonce }}">
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #120d18; color: #fff; }
+      main { width: min(34rem, calc(100% - 2rem)); padding: 2rem; border: 1px solid #604d68; border-radius: 1.25rem; background: #211827; box-sizing: border-box; }
+      p { color: #d7cadc; line-height: 1.55; }
+      .spinner { width: 2rem; height: 2rem; border: .2rem solid #604d68; border-top-color: #f3c6df; border-radius: 50%; animation: spin .8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <h1>Подтверждаем приглашение</h1>
+      <p>Ссылка проверяется. Не закрывайте страницу — через несколько секунд откроется создание пароля.</p>
+      <noscript><p>Для безопасного подтверждения ссылки нужен JavaScript браузера. Включите его и откройте приглашение снова.</p></noscript>
+    </main>
+
+    <form id="invite-bridge" method="post" action="/auth/confirm" hidden>
+      <input type="hidden" name="token_hash" value="">
+      <input type="hidden" name="type" value="">
+      <input type="hidden" name="bridge_nonce" value="{{ bridge_nonce }}">
+    </form>
+    <script nonce="{{ csp_nonce }}">
+      (() => {
+        "use strict";
+        let rawFragment = window.location.hash.slice(1);
+        window.history.replaceState(null, "", window.location.pathname);
+        const values = new URLSearchParams(rawFragment);
+        rawFragment = "";
+        const hashes = values.getAll("token_hash");
+        const types = values.getAll("type");
+        if (hashes.length !== 1 || types.length !== 1 || !hashes[0] || types[0] !== "invite") {
+          window.location.replace("/login?error=invalid_invite");
+          return;
+        }
+        const form = document.getElementById("invite-bridge");
+        form.elements.token_hash.value = hashes[0];
+        form.elements.type.value = types[0];
+        form.submit();
+      })();
+    </script>
+  </body>
+</html>

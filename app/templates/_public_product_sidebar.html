@@ -6,9 +6,12 @@
   <nav class="public-nav" aria-label="Основная навигация">
     <a class="{{ 'is-active' if active_page == 'control-room' else '' }}" href="/control-room" data-track-event="navigation_clicked" data-track-target="control-room">Главная</a>
     <a class="{{ 'is-active' if active_page == 'mvp-launch' else '' }}" href="/mvp-launch" data-track-event="navigation_clicked" data-track-target="video-generator">Создать видео</a>
+    <a class="{{ 'is-active' if active_page == 'creator-operations' else '' }}" href="/creator-operations?tab=generation" data-track-event="navigation_clicked" data-track-target="creator-operations">Массовая работа</a>
+    <a class="{{ 'is-active' if active_page == 'media-library' else '' }}" href="/media-library" data-track-event="navigation_clicked" data-track-target="media-library">Библиотека видео</a>
     <a class="{{ 'is-active' if active_page == 'workbench' else '' }}" href="/workbench" data-track-event="navigation_clicked" data-track-target="factory-workbench">Весь завод</a>
     <a href="/workbench?tab=analytics" data-track-event="navigation_clicked" data-track-target="analytics">Аналитика</a>
     <a href="/workbench?tab=people" data-track-event="navigation_clicked" data-track-target="training">Обучение</a>
+    {% if role in ['owner', 'admin'] %}<a class="{{ 'is-active' if active_page == 'team' else '' }}" href="/team" data-track-event="navigation_clicked" data-track-target="team">Команда</a>{% endif %}
     <a class="{{ 'is-active' if active_page == 'access' else '' }}" href="/settings/access" data-track-event="navigation_clicked" data-track-target="access">Настройки и доступ</a>
   </nav>
   <div class="public-user-card">
