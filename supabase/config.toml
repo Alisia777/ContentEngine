@@ -41,7 +41,7 @@ port = 54324
 
 [storage]
 enabled = true
-file_size_limit = "250MiB"
+file_size_limit = "50MiB"
 
 [storage.vector]
 enabled = false
