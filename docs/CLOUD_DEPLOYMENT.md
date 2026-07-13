@@ -1,205 +1,283 @@
-# Cloud deployment for creator teams
+# Supabase-native deployment for creator teams
 
-The production product is a shared HTTPS workspace. `127.0.0.1`, SQLite,
-local media storage, and auth bypasses exist only for isolated development and
-automated tests.
+Production ContentEngine is a browser-only workspace at one public HTTPS URL.
+Creators do not install Python, open `127.0.0.1`, share a local password, or
+exchange folders with generated files.
 
 ## Production topology
 
 ```text
 GitHub main
   -> required CI checks
-  -> Render Blueprint
-       - FastAPI web service
-       - supervised Product UGC worker
-  -> Supabase project
-       - Auth (one identity per creator)
-       - PostgreSQL (organizations, memberships, work, metrics, payouts)
-       - private Storage bucket (source images, videos, QA evidence)
+  -> versioned SQL from supabase/migrations
+       -> existing paid Supabase project
+            - Auth
+            - PostgreSQL schemas and narrow RPC functions
+            - private Storage bucket contentengine-private
+            - authenticated creator-invite Edge Function
+  -> static artifact from web/app
+       -> GitHub Pages
+            - login and mandatory training
+            - final operator exam
+            - generation, placement, stats, payouts, tasks and feedback
 ```
 
-Creators receive one public HTTPS URL. They never connect to an operator's
-computer and never share a local password or filesystem directory.
+The browser talks directly to Supabase with a publishable key. It never receives
+a database password, personal access token, secret/service-role key, or provider
+credential. Every business mutation goes through a narrow `public.creator_*`
+RPC that derives the caller from `auth.uid()`. Durable state lives in PostgreSQL
+and private media lives in Supabase Storage.
 
-The web and worker containers are stateless. PostgreSQL is the source of truth
-for application/queue state and the private Supabase Storage bucket is the
-source of truth for media. A container may use its ephemeral filesystem only
-while processing one artifact; a restart must not lose an accepted artifact.
-Do not attach a Render disk and do not set `QVF_STORAGE_BACKEND=local`.
+There is no general production application server or container. The only
+server-side HTTP function in this release is the authenticated
+`creator-invite` administrative boundary. The Python/FastAPI monolith in
+`app/`, `scripts/`, `migrations/`, and `Dockerfile` remains a reference
+implementation and regression harness only.
 
-The application never reads or writes application rows through the Supabase
-Data API (PostgREST). Disable the **Data API** for the project before launch.
-This is defense in depth, not the primary boundary: the database migration also
-enables non-forced RLS on every public application table and revokes all table
-and sequence privileges from `anon`, `authenticated`, and `service_role` when
-those roles exist. It leaves schema usage and extension functions intact for
-Supabase-managed Auth and Storage, while the direct table-owner SQLAlchemy
-connection continues to work.
+## Current MVP capability boundary
 
-## Production environment contract
+The Supabase-native MVP is deliberately `mock-only` for generation. It can
+create batches of at most 50 generation tasks, move work through review and
+placement, register private media, collect manual metric snapshots, preserve
+Wildberries replacement-article history, record payouts, and measure the
+funnel. Database guards reject `real` generation and any spend flag.
 
-`render.yaml` shares non-secret defaults through
-`contentengine-production-defaults`. It deliberately sets both
-`QVF_RUNTIME_PROFILE=production` and `QVF_DEPLOYMENT_ENV=production`: the first
-enables application readiness checks and the second makes the storage adapter
-reject a local backend.
+No OpenAI or Runway secret is needed or accepted by the Pages deployment. Real
+provider execution requires a separate server-side queue/Edge Function design,
+an idempotent spend ledger, and explicit owner approval; it is not silently
+enabled by this release.
 
-Render derives `QVF_PUBLIC_APP_URL` from the web service's own
-`RENDER_EXTERNAL_URL`; there is no placeholder URL to copy during the first
-deploy. Enter the remaining values for `contentengine-web` during the initial
-Blueprint setup. The worker obtains the same values through Render
-`fromService` references, so they are entered once and never committed:
+## Repository contract
+
+- `web/app/` is the only production frontend artifact.
+- `supabase/migrations/*.sql` is the only production database change stream.
+- `supabase/functions/creator-invite/` is deployed after migrations with JWT
+  verification explicitly enabled; deployment never uses `--no-verify-jwt` or
+  `--prune`.
+- `supabase/config.toml` owns the hosted Auth/API settings. Production deploy
+  runs `supabase config push` after linking, so the Pages Site URL, closed
+  signup, password policy and redirect allowlist cannot drift into an
+  undocumented dashboard-only state.
+- `.github/workflows/supabase-pages.yml` starts automatically only after the
+  `CI` workflow succeeds for `main`, previews pending migrations with
+  `supabase db push --dry-run`, applies them, provisions the private exam
+  grading material with command output withheld, and publishes the Pages
+  artifact only after the database job succeeds. Missing or malformed grading
+  material fails closed. Pull-request/fork completions are rejected; manual
+  recovery runs are accepted only from the `main` ref.
+- `.github/workflows/ci.yml` starts a local Supabase database, applies every SQL
+  migration, lints it, runs the committed pgTAP security/workflow contract,
+  formats/lints/type-checks the invitation Function, and also keeps the Python
+  reference suite green.
+- Production schema changes are never made manually in the Table Editor or SQL
+  Editor after migration ownership is established.
+
+The browser adapter calls these authenticated functions, each with exactly one
+`p_payload jsonb` argument:
+
+```text
+creator_bootstrap
+creator_complete_module
+creator_submit_exam
+creator_workspace_section
+creator_create_mock_batch
+creator_confirm_placement
+creator_record_metric
+creator_set_wb_alias
+creator_decide_payout
+creator_transition_task
+creator_create_feedback
+creator_register_media
+creator_capture_event
+```
+
+The RPC layer owns organization scope, role checks, the training/exam gate,
+idempotency, state transitions, and safe response shapes. The browser must not
+write application tables directly.
+
+Two additional RPCs are administrative boundaries and are never granted to a
+browser role: `system_initialize_owner(p_payload jsonb)` creates the first
+organization/owner exactly once, and
+`system_provision_invited_member(p_payload jsonb)` attaches an Auth user as a
+trainee after an authorized invitation. Both are `service_role`-only,
+idempotent and audited. `creator_bootstrap` never creates or restores a
+membership; an Auth user without one receives `membership_required`.
+
+## One-time GitHub configuration
+
+In repository **Settings -> Pages**, select **GitHub Actions** as the publishing
+source. The workflow deploys to the `github-pages` environment.
+
+Create a protected GitHub environment named `production`. Configure these
+encrypted secrets in that environment:
+
+| Secret | Purpose |
+| --- | --- |
+| `SUPABASE_ACCESS_TOKEN` | Supabase personal access token used only by the CLI deployment job |
+| `SUPABASE_DB_PASSWORD` | Database password for the existing paid project, used only by `supabase db push` |
+| `SUPABASE_EXAM_KEYS_B64` | Base64-encoded, idempotent SQL payload that provisions the private exam grading keys after migrations |
+
+Configure these as repository **Variables**, because the independent Pages
+build job must read them:
 
 | Variable | Required value |
 | --- | --- |
-| `QVF_DATABASE_URL` | Supabase PostgreSQL session-pooler URL, with the SQLAlchemy scheme changed to `postgresql+psycopg://` and `sslmode=require` (or stricter `verify-ca`/`verify-full`) |
-| `SUPABASE_URL` | Project URL, for example `https://<project-ref>.supabase.co` |
-| `SUPABASE_PUBLISHABLE_KEY` | Publishable/anon client key |
-| `SUPABASE_SECRET_KEY` | Server-only Supabase secret key (`sb_secret_...` preferred) |
-| `QVF_SUPABASE_JWKS_URL` | Exactly `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json`; another origin is rejected |
-| `QVF_SUPABASE_ISSUER` | Exactly `https://<project-ref>.supabase.co/auth/v1`; another origin is rejected |
-| `OPENAI_API_KEY` | Server-only OpenAI key; may remain unused while the provider is `mock` |
-| `RUNWAYML_API_SECRET` | Server-only Runway key; may remain unused while the provider is `mock` |
-| `QVF_GENERATION_MODE` | `mock` for spend-free acceptance; `real` only after owner approval |
-| `QVF_LLM_PROVIDER` | `mock` for acceptance or the explicitly approved production provider |
-| `QVF_VIDEO_PROVIDER` | `mock` for acceptance or `runway` after a one-video paid smoke succeeds |
-| `QVF_ALLOW_REAL_SPEND` | `false` by default; `true` only as a separate owner budget decision |
-| `QVF_MASS_GENERATION_CREDIT_LIMIT` | Non-secret hard cap per mass batch; default `30000`, enough for 50 standard 15-second 720×1280 estimates (`50 × 588 = 29400`) |
+| `SUPABASE_PROJECT_REF` | Project reference from the Supabase dashboard URL |
+| `SUPABASE_PUBLISHABLE_KEY` | Browser-safe key beginning with `sb_publishable_` |
 
-Enter one canonical server secret in `SUPABASE_SECRET_KEY`. Auth Admin,
-Storage, bootstrap, and readiness all resolve that same value. The legacy
-`SUPABASE_SERVICE_ROLE_KEY` remains an unadvertised fallback for an existing
-deployment only; do not configure both. Production fails closed if any legacy
-alias or storage override contains a different value. Never expose the secret
-in HTML, logs, screenshots, or a client-side bundle.
+The workflow also compares `SUPABASE_PROJECT_REF` with the reviewed production
+project reference committed in the workflow. A missing or different value
+stops both migration and Pages build instead of targeting another project.
 
-Do not define `QVF_LOCAL_AUTH_EMAIL`, `QVF_LOCAL_AUTH_PASSWORD_HASH`, or
-`QVF_LOCAL_SESSION_SECRET` on either production service, including as empty
-values. Production startup rejects those local-only settings. The shared
-`QVF_SUPABASE_READINESS_TIMEOUT_SECONDS=5` bounds the read-only Auth and
-Storage probes performed by `/ready`.
+Never configure `sb_secret_*`, `service_role`, a database URL, or a provider key
+as a Pages variable. The build creates `_site/config.js` at release time and
+fails if the key is not a publishable key or if the artifact contains a server
+secret/local endpoint marker.
 
-The Blueprint requires an explicit capability selection instead of committing
-one production mode. For the first spend-free acceptance deploy, enter
-`mock`, `mock`, `mock`, and `false`. Enabling a paid run remains a separate
-owner decision: configure the provider, set `QVF_GENERATION_MODE=real`, then
-set `QVF_ALLOW_REAL_SPEND=true` only with the committed duration/scene limits
-and an explicit real-run confirmation in the product.
+Prepare `SUPABASE_EXAM_KEYS_B64` outside the repository and paste it directly
+into the environment-secret form. Do not place the decoded grading SQL in a
+commit, issue, Actions input, screenshot, artifact or chat. The provisioning
+step scopes the secret to one step, writes a mode-`0600` temporary file,
+withholds all database-command output, removes temporary files on exit and
+blocks the release if validation or application fails.
 
-## First deployment
+Being signed in to the Supabase dashboard does not authorize a GitHub runner.
+The dashboard session is for the human operator; `SUPABASE_ACCESS_TOKEN` and
+`SUPABASE_DB_PASSWORD` provide the separate, revocable CLI boundary used by
+Actions.
 
-1. Reuse the paid dedicated Supabase project (or create one if none exists) in
-   the same region as the Render services. Do not create a second paid project
-   merely for deployment.
-2. Disable the project **Data API** in Supabase API settings. Do not expose the
-   `public` schema through PostgREST for this application.
-3. Enable an asymmetric Auth signing key and verify that the JWKS endpoint
-   returns a non-empty `keys` array before inviting users.
-4. Create a private Storage bucket named `contentengine-private`.
-5. Connect the GitHub repository to a Render Blueprint using `render.yaml`.
-6. Enter every `sync: false` value in the Render dashboard. Never commit those
-   values to GitHub.
-7. Use the Supabase session-pooler connection string for `QVF_DATABASE_URL`.
-   URL-encode special characters in the password, use
-   `postgresql+psycopg://`, and append `?sslmode=require`. Missing TLS mode and
-   `disable`, `allow`, or `prefer` are rejected before the process serves.
-8. Confirm both serialized pre-deploy migrations succeed and `/ready` returns
-   HTTP 200. Readiness verifies the exact Alembic head, fetches a usable
-   ES256/RS256 JWKS, checks the publishable key with the read-only Auth settings
-   endpoint, and reads only the configured bucket metadata with the canonical
-   server key. It also checks RLS and effective API-role table privileges on
-   every critical application table. It fails if the schema is behind, a key
-   is rejected, the bucket is missing, `public` is not exactly `false`, RLS is
-   missing, or an API role can access a critical table. It never writes a
-   probe object.
-9. Confirm the generation worker heartbeat is current in the control room.
-10. Before sending any invite, set the Supabase Auth **Invite user** email
-   template link to
-   `<PUBLIC_APP_URL>/auth/accept#token_hash={{ .TokenHash }}&type=invite`.
-   The fragment is never sent to Render request logs: the browser bridge clears
-   it immediately and submits the one-time hash in a same-site POST. The
-   default fragment redirect is insufficient for this server-rendered
-   confirmation flow.
-11. Bootstrap the first cloud owner once, using the command below. Then use the
-    authenticated **Команда** page for subsequent creator invitations.
-12. Sign in as a creator in a private browser session and verify that another
-   organization is neither listed nor addressable by a guessed URL.
+The invitation Function receives the standard Supabase runtime credentials in
+its managed server environment; no service-role/secret key is copied into
+GitHub variables or the Pages artifact. It must authenticate the caller and
+enforce owner/admin organization scope before using Auth Admin operations.
 
-### One-time first-owner bootstrap
+## Existing paid Supabase project
 
-Run this only from a Render shell for `contentengine-web`, after its Alembic
-pre-deploy step has reached `head`:
+Reuse the paid project; do not create another paid project merely to host this
+MVP. Before the first migration:
 
-```bash
-python scripts/bootstrap_cloud_owner.py \
-  --email "owner@example.com" \
-  --display-name "First Owner" \
-  --organization-name "Content Factory" \
-  --organization-slug "content-factory"
+1. Back up the project and confirm its region and owner access.
+2. Confirm that the project is intended for ContentEngine. Do not apply these
+   migrations blindly to a project whose `content_factory` schemas or
+   `contentengine-private` bucket belong to another application.
+3. Inspect remote migration history with `supabase migration list`. If the
+   project already has manually applied copies of these objects, reconcile the
+   history deliberately; do not guess with `migration repair`.
+4. Keep the Supabase Data API enabled and keep `public` exposed: the SPA uses
+   PostgREST only for the narrow `public.creator_*` functions. Do not expose the
+   `content_factory_private` schema.
+5. Confirm Auth email/password is enabled, public sign-up is disabled, and the
+   minimum password policy matches `supabase/config.toml`.
+6. Set the Auth Site URL to
+   `https://alisia777.github.io/ContentEngine/` and allow redirects under
+   `https://alisia777.github.io/ContentEngine/**`. These values are committed in
+   `supabase/config.toml` and applied by `supabase config push`; localhost is
+   not part of the production Auth redirect allowlist.
+
+The migrations create the private bucket `contentengine-private`. Its
+`public` flag must remain `false`. Creator object names use this authority
+shape:
+
+```text
+<organization-uuid>/<creator-auth-uuid>/<folder>/<filename>
 ```
 
-The script refuses SQLite and a database that is not at the current Alembic
-head. It reads `SUPABASE_URL` and `SUPABASE_SECRET_KEY` only from the server
-environment, finds the exact Supabase identity or sends one invite, and then
-creates the active organization, profile, and owner membership in one database
-transaction. It never runs `init_db`, `create_all`, or an Alembic upgrade.
+Storage RLS requires active membership and the final operator certification.
+A creator can manage their own prefix; an owner/admin can inspect the team's
+prefixes within the same organization. Signed/object URLs do not grant another
+organization access through the application contract.
 
-Re-running the exact command is safe even after other creators have joined the
-bootstrapped organization: it does not duplicate the organization, profile,
-membership, or invite. While the target owner bootstrap is incomplete, any
-unrelated organization/profile/membership fails closed; inactive state, role
-mismatch, a foreign membership for the target profile, or Supabase ID/email
-mismatch always fails closed. The command prints only status values and numeric
-database IDs; it never prints the email, token, server key, provider response,
-or database credentials.
+## First production release
 
-Without an organization claim, the resolver considers database-authoritative
-active memberships in active organizations. Exactly one active membership is
-selected; with multiple active memberships, it selects the active organization
-derived from `QVF_PUBLIC_PILOT_DEFAULT_ORG`. If no eligible scope is unique,
-sign-in fails closed with HTTP 403. An explicit trusted
-`app_metadata.organization_slug` claim never falls back to another membership,
-and the profile, claimed organization, and membership must all be active. The
-resolver never creates a membership from token claims.
+1. Review the SQL migrations and take a Supabase backup.
+2. Add all three GitHub environment secrets and both repository variables above
+   without pasting them into issues, commits, screenshots, or chat.
+3. Merge the reviewed branch into `main`.
+4. Wait for **CI** on `main`, then watch **Deploy Supabase and GitHub Pages**.
+   A failed or pull-request CI run cannot start production. The `migrate` job
+   must finish before `deploy-pages` can publish the interface.
+5. If `supabase db push` reports divergent migration history, stop and inspect
+   it. Do not publish a frontend against a partially migrated RPC contract.
+6. Create and confirm the first Auth user from the Supabase dashboard. From a
+   secure administrative context, call the service-role-only
+   `system_initialize_owner` once for that exact user. Never expose the
+   service-role credential or this operation to Pages.
+7. Invite subsequent creators through the **Team** tab. The authenticated Edge
+   Function uses Auth Admin and then calls `system_provision_invited_member` to
+   create a `trainee` membership in the caller's organization. A separately
+   created Auth user is not auto-enrolled and receives `membership_required`.
+8. For a demonstration guest, use the same Auth Admin plus provisioning path,
+   keep the temporary password out of Git, and give the account no owner/admin
+   or paid-generation capability.
 
-## Release flow
+The workflow is intentionally serialized with `cancel-in-progress: false` so
+two pushes cannot cancel or overlap a production migration.
 
-Every pull request parses deployment YAML, runs the Python suite, checks a real
-PostgreSQL migration, and performs a clean Docker build. After CI succeeds on
-`main`, the container workflow publishes a SHA-tagged image and provenance to
-GitHub Container Registry. Render only deploys commits whose checks pass. Web
-and worker run the same pre-deploy step; a PostgreSQL advisory lock serializes
-them. The worker also refuses to start unless the database is at the exact
-repository head. Schema changes are never made from an active worker loop.
+## Release acceptance
 
-Release verification is complete only when `/ready` is green, the worker
-heartbeat is current, a signed media URL opens for an authorized member, and
-the same object is denied to a user from another organization. Roll back the
-application image on failure; never restore state from a container filesystem.
+A release is complete only when all of the following are verified against the
+hosted project:
 
-## Scaling rules
+- GitHub Pages responds over HTTPS and contains no localhost link;
+- an invited creator can sign in and an unknown account cannot self-enroll;
+- the workspace remains closed until four course modules and the final exam are
+  passed;
+- after certification, Generation, Placement, Statistics, Payouts, Tasks and
+  What to add load through the RPC boundary;
+- a mock batch of 50 is accepted and 51 is rejected;
+- `mode=real` and `allow_real_spend=true` are rejected by PostgreSQL;
+- a creator can access only their private media prefix;
+- an owner/admin can inspect the team scope but another organization cannot;
+- placement, metric, payout and feedback events remain organization-scoped and
+  auditable.
 
-- Add web instances for HTTP traffic; all state remains in PostgreSQL/object
-  storage.
-- Add generation worker instances only after validating provider concurrency
-  and spend limits. Queue leases and idempotency protect paid submissions.
-- Keep `QVF_ALLOW_REAL_SPEND=false` until an owner deliberately enables a
-  bounded production run.
-- Videos are private objects. The application checks organization membership
-  before issuing a short-lived signed URL; signed URLs are never persisted.
-- A creator sees their own tasks and artifacts. Owners/admins see the team
-  queue and aggregate metrics.
-- Keep the Render Blueprint free of `disk` declarations. Local paths are
-  disposable staging space, not backups or durable media storage.
+If database deployment succeeds but Pages deployment fails, fix/retry the
+static artifact; do not roll back durable data by editing production manually.
+If a migration fails, Pages is not published by the workflow.
 
-## Local profile
+## Scaling for 50+ creators
 
-`docker-compose.yml` remains a developer convenience only. It is not a hosting
-method, a creator login surface, or the source of production data.
+GitHub Pages serves static assets and does not hold sessions or files. Supabase
+handles Auth, database concurrency, RLS, and object storage. Add indexes and RPC
+pagination based on measured query latency; do not add client-side table access
+or shared secrets to improve speed. Generation remains mock/task preparation
+until a separately approved server-side executor exists.
+
+An owner/admin uses the **Команда** tab, which calls the authenticated
+`creator-invite` Edge Function for batches of at most 50 unique addresses. The
+Function rechecks organization role and `workspace_open` through the caller's
+RLS-scoped RPC before using Auth Admin, then provisions the exact invited Auth
+user through the service-role-only system RPC. Every invited account starts as
+a `trainee` and must independently complete all four modules plus the
+12-scenario final exam; a bulk invite never grants operator access. Creating an
+Auth user outside this path does not create a membership.
+
+Do not promise external invitation delivery until custom SMTP is configured.
+Supabase's built-in sender is for exploration only: it sends only to addresses
+pre-authorized as members of the Supabase organization and is currently limited
+to 2 messages per hour. After custom SMTP is enabled, Supabase initially applies
+a 30-messages-per-hour limit. Before inviting 50+ people, raise the Auth rate
+limit and the provider limit together, verify SPF/DKIM/DMARC, and roll out in
+controlled batches rather than creating an email spike.
+
+## Local/reference profile
+
+The Python commands, SQLite databases, local media folders, Dockerfile, and
+`127.0.0.1` routes are developer/reference tools. They are not the creator
+login surface and are not a production deployment method.
+
+For local Supabase contract work, use the CLI against the local stack and apply
+the committed migrations:
+
+```bash
+supabase db start
+supabase db reset
+supabase db lint --local --level error
+```
 
 ## References
 
-- [Render Blueprint YAML reference](https://render.com/docs/blueprint-spec)
-- [Supabase PostgreSQL connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres)
-- [Supabase JWT verification and JWKS](https://supabase.com/docs/guides/auth/jwts)
-- [Supabase API key security](https://supabase.com/docs/guides/getting-started/api-keys)
+- [Supabase database migrations](https://supabase.com/docs/guides/deployment/database-migrations)
+- [Supabase environment deployment](https://supabase.com/docs/guides/deployment/managing-environments)
+- [Supabase custom SMTP and delivery limits](https://supabase.com/docs/guides/auth/auth-smtp)
+- [GitHub Pages custom workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)

@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
         init_db()
     if current_settings.runtime_profile == "production":
         # Fail before any queue reconciliation or other write when a service
-        # is started outside the normal Render pre-deploy path.
+        # is started outside the normal reference pre-deploy path.
         with engine.connect() as connection:
             require_database_at_migration_head(connection)
     # Reclaim expired leases and quarantine any ambiguous paid submission
