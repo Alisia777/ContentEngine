@@ -62,7 +62,8 @@ def test_production_path_is_supabase_native_pages_without_render_or_container_pu
 
     workflow = _text(PRODUCTION_WORKFLOW)
     assert "Deploy Supabase and GitHub Pages" in workflow
-    assert "supabase db push --linked" in workflow
+    assert "python scripts/deploy_supabase_management_api.py" in workflow
+    assert "supabase db push" not in workflow
     assert _pinned("actions/upload-pages-artifact") in workflow
     assert _pinned("actions/deploy-pages") in workflow
     assert "docker build" not in workflow
@@ -83,8 +84,8 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert "workflow_run.head_branch == 'main'" in migrate["if"]
     assert "workflow_run.head_repository.full_name == github.repository" in migrate["if"]
     assert "github.ref == 'refs/heads/main'" in migrate["if"]
-    assert migrate["env"]["SUPABASE_ACCESS_TOKEN"] == "${{ secrets.SUPABASE_ACCESS_TOKEN }}"
-    assert migrate["env"]["SUPABASE_DB_PASSWORD"] == "${{ secrets.SUPABASE_DB_PASSWORD }}"
+    assert "SUPABASE_ACCESS_TOKEN" not in migrate["env"]
+    assert "SUPABASE_DB_PASSWORD" not in migrate["env"]
     assert migrate["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
     assert migrate["env"]["EXPECTED_SUPABASE_PROJECT_REF"] == "iyckwryrucqrxwlowxow"
     assert any(
@@ -92,31 +93,27 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
         and step.get("with", {}).get("version") == "2.109.1"
         for step in migrate["steps"]
     )
+    assert any(
+        step.get("uses") == _pinned("actions/setup-python")
+        and step.get("with", {}).get("python-version") == "3.12"
+        for step in migrate["steps"]
+    )
+    management_deploy_index = next(
+        index
+        for index, step in enumerate(migrate["steps"])
+        if step.get("name")
+        == "Apply immutable migrations and private exam grading keys"
+    )
     config_push_index = next(
         index
         for index, step in enumerate(migrate["steps"])
         if step.get("run")
         == 'supabase config push --project-ref "$SUPABASE_PROJECT_REF"'
     )
-    dry_run_index = next(
-        index
-        for index, step in enumerate(migrate["steps"])
-        if step.get("run") == "supabase db push --linked --dry-run"
-    )
-    database_push_index = next(
-        index
-        for index, step in enumerate(migrate["steps"])
-        if step.get("run") == "supabase db push --linked"
-    )
-    assert dry_run_index < config_push_index < database_push_index
-    assert any(
-        "supabase db push --linked" in str(step.get("run", ""))
-        for step in migrate["steps"]
-    )
-    assert any(
-        step.get("run") == "supabase db push --linked --dry-run"
-        for step in migrate["steps"]
-    )
+    assert management_deploy_index < config_push_index
+    assert "supabase db push" not in _text(PRODUCTION_WORKFLOW)
+    assert "supabase link" not in _text(PRODUCTION_WORKFLOW)
+    assert "SUPABASE_DB_PASSWORD" not in _text(PRODUCTION_WORKFLOW)
     assert all(
         "--password" not in str(step.get("run", ""))
         for step in migrate["steps"]
@@ -209,29 +206,28 @@ def test_private_exam_keys_are_step_scoped_and_never_printed() -> None:
     migrate = workflow["jobs"]["migrate"]
     build = workflow["jobs"]["build-pages"]
     steps = migrate["steps"]
-    provision_index, provision = next(
-        (index, step)
-        for index, step in enumerate(steps)
-        if step.get("name") == "Provision private exam grading keys"
-    )
-    database_push_index = next(
-        index
-        for index, step in enumerate(steps)
-        if step.get("run") == "supabase db push --linked"
+    provision = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Apply immutable migrations and private exam grading keys"
     )
 
     assert "SUPABASE_EXAM_KEYS_B64" not in migrate["env"]
     assert provision["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
         "SUPABASE_EXAM_KEYS_B64": "${{ secrets.SUPABASE_EXAM_KEYS_B64 }}"
     }
-    assert database_push_index < provision_index
     command = provision["run"]
-    assert "base64.b64decode" in command
-    assert "validate=True" in command
-    assert 'chmod(0o600)' in command
-    assert '>"$command_log" 2>&1' in command
-    assert 'rm -f "$key_file" "$command_log"' in command
-    assert "cat \"$command_log\"" not in command
+    assert "scripts/deploy_supabase_management_api.py" in command
+    deployer = _text("scripts/deploy_supabase_management_api.py")
+    assert "base64.b64decode" in deployer
+    assert "validate=True" in deployer
+    assert "api.supabase.com" in deployer
+    assert "/database/query" in deployer
+    assert "write_bytes" not in deployer
+    assert "NamedTemporaryFile" not in deployer
+    assert "traceback" not in deployer
     assert "set -x" not in command
     assert "SUPABASE_EXAM_KEYS_B64" not in build.get("env", {})
 
@@ -360,9 +356,11 @@ def test_cloud_documentation_describes_one_public_browser_workspace() -> None:
     assert "mock-only" in guide
     assert "Creators do not install Python" in normalized
     assert "SUPABASE_ACCESS_TOKEN" in guide
-    assert "SUPABASE_DB_PASSWORD" in guide
+    assert "SUPABASE_DB_PASSWORD" not in guide
     assert "SUPABASE_EXAM_KEYS_B64" in guide
     assert "SUPABASE_PUBLISHABLE_KEY" in guide
+    assert "Management API" in guide
+    assert "contentengine_deploy.schema_migrations" in guide
     assert "contentengine-private" in guide
     assert "Do not promise external invitation delivery until custom SMTP" in guide
     assert "2 messages per hour" in guide

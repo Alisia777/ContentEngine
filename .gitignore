@@ -34,6 +34,7 @@ logs/**
 Thumbs.db
 .vscode/
 .idea/
+supabase/.temp/
 
 *.log
 *.mp4

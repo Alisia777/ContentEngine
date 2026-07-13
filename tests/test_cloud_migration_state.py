@@ -102,7 +102,8 @@ def test_reference_alembic_guard_remains_while_production_uses_supabase_migratio
     assert 'down_revision: Union[str, Sequence[str], None] = "8f2d31c4a9b7"' in security
     assert "install_postgresql_public_schema_security(bind)" in security
     assert not (ROOT / "render.yaml").exists()
-    assert "supabase db push --linked" in production
+    assert "python scripts/deploy_supabase_management_api.py" in production
+    assert "supabase db push" not in production
     assert "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e" in production
     assert "migrate" in production
     assert predeploy.index("validate_runtime_settings") < predeploy.index("command.upgrade")

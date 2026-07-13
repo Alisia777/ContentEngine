@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(28);
+select plan(47);
 
 -- TEST-ONLY grading material. These deliberately synthetic keys are derived
 -- from the first option and disappear with the transaction rollback.
@@ -550,6 +550,393 @@ select is(
   ),
   2,
   'every generated job remains physically mock-only and zero-cost'
+);
+
+select is(
+  (
+    public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'generation'
+    )) -> '_meta' ->> 'page_size'
+  )::integer,
+  50,
+  'workspace collections default to fifty rows'
+);
+
+select ok(
+  (
+    select
+      jsonb_array_length(response -> 'batches') <= 1
+      and jsonb_array_length(response -> 'media') <= 1
+      and jsonb_array_length(response -> 'wb_aliases') <= 1
+    from (
+      select public.creator_workspace_section(jsonb_build_object(
+        'organization_id', (select organization_id from creator_test_context),
+        'section', 'generation',
+        'page_size', 1
+      )) as response
+    ) bounded
+  ),
+  'one page size independently bounds every generation collection'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'generation',
+      'page_size', 101
+    ))
+  $$,
+  '22023',
+  'workspace_page_size_invalid',
+  'ordinary workspace pages reject cap plus one'
+);
+
+select is(
+  (
+    public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'team',
+      'page_size', 200
+    )) -> '_meta' ->> 'page_size'
+  )::integer,
+  200,
+  'team workspace accepts its exact two-hundred-row cap'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'team',
+      'page_size', 201
+    ))
+  $$,
+  '22023',
+  'workspace_page_size_invalid',
+  'team workspace rejects cap plus one'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'generation',
+      'page_size', 999999999999999999999999999999::numeric
+    ))
+  $$,
+  '22023',
+  'workspace_page_size_invalid',
+  'workspace page integer overflow has a stable validation error'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'generation',
+      'cursor', jsonb_build_object(
+        'unknown_collection', jsonb_build_object(
+          'at', now(),
+          'id', (select profile_id from creator_test_context)
+        )
+      )
+    ))
+  $$,
+  '22023',
+  'workspace_cursor_invalid',
+  'workspace rejects a cursor for an unknown collection'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'section', 'feedback',
+      'cursor', jsonb_build_object(
+        'feedback_items', jsonb_build_object(
+          'at', 'not-a-time',
+          'id', 'not-a-uuid'
+        )
+      )
+    ))
+  $$,
+  '22023',
+  'workspace_cursor_invalid',
+  'malformed cursor fails even when its collection is empty'
+);
+
+select is(
+  (
+    with first_page as (
+      select public.creator_workspace_section(jsonb_build_object(
+        'organization_id', (select organization_id from creator_test_context),
+        'section', 'generation',
+        'page_size', 1
+      )) as response
+    )
+    select jsonb_array_length(
+      public.creator_workspace_section(jsonb_build_object(
+        'organization_id', (select organization_id from creator_test_context),
+        'section', 'generation',
+        'page_size', 1,
+        'cursor', jsonb_build_object(
+          'generation_batches', response -> 'batches' -> 0 -> '_cursor'
+        )
+      )) -> 'batches'
+    )
+    from first_page
+  ),
+  0,
+  'strict keyset cursor excludes the boundary batch without overlap'
+);
+
+select throws_ok(
+  $$
+    select public.creator_create_mock_batch(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'sku', 'PGTAP-SKU-1',
+      'product_name', 'PgTAP product',
+      'count', 999999999999999999999999999999::numeric,
+      'format', '9:16',
+      'brief', 'Overflow must be rejected',
+      'media_ids', jsonb_build_array((select media_id from creator_test_context)),
+      'platform', 'wildberries',
+      'destination_ref', 'PgTAP WB destination',
+      'payout_minor', 0,
+      'mode', 'mock',
+      'allow_real_spend', false,
+      'spend_confirmation', 'MOCK_ONLY',
+      'idempotency_key', 'pgtap-count-overflow-0001'
+    ))
+  $$,
+  '22023',
+  'count_invalid',
+  'mock batch count integer overflow has a stable validation error'
+);
+
+insert into content_factory.generation_batches (
+  organization_id, product_id, created_by, name,
+  mode, allow_real_spend, status, total_requested, total_created,
+  input, request_hash, idempotency_key
+)
+select
+  context.organization_id,
+  product.id,
+  context.profile_id,
+  'PgTAP quota seed ' || seed.ordinal::text,
+  'mock', false, 'mock_ready', seed.variant_count, seed.variant_count,
+  '{}'::jsonb, repeat('b', 64),
+  'pgtap-quota-seed-' || lpad(seed.ordinal::text, 4, '0')
+from creator_test_context context
+join content_factory.products product
+  on product.organization_id = context.organization_id
+ and product.sku = 'PGTAP-SKU-1'
+cross join (values (1, 50), (2, 50), (3, 50), (4, 47))
+  seed(ordinal, variant_count);
+
+select ok(
+  (public.creator_create_mock_batch(jsonb_build_object(
+    'organization_id', (select organization_id from creator_test_context),
+    'sku', 'PGTAP-SKU-1',
+    'product_name', 'PgTAP product',
+    'count', 1,
+    'format', '9:16',
+    'brief', 'Exact rolling quota boundary',
+    'media_ids', jsonb_build_array((select media_id from creator_test_context)),
+    'platform', 'wildberries',
+    'destination_ref', 'PgTAP WB destination',
+    'payout_minor', 0,
+    'mode', 'mock',
+    'allow_real_spend', false,
+    'spend_confirmation', 'MOCK_ONLY',
+    'idempotency_key', 'pgtap-quota-boundary-0001'
+  )) ->> 'ok')::boolean,
+  'the exact two-hundred variant rolling boundary succeeds'
+);
+
+select throws_ok(
+  $$
+    select public.creator_create_mock_batch(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'sku', 'PGTAP-SKU-1',
+      'product_name', 'PgTAP product',
+      'count', 1,
+      'format', '9:16',
+      'brief', 'One over rolling quota',
+      'media_ids', jsonb_build_array((select media_id from creator_test_context)),
+      'platform', 'wildberries',
+      'destination_ref', 'PgTAP WB destination',
+      'payout_minor', 0,
+      'mode', 'mock',
+      'allow_real_spend', false,
+      'spend_confirmation', 'MOCK_ONLY',
+      'idempotency_key', 'pgtap-quota-reject-0001'
+    ))
+  $$,
+  '54000',
+  'mock_batch_user_15m_quota_exceeded',
+  'rolling variant quota rejects the first item over the limit'
+);
+
+select ok(
+  not exists (
+    select 1
+    from content_factory.generation_batches batch
+    where batch.idempotency_key = 'pgtap-quota-reject-0001'
+  )
+  and not exists (
+    select 1
+    from content_factory.command_receipts receipt
+    where receipt.command_name = 'creator_create_mock_batch'
+      and receipt.idempotency_key = 'pgtap-quota-reject-0001'
+  )
+  and not exists (
+    select 1
+    from content_factory.factory_events event
+    where event.idempotency_key = 'mock_batch:pgtap-quota-reject-0001'
+  ),
+  'a rejected quota request leaves no batch receipt or event'
+);
+
+select ok(
+  (public.creator_create_mock_batch(jsonb_build_object(
+    'organization_id', (select organization_id from creator_test_context),
+    'sku', 'PGTAP-SKU-1',
+    'product_name', 'PgTAP product',
+    'count', 1,
+    'format', '9:16',
+    'brief', 'Exact rolling quota boundary',
+    'media_ids', jsonb_build_array((select media_id from creator_test_context)),
+    'platform', 'wildberries',
+    'destination_ref', 'PgTAP WB destination',
+    'payout_minor', 0,
+    'mode', 'mock',
+    'allow_real_spend', false,
+    'spend_confirmation', 'MOCK_ONLY',
+    'idempotency_key', 'pgtap-quota-boundary-0001'
+  )) ->> 'ok')::boolean,
+  'idempotent replay still succeeds after the rolling quota is full'
+);
+
+insert into content_factory.media_objects (
+  organization_id, owner_id, bucket_id, object_name,
+  mime_type, size_bytes, sha256, status, metadata, idempotency_key
+)
+select
+  context.organization_id,
+  context.profile_id,
+  'contentengine-private',
+  context.organization_id::text || '/' || context.profile_id::text ||
+    '/uploads/quota-seed-' || lpad(seed.ordinal::text, 4, '0') || '.jpg',
+  'image/jpeg', 1, repeat('c', 64), 'ready',
+  jsonb_build_object(
+    'original_filename', 'quota-seed-' || seed.ordinal::text || '.jpg',
+    'kind', 'creator_reference',
+    'rights_confirmed', true
+  ),
+  'pgtap-media-quota-seed-' || lpad(seed.ordinal::text, 4, '0')
+from creator_test_context context
+cross join generate_series(1, 198) seed(ordinal);
+
+insert into storage.objects (bucket_id, name, metadata)
+select
+  'contentengine-private',
+  organization_id::text || '/' || profile_id::text || '/uploads/quota-boundary.jpg',
+  jsonb_build_object('size', 1, 'mimetype', 'image/jpeg')
+from creator_test_context;
+
+select ok(
+  (public.creator_register_media(jsonb_build_object(
+    'organization_id', (select organization_id from creator_test_context),
+    'bucket', 'contentengine-private',
+    'object_key', (select organization_id::text || '/' || profile_id::text ||
+      '/uploads/quota-boundary.jpg' from creator_test_context),
+    'original_filename', 'quota-boundary.jpg',
+    'mime_type', 'image/jpeg',
+    'size_bytes', 1,
+    'sha256', repeat('d', 64),
+    'kind', 'creator_reference',
+    'rights_confirmed', true,
+    'idempotency_key', 'pgtap-media-quota-boundary-0001'
+  )) ->> 'ok')::boolean,
+  'the exact two-hundred media object daily boundary succeeds'
+);
+
+insert into storage.objects (bucket_id, name, metadata)
+select
+  'contentengine-private',
+  organization_id::text || '/' || profile_id::text || '/uploads/quota-reject.jpg',
+  jsonb_build_object('size', 1, 'mimetype', 'image/jpeg')
+from creator_test_context;
+
+select throws_ok(
+  $$
+    select public.creator_register_media(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'bucket', 'contentengine-private',
+      'object_key', (select organization_id::text || '/' || profile_id::text ||
+        '/uploads/quota-reject.jpg' from creator_test_context),
+      'original_filename', 'quota-reject.jpg',
+      'mime_type', 'image/jpeg',
+      'size_bytes', 1,
+      'sha256', repeat('e', 64),
+      'kind', 'creator_reference',
+      'rights_confirmed', true,
+      'idempotency_key', 'pgtap-media-quota-reject-0001'
+    ))
+  $$,
+  '54000',
+  'media_user_daily_object_quota_exceeded',
+  'daily media object quota rejects object two-hundred-and-one'
+);
+
+select ok(
+  content_factory.storage_object_is_unregistered(
+    'contentengine-private',
+    (select organization_id::text || '/' || profile_id::text ||
+      '/uploads/quota-reject.jpg' from creator_test_context)
+  ),
+  'quota-rejected storage upload remains unregistered and removable'
+);
+
+select ok(
+  (public.creator_register_media(jsonb_build_object(
+    'organization_id', (select organization_id from creator_test_context),
+    'bucket', 'contentengine-private',
+    'object_key', (select organization_id::text || '/' || profile_id::text ||
+      '/uploads/quota-boundary.jpg' from creator_test_context),
+    'original_filename', 'quota-boundary.jpg',
+    'mime_type', 'image/jpeg',
+    'size_bytes', 1,
+    'sha256', repeat('d', 64),
+    'kind', 'creator_reference',
+    'rights_confirmed', true,
+    'idempotency_key', 'pgtap-existing-media-reuse-0001'
+  )) ->> 'ok')::boolean,
+  'identical existing media can be reused when the quota is full'
+);
+
+select throws_ok(
+  $$
+    select public.creator_register_media(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'bucket', 'contentengine-private',
+      'object_key', (select organization_id::text || '/' || profile_id::text ||
+        '/uploads/quota-boundary.jpg' from creator_test_context),
+      'original_filename', 'different-name.jpg',
+      'mime_type', 'image/jpeg',
+      'size_bytes', 1,
+      'sha256', repeat('d', 64),
+      'kind', 'creator_reference',
+      'rights_confirmed', true,
+      'idempotency_key', 'pgtap-existing-media-conflict-0001'
+    ))
+  $$,
+  '23505',
+  'media_object_conflict',
+  'existing media immutable metadata cannot bypass registration quotas'
 );
 
 select * from finish();
