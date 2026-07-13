@@ -239,9 +239,32 @@ def test_storage_is_active_immutable_and_metadata_bound() -> None:
 
 def test_workspace_collections_are_hard_capped() -> None:
     workspace = _function_body("creator_workspace_section")
-    assert workspace.count("limit 100") >= 9
-    assert "limit 200" in workspace
-    assert "'cap', case when requested_section = 'team' then 200 else 100 end" in workspace
+    assert "page_size integer := 50" in workspace
+    assert "case when requested_section = 'team' then 200 else 100 end" in workspace
+    assert "workspace_page_size_invalid" in workspace
+    assert workspace.count("limit page_size") >= 11
+    assert workspace.count("cursor_at is null") >= 11
+    assert "workspace_before_cursor(" not in workspace
+    assert workspace.count("'_cursor'") >= 10
+    assert "'cursor_mode', 'keyset_at_id'" in workspace
+    assert "(membership.created_at, membership.id) <" in workspace
+    assert "(candidate.created_at, candidate.id) <" in workspace
+    assert "order by placement.updated_at desc, placement.id desc" in workspace
+    assert "limit 100" not in workspace
+    assert "limit 200" not in workspace
+    assert "member_page as materialized" in workspace
+    assert "task_stats as" in workspace
+
+    for index_name in (
+        "memberships_workspace_page_idx",
+        "generation_batches_workspace_org_page_idx",
+        "placements_workspace_org_created_page_idx",
+        "placements_workspace_org_updated_page_idx",
+        "creator_tasks_workspace_assignee_page_idx",
+        "media_objects_workspace_owner_page_idx",
+        "feedback_requests_workspace_profile_page_idx",
+    ):
+        assert index_name in RPC_SQL
 
 
 def test_placement_requires_separate_submit_review_and_confirmation() -> None:
@@ -260,3 +283,81 @@ def test_mock_batch_requires_media_bound_to_same_product() -> None:
     batch = _function_body("creator_create_mock_batch")
     assert batch.count("media.product_id = product_id") >= 2
     assert "exact_product_media_mismatch" in batch
+
+
+def test_mock_batch_has_serialized_rate_and_backlog_quotas_before_loop() -> None:
+    batch = _function_body("creator_create_mock_batch")
+    normalized = " ".join(batch.split())
+    assert "mock_batch_quota:organization" in batch
+    assert "mock_batch_quota:user" in batch
+    assert "sum(batch.total_requested)" in batch
+    assert "user_variants_15m + requested_count > 200" in normalized
+    assert "organization_variants_15m + requested_count > 3000" in normalized
+    assert "user_variants_24h + requested_count > 1000" in normalized
+    assert "organization_variants_24h + requested_count > 25000" in normalized
+    assert "count(distinct job.id)" in batch
+    assert "open_placement.status in ('scheduled', 'ready')" in normalized
+    assert "task.assignee_id = assignee_id_value" in batch
+    assert "placement.assigned_to = assignee_id_value" in batch
+    for code in (
+        "mock_batch_user_15m_quota_exceeded",
+        "mock_batch_organization_15m_quota_exceeded",
+        "mock_batch_user_daily_quota_exceeded",
+        "mock_batch_organization_daily_quota_exceeded",
+        "mock_batch_assignee_open_jobs_quota_exceeded",
+        "mock_batch_organization_open_jobs_quota_exceeded",
+        "mock_batch_assignee_open_tasks_quota_exceeded",
+        "mock_batch_organization_open_tasks_quota_exceeded",
+        "mock_batch_assignee_open_placements_quota_exceeded",
+        "mock_batch_organization_open_placements_quota_exceeded",
+    ):
+        assert code in batch
+    assert batch.index("mock_batch_quota:organization") < batch.index(
+        "for media_value in"
+    )
+    assert batch.index("mock_batch_quota:organization") < batch.index(
+        "for ordinal in 1..requested_count loop"
+    )
+    assert "exception when numeric_value_out_of_range" in batch
+
+
+def test_media_registration_has_authoritative_serialized_storage_quotas() -> None:
+    media = _function_body("creator_register_media")
+    normalized = " ".join(media.split())
+    assert "media_quota:organization" in media
+    assert "media_quota:user" in media
+    assert "media.status in ('uploading', 'ready', 'archived')" in normalized
+    assert "user_media_objects_24h >= 200" in normalized
+    assert "user_media_bytes_24h + size_value > 2147483648" in normalized
+    assert "user_media_objects_total + 1 > 2000" in normalized
+    assert "user_media_bytes_total + size_value > 10737418240" in normalized
+    assert "organization_media_objects + 1 > 20000" in normalized
+    assert "organization_media_bytes + size_value > 107374182400" in normalized
+    for code in (
+        "media_user_daily_object_quota_exceeded",
+        "media_user_daily_bytes_quota_exceeded",
+        "media_user_total_object_quota_exceeded",
+        "media_user_total_storage_quota_exceeded",
+        "media_organization_object_quota_exceeded",
+        "media_organization_storage_quota_exceeded",
+    ):
+        assert code in media
+    assert "media_row.task_id is distinct from task_id_value" in media
+    assert "media_row.mime_type <> mime_value" in media
+    assert "media_row.size_bytes <> size_value" in media
+    assert "media_row.metadata ->> 'kind' is distinct from kind_value" in media
+    assert "'kind', media_row.metadata ->> 'kind'" in media
+    assert media.index("media_quota:organization") < media.index(
+        "insert into content_factory.media_objects"
+    )
+
+
+def test_atomic_learning_collections_have_catalog_and_payload_bounds() -> None:
+    bootstrap = _function_body("creator_bootstrap")
+    submit = _function_body("creator_submit_exam")
+    assert "active_module_count > 64" in bootstrap
+    assert "exam_question_count <> exam_module.question_count" in bootstrap
+    assert "exam_module.question_count > 100" in bootstrap
+    assert "count(*) from jsonb_object_keys(answers)" in submit
+    assert "length(answers::text) > 64000" in submit
+    assert "jsonb_array_length(value) > 12" in RPC_SQL

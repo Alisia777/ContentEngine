@@ -24,6 +24,50 @@ begin
 end;
 $$;
 
+create or replace function content_factory_private.validate_workspace_cursor(
+  payload jsonb,
+  allowed_keys text[]
+)
+returns void
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  cursor_entry record;
+  parsed_at timestamptz;
+  parsed_id uuid;
+begin
+  if not (payload ? 'cursor') then
+    return;
+  end if;
+  if jsonb_typeof(payload -> 'cursor') <> 'object' then
+    raise exception using errcode = '22023', message = 'workspace_cursor_invalid';
+  end if;
+
+  for cursor_entry in
+    select entry.key, entry.value
+    from jsonb_each(payload -> 'cursor') entry
+  loop
+    if not (cursor_entry.key = any(allowed_keys))
+       or jsonb_typeof(cursor_entry.value) <> 'object'
+       or nullif(btrim(coalesce(cursor_entry.value ->> 'at', '')), '') is null
+       or nullif(btrim(coalesce(cursor_entry.value ->> 'id', '')), '') is null then
+      raise exception using errcode = '22023', message = 'workspace_cursor_invalid';
+    end if;
+    begin
+      parsed_at := (cursor_entry.value ->> 'at')::timestamptz;
+      parsed_id := (cursor_entry.value ->> 'id')::uuid;
+    exception
+      when invalid_text_representation
+        or invalid_datetime_format
+        or datetime_field_overflow then
+      raise exception using errcode = '22023', message = 'workspace_cursor_invalid';
+    end;
+  end loop;
+end;
+$$;
+
 create or replace function public.creator_workspace_section(p_payload jsonb default '{}'::jsonb)
 returns jsonb
 language plpgsql
@@ -37,6 +81,30 @@ declare
   requested_section text;
   actor_role text;
   team_scope boolean;
+  page_size integer := 50;
+  max_page_size integer;
+  team_cursor_at timestamptz;
+  team_cursor_id uuid;
+  generation_batches_cursor_at timestamptz;
+  generation_batches_cursor_id uuid;
+  generation_media_cursor_at timestamptz;
+  generation_media_cursor_id uuid;
+  generation_aliases_cursor_at timestamptz;
+  generation_aliases_cursor_id uuid;
+  placement_cursor_at timestamptz;
+  placement_cursor_id uuid;
+  stats_publications_cursor_at timestamptz;
+  stats_publications_cursor_id uuid;
+  stats_options_cursor_at timestamptz;
+  stats_options_cursor_id uuid;
+  payout_cursor_at timestamptz;
+  payout_cursor_id uuid;
+  tasks_cursor_at timestamptz;
+  tasks_cursor_id uuid;
+  media_cursor_at timestamptz;
+  media_cursor_id uuid;
+  feedback_cursor_at timestamptz;
+  feedback_cursor_id uuid;
   result jsonb;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
@@ -53,81 +121,170 @@ begin
     raise exception using errcode = '22023', message = 'workspace_section_invalid';
   end if;
 
+  max_page_size := case when requested_section = 'team' then 200 else 100 end;
+  if p_payload ? 'page_size' then
+    if coalesce(p_payload ->> 'page_size', '') !~ '^[0-9]+$' then
+      raise exception using errcode = '22023', message = 'workspace_page_size_invalid';
+    end if;
+    begin
+      page_size := (p_payload ->> 'page_size')::integer;
+    exception when numeric_value_out_of_range then
+      raise exception using errcode = '22023', message = 'workspace_page_size_invalid';
+    end;
+  end if;
+  if page_size < 1 or page_size > max_page_size then
+    raise exception using errcode = '22023', message = 'workspace_page_size_invalid';
+  end if;
+  if p_payload ? 'cursor' and jsonb_typeof(p_payload -> 'cursor') <> 'object' then
+    raise exception using errcode = '22023', message = 'workspace_cursor_invalid';
+  end if;
+  perform content_factory_private.validate_workspace_cursor(
+    p_payload,
+    case requested_section
+      when 'generation' then array[
+        'generation_batches', 'generation_media', 'generation_wb_aliases'
+      ]
+      when 'placement' then array['placement_items']
+      when 'stats' then array['stats_publications', 'stats_publication_options']
+      when 'payouts' then array['payout_items']
+      when 'tasks' then array['task_items']
+      when 'media' then array['media_items']
+      when 'feedback' then array['feedback_items']
+      when 'team' then array['team_members']
+    end
+  );
+
+  -- Decode the validated cursors once. Keeping the row tuple comparison in
+  -- each query (rather than hiding it inside a boolean helper) lets PostgreSQL
+  -- use the matching btree index for deep keyset pages.
+  team_cursor_at := (p_payload #>> '{cursor,team_members,at}')::timestamptz;
+  team_cursor_id := (p_payload #>> '{cursor,team_members,id}')::uuid;
+  generation_batches_cursor_at :=
+    (p_payload #>> '{cursor,generation_batches,at}')::timestamptz;
+  generation_batches_cursor_id :=
+    (p_payload #>> '{cursor,generation_batches,id}')::uuid;
+  generation_media_cursor_at :=
+    (p_payload #>> '{cursor,generation_media,at}')::timestamptz;
+  generation_media_cursor_id :=
+    (p_payload #>> '{cursor,generation_media,id}')::uuid;
+  generation_aliases_cursor_at :=
+    (p_payload #>> '{cursor,generation_wb_aliases,at}')::timestamptz;
+  generation_aliases_cursor_id :=
+    (p_payload #>> '{cursor,generation_wb_aliases,id}')::uuid;
+  placement_cursor_at := (p_payload #>> '{cursor,placement_items,at}')::timestamptz;
+  placement_cursor_id := (p_payload #>> '{cursor,placement_items,id}')::uuid;
+  stats_publications_cursor_at :=
+    (p_payload #>> '{cursor,stats_publications,at}')::timestamptz;
+  stats_publications_cursor_id :=
+    (p_payload #>> '{cursor,stats_publications,id}')::uuid;
+  stats_options_cursor_at :=
+    (p_payload #>> '{cursor,stats_publication_options,at}')::timestamptz;
+  stats_options_cursor_id :=
+    (p_payload #>> '{cursor,stats_publication_options,id}')::uuid;
+  payout_cursor_at := (p_payload #>> '{cursor,payout_items,at}')::timestamptz;
+  payout_cursor_id := (p_payload #>> '{cursor,payout_items,id}')::uuid;
+  tasks_cursor_at := (p_payload #>> '{cursor,task_items,at}')::timestamptz;
+  tasks_cursor_id := (p_payload #>> '{cursor,task_items,id}')::uuid;
+  media_cursor_at := (p_payload #>> '{cursor,media_items,at}')::timestamptz;
+  media_cursor_id := (p_payload #>> '{cursor,media_items,id}')::uuid;
+  feedback_cursor_at := (p_payload #>> '{cursor,feedback_items,at}')::timestamptz;
+  feedback_cursor_id := (p_payload #>> '{cursor,feedback_items,id}')::uuid;
+
   if requested_section = 'team' then
     if actor_role <> all(array['owner', 'admin']) then
       raise exception using errcode = '42501', message = 'role_not_allowed';
     end if;
 
+    with member_page as materialized (
+      select
+        membership.id,
+        membership.organization_id,
+        membership.profile_id,
+        membership.role,
+        membership.status,
+        membership.created_at,
+        profile.display_name,
+        profile.email
+      from content_factory.memberships membership
+      join content_factory.profiles profile on profile.id = membership.profile_id
+      where membership.organization_id = organization_id
+        and (
+          team_cursor_at is null
+          or (membership.created_at, membership.id) < (team_cursor_at, team_cursor_id)
+        )
+      order by membership.created_at desc, membership.id desc
+      limit page_size
+    ),
+    course_requirement as (
+      select count(*) as courses_required
+      from content_factory.training_modules module
+      where module.module_type = 'course'
+        and module.is_active
+    ),
+    certification_stats as (
+      select
+        member.profile_id,
+        count(distinct certification.module_code) filter (
+          where module.module_type = 'course'
+        ) as courses_completed,
+        coalesce(bool_or(module.module_type = 'exam'), false) as exam_passed
+      from member_page member
+      left join content_factory.training_certifications certification
+        on certification.organization_id = member.organization_id
+       and certification.profile_id = member.profile_id
+       and certification.status = 'passed'
+       and (certification.expires_at is null or certification.expires_at > now())
+      left join content_factory.training_modules module
+        on module.code = certification.module_code
+       and module.is_active
+      group by member.profile_id
+    ),
+    task_stats as (
+      select
+        member.profile_id,
+        count(task.id) as tasks_total,
+        count(task.id) filter (where task.status = 'done') as tasks_done
+      from member_page member
+      left join content_factory.creator_tasks task
+        on task.organization_id = member.organization_id
+       and task.assignee_id = member.profile_id
+      group by member.profile_id
+    ),
+    placement_stats as (
+      select
+        member.profile_id,
+        count(placement.id) filter (
+          where placement.status = 'published'
+        ) as published_count
+      from member_page member
+      left join content_factory.placements placement
+        on placement.organization_id = member.organization_id
+       and placement.assigned_to = member.profile_id
+      group by member.profile_id
+    )
     select jsonb_build_object(
       'members', coalesce(jsonb_agg(jsonb_build_object(
-        'profile_id', membership.profile_id,
-        'display_name', profile.display_name,
-        'email', profile.email,
-        'role', membership.role,
-        'status', membership.status,
-        'joined_at', membership.created_at,
-        'courses_completed', (
-          select count(distinct certification.module_code)
-          from content_factory.training_certifications certification
-          join content_factory.training_modules module
-            on module.code = certification.module_code
-           and module.module_type = 'course'
-           and module.is_active
-          where certification.organization_id = membership.organization_id
-            and certification.profile_id = membership.profile_id
-            and certification.status = 'passed'
-            and (certification.expires_at is null or certification.expires_at > now())
-        ),
-        'courses_required', (
-          select count(*)
-          from content_factory.training_modules module
-          where module.module_type = 'course'
-            and module.is_active
-        ),
-        'exam_passed', exists (
-          select 1
-          from content_factory.training_certifications certification
-          join content_factory.training_modules module
-            on module.code = certification.module_code
-           and module.module_type = 'exam'
-           and module.is_active
-          where certification.organization_id = membership.organization_id
-            and certification.profile_id = membership.profile_id
-            and certification.status = 'passed'
-            and (certification.expires_at is null or certification.expires_at > now())
-        ),
-        'tasks_total', (
-          select count(*)
-          from content_factory.creator_tasks task
-          where task.organization_id = membership.organization_id
-            and task.assignee_id = membership.profile_id
-        ),
-        'tasks_done', (
-          select count(*)
-          from content_factory.creator_tasks task
-          where task.organization_id = membership.organization_id
-            and task.assignee_id = membership.profile_id
-            and task.status = 'done'
-        ),
-        'published_count', (
-          select count(*)
-          from content_factory.placements placement
-          where placement.organization_id = membership.organization_id
-            and placement.assigned_to = membership.profile_id
-            and placement.status = 'published'
-        )
-      ) order by membership.created_at), '[]'::jsonb)
+        'id', member.id,
+        'profile_id', member.profile_id,
+        'display_name', member.display_name,
+        'email', member.email,
+        'role', member.role,
+        'status', member.status,
+        'joined_at', member.created_at,
+        '_cursor', jsonb_build_object('at', member.created_at, 'id', member.id),
+        'courses_completed', certification.courses_completed,
+        'courses_required', requirement.courses_required,
+        'exam_passed', certification.exam_passed,
+        'tasks_total', task.tasks_total,
+        'tasks_done', task.tasks_done,
+        'published_count', placement.published_count
+      ) order by member.created_at desc, member.id desc), '[]'::jsonb)
     ) into result
-    from content_factory.memberships membership
-    join content_factory.profiles profile on profile.id = membership.profile_id
-    where membership.organization_id = organization_id
-      and membership.id in (
-        select candidate.id
-        from content_factory.memberships candidate
-        where candidate.organization_id = organization_id
-        order by candidate.created_at desc
-        limit 200
-      );
+    from member_page member
+    cross join course_requirement requirement
+    join certification_stats certification using (profile_id)
+    join task_stats task using (profile_id)
+    join placement_stats placement using (profile_id);
   elsif requested_section = 'generation' then
     select jsonb_build_object(
       'batches', (
@@ -143,8 +300,9 @@ begin
           'total_created', batch.total_created,
           'total_accepted', batch.total_created,
           'parameters', batch.input,
-          'created_at', batch.created_at
-        ) order by batch.created_at desc), '[]'::jsonb)
+          'created_at', batch.created_at,
+          '_cursor', jsonb_build_object('at', batch.created_at, 'id', batch.id)
+        ) order by batch.created_at desc, batch.id desc), '[]'::jsonb)
         from content_factory.generation_batches batch
         join content_factory.products product
           on product.organization_id = batch.organization_id
@@ -156,8 +314,13 @@ begin
             from content_factory.generation_batches candidate
             where candidate.organization_id = organization_id
               and (team_scope or candidate.created_by = user_id)
-            order by candidate.created_at desc
-            limit 100
+              and (
+                generation_batches_cursor_at is null
+                or (candidate.created_at, candidate.id) <
+                  (generation_batches_cursor_at, generation_batches_cursor_id)
+              )
+            order by candidate.created_at desc, candidate.id desc
+            limit page_size
           )
       ),
       'media', (
@@ -169,8 +332,9 @@ begin
           'mime_type', media.mime_type,
           'size_bytes', media.size_bytes,
           'status', media.status,
-          'created_at', media.created_at
-        ) order by media.created_at desc), '[]'::jsonb)
+          'created_at', media.created_at,
+          '_cursor', jsonb_build_object('at', media.created_at, 'id', media.id)
+        ) order by media.created_at desc, media.id desc), '[]'::jsonb)
         from content_factory.media_objects media
         where media.organization_id = organization_id
           and media.status = 'ready'
@@ -181,8 +345,13 @@ begin
             where candidate.organization_id = organization_id
               and candidate.status = 'ready'
               and (team_scope or candidate.owner_id = user_id)
-            order by candidate.created_at desc
-            limit 100
+              and (
+                generation_media_cursor_at is null
+                or (candidate.created_at, candidate.id) <
+                  (generation_media_cursor_at, generation_media_cursor_id)
+              )
+            order by candidate.created_at desc, candidate.id desc
+            limit page_size
           )
       ),
       'wb_aliases', (
@@ -194,8 +363,9 @@ begin
           'status', alias.status,
           'reason', alias.reason,
           'valid_from', alias.valid_from,
-          'valid_to', alias.valid_to
-        ) order by alias.valid_from desc), '[]'::jsonb)
+          'valid_to', alias.valid_to,
+          '_cursor', jsonb_build_object('at', alias.valid_from, 'id', alias.id)
+        ) order by alias.valid_from desc, alias.id desc), '[]'::jsonb)
         from content_factory.wb_article_aliases alias
         join content_factory.products product
           on product.organization_id = alias.organization_id
@@ -205,8 +375,13 @@ begin
             select candidate.id
             from content_factory.wb_article_aliases candidate
             where candidate.organization_id = organization_id
-            order by candidate.valid_from desc
-            limit 100
+              and (
+                generation_aliases_cursor_at is null
+                or (candidate.valid_from, candidate.id) <
+                  (generation_aliases_cursor_at, generation_aliases_cursor_id)
+              )
+            order by candidate.valid_from desc, candidate.id desc
+            limit page_size
           )
       )
     ) into result;
@@ -227,8 +402,9 @@ begin
         'final_url', placement.final_url,
         'scheduled_at', placement.scheduled_at,
         'published_at', placement.published_at,
-        'created_at', placement.created_at
-      ) order by placement.created_at desc), '[]'::jsonb)
+        'created_at', placement.created_at,
+        '_cursor', jsonb_build_object('at', placement.created_at, 'id', placement.id)
+      ) order by placement.created_at desc, placement.id desc), '[]'::jsonb)
     ) into result
     from content_factory.placements placement
     join content_factory.products product
@@ -244,8 +420,13 @@ begin
         from content_factory.placements candidate
         where candidate.organization_id = organization_id
           and (team_scope or candidate.assigned_to = user_id)
-        order by candidate.created_at desc
-        limit 100
+          and (
+            placement_cursor_at is null
+            or (candidate.created_at, candidate.id) <
+              (placement_cursor_at, placement_cursor_id)
+          )
+        order by candidate.created_at desc, candidate.id desc
+        limit page_size
       );
   elsif requested_section = 'stats' then
     with scoped as (
@@ -278,10 +459,16 @@ begin
       ) snapshot on true
       where placement.organization_id = organization_id
         and (team_scope or placement.assigned_to = user_id)
-      order by placement.updated_at desc
-      limit 100
+        and (
+          stats_publications_cursor_at is null
+          or (placement.updated_at, placement.id) <
+            (stats_publications_cursor_at, stats_publications_cursor_id)
+        )
+      order by placement.updated_at desc, placement.id desc
+      limit page_size
     )
     select jsonb_build_object(
+      'summary_scope', 'page',
       'summary', jsonb_build_object(
         'published', count(*) filter (where status = 'published'),
         'views', coalesce(sum(views), 0),
@@ -308,17 +495,49 @@ begin
         'revenue_minor', coalesce(revenue_minor, 0),
         'source', source,
         'observed_at', observed_at,
-        'updated_at', updated_at
-      ) order by coalesce(observed_at, updated_at) desc), '[]'::jsonb),
-      'publication_options', coalesce(jsonb_agg(jsonb_build_object(
-        'id', id,
-        'placement_id', id,
-        'title', title,
-        'sku', sku,
-        'final_url', final_url
-      ) order by published_at desc) filter (where status = 'published'), '[]'::jsonb)
+        'updated_at', updated_at,
+        '_cursor', jsonb_build_object('at', updated_at, 'id', id)
+      ) order by updated_at desc, id desc), '[]'::jsonb)
     ) into result
     from scoped;
+
+    result := result || jsonb_build_object(
+      'publication_options', (
+        select coalesce(jsonb_agg(jsonb_build_object(
+          'id', publication_option.id,
+          'placement_id', publication_option.id,
+          'title', publication_option.title,
+          'sku', publication_option.sku,
+          'final_url', publication_option.final_url,
+          '_cursor', jsonb_build_object(
+            'at', publication_option.updated_at,
+            'id', publication_option.id
+          )
+        ) order by publication_option.updated_at desc, publication_option.id desc), '[]'::jsonb)
+        from (
+          select
+            placement.id,
+            placement.final_url,
+            placement.updated_at,
+            product.sku,
+            product.title
+          from content_factory.placements placement
+          join content_factory.products product
+            on product.organization_id = placement.organization_id
+           and product.id = placement.product_id
+          where placement.organization_id = organization_id
+            and placement.status = 'published'
+            and (team_scope or placement.assigned_to = user_id)
+            and (
+              stats_options_cursor_at is null
+              or (placement.updated_at, placement.id) <
+                (stats_options_cursor_at, stats_options_cursor_id)
+            )
+          order by placement.updated_at desc, placement.id desc
+          limit page_size
+        ) publication_option
+      )
+    );
   elsif requested_section = 'payouts' then
     select jsonb_build_object(
       'payouts', coalesce(jsonb_agg(jsonb_build_object(
@@ -335,8 +554,9 @@ begin
         'external_payment_reference', payout.external_payment_reference,
         'created_at', payout.created_at,
         'approved_at', payout.approved_at,
-        'paid_at', payout.paid_at
-      ) order by payout.created_at desc), '[]'::jsonb)
+        'paid_at', payout.paid_at,
+        '_cursor', jsonb_build_object('at', payout.created_at, 'id', payout.id)
+      ) order by payout.created_at desc, payout.id desc), '[]'::jsonb)
     ) into result
     from content_factory.creator_payouts payout
     join content_factory.profiles profile on profile.id = payout.profile_id
@@ -350,8 +570,13 @@ begin
         from content_factory.creator_payouts candidate
         where candidate.organization_id = organization_id
           and (actor_role = any(array['owner', 'admin']) or candidate.profile_id = user_id)
-        order by candidate.created_at desc
-        limit 100
+          and (
+            payout_cursor_at is null
+            or (candidate.created_at, candidate.id) <
+              (payout_cursor_at, payout_cursor_id)
+          )
+        order by candidate.created_at desc, candidate.id desc
+        limit page_size
       );
   elsif requested_section = 'tasks' then
     select jsonb_build_object(
@@ -369,8 +594,9 @@ begin
         'submitted_at', task.submitted_at,
         'completed_at', task.completed_at,
         'created_at', task.created_at,
-        'updated_at', task.updated_at
-      ) order by task.created_at desc), '[]'::jsonb)
+        'updated_at', task.updated_at,
+        '_cursor', jsonb_build_object('at', task.created_at, 'id', task.id)
+      ) order by task.created_at desc, task.id desc), '[]'::jsonb)
     ) into result
     from content_factory.creator_tasks task
     where task.organization_id = organization_id
@@ -380,8 +606,13 @@ begin
         from content_factory.creator_tasks candidate
         where candidate.organization_id = organization_id
           and (team_scope or candidate.assignee_id = user_id)
-        order by candidate.created_at desc
-        limit 100
+          and (
+            tasks_cursor_at is null
+            or (candidate.created_at, candidate.id) <
+              (tasks_cursor_at, tasks_cursor_id)
+          )
+        order by candidate.created_at desc, candidate.id desc
+        limit page_size
       );
   elsif requested_section = 'media' then
     select jsonb_build_object(
@@ -395,8 +626,9 @@ begin
         'size_bytes', media.size_bytes,
         'sha256', media.sha256,
         'status', media.status,
-        'created_at', media.created_at
-      ) order by media.created_at desc), '[]'::jsonb)
+        'created_at', media.created_at,
+        '_cursor', jsonb_build_object('at', media.created_at, 'id', media.id)
+      ) order by media.created_at desc, media.id desc), '[]'::jsonb)
     ) into result
     from content_factory.media_objects media
     where media.organization_id = organization_id
@@ -408,8 +640,13 @@ begin
         where candidate.organization_id = organization_id
           and candidate.status <> 'deleted'
           and (team_scope or candidate.owner_id = user_id)
-        order by candidate.created_at desc
-        limit 100
+          and (
+            media_cursor_at is null
+            or (candidate.created_at, candidate.id) <
+              (media_cursor_at, media_cursor_id)
+          )
+        order by candidate.created_at desc, candidate.id desc
+        limit page_size
       );
   else
     select jsonb_build_object(
@@ -420,8 +657,9 @@ begin
         'description', feedback.details,
         'status', feedback.status,
         'created_at', feedback.created_at,
-        'updated_at', feedback.updated_at
-      ) order by feedback.created_at desc), '[]'::jsonb)
+        'updated_at', feedback.updated_at,
+        '_cursor', jsonb_build_object('at', feedback.created_at, 'id', feedback.id)
+      ) order by feedback.created_at desc, feedback.id desc), '[]'::jsonb)
     ) into result
     from content_factory.feedback_requests feedback
     where feedback.organization_id = organization_id
@@ -431,18 +669,75 @@ begin
         from content_factory.feedback_requests candidate
         where candidate.organization_id = organization_id
           and (team_scope or candidate.profile_id = user_id)
-        order by candidate.created_at desc
-        limit 100
+          and (
+            feedback_cursor_at is null
+            or (candidate.created_at, candidate.id) <
+              (feedback_cursor_at, feedback_cursor_id)
+          )
+        order by candidate.created_at desc, candidate.id desc
+        limit page_size
       );
   end if;
 
   return coalesce(result, '{}'::jsonb) || jsonb_build_object(
     '_meta', jsonb_build_object(
-      'cap', case when requested_section = 'team' then 200 else 100 end
+      'page_size', page_size,
+      'default_page_size', 50,
+      'cap', max_page_size,
+      'cursor_mode', 'keyset_at_id'
     )
   );
 end;
 $$;
+
+-- Every workspace collection uses the same descending keyset shape. These
+-- indexes include the UUID tie-breaker so pagination remains index-backed
+-- when an organization grows well beyond the first 50 creators/items.
+create index if not exists memberships_workspace_page_idx
+  on content_factory.memberships (organization_id, created_at desc, id desc);
+create index if not exists generation_batches_workspace_org_page_idx
+  on content_factory.generation_batches (organization_id, created_at desc, id desc);
+create index if not exists generation_batches_workspace_owner_page_idx
+  on content_factory.generation_batches
+  (organization_id, created_by, created_at desc, id desc);
+create index if not exists wb_article_aliases_workspace_page_idx
+  on content_factory.wb_article_aliases
+  (organization_id, valid_from desc, id desc);
+create index if not exists placements_workspace_org_created_page_idx
+  on content_factory.placements (organization_id, created_at desc, id desc);
+create index if not exists placements_workspace_assignee_created_page_idx
+  on content_factory.placements
+  (organization_id, assigned_to, created_at desc, id desc);
+create index if not exists placements_workspace_org_updated_page_idx
+  on content_factory.placements (organization_id, updated_at desc, id desc);
+create index if not exists placements_workspace_assignee_updated_page_idx
+  on content_factory.placements
+  (organization_id, assigned_to, updated_at desc, id desc);
+create index if not exists placements_open_generation_job_idx
+  on content_factory.placements (organization_id, generation_job_id)
+  where status in ('scheduled', 'ready');
+create index if not exists creator_payouts_workspace_org_page_idx
+  on content_factory.creator_payouts (organization_id, created_at desc, id desc);
+create index if not exists creator_payouts_workspace_profile_page_idx
+  on content_factory.creator_payouts
+  (organization_id, profile_id, created_at desc, id desc);
+create index if not exists creator_tasks_workspace_org_page_idx
+  on content_factory.creator_tasks (organization_id, created_at desc, id desc);
+create index if not exists creator_tasks_workspace_assignee_page_idx
+  on content_factory.creator_tasks
+  (organization_id, assignee_id, created_at desc, id desc);
+create index if not exists media_objects_workspace_org_page_idx
+  on content_factory.media_objects (organization_id, created_at desc, id desc)
+  where status <> 'deleted';
+create index if not exists media_objects_workspace_owner_page_idx
+  on content_factory.media_objects
+  (organization_id, owner_id, created_at desc, id desc)
+  where status <> 'deleted';
+create index if not exists feedback_requests_workspace_org_page_idx
+  on content_factory.feedback_requests (organization_id, created_at desc, id desc);
+create index if not exists feedback_requests_workspace_profile_page_idx
+  on content_factory.feedback_requests
+  (organization_id, profile_id, created_at desc, id desc);
 
 create or replace function content_factory_private.require_text(
   payload jsonb,
@@ -640,6 +935,11 @@ declare
 begin
   if value is null then
     return '[]'::jsonb;
+  end if;
+
+  if length(value::text) > 4000
+     or (jsonb_typeof(value) = 'array' and jsonb_array_length(value) > 12) then
+    raise exception using errcode = '22023', message = 'answer_value_invalid';
   end if;
 
   if jsonb_typeof(value) = 'string' then
@@ -1303,6 +1603,7 @@ declare
   exam_module content_factory.training_modules%rowtype;
   requested_organization_id uuid;
   courses_required integer := 0;
+  active_module_count integer := 0;
   courses_completed integer;
   exam_passed boolean;
   exam_attempt_count integer := 0;
@@ -1314,6 +1615,7 @@ declare
   completed_modules jsonb := '[]'::jsonb;
   learning_modules jsonb;
   exam_questions jsonb := '[]'::jsonb;
+  exam_question_count integer := 0;
   result jsonb;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
@@ -1433,10 +1735,16 @@ begin
     );
   end if;
 
-  select count(*) into courses_required
+  select
+    count(*) filter (where module.module_type = 'course'),
+    count(*)
+  into courses_required, active_module_count
   from content_factory.training_modules module
-  where module.module_type = 'course'
-    and module.is_active;
+  where module.is_active;
+
+  if active_module_count > 64 then
+    raise exception using errcode = '54000', message = 'active_training_catalog_limit_exceeded';
+  end if;
 
   select count(distinct certification.module_code) into courses_completed
   from content_factory.training_certifications certification
@@ -1471,6 +1779,16 @@ begin
   limit 1;
 
   if exam_module.code is null then
+    raise exception using errcode = '55000', message = 'exam_catalog_unavailable';
+  end if;
+
+  select count(*) into exam_question_count
+  from content_factory.training_questions question
+  where question.module_code = exam_module.code;
+
+  if exam_module.question_count < 1
+     or exam_module.question_count > 100
+     or exam_question_count <> exam_module.question_count then
     raise exception using errcode = '55000', message = 'exam_catalog_unavailable';
   end if;
 
@@ -1745,6 +2063,10 @@ begin
   if jsonb_typeof(answers) <> 'object' then
     raise exception using errcode = '22023', message = 'answers_must_be_an_object';
   end if;
+  if (select count(*) from jsonb_object_keys(answers)) > 100
+     or length(answers::text) > 64000 then
+    raise exception using errcode = '22023', message = 'exam_answers_invalid';
+  end if;
   request_payload := jsonb_build_object(
     'answers', answers,
     'module_code', exam_code
@@ -2005,6 +2327,16 @@ declare
   request_payload jsonb;
   result jsonb;
   team_scope boolean;
+  user_variants_15m bigint;
+  organization_variants_15m bigint;
+  user_variants_24h bigint;
+  organization_variants_24h bigint;
+  assignee_open_jobs bigint;
+  organization_open_jobs bigint;
+  assignee_open_tasks bigint;
+  organization_open_tasks bigint;
+  assignee_open_placements bigint;
+  organization_open_placements bigint;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
   user_id := content_factory_private.current_profile_id();
@@ -2082,7 +2414,11 @@ begin
   if coalesce(p_payload ->> 'count', '') !~ '^[0-9]+$' then
     raise exception using errcode = '22023', message = 'count_invalid';
   end if;
-  requested_count := (p_payload ->> 'count')::integer;
+  begin
+    requested_count := (p_payload ->> 'count')::integer;
+  exception when numeric_value_out_of_range then
+    raise exception using errcode = '22023', message = 'count_invalid';
+  end;
   if requested_count < 1 or requested_count > 50 then
     raise exception using errcode = '22023', message = 'count_invalid';
   end if;
@@ -2106,6 +2442,99 @@ begin
     request_payload
   );
   if replay is not null then return replay; end if;
+
+  -- Serialize quota decisions before creating the batch or entering the
+  -- requested_count loop. This prevents parallel 50-item requests from all
+  -- observing the same remaining capacity.
+  perform pg_advisory_xact_lock(
+    hashtext(organization_id::text),
+    hashtext('mock_batch_quota:organization')
+  );
+  perform pg_advisory_xact_lock(
+    hashtext(organization_id::text || ':' || user_id::text),
+    hashtext('mock_batch_quota:user')
+  );
+
+  select
+    coalesce(sum(batch.total_requested) filter (
+      where batch.created_by = user_id
+        and batch.created_at >= now() - interval '15 minutes'
+    ), 0),
+    coalesce(sum(batch.total_requested) filter (
+      where batch.created_at >= now() - interval '15 minutes'
+    ), 0),
+    coalesce(sum(batch.total_requested) filter (
+      where batch.created_by = user_id
+        and batch.created_at >= now() - interval '24 hours'
+    ), 0),
+    coalesce(sum(batch.total_requested), 0)
+  into
+    user_variants_15m,
+    organization_variants_15m,
+    user_variants_24h,
+    organization_variants_24h
+  from content_factory.generation_batches batch
+  where batch.organization_id = organization_id
+    and batch.created_at >= now() - interval '24 hours';
+
+  if user_variants_15m + requested_count > 200 then
+    raise exception using errcode = '54000', message = 'mock_batch_user_15m_quota_exceeded';
+  end if;
+  if organization_variants_15m + requested_count > 3000 then
+    raise exception using errcode = '54000', message = 'mock_batch_organization_15m_quota_exceeded';
+  end if;
+  if user_variants_24h + requested_count > 1000 then
+    raise exception using errcode = '54000', message = 'mock_batch_user_daily_quota_exceeded';
+  end if;
+  if organization_variants_24h + requested_count > 25000 then
+    raise exception using errcode = '54000', message = 'mock_batch_organization_daily_quota_exceeded';
+  end if;
+
+  select
+    count(distinct job.id) filter (where job.assigned_to = assignee_id_value),
+    count(distinct job.id)
+  into assignee_open_jobs, organization_open_jobs
+  from content_factory.generation_jobs job
+  join content_factory.placements open_placement
+    on open_placement.organization_id = job.organization_id
+   and open_placement.generation_job_id = job.id
+   and open_placement.status in ('scheduled', 'ready')
+  where job.organization_id = organization_id;
+
+  select
+    count(*) filter (where task.assignee_id = assignee_id_value),
+    count(*)
+  into assignee_open_tasks, organization_open_tasks
+  from content_factory.creator_tasks task
+  where task.organization_id = organization_id
+    and task.status in ('todo', 'in_progress', 'submitted', 'review', 'blocked');
+
+  select
+    count(*) filter (where placement.assigned_to = assignee_id_value),
+    count(*)
+  into assignee_open_placements, organization_open_placements
+  from content_factory.placements placement
+  where placement.organization_id = organization_id
+    and placement.status in ('scheduled', 'ready');
+
+  if assignee_open_jobs + requested_count > 250 then
+    raise exception using errcode = '54000', message = 'mock_batch_assignee_open_jobs_quota_exceeded';
+  end if;
+  if organization_open_jobs + requested_count > 5000 then
+    raise exception using errcode = '54000', message = 'mock_batch_organization_open_jobs_quota_exceeded';
+  end if;
+  if assignee_open_tasks + requested_count > 250 then
+    raise exception using errcode = '54000', message = 'mock_batch_assignee_open_tasks_quota_exceeded';
+  end if;
+  if organization_open_tasks + requested_count > 5000 then
+    raise exception using errcode = '54000', message = 'mock_batch_organization_open_tasks_quota_exceeded';
+  end if;
+  if assignee_open_placements + requested_count > 250 then
+    raise exception using errcode = '54000', message = 'mock_batch_assignee_open_placements_quota_exceeded';
+  end if;
+  if organization_open_placements + requested_count > 5000 then
+    raise exception using errcode = '54000', message = 'mock_batch_organization_open_placements_quota_exceeded';
+  end if;
 
   insert into content_factory.products (
     organization_id, sku, title, status, created_by
@@ -3321,6 +3750,12 @@ declare
   product_id_value uuid;
   sku_value text;
   product_name_value text;
+  user_media_objects_24h bigint;
+  user_media_bytes_24h numeric;
+  user_media_objects_total bigint;
+  user_media_bytes_total numeric;
+  organization_media_objects bigint;
+  organization_media_bytes numeric;
   media_row content_factory.media_objects%rowtype;
   replay jsonb;
   request_payload jsonb;
@@ -3470,13 +3905,74 @@ begin
   if media_row.id is not null and (
     media_row.organization_id <> organization_id
     or media_row.owner_id <> user_id
+    or media_row.task_id is distinct from task_id_value
     or media_row.sha256 <> sha_value
     or media_row.product_id is distinct from product_id_value
+    or media_row.mime_type <> mime_value
+    or media_row.size_bytes <> size_value
+    or media_row.status <> 'ready'
+    or media_row.metadata ->> 'original_filename' is distinct from original_filename
+    or media_row.metadata ->> 'kind' is distinct from kind_value
+    or media_row.metadata -> 'rights_confirmed' is distinct from 'true'::jsonb
   ) then
     raise exception using errcode = '23505', message = 'media_object_conflict';
   end if;
 
   if media_row.id is null then
+    perform pg_advisory_xact_lock(
+      hashtext(organization_id::text),
+      hashtext('media_quota:organization')
+    );
+    perform pg_advisory_xact_lock(
+      hashtext(organization_id::text || ':' || user_id::text),
+      hashtext('media_quota:user')
+    );
+
+    select
+      count(*) filter (
+        where media.owner_id = user_id
+          and media.created_at >= now() - interval '24 hours'
+      ),
+      coalesce(sum(media.size_bytes) filter (
+        where media.owner_id = user_id
+          and media.created_at >= now() - interval '24 hours'
+      ), 0),
+      count(*) filter (where media.owner_id = user_id),
+      coalesce(sum(media.size_bytes) filter (
+        where media.owner_id = user_id
+      ), 0),
+      count(*),
+      coalesce(sum(media.size_bytes), 0)
+    into
+      user_media_objects_24h,
+      user_media_bytes_24h,
+      user_media_objects_total,
+      user_media_bytes_total,
+      organization_media_objects,
+      organization_media_bytes
+    from content_factory.media_objects media
+    where media.organization_id = organization_id
+      and media.status in ('uploading', 'ready', 'archived');
+
+    if user_media_objects_24h >= 200 then
+      raise exception using errcode = '54000', message = 'media_user_daily_object_quota_exceeded';
+    end if;
+    if user_media_bytes_24h + size_value > 2147483648 then
+      raise exception using errcode = '54000', message = 'media_user_daily_bytes_quota_exceeded';
+    end if;
+    if user_media_objects_total + 1 > 2000 then
+      raise exception using errcode = '54000', message = 'media_user_total_object_quota_exceeded';
+    end if;
+    if user_media_bytes_total + size_value > 10737418240 then
+      raise exception using errcode = '54000', message = 'media_user_total_storage_quota_exceeded';
+    end if;
+    if organization_media_objects + 1 > 20000 then
+      raise exception using errcode = '54000', message = 'media_organization_object_quota_exceeded';
+    end if;
+    if organization_media_bytes + size_value > 107374182400 then
+      raise exception using errcode = '54000', message = 'media_organization_storage_quota_exceeded';
+    end if;
+
     insert into content_factory.media_objects (
       organization_id, owner_id, task_id, product_id,
       bucket_id, object_name, mime_type, size_bytes, sha256,
@@ -3508,8 +4004,8 @@ begin
       'id', media_row.id,
       'public_id', media_row.id,
       'object_key', media_row.object_name,
-      'original_filename', original_filename,
-      'kind', kind_value,
+      'original_filename', media_row.metadata ->> 'original_filename',
+      'kind', media_row.metadata ->> 'kind',
       'mime_type', media_row.mime_type,
       'size_bytes', media_row.size_bytes,
       'product_id', media_row.product_id,
@@ -3523,7 +4019,10 @@ begin
     'media_registered',
     'media_object',
     media_row.id::text,
-    jsonb_build_object('kind', kind_value, 'mime_type', mime_value),
+    jsonb_build_object(
+      'kind', media_row.metadata ->> 'kind',
+      'mime_type', media_row.mime_type
+    ),
     'media:' || idempotency_key
   );
 

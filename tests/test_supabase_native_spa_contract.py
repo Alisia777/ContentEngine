@@ -57,6 +57,7 @@ def test_auth_supports_password_invite_recovery_and_hash_routes_without_signup()
         assert method in app
     assert "signUp(" not in app
     assert 'window.addEventListener("hashchange"' in app
+    assert 'query.get("token_hash") || fragment.get("token_hash")' in app
     assert '#/set-password' in app
     assert '#/workspace/generation' in app
 

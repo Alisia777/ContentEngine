@@ -55,16 +55,18 @@ enabled by this release.
   verification explicitly enabled; deployment never uses `--no-verify-jwt` or
   `--prune`.
 - `supabase/config.toml` owns the hosted Auth/API settings. Production deploy
-  runs `supabase config push` after linking, so the Pages Site URL, closed
+  runs `supabase config push` against the reviewed project ref, so the Pages Site URL, closed
   signup, password policy and redirect allowlist cannot drift into an
   undocumented dashboard-only state.
 - `.github/workflows/supabase-pages.yml` starts automatically only after the
-  `CI` workflow succeeds for `main`, previews pending migrations with
-  `supabase db push --dry-run`, applies them, provisions the private exam
-  grading material with command output withheld, and publishes the Pages
-  artifact only after the database job succeeds. Missing or malformed grading
-  material fails closed. Pull-request/fork completions are rejected; manual
-  recovery runs are accepted only from the `main` ref.
+  `CI` workflow succeeds for `main`. It applies immutable SQL migrations through
+  the official Supabase Management API, records their SHA-256 checksums in the
+  private `contentengine_deploy.schema_migrations` table, provisions private
+  exam grading material entirely in memory with command output withheld, and
+  publishes the Pages artifact only after the database job succeeds. Missing,
+  malformed or changed migration material fails closed. Pull-request/fork
+  completions are rejected; manual recovery runs are accepted only from the
+  `main` ref.
 - `.github/workflows/ci.yml` starts a local Supabase database, applies every SQL
   migration, lints it, runs the committed pgTAP security/workflow contract,
   formats/lints/type-checks the invitation Function, and also keeps the Python
@@ -113,9 +115,9 @@ encrypted secrets in that environment:
 
 | Secret | Purpose |
 | --- | --- |
-| `SUPABASE_ACCESS_TOKEN` | Supabase personal access token used only by the CLI deployment job |
-| `SUPABASE_DB_PASSWORD` | Database password for the existing paid project, used only by `supabase db push` |
+| `SUPABASE_ACCESS_TOKEN` | Revocable Supabase personal access token used only by the production migration/configuration steps |
 | `SUPABASE_EXAM_KEYS_B64` | Base64-encoded, idempotent SQL payload that provisions the private exam grading keys after migrations |
+| `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 
 Configure these as repository **Variables**, because the independent Pages
 build job must read them:
@@ -137,19 +139,31 @@ secret/local endpoint marker.
 Prepare `SUPABASE_EXAM_KEYS_B64` outside the repository and paste it directly
 into the environment-secret form. Do not place the decoded grading SQL in a
 commit, issue, Actions input, screenshot, artifact or chat. The provisioning
-step scopes the secret to one step, writes a mode-`0600` temporary file,
-withholds all database-command output, removes temporary files on exit and
-blocks the release if validation or application fails.
+step scopes the secret to one step, decodes and validates it only in process
+memory, withholds all database-command output and blocks the release if
+validation or application fails.
 
 Being signed in to the Supabase dashboard does not authorize a GitHub runner.
-The dashboard session is for the human operator; `SUPABASE_ACCESS_TOKEN` and
-`SUPABASE_DB_PASSWORD` provide the separate, revocable CLI boundary used by
-Actions.
+The dashboard session is for the human operator; `SUPABASE_ACCESS_TOKEN`
+provides the separate, revocable Management API and CLI boundary used by
+Actions. No database password is stored in GitHub.
 
 The invitation Function receives the standard Supabase runtime credentials in
 its managed server environment; no service-role/secret key is copied into
-GitHub variables or the Pages artifact. It must authenticate the caller and
-enforce owner/admin organization scope before using Auth Admin operations.
+GitHub variables or the Pages artifact. The first-owner step uses the protected
+Management API token to reveal one service-role server key only in runner
+memory (preferring a scoped `sb_secret_*` key over the legacy JWT), creates a
+confirmed identity only when `SUPABASE_OWNER_EMAIL` does not exist, calls the
+service-role-only initializer, sends one password-recovery link, and marks that
+delivery idempotently. The key and recovery token are never printed or stored.
+An existing unconfirmed identity fails closed for manual review instead of
+being admin-confirmed, because it may carry an attacker-selected password from
+earlier configuration drift.
+The owner job depends on the successful Pages deployment, so the password link
+is not sent until the committed `/auth/accept/` bridge is live at the canonical
+URL.
+Subsequent invitations must authenticate the caller and enforce owner/admin
+organization scope before using Auth Admin operations.
 
 ## Existing paid Supabase project
 
@@ -160,9 +174,10 @@ MVP. Before the first migration:
 2. Confirm that the project is intended for ContentEngine. Do not apply these
    migrations blindly to a project whose `content_factory` schemas or
    `contentengine-private` bucket belong to another application.
-3. Inspect remote migration history with `supabase migration list`. If the
-   project already has manually applied copies of these objects, reconcile the
-   history deliberately; do not guess with `migration repair`.
+3. Inspect `contentengine_deploy.schema_migrations` before adopting a project
+   that already has manually applied copies of these objects. Reconcile that
+   history deliberately; never fabricate a checksum row. The deployer refuses
+   to continue when a recorded migration checksum differs from Git.
 4. Keep the Supabase Data API enabled and keep `public` exposed: the SPA uses
    PostgREST only for the narrow `public.creator_*` functions. Do not expose the
    `content_factory_private` schema.
@@ -190,18 +205,24 @@ organization access through the application contract.
 ## First production release
 
 1. Review the SQL migrations and take a Supabase backup.
-2. Add all three GitHub environment secrets and both repository variables above
+2. Add both GitHub environment secrets and both repository variables above
    without pasting them into issues, commits, screenshots, or chat.
 3. Merge the reviewed branch into `main`.
 4. Wait for **CI** on `main`, then watch **Deploy Supabase and GitHub Pages**.
    A failed or pull-request CI run cannot start production. The `migrate` job
    must finish before `deploy-pages` can publish the interface.
-5. If `supabase db push` reports divergent migration history, stop and inspect
-   it. Do not publish a frontend against a partially migrated RPC contract.
-6. Create and confirm the first Auth user from the Supabase dashboard. From a
-   secure administrative context, call the service-role-only
-   `system_initialize_owner` once for that exact user. Never expose the
-   service-role credential or this operation to Pages.
+5. If the Management API deployer reports an immutable checksum mismatch or a
+   failed migration, stop and inspect `contentengine_deploy.schema_migrations`.
+   Do not publish a frontend against a partially migrated RPC contract.
+6. Confirm the protected owner-bootstrap step created or reconciled the exact
+   `SUPABASE_OWNER_EMAIL`, called the service-role-only
+   `system_initialize_owner`, and reported `recovery=sent` (or
+   `recovery=not_required` on a safe replay). Open the recovery email and set a
+   strong password through the committed `/auth/accept/` route. Never expose
+   the service-role credential or initializer to Pages.
+   The invariant after initialization is **Exactly one active membership** for
+   the first owner. Bootstrap never falls back to a sole-organization autojoin
+   or silently restores an inactive membership.
 7. Invite subsequent creators through the **Team** tab. The authenticated Edge
    Function uses Auth Admin and then calls `system_provision_invited_member` to
    create a `trainee` membership in the caller's organization. A separately
@@ -252,6 +273,18 @@ a `trainee` and must independently complete all four modules plus the
 12-scenario final exam; a bulk invite never grants operator access. Creating an
 Auth user outside this path does not create a membership.
 
+Configure the Supabase **Invite user** email template to return the one-time
+token to the public application, where it is exchanged server-side by Auth:
+
+```text
+<PUBLIC_APP_URL>/auth/accept#token_hash={{ .TokenHash }}&type=invite
+```
+
+Replace `<PUBLIC_APP_URL>` with the canonical HTTPS application origin. Do not
+put access tokens, service-role keys, or database credentials into the template.
+The default fragment redirect is insufficient because GitHub Pages must first
+serve the committed `/auth/accept` bridge without discarding the token hash.
+
 Do not promise external invitation delivery until custom SMTP is configured.
 Supabase's built-in sender is for exploration only: it sends only to addresses
 pre-authorized as members of the Supabase organization and is currently limited
@@ -265,6 +298,10 @@ controlled batches rather than creating an email spike.
 The Python commands, SQLite databases, local media folders, Dockerfile, and
 `127.0.0.1` routes are developer/reference tools. They are not the creator
 login surface and are not a production deployment method.
+
+The historical reference bootstrap remains available as
+`python scripts/bootstrap_cloud_owner.py`; it is not the Supabase-native
+production initializer and must not be used in the GitHub Pages release path.
 
 For local Supabase contract work, use the CLI against the local stack and apply
 the committed migrations:
