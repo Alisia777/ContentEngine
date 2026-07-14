@@ -252,6 +252,7 @@ def provision_member(
     temporary_password: str,
     role: str,
     claim_existing: bool = False,
+    reset_signed_in: bool = False,
 ) -> MemberProvisionResult:
     normalized_email = _validated_email(email)
     validated_display_name = _validated_display_name(display_name)
@@ -308,10 +309,6 @@ def provision_member(
             raise MemberProvisionError(
                 "Pre-existing Supabase member is not owned by this provisioning flow"
             )
-        if state.signed_in:
-            raise MemberProvisionError(
-                "Pre-existing Supabase member has already signed in"
-            )
         if state.membership_count != 0:
             raise MemberProvisionError(
                 "Pre-existing Supabase member already belongs to an organization"
@@ -321,6 +318,10 @@ def provision_member(
             raise MemberProvisionError(
                 "Pre-existing Supabase member has conflicting provisioning metadata"
             )
+        if state.signed_in and not reset_signed_in:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member has already signed in"
+            )
         metadata[MEMBER_PROVISION_MARKER] = True
         original_user_id = state.user_id
         require_auth_client().claim_confirmed_user_with_password(
@@ -329,7 +330,7 @@ def provision_member(
             password=validated_password,
             app_metadata=metadata,
         )
-        identity_status = "claimed"
+        identity_status = "reset" if state.signed_in else "claimed"
         state = read_member_state(
             management_client,
             email=normalized_email,
@@ -397,6 +398,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Claim only an unsigned-in, membership-free existing Auth identity",
     )
+    parser.add_argument(
+        "--reset-signed-in",
+        action="store_true",
+        help="Reset only a membership-free existing identity after explicit review",
+    )
     return parser
 
 
@@ -423,7 +429,8 @@ def main(argv: list[str] | None = None) -> int:
             display_name=args.display_name,
             temporary_password=temporary_password,
             role=args.role,
-            claim_existing=args.claim_existing,
+            claim_existing=args.claim_existing or args.reset_signed_in,
+            reset_signed_in=args.reset_signed_in,
         )
     except (MemberProvisionError, OwnerBootstrapError) as exc:
         print(f"Supabase member provisioning stopped: {exc}", file=os.sys.stderr)

@@ -24,6 +24,11 @@ on:
         required: true
         default: false
         type: boolean
+      reset_signed_in:
+        description: Reset a signed-in identity only when it has zero memberships
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -78,6 +83,7 @@ jobs:
           MEMBER_DISPLAY_NAME: ${{ inputs.display_name }}
           MEMBER_ROLE: ${{ inputs.role }}
           CLAIM_EXISTING: ${{ inputs.claim_existing }}
+          RESET_SIGNED_IN: ${{ inputs.reset_signed_in }}
         shell: bash
         run: |
           args=(
@@ -87,5 +93,8 @@ jobs:
           )
           if [ "$CLAIM_EXISTING" = "true" ]; then
             args+=(--claim-existing)
+          fi
+          if [ "$RESET_SIGNED_IN" = "true" ]; then
+            args+=(--reset-signed-in)
           fi
           python -m scripts.provision_supabase_member "${args[@]}"
