@@ -155,6 +155,29 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     )
     assert "--no-verify-jwt" not in invite_deploy["run"]
     assert "--prune" not in invite_deploy["run"]
+    runway_secret = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Synchronize private Runway API secret"
+    )
+    assert runway_secret["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+        "RUNWAYML_API_SECRET": "${{ secrets.RUNWAYML_API_SECRET }}",
+    }
+    assert 'echo "::add-mask::$RUNWAYML_API_SECRET"' in runway_secret["run"]
+    assert "supabase secrets set" in runway_secret["run"]
+    assert 'RUNWAYML_API_SECRET="$RUNWAYML_API_SECRET"' in runway_secret["run"]
+    generate_deploy = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Deploy authenticated real generation function"
+    )
+    assert generate_deploy["run"] == (
+        'supabase functions deploy creator-generate '
+        '--project-ref "$SUPABASE_PROJECT_REF"'
+    )
+    assert "--no-verify-jwt" not in generate_deploy["run"]
+    assert "--prune" not in generate_deploy["run"]
     owner_step = next(
         step
         for step in owner["steps"]
@@ -228,6 +251,8 @@ def test_production_workflow_releases_the_successful_main_ci_commit() -> None:
 
 def test_pages_build_accepts_only_browser_safe_configuration() -> None:
     workflow = _text(PRODUCTION_WORKFLOW)
+    parsed = _yaml(PRODUCTION_WORKFLOW)
+    build = parsed["jobs"]["build-pages"]
 
     assert "SUPABASE_PUBLISHABLE_KEY" in workflow
     assert workflow.count(
@@ -237,12 +262,19 @@ def test_pages_build_accepts_only_browser_safe_configuration() -> None:
     assert "SUPABASE_SECRET_KEY" not in workflow
     assert "SUPABASE_SERVICE_ROLE_KEY" not in workflow
     assert "OPENAI_API_KEY" not in workflow
-    assert "RUNWAYML_API_SECRET" not in workflow
+    assert "RUNWAYML_API_SECRET" not in build["env"]
     assert "_site/config.js" in workflow
     assert "cp -R web/app/. _site/" in workflow
     assert "test -f _site/index.html" in workflow
     assert "__SET_SUPABASE_|127\\.0\\.0\\.1|localhost" in workflow
-    assert '"MOCK_ONLY": True' in workflow
+    assert '"MOCK_ONLY"' not in workflow
+    assert '"MOCK_ENABLED": True' in workflow
+    assert '"REAL_GENERATION_ENABLED": True' in workflow
+    assert '"REAL_PROVIDER": "runway"' in workflow
+    assert '"REAL_MODEL": "gen4_turbo"' in workflow
+    assert '"REAL_DURATION_SECONDS": 5' in workflow
+    assert '"REAL_ESTIMATED_CREDITS": 25' in workflow
+    assert '"REAL_ESTIMATED_COST_USD": 0.25' in workflow
     assert '"MAX_BATCH_SIZE": 50' in workflow
     assert '"STORAGE_BUCKET": "contentengine-private"' in workflow
 
@@ -336,6 +368,24 @@ def test_creator_invite_function_is_explicitly_jwt_verified() -> None:
     assert "--prune" not in workflow
 
 
+def test_creator_generate_function_is_explicitly_jwt_verified() -> None:
+    config = tomllib.loads(_text("supabase/config.toml"))
+    source = _text("supabase/functions/creator-generate/index.ts")
+    workflow = _text(PRODUCTION_WORKFLOW)
+
+    assert (ROOT / "supabase/functions/creator-generate/index.ts").is_file()
+    assert config["functions"]["creator-generate"]["verify_jwt"] is True
+    assert 'npm:@supabase/server@1.3.0' in source
+    assert 'auth: "user"' in source
+    assert '"creator_start_real_generation"' in source
+    assert '"creator_real_generation_status"' in source
+    assert '"system_update_real_generation"' in source
+    assert 'Deno.env.get("RUNWAYML_API_SECRET")' in source
+    assert "supabase functions deploy creator-generate" in workflow
+    assert "--no-verify-jwt" not in workflow
+    assert "--prune" not in workflow
+
+
 def test_remote_auth_configuration_is_cloud_only_and_versioned() -> None:
     config = tomllib.loads(_text("supabase/config.toml"))
     auth = config["auth"]
@@ -422,6 +472,9 @@ def test_ci_validates_supabase_contract_and_keeps_python_only_as_reference() -> 
     assert "deno fmt --check supabase/functions/creator-invite" in ci
     assert "deno lint supabase/functions/creator-invite/index.ts" in ci
     assert "deno check supabase/functions/creator-invite/index.ts" in ci
+    assert "deno fmt --check supabase/functions/creator-generate" in ci
+    assert "deno lint supabase/functions/creator-generate/index.ts" in ci
+    assert "deno check supabase/functions/creator-generate/index.ts" in ci
     assert "python -m pytest -q" in ci
     assert "reference-postgres-migration" in ci
     assert "docker build" not in ci

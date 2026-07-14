@@ -5,7 +5,8 @@ window.CONTENTENGINE_CONFIG = Object.freeze({
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_REPLACE_ME",
   RPC_SCHEMA: "public",
   STORAGE_BUCKET: "contentengine-private",
-  MOCK_ONLY: true,
+  MOCK_ENABLED: true,
+  REAL_GENERATION_ENABLED: false,
   MAX_BATCH_SIZE: 50,
   MAX_UPLOAD_BYTES: 52428800,
 });

@@ -57,9 +57,14 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
+          RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
         run: |
+          if [ -n "${RUNWAYML_API_SECRET:-}" ]; then
+            echo "::add-mask::$RUNWAYML_API_SECRET"
+          fi
           : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in the production environment}"
           : "${SUPABASE_OWNER_EMAIL:?Configure SUPABASE_OWNER_EMAIL in the production environment}"
+          : "${RUNWAYML_API_SECRET:?Configure RUNWAYML_API_SECRET in the production environment}"
           : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
           : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
           if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
@@ -80,28 +85,51 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase config push --project-ref "$SUPABASE_PROJECT_REF"
 
-      - name: Require JWT verification for creator invitations
+      - name: Synchronize private Runway API secret
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
+        run: |
+          echo "::add-mask::$RUNWAYML_API_SECRET"
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            RUNWAYML_API_SECRET="$RUNWAYML_API_SECRET"
+
+      - name: Require JWT verification for creator Edge Functions
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import tomllib
 
-          entrypoint = Path("supabase/functions/creator-invite/index.ts")
-          if not entrypoint.is_file():
-              raise SystemExit("Missing creator-invite Edge Function entrypoint")
           config = tomllib.loads(
               Path("supabase/config.toml").read_text(encoding="utf-8")
           )
-          function_config = config.get("functions", {}).get("creator-invite", {})
-          if function_config.get("verify_jwt") is not True:
-              raise SystemExit("creator-invite must set verify_jwt = true")
+          for function_name in ("creator-invite", "creator-generate"):
+              entrypoint = Path("supabase/functions") / function_name / "index.ts"
+              if not entrypoint.is_file():
+                  raise SystemExit(
+                      f"Missing {function_name} Edge Function entrypoint"
+                  )
+              function_config = config.get("functions", {}).get(
+                  function_name, {}
+              )
+              if function_config.get("verify_jwt") is not True:
+                  raise SystemExit(
+                      f"{function_name} must set verify_jwt = true"
+                  )
           PY
 
       - name: Deploy authenticated creator invitation function
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-invite --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy authenticated real generation function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy creator-generate --project-ref "$SUPABASE_PROJECT_REF"
 
   build-pages:
     name: Build browser-only creator workspace
@@ -167,7 +195,13 @@ jobs:
               "SUPABASE_PUBLISHABLE_KEY": publishable_key,
               "RPC_SCHEMA": "public",
               "STORAGE_BUCKET": "contentengine-private",
-              "MOCK_ONLY": True,
+              "MOCK_ENABLED": True,
+              "REAL_GENERATION_ENABLED": True,
+              "REAL_PROVIDER": "runway",
+              "REAL_MODEL": "gen4_turbo",
+              "REAL_DURATION_SECONDS": 5,
+              "REAL_ESTIMATED_CREDITS": 25,
+              "REAL_ESTIMATED_COST_USD": 0.25,
               "MAX_BATCH_SIZE": 50,
               "MAX_UPLOAD_BYTES": 52_428_800,
           }
@@ -182,7 +216,7 @@ jobs:
       - name: Reject server secrets and localhost from Pages artifact
         shell: bash
         run: |
-          if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN' _site/config.js; then
+          if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN|RUNWAYML_API_SECRET' _site/config.js; then
             echo "Server-only material entered the generated browser configuration" >&2
             exit 1
           fi
