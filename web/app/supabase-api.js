@@ -24,7 +24,21 @@ export const RPC = Object.freeze({
 });
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
-const REAL_SPEND_CONFIRMATION = "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+const REAL_GENERATION_SKUS = Object.freeze({
+  gen4_turbo: Object.freeze({
+    duration_seconds: 5,
+    audio: false,
+    confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25",
+    estimated_usd: "0.25",
+  }),
+  seedance2_fast: Object.freeze({
+    duration_seconds: 8,
+    audio: true,
+    format: "9:16",
+    confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
+    estimated_usd: "2.32",
+  }),
+});
 
 export class CreatorApiError extends Error {
   constructor(message, details = {}) {
@@ -144,8 +158,24 @@ export class CreatorApi {
         code: "real_generation_exactly_one_media_required",
       });
     }
-    if (batch?.spend_confirmation !== REAL_SPEND_CONFIRMATION) {
-      throw new CreatorApiError("Подтвердите один платный запуск Runway до $0.25.", {
+    const model = String(batch?.model || "gen4_turbo");
+    const sku = REAL_GENERATION_SKUS[model];
+    if (!sku) {
+      throw new CreatorApiError("Выберите доступный платный режим Runway.", {
+        code: "real_generation_sku_invalid",
+      });
+    }
+    if (
+      Number(batch?.duration_seconds) !== sku.duration_seconds ||
+      Boolean(batch?.audio) !== sku.audio ||
+      (sku.format && batch?.format !== sku.format)
+    ) {
+      throw new CreatorApiError("Параметры платного режима не совпадают с подтверждённой ценой.", {
+        code: "real_generation_sku_invalid",
+      });
+    }
+    if (batch?.spend_confirmation !== sku.confirmation) {
+      throw new CreatorApiError(`Подтвердите один платный запуск Runway около $${sku.estimated_usd}.`, {
         code: "real_spend_confirmation_required",
       });
     }
@@ -156,10 +186,11 @@ export class CreatorApi {
       media_ids: [String(batch.media_ids[0])],
       mode: "real",
       provider: "runway",
-      model: "gen4_turbo",
-      duration_seconds: 5,
+      model,
+      duration_seconds: sku.duration_seconds,
+      audio: sku.audio,
       allow_real_spend: true,
-      spend_confirmation: REAL_SPEND_CONFIRMATION,
+      spend_confirmation: sku.confirmation,
     });
   }
 
@@ -473,7 +504,8 @@ function toFriendlyMessage(error) {
     mock_only_required: "Платная генерация отключена. Разрешён только mock-режим.",
     real_generation_is_disabled: "Платная генерация отключена. Разрешён только mock-режим.",
     real_generation_exactly_one_media_required: "Для платного запуска выберите ровно одно точное фото товара.",
-    real_spend_confirmation_required: "Подтвердите один платный запуск Runway до $0.25.",
+    real_spend_confirmation_required: "Подтвердите один платный запуск Runway по цене выбранного режима.",
+    real_generation_sku_invalid: "Параметры платного режима не совпадают с подтверждённой ценой.",
     real_generation_action_invalid: "Неизвестное действие платной генерации.",
     real_generation_response_invalid: "Сервис генерации вернул некорректный ответ.",
     real_generation_request_failed: "Не удалось вызвать сервис платной генерации. Повторите попытку позже.",

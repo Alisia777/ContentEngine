@@ -269,18 +269,23 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert 'headers: { Authorization: `Bearer ${accessToken}` }' in adapter
     assert 'mode: "real"' in adapter
     assert 'provider: "runway"' in adapter
-    assert 'model: "gen4_turbo"' in adapter
+    assert 'gen4_turbo: Object.freeze' in adapter
+    assert 'seedance2_fast: Object.freeze' in adapter
     assert "duration_seconds: 5" in adapter
+    assert "duration_seconds: 8" in adapter
+    assert "audio: true" in adapter
     assert "allow_real_spend: true" in adapter
-    assert 'REAL_SPEND_CONFIRMATION = "RUNWAY_GEN4_TURBO_5S_USD_0.25"' in adapter
-    assert "batch?.spend_confirmation !== REAL_SPEND_CONFIRMATION" in adapter
+    assert 'confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25"' in adapter
+    assert 'confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32"' in adapter
+    assert "batch?.spend_confirmation !== sku.confirmation" in adapter
     assert "media_ids.length !== 1" in adapter
     assert "edge:${REAL_GENERATION_FUNCTION}" in adapter
 
     assert 'name="generation_mode"' in app
-    assert "Runway gen4_turbo · 5 секунд · 1 видео · ≈ 25 credits / $0.25" in app
+    assert "Runway gen4_turbo · 5 секунд · без голоса · ≈ 25 credits / $0.25" in app
+    assert "Блогер + голос · 8 секунд · ≈ 232 credits / $2.32" in app
     assert 'name="real_spend_confirmation"' in app
-    assert "values.get(\"real_spend_confirmation\") !== REAL_SPEND_CONFIRMATION" in app
+    assert "values.get(\"real_spend_confirmation\") !== generationSku.confirmation" in app
     assert "Number(values.get(\"count\")) !== 1" in app
     assert "mediaIds.length !== 1" in app
     assert "state.api.startRealGeneration(payload)" in app
@@ -292,6 +297,24 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert 'item.task_type === "video_review"' in app
     assert 'result.provider === "runway"' in app
     assert 'String(result.generation_status || "")' in app
+
+
+def test_login_and_reset_capture_values_before_disabling_form_controls() -> None:
+    app = _text("app.js")
+    login_start = app.index("async function submitLogin(form)")
+    login_end = app.index("async function submitReset(form)", login_start)
+    login = app[login_start:login_end]
+    assert login.index("new FormData(form)") < login.index("setFormBusy(form, true")
+
+    reset_start = login_end
+    reset_end = app.index("async function submitPassword(form)", reset_start)
+    reset = app[reset_start:reset_end]
+    assert reset.index("new FormData(form)") < reset.index("setFormBusy(form, true")
+
+    feedback_start = app.index("async function submitFeedback(form)")
+    feedback_end = app.index("async function submitTeamInvites(form)", feedback_start)
+    feedback = app[feedback_start:feedback_end]
+    assert feedback.index("new FormData(form)") < feedback.index("setFormBusy(form, true")
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:
