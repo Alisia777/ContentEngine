@@ -46,7 +46,8 @@ select is(
     join pg_namespace namespace on namespace.oid = procedure.pronamespace
     where namespace.nspname = 'public'
       and procedure.proname = any(array[
-        'creator_bootstrap', 'creator_complete_module', 'creator_submit_exam',
+        'creator_bootstrap', 'creator_complete_module',
+        'creator_submit_course_check', 'creator_submit_exam',
         'creator_workspace_section', 'creator_create_mock_batch',
         'creator_confirm_placement', 'creator_record_metric',
         'creator_set_wb_alias', 'creator_decide_payout',
@@ -57,7 +58,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  15,
+  16,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -70,7 +71,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  15,
+  16,
   'authenticated can execute all creator RPCs'
 );
 
@@ -200,11 +201,49 @@ begin
   select * into context_row from creator_test_context;
 
   for module_row in
-    select code
-    from content_factory.training_modules
-    where module_type = 'course' and is_active
-    order by order_index
+    select
+      module.code,
+      jsonb_array_length(
+        module.content #> '{knowledge_check,questions}'
+      ) as question_count
+    from content_factory.training_modules module
+    where module.module_type = 'course'
+      and module.is_active
+    order by module.order_index
   loop
+    select coalesce(
+      jsonb_object_agg(
+        question.code,
+        answer_key.correct_answers
+        order by question.order_index
+      ),
+      '{}'::jsonb
+    )
+    into exact_answers
+    from content_factory.training_questions question
+    join content_factory_private.training_answer_keys answer_key
+      on answer_key.question_code = question.code
+    where question.module_code = module_row.code
+      and question.order_index between 901 and 1000
+      and strpos(
+        question.code,
+        'course_check_' || module_row.code || '_'
+      ) = 1;
+
+    if module_row.question_count < 1
+       or jsonb_object_length(exact_answers) <> module_row.question_count then
+      raise exception using
+        errcode = '55000',
+        message = 'test_course_gate_fixture_invalid';
+    end if;
+
+    perform public.creator_submit_course_check(jsonb_build_object(
+      'organization_id', context_row.organization_id,
+      'module_code', module_row.code,
+      'answers', exact_answers,
+      'idempotency_key', 'pgtap-course-check-' || module_row.code
+    ));
+
     perform public.creator_complete_module(jsonb_build_object(
       'organization_id', context_row.organization_id,
       'module_code', module_row.code,

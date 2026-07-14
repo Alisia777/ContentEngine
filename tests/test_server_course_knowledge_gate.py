@@ -9,6 +9,7 @@ MIGRATION = (
 )
 SQL = MIGRATION.read_text(encoding="utf-8")
 LOWER = SQL.casefold()
+PGTAP_DIR = ROOT / "supabase/tests"
 VISUAL_MIGRATION = (
     ROOT
     / "supabase/migrations/202607140005_training_visual_playbook.sql"
@@ -359,3 +360,44 @@ def test_migration_fails_closed_if_question_mapping_or_answer_keys_drift() -> No
     assert "leaked_answer_count" in contract
     assert "answer_key.correct_answers ->> 0" in contract
     assert "server_course_knowledge_gate_contract_failed" in contract
+
+
+def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
+    creator = (PGTAP_DIR / "creator_factory_test.sql").read_text(
+        encoding="utf-8"
+    ).casefold()
+    assert "'creator_submit_course_check'" in creator
+    assert creator.count("\n  16,\n") >= 2
+    assert "perform public.creator_submit_course_check" in creator
+    assert "'pgtap-course-check-' || module_row.code" in creator
+    assert "answer_key.correct_answers" in creator
+    assert "question.order_index between 901 and 1000" in creator
+    assert "perform pg_temp.grant_refreshed_course_gate" not in creator
+
+    fixture_files = {
+        "limited_member_provisioning_test.sql": 2,
+        "paid_runway_generation_test.sql": 1,
+        "seedance2_fast_8s_generation_test.sql": 1,
+    }
+    for filename, expected_calls in fixture_files.items():
+        fixture = (PGTAP_DIR / filename).read_text(encoding="utf-8").casefold()
+        assert "create or replace function pg_temp.grant_refreshed_course_gate" in fixture
+        assert "module.module_type = 'course'" in fixture
+        assert "jsonb_array_length(" in fixture
+        assert "answer_key.correct_answers" in fixture
+        assert "'course-check:' || p_key_prefix || ':' || module_row.code" in fixture
+        assert "insert into content_factory.training_attempts" in fixture
+        assert "insert into content_factory.training_certifications" in fixture
+        assert "on conflict on constraint training_certifications_org_profile_module_uq" in fixture
+        assert fixture.count("perform pg_temp.grant_refreshed_course_gate") == expected_calls
+        assert "'operator_final_exam'" in fixture
+
+    paid = (PGTAP_DIR / "paid_runway_generation_test.sql").read_text(
+        encoding="utf-8"
+    ).casefold()
+    certified_fixture = paid[
+        paid.index("('81111111-1111-4111-8111-111111111111'::uuid, 'real-owner')") :
+        paid.index("insert into content_factory.products")
+    ]
+    assert "81555555-5555-4555-8555-555555555555" in certified_fixture
+    assert "81666666-6666-4666-8666-666666666666" not in certified_fixture
