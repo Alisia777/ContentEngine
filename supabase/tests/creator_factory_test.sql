@@ -231,7 +231,8 @@ begin
       ) = 1;
 
     if module_row.question_count < 1
-       or jsonb_object_length(exact_answers) <> module_row.question_count then
+       or (select count(*) from pg_catalog.jsonb_object_keys(exact_answers))
+         <> module_row.question_count then
       raise exception using
         errcode = '55000',
         message = 'test_course_gate_fixture_invalid';
