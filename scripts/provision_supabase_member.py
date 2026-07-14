@@ -46,6 +46,7 @@ class MemberState:
     user_id: str | None
     email_confirmed: bool = False
     auth_active: bool = True
+    signed_in: bool = False
     app_metadata: dict[str, Any] | None = None
     membership_count: int = 0
     membership_role: str | None = None
@@ -70,6 +71,15 @@ class MemberAuthClient(Protocol):
         self,
         *,
         email: str,
+        display_name: str,
+        password: str,
+        app_metadata: dict[str, Any],
+    ) -> None: ...
+
+    def claim_confirmed_user_with_password(
+        self,
+        *,
+        user_id: str,
         display_name: str,
         password: str,
         app_metadata: dict[str, Any],
@@ -158,6 +168,7 @@ select
     auth_user.deleted_at is null
     and (auth_user.banned_until is null or auth_user.banned_until <= now())
   ) as auth_active,
+  auth_user.last_sign_in_at is not null as signed_in,
   coalesce(auth_user.raw_app_meta_data, '{{}}'::jsonb) as app_metadata,
   (
     select count(*)::integer
@@ -182,8 +193,10 @@ limit 2
     if len(rows) != 1:
         raise MemberProvisionError("Supabase member identity is ambiguous")
     row = rows[0]
-    if not isinstance(row.get("email_confirmed"), bool) or not isinstance(
-        row.get("auth_active"), bool
+    if (
+        not isinstance(row.get("email_confirmed"), bool)
+        or not isinstance(row.get("auth_active"), bool)
+        or not isinstance(row.get("signed_in"), bool)
     ):
         raise MemberProvisionError("Supabase member state response was invalid")
     app_metadata = row.get("app_metadata")
@@ -202,6 +215,7 @@ limit 2
         user_id=_validated_uuid(row.get("user_id")),
         email_confirmed=row["email_confirmed"],
         auth_active=row["auth_active"],
+        signed_in=row["signed_in"],
         app_metadata=dict(app_metadata),
         membership_count=membership_count,
         membership_role=membership_role,
@@ -237,6 +251,7 @@ def provision_member(
     display_name: str,
     temporary_password: str,
     role: str,
+    claim_existing: bool = False,
 ) -> MemberProvisionResult:
     normalized_email = _validated_email(email)
     validated_display_name = _validated_display_name(display_name)
@@ -252,9 +267,16 @@ def provision_member(
     )
     identity_status = "existing"
 
+    auth_client: MemberAuthClient | None = None
+
+    def require_auth_client() -> MemberAuthClient:
+        nonlocal auth_client
+        if auth_client is None:
+            auth_client = auth_client_factory(management_client.get_server_key())
+        return auth_client
+
     if state.user_id is None:
-        auth_client = auth_client_factory(management_client.get_server_key())
-        auth_client.create_confirmed_user_with_password(
+        require_auth_client().create_confirmed_user_with_password(
             email=normalized_email,
             display_name=validated_display_name,
             password=validated_password,
@@ -282,9 +304,44 @@ def provision_member(
         )
 
     if (state.app_metadata or {}).get(MEMBER_PROVISION_MARKER) is not True:
-        raise MemberProvisionError(
-            "Pre-existing Supabase member is not owned by this provisioning flow"
+        if not claim_existing:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member is not owned by this provisioning flow"
+            )
+        if state.signed_in:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member has already signed in"
+            )
+        if state.membership_count != 0:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member already belongs to an organization"
+            )
+        metadata = dict(state.app_metadata or {})
+        if any(str(key).startswith("contentengine_") for key in metadata):
+            raise MemberProvisionError(
+                "Pre-existing Supabase member has conflicting provisioning metadata"
+            )
+        metadata[MEMBER_PROVISION_MARKER] = True
+        original_user_id = state.user_id
+        require_auth_client().claim_confirmed_user_with_password(
+            user_id=original_user_id,
+            display_name=validated_display_name,
+            password=validated_password,
+            app_metadata=metadata,
         )
+        identity_status = "claimed"
+        state = read_member_state(
+            management_client,
+            email=normalized_email,
+            organization_id=authority.organization_id,
+        )
+        if (
+            state.user_id != original_user_id
+            or not state.email_confirmed
+            or not state.auth_active
+            or (state.app_metadata or {}).get(MEMBER_PROVISION_MARKER) is not True
+        ):
+            raise MemberProvisionError("Supabase member identity claim was not verified")
 
     if state.membership_role is not None:
         if state.membership_status != "active":
@@ -335,6 +392,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--email", required=True)
     parser.add_argument("--display-name", required=True)
     parser.add_argument("--role", choices=sorted(ALLOWED_MEMBER_ROLES), required=True)
+    parser.add_argument(
+        "--claim-existing",
+        action="store_true",
+        help="Claim only an unsigned-in, membership-free existing Auth identity",
+    )
     return parser
 
 
@@ -361,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             display_name=args.display_name,
             temporary_password=temporary_password,
             role=args.role,
+            claim_existing=args.claim_existing,
         )
     except (MemberProvisionError, OwnerBootstrapError) as exc:
         print(f"Supabase member provisioning stopped: {exc}", file=os.sys.stderr)
