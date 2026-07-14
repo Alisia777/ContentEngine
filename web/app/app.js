@@ -12,6 +12,7 @@ const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
 const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
 const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
+const AUTH_REQUEST_TIMEOUT_MS = 15_000;
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_GENERATION_SKUS = Object.freeze({
@@ -2002,14 +2003,19 @@ async function submitReset(form) {
   const email = String(new FormData(form).get("email") || "").trim();
   setFormBusy(form, true, "Отправляем…");
   try {
-    const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: authRedirectUrl("recovery"),
-    });
+    const { error } = await withUiTimeout(
+      state.supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: authRedirectUrl("recovery"),
+      }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      "Сервер восстановления не ответил за 15 секунд. Обновите страницу и повторите.",
+    );
     if (error) throw error;
     renderResetRequest("Если адрес зарегистрирован, письмо уже отправлено. Проверьте также папку «Спам».");
   } catch (error) {
-    setFormBusy(form, false);
     toast(authErrorMessage(error), "error");
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
   }
 }
 
@@ -2804,6 +2810,14 @@ function setFormBusy(form, busy, label = "Подождите…") {
       delete submit.dataset.originalLabel;
     }
   }
+}
+
+function withUiTimeout(operation, timeoutMs, message) {
+  let timerId;
+  const timeout = new Promise((_, reject) => {
+    timerId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([operation, timeout]).finally(() => window.clearTimeout(timerId));
 }
 
 function toast(message, type = "info") {
