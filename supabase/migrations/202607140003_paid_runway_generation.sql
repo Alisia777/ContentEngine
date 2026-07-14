@@ -110,7 +110,9 @@ begin
        'succeeded', 'failed', 'cancelled'
      )
      or new.total_requested <> 1
-     or new.total_created <> case when new.status = 'succeeded' then 1 else 0 end
+     or new.total_created <> (
+       case when new.status = 'succeeded' then 1 else 0 end
+     )
      or new.input ->> 'provider' is distinct from 'runway'
      or new.input ->> 'model' is distinct from 'gen4_turbo'
      or new.input -> 'duration_seconds' is distinct from '5'::jsonb
