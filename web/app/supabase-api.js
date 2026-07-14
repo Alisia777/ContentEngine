@@ -23,6 +23,9 @@ export const RPC = Object.freeze({
   captureEvent: "creator_capture_event",
 });
 
+const REAL_GENERATION_FUNCTION = "creator-generate";
+const REAL_SPEND_CONFIRMATION = "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+
 export class CreatorApiError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -128,6 +131,118 @@ export class CreatorApi {
       allow_real_spend: false,
       spend_confirmation: "MOCK_ONLY",
     });
+  }
+
+  startRealGeneration(batch) {
+    if (this.config.REAL_GENERATION_ENABLED !== true) {
+      throw new CreatorApiError("Платная генерация выключена в конфигурации портала.", {
+        code: "real_generation_is_disabled",
+      });
+    }
+    if (!Array.isArray(batch?.media_ids) || batch.media_ids.length !== 1) {
+      throw new CreatorApiError("Для платного запуска выберите ровно одно точное фото товара.", {
+        code: "real_generation_exactly_one_media_required",
+      });
+    }
+    if (batch?.spend_confirmation !== REAL_SPEND_CONFIRMATION) {
+      throw new CreatorApiError("Подтвердите один платный запуск Runway до $0.25.", {
+        code: "real_spend_confirmation_required",
+      });
+    }
+
+    return this.invokeRealGeneration("start", {
+      ...batch,
+      count: 1,
+      media_ids: [String(batch.media_ids[0])],
+      mode: "real",
+      provider: "runway",
+      model: "gen4_turbo",
+      duration_seconds: 5,
+      allow_real_spend: true,
+      spend_confirmation: REAL_SPEND_CONFIRMATION,
+    });
+  }
+
+  realGenerationStatus(jobId) {
+    const normalizedJobId = String(jobId || "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedJobId)) {
+      throw new CreatorApiError("Не удалось определить платную задачу. Обновите раздел.", {
+        code: "generation_job_id_invalid",
+      });
+    }
+    return this.invokeRealGeneration("status", { job_id: normalizedJobId });
+  }
+
+  async invokeRealGeneration(action, payload = {}) {
+    if (!new Set(["start", "status"]).has(action)) {
+      throw new CreatorApiError("Неизвестное действие платной генерации.", {
+        code: "real_generation_action_invalid",
+      });
+    }
+
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      throw new CreatorApiError("Сессия истекла. Войдите снова перед платным запуском.", {
+        code: "auth_session_required",
+      });
+    }
+
+    const scopedPayload = this.withOrganization({ ...payload, action });
+    const actorId = String(sessionData.session?.user?.id || "unknown");
+    const fingerprint = `edge:${REAL_GENERATION_FUNCTION}:${actorId}:${stableStringify(scopedPayload)}`;
+    const idempotencyKey = action === "start"
+      ? (this.mutationKeys[fingerprint] || crypto.randomUUID())
+      : null;
+    if (idempotencyKey) {
+      this.mutationKeys[fingerprint] = idempotencyKey;
+      writeMutationKeys(this.mutationKeys);
+    }
+
+    const requestBody = idempotencyKey
+      ? { ...scopedPayload, idempotency_key: idempotencyKey }
+      : scopedPayload;
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(REAL_GENERATION_FUNCTION, {
+        body: requestBody,
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }));
+    } catch {
+      throw new CreatorApiError("Не удалось связаться с сервисом платной генерации. Повторите попытку позже.", {
+        code: "real_generation_request_failed",
+      });
+    }
+
+    if (error) {
+      throw await creatorFunctionError(error);
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new CreatorApiError("Сервис генерации вернул некорректный ответ.", {
+        code: "real_generation_response_invalid",
+      });
+    }
+    if (data.ok === false || data.error) {
+      const details = data.error && typeof data.error === "object"
+        ? data.error
+        : {
+            code: data.code || "real_generation_failed",
+            message: String(data.error || data.code || "Generation failed"),
+          };
+      throw new CreatorApiError(safeGenerationMessage(details), details);
+    }
+    if (!data.job || typeof data.job !== "object" || !data.job.id || !data.job.status) {
+      throw new CreatorApiError("Сервис генерации вернул некорректную задачу.", {
+        code: "real_generation_response_invalid",
+      });
+    }
+
+    if (idempotencyKey) {
+      delete this.mutationKeys[fingerprint];
+      writeMutationKeys(this.mutationKeys);
+    }
+    return data;
   }
 
   recordMetric(snapshot) {
@@ -308,6 +423,31 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
+async function creatorFunctionError(error) {
+  let details = {
+    code: error?.code || "real_generation_request_failed",
+    message: error?.message || "Не удалось вызвать сервис платной генерации.",
+  };
+  const response = error?.context;
+  if (response && typeof response.clone === "function") {
+    try {
+      const body = await response.clone().json();
+      if (body?.error && typeof body.error === "object") details = { ...details, ...body.error };
+      else if (body && typeof body === "object") details = { ...details, ...body };
+    } catch {
+      // Do not surface raw provider or infrastructure responses to the browser.
+    }
+  }
+  return new CreatorApiError(safeGenerationMessage(details), details);
+}
+
+function safeGenerationMessage(details) {
+  return toFriendlyMessage({
+    code: details?.code || "real_generation_request_failed",
+    message: "Не удалось выполнить платную генерацию. Повторите попытку позже.",
+  });
+}
+
 function toFriendlyMessage(error) {
   const raw = String(error?.message || "Неизвестная ошибка");
   const diagnostic = [error?.code, error?.message, error?.details, error?.hint]
@@ -332,6 +472,20 @@ function toFriendlyMessage(error) {
     role_not_allowed: "У вашей роли нет права на это действие.",
     mock_only_required: "Платная генерация отключена. Разрешён только mock-режим.",
     real_generation_is_disabled: "Платная генерация отключена. Разрешён только mock-режим.",
+    real_generation_exactly_one_media_required: "Для платного запуска выберите ровно одно точное фото товара.",
+    real_spend_confirmation_required: "Подтвердите один платный запуск Runway до $0.25.",
+    real_generation_action_invalid: "Неизвестное действие платной генерации.",
+    real_generation_response_invalid: "Сервис генерации вернул некорректный ответ.",
+    real_generation_request_failed: "Не удалось вызвать сервис платной генерации. Повторите попытку позже.",
+    real_generation_failed: "Платная генерация завершилась ошибкой. Проверьте статус задачи.",
+    generation_job_id_invalid: "Не удалось определить платную задачу. Обновите раздел.",
+    auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
+    authentication_required: "Сессия истекла. Войдите снова перед платным запуском.",
+    invalid_payload: "Проверьте поля платного запуска и выбранный исходник.",
+    origin_not_allowed: "Платная генерация недоступна с этого адреса портала.",
+    generation_rejected: "Сервер отклонил платный запуск. Проверьте доступ, исходник и подтверждение расходов.",
+    generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
+    provider_unavailable: "Runway временно недоступен. Повторите проверку позже — повторный запуск не требуется.",
     invalid_batch_size: "В одном mock batch разрешено от 1 до 50 вариантов.",
     count_invalid: "В одном mock batch разрешено от 1 до 50 вариантов.",
     platform_invalid: "Выберите поддерживаемую площадку размещения.",

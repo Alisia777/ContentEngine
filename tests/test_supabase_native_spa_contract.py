@@ -31,14 +31,23 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
     assert "@supabase/supabase-js@latest" not in bundle
 
 
-def test_pages_config_contains_only_browser_safe_coordinates_and_mock_gate() -> None:
+def test_pages_config_contains_only_browser_safe_coordinates_and_generation_flags() -> None:
     config = _text("config.js")
+    example = _text("config.example.js")
     assert 'SUPABASE_URL: "https://iyckwryrucqrxwlowxow.supabase.co"' in config
     assert re.search(
         r'SUPABASE_PUBLISHABLE_KEY: "sb_publishable_[A-Za-z0-9_-]{20,}"', config
     )
     assert 'STORAGE_BUCKET: "contentengine-private"' in config
-    assert "MOCK_ONLY: true" in config
+    assert "MOCK_ENABLED: true" in config
+    assert "REAL_GENERATION_ENABLED: true" in config
+    assert "MOCK_ONLY:" not in config
+    assert "MOCK_ENABLED: true" in example
+    assert "REAL_GENERATION_ENABLED: false" in example
+    app = _text("app.js")
+    assert 'typeof config.MOCK_ENABLED !== "boolean"' in app
+    assert 'typeof config.REAL_GENERATION_ENABLED !== "boolean"' in app
+    assert "config.MOCK_ONLY" not in app
     assert "MAX_BATCH_SIZE: 50" in config
     assert not re.search(r"(?:eyJ[a-zA-Z0-9_-]{20,}|sb_secret_[a-zA-Z0-9_-]+)", config)
     assert "postgresql://" not in config
@@ -229,13 +238,14 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         assert field in app
 
 
-def test_mass_generation_is_physically_described_as_mock_only() -> None:
+def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmation() -> None:
     adapter = _text("supabase-api.js")
     app = _text("app.js")
     assert 'mode: "mock"' in adapter
     assert "allow_real_spend: false" in adapter
     assert 'spend_confirmation: "MOCK_ONLY"' in adapter
-    assert "CONFIG.MOCK_ONLY !== true" in app
+    assert "MOCK_GENERATION_ENABLED" in app
+    assert "REAL_GENERATION_ENABLED" in app
     assert "MAX_BATCH_SIZE" in app
     assert "Math.min(50" in app
     assert "count > 50" in adapter
@@ -249,7 +259,39 @@ def test_mass_generation_is_physically_described_as_mock_only() -> None:
     assert "state.sections.placement.status" in app
     assert "state.sections.tasks.status" in app
     assert "Dry-run batch" in app
-    assert "Денежных списаний нет" in app
+    assert "Реальная ИИ-генерация выключена: provider=mock" not in app
+
+    assert 'REAL_GENERATION_FUNCTION = "creator-generate"' in adapter
+    assert 'this.invokeRealGeneration("start"' in adapter
+    assert 'this.invokeRealGeneration("status"' in adapter
+    assert ".functions.invoke(REAL_GENERATION_FUNCTION" in adapter
+    assert "this.supabase.auth.getSession()" in adapter
+    assert 'headers: { Authorization: `Bearer ${accessToken}` }' in adapter
+    assert 'mode: "real"' in adapter
+    assert 'provider: "runway"' in adapter
+    assert 'model: "gen4_turbo"' in adapter
+    assert "duration_seconds: 5" in adapter
+    assert "allow_real_spend: true" in adapter
+    assert 'REAL_SPEND_CONFIRMATION = "RUNWAY_GEN4_TURBO_5S_USD_0.25"' in adapter
+    assert "batch?.spend_confirmation !== REAL_SPEND_CONFIRMATION" in adapter
+    assert "media_ids.length !== 1" in adapter
+    assert "edge:${REAL_GENERATION_FUNCTION}" in adapter
+
+    assert 'name="generation_mode"' in app
+    assert "Runway gen4_turbo · 5 секунд · 1 видео · ≈ 25 credits / $0.25" in app
+    assert 'name="real_spend_confirmation"' in app
+    assert "values.get(\"real_spend_confirmation\") !== REAL_SPEND_CONFIRMATION" in app
+    assert "Number(values.get(\"count\")) !== 1" in app
+    assert "mediaIds.length !== 1" in app
+    assert "state.api.startRealGeneration(payload)" in app
+    assert 'data-action="check-real-generation"' in app
+    assert "parameters.job_id" in app
+    assert "state.api.realGenerationStatus" in app
+    assert "isTrustedGenerationDownload" in app
+    assert 'link.rel = "noopener noreferrer"' in app
+    assert 'item.task_type === "video_review"' in app
+    assert 'result.provider === "runway"' in app
+    assert 'String(result.generation_status || "")' in app
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

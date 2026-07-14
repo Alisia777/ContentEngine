@@ -10,6 +10,9 @@ const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
+const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
+const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
+const REAL_SPEND_CONFIRMATION = "RUNWAY_GEN4_TURBO_5S_USD_0.25";
 const MEMBERSHIP_LOCK_COPY = Object.freeze({
   membership_suspended: Object.freeze({
     title: "Доступ приостановлен",
@@ -1039,6 +1042,7 @@ function renderGenerationSection(sectionState) {
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
+  const defaultMode = MOCK_GENERATION_ENABLED ? "mock" : "real";
   const canManageAliases = ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
@@ -1063,16 +1067,31 @@ function renderGenerationSection(sectionState) {
     <div class="page-wrap">
       ${pageHeader(
         "Генерация",
-        "Подготовьте mock-пакет роликов по точному SKU. Платные вызовы физически запрещены серверным spend gate.",
-        `<span class="badge badge-mock">MOCK ONLY · 0 ₽</span>`,
+        "Подготовьте бесплатный dry-run или один реальный ролик Runway по точному SKU и исходнику.",
+        REAL_GENERATION_ENABLED
+          ? `<span class="badge badge-info">RUNWAY + MOCK</span>`
+          : `<span class="badge badge-mock">MOCK · 0 ₽</span>`,
       )}
       <div class="split-grid">
         <section class="card card-pad">
           <p class="eyebrow">Одно следующее действие</p>
-          <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Создайте проверочный batch</h2>
-          <p class="muted tiny">До ${MAX_MOCK_BATCH_SIZE} вариантов за один запуск. Система создаст dry-run задачи и готовые карточки размещения, но не вызовет видеопровайдера.</p>
-          ${alertMarkup("Реальная ИИ-генерация выключена: provider=mock. Денежных списаний нет.", "warning")}
+          <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
+          <p class="muted tiny">Mock создаёт до ${MAX_MOCK_BATCH_SIZE} dry-run вариантов без списаний. Платный режим создаёт ровно один 5-секундный ролик Runway gen4_turbo.</p>
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
+            <label class="field">
+              <span>Режим генерации *</span>
+              <select id="generation-mode" name="generation_mode" required>
+                ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Mock · dry-run · 0 ₽</option>` : ""}
+                ${REAL_GENERATION_ENABLED ? `<option value="real" ${defaultMode === "real" ? "selected" : ""}>Runway gen4_turbo · 5 секунд · 1 видео · ≈ 25 credits / $0.25</option>` : ""}
+              </select>
+            </label>
+            <div id="real-generation-confirmation" ${defaultMode === "real" ? "" : "hidden"}>
+              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Платный запуск: ориентировочно 25 credits / $0.25. Итог зависит от тарифа провайдера.</span></div>
+              <label class="option" style="margin-top:10px">
+                <input type="checkbox" name="real_spend_confirmation" value="${REAL_SPEND_CONFIRMATION}" ${defaultMode === "real" ? "required" : ""} />
+                <span><strong>Подтверждаю один платный запуск Runway</strong><br /><small class="muted">gen4_turbo · 5 секунд · ровно одно видео · до $0.25</small></span>
+              </label>
+            </div>
             <label class="field">
               <span>Артикул / SKU *</span>
               <input name="sku" required maxlength="120" placeholder="Например: WB-12345678" autocomplete="off" />
@@ -1111,7 +1130,8 @@ function renderGenerationSection(sectionState) {
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
               <label class="field">
                 <span>Количество</span>
-                <input name="count" type="number" min="1" max="${MAX_MOCK_BATCH_SIZE}" value="5" required />
+                <input name="count" type="number" min="1" max="${defaultMode === "real" ? 1 : MAX_MOCK_BATCH_SIZE}" value="${defaultMode === "real" ? 1 : 5}" ${defaultMode === "real" ? "readonly" : ""} required />
+                <small id="generation-count-hint" class="field-hint">${defaultMode === "real" ? "Платный режим всегда создаёт ровно одно видео." : `Mock: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
               </label>
               <label class="field">
                 <span>Формат</span>
@@ -1120,28 +1140,29 @@ function renderGenerationSection(sectionState) {
             </div>
             <label class="field">
               <span>Что должен понять зритель</span>
-              <textarea name="brief" maxlength="1200" placeholder="Одна главная мысль, безопасное обещание и действие после просмотра"></textarea>
+              <textarea name="brief" maxlength="1200" ${defaultMode === "real" ? "required" : ""} placeholder="Одна главная мысль, безопасное обещание и действие после просмотра"></textarea>
             </label>
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
                 <legend class="field-label">Точное фото товара *</legend>
+                <p id="generation-media-hint" class="muted tiny">${defaultMode === "real" ? "Для платного запуска выберите ровно один исходник." : "Для mock можно выбрать один или несколько исходников."}</p>
                 <div class="option-list" style="margin-top:8px">
                   ${exactMedia.slice(0, 8).map((item) => `
                     <label class="option">
-                      <input type="checkbox" name="media_id" value="${escapeHtml(item.public_id || item.id)}" />
+                      <input type="${defaultMode === "real" ? "radio" : "checkbox"}" name="media_id" value="${escapeHtml(item.public_id || item.id)}" />
                       <span><strong>${escapeHtml(item.original_filename || item.name || "Файл")}</strong><br /><small class="muted">${escapeHtml(item.kind || item.mime_type || "исходник")}</small></span>
                     </label>
                   `).join("")}
                 </div>
               </fieldset>
-            ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или packshot в <a href="#/workspace/media">Медиатеку</a>. Без него dry-run batch не создаётся.</span></div>`}
-            <button class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>Подготовить dry-run batch</button>
+            ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или packshot в <a href="#/workspace/media">Медиатеку</a>. Без исходника запуск недоступен.</span></div>`}
+            <button id="generation-submit" class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>${defaultMode === "real" ? "Запустить 1 платное видео · до $0.25" : "Подготовить dry-run batch"}</button>
           </form>
         </section>
 
         <section class="card">
           <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние batch</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Пока нет запусков", "Заполните форму слева — первый mock batch появится здесь."))}
+          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Пока нет запусков", "Заполните форму слева — первый batch появится здесь."))}
         </section>
       </div>
       ${(canManageAliases || aliases.length) ? `
@@ -1173,16 +1194,25 @@ function generationTable(items) {
   return `
     <div class="table-wrap"><table class="data-table">
       <thead><tr><th>Batch</th><th>SKU</th><th>Запрошено</th><th>Готово</th><th>Статус</th><th>Создан</th></tr></thead>
-      <tbody>${items.map((item) => `
-        <tr>
-          <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">mock</small></td>
-          <td>${escapeHtml(item.sku || item.parameters?.sku || "—")}</td>
-          <td>${formatNumber(item.total_requested ?? item.count ?? 0)}</td>
-          <td>${formatNumber(item.total_accepted ?? item.completed ?? 0)}</td>
-          <td>${statusBadge(item.status || "queued")}</td>
-          <td>${formatDate(item.created_at)}</td>
-        </tr>
-      `).join("")}</tbody>
+      <tbody>${items.map((item) => {
+        const parameters = item.parameters && typeof item.parameters === "object" ? item.parameters : {};
+        const real = String(item.mode || parameters.mode || "mock").toLowerCase() === "real";
+        const jobId = real ? String(parameters.job_id || "") : "";
+        const status = String(item.status || parameters.job_status || "queued");
+        const realAction = jobId
+          ? `<div style="margin-top:8px"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-job-id="${escapeHtml(jobId)}">${["succeeded", "completed"].includes(status.toLowerCase()) ? "Скачать MP4" : "Проверить статус"}</button></div>`
+          : "";
+        return `
+          <tr>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${real ? "Runway · gen4_turbo · 5s · paid" : "mock · dry-run"}</small></td>
+            <td>${escapeHtml(item.sku || parameters.sku || "—")}</td>
+            <td>${formatNumber(item.total_requested ?? item.count ?? (real ? 1 : 0))}</td>
+            <td>${formatNumber(item.total_accepted ?? item.completed ?? 0)}</td>
+            <td>${statusBadge(status)}${realAction}</td>
+            <td>${formatDate(item.created_at)}</td>
+          </tr>
+        `;
+      }).join("")}</tbody>
     </table></div>
   `;
 }
@@ -1403,6 +1433,15 @@ function taskCard(item) {
 function taskActionsMarkup(item) {
   const taskId = escapeHtml(item.id || "");
   const status = String(item.status || "todo");
+  const result = item.result && typeof item.result === "object" ? item.result : {};
+  const activeRunwayReview = item.task_type === "video_review" &&
+    result.provider === "runway" &&
+    ["queued", "starting", "submitted", "processing"].includes(
+      String(result.generation_status || ""),
+    );
+  if (activeRunwayReview) {
+    return '<span class="muted tiny">Видео создаётся в Runway. Статус задачи изменится автоматически.</span>';
+  }
   const manager = ["owner", "admin", "producer", "reviewer"].includes(
     state.bootstrap?.membership?.role,
   );
@@ -1673,6 +1712,30 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "check-real-generation") {
+    control.disabled = true;
+    try {
+      const result = await state.api.realGenerationStatus(control.dataset.jobId);
+      const status = String(result?.job?.status || "processing").toLowerCase();
+      const signedUrl = String(result?.signed_url || "");
+      state.sections.generation.status = "idle";
+      if (["succeeded", "completed"].includes(status) && signedUrl) {
+        if (!isTrustedGenerationDownload(signedUrl)) throw new Error("Сервис вернул небезопасную ссылку на результат.");
+        openExternalDownload(signedUrl);
+        toast("Ролик готов. Открыта свежая защищённая ссылка.", "success");
+      } else if (status === "failed") {
+        toast("Runway сообщил об ошибке генерации. Обновите очередь для подробностей.", "error");
+      } else {
+        toast(`Текущий статус Runway: ${humanGenerationStatus(status)}.`, "info");
+      }
+      render();
+    } catch (error) {
+      control.disabled = false;
+      toast(error.message, "error");
+    }
+    return;
+  }
+
   if (action === "transition-task") {
     control.disabled = true;
     try {
@@ -1721,7 +1784,7 @@ async function handleSubmit(event) {
   else if (form.id === "reset-form") await submitReset(form);
   else if (form.id === "password-form") await submitPassword(form);
   else if (form.id === "exam-form") await submitExam(form);
-  else if (form.id === "mock-batch-form") await submitMockBatch(form);
+  else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
   else if (form.id === "media-upload-form") await submitMedia(form);
@@ -1749,6 +1812,11 @@ function handleChange(event) {
 
   if (event.target.id === "media-file") {
     showSelectedFile(event.target.files?.[0]);
+  }
+
+  const generationForm = event.target.closest("#mock-batch-form");
+  if (generationForm && event.target.name === "generation_mode") {
+    syncGenerationModeForm(generationForm);
   }
 }
 
@@ -1781,6 +1849,55 @@ function handleDrop(event) {
 function showSelectedFile(file) {
   const target = document.querySelector("#selected-file-name");
   if (target) target.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : "";
+}
+
+function syncGenerationModeForm(form) {
+  const mode = String(form.elements.generation_mode?.value || "mock");
+  const real = mode === "real";
+  const count = form.elements.count;
+  const brief = form.elements.brief;
+  const confirmation = form.querySelector("#real-generation-confirmation");
+  const confirmationInput = form.elements.real_spend_confirmation;
+  const submit = form.querySelector("#generation-submit");
+  const countHint = form.querySelector("#generation-count-hint");
+  const mediaHint = form.querySelector("#generation-media-hint");
+
+  if (count) {
+    if (real) {
+      if (!count.readOnly) count.dataset.mockCount = count.value;
+      count.value = "1";
+      count.max = "1";
+      count.readOnly = true;
+    } else {
+      count.max = String(MAX_MOCK_BATCH_SIZE);
+      count.readOnly = false;
+      count.value = count.dataset.mockCount || count.value || "5";
+    }
+  }
+  if (brief) brief.required = real;
+  if (confirmation) confirmation.hidden = !real;
+  if (confirmationInput) {
+    confirmationInput.required = real;
+    if (!real) confirmationInput.checked = false;
+  }
+  form.querySelectorAll('input[name="media_id"]').forEach((input) => {
+    input.type = real ? "radio" : "checkbox";
+  });
+  if (countHint) {
+    countHint.textContent = real
+      ? "Платный режим всегда создаёт ровно одно видео."
+      : `Mock: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`;
+  }
+  if (mediaHint) {
+    mediaHint.textContent = real
+      ? "Для платного запуска выберите ровно один исходник."
+      : "Для mock можно выбрать один или несколько исходников.";
+  }
+  if (submit) {
+    submit.textContent = real
+      ? "Запустить 1 платное видео · до $0.25"
+      : "Подготовить dry-run batch";
+  }
 }
 
 async function submitLogin(form) {
@@ -1896,12 +2013,94 @@ async function submitExam(form) {
   }
 }
 
-async function submitMockBatch(form) {
-  if (CONFIG.MOCK_ONLY !== true) {
-    toast("Безопасный mock gate не подтверждён конфигурацией.", "error");
+async function submitGenerationBatch(form) {
+  const values = new FormData(form);
+  const mode = String(values.get("generation_mode") || "mock");
+  if (mode === "real") {
+    await submitRealGeneration(form, values);
     return;
   }
-  const values = new FormData(form);
+  await submitMockBatch(form, values);
+}
+
+async function submitRealGeneration(form, values) {
+  if (!REAL_GENERATION_ENABLED) {
+    toast("Платная генерация выключена в конфигурации портала.", "error");
+    return;
+  }
+  const mediaIds = values.getAll("media_id").map(String);
+  const brief = String(values.get("brief") || "").trim();
+  if (Number(values.get("count")) !== 1) {
+    toast("Платный режим создаёт ровно одно видео за запуск.", "error");
+    return;
+  }
+  if (mediaIds.length !== 1) {
+    toast("Для платного запуска выберите ровно одно точное фото товара.", "error");
+    return;
+  }
+  if (!brief) {
+    toast("Для Runway укажите одну главную мысль ролика.", "error");
+    return;
+  }
+  if (values.get("real_spend_confirmation") !== REAL_SPEND_CONFIRMATION) {
+    toast("Подтвердите платный запуск Runway до $0.25.", "error");
+    return;
+  }
+  const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
+  if (!Number.isFinite(payoutRub) || payoutRub < 0 || payoutRub > 10_000 || !Number.isSafeInteger(Math.round(payoutRub * 100))) {
+    toast("Вознаграждение должно быть от 0 до 10 000 ₽ за задачу.", "error");
+    return;
+  }
+
+  const payload = {
+    sku: String(values.get("sku") || "").trim(),
+    product_name: String(values.get("product_name") || "").trim(),
+    count: 1,
+    format: String(values.get("format") || "9:16"),
+    brief,
+    media_ids: mediaIds,
+    platform: String(values.get("platform") || "").trim(),
+    destination_ref: String(values.get("destination_ref") || "").trim(),
+    spend_confirmation: String(values.get("real_spend_confirmation") || ""),
+    ...(canManageTeam()
+      ? {
+          assignee_id: String(values.get("assignee_id") || state.user?.id || ""),
+          payout_minor: Math.round(payoutRub * 100),
+        }
+      : {}),
+  };
+
+  setFormBusy(form, true, "Запускаем 1 видео Runway…");
+  try {
+    const result = await state.api.startRealGeneration(payload);
+    if (!result?.job?.id) throw new Error("Runway принял запрос без номера задачи. Обновите очередь.");
+    await track("real_generation_started", {
+      provider: "runway",
+      model: "gen4_turbo",
+      duration_seconds: 5,
+      estimated_credits: 25,
+      format: payload.format,
+      platform: payload.platform,
+      has_media: true,
+    });
+    form.reset();
+    syncGenerationModeForm(form);
+    state.sections.generation.status = "idle";
+    state.sections.placement.status = "idle";
+    state.sections.tasks.status = "idle";
+    toast("Платный запуск принят: 1 видео Runway gen4_turbo, 5 секунд, ориентировочно до $0.25.", "success");
+    render();
+  } catch (error) {
+    setFormBusy(form, false);
+    toast(error.message, "error");
+  }
+}
+
+async function submitMockBatch(form, values = new FormData(form)) {
+  if (!MOCK_GENERATION_ENABLED) {
+    toast("Mock-режим выключен в конфигурации портала.", "error");
+    return;
+  }
   const count = Number(values.get("count"));
   const mediaIds = values.getAll("media_id").map(String);
   if (!Number.isInteger(count) || count < 1 || count > MAX_MOCK_BATCH_SIZE) {
@@ -1945,6 +2144,7 @@ async function submitMockBatch(form) {
       payout_minor: payload.payout_minor || 0,
     });
     form.reset();
+    syncGenerationModeForm(form);
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
@@ -2290,8 +2490,10 @@ function validateConfig(config) {
   if (/sb_secret_|service[_-]?role|postgres(?:ql)?:\/\//i.test(key)) {
     problems.push("В config.js обнаружен запрещённый секрет. Немедленно удалите и перевыпустите его.");
   }
-  if (config.MOCK_ONLY !== true) {
-    problems.push("Для текущего запуска MOCK_ONLY должен быть true.");
+  if (typeof config.MOCK_ENABLED !== "boolean" || typeof config.REAL_GENERATION_ENABLED !== "boolean") {
+    problems.push("Укажите явные флаги MOCK_ENABLED и REAL_GENERATION_ENABLED.");
+  } else if (!config.MOCK_ENABLED && !config.REAL_GENERATION_ENABLED) {
+    problems.push("Включите хотя бы один режим генерации.");
   }
   if (!config.STORAGE_BUCKET || String(config.STORAGE_BUCKET).toLowerCase().includes("public")) {
     problems.push("Укажите имя приватного Storage bucket.");
@@ -2455,6 +2657,9 @@ function statusBadge(status) {
     ready: "Готово",
     pending: "Ожидает",
     queued: "В очереди",
+    starting: "Запуск подтверждается",
+    processing: "Генерируется",
+    succeeded: "Готово",
     validated: "Проверено",
     running: "Выполняется",
     blocked: "Заблокировано",
@@ -2474,6 +2679,18 @@ function statusBadge(status) {
     planned: "Запланировано",
   };
   return `<span class="status-badge status-${normalized}">${escapeHtml(labels[normalized] || status || "—")}</span>`;
+}
+
+function humanGenerationStatus(status) {
+  return {
+    starting: "запуск подтверждается; повторный запуск заблокирован",
+    submitted: "отправлено провайдеру",
+    queued: "в очереди",
+    processing: "генерируется",
+    succeeded: "готово",
+    completed: "готово",
+    failed: "ошибка",
+  }[status] || status || "неизвестно";
 }
 
 function alertMarkup(message, type = "info") {
@@ -2617,6 +2834,27 @@ function isHttpsUrl(value) {
   } catch {
     return false;
   }
+}
+
+function isTrustedGenerationDownload(value) {
+  try {
+    const url = new URL(value);
+    const supabase = new URL(CONFIG.SUPABASE_URL);
+    return url.protocol === "https:" && url.hostname === supabase.hostname;
+  } catch {
+    return false;
+  }
+}
+
+function openExternalDownload(value) {
+  const link = document.createElement("a");
+  link.href = value;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.referrerPolicy = "no-referrer";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 function privateObjectKey(filename) {
