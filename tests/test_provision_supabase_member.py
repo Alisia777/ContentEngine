@@ -241,6 +241,35 @@ def test_explicit_claim_recovers_unsigned_in_membership_free_identity() -> None:
     }]
 
 
+def test_explicit_reset_recovers_signed_in_membership_free_identity() -> None:
+    management = FakeManagement(
+        MemberState(
+            user_id=MEMBER_ID,
+            email_confirmed=True,
+            signed_in=True,
+            app_metadata={"provider": "email", "providers": ["email"]},
+        )
+    )
+    auth = FakeAuth(management)
+
+    result = provision_member(
+        management_client=management,
+        auth_client_factory=_factory(auth, []),
+        email=MEMBER_EMAIL,
+        display_name="Guest",
+        temporary_password=TEMP_PASSWORD,
+        role="viewer",
+        claim_existing=True,
+        reset_signed_in=True,
+    )
+
+    assert result.identity_status == "reset"
+    assert result.membership_status == "created"
+    assert management.state.membership_role == "viewer"
+    assert auth.calls[0]["claim_user_id"] == MEMBER_ID
+    assert auth.calls[0]["password"] == TEMP_PASSWORD
+
+
 @pytest.mark.parametrize(
     "state, message",
     [
