@@ -284,19 +284,15 @@ def load_migrations(directory: Path) -> list[Migration]:
 PRIVATE_EXAM_CONTRACT_SQL = """
 do $contentengine_exam_contract$
 declare
-  answer_total integer;
   exam_answer_total integer;
 begin
-  select count(*) into answer_total
-  from content_factory_private.training_answer_keys;
-
   select count(*) into exam_answer_total
   from content_factory_private.training_answer_keys answer_key
   join content_factory.training_questions question
     on question.code = answer_key.question_code
   where question.module_code = 'operator_final_exam';
 
-  if answer_total <> 12 or exam_answer_total <> 12 then
+  if exam_answer_total <> 12 then
     raise exception using
       errcode = '23514',
       message = 'private_exam_key_contract_failed';

@@ -10,6 +10,7 @@
 export const RPC = Object.freeze({
   bootstrap: "creator_bootstrap",
   completeModule: "creator_complete_module",
+  submitCourseCheck: "creator_submit_course_check",
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
   createMockBatch: "creator_create_mock_batch",
@@ -99,6 +100,13 @@ export class CreatorApi {
 
   completeModule(moduleCode) {
     return this.mutate(RPC.completeModule, { module_code: moduleCode });
+  }
+
+  submitCourseCheck(moduleCode, answers) {
+    return this.mutate(RPC.submitCourseCheck, {
+      module_code: moduleCode,
+      answers,
+    });
   }
 
   submitExam(answers) {
@@ -295,10 +303,11 @@ export class CreatorApi {
     });
   }
 
-  confirmPlacement(taskId, finalUrl) {
+  confirmPlacement(taskId, finalUrl, complianceAck) {
     return this.mutate(RPC.confirmPlacement, {
       task_id: taskId,
       final_url: finalUrl,
+      compliance_ack: complianceAck === true,
     });
   }
 
@@ -489,7 +498,12 @@ function toFriendlyMessage(error) {
     final_exam_required: "Рабочий кабинет откроется после итогового экзамена.",
     four_courses_required: "Сначала завершите все четыре обязательных курса.",
     required_courses_incomplete: "Сначала завершите все четыре обязательных курса.",
+    refreshed_courses_required: "Пройдите обновлённые мини-тесты всех четырёх блоков и завершите каждый блок заново.",
     course_not_found: "Учебный модуль больше недоступен. Обновите каталог.",
+    course_knowledge_check_required: "Сначала пройдите мини-тест этого блока на сервере.",
+    course_check_answers_invalid: "Проверьте ответы мини-теста и отправьте их ещё раз.",
+    course_check_catalog_unavailable: "Мини-тест временно недоступен. Обновите страницу.",
+    unknown_course_check_question: "Мини-тест обновился. Обновите страницу и ответьте заново.",
     exam_catalog_unavailable: "Каталог экзамена временно недоступен. Обновите страницу позже.",
     exam_cooldown: "Новая попытка экзамена пока недоступна. Дождитесь времени, указанного на экране.",
     exam_attempt_limit_active: "Лимит попыток за 24 часа исчерпан. Дождитесь времени следующей попытки на экране.",
@@ -534,6 +548,8 @@ function toFriendlyMessage(error) {
     placement_access_denied: "Эта задача размещения назначена другому участнику.",
     placement_not_publishable: "Публикацию нельзя подтвердить в текущем статусе.",
     placement_already_published: "Для этой публикации уже сохранён другой final URL.",
+    placement_compliance_ack_required: "Подтвердите проверку рекламного статуса и реквизитов из инструкции задачи.",
+    placement_compliance_audit_failed: "Не удалось сохранить подтверждение рекламной проверки. Обновите задачу и повторите.",
     published_placement_required: "Сначала подтвердите публикацию и её final URL.",
     observed_at_in_future: "Время снятия метрик не может быть в будущем.",
     observed_at_before_publication: "Снимок метрик должен быть сделан после публикации.",

@@ -61,6 +61,7 @@ const state = {
   route: parseRoute(),
   mobileNavOpen: false,
   examResult: null,
+  courseCheckResults: {},
   teamInviteResult: null,
   sections: Object.fromEntries(
     WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null }]),
@@ -211,6 +212,17 @@ async function loadBootstrap() {
   try {
     const raw = await state.api.bootstrap({ session_id: state.sessionId });
     state.bootstrap = normalizeBootstrap(raw);
+    state.courseCheckResults = Object.fromEntries(
+      state.bootstrap.training.courseChecks.map((item) => [
+        item.moduleCode,
+        {
+          passed: item.passed,
+          score: item.correctCount,
+          total: item.questionCount,
+          status: item.status,
+        },
+      ]),
+    );
     if (membershipLockDetails(state.bootstrap)) {
       state.api.organizationId = null;
       state.examResult = null;
@@ -245,6 +257,17 @@ function normalizeBootstrap(raw) {
       .map((item) => item.module_code || item.code),
   ]);
   const examSource = trainingSource.exam || source.exam || {};
+  const rawCourseChecks = trainingSource.course_checks || trainingSource.courseChecks || [];
+  const courseChecks = (Array.isArray(rawCourseChecks) ? rawCourseChecks : [])
+    .map((item) => ({
+      moduleCode: String(item?.module_code || item?.moduleCode || ""),
+      status: String(item?.status || "not_started"),
+      passed: normalizeBoolean(item?.passed ?? item?.status === "passed"),
+      correctCount: Math.max(0, Number(item?.correct_count ?? item?.correctCount ?? 0)),
+      questionCount: Math.max(0, Number(item?.question_count ?? item?.questionCount ?? 0)),
+      completedAt: item?.completed_at ?? item?.completedAt ?? null,
+    }))
+    .filter((item) => item.moduleCode);
   const examPassed = normalizeBoolean(
     examSource.passed ??
       trainingSource.exam_passed ??
@@ -270,6 +293,7 @@ function normalizeBootstrap(raw) {
     training: {
       completedModules,
       modules: serverModules,
+      courseChecks,
       exam: {
         passed: examPassed,
         score: normalizePercent(examSource.score ?? trainingSource.exam_score ?? 0),
@@ -333,6 +357,30 @@ function learningCourses() {
       const completionChecklist = Array.isArray(meta.completion_checklist)
         ? meta.completion_checklist.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
         : [];
+      const rawKnowledgeCheck = meta.knowledge_check && typeof meta.knowledge_check === "object"
+        ? meta.knowledge_check
+        : {};
+      const knowledgeQuestions = (Array.isArray(rawKnowledgeCheck.questions) ? rawKnowledgeCheck.questions : [])
+        .slice(0, 5)
+        .map((question, index) => ({
+          id: String(question?.id || `question_${index + 1}`),
+          prompt: String(question?.prompt || ""),
+          options: (Array.isArray(question?.options) ? question.options : [])
+            .slice(0, 6)
+            .map((option) => ({ value: String(option?.value || ""), label: String(option?.label || "") }))
+            .filter((option) => option.value && option.label),
+        }))
+        .filter((question) => question.id && question.prompt && question.options.length >= 2);
+      const knowledgeCheck = knowledgeQuestions.length
+        ? {
+            title: String(rawKnowledgeCheck.title || "Проверка блока"),
+            passScore: Math.max(
+              1,
+              Math.min(knowledgeQuestions.length, Number(rawKnowledgeCheck.pass_score) || knowledgeQuestions.length),
+            ),
+            questions: knowledgeQuestions,
+          }
+        : null;
       return {
         code: module.code,
         title: module.title,
@@ -343,6 +391,7 @@ function learningCourses() {
         outcome: String(meta.outcome || module.description || "Понимание рабочего процесса."),
         level: String(meta.level || "Практический курс"),
         completionChecklist,
+        knowledgeCheck,
         lessons,
       };
     });
@@ -375,7 +424,7 @@ function trainingCatalogReady() {
   return (
     courses.length === REQUIRED_MODULE_CODES.length &&
     REQUIRED_MODULE_CODES.every((code) => courseCodes.has(code)) &&
-    courses.every((course) => course.title && course.lessons.length > 0) &&
+    courses.every((course) => course.title && course.lessons.length > 0 && course.knowledgeCheck?.questions.length >= 3) &&
     state.bootstrap?.training?.exam?.questionCount === 12 &&
     finalExamPassScore() >= 1 &&
     finalExamPassScore() <= state.bootstrap.training.exam.questionCount
@@ -485,7 +534,12 @@ function renderLogin(message = "") {
     <section class="auth-card" aria-labelledby="login-title">
       <p class="eyebrow">Вход для команды</p>
       <h2 id="login-title">Добро пожаловать</h2>
-      <p class="lead">Используйте адрес, на который пришло приглашение.</p>
+      <p class="lead">Используйте рабочую почту и ваш персональный пароль.</p>
+      <ol class="auth-start-route" aria-label="Как получить доступ">
+        <li><span>1</span><p><strong>Руководитель добавляет вашу рабочую почту</strong><small>Открытой регистрации нет — так чужой человек не попадёт в команду.</small></p></li>
+        <li><span>2</span><p><strong>Вы получаете приглашение или временный пароль</strong><small>При приглашении задайте пароль по ссылке. При ручном создании войдите с выданным временным паролем и смените его.</small></p></li>
+        <li><span>3</span><p><strong>После входа проходите 4 блока и экзамен</strong><small>Затем откроются рабочие разделы, задачи и ваши выплаты.</small></p></li>
+      </ol>
       ${message ? alertMarkup(message, "danger") : ""}
       <form id="login-form" class="form-stack" novalidate>
         <label class="field">
@@ -629,21 +683,26 @@ function renderLearningHome() {
   const examPassed = state.bootstrap.training.exam.passed;
   const progress = Math.round(((completeCount + (examPassed ? 1 : 0)) / 5) * 100);
   const catalogReady = trainingCatalogReady();
+  const workspaceReady = hasWorkspaceAccess();
   const nextCourse = courses.find((course) => !completed.has(course.code));
-  const nextHref = examPassed
+  const nextHref = workspaceReady
     ? "#/workspace/generation"
     : nextCourse
       ? `#/learn/${encodeURIComponent(nextCourse.code)}`
       : "#/learn/exam";
-  const nextLabel = examPassed ? "Перейти к работе" : nextCourse ? "Продолжить обучение" : "Начать экзамен";
+  const nextLabel = workspaceReady
+    ? "Перейти к работе"
+    : nextCourse
+      ? completeCount === 0 ? "Начать с блока 1" : "Продолжить обучение"
+      : examPassed ? "Проверить допуск" : "Начать экзамен";
 
   const content = `
     <div class="page-wrap learning-page">
       <section class="card learning-hero">
         <div class="learning-hero-copy">
           <p class="eyebrow learning-eyebrow">Практическая академия ALTEA</p>
-          <h1>${examPassed ? "Вы готовы к производству" : "Освойте весь цикл на одном экране"}</h1>
-          <p>${examPassed ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой." : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу."}</p>
+          <h1>${workspaceReady ? "Вы готовы к производству" : "Освойте весь цикл на одном экране"}</h1>
+          <p>${workspaceReady ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой." : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу."}</p>
           <div class="learning-hero-actions">
             <a class="btn btn-light" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
             <button class="btn btn-ghost-light" type="button" data-action="scroll-to" data-target="work-map">Посмотреть карту работы</button>
@@ -660,14 +719,14 @@ function renderLearningHome() {
           <div class="progress-bar progress-bar-gold" role="progressbar" aria-label="Прогресс обучения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div>
           <ol class="passport-steps">
             ${courses.map((course, index) => `
-              <li class="${completed.has(course.code) ? "complete" : nextCourse?.code === course.code && !examPassed ? "current" : ""}">
+              <li class="${completed.has(course.code) ? "complete" : nextCourse?.code === course.code && !workspaceReady ? "current" : ""}">
                 <span>${completed.has(course.code) ? "✓" : index + 1}</span>
                 <div><strong>${escapeHtml(course.title)}</strong><small>${completed.has(course.code) ? "готово" : course.duration}</small></div>
               </li>
             `).join("")}
             <li class="${examPassed ? "complete" : completeCount === 4 ? "current" : ""}">
               <span>${examPassed ? "✓" : 5}</span>
-              <div><strong>Итоговый экзамен</strong><small>${examPassed ? "допуск получен" : "12 сценариев"}</small></div>
+              <div><strong>Итоговый экзамен</strong><small>${examPassed ? "экзамен сдан" : "12 сценариев"}</small></div>
             </li>
           </ol>
         </div>
@@ -679,7 +738,7 @@ function renderLearningHome() {
         <div class="section-heading">
           <div>
             <p class="eyebrow">Как устроена работа</p>
-            <h2 id="work-map-title">Один товар проходит пять понятных этапов</h2>
+            <h2 id="work-map-title">Один товар проходит шесть понятных этапов</h2>
           </div>
           <p>Не нужно держать весь процесс в голове: каждый следующий шаг живёт в своём разделе портала.</p>
         </div>
@@ -696,7 +755,7 @@ function renderLearningHome() {
       </div>
 
       <div class="course-grid">
-        ${courses.map((course, index) => courseCardMarkup(course, index, completed.has(course.code))).join("")}
+        ${courses.map((course, index) => courseCardMarkup(course, index, completed.has(course.code), nextCourse?.code === course.code && !workspaceReady)).join("")}
       </div>
 
       <section class="card exam-card premium-exam-card">
@@ -724,6 +783,7 @@ function portalWorkflowMarkup() {
     ["03", "Задачи", "Посмотрите весь MP4 и зафиксируйте QA-решение."],
     ["04", "Размещение", "Опубликуйте только в назначенный аккаунт и верните final URL."],
     ["05", "Статистика", "Запишите просмотры, переходы, заказы и результат."],
+    ["06", "Выплаты", "Проверьте сумму и статус начисления: ожидает, одобрено или выплачено."],
   ];
   return `
     <ol class="portal-workflow">
@@ -738,26 +798,26 @@ function portalWorkflowMarkup() {
   `;
 }
 
-function courseCardMarkup(course, index, complete) {
+function courseCardMarkup(course, index, complete, current = false) {
   return `
-    <article class="card course-card course-tone-${index + 1} ${complete ? "complete" : ""}">
+    <article class="card course-card course-tone-${index + 1} ${complete ? "complete" : ""} ${current ? "current" : ""}">
       <div class="course-card-top">
         <div class="course-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</div>
-        <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Пройден" : escapeHtml(course.level)}</span>
+        <span class="badge ${complete ? "badge-success" : current ? "badge-info" : ""}">${complete ? "Пройден" : current ? "Начните здесь" : escapeHtml(course.level)}</span>
       </div>
       <div class="course-card-meta"><span>${course.duration}</span><span>${course.lessons.length} уроков</span></div>
       <p class="course-block-label">${escapeHtml(course.blockLabel)}</p>
       <h2>${escapeHtml(course.title)}</h2>
       <p>${escapeHtml(course.summary)}</p>
-      ${course.code === "publishing_funnel" ? `<div class="platform-pills" aria-label="Площадки курса"><span>Instagram Reels</span><span>YouTube Shorts</span></div>` : ""}
+      ${course.code === "publishing_funnel" ? `<div class="platform-pills" aria-label="Площадки курса"><span>Instagram Reels</span><span>YouTube Shorts</span><span>VK Клипы</span></div>` : ""}
       <div class="course-outcome">
         <span>После курса</span>
         <strong>${escapeHtml(course.outcome)}</strong>
       </div>
       <div class="course-footer">
-        <span class="course-status-dot"><i aria-hidden="true"></i>${complete ? "Материал доступен для повторения" : "Следующий шаг маршрута"}</span>
+        <span class="course-status-dot"><i aria-hidden="true"></i>${complete ? "Материал доступен для повторения" : current ? "Ваш следующий шаг" : "Можно посмотреть заранее"}</span>
         <a class="btn btn-small ${complete ? "btn-secondary" : ""}" href="#/learn/${encodeURIComponent(course.code)}">
-          ${complete ? "Повторить" : "Открыть"} <span aria-hidden="true">→</span>
+          ${complete ? "Повторить" : current ? "Начать блок" : "Посмотреть"} <span aria-hidden="true">→</span>
         </a>
       </div>
     </article>
@@ -773,6 +833,7 @@ function renderCourse(code) {
   }
   const courseIndex = Math.max(0, courses.findIndex((item) => item.code === course.code));
   const complete = state.bootstrap.training.completedModules.includes(course.code);
+  const checkPassed = complete || state.courseCheckResults[course.code]?.passed === true;
   const completionChecklist = course.completionChecklist.length
     ? course.completionChecklist
     : [
@@ -806,18 +867,24 @@ function renderCourse(code) {
             <div><p class="eyebrow">Содержание</p><strong>Двигайтесь сверху вниз</strong></div>
             <ol>
               ${course.lessons.map((lesson, index) => `<li><button type="button" data-action="scroll-to" data-target="lesson-${index + 1}"><span>${index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
+              <li><button type="button" data-action="scroll-to" data-target="course-check"><span>✓</span>Мини-тест блока</button></li>
             </ol>
           </nav>
           <div class="lesson-stack">
             ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index, course.lessons.length)).join("")}
           </div>
+          ${courseKnowledgeCheckMarkup(course, checkPassed)}
         </div>
         <aside class="card sticky-card course-completion-card">
           <div class="completion-ring" style="--completion:${complete ? 100 : 0}" aria-hidden="true"><span>${complete ? "✓" : course.lessons.length}</span></div>
           <p class="eyebrow">Завершение курса</p>
           <h2>Проверьте себя</h2>
-          <p class="muted tiny">Прогресс сохраняется в вашем рабочем профиле.</p>
+          <p class="muted tiny">Сначала пройдите мини-тест блока, затем подтвердите чек-лист. Завершение сохранится в рабочем профиле.</p>
           ${complete ? alertMarkup("Курс уже пройден. Материал можно повторять без ограничений.", "success") : `
+            <div class="course-check-gate ${checkPassed ? "passed" : ""}" data-course-check-gate>
+              <span aria-hidden="true">${checkPassed ? "✓" : "?"}</span>
+              <strong>${checkPassed ? "Мини-тест пройден" : "Сначала пройдите мини-тест ниже"}</strong>
+            </div>
             <div class="completion-checklist">
               ${completionChecklist.map((item, index) => `
                 <label class="acknowledgement">
@@ -826,7 +893,7 @@ function renderCourse(code) {
                 </label>
               `).join("")}
             </div>
-            <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить курс</button>
+            <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить блок</button>
           `}
           <a class="btn btn-secondary btn-block course-back-link" href="#/learn">К списку курсов</a>
         </aside>
@@ -858,6 +925,48 @@ function lessonMarkup(lesson, index, total) {
   `;
 }
 
+function courseKnowledgeCheckMarkup(course, passed) {
+  const check = course.knowledgeCheck;
+  if (!check?.questions?.length) return "";
+  const questionCount = check.questions.length;
+  const questionLabel = questionCount % 10 === 1 && questionCount % 100 !== 11
+    ? "вопрос"
+    : [2, 3, 4].includes(questionCount % 10) && ![12, 13, 14].includes(questionCount % 100)
+      ? "вопроса"
+      : "вопросов";
+  return `
+    <section id="course-check" class="card course-knowledge-check" aria-labelledby="course-check-title" tabindex="-1">
+      <div class="knowledge-check-head">
+        <div><p class="eyebrow">Мини-тест блока</p><h2 id="course-check-title">${escapeHtml(check.title)}</h2></div>
+        <span>${questionCount} ${questionLabel} · нужно ${check.passScore}</span>
+      </div>
+      <p class="muted">Ошибаться можно: после проверки вы увидите объяснение и сможете ответить ещё раз.</p>
+      <form id="course-check-form" data-course-code="${escapeHtml(course.code)}" novalidate>
+        ${check.questions.map((question, questionIndex) => {
+          const inputName = `check_${course.code}_${question.id}`;
+          return `
+            <fieldset class="knowledge-question" data-check-question="${escapeHtml(question.id)}">
+              <legend><span>${questionIndex + 1}</span>${escapeHtml(question.prompt)}</legend>
+              <div class="knowledge-options">
+                ${question.options.map((option, optionIndex) => `
+                  <label>
+                    <input type="radio" name="${escapeHtml(inputName)}" value="${escapeHtml(option.value)}" ${optionIndex === 0 ? "required" : ""} />
+                    <span>${escapeHtml(option.label)}</span>
+                  </label>
+                `).join("")}
+              </div>
+            </fieldset>
+          `;
+        }).join("")}
+        <div class="knowledge-check-actions">
+          <button class="btn" type="submit">Проверить ответы</button>
+          <div id="course-check-result" class="knowledge-check-result ${passed ? "passed" : ""}" aria-live="polite">${passed ? "Мини-тест уже пройден. Можно завершать блок." : ""}</div>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
 function lessonVisualMarkup(visual) {
   if (!visual || typeof visual !== "object") return "";
   const type = String(visual.type || "");
@@ -881,7 +990,8 @@ function lessonVisualMarkup(visual) {
   }
 
   if (type === "annotated_ui" && items.length) {
-    return `<figure class="lesson-visual visual-interface">${title}<div class="interface-window"><div class="interface-toolbar"><i></i><i></i><i></i><span>Контент ИИ Завод</span></div><div class="interface-body">${items.map((item, index) => {
+    const windowTitle = visual.window_title || "Контент ИИ Завод";
+    return `<figure class="lesson-visual visual-interface">${title}<div class="interface-window"><div class="interface-toolbar"><i></i><i></i><i></i><span>${escapeHtml(windowTitle)}</span></div><div class="interface-body">${items.map((item, index) => {
       const label = item?.area || item?.title || item?.label || item;
       const detail = [item?.label && item?.area ? item.label : "", item?.detail || ""].filter(Boolean).join(" · ");
       return `<div class="interface-field"><span>${index + 1}</span><div><strong>${escapeHtml(label)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div></div>`;
@@ -950,7 +1060,7 @@ function lessonPracticeMarkup(practice) {
   return `
     <section class="lesson-practice">
       <span class="practice-mark" aria-hidden="true">↗</span>
-      <div><p class="eyebrow">Попробуйте в кабинете</p><h3>${escapeHtml(practice.title || "Закрепите шаг")}</h3>${steps.length ? `<ol>${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>` : ""}</div>
+      <div><p class="eyebrow">${escapeHtml(practice.eyebrow || "Попробуйте в кабинете")}</p><h3>${escapeHtml(practice.title || "Закрепите шаг")}</h3>${steps.length ? `<ol>${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>` : ""}</div>
     </section>
   `;
 }
@@ -1448,14 +1558,14 @@ function renderGenerationSection(sectionState) {
             <div>
               <p class="eyebrow">Идентичность товара</p>
               <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Артикулы Wildberries</h2>
-              <p class="muted tiny">Если WB заменил артикул, мы не переписываем прошлое. Старая и подменная карточки сохраняются как датированная связь с одним точным SKU — так метрики остаются сопоставимыми.</p>
-              ${aliases.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>SKU</th><th>Текущий</th><th>Старый / подменный</th></tr></thead><tbody>${aliases.slice(0, 20).map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.current_article || item.canonical_article || "—")}</td><td>${escapeHtml(item.alias_article || item.wb_alias || "—")}</td></tr>`).join("")}</tbody></table></div>` : emptyState("WB", "Связей пока нет", "Добавляйте alias только после подтверждённой замены артикула.")}
+              <p class="muted tiny"><strong>Подменный артикул</strong> — другой номер карточки WB, который руководитель подтвердил для того же точного товара. Это не похожий вкус, объём или упаковка. Исполнитель сам подменник не выбирает: он использует номер из задачи, а портал сохраняет старую и новую карточки с датой, не переписывая прошлые метрики.</p>
+              ${aliases.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>SKU</th><th>Текущий</th><th>Старый / подменный</th></tr></thead><tbody>${aliases.slice(0, 20).map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.current_article || item.canonical_article || "—")}</td><td>${escapeHtml(item.alias_article || item.wb_alias || "—")}</td></tr>`).join("")}</tbody></table></div>` : emptyState("WB", "Связей пока нет", "Подменник добавляет только руководитель после подтверждения, что товар действительно тот же.")}
             </div>
             ${canManageAliases ? `
               <form id="wb-alias-form" class="form-stack" novalidate>
                 <label class="field"><span>Внутренний SKU *</span><input name="sku" required maxlength="120" placeholder="Точный SKU товара" /></label>
                 <label class="field"><span>Текущий артикул WB *</span><input name="current_article" required maxlength="120" inputmode="numeric" placeholder="Например: 123456789" /></label>
-                <label class="field"><span>Старый / подменный артикул *</span><input name="alias_article" required maxlength="120" inputmode="numeric" placeholder="Артикул из исторических данных" /></label>
+                <label class="field"><span>Старый / подменный артикул того же товара *</span><input name="alias_article" required maxlength="120" inputmode="numeric" placeholder="Артикул из исторических данных" /></label>
                 <label class="field"><span>Почему появилась связь *</span><textarea name="reason" required minlength="5" maxlength="600" placeholder="Например: WB заменил карточку 13.07.2026; подтверждено владельцем"></textarea></label>
                 <button class="btn" type="submit">Сохранить связь без перезаписи истории</button>
               </form>
@@ -1527,13 +1637,20 @@ function placementCard(item) {
       </div>
       <ul class="checklist">
         <li>Сверить назначенный аккаунт и площадку</li>
+        <li>Проверить в инструкции решение: информационный материал или реклама</li>
+        <li>Если это реклама — сверить пометку «Реклама», рекламодателя, ERID и разрешение площадки</li>
         <li>Использовать tracking link из задачи</li>
         <li>После публикации вернуть final URL</li>
       </ul>
+      ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её owner/admin. Бирка соцсети не заменяет правовую проверку.", "warning")}
       ${item.tracking_url ? `<p class="tiny"><strong>Tracking link:</strong> <a href="${safeExternalUrl(item.tracking_url)}" target="_blank" rel="noopener noreferrer">открыть безопасно</a></p>` : ""}
       ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
           <label class="field" style="flex:1; min-width:250px"><span>Final URL поста</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
+          <label class="option" style="flex-basis:100%">
+            <input type="checkbox" name="compliance_ack" value="confirmed" required />
+            <span><strong>Рекламный статус проверен по инструкции задачи</strong><br /><small class="muted">Если это реклама, обязательные реквизиты и разрешённая площадка подтверждены owner/admin; если решения нет — я не публикую.</small></span>
+          </label>
           <button class="btn" type="submit" style="align-self:end">Подтвердить размещение</button>
         </form>
       `}
@@ -1692,6 +1809,7 @@ function renderTasksSection(sectionState) {
 
 function taskCard(item) {
   const checklist = Array.isArray(item.checklist) ? item.checklist : item.checklist_json || [];
+  const payoutMinor = Math.max(0, Number(item.payout_minor || 0));
   return `
     <article class="card task-card">
       <div class="task-top">
@@ -1702,10 +1820,13 @@ function taskCard(item) {
         </div>
         ${statusBadge(item.status || "todo")}
       </div>
+      <div class="task-facts" aria-label="Условия задачи">
+        <span><small>Вознаграждение</small><strong>${formatMoney(payoutMinor, item.currency || "RUB")}</strong></span>
+        <span><small>Срок</small><strong>${item.due_at ? formatDate(item.due_at, true) : "Не указан"}</strong></span>
+      </div>
       ${checklist.length ? `<ul class="checklist">${checklist.map((point) => `<li>${escapeHtml(typeof point === "string" ? point : point.label || point.title || "Шаг")}</li>`).join("")}</ul>` : ""}
       <div class="inline-actions">
         ${taskActionsMarkup(item)}
-        ${item.due_at ? `<span class="tiny muted">Срок: ${formatDate(item.due_at, true)}</span>` : ""}
       </div>
     </article>
   `;
@@ -1975,6 +2096,12 @@ async function handleClick(event) {
   }
 
   if (action === "complete-course") {
+    const moduleCode = control.dataset.moduleCode;
+    if (state.courseCheckResults[moduleCode]?.passed !== true) {
+      toast("Сначала пройдите мини-тест этого блока.", "error");
+      document.querySelector("#course-check-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
     if (!confirmations.length || confirmations.some((checkbox) => !checkbox.checked)) {
       toast("Подтвердите все пункты самопроверки.", "error");
@@ -1982,7 +2109,6 @@ async function handleClick(event) {
     }
     control.disabled = true;
     try {
-      const moduleCode = control.dataset.moduleCode;
       await state.api.completeModule(moduleCode);
       await track("course_completed", { module_code: moduleCode });
       await loadBootstrap();
@@ -2075,6 +2201,7 @@ async function handleSubmit(event) {
   if (form.id === "login-form") await submitLogin(form);
   else if (form.id === "reset-form") await submitReset(form);
   else if (form.id === "password-form") await submitPassword(form);
+  else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
@@ -2089,9 +2216,7 @@ async function handleSubmit(event) {
 
 function handleChange(event) {
   if (event.target.matches("[data-course-ack]")) {
-    const button = document.querySelector('[data-action="complete-course"]');
-    const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
-    if (button) button.disabled = !confirmations.length || confirmations.some((checkbox) => !checkbox.checked);
+    syncCourseCompletionButton();
   }
 
   if (event.target.closest("#exam-form")) {
@@ -2295,6 +2420,92 @@ async function submitPassword(form) {
   } catch (error) {
     renderSetPassword(authErrorMessage(error));
   }
+}
+
+async function submitCourseKnowledgeCheck(form) {
+  const courseCode = String(form.dataset.courseCode || "");
+  const course = learningCourses().find((item) => item.code === courseCode);
+  const check = course?.knowledgeCheck;
+  if (!check?.questions?.length) {
+    toast("Мини-тест блока не загрузился. Обновите страницу.", "error");
+    return;
+  }
+
+  const answers = {};
+  for (const question of check.questions) {
+    const inputName = `check_${courseCode}_${question.id}`;
+    const selected = form.querySelector(`input[name="${CSS.escape(inputName)}"]:checked`);
+    if (!selected) {
+      toast("Ответьте на все вопросы мини-теста.", "error");
+      return;
+    }
+    answers[question.id] = selected.value;
+  }
+
+  setFormBusy(form, true, "Проверяем на сервере…");
+  try {
+    const raw = await state.api.submitCourseCheck(courseCode, answers);
+    const source = raw?.result || raw?.data || raw || {};
+    const passed = normalizeBoolean(source.passed);
+    const correctCount = Math.max(0, Number(source.correct_count ?? source.correctCount ?? 0));
+    const questionCount = Math.max(1, Number(source.question_count ?? source.questionCount ?? check.questions.length));
+    const requiredCorrect = Math.max(1, Number(source.required_correct ?? source.requiredCorrect ?? check.passScore));
+    const reviewTopics = (Array.isArray(source.review_topics) ? source.review_topics : [])
+      .map((topic) => ({
+        questionCode: String(topic?.question_code || topic?.questionCode || ""),
+        prompt: String(topic?.prompt || "Повторите отмеченную тему."),
+      }));
+    const reviewCodes = new Set(reviewTopics.map((topic) => topic.questionCode).filter(Boolean));
+
+    for (const question of check.questions) {
+      const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
+      fieldset?.classList.remove("correct", "incorrect");
+      if (reviewCodes.has(question.id)) fieldset?.classList.add("incorrect");
+      else if (passed) fieldset?.classList.add("correct");
+    }
+
+    state.courseCheckResults[courseCode] = {
+      passed,
+      score: correctCount,
+      total: questionCount,
+      status: passed ? "passed" : "retry_required",
+    };
+    const result = form.querySelector("#course-check-result");
+    if (result) {
+      const feedback = String(source.feedback || (passed
+        ? "Проверка пройдена."
+        : "Повторите отмеченные темы и попробуйте ещё раз."));
+      result.className = `knowledge-check-result ${passed ? "passed" : "failed"}`;
+      result.innerHTML = passed
+        ? `<strong>Готово: ${correctCount} из ${questionCount}.</strong><span>${escapeHtml(feedback)} Теперь подтвердите чек-лист и завершите блок.</span>`
+        : `<strong>${correctCount} из ${questionCount}. Нужно ${requiredCorrect}.</strong><span>${escapeHtml(feedback)}</span>${reviewTopics.length ? `<ul>${reviewTopics.map((topic) => `<li>${escapeHtml(topic.prompt)}</li>`).join("")}</ul>` : ""}`;
+    }
+    const gate = document.querySelector("[data-course-check-gate]");
+    if (gate) {
+      gate.classList.toggle("passed", passed);
+      gate.innerHTML = `<span aria-hidden="true">${passed ? "✓" : "?"}</span><strong>${passed ? "Мини-тест пройден" : "Мини-тест пока не пройден"}</strong>`;
+    }
+    syncCourseCompletionButton();
+    await track("course_check_submitted", {
+      module_code: courseCode,
+      passed,
+      score: correctCount,
+      question_count: questionCount,
+    });
+    toast(passed ? "Мини-тест пройден." : "Есть ошибки — посмотрите отмеченные темы и повторите.", passed ? "success" : "info");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
+  }
+}
+
+function syncCourseCompletionButton() {
+  const button = document.querySelector('[data-action="complete-course"]');
+  if (!button) return;
+  const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
+  const passed = state.courseCheckResults[String(button.dataset.moduleCode || "")]?.passed === true;
+  button.disabled = !passed || !confirmations.length || confirmations.some((checkbox) => !checkbox.checked);
 }
 
 async function submitExam(form) {
@@ -2635,7 +2846,9 @@ async function submitPayoutPaid(form) {
 }
 
 async function submitPlacement(form) {
-  const finalUrl = String(new FormData(form).get("final_url") || "").trim();
+  const values = new FormData(form);
+  const finalUrl = String(values.get("final_url") || "").trim();
+  const complianceAck = values.get("compliance_ack") === "confirmed";
   if (!isHttpsUrl(finalUrl)) {
     toast("Введите полный публичный HTTPS URL поста.", "error");
     return;
@@ -2643,7 +2856,7 @@ async function submitPlacement(form) {
   setFormBusy(form, true, "Проверяем ссылку…");
   try {
     const taskId = form.dataset.placementId;
-    await state.api.confirmPlacement(taskId, finalUrl);
+    await state.api.confirmPlacement(taskId, finalUrl, complianceAck);
     await track("placement_confirmed", { task_id: String(taskId), hostname: new URL(finalUrl).hostname });
     state.sections.placement.status = "idle";
     state.sections.stats.status = "idle";
@@ -2910,6 +3123,7 @@ function clearAuthenticatedState() {
   state.forcePassword = false;
   state.authPurpose = null;
   state.examResult = null;
+  state.courseCheckResults = {};
   state.teamInviteResult = null;
   for (const section of Object.values(state.sections)) {
     section.status = "idle";

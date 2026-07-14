@@ -19,8 +19,8 @@ EXPECTED_COURSES = {
 EXPECTED_BLOCK_LABELS = {
     "factory_basics": "Блок 1 · Что делать в портале",
     "video_quality": "Блок 2 · Как снять и создать ролик",
-    "publishing_funnel": "Блок 3 · Instagram и YouTube",
-    "security_wb": "Блок 4 · Контроль и безопасность",
+    "publishing_funnel": "Блок 3 · Instagram, YouTube и VK",
+    "security_wb": "Блок 4 · Подменный артикул и деньги",
 }
 VISUAL_TYPES = {
     "workflow",
@@ -89,7 +89,10 @@ def test_visual_playbook_updates_exactly_the_four_existing_courses() -> None:
         )
     )
     assert updated_codes == EXPECTED_COURSES
-    assert SQL.casefold().count("update content_factory.training_modules") == 4
+    # Four authored course updates plus one fail-closed bulk sanitization of
+    # those same course questions before the transaction commits.
+    assert SQL.casefold().count("update content_factory.training_modules") == 5
+    assert "from rewritten_questions rewritten" in SQL.casefold()
 
 
 def test_every_course_has_v2_metadata_and_at_least_five_safe_visual_lessons() -> None:
@@ -107,11 +110,26 @@ def test_every_course_has_v2_metadata_and_at_least_five_safe_visual_lessons() ->
         assert isinstance(checklist, list) and len(checklist) >= 4
         assert all(isinstance(item, str) and len(item) >= 12 for item in checklist)
 
+        knowledge_check = content["knowledge_check"]
+        questions = knowledge_check["questions"]
+        assert isinstance(knowledge_check["title"], str) and len(knowledge_check["title"]) >= 8
+        assert isinstance(questions, list) and len(questions) >= 3
+        assert knowledge_check["pass_score"] == len(questions)
+        assert len({question["id"] for question in questions}) == len(questions)
+        for question in questions:
+            assert re.fullmatch(r"[a-z0-9_]{3,80}", question["id"])
+            assert isinstance(question["prompt"], str) and len(question["prompt"]) >= 20
+            assert isinstance(question["explanation"], str) and len(question["explanation"]) >= 30
+            assert len(question["options"]) >= 3
+            option_values = {option["value"] for option in question["options"]}
+            assert question["correct_value"] in option_values
+            assert all(option["label"] for option in question["options"])
+
         lessons = content["lessons"]
         assert isinstance(lessons, list) and len(lessons) >= 5
         assert len({lesson["id"] for lesson in lessons}) == len(lessons)
         if course_code == "publishing_funnel":
-            assert len(lessons) >= 6
+            assert len(lessons) >= 12
         assert sum(lesson["duration_minutes"] for lesson in lessons) == content["duration_minutes"]
 
         for lesson in lessons:
@@ -143,6 +161,27 @@ def test_every_course_has_v2_metadata_and_at_least_five_safe_visual_lessons() ->
     assert used_visual_types == VISUAL_TYPES
 
 
+def test_first_block_starts_with_invitation_and_a_zero_experience_route() -> None:
+    factory = _dollar_quoted_json()["factory_basics"]
+    first_lesson = factory["lessons"][0]
+    copy = json.dumps(first_lesson, ensure_ascii=False).casefold()
+
+    assert first_lesson["id"] == "first_access_route"
+    for required in (
+        "самостоятельной регистрации",
+        "рабочую почту",
+        "приглашение",
+        "временным персональным паролем",
+        "пароль",
+        "четыре блока",
+        "экзамен",
+        "медиатека",
+        "генерация",
+        "очередь",
+    ):
+        assert required in copy
+
+
 def test_video_course_teaches_a_beginner_to_shoot_a_clean_phone_source() -> None:
     video = _dollar_quoted_json()["video_quality"]
     lessons = {lesson["id"]: lesson for lesson in video["lessons"]}
@@ -161,11 +200,13 @@ def test_video_course_teaches_a_beginner_to_shoot_a_clean_phone_source() -> None
         assert required in shooting
 
     assert lessons["shoot_vertical_source"]["visual"]["type"] == "annotated_ui"
+    assert lessons["shoot_vertical_source"]["visual"]["window_title"] == "Камера телефона"
     assert len(lessons["shoot_vertical_source"]["visual"]["panels"]) == 6
+    assert lessons["shoot_vertical_source"]["practice"]["eyebrow"] == "Практика с телефоном"
     assert len(lessons["shoot_vertical_source"]["practice"]["steps"]) >= 4
 
 
-def test_publishing_course_teaches_instagram_reels_and_youtube_shorts_end_to_end() -> None:
+def test_publishing_course_teaches_instagram_youtube_and_vk_end_to_end() -> None:
     publishing = _dollar_quoted_json()["publishing_funnel"]
     lessons = {lesson["id"]: lesson for lesson in publishing["lessons"]}
 
@@ -208,6 +249,158 @@ def test_publishing_course_teaches_instagram_reels_and_youtube_shorts_end_to_end
     ):
         assert required in youtube
 
+    access = json.dumps(lessons["social_account_access"], ensure_ascii=False).casefold()
+    for required in ("instagram", "youtube", "vk", "owner", "admin", "роль", "общий пароль"):
+        assert required in access
+
+    vk_setup = json.dumps(
+        lessons["vk_id_and_business_community"], ensure_ascii=False
+    ).casefold()
+    assert lessons["vk_id_and_business_community"]["reviewed_at"] == "2026-07-14"
+    for required in (
+        "vk id",
+        "vk.com/groups?w=groups_create_new",
+        "бизнес-сообщество",
+        "клипы",
+        "видео",
+        "роль",
+        "общий пароль",
+    ):
+        assert required in vk_setup
+
+    vk = json.dumps(lessons["vk_clips_step_by_step"], ensure_ascii=False).casefold()
+    assert lessons["vk_clips_step_by_step"]["reviewed_at"] == "2026-07-14"
+    for required in (
+        "профиль",
+        "сообщество",
+        "клипы",
+        "approved",
+        "описание",
+        "обложк",
+        "9:16",
+        "1080p",
+        "стен",
+        "опубликовать",
+        "final url",
+        "метрик",
+    ):
+        assert required in vk
+
+
+def test_four_blocks_have_their_own_story_checks() -> None:
+    catalog = _dollar_quoted_json()
+    expected_topics = {
+        "factory_basics": ("приглаш", "медиатек", "платн"),
+        "video_quality": ("телефон", "8 секунд", "succeeded"),
+        "publishing_funnel": ("instagram", "youtube", "vk", "накрут", "реклам"),
+        "security_wb": ("подмен", "начислен", "выплачен"),
+    }
+    expected_question_counts = {
+        "factory_basics": 3,
+        "video_quality": 3,
+        "publishing_funnel": 5,
+        "security_wb": 3,
+    }
+
+    for course_code, topics in expected_topics.items():
+        check_copy = json.dumps(
+            catalog[course_code]["knowledge_check"], ensure_ascii=False
+        ).casefold()
+        assert (
+            len(catalog[course_code]["knowledge_check"]["questions"])
+            == expected_question_counts[course_code]
+        )
+        assert all(topic in check_copy for topic in topics)
+
+
+def test_new_account_safety_rejects_fake_warmup_and_ban_evasion() -> None:
+    publishing = _dollar_quoted_json()["publishing_funnel"]
+    lessons = {lesson["id"]: lesson for lesson in publishing["lessons"]}
+    safety = json.dumps(lessons["new_account_safe_start"], ensure_ascii=False).casefold()
+
+    assert lessons["new_account_safe_start"]["reviewed_at"] == "2026-07-14"
+    for required in (
+        "двухфактор",
+        "оригинальн",
+        "покупк",
+        "бот",
+        "follow-unfollow",
+        "массов",
+        "account status",
+        "апелляц",
+        "не создавайте клон",
+    ):
+        assert required in safety
+
+
+def test_advertising_lesson_stops_unclassified_or_prohibited_placement() -> None:
+    publishing = _dollar_quoted_json()["publishing_funnel"]
+    lessons = {lesson["id"]: lesson for lesson in publishing["lessons"]}
+    advertising = json.dumps(
+        lessons["advertising_classification_and_labeling"], ensure_ascii=False
+    ).casefold()
+
+    assert lessons["advertising_classification_and_labeling"]["reviewed_at"] == "2026-07-14"
+    for required in (
+        "справочно-информационный материал",
+        "отсутствие оплаты",
+        "не означает, что публикация не реклама",
+        "внутреннее решение",
+        "не обязательное заключение для фас или суда",
+        "owner или юрист",
+        "пометку «реклама»",
+        "полное фио рекламодателя-физлица",
+        "полное наименование юридического лица",
+        "оператором рекламных данных",
+        "идентификатор рекламы присваивает оператор рекламных данных",
+        "сама по себе не заменяет",
+        "проверена на дату выхода",
+        "проверка должна быть зафиксирована на дату публикации",
+        "не публиковать",
+        "платное партнёрство",
+        "не отключайте обязательную бирку платформы",
+        "ресурс нежелательной организации",
+        "экстремизм либо терроризм",
+        "доступ к которому ограничен по закону",
+        "маркировка не легализует запрещённое размещение",
+    ):
+        assert required in advertising
+
+    check = {
+        question["id"]: question
+        for question in publishing["knowledge_check"]["questions"]
+    }["advertising_gate"]
+    check_copy = json.dumps(check, ensure_ascii=False).casefold()
+    assert check["correct_value"] == "stop"
+    for required in (
+        "оплаты, cta, промокода и tracking-ссылки нет",
+        "не проверил площадку на дату публикации",
+        "не означает, что публикация не реклама",
+        "не обязательное заключение для фас или суда",
+    ):
+        assert required in check_copy
+
+
+def test_substitute_article_and_payout_are_explained_without_hidden_formula() -> None:
+    security = _dollar_quoted_json()["security_wb"]
+    lessons = {lesson["id"]: lesson for lesson in security["lessons"]}
+
+    alias = json.dumps(lessons["wb_alias_history"], ensure_ascii=False).casefold()
+    for required in ("подменный артикул", "того же sku", "вкус", "объём", "исполнитель не выбирает"):
+        assert required in alias
+
+    payout = json.dumps(lessons["calculation_and_payout"], ensure_ascii=False).casefold()
+    for required in (
+        "фиксирован",
+        "0 ₽",
+        "final url",
+        "ожидает проверки",
+        "выплачено",
+        "вне портала",
+        "просмотры",
+    ):
+        assert required in payout
+
 
 def test_paid_generation_copy_is_current_and_does_not_claim_paid_ai_is_off() -> None:
     lowered = SQL.casefold()
@@ -248,6 +441,7 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
         "block_label",
         "outcome",
         "completion_checklist",
+        "knowledge_check",
     ):
         assert f"meta.{metadata_key}" in APP
     assert "? content.meta : content" in APP
@@ -259,6 +453,11 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
 
     assert "escapeHtml(course.level)" in APP
     assert "escapeHtml(course.blockLabel)" in APP
+    assert "escapeHtml(question.prompt)" in APP
+    assert "escapeHtml(option.label)" in APP
+    assert "escapeHtml(item)" in APP
+    assert "escapeHtml(windowTitle)" in APP
+    assert 'escapeHtml(practice.eyebrow || "Попробуйте в кабинете")' in APP
     assert "escapeHtml(lesson.takeaway)" in APP
     assert "escapeHtml(item?.condition" in APP
     assert "item?.value || item?.formula" in APP
@@ -282,6 +481,13 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
     assert 'href="#work-map"' not in APP
     assert 'href="#lesson-' not in APP
     assert 'data-action="scroll-to"' in APP
+    assert 'id="course-check-form"' in APP
+    assert 'form.id === "course-check-form"' in APP
+    assert "state.courseCheckResults[moduleCode]?.passed" in APP
+    assert "syncCourseCompletionButton()" in APP
+    assert "Начать с блока 1" in APP
+    assert "Подменный артикул" in APP
+    assert "payout_minor" in APP
     assert 'tabindex="-1"' in APP
     assert "prefers-reduced-motion: reduce" in APP
 
