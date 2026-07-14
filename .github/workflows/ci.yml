@@ -15,11 +15,19 @@ concurrency:
 
 jobs:
   test:
+    name: Python tests · shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
     env:
-      QVF_DATABASE_URL: sqlite:///./ci-qharisma.db
-      QVF_MEDIA_ROOT: ci-media
+      QVF_PYTEST_SHARD_INDEX: ${{ matrix.shard }}
+      QVF_PYTEST_SHARD_TOTAL: "6"
+      QVF_DATABASE_URL: sqlite:///./ci-qharisma-${{ matrix.shard }}.db
+      QVF_MEDIA_ROOT: ci-media-${{ matrix.shard }}
       QVF_AUTH_REQUIRED: "false"
       QVF_PUBLIC_PILOT_MODE: "true"
       QVF_PUBLIC_PILOT_INVITE_ONLY: "false"
@@ -44,7 +52,7 @@ jobs:
         run: python -m compileall -q app scripts
 
       - name: Run test suite
-        run: python -m pytest -q
+        run: python -m pytest -q -p scripts.pytest_shard_plugin
 
   supabase-migrations:
     name: Validate Supabase migrations and RPC contract
