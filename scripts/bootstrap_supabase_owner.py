@@ -336,6 +336,36 @@ class SupabaseAuthClient:
             },
         )
 
+    def claim_confirmed_user_with_password(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        password: str,
+        app_metadata: dict[str, Any],
+    ) -> None:
+        validated_user_id = _validated_uuid(user_id)
+        password_value = str(password or "")
+        if (
+            not 14 <= len(password_value) <= 128
+            or re.search(r"[a-z]", password_value) is None
+            or re.search(r"[A-Z]", password_value) is None
+            or re.search(r"[0-9]", password_value) is None
+            or any(character in password_value for character in ("\r", "\n", "\x00"))
+        ):
+            raise OwnerBootstrapError(
+                "Temporary member password does not meet the required policy"
+            )
+        self._admin_request(
+            f"/auth/v1/admin/users/{validated_user_id}",
+            method="PUT",
+            payload={
+                "password": password_value,
+                "user_metadata": {"display_name": display_name},
+                "app_metadata": dict(app_metadata),
+            },
+        )
+
     def send_password_recovery(self, *, email: str) -> None:
         redirect = parse.quote(OWNER_RECOVERY_REDIRECT, safe="")
         headers = {

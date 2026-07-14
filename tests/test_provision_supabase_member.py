@@ -43,6 +43,7 @@ class FakeManagement:
                     "user_id": self.state.user_id,
                     "email_confirmed": self.state.email_confirmed,
                     "auth_active": self.state.auth_active,
+                    "signed_in": self.state.signed_in,
                     "app_metadata": dict(self.state.app_metadata or {}),
                     "membership_count": self.state.membership_count,
                     "membership_role": self.state.membership_role,
@@ -89,6 +90,27 @@ class FakeAuth:
         self.management.state = MemberState(
             user_id=MEMBER_ID,
             email_confirmed=True,
+            app_metadata=dict(app_metadata),
+        )
+
+    def claim_confirmed_user_with_password(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        password: str,
+        app_metadata: dict[str, object],
+    ) -> None:
+        self.calls.append(
+            {
+                "claim_user_id": user_id,
+                "display_name": display_name,
+                "password": password,
+                "app_metadata": dict(app_metadata),
+            }
+        )
+        self.management.state = replace(
+            self.management.state,
             app_metadata=dict(app_metadata),
         )
 
@@ -182,6 +204,93 @@ def test_marked_identity_can_resume_after_membership_failure() -> None:
     assert result.membership_status == "created"
     assert auth.calls == []
     assert management.server_key_calls == 0
+
+
+def test_explicit_claim_recovers_unsigned_in_membership_free_identity() -> None:
+    management = FakeManagement(
+        MemberState(
+            user_id=MEMBER_ID,
+            email_confirmed=True,
+            signed_in=False,
+            app_metadata={"provider": "email", "providers": ["email"]},
+        )
+    )
+    auth = FakeAuth(management)
+
+    result = provision_member(
+        management_client=management,
+        auth_client_factory=_factory(auth, []),
+        email=MEMBER_EMAIL,
+        display_name="Guest",
+        temporary_password=TEMP_PASSWORD,
+        role="viewer",
+        claim_existing=True,
+    )
+
+    assert result.identity_status == "claimed"
+    assert result.membership_status == "created"
+    assert auth.calls == [{
+        "claim_user_id": MEMBER_ID,
+        "display_name": "Guest",
+        "password": TEMP_PASSWORD,
+        "app_metadata": {
+            "provider": "email",
+            "providers": ["email"],
+            MEMBER_PROVISION_MARKER: True,
+        },
+    }]
+
+
+@pytest.mark.parametrize(
+    "state, message",
+    [
+        (
+            MemberState(
+                user_id=MEMBER_ID,
+                email_confirmed=True,
+                signed_in=True,
+                app_metadata={},
+            ),
+            "already signed in",
+        ),
+        (
+            MemberState(
+                user_id=MEMBER_ID,
+                email_confirmed=True,
+                membership_count=1,
+                app_metadata={},
+            ),
+            "belongs to an organization",
+        ),
+        (
+            MemberState(
+                user_id=MEMBER_ID,
+                email_confirmed=True,
+                app_metadata={"contentengine_bootstrap_owner": True},
+            ),
+            "conflicting provisioning metadata",
+        ),
+    ],
+)
+def test_explicit_claim_still_fails_closed_for_used_identity(
+    state: MemberState,
+    message: str,
+) -> None:
+    management = FakeManagement(state)
+    auth = FakeAuth(management)
+
+    with pytest.raises(MemberProvisionError, match=message):
+        provision_member(
+            management_client=management,
+            auth_client_factory=_factory(auth, []),
+            email=MEMBER_EMAIL,
+            display_name="Guest",
+            temporary_password=TEMP_PASSWORD,
+            role="viewer",
+            claim_existing=True,
+        )
+
+    assert auth.calls == []
 
 
 @pytest.mark.parametrize(
