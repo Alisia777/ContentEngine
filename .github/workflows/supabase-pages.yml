@@ -247,4 +247,4 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
-        run: python scripts/bootstrap_supabase_owner.py --display-name "Alisia777"
+        run: python scripts/bootstrap_supabase_owner.py --display-name "Сергей"
