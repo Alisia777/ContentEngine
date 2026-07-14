@@ -1,10 +1,10 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js";
+import { CreatorApi } from "./supabase-api.js?v=20260714.3";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js";
+} from "./catalog.js?v=20260714.3";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const app = document.querySelector("#app");
@@ -61,6 +61,7 @@ const state = {
   route: parseRoute(),
   mobileNavOpen: false,
   examResult: null,
+  courseCheckResults: {},
   teamInviteResult: null,
   sections: Object.fromEntries(
     WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null }]),
@@ -211,6 +212,17 @@ async function loadBootstrap() {
   try {
     const raw = await state.api.bootstrap({ session_id: state.sessionId });
     state.bootstrap = normalizeBootstrap(raw);
+    state.courseCheckResults = Object.fromEntries(
+      state.bootstrap.training.courseChecks.map((item) => [
+        item.moduleCode,
+        {
+          passed: item.passed,
+          score: item.correctCount,
+          total: item.questionCount,
+          status: item.status,
+        },
+      ]),
+    );
     if (membershipLockDetails(state.bootstrap)) {
       state.api.organizationId = null;
       state.examResult = null;
@@ -245,6 +257,17 @@ function normalizeBootstrap(raw) {
       .map((item) => item.module_code || item.code),
   ]);
   const examSource = trainingSource.exam || source.exam || {};
+  const rawCourseChecks = trainingSource.course_checks || trainingSource.courseChecks || [];
+  const courseChecks = (Array.isArray(rawCourseChecks) ? rawCourseChecks : [])
+    .map((item) => ({
+      moduleCode: String(item?.module_code || item?.moduleCode || ""),
+      status: String(item?.status || "not_started"),
+      passed: normalizeBoolean(item?.passed ?? item?.status === "passed"),
+      correctCount: Math.max(0, Number(item?.correct_count ?? item?.correctCount ?? 0)),
+      questionCount: Math.max(0, Number(item?.question_count ?? item?.questionCount ?? 0)),
+      completedAt: item?.completed_at ?? item?.completedAt ?? null,
+    }))
+    .filter((item) => item.moduleCode);
   const examPassed = normalizeBoolean(
     examSource.passed ??
       trainingSource.exam_passed ??
@@ -270,6 +293,7 @@ function normalizeBootstrap(raw) {
     training: {
       completedModules,
       modules: serverModules,
+      courseChecks,
       exam: {
         passed: examPassed,
         score: normalizePercent(examSource.score ?? trainingSource.exam_score ?? 0),
@@ -322,13 +346,55 @@ function learningCourses() {
   const serverCourses = modules
     .filter((module) => module.type === "course")
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
-    .map((module) => ({
-      code: module.code,
-      title: module.title,
-      summary: module.description || "Обязательный модуль обучения.",
-      duration: `${module.content?.lessons?.length || 0} шага`,
-      lessons: Array.isArray(module.content?.lessons) ? module.content.lessons : [],
-    }));
+    .map((module) => {
+      const content = module.content && typeof module.content === "object" ? module.content : {};
+      const lessons = Array.isArray(content.lessons) ? content.lessons : [];
+      const meta = content.meta && typeof content.meta === "object" ? content.meta : content;
+      const durationMinutes = Math.max(
+        1,
+        Math.min(120, Number(meta.duration_minutes) || Math.max(5, lessons.length * 3)),
+      );
+      const completionChecklist = Array.isArray(meta.completion_checklist)
+        ? meta.completion_checklist.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
+        : [];
+      const rawKnowledgeCheck = meta.knowledge_check && typeof meta.knowledge_check === "object"
+        ? meta.knowledge_check
+        : {};
+      const knowledgeQuestions = (Array.isArray(rawKnowledgeCheck.questions) ? rawKnowledgeCheck.questions : [])
+        .slice(0, 5)
+        .map((question, index) => ({
+          id: String(question?.id || `question_${index + 1}`),
+          prompt: String(question?.prompt || ""),
+          options: (Array.isArray(question?.options) ? question.options : [])
+            .slice(0, 6)
+            .map((option) => ({ value: String(option?.value || ""), label: String(option?.label || "") }))
+            .filter((option) => option.value && option.label),
+        }))
+        .filter((question) => question.id && question.prompt && question.options.length >= 2);
+      const knowledgeCheck = knowledgeQuestions.length
+        ? {
+            title: String(rawKnowledgeCheck.title || "Проверка блока"),
+            passScore: Math.max(
+              1,
+              Math.min(knowledgeQuestions.length, Number(rawKnowledgeCheck.pass_score) || knowledgeQuestions.length),
+            ),
+            questions: knowledgeQuestions,
+          }
+        : null;
+      return {
+        code: module.code,
+        title: module.title,
+        summary: module.description || "Обязательный модуль обучения.",
+        duration: `${durationMinutes} мин`,
+        durationMinutes,
+        blockLabel: String(meta.block_label || "Блок обучения"),
+        outcome: String(meta.outcome || module.description || "Понимание рабочего процесса."),
+        level: String(meta.level || "Практический курс"),
+        completionChecklist,
+        knowledgeCheck,
+        lessons,
+      };
+    });
   return serverCourses;
 }
 
@@ -358,7 +424,7 @@ function trainingCatalogReady() {
   return (
     courses.length === REQUIRED_MODULE_CODES.length &&
     REQUIRED_MODULE_CODES.every((code) => courseCodes.has(code)) &&
-    courses.every((course) => course.title && course.lessons.length > 0) &&
+    courses.every((course) => course.title && course.lessons.length > 0 && course.knowledgeCheck?.questions.length >= 3) &&
     state.bootstrap?.training?.exam?.questionCount === 12 &&
     finalExamPassScore() >= 1 &&
     finalExamPassScore() <= state.bootstrap.training.exam.questionCount
@@ -468,7 +534,12 @@ function renderLogin(message = "") {
     <section class="auth-card" aria-labelledby="login-title">
       <p class="eyebrow">Вход для команды</p>
       <h2 id="login-title">Добро пожаловать</h2>
-      <p class="lead">Используйте адрес, на который пришло приглашение.</p>
+      <p class="lead">Используйте рабочую почту и ваш персональный пароль.</p>
+      <ol class="auth-start-route" aria-label="Как получить доступ">
+        <li><span>1</span><p><strong>Руководитель добавляет вашу рабочую почту</strong><small>Открытой регистрации нет — так чужой человек не попадёт в команду.</small></p></li>
+        <li><span>2</span><p><strong>Вы получаете приглашение или временный пароль</strong><small>При приглашении задайте пароль по ссылке. При ручном создании войдите с выданным временным паролем и смените его.</small></p></li>
+        <li><span>3</span><p><strong>После входа проходите 4 блока и экзамен</strong><small>Затем откроются рабочие разделы, задачи и ваши выплаты.</small></p></li>
+      </ol>
       ${message ? alertMarkup(message, "danger") : ""}
       <form id="login-form" class="form-stack" novalidate>
         <label class="field">
@@ -607,57 +678,146 @@ function renderMembershipLocked() {
 
 function renderLearningHome() {
   const completed = new Set(state.bootstrap.training.completedModules);
+  const courses = learningCourses();
   const completeCount = REQUIRED_MODULE_CODES.filter((code) => completed.has(code)).length;
   const examPassed = state.bootstrap.training.exam.passed;
   const progress = Math.round(((completeCount + (examPassed ? 1 : 0)) / 5) * 100);
   const catalogReady = trainingCatalogReady();
+  const workspaceReady = hasWorkspaceAccess();
+  const nextCourse = courses.find((course) => !completed.has(course.code));
+  const nextHref = workspaceReady
+    ? "#/workspace/generation"
+    : nextCourse
+      ? `#/learn/${encodeURIComponent(nextCourse.code)}`
+      : "#/learn/exam";
+  const nextLabel = workspaceReady
+    ? "Перейти к работе"
+    : nextCourse
+      ? completeCount === 0 ? "Начать с блока 1" : "Продолжить обучение"
+      : examPassed ? "Проверить допуск" : "Начать экзамен";
 
   const content = `
-    <div class="page-wrap">
-      <section class="card onboarding-hero">
-        <p class="eyebrow" style="color:#e4c98f">Обязательный допуск к работе</p>
-        <h1>${examPassed ? "Допуск получен" : "Сначала научимся работать безопасно"}</h1>
-        <p>${examPassed ? "Вы можете вернуться к материалам в любой момент." : "Четыре коротких курса объяснят весь цикл. После них — 12 рабочих сценариев. Кабинет откроется только после успешного экзамена."}</p>
-        <div class="onboarding-progress">
-          <div class="progress-bar" aria-label="Прогресс обучения: ${progress}%"><span style="width:${progress}%"></span></div>
-          <strong>${completeCount}/4 курса${examPassed ? " · экзамен сдан" : ""}</strong>
+    <div class="page-wrap learning-page">
+      <section class="card learning-hero">
+        <div class="learning-hero-copy">
+          <p class="eyebrow learning-eyebrow">Практическая академия ALTEA</p>
+          <h1>${workspaceReady ? "Вы готовы к производству" : "Освойте весь цикл на одном экране"}</h1>
+          <p>${workspaceReady ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой." : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу."}</p>
+          <div class="learning-hero-actions">
+            <a class="btn btn-light" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
+            <button class="btn btn-ghost-light" type="button" data-action="scroll-to" data-target="work-map">Посмотреть карту работы</button>
+          </div>
+        </div>
+        <div class="learning-passport" aria-label="Паспорт допуска к работе">
+          <div class="learning-passport-head">
+            <div>
+              <span>Ваш прогресс</span>
+              <strong>${progress}%</strong>
+            </div>
+            <span class="learning-passport-mark" aria-hidden="true">A</span>
+          </div>
+          <div class="progress-bar progress-bar-gold" role="progressbar" aria-label="Прогресс обучения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div>
+          <ol class="passport-steps">
+            ${courses.map((course, index) => `
+              <li class="${completed.has(course.code) ? "complete" : nextCourse?.code === course.code && !workspaceReady ? "current" : ""}">
+                <span>${completed.has(course.code) ? "✓" : index + 1}</span>
+                <div><strong>${escapeHtml(course.title)}</strong><small>${completed.has(course.code) ? "готово" : course.duration}</small></div>
+              </li>
+            `).join("")}
+            <li class="${examPassed ? "complete" : completeCount === 4 ? "current" : ""}">
+              <span>${examPassed ? "✓" : 5}</span>
+              <div><strong>Итоговый экзамен</strong><small>${examPassed ? "экзамен сдан" : "12 сценариев"}</small></div>
+            </li>
+          </ol>
         </div>
       </section>
 
-      ${catalogReady ? "" : alertMarkup("Supabase вернул неполный каталог обучения. Допуск закрыт: обновите страницу или обратитесь к администратору.", "danger")}
+      ${catalogReady ? "" : alertMarkup("Каталог обучения загрузился не полностью. Обновите страницу или обратитесь к администратору — допуск останется закрыт до восстановления данных.", "danger")}
 
-      <div class="course-grid">
-        ${learningCourses().map((course, index) => courseCardMarkup(course, index, completed.has(course.code))).join("")}
+      <section id="work-map" class="card work-map-section" aria-labelledby="work-map-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Как устроена работа</p>
+            <h2 id="work-map-title">Один товар проходит шесть понятных этапов</h2>
+          </div>
+          <p>Не нужно держать весь процесс в голове: каждый следующий шаг живёт в своём разделе портала.</p>
+        </div>
+        ${portalWorkflowMarkup()}
+        <div class="work-map-rule"><span aria-hidden="true">◎</span><p><strong>Главное правило:</strong> точный SKU, исходный файл и итоговая ссылка должны оставаться связаны от загрузки до метрики.</p></div>
+      </section>
+
+      <div class="learning-section-heading">
+        <div>
+          <p class="eyebrow">Маршрут обучения</p>
+          <h2>Четыре понятных блока: от первой съёмки до результата</h2>
+        </div>
+        <span>${completeCount} из 4 завершено</span>
       </div>
 
-      <section class="card exam-card">
-        <div>
-          <span class="badge ${examPassed ? "badge-success" : prerequisitesComplete() ? "badge-info" : ""}">
-            ${examPassed ? "Сдан" : catalogReady && prerequisitesComplete() ? "Доступен" : "После 4 курсов"}
-          </span>
-          <h2>Итоговый экзамен: 12 ситуаций</h2>
-          <p class="muted">Для допуска нужно правильно решить не меньше ${finalExamPassScore()} из 12 сценариев. Ответы проверяет Supabase, ключа ответов в браузере нет.</p>
+      <div class="course-grid">
+        ${courses.map((course, index) => courseCardMarkup(course, index, completed.has(course.code), nextCourse?.code === course.code && !workspaceReady)).join("")}
+      </div>
+
+      <section class="card exam-card premium-exam-card">
+        <div class="exam-card-visual" aria-hidden="true">
+          <span>12</span><small>рабочих<br />сценариев</small>
         </div>
-        <a class="btn ${catalogReady && prerequisitesComplete() ? "" : "btn-secondary"}" href="${catalogReady && prerequisitesComplete() ? "#/learn/exam" : "#/learn"}" ${catalogReady && prerequisitesComplete() ? "" : "aria-disabled=\"true\""}>
-          ${examPassed ? "Посмотреть результат" : catalogReady && prerequisitesComplete() ? "Начать экзамен" : "Сначала курсы"}
-        </a>
+        <div class="exam-card-copy">
+          <span class="badge ${examPassed ? "badge-success" : prerequisitesComplete() ? "badge-info" : ""}">${examPassed ? "Сдан" : catalogReady && prerequisitesComplete() ? "Доступен" : "После 4 курсов"}</span>
+          <h2>Финальная проверка перед работой</h2>
+          <p class="muted">Нужно решить не меньше ${finalExamPassScore()} из 12 реальных ситуаций: товар, качество, публикация, деньги и безопасность.</p>
+        </div>
+        ${catalogReady && prerequisitesComplete()
+          ? `<a class="btn" href="#/learn/exam">${examPassed ? "Посмотреть результат" : "Начать экзамен"} <span aria-hidden="true">→</span></a>`
+          : `<span class="btn btn-secondary" aria-disabled="true">Сначала завершите курсы</span>`}
       </section>
     </div>
   `;
   app.innerHTML = learningScaffold(content, "/learn");
 }
 
-function courseCardMarkup(course, index, complete) {
+function portalWorkflowMarkup() {
+  const steps = [
+    ["01", "Медиатека", "Добавьте точное фото товара и проверьте SKU."],
+    ["02", "Генерация", "Выберите режим, задайте сценарий и подтвердите стоимость."],
+    ["03", "Задачи", "Посмотрите весь MP4 и зафиксируйте QA-решение."],
+    ["04", "Размещение", "Опубликуйте только в назначенный аккаунт и верните final URL."],
+    ["05", "Статистика", "Запишите просмотры, переходы, заказы и результат."],
+    ["06", "Выплаты", "Проверьте сумму и статус начисления: ожидает, одобрено или выплачено."],
+  ];
   return `
-    <article class="card course-card ${complete ? "complete" : ""}">
-      <div class="course-number" aria-hidden="true">0${index + 1}</div>
-      <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Пройден" : course.duration}</span>
+    <ol class="portal-workflow">
+      ${steps.map(([number, title, description], index) => `
+        <li>
+          <div class="workflow-node"><span>${number}</span><i aria-hidden="true">${index === steps.length - 1 ? "✓" : "→"}</i></div>
+          <strong>${title}</strong>
+          <p>${description}</p>
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function courseCardMarkup(course, index, complete, current = false) {
+  return `
+    <article class="card course-card course-tone-${index + 1} ${complete ? "complete" : ""} ${current ? "current" : ""}">
+      <div class="course-card-top">
+        <div class="course-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</div>
+        <span class="badge ${complete ? "badge-success" : current ? "badge-info" : ""}">${complete ? "Пройден" : current ? "Начните здесь" : escapeHtml(course.level)}</span>
+      </div>
+      <div class="course-card-meta"><span>${course.duration}</span><span>${course.lessons.length} уроков</span></div>
+      <p class="course-block-label">${escapeHtml(course.blockLabel)}</p>
       <h2>${escapeHtml(course.title)}</h2>
       <p>${escapeHtml(course.summary)}</p>
+      ${course.code === "publishing_funnel" ? `<div class="platform-pills" aria-label="Площадки курса"><span>Instagram Reels</span><span>YouTube Shorts</span><span>VK Клипы</span></div>` : ""}
+      <div class="course-outcome">
+        <span>После курса</span>
+        <strong>${escapeHtml(course.outcome)}</strong>
+      </div>
       <div class="course-footer">
-        <small class="muted">${course.lessons.length} шага</small>
+        <span class="course-status-dot"><i aria-hidden="true"></i>${complete ? "Материал доступен для повторения" : current ? "Ваш следующий шаг" : "Можно посмотреть заранее"}</span>
         <a class="btn btn-small ${complete ? "btn-secondary" : ""}" href="#/learn/${encodeURIComponent(course.code)}">
-          ${complete ? "Повторить" : "Открыть"} <span aria-hidden="true">→</span>
+          ${complete ? "Повторить" : current ? "Начать блок" : "Посмотреть"} <span aria-hidden="true">→</span>
         </a>
       </div>
     </article>
@@ -665,38 +825,77 @@ function courseCardMarkup(course, index, complete) {
 }
 
 function renderCourse(code) {
-  const course = learningCourses().find((item) => item.code === code);
+  const courses = learningCourses();
+  const course = courses.find((item) => item.code === code);
   if (!course) {
     navigate("/learn", true);
     return;
   }
+  const courseIndex = Math.max(0, courses.findIndex((item) => item.code === course.code));
   const complete = state.bootstrap.training.completedModules.includes(course.code);
+  const checkPassed = complete || state.courseCheckResults[course.code]?.passed === true;
+  const completionChecklist = course.completionChecklist.length
+    ? course.completionChecklist
+    : [
+        "Я понимаю порядок действий в этом разделе.",
+        "Я знаю, какие ошибки останавливают задачу.",
+        "Я смогу повторить процесс в рабочем кабинете.",
+      ];
   const content = `
-    <div class="page-wrap">
-      <header class="page-header">
-        <div>
-          <p class="eyebrow"><a href="#/learn" style="text-decoration:none">Обучение</a> · ${escapeHtml(course.duration)}</p>
+    <div class="page-wrap learning-page course-page">
+      <header class="card course-hero course-tone-${courseIndex + 1}">
+        <div class="course-hero-copy">
+          <p class="eyebrow"><a href="#/learn">Академия</a> · ${escapeHtml(course.blockLabel)}</p>
           <h1>${escapeHtml(course.title)}</h1>
           <p>${escapeHtml(course.summary)}</p>
+          <div class="course-hero-meta">
+            <span>${escapeHtml(course.duration)}</span>
+            <span>${course.lessons.length} практических уроков</span>
+            <span>${escapeHtml(course.level)}</span>
+          </div>
         </div>
-        <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Курс пройден" : "Обязательный курс"}</span>
+        <div class="course-hero-outcome">
+          <span class="course-hero-icon" aria-hidden="true">${String(courseIndex + 1).padStart(2, "0")}</span>
+          <p>Результат курса</p>
+          <h2>${escapeHtml(course.outcome)}</h2>
+          <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Курс пройден" : "Обязательный курс"}</span>
+        </div>
       </header>
       <div class="course-layout">
-        <div class="lesson-stack">
-          ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index)).join("")}
+        <div>
+          <nav class="card course-roadmap" aria-label="Содержание курса">
+            <div><p class="eyebrow">Содержание</p><strong>Двигайтесь сверху вниз</strong></div>
+            <ol>
+              ${course.lessons.map((lesson, index) => `<li><button type="button" data-action="scroll-to" data-target="lesson-${index + 1}"><span>${index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
+              <li><button type="button" data-action="scroll-to" data-target="course-check"><span>✓</span>Мини-тест блока</button></li>
+            </ol>
+          </nav>
+          <div class="lesson-stack">
+            ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index, course.lessons.length)).join("")}
+          </div>
+          ${courseKnowledgeCheckMarkup(course, checkPassed)}
         </div>
-        <aside class="card sticky-card">
+        <aside class="card sticky-card course-completion-card">
+          <div class="completion-ring" style="--completion:${complete ? 100 : 0}" aria-hidden="true"><span>${complete ? "✓" : course.lessons.length}</span></div>
           <p class="eyebrow">Завершение курса</p>
-          <h2 style="font:600 1.35rem/1.2 Georgia,serif">Проверьте понимание</h2>
-          <p class="muted tiny">Отметка сохраняется в Supabase и относится только к вашему аккаунту.</p>
+          <h2>Проверьте себя</h2>
+          <p class="muted tiny">Сначала пройдите мини-тест блока, затем подтвердите чек-лист. Завершение сохранится в рабочем профиле.</p>
           ${complete ? alertMarkup("Курс уже пройден. Материал можно повторять без ограничений.", "success") : `
-            <label class="acknowledgement">
-              <input id="course-ack" type="checkbox" />
-              <span>Я прочитал(а) все шаги и понимаю, когда нужно остановить задачу и обратиться к руководителю.</span>
-            </label>
-            <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить курс</button>
+            <div class="course-check-gate ${checkPassed ? "passed" : ""}" data-course-check-gate>
+              <span aria-hidden="true">${checkPassed ? "✓" : "?"}</span>
+              <strong>${checkPassed ? "Мини-тест пройден" : "Сначала пройдите мини-тест ниже"}</strong>
+            </div>
+            <div class="completion-checklist">
+              ${completionChecklist.map((item, index) => `
+                <label class="acknowledgement">
+                  <input id="course-ack-${index + 1}" type="checkbox" data-course-ack />
+                  <span>${escapeHtml(item)}</span>
+                </label>
+              `).join("")}
+            </div>
+            <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить блок</button>
           `}
-          <a class="btn btn-secondary btn-block" style="margin-top:10px" href="#/learn">К списку курсов</a>
+          <a class="btn btn-secondary btn-block course-back-link" href="#/learn">К списку курсов</a>
         </aside>
       </div>
     </div>
@@ -705,15 +904,164 @@ function renderCourse(code) {
   track("course_opened", { module_code: course.code });
 }
 
-function lessonMarkup(lesson, index) {
+function lessonMarkup(lesson, index, total) {
   return `
-    <article class="card lesson-card">
-      <p class="eyebrow">Шаг ${index + 1}</p>
-      <h2>${escapeHtml(lesson.title)}</h2>
-      <p>${escapeHtml(lesson.body)}</p>
-      ${lesson.bullets ? `<ul>${lesson.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
-      ${lesson.callout ? alertMarkup(lesson.callout, "warning") : ""}
+    <article id="lesson-${index + 1}" class="card lesson-card" tabindex="-1">
+      <div class="lesson-step-rail" aria-hidden="true"><span>${String(index + 1).padStart(2, "0")}</span><i></i><small>${String(total).padStart(2, "0")}</small></div>
+      <div class="lesson-content">
+        <header class="lesson-heading">
+          <div class="lesson-kicker"><p class="eyebrow">Практический шаг ${index + 1}</p>${lesson.reviewed_at ? `<span>Проверено ${escapeHtml(formatDate(lesson.reviewed_at))}</span>` : ""}</div>
+          <h2>${escapeHtml(lesson.title)}</h2>
+          <p>${escapeHtml(lesson.body)}</p>
+        </header>
+        ${lesson.takeaway ? `<div class="lesson-takeaway"><span>Главное</span><strong>${escapeHtml(lesson.takeaway)}</strong></div>` : ""}
+        ${lessonVisualMarkup(lesson.visual)}
+        ${Array.isArray(lesson.bullets) && lesson.bullets.length ? `<ul class="lesson-bullets">${lesson.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+        ${lessonChecklistMarkup(lesson.checklist)}
+        ${lessonPracticeMarkup(lesson.practice)}
+        ${lesson.callout ? alertMarkup(lesson.callout, "warning") : ""}
+      </div>
     </article>
+  `;
+}
+
+function courseKnowledgeCheckMarkup(course, passed) {
+  const check = course.knowledgeCheck;
+  if (!check?.questions?.length) return "";
+  const questionCount = check.questions.length;
+  const questionLabel = questionCount % 10 === 1 && questionCount % 100 !== 11
+    ? "вопрос"
+    : [2, 3, 4].includes(questionCount % 10) && ![12, 13, 14].includes(questionCount % 100)
+      ? "вопроса"
+      : "вопросов";
+  return `
+    <section id="course-check" class="card course-knowledge-check" aria-labelledby="course-check-title" tabindex="-1">
+      <div class="knowledge-check-head">
+        <div><p class="eyebrow">Мини-тест блока</p><h2 id="course-check-title">${escapeHtml(check.title)}</h2></div>
+        <span>${questionCount} ${questionLabel} · нужно ${check.passScore}</span>
+      </div>
+      <p class="muted">Ошибаться можно: после проверки вы увидите объяснение и сможете ответить ещё раз.</p>
+      <form id="course-check-form" data-course-code="${escapeHtml(course.code)}" novalidate>
+        ${check.questions.map((question, questionIndex) => {
+          const inputName = `check_${course.code}_${question.id}`;
+          return `
+            <fieldset class="knowledge-question" data-check-question="${escapeHtml(question.id)}">
+              <legend><span>${questionIndex + 1}</span>${escapeHtml(question.prompt)}</legend>
+              <div class="knowledge-options">
+                ${question.options.map((option, optionIndex) => `
+                  <label>
+                    <input type="radio" name="${escapeHtml(inputName)}" value="${escapeHtml(option.value)}" ${optionIndex === 0 ? "required" : ""} />
+                    <span>${escapeHtml(option.label)}</span>
+                  </label>
+                `).join("")}
+              </div>
+            </fieldset>
+          `;
+        }).join("")}
+        <div class="knowledge-check-actions">
+          <button class="btn" type="submit">Проверить ответы</button>
+          <div id="course-check-result" class="knowledge-check-result ${passed ? "passed" : ""}" aria-live="polite">${passed ? "Мини-тест уже пройден. Можно завершать блок." : ""}</div>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function lessonVisualMarkup(visual) {
+  if (!visual || typeof visual !== "object") return "";
+  const type = String(visual.type || "");
+  const title = visual.title ? `<p class="visual-title">${escapeHtml(visual.title)}</p>` : "";
+  const itemsByType = {
+    workflow: visual.steps,
+    annotated_ui: visual.panels,
+    timeline: visual.segments,
+    decision: visual.branches,
+    metrics: visual.cards,
+  };
+  const rawItems = Array.isArray(visual.items) ? visual.items : itemsByType[type];
+  const items = Array.isArray(rawItems) ? rawItems.slice(0, 8) : [];
+
+  if (type === "workflow" && items.length) {
+    return `<figure class="lesson-visual visual-workflow">${title}<ol>${items.map((item, index) => {
+      const label = typeof item === "string" ? item : item?.label || item?.title || "";
+      const detail = typeof item === "object" ? item?.detail || item?.description || "" : "";
+      return `<li><span>${index + 1}</span><div><strong>${escapeHtml(label)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div></li>`;
+    }).join("")}</ol></figure>`;
+  }
+
+  if (type === "annotated_ui" && items.length) {
+    const windowTitle = visual.window_title || "Контент ИИ Завод";
+    return `<figure class="lesson-visual visual-interface">${title}<div class="interface-window"><div class="interface-toolbar"><i></i><i></i><i></i><span>${escapeHtml(windowTitle)}</span></div><div class="interface-body">${items.map((item, index) => {
+      const label = item?.area || item?.title || item?.label || item;
+      const detail = [item?.label && item?.area ? item.label : "", item?.detail || ""].filter(Boolean).join(" · ");
+      return `<div class="interface-field"><span>${index + 1}</span><div><strong>${escapeHtml(label)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div></div>`;
+    }).join("")}</div></div></figure>`;
+  }
+
+  if (type === "timeline" && items.length) {
+    return `<figure class="lesson-visual visual-timeline">${title}<ol>${items.map((item) => `<li><span>${escapeHtml(item?.time || item?.label || "")}</span><div><strong>${escapeHtml(item?.title || item?.label || item)}</strong>${item?.detail ? `<small>${escapeHtml(item.detail)}</small>` : ""}</div></li>`).join("")}</ol></figure>`;
+  }
+
+  if (type === "comparison") {
+    const columns = Array.isArray(visual.columns) ? visual.columns.slice(0, 4) : [];
+    const stopColumn = columns.find((column) => ["danger", "stop"].includes(column?.tone));
+    const goColumn = columns.find((column) => ["success", "go"].includes(column?.tone));
+    const left = Array.isArray(visual.left)
+      ? visual.left.slice(0, 6)
+      : Array.isArray(stopColumn?.items)
+        ? stopColumn.items.slice(0, 6)
+        : [];
+    const right = Array.isArray(visual.right)
+      ? visual.right.slice(0, 6)
+      : Array.isArray(goColumn?.items)
+        ? goColumn.items.slice(0, 6)
+        : [];
+    if (!left.length && !right.length) return "";
+    return `<figure class="lesson-visual visual-comparison">${title}<div class="comparison-grid"><section class="comparison-stop"><span>Стоп</span><h3>${escapeHtml(visual.left_title || stopColumn?.label || "Так нельзя")}</h3><ul>${left.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section><section class="comparison-go"><span>Верно</span><h3>${escapeHtml(visual.right_title || goColumn?.label || "Так правильно")}</h3><ul>${right.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section></div></figure>`;
+  }
+
+  if (type === "decision" && items.length) {
+    const question = visual.question ? `<p class="decision-question">${escapeHtml(visual.question)}</p>` : "";
+    return `<figure class="lesson-visual visual-decision">${title}${question}<div>${items.map((item) => {
+      const toneMap = { danger: "stop", warning: "review", success: "go", stop: "stop", review: "review", go: "go" };
+      const tone = toneMap[item?.tone] || "review";
+      return `<section class="decision-${tone}"><span>${tone === "stop" ? "Стоп" : tone === "go" ? "Можно" : "Проверить"}</span><strong>${escapeHtml(item?.condition || item?.label || "")}</strong><p>${escapeHtml(item?.action || item?.detail || "")}</p></section>`;
+    }).join("")}</div></figure>`;
+  }
+
+  if (type === "metrics" && items.length) {
+    return `<figure class="lesson-visual visual-metrics">${title}<div>${items.map((item) => {
+      const value = item?.value || item?.formula || "—";
+      const note = item?.note || item?.why || "";
+      return `<section><span>${escapeHtml(item?.label || "Метрика")}</span><strong>${escapeHtml(value)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</section>`;
+    }).join("")}</div></figure>`;
+  }
+
+  return "";
+}
+
+function lessonChecklistMarkup(checklist) {
+  if (!checklist || typeof checklist !== "object") return "";
+  const doItems = Array.isArray(checklist.do) ? checklist.do.slice(0, 6) : [];
+  const dontItems = Array.isArray(checklist.dont) ? checklist.dont.slice(0, 6) : [];
+  if (!doItems.length && !dontItems.length) return "";
+  return `
+    <div class="lesson-checklist">
+      ${doItems.length ? `<section><span class="checklist-icon checklist-do">✓</span><div><h3>Сделайте</h3><ul>${doItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div></section>` : ""}
+      ${dontItems.length ? `<section><span class="checklist-icon checklist-dont">!</span><div><h3>Остановитесь, если</h3><ul>${dontItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div></section>` : ""}
+    </div>
+  `;
+}
+
+function lessonPracticeMarkup(practice) {
+  if (!practice || typeof practice !== "object") return "";
+  const steps = Array.isArray(practice.steps) ? practice.steps.slice(0, 6) : [];
+  if (!practice.title && !steps.length) return "";
+  return `
+    <section class="lesson-practice">
+      <span class="practice-mark" aria-hidden="true">↗</span>
+      <div><p class="eyebrow">${escapeHtml(practice.eyebrow || "Попробуйте в кабинете")}</p><h3>${escapeHtml(practice.title || "Закрепите шаг")}</h3>${steps.length ? `<ol>${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>` : ""}</div>
+    </section>
   `;
 }
 
@@ -814,7 +1162,7 @@ function renderExam() {
       <form id="exam-form" class="exam-form" novalidate>
         ${questions.map((question, index) => questionMarkup(question, index)).join("")}
         <div class="exam-submit">
-          <div><strong id="exam-answer-count">0 из 12 отвечено</strong><br /><small class="muted">Незаполненный экзамен не отправится</small></div>
+          <div><strong id="exam-answer-count" aria-live="polite">0 из ${questions.length} отвечено</strong><br /><small class="muted">Незаполненный экзамен не отправится</small></div>
           <button class="btn" type="submit">Проверить ответы</button>
         </div>
       </form>
@@ -879,10 +1227,10 @@ function learningScaffold(content, activePath) {
         ${brandMarkup()}
         <nav class="workspace-nav">
           <span class="nav-caption">Допуск к работе</span>
-          <a class="nav-link ${activePath === "/learn" ? "active" : ""}" href="#/learn">
+          <a class="nav-link ${activePath === "/learn" ? "active" : ""}" href="#/learn" ${activePath === "/learn" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◎</span><span>Курсы</span>
           </a>
-          <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam">
+          <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activePath === "/learn/exam" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◇</span><span>Итоговый экзамен</span>
           </a>
           ${hasWorkspaceAccess() ? `
@@ -897,7 +1245,7 @@ function learningScaffold(content, activePath) {
       </aside>
       <section class="workspace-main">
         ${mobileTopbarMarkup("Обучение")}
-        ${state.mobileNavOpen ? mobileNavMarkup(true) : ""}
+        ${state.mobileNavOpen ? mobileNavMarkup(true, "", activePath) : ""}
         <main id="main-content" tabindex="-1">${content}</main>
       </section>
     </div>
@@ -990,17 +1338,17 @@ function mobileTopbarMarkup(label) {
   return `
     <header class="mobile-topbar">
       <span class="mobile-brand">ALTEA · ${escapeHtml(label)}</span>
-      <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="Открыть меню" aria-expanded="${state.mobileNavOpen}">☰</button>
+      <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="Открыть меню" aria-controls="mobile-navigation" aria-expanded="${state.mobileNavOpen}">☰</button>
     </header>
   `;
 }
 
-function mobileNavMarkup(learningOnly, activeSection = "") {
+function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = "") {
   return `
-    <nav class="mobile-nav" aria-label="Мобильная навигация">
+    <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
-        <a class="nav-link" href="#/learn"><span class="nav-icon">◎</span>Курсы</a>
-        <a class="nav-link" href="#/learn/exam"><span class="nav-icon">◇</span>Экзамен</a>
+        <a class="nav-link ${activeLearningPath === "/learn" ? "active" : ""}" href="#/learn" ${activeLearningPath === "/learn" ? 'aria-current="page"' : ""}><span class="nav-icon">◎</span>Курсы</a>
+        <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon">◇</span>Экзамен</a>
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/generation"><span class="nav-icon">→</span>Кабинет</a>` : ""}
       ` : visibleWorkspaceTabs().map(([key, label, icon]) => `
         <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}"><span class="nav-icon">${icon}</span>${label}</a>
@@ -1210,14 +1558,14 @@ function renderGenerationSection(sectionState) {
             <div>
               <p class="eyebrow">Идентичность товара</p>
               <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Артикулы Wildberries</h2>
-              <p class="muted tiny">Если WB заменил артикул, мы не переписываем прошлое. Старая и подменная карточки сохраняются как датированная связь с одним точным SKU — так метрики остаются сопоставимыми.</p>
-              ${aliases.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>SKU</th><th>Текущий</th><th>Старый / подменный</th></tr></thead><tbody>${aliases.slice(0, 20).map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.current_article || item.canonical_article || "—")}</td><td>${escapeHtml(item.alias_article || item.wb_alias || "—")}</td></tr>`).join("")}</tbody></table></div>` : emptyState("WB", "Связей пока нет", "Добавляйте alias только после подтверждённой замены артикула.")}
+              <p class="muted tiny"><strong>Подменный артикул</strong> — другой номер карточки WB, который руководитель подтвердил для того же точного товара. Это не похожий вкус, объём или упаковка. Исполнитель сам подменник не выбирает: он использует номер из задачи, а портал сохраняет старую и новую карточки с датой, не переписывая прошлые метрики.</p>
+              ${aliases.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>SKU</th><th>Текущий</th><th>Старый / подменный</th></tr></thead><tbody>${aliases.slice(0, 20).map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.current_article || item.canonical_article || "—")}</td><td>${escapeHtml(item.alias_article || item.wb_alias || "—")}</td></tr>`).join("")}</tbody></table></div>` : emptyState("WB", "Связей пока нет", "Подменник добавляет только руководитель после подтверждения, что товар действительно тот же.")}
             </div>
             ${canManageAliases ? `
               <form id="wb-alias-form" class="form-stack" novalidate>
                 <label class="field"><span>Внутренний SKU *</span><input name="sku" required maxlength="120" placeholder="Точный SKU товара" /></label>
                 <label class="field"><span>Текущий артикул WB *</span><input name="current_article" required maxlength="120" inputmode="numeric" placeholder="Например: 123456789" /></label>
-                <label class="field"><span>Старый / подменный артикул *</span><input name="alias_article" required maxlength="120" inputmode="numeric" placeholder="Артикул из исторических данных" /></label>
+                <label class="field"><span>Старый / подменный артикул того же товара *</span><input name="alias_article" required maxlength="120" inputmode="numeric" placeholder="Артикул из исторических данных" /></label>
                 <label class="field"><span>Почему появилась связь *</span><textarea name="reason" required minlength="5" maxlength="600" placeholder="Например: WB заменил карточку 13.07.2026; подтверждено владельцем"></textarea></label>
                 <button class="btn" type="submit">Сохранить связь без перезаписи истории</button>
               </form>
@@ -1289,13 +1637,20 @@ function placementCard(item) {
       </div>
       <ul class="checklist">
         <li>Сверить назначенный аккаунт и площадку</li>
+        <li>Проверить в инструкции решение: информационный материал или реклама</li>
+        <li>Если это реклама — сверить пометку «Реклама», рекламодателя, ERID и разрешение площадки</li>
         <li>Использовать tracking link из задачи</li>
         <li>После публикации вернуть final URL</li>
       </ul>
+      ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её owner/admin. Бирка соцсети не заменяет правовую проверку.", "warning")}
       ${item.tracking_url ? `<p class="tiny"><strong>Tracking link:</strong> <a href="${safeExternalUrl(item.tracking_url)}" target="_blank" rel="noopener noreferrer">открыть безопасно</a></p>` : ""}
       ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
           <label class="field" style="flex:1; min-width:250px"><span>Final URL поста</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
+          <label class="option" style="flex-basis:100%">
+            <input type="checkbox" name="compliance_ack" value="confirmed" required />
+            <span><strong>Рекламный статус проверен по инструкции задачи</strong><br /><small class="muted">Если это реклама, обязательные реквизиты и разрешённая площадка подтверждены owner/admin; если решения нет — я не публикую.</small></span>
+          </label>
           <button class="btn" type="submit" style="align-self:end">Подтвердить размещение</button>
         </form>
       `}
@@ -1454,6 +1809,7 @@ function renderTasksSection(sectionState) {
 
 function taskCard(item) {
   const checklist = Array.isArray(item.checklist) ? item.checklist : item.checklist_json || [];
+  const payoutMinor = Math.max(0, Number(item.payout_minor || 0));
   return `
     <article class="card task-card">
       <div class="task-top">
@@ -1464,10 +1820,13 @@ function taskCard(item) {
         </div>
         ${statusBadge(item.status || "todo")}
       </div>
+      <div class="task-facts" aria-label="Условия задачи">
+        <span><small>Вознаграждение</small><strong>${formatMoney(payoutMinor, item.currency || "RUB")}</strong></span>
+        <span><small>Срок</small><strong>${item.due_at ? formatDate(item.due_at, true) : "Не указан"}</strong></span>
+      </div>
       ${checklist.length ? `<ul class="checklist">${checklist.map((point) => `<li>${escapeHtml(typeof point === "string" ? point : point.label || point.title || "Шаг")}</li>`).join("")}</ul>` : ""}
       <div class="inline-actions">
         ${taskActionsMarkup(item)}
-        ${item.due_at ? `<span class="tiny muted">Срок: ${formatDate(item.due_at, true)}</span>` : ""}
       </div>
     </article>
   `;
@@ -1725,15 +2084,31 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "scroll-to") {
+    const targetId = String(control.dataset.target || "");
+    const target = targetId ? document.getElementById(targetId) : null;
+    if (target) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      if (target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
+    }
+    return;
+  }
+
   if (action === "complete-course") {
-    const checkbox = document.querySelector("#course-ack");
-    if (!checkbox?.checked) {
-      toast("Подтвердите, что прочитали все шаги.", "error");
+    const moduleCode = control.dataset.moduleCode;
+    if (state.courseCheckResults[moduleCode]?.passed !== true) {
+      toast("Сначала пройдите мини-тест этого блока.", "error");
+      document.querySelector("#course-check-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
+    if (!confirmations.length || confirmations.some((checkbox) => !checkbox.checked)) {
+      toast("Подтвердите все пункты самопроверки.", "error");
       return;
     }
     control.disabled = true;
     try {
-      const moduleCode = control.dataset.moduleCode;
       await state.api.completeModule(moduleCode);
       await track("course_completed", { module_code: moduleCode });
       await loadBootstrap();
@@ -1826,6 +2201,7 @@ async function handleSubmit(event) {
   if (form.id === "login-form") await submitLogin(form);
   else if (form.id === "reset-form") await submitReset(form);
   else if (form.id === "password-form") await submitPassword(form);
+  else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
@@ -1839,9 +2215,8 @@ async function handleSubmit(event) {
 }
 
 function handleChange(event) {
-  if (event.target.id === "course-ack") {
-    const button = document.querySelector('[data-action="complete-course"]');
-    if (button) button.disabled = !event.target.checked;
+  if (event.target.matches("[data-course-ack]")) {
+    syncCourseCompletionButton();
   }
 
   if (event.target.closest("#exam-form")) {
@@ -2045,6 +2420,92 @@ async function submitPassword(form) {
   } catch (error) {
     renderSetPassword(authErrorMessage(error));
   }
+}
+
+async function submitCourseKnowledgeCheck(form) {
+  const courseCode = String(form.dataset.courseCode || "");
+  const course = learningCourses().find((item) => item.code === courseCode);
+  const check = course?.knowledgeCheck;
+  if (!check?.questions?.length) {
+    toast("Мини-тест блока не загрузился. Обновите страницу.", "error");
+    return;
+  }
+
+  const answers = {};
+  for (const question of check.questions) {
+    const inputName = `check_${courseCode}_${question.id}`;
+    const selected = form.querySelector(`input[name="${CSS.escape(inputName)}"]:checked`);
+    if (!selected) {
+      toast("Ответьте на все вопросы мини-теста.", "error");
+      return;
+    }
+    answers[question.id] = selected.value;
+  }
+
+  setFormBusy(form, true, "Проверяем на сервере…");
+  try {
+    const raw = await state.api.submitCourseCheck(courseCode, answers);
+    const source = raw?.result || raw?.data || raw || {};
+    const passed = normalizeBoolean(source.passed);
+    const correctCount = Math.max(0, Number(source.correct_count ?? source.correctCount ?? 0));
+    const questionCount = Math.max(1, Number(source.question_count ?? source.questionCount ?? check.questions.length));
+    const requiredCorrect = Math.max(1, Number(source.required_correct ?? source.requiredCorrect ?? check.passScore));
+    const reviewTopics = (Array.isArray(source.review_topics) ? source.review_topics : [])
+      .map((topic) => ({
+        questionCode: String(topic?.question_code || topic?.questionCode || ""),
+        prompt: String(topic?.prompt || "Повторите отмеченную тему."),
+      }));
+    const reviewCodes = new Set(reviewTopics.map((topic) => topic.questionCode).filter(Boolean));
+
+    for (const question of check.questions) {
+      const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
+      fieldset?.classList.remove("correct", "incorrect");
+      if (reviewCodes.has(question.id)) fieldset?.classList.add("incorrect");
+      else if (passed) fieldset?.classList.add("correct");
+    }
+
+    state.courseCheckResults[courseCode] = {
+      passed,
+      score: correctCount,
+      total: questionCount,
+      status: passed ? "passed" : "retry_required",
+    };
+    const result = form.querySelector("#course-check-result");
+    if (result) {
+      const feedback = String(source.feedback || (passed
+        ? "Проверка пройдена."
+        : "Повторите отмеченные темы и попробуйте ещё раз."));
+      result.className = `knowledge-check-result ${passed ? "passed" : "failed"}`;
+      result.innerHTML = passed
+        ? `<strong>Готово: ${correctCount} из ${questionCount}.</strong><span>${escapeHtml(feedback)} Теперь подтвердите чек-лист и завершите блок.</span>`
+        : `<strong>${correctCount} из ${questionCount}. Нужно ${requiredCorrect}.</strong><span>${escapeHtml(feedback)}</span>${reviewTopics.length ? `<ul>${reviewTopics.map((topic) => `<li>${escapeHtml(topic.prompt)}</li>`).join("")}</ul>` : ""}`;
+    }
+    const gate = document.querySelector("[data-course-check-gate]");
+    if (gate) {
+      gate.classList.toggle("passed", passed);
+      gate.innerHTML = `<span aria-hidden="true">${passed ? "✓" : "?"}</span><strong>${passed ? "Мини-тест пройден" : "Мини-тест пока не пройден"}</strong>`;
+    }
+    syncCourseCompletionButton();
+    await track("course_check_submitted", {
+      module_code: courseCode,
+      passed,
+      score: correctCount,
+      question_count: questionCount,
+    });
+    toast(passed ? "Мини-тест пройден." : "Есть ошибки — посмотрите отмеченные темы и повторите.", passed ? "success" : "info");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
+  }
+}
+
+function syncCourseCompletionButton() {
+  const button = document.querySelector('[data-action="complete-course"]');
+  if (!button) return;
+  const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
+  const passed = state.courseCheckResults[String(button.dataset.moduleCode || "")]?.passed === true;
+  button.disabled = !passed || !confirmations.length || confirmations.some((checkbox) => !checkbox.checked);
 }
 
 async function submitExam(form) {
@@ -2385,7 +2846,9 @@ async function submitPayoutPaid(form) {
 }
 
 async function submitPlacement(form) {
-  const finalUrl = String(new FormData(form).get("final_url") || "").trim();
+  const values = new FormData(form);
+  const finalUrl = String(values.get("final_url") || "").trim();
+  const complianceAck = values.get("compliance_ack") === "confirmed";
   if (!isHttpsUrl(finalUrl)) {
     toast("Введите полный публичный HTTPS URL поста.", "error");
     return;
@@ -2393,7 +2856,7 @@ async function submitPlacement(form) {
   setFormBusy(form, true, "Проверяем ссылку…");
   try {
     const taskId = form.dataset.placementId;
-    await state.api.confirmPlacement(taskId, finalUrl);
+    await state.api.confirmPlacement(taskId, finalUrl, complianceAck);
     await track("placement_confirmed", { task_id: String(taskId), hostname: new URL(finalUrl).hostname });
     state.sections.placement.status = "idle";
     state.sections.stats.status = "idle";
@@ -2660,6 +3123,7 @@ function clearAuthenticatedState() {
   state.forcePassword = false;
   state.authPurpose = null;
   state.examResult = null;
+  state.courseCheckResults = {};
   state.teamInviteResult = null;
   for (const section of Object.values(state.sections)) {
     section.status = "idle";

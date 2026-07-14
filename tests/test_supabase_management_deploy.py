@@ -324,6 +324,9 @@ def test_private_payload_executes_only_validated_upsert_not_supplied_do_block() 
     assert "test_only" in validated
     assert "perform 1" not in validated
     assert "private_exam_key_contract_failed" in validated
+    assert "exam_answer_total <> 12" in validated
+    assert "select count(*) into answer_total" not in validated
+    assert "where question.module_code = 'operator_final_exam'" in validated
 
 
 def test_private_payload_safely_normalizes_existing_double_commit_envelope() -> None:
@@ -347,6 +350,8 @@ def test_private_payload_accepts_exact_catalog_case_projection() -> None:
     assert validated.count("jsonb_build_array") == 12
     assert "perform 1" not in validated
     assert "private_exam_key_contract_failed" in validated
+    assert "exam_answer_total <> 12" in validated
+    assert "select count(*) into answer_total" not in validated
 
 
 def test_private_payload_rejects_case_projection_from_another_table() -> None:

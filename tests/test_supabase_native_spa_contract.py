@@ -174,6 +174,7 @@ def test_browser_uses_narrow_scoped_rpc_contract_and_stable_idempotency() -> Non
     expected = (
         "creator_bootstrap",
         "creator_complete_module",
+        "creator_submit_course_check",
         "creator_submit_exam",
         "creator_workspace_section",
         "creator_create_mock_batch",
@@ -200,15 +201,23 @@ def test_browser_uses_narrow_scoped_rpc_contract_and_stable_idempotency() -> Non
 def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> None:
     app = _text("app.js")
     adapter = _text("supabase-api.js")
-    sql = CREATOR_RPC_MIGRATION.read_text(encoding="utf-8")
+    sql = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
+    )
     rpc_names = [
         name
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 13
+    assert len(set(rpc_names)) == 14
     for function_name in set(rpc_names):
-        assert f"function public.{function_name}(p_payload jsonb" in sql
+        assert re.search(
+            rf"function\s+public\.{re.escape(function_name)}\s*"
+            rf"\(\s*p_payload\s+jsonb",
+            sql,
+            flags=re.IGNORECASE,
+        )
 
     for field in (
         "platform",
@@ -330,7 +339,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260714.2' in index
+    assert './app.js?v=20260714.3' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

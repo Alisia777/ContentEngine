@@ -11,6 +11,7 @@ MEMBER_PROVISION_WORKFLOW = ".github/workflows/provision-member.yml"
 EXPECTED_CREATOR_RPCS = (
     "creator_bootstrap",
     "creator_complete_module",
+    "creator_submit_course_check",
     "creator_submit_exam",
     "creator_workspace_section",
     "creator_create_mock_batch",

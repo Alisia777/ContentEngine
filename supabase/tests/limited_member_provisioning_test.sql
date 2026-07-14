@@ -3,6 +3,140 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+
+-- TEST-ONLY refreshed-course gate. Production authorization accepts only a
+-- completed server-style attempt whose question counts match the active module
+-- and whose idempotency key is namespaced as course-check:.
+create or replace function pg_temp.grant_refreshed_course_gate(
+  p_organization_id uuid,
+  p_profile_id uuid,
+  p_key_prefix text
+)
+returns void
+language plpgsql
+set search_path = ''
+as $course_gate_fixture$
+#variable_conflict use_variable
+declare
+  module_row record;
+  attempt_id_value uuid;
+  answers_value jsonb;
+begin
+  if p_organization_id is null
+     or p_profile_id is null
+     or p_key_prefix !~ '^[a-z0-9_-]{4,80}$' then
+    raise exception using
+      errcode = '22023',
+      message = 'test_course_gate_fixture_invalid';
+  end if;
+
+  for module_row in
+    select
+      module.code,
+      jsonb_array_length(
+        module.content #> '{knowledge_check,questions}'
+      ) as question_count
+    from content_factory.training_modules module
+    where module.module_type = 'course'
+      and module.is_active
+    order by module.order_index
+  loop
+    select coalesce(
+      jsonb_object_agg(
+        question.code,
+        answer_key.correct_answers
+        order by question.order_index
+      ),
+      '{}'::jsonb
+    )
+    into answers_value
+    from content_factory.training_questions question
+    join content_factory_private.training_answer_keys answer_key
+      on answer_key.question_code = question.code
+    where question.module_code = module_row.code
+      and question.order_index between 901 and 1000
+      and strpos(
+        question.code,
+        'course_check_' || module_row.code || '_'
+      ) = 1;
+
+    if module_row.question_count < 1
+       or (select count(*) from pg_catalog.jsonb_object_keys(answers_value))
+         <> module_row.question_count then
+      raise exception using
+        errcode = '55000',
+        message = 'test_course_gate_fixture_invalid';
+    end if;
+
+    insert into content_factory.training_attempts (
+      organization_id,
+      profile_id,
+      module_code,
+      status,
+      score,
+      correct_count,
+      answered_count,
+      question_count,
+      passed,
+      answers,
+      request_hash,
+      idempotency_key
+    ) values (
+      p_organization_id,
+      p_profile_id,
+      module_row.code,
+      'completed',
+      1,
+      module_row.question_count,
+      module_row.question_count,
+      module_row.question_count,
+      true,
+      answers_value,
+      content_factory_private.json_hash(jsonb_build_object(
+        'module_code', module_row.code,
+        'answers', answers_value
+      )),
+      left(
+        'course-check:' || p_key_prefix || ':' || module_row.code,
+        180
+      )
+    )
+    on conflict (organization_id, profile_id, idempotency_key) do update set
+      module_code = excluded.module_code,
+      status = excluded.status,
+      score = excluded.score,
+      correct_count = excluded.correct_count,
+      answered_count = excluded.answered_count,
+      question_count = excluded.question_count,
+      passed = excluded.passed,
+      answers = excluded.answers,
+      request_hash = excluded.request_hash,
+      completed_at = now()
+    returning id into attempt_id_value;
+
+    insert into content_factory.training_certifications (
+      organization_id,
+      profile_id,
+      module_code,
+      attempt_id,
+      status
+    ) values (
+      p_organization_id,
+      p_profile_id,
+      module_row.code,
+      attempt_id_value,
+      'passed'
+    )
+    on conflict on constraint training_certifications_org_profile_module_uq
+    do update set
+      attempt_id = excluded.attempt_id,
+      status = 'passed',
+      granted_at = now(),
+      expires_at = null;
+  end loop;
+end;
+$course_gate_fixture$;
+
 select plan(31);
 
 select is(
@@ -294,6 +428,21 @@ insert into content_factory.training_certifications (
 )
 select organization_id, profile_id, module_code, id, 'passed'
 from inserted_attempts;
+
+do $$
+begin
+  perform pg_temp.grant_refreshed_course_gate(
+    '70000000-0000-4000-8000-000000000001'::uuid,
+    '71111111-1111-4111-8111-111111111111'::uuid,
+    'limited-owner'
+  );
+  perform pg_temp.grant_refreshed_course_gate(
+    '70000000-0000-4000-8000-000000000001'::uuid,
+    '72111111-1111-4211-8211-111111111111'::uuid,
+    'limited-viewer'
+  );
+end;
+$$;
 
 do $$
 begin
