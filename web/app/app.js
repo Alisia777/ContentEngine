@@ -1,10 +1,10 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js";
+import { CreatorApi } from "./supabase-api.js?v=20260714.3";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js";
+} from "./catalog.js?v=20260714.3";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const app = document.querySelector("#app");
@@ -322,13 +322,30 @@ function learningCourses() {
   const serverCourses = modules
     .filter((module) => module.type === "course")
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
-    .map((module) => ({
-      code: module.code,
-      title: module.title,
-      summary: module.description || "Обязательный модуль обучения.",
-      duration: `${module.content?.lessons?.length || 0} шага`,
-      lessons: Array.isArray(module.content?.lessons) ? module.content.lessons : [],
-    }));
+    .map((module) => {
+      const content = module.content && typeof module.content === "object" ? module.content : {};
+      const lessons = Array.isArray(content.lessons) ? content.lessons : [];
+      const meta = content.meta && typeof content.meta === "object" ? content.meta : content;
+      const durationMinutes = Math.max(
+        1,
+        Math.min(120, Number(meta.duration_minutes) || Math.max(5, lessons.length * 3)),
+      );
+      const completionChecklist = Array.isArray(meta.completion_checklist)
+        ? meta.completion_checklist.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
+        : [];
+      return {
+        code: module.code,
+        title: module.title,
+        summary: module.description || "Обязательный модуль обучения.",
+        duration: `${durationMinutes} мин`,
+        durationMinutes,
+        blockLabel: String(meta.block_label || "Блок обучения"),
+        outcome: String(meta.outcome || module.description || "Понимание рабочего процесса."),
+        level: String(meta.level || "Практический курс"),
+        completionChecklist,
+        lessons,
+      };
+    });
   return serverCourses;
 }
 
@@ -607,55 +624,138 @@ function renderMembershipLocked() {
 
 function renderLearningHome() {
   const completed = new Set(state.bootstrap.training.completedModules);
+  const courses = learningCourses();
   const completeCount = REQUIRED_MODULE_CODES.filter((code) => completed.has(code)).length;
   const examPassed = state.bootstrap.training.exam.passed;
   const progress = Math.round(((completeCount + (examPassed ? 1 : 0)) / 5) * 100);
   const catalogReady = trainingCatalogReady();
+  const nextCourse = courses.find((course) => !completed.has(course.code));
+  const nextHref = examPassed
+    ? "#/workspace/generation"
+    : nextCourse
+      ? `#/learn/${encodeURIComponent(nextCourse.code)}`
+      : "#/learn/exam";
+  const nextLabel = examPassed ? "Перейти к работе" : nextCourse ? "Продолжить обучение" : "Начать экзамен";
 
   const content = `
-    <div class="page-wrap">
-      <section class="card onboarding-hero">
-        <p class="eyebrow" style="color:#e4c98f">Обязательный допуск к работе</p>
-        <h1>${examPassed ? "Допуск получен" : "Сначала научимся работать безопасно"}</h1>
-        <p>${examPassed ? "Вы можете вернуться к материалам в любой момент." : "Четыре коротких курса объяснят весь цикл. После них — 12 рабочих сценариев. Кабинет откроется только после успешного экзамена."}</p>
-        <div class="onboarding-progress">
-          <div class="progress-bar" aria-label="Прогресс обучения: ${progress}%"><span style="width:${progress}%"></span></div>
-          <strong>${completeCount}/4 курса${examPassed ? " · экзамен сдан" : ""}</strong>
+    <div class="page-wrap learning-page">
+      <section class="card learning-hero">
+        <div class="learning-hero-copy">
+          <p class="eyebrow learning-eyebrow">Практическая академия ALTEA</p>
+          <h1>${examPassed ? "Вы готовы к производству" : "Освойте весь цикл на одном экране"}</h1>
+          <p>${examPassed ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой." : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу."}</p>
+          <div class="learning-hero-actions">
+            <a class="btn btn-light" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
+            <button class="btn btn-ghost-light" type="button" data-action="scroll-to" data-target="work-map">Посмотреть карту работы</button>
+          </div>
+        </div>
+        <div class="learning-passport" aria-label="Паспорт допуска к работе">
+          <div class="learning-passport-head">
+            <div>
+              <span>Ваш прогресс</span>
+              <strong>${progress}%</strong>
+            </div>
+            <span class="learning-passport-mark" aria-hidden="true">A</span>
+          </div>
+          <div class="progress-bar progress-bar-gold" role="progressbar" aria-label="Прогресс обучения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div>
+          <ol class="passport-steps">
+            ${courses.map((course, index) => `
+              <li class="${completed.has(course.code) ? "complete" : nextCourse?.code === course.code && !examPassed ? "current" : ""}">
+                <span>${completed.has(course.code) ? "✓" : index + 1}</span>
+                <div><strong>${escapeHtml(course.title)}</strong><small>${completed.has(course.code) ? "готово" : course.duration}</small></div>
+              </li>
+            `).join("")}
+            <li class="${examPassed ? "complete" : completeCount === 4 ? "current" : ""}">
+              <span>${examPassed ? "✓" : 5}</span>
+              <div><strong>Итоговый экзамен</strong><small>${examPassed ? "допуск получен" : "12 сценариев"}</small></div>
+            </li>
+          </ol>
         </div>
       </section>
 
-      ${catalogReady ? "" : alertMarkup("Supabase вернул неполный каталог обучения. Допуск закрыт: обновите страницу или обратитесь к администратору.", "danger")}
+      ${catalogReady ? "" : alertMarkup("Каталог обучения загрузился не полностью. Обновите страницу или обратитесь к администратору — допуск останется закрыт до восстановления данных.", "danger")}
 
-      <div class="course-grid">
-        ${learningCourses().map((course, index) => courseCardMarkup(course, index, completed.has(course.code))).join("")}
+      <section id="work-map" class="card work-map-section" aria-labelledby="work-map-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Как устроена работа</p>
+            <h2 id="work-map-title">Один товар проходит пять понятных этапов</h2>
+          </div>
+          <p>Не нужно держать весь процесс в голове: каждый следующий шаг живёт в своём разделе портала.</p>
+        </div>
+        ${portalWorkflowMarkup()}
+        <div class="work-map-rule"><span aria-hidden="true">◎</span><p><strong>Главное правило:</strong> точный SKU, исходный файл и итоговая ссылка должны оставаться связаны от загрузки до метрики.</p></div>
+      </section>
+
+      <div class="learning-section-heading">
+        <div>
+          <p class="eyebrow">Маршрут обучения</p>
+          <h2>Четыре понятных блока: от первой съёмки до результата</h2>
+        </div>
+        <span>${completeCount} из 4 завершено</span>
       </div>
 
-      <section class="card exam-card">
-        <div>
-          <span class="badge ${examPassed ? "badge-success" : prerequisitesComplete() ? "badge-info" : ""}">
-            ${examPassed ? "Сдан" : catalogReady && prerequisitesComplete() ? "Доступен" : "После 4 курсов"}
-          </span>
-          <h2>Итоговый экзамен: 12 ситуаций</h2>
-          <p class="muted">Для допуска нужно правильно решить не меньше ${finalExamPassScore()} из 12 сценариев. Ответы проверяет Supabase, ключа ответов в браузере нет.</p>
+      <div class="course-grid">
+        ${courses.map((course, index) => courseCardMarkup(course, index, completed.has(course.code))).join("")}
+      </div>
+
+      <section class="card exam-card premium-exam-card">
+        <div class="exam-card-visual" aria-hidden="true">
+          <span>12</span><small>рабочих<br />сценариев</small>
         </div>
-        <a class="btn ${catalogReady && prerequisitesComplete() ? "" : "btn-secondary"}" href="${catalogReady && prerequisitesComplete() ? "#/learn/exam" : "#/learn"}" ${catalogReady && prerequisitesComplete() ? "" : "aria-disabled=\"true\""}>
-          ${examPassed ? "Посмотреть результат" : catalogReady && prerequisitesComplete() ? "Начать экзамен" : "Сначала курсы"}
-        </a>
+        <div class="exam-card-copy">
+          <span class="badge ${examPassed ? "badge-success" : prerequisitesComplete() ? "badge-info" : ""}">${examPassed ? "Сдан" : catalogReady && prerequisitesComplete() ? "Доступен" : "После 4 курсов"}</span>
+          <h2>Финальная проверка перед работой</h2>
+          <p class="muted">Нужно решить не меньше ${finalExamPassScore()} из 12 реальных ситуаций: товар, качество, публикация, деньги и безопасность.</p>
+        </div>
+        ${catalogReady && prerequisitesComplete()
+          ? `<a class="btn" href="#/learn/exam">${examPassed ? "Посмотреть результат" : "Начать экзамен"} <span aria-hidden="true">→</span></a>`
+          : `<span class="btn btn-secondary" aria-disabled="true">Сначала завершите курсы</span>`}
       </section>
     </div>
   `;
   app.innerHTML = learningScaffold(content, "/learn");
 }
 
+function portalWorkflowMarkup() {
+  const steps = [
+    ["01", "Медиатека", "Добавьте точное фото товара и проверьте SKU."],
+    ["02", "Генерация", "Выберите режим, задайте сценарий и подтвердите стоимость."],
+    ["03", "Задачи", "Посмотрите весь MP4 и зафиксируйте QA-решение."],
+    ["04", "Размещение", "Опубликуйте только в назначенный аккаунт и верните final URL."],
+    ["05", "Статистика", "Запишите просмотры, переходы, заказы и результат."],
+  ];
+  return `
+    <ol class="portal-workflow">
+      ${steps.map(([number, title, description], index) => `
+        <li>
+          <div class="workflow-node"><span>${number}</span><i aria-hidden="true">${index === steps.length - 1 ? "✓" : "→"}</i></div>
+          <strong>${title}</strong>
+          <p>${description}</p>
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
 function courseCardMarkup(course, index, complete) {
   return `
-    <article class="card course-card ${complete ? "complete" : ""}">
-      <div class="course-number" aria-hidden="true">0${index + 1}</div>
-      <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Пройден" : course.duration}</span>
+    <article class="card course-card course-tone-${index + 1} ${complete ? "complete" : ""}">
+      <div class="course-card-top">
+        <div class="course-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</div>
+        <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Пройден" : escapeHtml(course.level)}</span>
+      </div>
+      <div class="course-card-meta"><span>${course.duration}</span><span>${course.lessons.length} уроков</span></div>
+      <p class="course-block-label">${escapeHtml(course.blockLabel)}</p>
       <h2>${escapeHtml(course.title)}</h2>
       <p>${escapeHtml(course.summary)}</p>
+      ${course.code === "publishing_funnel" ? `<div class="platform-pills" aria-label="Площадки курса"><span>Instagram Reels</span><span>YouTube Shorts</span></div>` : ""}
+      <div class="course-outcome">
+        <span>После курса</span>
+        <strong>${escapeHtml(course.outcome)}</strong>
+      </div>
       <div class="course-footer">
-        <small class="muted">${course.lessons.length} шага</small>
+        <span class="course-status-dot"><i aria-hidden="true"></i>${complete ? "Материал доступен для повторения" : "Следующий шаг маршрута"}</span>
         <a class="btn btn-small ${complete ? "btn-secondary" : ""}" href="#/learn/${encodeURIComponent(course.code)}">
           ${complete ? "Повторить" : "Открыть"} <span aria-hidden="true">→</span>
         </a>
@@ -665,38 +765,70 @@ function courseCardMarkup(course, index, complete) {
 }
 
 function renderCourse(code) {
-  const course = learningCourses().find((item) => item.code === code);
+  const courses = learningCourses();
+  const course = courses.find((item) => item.code === code);
   if (!course) {
     navigate("/learn", true);
     return;
   }
+  const courseIndex = Math.max(0, courses.findIndex((item) => item.code === course.code));
   const complete = state.bootstrap.training.completedModules.includes(course.code);
+  const completionChecklist = course.completionChecklist.length
+    ? course.completionChecklist
+    : [
+        "Я понимаю порядок действий в этом разделе.",
+        "Я знаю, какие ошибки останавливают задачу.",
+        "Я смогу повторить процесс в рабочем кабинете.",
+      ];
   const content = `
-    <div class="page-wrap">
-      <header class="page-header">
-        <div>
-          <p class="eyebrow"><a href="#/learn" style="text-decoration:none">Обучение</a> · ${escapeHtml(course.duration)}</p>
+    <div class="page-wrap learning-page course-page">
+      <header class="card course-hero course-tone-${courseIndex + 1}">
+        <div class="course-hero-copy">
+          <p class="eyebrow"><a href="#/learn">Академия</a> · ${escapeHtml(course.blockLabel)}</p>
           <h1>${escapeHtml(course.title)}</h1>
           <p>${escapeHtml(course.summary)}</p>
+          <div class="course-hero-meta">
+            <span>${escapeHtml(course.duration)}</span>
+            <span>${course.lessons.length} практических уроков</span>
+            <span>${escapeHtml(course.level)}</span>
+          </div>
         </div>
-        <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Курс пройден" : "Обязательный курс"}</span>
+        <div class="course-hero-outcome">
+          <span class="course-hero-icon" aria-hidden="true">${String(courseIndex + 1).padStart(2, "0")}</span>
+          <p>Результат курса</p>
+          <h2>${escapeHtml(course.outcome)}</h2>
+          <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Курс пройден" : "Обязательный курс"}</span>
+        </div>
       </header>
       <div class="course-layout">
-        <div class="lesson-stack">
-          ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index)).join("")}
+        <div>
+          <nav class="card course-roadmap" aria-label="Содержание курса">
+            <div><p class="eyebrow">Содержание</p><strong>Двигайтесь сверху вниз</strong></div>
+            <ol>
+              ${course.lessons.map((lesson, index) => `<li><button type="button" data-action="scroll-to" data-target="lesson-${index + 1}"><span>${index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
+            </ol>
+          </nav>
+          <div class="lesson-stack">
+            ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index, course.lessons.length)).join("")}
+          </div>
         </div>
-        <aside class="card sticky-card">
+        <aside class="card sticky-card course-completion-card">
+          <div class="completion-ring" style="--completion:${complete ? 100 : 0}" aria-hidden="true"><span>${complete ? "✓" : course.lessons.length}</span></div>
           <p class="eyebrow">Завершение курса</p>
-          <h2 style="font:600 1.35rem/1.2 Georgia,serif">Проверьте понимание</h2>
-          <p class="muted tiny">Отметка сохраняется в Supabase и относится только к вашему аккаунту.</p>
+          <h2>Проверьте себя</h2>
+          <p class="muted tiny">Прогресс сохраняется в вашем рабочем профиле.</p>
           ${complete ? alertMarkup("Курс уже пройден. Материал можно повторять без ограничений.", "success") : `
-            <label class="acknowledgement">
-              <input id="course-ack" type="checkbox" />
-              <span>Я прочитал(а) все шаги и понимаю, когда нужно остановить задачу и обратиться к руководителю.</span>
-            </label>
+            <div class="completion-checklist">
+              ${completionChecklist.map((item, index) => `
+                <label class="acknowledgement">
+                  <input id="course-ack-${index + 1}" type="checkbox" data-course-ack />
+                  <span>${escapeHtml(item)}</span>
+                </label>
+              `).join("")}
+            </div>
             <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить курс</button>
           `}
-          <a class="btn btn-secondary btn-block" style="margin-top:10px" href="#/learn">К списку курсов</a>
+          <a class="btn btn-secondary btn-block course-back-link" href="#/learn">К списку курсов</a>
         </aside>
       </div>
     </div>
@@ -705,15 +837,121 @@ function renderCourse(code) {
   track("course_opened", { module_code: course.code });
 }
 
-function lessonMarkup(lesson, index) {
+function lessonMarkup(lesson, index, total) {
   return `
-    <article class="card lesson-card">
-      <p class="eyebrow">Шаг ${index + 1}</p>
-      <h2>${escapeHtml(lesson.title)}</h2>
-      <p>${escapeHtml(lesson.body)}</p>
-      ${lesson.bullets ? `<ul>${lesson.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
-      ${lesson.callout ? alertMarkup(lesson.callout, "warning") : ""}
+    <article id="lesson-${index + 1}" class="card lesson-card" tabindex="-1">
+      <div class="lesson-step-rail" aria-hidden="true"><span>${String(index + 1).padStart(2, "0")}</span><i></i><small>${String(total).padStart(2, "0")}</small></div>
+      <div class="lesson-content">
+        <header class="lesson-heading">
+          <div class="lesson-kicker"><p class="eyebrow">Практический шаг ${index + 1}</p>${lesson.reviewed_at ? `<span>Проверено ${escapeHtml(formatDate(lesson.reviewed_at))}</span>` : ""}</div>
+          <h2>${escapeHtml(lesson.title)}</h2>
+          <p>${escapeHtml(lesson.body)}</p>
+        </header>
+        ${lesson.takeaway ? `<div class="lesson-takeaway"><span>Главное</span><strong>${escapeHtml(lesson.takeaway)}</strong></div>` : ""}
+        ${lessonVisualMarkup(lesson.visual)}
+        ${Array.isArray(lesson.bullets) && lesson.bullets.length ? `<ul class="lesson-bullets">${lesson.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+        ${lessonChecklistMarkup(lesson.checklist)}
+        ${lessonPracticeMarkup(lesson.practice)}
+        ${lesson.callout ? alertMarkup(lesson.callout, "warning") : ""}
+      </div>
     </article>
+  `;
+}
+
+function lessonVisualMarkup(visual) {
+  if (!visual || typeof visual !== "object") return "";
+  const type = String(visual.type || "");
+  const title = visual.title ? `<p class="visual-title">${escapeHtml(visual.title)}</p>` : "";
+  const itemsByType = {
+    workflow: visual.steps,
+    annotated_ui: visual.panels,
+    timeline: visual.segments,
+    decision: visual.branches,
+    metrics: visual.cards,
+  };
+  const rawItems = Array.isArray(visual.items) ? visual.items : itemsByType[type];
+  const items = Array.isArray(rawItems) ? rawItems.slice(0, 8) : [];
+
+  if (type === "workflow" && items.length) {
+    return `<figure class="lesson-visual visual-workflow">${title}<ol>${items.map((item, index) => {
+      const label = typeof item === "string" ? item : item?.label || item?.title || "";
+      const detail = typeof item === "object" ? item?.detail || item?.description || "" : "";
+      return `<li><span>${index + 1}</span><div><strong>${escapeHtml(label)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div></li>`;
+    }).join("")}</ol></figure>`;
+  }
+
+  if (type === "annotated_ui" && items.length) {
+    return `<figure class="lesson-visual visual-interface">${title}<div class="interface-window"><div class="interface-toolbar"><i></i><i></i><i></i><span>Контент ИИ Завод</span></div><div class="interface-body">${items.map((item, index) => {
+      const label = item?.area || item?.title || item?.label || item;
+      const detail = [item?.label && item?.area ? item.label : "", item?.detail || ""].filter(Boolean).join(" · ");
+      return `<div class="interface-field"><span>${index + 1}</span><div><strong>${escapeHtml(label)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div></div>`;
+    }).join("")}</div></div></figure>`;
+  }
+
+  if (type === "timeline" && items.length) {
+    return `<figure class="lesson-visual visual-timeline">${title}<ol>${items.map((item) => `<li><span>${escapeHtml(item?.time || item?.label || "")}</span><div><strong>${escapeHtml(item?.title || item?.label || item)}</strong>${item?.detail ? `<small>${escapeHtml(item.detail)}</small>` : ""}</div></li>`).join("")}</ol></figure>`;
+  }
+
+  if (type === "comparison") {
+    const columns = Array.isArray(visual.columns) ? visual.columns.slice(0, 4) : [];
+    const stopColumn = columns.find((column) => ["danger", "stop"].includes(column?.tone));
+    const goColumn = columns.find((column) => ["success", "go"].includes(column?.tone));
+    const left = Array.isArray(visual.left)
+      ? visual.left.slice(0, 6)
+      : Array.isArray(stopColumn?.items)
+        ? stopColumn.items.slice(0, 6)
+        : [];
+    const right = Array.isArray(visual.right)
+      ? visual.right.slice(0, 6)
+      : Array.isArray(goColumn?.items)
+        ? goColumn.items.slice(0, 6)
+        : [];
+    if (!left.length && !right.length) return "";
+    return `<figure class="lesson-visual visual-comparison">${title}<div class="comparison-grid"><section class="comparison-stop"><span>Стоп</span><h3>${escapeHtml(visual.left_title || stopColumn?.label || "Так нельзя")}</h3><ul>${left.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section><section class="comparison-go"><span>Верно</span><h3>${escapeHtml(visual.right_title || goColumn?.label || "Так правильно")}</h3><ul>${right.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section></div></figure>`;
+  }
+
+  if (type === "decision" && items.length) {
+    const question = visual.question ? `<p class="decision-question">${escapeHtml(visual.question)}</p>` : "";
+    return `<figure class="lesson-visual visual-decision">${title}${question}<div>${items.map((item) => {
+      const toneMap = { danger: "stop", warning: "review", success: "go", stop: "stop", review: "review", go: "go" };
+      const tone = toneMap[item?.tone] || "review";
+      return `<section class="decision-${tone}"><span>${tone === "stop" ? "Стоп" : tone === "go" ? "Можно" : "Проверить"}</span><strong>${escapeHtml(item?.condition || item?.label || "")}</strong><p>${escapeHtml(item?.action || item?.detail || "")}</p></section>`;
+    }).join("")}</div></figure>`;
+  }
+
+  if (type === "metrics" && items.length) {
+    return `<figure class="lesson-visual visual-metrics">${title}<div>${items.map((item) => {
+      const value = item?.value || item?.formula || "—";
+      const note = item?.note || item?.why || "";
+      return `<section><span>${escapeHtml(item?.label || "Метрика")}</span><strong>${escapeHtml(value)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</section>`;
+    }).join("")}</div></figure>`;
+  }
+
+  return "";
+}
+
+function lessonChecklistMarkup(checklist) {
+  if (!checklist || typeof checklist !== "object") return "";
+  const doItems = Array.isArray(checklist.do) ? checklist.do.slice(0, 6) : [];
+  const dontItems = Array.isArray(checklist.dont) ? checklist.dont.slice(0, 6) : [];
+  if (!doItems.length && !dontItems.length) return "";
+  return `
+    <div class="lesson-checklist">
+      ${doItems.length ? `<section><span class="checklist-icon checklist-do">✓</span><div><h3>Сделайте</h3><ul>${doItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div></section>` : ""}
+      ${dontItems.length ? `<section><span class="checklist-icon checklist-dont">!</span><div><h3>Остановитесь, если</h3><ul>${dontItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div></section>` : ""}
+    </div>
+  `;
+}
+
+function lessonPracticeMarkup(practice) {
+  if (!practice || typeof practice !== "object") return "";
+  const steps = Array.isArray(practice.steps) ? practice.steps.slice(0, 6) : [];
+  if (!practice.title && !steps.length) return "";
+  return `
+    <section class="lesson-practice">
+      <span class="practice-mark" aria-hidden="true">↗</span>
+      <div><p class="eyebrow">Попробуйте в кабинете</p><h3>${escapeHtml(practice.title || "Закрепите шаг")}</h3>${steps.length ? `<ol>${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>` : ""}</div>
+    </section>
   `;
 }
 
@@ -814,7 +1052,7 @@ function renderExam() {
       <form id="exam-form" class="exam-form" novalidate>
         ${questions.map((question, index) => questionMarkup(question, index)).join("")}
         <div class="exam-submit">
-          <div><strong id="exam-answer-count">0 из 12 отвечено</strong><br /><small class="muted">Незаполненный экзамен не отправится</small></div>
+          <div><strong id="exam-answer-count" aria-live="polite">0 из ${questions.length} отвечено</strong><br /><small class="muted">Незаполненный экзамен не отправится</small></div>
           <button class="btn" type="submit">Проверить ответы</button>
         </div>
       </form>
@@ -879,10 +1117,10 @@ function learningScaffold(content, activePath) {
         ${brandMarkup()}
         <nav class="workspace-nav">
           <span class="nav-caption">Допуск к работе</span>
-          <a class="nav-link ${activePath === "/learn" ? "active" : ""}" href="#/learn">
+          <a class="nav-link ${activePath === "/learn" ? "active" : ""}" href="#/learn" ${activePath === "/learn" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◎</span><span>Курсы</span>
           </a>
-          <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam">
+          <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activePath === "/learn/exam" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◇</span><span>Итоговый экзамен</span>
           </a>
           ${hasWorkspaceAccess() ? `
@@ -897,7 +1135,7 @@ function learningScaffold(content, activePath) {
       </aside>
       <section class="workspace-main">
         ${mobileTopbarMarkup("Обучение")}
-        ${state.mobileNavOpen ? mobileNavMarkup(true) : ""}
+        ${state.mobileNavOpen ? mobileNavMarkup(true, "", activePath) : ""}
         <main id="main-content" tabindex="-1">${content}</main>
       </section>
     </div>
@@ -990,17 +1228,17 @@ function mobileTopbarMarkup(label) {
   return `
     <header class="mobile-topbar">
       <span class="mobile-brand">ALTEA · ${escapeHtml(label)}</span>
-      <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="Открыть меню" aria-expanded="${state.mobileNavOpen}">☰</button>
+      <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="Открыть меню" aria-controls="mobile-navigation" aria-expanded="${state.mobileNavOpen}">☰</button>
     </header>
   `;
 }
 
-function mobileNavMarkup(learningOnly, activeSection = "") {
+function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = "") {
   return `
-    <nav class="mobile-nav" aria-label="Мобильная навигация">
+    <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
-        <a class="nav-link" href="#/learn"><span class="nav-icon">◎</span>Курсы</a>
-        <a class="nav-link" href="#/learn/exam"><span class="nav-icon">◇</span>Экзамен</a>
+        <a class="nav-link ${activeLearningPath === "/learn" ? "active" : ""}" href="#/learn" ${activeLearningPath === "/learn" ? 'aria-current="page"' : ""}><span class="nav-icon">◎</span>Курсы</a>
+        <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon">◇</span>Экзамен</a>
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/generation"><span class="nav-icon">→</span>Кабинет</a>` : ""}
       ` : visibleWorkspaceTabs().map(([key, label, icon]) => `
         <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}"><span class="nav-icon">${icon}</span>${label}</a>
@@ -1725,10 +1963,21 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "scroll-to") {
+    const targetId = String(control.dataset.target || "");
+    const target = targetId ? document.getElementById(targetId) : null;
+    if (target) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      if (target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
+    }
+    return;
+  }
+
   if (action === "complete-course") {
-    const checkbox = document.querySelector("#course-ack");
-    if (!checkbox?.checked) {
-      toast("Подтвердите, что прочитали все шаги.", "error");
+    const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
+    if (!confirmations.length || confirmations.some((checkbox) => !checkbox.checked)) {
+      toast("Подтвердите все пункты самопроверки.", "error");
       return;
     }
     control.disabled = true;
@@ -1839,9 +2088,10 @@ async function handleSubmit(event) {
 }
 
 function handleChange(event) {
-  if (event.target.id === "course-ack") {
+  if (event.target.matches("[data-course-ack]")) {
     const button = document.querySelector('[data-action="complete-course"]');
-    if (button) button.disabled = !event.target.checked;
+    const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
+    if (button) button.disabled = !confirmations.length || confirmations.some((checkbox) => !checkbox.checked);
   }
 
   if (event.target.closest("#exam-form")) {
