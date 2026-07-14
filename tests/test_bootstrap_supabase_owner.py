@@ -371,6 +371,35 @@ def test_auth_client_keeps_bearer_header_for_legacy_service_role_jwt() -> None:
     assert api_request.get_header("Apikey") == legacy_key
 
 
+def test_auth_client_can_create_confirmed_member_with_temporary_password() -> None:
+    opener = RecordingOpener([FakeResponse({"id": OWNER_ID})])
+    client = SupabaseAuthClient(
+        project_ref=EXPECTED_PROJECT_REF,
+        server_key=SERVER_KEY,
+        publishable_key=PUBLISHABLE_KEY,
+        opener=opener,
+    )
+
+    client.create_confirmed_user_with_password(
+        email=OWNER_EMAIL,
+        display_name="Guest",
+        password="StrongTemporary42Password",
+        app_metadata={"contentengine_github_member_provisioned": True},
+    )
+
+    api_request = opener.requests[0][0]
+    payload = json.loads(api_request.data)
+    assert payload == {
+        "email": OWNER_EMAIL,
+        "password": "StrongTemporary42Password",
+        "email_confirm": True,
+        "user_metadata": {"display_name": "Guest"},
+        "app_metadata": {"contentengine_github_member_provisioned": True},
+    }
+    assert api_request.get_header("Apikey") == SERVER_KEY
+    assert api_request.get_header("Authorization") is None
+
+
 def test_http_failures_never_include_secret_response_body() -> None:
     secret_body = b"database error containing sb_secret_service_role_secret_must_not_leak"
     failure = error.HTTPError(

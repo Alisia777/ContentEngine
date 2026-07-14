@@ -7,6 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_WORKFLOW = ".github/workflows/supabase-pages.yml"
+MEMBER_PROVISION_WORKFLOW = ".github/workflows/provision-member.yml"
 EXPECTED_CREATOR_RPCS = (
     "creator_bootstrap",
     "creator_complete_module",
@@ -70,6 +71,27 @@ def test_production_path_is_supabase_native_pages_without_render_or_container_pu
     assert "docker build" not in workflow
     assert "ghcr.io" not in workflow
     assert "Render" not in workflow
+
+
+def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() -> None:
+    workflow = _yaml(MEMBER_PROVISION_WORKFLOW)
+    source = _text(MEMBER_PROVISION_WORKFLOW)
+    job = workflow["jobs"]["provision-member"]
+
+    assert "workflow_dispatch" in source
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    assert job["environment"] == "production"
+    assert workflow["permissions"] == {"contents": "read"}
+    assert job["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
+    assert "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}" in source
+    assert "python scripts/provision_supabase_member.py" in source
+    assert "--email=\"$MEMBER_EMAIL\"" in source
+    assert "--display-name=\"$MEMBER_DISPLAY_NAME\"" in source
+    assert "--role=\"$MEMBER_ROLE\"" in source
+    assert "type: choice" in source
+    assert "- viewer" in source and "- trainee" in source
+    assert "actions/upload-artifact" not in source
+    assert "--password" not in source
 
 
 def test_production_workflow_migrates_before_publishing_pages() -> None:
@@ -143,7 +165,7 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
         "SUPABASE_OWNER_EMAIL": "${{ secrets.SUPABASE_OWNER_EMAIL }}",
     }
     assert owner_step["run"] == (
-        'python scripts/bootstrap_supabase_owner.py --display-name "Alisia777"'
+        'python scripts/bootstrap_supabase_owner.py --display-name "Сергей"'
     )
 
     assert build["env"]["SUPABASE_PUBLISHABLE_KEY"] == (

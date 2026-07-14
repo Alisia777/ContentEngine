@@ -231,6 +231,25 @@ organization access through the application contract.
    keep the temporary password out of Git, and give the account no owner/admin
    or paid-generation capability.
 
+### Protected limited-member provisioning
+
+When custom SMTP is not yet available and an explicitly authorized external
+member must be created, use the manual **Provision limited Supabase member**
+workflow. Put a strong one-time value in the production environment secret
+`SUPABASE_MEMBER_TEMP_PASSWORD`, dispatch the workflow from `main` with the
+exact email, display name, and either `viewer` or `trainee`, then delete the
+secret immediately after a successful run. The password is never accepted as
+a workflow input, committed, uploaded as an artifact, or printed to Actions
+logs.
+
+Use `viewer` for a stable guest account and `trainee` for a participant who is
+expected to complete training and become an operator. The workflow calls the
+dedicated service-role-only `system_provision_limited_member` RPC. It rejects
+privileged roles and fails closed for an unconfirmed, unrelated, inactive,
+role-mismatched, or cross-organization identity. An idempotent replay never
+resets the password. Deliver the temporary password through a separate trusted
+channel and require the recipient to change it after the first sign-in.
+
 The workflow is intentionally serialized with `cancel-in-progress: false` so
 two pushes cannot cancel or overlap a production migration.
 
