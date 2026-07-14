@@ -3,8 +3,9 @@
 
 This utility is intentionally narrow: it accepts only protected environment
 variables, verifies the exact production project and owner relationship through
-the Supabase Management API, and then changes only the matching Auth user's
-password.  It never prints the email, password, access token, or server key.
+the Supabase Management API, and then atomically changes the matching Auth
+user's password while adding a protected one-shot marker to preserved app
+metadata. It never prints the email, password, access token, or server key.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from scripts.bootstrap_supabase_owner import (
 
 MIN_PASSWORD_LENGTH = 18
 MAX_PASSWORD_LENGTH = 128
+ONE_SHOT_MARKER = "contentengine_owner_password_reset_once_20260714"
 
 
 class OwnerPasswordResetError(RuntimeError):
@@ -41,6 +43,7 @@ class OwnerPasswordResetError(RuntimeError):
 class OwnerResetAuthority:
     user_id: str
     active_owner_membership_count: int
+    app_metadata: dict[str, Any]
 
 
 class ManagementClient(Protocol):
@@ -50,7 +53,13 @@ class ManagementClient(Protocol):
 
 
 class PasswordAuthClient(Protocol):
-    def update_password(self, *, user_id: str, password: str) -> None: ...
+    def update_password_once(
+        self,
+        *,
+        user_id: str,
+        password: str,
+        app_metadata: dict[str, Any],
+    ) -> None: ...
 
 
 def _validated_owner_password(value: str) -> str:
@@ -81,6 +90,7 @@ def read_owner_reset_authority(
 select
   auth_user.id::text as user_id,
   auth_user.email_confirmed_at is not null as email_confirmed,
+  coalesce(auth_user.raw_app_meta_data, '{{}}'::jsonb) as app_metadata,
   (
     auth_user.deleted_at is null
     and (auth_user.banned_until is null or auth_user.banned_until <= now())
@@ -128,6 +138,13 @@ limit 2
         raise OwnerPasswordResetError(
             "Exactly one active production owner membership is required"
         )
+    app_metadata = row.get("app_metadata")
+    if not isinstance(app_metadata, dict):
+        raise OwnerPasswordResetError("Supabase owner metadata was invalid")
+    if ONE_SHOT_MARKER in app_metadata:
+        raise OwnerPasswordResetError(
+            "Production owner password reset was already completed"
+        )
     try:
         user_id = _validated_uuid(row.get("user_id"))
     except OwnerBootstrapError as exc:
@@ -137,11 +154,12 @@ limit 2
     return OwnerResetAuthority(
         user_id=user_id,
         active_owner_membership_count=membership_count,
+        app_metadata=dict(app_metadata),
     )
 
 
 class SupabaseOwnerPasswordAuthClient:
-    """Minimal Auth Admin client whose only mutation is a password update."""
+    """Minimal Auth Admin client for the atomic one-shot owner reset."""
 
     def __init__(
         self,
@@ -174,15 +192,28 @@ class SupabaseOwnerPasswordAuthClient:
             headers["Authorization"] = f"Bearer {self._server_key}"
         return headers
 
-    def update_password(self, *, user_id: str, password: str) -> None:
+    def update_password_once(
+        self,
+        *,
+        user_id: str,
+        password: str,
+        app_metadata: dict[str, Any],
+    ) -> None:
         validated_user_id = _validated_uuid(user_id)
         validated_password = _validated_owner_password(password)
+        if not isinstance(app_metadata, dict) or ONE_SHOT_MARKER in app_metadata:
+            raise OwnerPasswordResetError("Supabase owner metadata was invalid")
+        marked_metadata = dict(app_metadata)
+        marked_metadata[ONE_SHOT_MARKER] = True
         payload = _http_json(
             opener=self._opener,
             url=f"{self._origin}/auth/v1/admin/users/{validated_user_id}",
             method="PUT",
             headers=self._headers,
-            payload={"password": validated_password},
+            payload={
+                "password": validated_password,
+                "app_metadata": marked_metadata,
+            },
             timeout_seconds=self._timeout_seconds,
         )
         if not isinstance(payload, dict):
@@ -213,10 +244,15 @@ def reset_owner_password(
         email=normalized_email,
     )
     server_key = management_client.get_server_key()
-    auth_client_factory(server_key).update_password(
+    auth_client_factory(server_key).update_password_once(
         user_id=authority.user_id,
         password=validated_password,
+        app_metadata=authority.app_metadata,
     )
+
+
+def _github_actions_escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def main() -> int:
@@ -234,8 +270,11 @@ def main() -> int:
                 "SUPABASE_PROJECT_REF does not match the reviewed production project"
             )
         if os.environ.get("GITHUB_ACTIONS") == "true":
-            print(f"::add-mask::{validated_password}", flush=True)
-            print(f"::add-mask::{normalized_email}", flush=True)
+            print(
+                f"::add-mask::{_github_actions_escape(validated_password)}",
+                flush=True,
+            )
+            print(f"::add-mask::{_github_actions_escape(normalized_email)}", flush=True)
 
         management_client = SupabaseManagementClient(
             project_ref=project_ref,

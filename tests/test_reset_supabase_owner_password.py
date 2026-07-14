@@ -8,8 +8,10 @@ import pytest
 import scripts.reset_supabase_owner_password as reset_module
 from scripts.bootstrap_supabase_owner import EXPECTED_PROJECT_REF
 from scripts.reset_supabase_owner_password import (
+    ONE_SHOT_MARKER,
     OwnerPasswordResetError,
     SupabaseOwnerPasswordAuthClient,
+    _github_actions_escape,
     _validated_owner_password,
     read_owner_reset_authority,
     reset_owner_password,
@@ -29,6 +31,7 @@ def _owner_row(**overrides: object) -> dict[str, object]:
         "email_confirmed": True,
         "auth_active": True,
         "active_owner_membership_count": 1,
+        "app_metadata": {"existing": "preserved"},
     }
     row.update(overrides)
     return row
@@ -51,10 +54,22 @@ class FakeManagement:
 
 class FakeAuth:
     def __init__(self) -> None:
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, object]] = []
 
-    def update_password(self, *, user_id: str, password: str) -> None:
-        self.calls.append({"user_id": user_id, "password": password})
+    def update_password_once(
+        self,
+        *,
+        user_id: str,
+        password: str,
+        app_metadata: dict[str, object],
+    ) -> None:
+        self.calls.append(
+            {
+                "user_id": user_id,
+                "password": password,
+                "app_metadata": dict(app_metadata),
+            }
+        )
 
 
 class FakeResponse:
@@ -85,7 +100,7 @@ class RecordingOpener:
         return response
 
 
-def test_reset_verifies_exact_authority_before_updating_only_password() -> None:
+def test_reset_verifies_exact_authority_before_atomic_one_shot_update() -> None:
     management = FakeManagement([_owner_row()])
     auth = FakeAuth()
     captured_keys: list[str] = []
@@ -103,7 +118,13 @@ def test_reset_verifies_exact_authority_before_updating_only_password() -> None:
 
     assert captured_keys == [SERVER_KEY]
     assert management.server_key_calls == 1
-    assert auth.calls == [{"user_id": OWNER_ID, "password": TEMP_PASSWORD}]
+    assert auth.calls == [
+        {
+            "user_id": OWNER_ID,
+            "password": TEMP_PASSWORD,
+            "app_metadata": {"existing": "preserved"},
+        }
+    ]
     assert len(management.queries) == 1
     sql, read_only = management.queries[0]
     assert read_only is True
@@ -173,6 +194,27 @@ def test_reset_rejects_unconfirmed_inactive_or_wrong_membership(
     assert auth.calls == []
 
 
+def test_reset_is_permanently_blocked_after_one_shot_marker() -> None:
+    management = FakeManagement(
+        [_owner_row(app_metadata={ONE_SHOT_MARKER: True, "existing": "preserved"})]
+    )
+    auth = FakeAuth()
+
+    with pytest.raises(
+        OwnerPasswordResetError,
+        match="password reset was already completed",
+    ):
+        reset_owner_password(
+            management_client=management,
+            auth_client_factory=lambda _: auth,
+            email=OWNER_EMAIL,
+            temporary_password=TEMP_PASSWORD,
+        )
+
+    assert management.server_key_calls == 0
+    assert auth.calls == []
+
+
 @pytest.mark.parametrize(
     "row",
     [
@@ -180,6 +222,7 @@ def test_reset_rejects_unconfirmed_inactive_or_wrong_membership(
         _owner_row(auth_active=1),
         _owner_row(active_owner_membership_count=True),
         _owner_row(active_owner_membership_count="1"),
+        _owner_row(app_metadata=[]),
         _owner_row(user_id="not-a-uuid"),
     ],
 )
@@ -221,7 +264,7 @@ def test_password_policy_accepts_boundaries_and_required_character_classes() -> 
     assert _validated_owner_password(maximum) == maximum
 
 
-def test_auth_admin_transport_sends_only_password_and_verifies_response_id() -> None:
+def test_auth_admin_transport_atomically_sets_password_and_one_shot_marker() -> None:
     opener = RecordingOpener([FakeResponse({"id": OWNER_ID})])
     client = SupabaseOwnerPasswordAuthClient(
         project_ref=EXPECTED_PROJECT_REF,
@@ -229,7 +272,11 @@ def test_auth_admin_transport_sends_only_password_and_verifies_response_id() -> 
         opener=opener,
     )
 
-    client.update_password(user_id=OWNER_ID, password=TEMP_PASSWORD)
+    client.update_password_once(
+        user_id=OWNER_ID,
+        password=TEMP_PASSWORD,
+        app_metadata={"existing": "preserved"},
+    )
 
     assert len(opener.requests) == 1
     api_request, timeout = opener.requests[0]
@@ -238,11 +285,17 @@ def test_auth_admin_transport_sends_only_password_and_verifies_response_id() -> 
     assert api_request.full_url == (
         f"https://{EXPECTED_PROJECT_REF}.supabase.co/auth/v1/admin/users/{OWNER_ID}"
     )
-    assert json.loads(api_request.data) == {"password": TEMP_PASSWORD}
+    assert json.loads(api_request.data) == {
+        "password": TEMP_PASSWORD,
+        "app_metadata": {
+            "existing": "preserved",
+            ONE_SHOT_MARKER: True,
+        },
+    }
     assert api_request.get_header("Apikey") == SERVER_KEY
     assert api_request.get_header("Authorization") is None
     assert OWNER_EMAIL not in api_request.data.decode("utf-8")
-    assert "metadata" not in api_request.data.decode("utf-8")
+    assert "user_metadata" not in api_request.data.decode("utf-8")
 
 
 def test_auth_admin_transport_rejects_an_unexpected_response_identity() -> None:
@@ -257,7 +310,11 @@ def test_auth_admin_transport_rejects_an_unexpected_response_identity() -> None:
         OwnerPasswordResetError,
         match="Supabase Auth updated an unexpected identity",
     ):
-        client.update_password(user_id=OWNER_ID, password=TEMP_PASSWORD)
+        client.update_password_once(
+            user_id=OWNER_ID,
+            password=TEMP_PASSWORD,
+            app_metadata={"existing": "preserved"},
+        )
 
 
 def test_auth_admin_transport_uses_bearer_only_for_legacy_service_role_key() -> None:
@@ -269,7 +326,11 @@ def test_auth_admin_transport_uses_bearer_only_for_legacy_service_role_key() -> 
         opener=opener,
     )
 
-    client.update_password(user_id=OWNER_ID, password=TEMP_PASSWORD)
+    client.update_password_once(
+        user_id=OWNER_ID,
+        password=TEMP_PASSWORD,
+        app_metadata={"existing": "preserved"},
+    )
 
     api_request = opener.requests[0][0]
     assert api_request.get_header("Authorization") == f"Bearer {legacy_key}"
@@ -324,6 +385,11 @@ def test_main_masks_password_and_email_in_actions_and_logs_only_masked_status(
         },
         {"email_received": True, "password_received": True},
     ]
+
+
+def test_actions_mask_escapes_workflow_command_metacharacters() -> None:
+    assert _github_actions_escape("Owner%Password42") == "Owner%25Password42"
+    assert _github_actions_escape("line\r\n") == "line%0D%0A"
 
 
 def test_main_rejects_wrong_project_before_any_client_or_network_call(

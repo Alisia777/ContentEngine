@@ -88,7 +88,7 @@ def test_owner_password_reset_uses_only_pinned_checkout_and_python_actions() -> 
     assert setup_python["with"] == {"python-version": "3.12"}
 
 
-def test_owner_password_reset_masks_secret_before_one_module_call() -> None:
+def test_owner_password_reset_delegates_validated_masking_to_one_module_call() -> None:
     job = _workflow()["jobs"]["reset-owner-password"]
     reset_step = next(
         step
@@ -104,11 +104,9 @@ def test_owner_password_reset_masks_secret_before_one_module_call() -> None:
             "${{ secrets.SUPABASE_OWNER_TEMP_PASSWORD }}"
         ),
     }
-    mask = 'echo "::add-mask::$SUPABASE_OWNER_TEMP_PASSWORD"'
     invocation = "python -m scripts.reset_supabase_owner_password"
-    assert command.count(mask) == 1
     assert command.count(invocation) == 1
-    assert command.index(mask) < command.index(invocation)
+    assert "add-mask" not in command
     assert f'[ "$SUPABASE_PROJECT_REF" != "{EXPECTED_PROJECT_REF}" ]' in command
     assert "set -x" not in command
     assert "--password" not in command
