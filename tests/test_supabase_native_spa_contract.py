@@ -317,6 +317,22 @@ def test_login_and_reset_capture_values_before_disabling_form_controls() -> None
     assert feedback.index("new FormData(form)") < feedback.index("setFormBusy(form, true")
 
 
+def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None:
+    app = _text("app.js")
+    index = _text("index.html")
+    reset_start = app.index("async function submitReset(form)")
+    reset_end = app.index("async function submitPassword(form)", reset_start)
+    reset = app[reset_start:reset_end]
+
+    assert "AUTH_REQUEST_TIMEOUT_MS = 15_000" in app
+    assert "await withUiTimeout(" in reset
+    assert "Сервер восстановления не ответил за 15 секунд" in reset
+    assert "finally" in reset
+    assert "if (form.isConnected) setFormBusy(form, false)" in reset
+    assert "Promise.race([operation, timeout])" in app
+    assert './app.js?v=20260714.2' in index
+
+
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:
     catalog = _text("catalog.js")
     app = _text("app.js")
