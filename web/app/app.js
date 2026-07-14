@@ -12,7 +12,30 @@ const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
 const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
 const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
-const REAL_SPEND_CONFIRMATION = "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+const REAL_GEN4_MODE = "real_gen4";
+const REAL_SEEDANCE_MODE = "real_seedance";
+const REAL_GENERATION_SKUS = Object.freeze({
+  [REAL_GEN4_MODE]: Object.freeze({
+    model: "gen4_turbo",
+    durationSeconds: 5,
+    audio: false,
+    format: null,
+    estimatedCredits: 25,
+    estimatedUsd: "0.25",
+    confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25",
+    label: "Runway gen4_turbo · 5 секунд · без голоса · ≈ 25 credits / $0.25",
+  }),
+  [REAL_SEEDANCE_MODE]: Object.freeze({
+    model: "seedance2_fast",
+    durationSeconds: 8,
+    audio: true,
+    format: "9:16",
+    estimatedCredits: 232,
+    estimatedUsd: "2.32",
+    confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
+    label: "Блогер + голос · 8 секунд · ≈ 232 credits / $2.32",
+  }),
+});
 const MEMBERSHIP_LOCK_COPY = Object.freeze({
   membership_suspended: Object.freeze({
     title: "Доступ приостановлен",
@@ -1036,13 +1059,23 @@ async function hydratePrivateMedia(data) {
   return data;
 }
 
+function realGenerationSku(mode) {
+  return REAL_GENERATION_SKUS[String(mode || "")] || null;
+}
+
+function isRealGenerationMode(mode) {
+  return realGenerationSku(mode) !== null;
+}
+
 function renderGenerationSection(sectionState) {
   const data = sectionState.data || {};
   const batches = listFrom(data, "batches");
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
-  const defaultMode = MOCK_GENERATION_ENABLED ? "mock" : "real";
+  const defaultMode = MOCK_GENERATION_ENABLED ? "mock" : REAL_SEEDANCE_MODE;
+  const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
+  const defaultIsReal = isRealGenerationMode(defaultMode);
   const canManageAliases = ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
@@ -1076,20 +1109,24 @@ function renderGenerationSection(sectionState) {
         <section class="card card-pad">
           <p class="eyebrow">Одно следующее действие</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
-          <p class="muted tiny">Mock создаёт до ${MAX_MOCK_BATCH_SIZE} dry-run вариантов без списаний. Платный режим создаёт ровно один 5-секундный ролик Runway gen4_turbo.</p>
+          <p class="muted tiny">Mock создаёт до ${MAX_MOCK_BATCH_SIZE} dry-run вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с аудио.</p>
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
             <label class="field">
               <span>Режим генерации *</span>
               <select id="generation-mode" name="generation_mode" required>
                 ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Mock · dry-run · 0 ₽</option>` : ""}
-                ${REAL_GENERATION_ENABLED ? `<option value="real" ${defaultMode === "real" ? "selected" : ""}>Runway gen4_turbo · 5 секунд · 1 видео · ≈ 25 credits / $0.25</option>` : ""}
+                ${REAL_GENERATION_ENABLED ? `
+                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}</option>
+                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}</option>
+                ` : ""}
               </select>
             </label>
-            <div id="real-generation-confirmation" ${defaultMode === "real" ? "" : "hidden"}>
-              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Платный запуск: ориентировочно 25 credits / $0.25. Итог зависит от тарифа провайдера.</span></div>
+            <div id="real-generation-confirmation" ${defaultIsReal ? "" : "hidden"}>
+              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Платный запуск: ориентировочно ${defaultRealSku.estimatedCredits} credits / $${defaultRealSku.estimatedUsd}. Итог зависит от тарифа провайдера.</span></div>
+              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Runway создаёт аудио по текстовому запросу, но не гарантирует дословную русскую реплику. Проверьте результат перед публикацией." : "Этот режим создаёт видео без сгенерированной речи."}</p>
               <label class="option" style="margin-top:10px">
-                <input type="checkbox" name="real_spend_confirmation" value="${REAL_SPEND_CONFIRMATION}" ${defaultMode === "real" ? "required" : ""} />
-                <span><strong>Подтверждаю один платный запуск Runway</strong><br /><small class="muted">gen4_turbo · 5 секунд · ровно одно видео · до $0.25</small></span>
+                <input type="checkbox" name="real_spend_confirmation" value="${defaultRealSku.confirmation}" ${defaultIsReal ? "required" : ""} />
+                <span><strong>Подтверждаю один платный запуск Runway</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.model} · ${defaultRealSku.durationSeconds} секунд · ровно одно видео · около $${defaultRealSku.estimatedUsd}</small></span>
               </label>
             </div>
             <label class="field">
@@ -1130,8 +1167,8 @@ function renderGenerationSection(sectionState) {
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
               <label class="field">
                 <span>Количество</span>
-                <input name="count" type="number" min="1" max="${defaultMode === "real" ? 1 : MAX_MOCK_BATCH_SIZE}" value="${defaultMode === "real" ? 1 : 5}" ${defaultMode === "real" ? "readonly" : ""} required />
-                <small id="generation-count-hint" class="field-hint">${defaultMode === "real" ? "Платный режим всегда создаёт ровно одно видео." : `Mock: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
+                <input name="count" type="number" min="1" max="${defaultIsReal ? 1 : MAX_MOCK_BATCH_SIZE}" value="${defaultIsReal ? 1 : 5}" ${defaultIsReal ? "readonly" : ""} required />
+                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? "Платный режим всегда создаёт ровно одно видео." : `Mock: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
               </label>
               <label class="field">
                 <span>Формат</span>
@@ -1140,23 +1177,24 @@ function renderGenerationSection(sectionState) {
             </div>
             <label class="field">
               <span>Что должен понять зритель</span>
-              <textarea name="brief" maxlength="1200" ${defaultMode === "real" ? "required" : ""} placeholder="Одна главная мысль, безопасное обещание и действие после просмотра"></textarea>
+              <textarea name="brief" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Опишите блогера, точный товар, сцену и дословную реплику"></textarea>
+              <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Перед оплатой вставьте сценарий именно выбранного товара и проверьте дословную реплику." : "Для платного режима опишите один ролик без неподтверждённых обещаний."}</small>
             </label>
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
                 <legend class="field-label">Точное фото товара *</legend>
-                <p id="generation-media-hint" class="muted tiny">${defaultMode === "real" ? "Для платного запуска выберите ровно один исходник." : "Для mock можно выбрать один или несколько исходников."}</p>
+                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для mock можно выбрать один или несколько исходников."}</p>
                 <div class="option-list" style="margin-top:8px">
                   ${exactMedia.slice(0, 8).map((item) => `
                     <label class="option">
-                      <input type="${defaultMode === "real" ? "radio" : "checkbox"}" name="media_id" value="${escapeHtml(item.public_id || item.id)}" />
+                      <input type="${defaultIsReal ? "radio" : "checkbox"}" name="media_id" value="${escapeHtml(item.public_id || item.id)}" />
                       <span><strong>${escapeHtml(item.original_filename || item.name || "Файл")}</strong><br /><small class="muted">${escapeHtml(item.kind || item.mime_type || "исходник")}</small></span>
                     </label>
                   `).join("")}
                 </div>
               </fieldset>
             ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или packshot в <a href="#/workspace/media">Медиатеку</a>. Без исходника запуск недоступен.</span></div>`}
-            <button id="generation-submit" class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>${defaultMode === "real" ? "Запустить 1 платное видео · до $0.25" : "Подготовить dry-run batch"}</button>
+            <button id="generation-submit" class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>${defaultIsReal ? `Запустить 1 платное видео · около $${defaultRealSku.estimatedUsd}` : "Подготовить dry-run batch"}</button>
           </form>
         </section>
 
@@ -1197,6 +1235,10 @@ function generationTable(items) {
       <tbody>${items.map((item) => {
         const parameters = item.parameters && typeof item.parameters === "object" ? item.parameters : {};
         const real = String(item.mode || parameters.mode || "mock").toLowerCase() === "real";
+        const model = String(item.model || parameters.model || "gen4_turbo");
+        const duration = Number(item.duration_seconds || parameters.duration_seconds || 5);
+        const audio = normalizeBoolean(item.audio ?? parameters.audio);
+        const realLabel = `Runway · ${model} · ${duration}s${audio ? " · audio" : ""} · paid`;
         const jobId = real ? String(parameters.job_id || "") : "";
         const status = String(item.status || parameters.job_status || "queued");
         const realAction = jobId
@@ -1204,7 +1246,7 @@ function generationTable(items) {
           : "";
         return `
           <tr>
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${real ? "Runway · gen4_turbo · 5s · paid" : "mock · dry-run"}</small></td>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${real ? escapeHtml(realLabel) : "mock · dry-run"}</small></td>
             <td>${escapeHtml(item.sku || parameters.sku || "—")}</td>
             <td>${formatNumber(item.total_requested ?? item.count ?? (real ? 1 : 0))}</td>
             <td>${formatNumber(item.total_accepted ?? item.completed ?? 0)}</td>
@@ -1853,14 +1895,21 @@ function showSelectedFile(file) {
 
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
-  const real = mode === "real";
+  const sku = realGenerationSku(mode);
+  const real = sku !== null;
+  const seedance = mode === REAL_SEEDANCE_MODE;
   const count = form.elements.count;
   const brief = form.elements.brief;
+  const format = form.elements.format;
   const confirmation = form.querySelector("#real-generation-confirmation");
   const confirmationInput = form.elements.real_spend_confirmation;
   const submit = form.querySelector("#generation-submit");
   const countHint = form.querySelector("#generation-count-hint");
   const mediaHint = form.querySelector("#generation-media-hint");
+  const price = form.querySelector("#real-generation-price");
+  const note = form.querySelector("#real-generation-note");
+  const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
+  const briefHint = form.querySelector("#generation-brief-hint");
 
   if (count) {
     if (real) {
@@ -1874,11 +1923,22 @@ function syncGenerationModeForm(form) {
       count.value = count.dataset.mockCount || count.value || "5";
     }
   }
-  if (brief) brief.required = real;
+  if (brief) {
+    brief.required = real;
+  }
+  if (format) {
+    format.disabled = Boolean(sku?.format);
+    if (sku?.format) format.value = sku.format;
+  }
   if (confirmation) confirmation.hidden = !real;
   if (confirmationInput) {
     confirmationInput.required = real;
-    if (!real) confirmationInput.checked = false;
+    if (!real) {
+      confirmationInput.checked = false;
+    } else if (confirmationInput.value !== sku.confirmation) {
+      confirmationInput.value = sku.confirmation;
+      confirmationInput.checked = false;
+    }
   }
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
     input.type = real ? "radio" : "checkbox";
@@ -1893,18 +1953,34 @@ function syncGenerationModeForm(form) {
       ? "Для платного запуска выберите ровно один исходник."
       : "Для mock можно выбрать один или несколько исходников.";
   }
+  if (price && sku) {
+    price.textContent = `Платный запуск: ориентировочно ${sku.estimatedCredits} credits / $${sku.estimatedUsd}. Итог зависит от тарифа провайдера.`;
+  }
+  if (note && sku) {
+    note.textContent = seedance
+      ? "Runway создаёт аудио по текстовому запросу, но не гарантирует дословную русскую реплику. Проверьте результат перед публикацией."
+      : "Этот режим создаёт видео без сгенерированной речи.";
+  }
+  if (confirmationCopy && sku) {
+    confirmationCopy.textContent = `${sku.model} · ${sku.durationSeconds} секунд · ровно одно видео · около $${sku.estimatedUsd}`;
+  }
+  if (briefHint) {
+    briefHint.textContent = seedance
+      ? "Перед оплатой вставьте сценарий именно выбранного товара и проверьте дословную реплику."
+      : "Для платного режима опишите один ролик без неподтверждённых обещаний.";
+  }
   if (submit) {
     submit.textContent = real
-      ? "Запустить 1 платное видео · до $0.25"
+      ? `Запустить 1 платное видео · около $${sku.estimatedUsd}`
       : "Подготовить dry-run batch";
   }
 }
 
 async function submitLogin(form) {
-  setFormBusy(form, true, "Проверяем…");
   const values = new FormData(form);
   const email = String(values.get("email") || "").trim();
   const password = String(values.get("password") || "");
+  setFormBusy(form, true, "Проверяем…");
   try {
     const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -1923,8 +1999,8 @@ async function submitLogin(form) {
 }
 
 async function submitReset(form) {
-  setFormBusy(form, true, "Отправляем…");
   const email = String(new FormData(form).get("email") || "").trim();
+  setFormBusy(form, true, "Отправляем…");
   try {
     const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
       redirectTo: authRedirectUrl("recovery"),
@@ -2016,16 +2092,21 @@ async function submitExam(form) {
 async function submitGenerationBatch(form) {
   const values = new FormData(form);
   const mode = String(values.get("generation_mode") || "mock");
-  if (mode === "real") {
-    await submitRealGeneration(form, values);
+  if (isRealGenerationMode(mode)) {
+    await submitRealGeneration(form, values, mode);
     return;
   }
   await submitMockBatch(form, values);
 }
 
-async function submitRealGeneration(form, values) {
+async function submitRealGeneration(form, values, mode) {
   if (!REAL_GENERATION_ENABLED) {
     toast("Платная генерация выключена в конфигурации портала.", "error");
+    return;
+  }
+  const generationSku = realGenerationSku(mode);
+  if (!generationSku) {
+    toast("Выберите точный платный режим генерации.", "error");
     return;
   }
   const mediaIds = values.getAll("media_id").map(String);
@@ -2042,8 +2123,8 @@ async function submitRealGeneration(form, values) {
     toast("Для Runway укажите одну главную мысль ролика.", "error");
     return;
   }
-  if (values.get("real_spend_confirmation") !== REAL_SPEND_CONFIRMATION) {
-    toast("Подтвердите платный запуск Runway до $0.25.", "error");
+  if (values.get("real_spend_confirmation") !== generationSku.confirmation) {
+    toast(`Подтвердите один платный запуск Runway около $${generationSku.estimatedUsd}.`, "error");
     return;
   }
   const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
@@ -2056,11 +2137,14 @@ async function submitRealGeneration(form, values) {
     sku: String(values.get("sku") || "").trim(),
     product_name: String(values.get("product_name") || "").trim(),
     count: 1,
-    format: String(values.get("format") || "9:16"),
+    format: generationSku.format || String(values.get("format") || "9:16"),
     brief,
     media_ids: mediaIds,
     platform: String(values.get("platform") || "").trim(),
     destination_ref: String(values.get("destination_ref") || "").trim(),
+    model: generationSku.model,
+    duration_seconds: generationSku.durationSeconds,
+    audio: generationSku.audio,
     spend_confirmation: String(values.get("real_spend_confirmation") || ""),
     ...(canManageTeam()
       ? {
@@ -2070,15 +2154,16 @@ async function submitRealGeneration(form, values) {
       : {}),
   };
 
-  setFormBusy(form, true, "Запускаем 1 видео Runway…");
+  setFormBusy(form, true, `Запускаем 1 видео Runway · ${generationSku.durationSeconds} секунд…`);
   try {
     const result = await state.api.startRealGeneration(payload);
     if (!result?.job?.id) throw new Error("Runway принял запрос без номера задачи. Обновите очередь.");
     await track("real_generation_started", {
       provider: "runway",
-      model: "gen4_turbo",
-      duration_seconds: 5,
-      estimated_credits: 25,
+      model: generationSku.model,
+      duration_seconds: generationSku.durationSeconds,
+      audio: generationSku.audio,
+      estimated_credits: generationSku.estimatedCredits,
       format: payload.format,
       platform: payload.platform,
       has_media: true,
@@ -2088,7 +2173,7 @@ async function submitRealGeneration(form, values) {
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
-    toast("Платный запуск принят: 1 видео Runway gen4_turbo, 5 секунд, ориентировочно до $0.25.", "success");
+    toast(`Платный запуск принят: 1 видео Runway ${generationSku.model}, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}.`, "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
@@ -2316,8 +2401,8 @@ async function submitPlacement(form) {
 }
 
 async function submitFeedback(form) {
-  setFormBusy(form, true, "Отправляем…");
   const values = new FormData(form);
+  setFormBusy(form, true, "Отправляем…");
   try {
     await state.api.createFeedback({
       category: String(values.get("category") || "other"),

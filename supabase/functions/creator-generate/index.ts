@@ -11,12 +11,14 @@ const MAX_OUTPUT_BYTES = 52_428_800;
 const INPUT_URL_TTL_SECONDS = 3_600;
 const OUTPUT_URL_TTL_SECONDS = 300;
 const PROVIDER_TIMEOUT_MS = 20_000;
+const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;
 const OUTPUT_TIMEOUT_MS = 120_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
-const RUNWAY_RATIOS = new Set(["1280:720", "720:1280", "960:960"]);
+const GEN4_RATIOS = new Set(["1280:720", "720:1280", "960:960"]);
+const SEEDANCE_FAST_RATIO = "720:1280";
 const DEFINITIVE_CREATE_HTTP_STATUSES = new Set([
   400,
   401,
@@ -80,7 +82,7 @@ type ContentEngineDatabase = {
   };
 };
 
-type StartPayload = {
+type CommonStartPayload = {
   action: "start";
   organization_id: string;
   idempotency_key: string;
@@ -102,11 +104,26 @@ type StartPayload = {
   payout_minor?: number;
   mode: "real";
   provider: "runway";
-  model: "gen4_turbo";
-  duration_seconds: 5;
   allow_real_spend: true;
-  spend_confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25";
 };
+
+type StartPayload =
+  & CommonStartPayload
+  & (
+    | {
+      model: "gen4_turbo";
+      duration_seconds: 5;
+      audio?: false;
+      spend_confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+    }
+    | {
+      model: "seedance2_fast";
+      duration_seconds: 8;
+      audio: true;
+      format: "9:16";
+      spend_confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32";
+    }
+  );
 
 type StatusPayload = {
   action: "status";
@@ -119,13 +136,15 @@ type StartJob = {
   batchId: string;
   status: string;
   provider: "runway";
-  model: "gen4_turbo";
-  durationSeconds: 5;
+  model: "gen4_turbo" | "seedance2_fast";
+  durationSeconds: 5 | 8;
+  audio: boolean;
   ratio: string;
   promptText: string;
   inputObjectName: string;
   outputObjectName: string;
   estimatedCostMinor: number;
+  estimatedCredits: number;
 };
 
 type StatusJob = {
@@ -134,10 +153,12 @@ type StatusJob = {
   status: string;
   provider: "runway";
   providerTaskId: string | null;
-  model: "gen4_turbo";
-  durationSeconds: 5;
+  model: "gen4_turbo" | "seedance2_fast";
+  durationSeconds: 5 | 8;
+  audio: boolean;
   ratio: string;
   estimatedCostMinor: number;
+  estimatedCredits: number;
   actualCostMinor: number | null;
   outputObjectName: string;
   outputMediaId: string | null;
@@ -151,10 +172,12 @@ type SafeJob = {
   status: string;
   provider: "runway";
   provider_task_id: string | null;
-  model: "gen4_turbo";
-  duration_seconds: 5;
+  model: "gen4_turbo" | "seedance2_fast";
+  duration_seconds: 5 | 8;
+  audio: boolean;
   ratio: string;
   estimated_cost_minor: number;
+  estimated_credits: number;
   actual_cost_minor: number | null;
   output_object_name: string;
   output_media_id: string | null;
@@ -267,11 +290,25 @@ function readStartPayload(value: unknown): StartPayload | null {
     "allow_real_spend",
     "spend_confirmation",
   ]);
-  const allowed = new Set([...required, "assignee_id", "payout_minor"]);
+  const allowed = new Set([
+    ...required,
+    "audio",
+    "assignee_id",
+    "payout_minor",
+  ]);
   if (!hasOnlyKeys(value, allowed)) return null;
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
 
   const mediaIds = value.media_ids;
+  const gen4Sku = value.model === "gen4_turbo" &&
+    value.duration_seconds === 5 &&
+    (!Object.hasOwn(value, "audio") || value.audio === false) &&
+    value.spend_confirmation === "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+  const seedanceSku = value.model === "seedance2_fast" &&
+    value.duration_seconds === 8 && value.audio === true &&
+    value.format === "9:16" &&
+    value.spend_confirmation ===
+      "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32";
   if (
     !Array.isArray(mediaIds) || mediaIds.length !== 1 ||
     !isUuid(mediaIds[0])
@@ -296,13 +333,11 @@ function readStartPayload(value: unknown): StartPayload | null {
     !isBoundedText(value.product_name, 2, 180) ||
     value.count !== 1 ||
     typeof value.format !== "string" || !formats.has(value.format) ||
-    !isBoundedText(value.brief, 0, 1_200) ||
+    !isBoundedText(value.brief, 1, 1_200) ||
     typeof value.platform !== "string" || !platforms.has(value.platform) ||
     !isBoundedText(value.destination_ref, 2, 240) ||
     value.mode !== "real" || value.provider !== "runway" ||
-    value.model !== "gen4_turbo" || value.duration_seconds !== 5 ||
-    value.allow_real_spend !== true ||
-    value.spend_confirmation !== "RUNWAY_GEN4_TURBO_5S_USD_0.25"
+    value.allow_real_spend !== true || (!gen4Sku && !seedanceSku)
   ) {
     return null;
   }
@@ -338,22 +373,62 @@ function rpcPayload(payload: StartPayload | StatusPayload): Json {
   return rest as Json;
 }
 
+function readRunwaySku(job: Record<string, unknown>): {
+  model: "gen4_turbo" | "seedance2_fast";
+  durationSeconds: 5 | 8;
+  audio: boolean;
+  ratio: string;
+  estimatedCostMinor: number;
+  estimatedCredits: number;
+} | null {
+  if (
+    job.model === "gen4_turbo" && job.duration_seconds === 5 &&
+    job.audio === false && typeof job.ratio === "string" &&
+    GEN4_RATIOS.has(job.ratio) && job.estimated_cost_minor === 25 &&
+    job.estimated_credits === 25
+  ) {
+    return {
+      model: "gen4_turbo",
+      durationSeconds: 5,
+      audio: false,
+      ratio: job.ratio,
+      estimatedCostMinor: 25,
+      estimatedCredits: 25,
+    };
+  }
+  if (
+    job.model === "seedance2_fast" && job.duration_seconds === 8 &&
+    job.audio === true && job.ratio === SEEDANCE_FAST_RATIO &&
+    job.estimated_cost_minor === 232 && job.estimated_credits === 232
+  ) {
+    return {
+      model: "seedance2_fast",
+      durationSeconds: 8,
+      audio: true,
+      ratio: SEEDANCE_FAST_RATIO,
+      estimatedCostMinor: 232,
+      estimatedCredits: 232,
+    };
+  }
+  return null;
+}
+
 function readStartJob(value: unknown): StartJob | null {
   if (!isRecord(value)) return null;
   const batch = value.batch;
   const job = value.job;
   if (value.ok !== true || !isRecord(batch) || !isRecord(job)) return null;
   if (!isUuid(batch.id) || typeof batch.status !== "string") return null;
+  const sku = readRunwaySku(job);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) || job.batch_id !== batch.id ||
     typeof job.status !== "string" || !JOB_STATUSES.has(job.status) ||
-    job.provider !== "runway" || job.model !== "gen4_turbo" ||
-    job.duration_seconds !== 5 || typeof job.ratio !== "string" ||
-    !RUNWAY_RATIOS.has(job.ratio) ||
+    job.provider !== "runway" || sku === null ||
     !isBoundedText(job.prompt_text, 1, 1_200) ||
     !isObjectName(job.input_object_name) ||
     !isObjectName(job.output_object_name) ||
-    !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000)
+    !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000) ||
+    !isIntegerInRange(job.estimated_credits, 0, 1_000_000)
   ) {
     return null;
   }
@@ -362,13 +437,15 @@ function readStartJob(value: unknown): StartJob | null {
     batchId: job.batch_id,
     status: job.status,
     provider: "runway",
-    model: "gen4_turbo",
-    durationSeconds: 5,
-    ratio: job.ratio,
+    model: sku.model,
+    durationSeconds: sku.durationSeconds,
+    audio: sku.audio,
+    ratio: sku.ratio,
     promptText: job.prompt_text,
     inputObjectName: job.input_object_name,
     outputObjectName: job.output_object_name,
-    estimatedCostMinor: job.estimated_cost_minor,
+    estimatedCostMinor: sku.estimatedCostMinor,
+    estimatedCredits: sku.estimatedCredits,
   };
 }
 
@@ -381,14 +458,14 @@ function readStatusJob(value: unknown): StatusJob | null {
   const actualCostMinor = job.actual_cost_minor;
   const outputMediaId = job.output_media_id;
   const failureCode = job.failure_code;
+  const sku = readRunwaySku(job);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) ||
     typeof job.status !== "string" || !JOB_STATUSES.has(job.status) ||
-    job.provider !== "runway" ||
+    job.provider !== "runway" || sku === null ||
     (providerTaskId !== null && !isValidTaskId(providerTaskId)) ||
-    job.model !== "gen4_turbo" || job.duration_seconds !== 5 ||
-    typeof job.ratio !== "string" || !RUNWAY_RATIOS.has(job.ratio) ||
     !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000) ||
+    !isIntegerInRange(job.estimated_credits, 0, 1_000_000) ||
     (actualCostMinor !== null &&
       !isIntegerInRange(actualCostMinor, 0, 1_000_000)) ||
     !isObjectName(job.output_object_name) ||
@@ -406,10 +483,12 @@ function readStatusJob(value: unknown): StatusJob | null {
     status: job.status,
     provider: "runway",
     providerTaskId,
-    model: "gen4_turbo",
-    durationSeconds: 5,
-    ratio: job.ratio,
-    estimatedCostMinor: job.estimated_cost_minor,
+    model: sku.model,
+    durationSeconds: sku.durationSeconds,
+    audio: sku.audio,
+    ratio: sku.ratio,
+    estimatedCostMinor: sku.estimatedCostMinor,
+    estimatedCredits: sku.estimatedCredits,
     actualCostMinor,
     outputObjectName: job.output_object_name,
     outputMediaId,
@@ -427,8 +506,10 @@ function safeJob(job: StatusJob): SafeJob {
     provider_task_id: job.providerTaskId,
     model: job.model,
     duration_seconds: job.durationSeconds,
+    audio: job.audio,
     ratio: job.ratio,
     estimated_cost_minor: job.estimatedCostMinor,
+    estimated_credits: job.estimatedCredits,
     actual_cost_minor: job.actualCostMinor,
     output_object_name: job.outputObjectName,
     output_media_id: job.outputMediaId,
@@ -791,6 +872,15 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
         batch,
       );
     }
+    if (
+      Date.now() - Date.parse(current.updatedAt) < MIN_PROVIDER_POLL_INTERVAL_MS
+    ) {
+      return json(request, {
+        ok: true,
+        ...(batch ? { batch } : {}),
+        job: safeJob(current),
+      });
+    }
     const secret = runwaySecret();
     if (secret === null) {
       return json(request, {
@@ -1118,6 +1208,23 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     );
   }
 
+  const providerRequestBody = startJob.model === "seedance2_fast"
+    ? {
+      model: startJob.model,
+      duration: startJob.durationSeconds,
+      ratio: startJob.ratio,
+      promptText: startJob.promptText,
+      promptImage: [{ uri: signedInputUrl }],
+      audio: true,
+    }
+    : {
+      model: startJob.model,
+      duration: startJob.durationSeconds,
+      ratio: startJob.ratio,
+      promptText: startJob.promptText,
+      promptImage: signedInputUrl,
+    };
+
   let createResponse: Response;
   try {
     createResponse = await fetchWithTimeout(
@@ -1130,13 +1237,7 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
           "content-type": "application/json",
           "x-runway-version": RUNWAY_API_VERSION,
         },
-        body: JSON.stringify({
-          model: startJob.model,
-          duration: startJob.durationSeconds,
-          ratio: startJob.ratio,
-          promptText: startJob.promptText,
-          promptImage: signedInputUrl,
-        }),
+        body: JSON.stringify(providerRequestBody),
       },
       PROVIDER_TIMEOUT_MS,
     );

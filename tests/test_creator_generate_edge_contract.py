@@ -43,10 +43,14 @@ def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> 
     for marker in (
         'value.mode !== "real"',
         'value.provider !== "runway"',
-        'value.model !== "gen4_turbo"',
-        'value.duration_seconds !== 5',
+        'value.model === "gen4_turbo"',
+        'value.duration_seconds === 5',
+        'value.model === "seedance2_fast"',
+        'value.duration_seconds === 8',
+        'value.audio === true',
         'value.allow_real_spend !== true',
         'RUNWAY_GEN4_TURBO_5S_USD_0.25',
+        'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32',
         '"creator_start_real_generation"',
         '"creator_real_generation_status"',
         '"system_update_real_generation"',
@@ -89,7 +93,11 @@ def test_runway_request_and_polling_are_fixed_to_reviewed_contract() -> None:
     assert 'ratio: startJob.ratio' in source
     assert 'promptText: startJob.promptText' in source
     assert 'promptImage: signedInputUrl' in source
+    assert 'promptImage: [{ uri: signedInputUrl }]' in source
+    assert 'audio: true' in source
     assert '`${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`' in source
+    assert "const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;" in source
+    assert "Date.now() - Date.parse(current.updatedAt) < MIN_PROVIDER_POLL_INTERVAL_MS" in source
     for status in (
         "PENDING",
         "THROTTLED",
