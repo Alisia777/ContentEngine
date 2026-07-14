@@ -688,6 +688,13 @@ begin
     return result;
   end if;
 
+  -- Preserve fail-closed membership and account states from the reviewed
+  -- bootstrap implementation. The refreshed course gate may narrow an active
+  -- learning/workspace session, but must never reopen or relabel a locked one.
+  if coalesce(result ->> 'state', '') not in ('learning', 'workspace') then
+    return result;
+  end if;
+
   user_id := content_factory_private.current_profile_id();
   organization_id := (result #>> '{organization,id}')::uuid;
 

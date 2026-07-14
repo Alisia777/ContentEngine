@@ -248,6 +248,19 @@ def test_preserved_exam_does_not_claim_a_locked_workspace_is_ready() -> None:
     assert '${examPassed ? "допуск получен"' not in learning_home
 
 
+def test_bootstrap_course_wrapper_preserves_fail_closed_membership_states() -> None:
+    _, body = _function("creator_bootstrap")
+    membership_guard = body.index(
+        "coalesce(result ->> 'state', '') not in ('learning', 'workspace')"
+    )
+    course_override = body.index(
+        "result := jsonb_set(result, '{state}', '\"learning\"'::jsonb, true)"
+    )
+
+    assert membership_guard < course_override
+    assert "return result;" in body[membership_guard:course_override]
+
+
 def test_complete_module_requires_a_valid_passed_server_attempt() -> None:
     header, body = _function("creator_complete_module")
 
