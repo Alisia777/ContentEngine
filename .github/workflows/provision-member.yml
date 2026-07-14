@@ -73,7 +73,7 @@ jobs:
           MEMBER_DISPLAY_NAME: ${{ inputs.display_name }}
           MEMBER_ROLE: ${{ inputs.role }}
         run: >-
-          python scripts/provision_supabase_member.py
+          python -m scripts.provision_supabase_member
           --email="$MEMBER_EMAIL"
           --display-name="$MEMBER_DISPLAY_NAME"
           --role="$MEMBER_ROLE"

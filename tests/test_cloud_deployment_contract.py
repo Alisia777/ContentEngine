@@ -84,7 +84,7 @@ def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() ->
     assert workflow["permissions"] == {"contents": "read"}
     assert job["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
     assert "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}" in source
-    assert "python scripts/provision_supabase_member.py" in source
+    assert "python -m scripts.provision_supabase_member" in source
     assert "--email=\"$MEMBER_EMAIL\"" in source
     assert "--display-name=\"$MEMBER_DISPLAY_NAME\"" in source
     assert "--role=\"$MEMBER_ROLE\"" in source
