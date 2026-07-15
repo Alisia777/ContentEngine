@@ -1,5 +1,7 @@
 from pathlib import Path
+import json
 import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +24,32 @@ def _between(source: str, start: str, end: str) -> str:
 def _workspace_tab_keys() -> list[str]:
     block = _between(CATALOG, "export const WORKSPACE_TABS", "]);",)
     return re.findall(r'\[\s*"([a-z]+)"\s*,', block)
+
+
+def _run_home_next_action(payload: dict) -> dict:
+    functions = "\n".join(
+        (
+            _between(APP, "function isActionablePlacement", "function isCompletedPlacement"),
+            _between(APP, "function isCompletedPlacement", "function isAutomaticGenerationWait"),
+            _between(APP, "function isAutomaticGenerationWait", "function homeNextAction"),
+            _between(APP, "function homeNextAction", "function renderHomeSection"),
+        )
+    )
+    script = f"""
+import fs from "node:fs";
+{functions}
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+process.stdout.write(JSON.stringify(homeNextAction(payload)));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        input=json.dumps(payload),
+        capture_output=True,
+        check=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return json.loads(result.stdout)
 
 
 def test_workspace_opens_on_a_dedicated_today_home() -> None:
@@ -75,6 +103,117 @@ def test_home_and_section_headers_share_the_premium_flow_language() -> None:
         ".home-flow-list",
     ):
         assert selector in STYLES
+
+
+def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
+    metadata = _between(APP, "const WORKSPACE_SECTION_META", "const COURSE_VISUAL_EXAMPLES")
+    direction = _between(APP, "function workspaceDirectionMarkup", "function pageHeader")
+    header = _between(APP, "function pageHeader", "function factoryFlowMarkup")
+
+    for key in EXPECTED_FLOW:
+        block = _between(metadata, f"  {key}: Object.freeze({{", "  }),")
+        for field in ("now", "done", "guard", "nextLabel", "nextHref", "guideHref"):
+            assert f"{field}:" in block
+
+    assert "Сделайте сейчас" in direction
+    assert "Готово, когда" in direction
+    assert "Стоп-правило" in direction
+    assert "Когда закончите" in direction
+    assert 'aria-label="Что делать в этом разделе"' in direction
+    assert "workspaceDirectionMarkup(meta)" in header
+    assert 'meta.guideHref || "#/learn"' in header
+
+    for selector in (
+        ".workspace-direction",
+        ".workspace-direction-steps",
+        ".workspace-direction-footer",
+        ".direction-next-link",
+    ):
+        assert selector in STYLES
+
+
+def test_navigation_is_grouped_and_factory_steps_are_numbered() -> None:
+    nav_link = _between(APP, "function workspaceNavLinkMarkup", "function workspaceScaffold")
+    scaffold = _between(APP, "function workspaceScaffold", "function canManageTeam")
+    mobile = _between(APP, "function mobileNavMarkup", "async function loadSection")
+
+    assert "FACTORY_FLOW.find" in nav_link
+    assert '"nav-stage-number"' in nav_link
+    assert 'class="nav-link-copy"' in nav_link
+    assert "workspaceNavLinkMarkup" in scaffold
+    assert "Знания" in scaffold
+    assert "Производство · 01–06" in mobile
+    assert "Знания" in mobile
+    assert ".nav-link-stage" in STYLES
+    assert ".nav-stage-number" in STYLES
+
+
+def test_home_action_closes_the_loop_through_metrics_and_payouts() -> None:
+    home = _between(APP, "function homeNextAction", "function renderHomeSection")
+    rendered_home = _between(APP, "function renderHomeSection", "function realGenerationSku")
+
+    assert "publications" in home
+    assert "payouts" in home
+    assert 'href: "#/workspace/stats"' in home
+    assert 'href: "#/workspace/payouts"' in home
+    assert "doneWhen" in home
+    assert "nextHint" in home
+    assert 'class="home-next-action-proof"' in rendered_home
+    assert "Готово, когда" in rendered_home
+    assert ".home-next-action-proof" in STYLES
+
+
+def test_home_action_routes_from_publication_to_metrics_then_payout() -> None:
+    base = {
+        "media": [{"id": "media-1"}],
+        "batches": [],
+        "tasks": [],
+        "placements": [{"id": "placement-1", "status": "published"}],
+        "publications": [
+            {
+                "placement_id": "placement-1",
+                "status": "published",
+                "observed_at": None,
+            }
+        ],
+        "payouts": [],
+    }
+
+    assert _run_home_next_action(base)["href"] == "#/workspace/stats"
+
+    with_metric_and_payout = {
+        **base,
+        "publications": [
+            {
+                "placement_id": "placement-1",
+                "status": "published",
+                "observed_at": "2026-07-15T12:00:00Z",
+            }
+        ],
+        "payouts": [{"id": "payout-1", "status": "pending"}],
+    }
+
+    assert _run_home_next_action(with_metric_and_payout)["href"] == "#/workspace/payouts"
+
+
+def test_learning_home_has_one_explicit_mandatory_next_step() -> None:
+    learning = _between(APP, "function renderLearningHome", "function renderAccountLaunch")
+
+    assert 'class="card learning-now"' in learning
+    assert "Один обязательный шаг" in learning
+    assert "Завершите только этот блок" in learning
+    assert 'href="${nextHref}"' in learning
+    assert ".learning-now" in STYLES
+
+
+def test_empty_states_can_explain_waiting_and_offer_one_action() -> None:
+    empty_state = _between(APP, "function emptyState", "function reserveManagerEmailAction")
+
+    assert "action?.href" in empty_state
+    assert "action?.target" in empty_state
+    assert 'class="btn btn-secondary btn-small empty-state-action"' in empty_state
+    assert "Ничего делать не нужно" in APP
+    assert ".empty-state-action" in STYLES
 
 
 def test_error_states_never_render_raw_service_messages() -> None:

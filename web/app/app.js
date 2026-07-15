@@ -1,28 +1,28 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.4";
+import { CreatorApi } from "./supabase-api.js?v=20260715.5";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.4";
+} from "./catalog.js?v=20260715.5";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260715.4";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.4";
+} from "./account-launch-view.js?v=20260715.5";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.5";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260715.4";
+} from "./first-shift-full-scenario.js?v=20260715.5";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.4";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.5";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -89,15 +89,90 @@ const FACTORY_FLOW = Object.freeze([
 ]);
 const HOME_SECTION_KEYS = Object.freeze(FACTORY_FLOW.map((item) => item.key));
 const WORKSPACE_SECTION_META = Object.freeze({
-  home: Object.freeze({ kicker: "Центр управления", note: "Одно главное действие и весь цикл без лишних переходов" }),
-  media: Object.freeze({ kicker: "Шаг 1 из 6", note: "После загрузки точный исходник станет доступен в генерации" }),
-  generation: Object.freeze({ kicker: "Шаг 2 из 6", note: "Сначала товар и сценарий, затем отдельное подтверждение стоимости" }),
-  tasks: Object.freeze({ kicker: "Шаг 3 из 6", note: "Начните назначенную работу или честно зафиксируйте блокер" }),
-  placement: Object.freeze({ kicker: "Шаг 4 из 6", note: "Публикуйте только одобренный файл и верните ссылку на сам пост" }),
-  stats: Object.freeze({ kicker: "Шаг 5 из 6", note: "Каждая цифра хранится вместе с источником и временем снимка" }),
-  payouts: Object.freeze({ kicker: "Шаг 6 из 6", note: "Начисление, решение и внешний перевод — разные проверяемые этапы" }),
-  feedback: Object.freeze({ kicker: "Помощь", note: "Опишите препятствие — запрос сохранится в рабочем контексте" }),
-  team: Object.freeze({ kicker: "Управление", note: "Доступ выдаётся персонально и открывается после обучения" }),
+  home: Object.freeze({
+    kicker: "Центр управления",
+    note: "Одно главное действие и весь цикл без лишних переходов",
+  }),
+  media: Object.freeze({
+    kicker: "Шаг 1 из 6",
+    note: "После загрузки точный исходник станет доступен в генерации",
+    now: "Загрузите фото именно того товара, который указан в задаче.",
+    done: "Артикул, объём и упаковка совпадают, а этикетка читается.",
+    guard: "Не используйте похожий товар, другой вкус, объём или чужой ролик.",
+    nextLabel: "Создать ролик",
+    nextHref: "#/workspace/generation",
+    guideHref: "#/learn/factory_basics",
+  }),
+  generation: Object.freeze({
+    kicker: "Шаг 2 из 6",
+    note: "Сначала товар и сценарий, затем отдельное подтверждение стоимости",
+    now: "Выберите один точный исходник и опишите один короткий ролик.",
+    done: "Проверены формат, реплика и цена; создан ровно один запуск.",
+    guard: "Не нажимайте запуск повторно, пока уже созданная работа обрабатывается.",
+    nextLabel: "Проверить задачу",
+    nextHref: "#/workspace/tasks",
+    guideHref: "#/learn/video_quality",
+  }),
+  tasks: Object.freeze({
+    kicker: "Шаг 3 из 6",
+    note: "Начните назначенную работу или честно зафиксируйте блокер",
+    now: "Откройте назначенную задачу и посмотрите результат целиком.",
+    done: "Ролик одобрен или точная причина доработки сохранена в задаче.",
+    guard: "Не принимайте ролик с искажённым товаром, обрывом речи или чужой упаковкой.",
+    nextLabel: "Разместить одобренное",
+    nextHref: "#/workspace/placement",
+    guideHref: "#/learn/factory_basics",
+  }),
+  placement: Object.freeze({
+    kicker: "Шаг 4 из 6",
+    note: "Публикуйте только одобренный файл и верните ссылку на сам пост",
+    now: "Сверьте площадку, аккаунт и готовое решение по маркировке.",
+    done: "Пост опубликован, а в портал сохранён URL самого ролика.",
+    guard: "Если рекламный статус неясен, остановитесь и запросите решение руководителя.",
+    nextLabel: "Внести метрики",
+    nextHref: "#/workspace/stats",
+    guideHref: "#/learn/publishing_funnel",
+  }),
+  stats: Object.freeze({
+    kicker: "Шаг 5 из 6",
+    note: "Каждая цифра хранится вместе с источником и временем снимка",
+    now: "Добавьте первый снимок показателей с датой и источником.",
+    done: "Метрики привязаны к конкретному опубликованному ролику.",
+    guard: "Не переносите цифры из другого поста и не оставляйте источник пустым.",
+    nextLabel: "Проверить начисление",
+    nextHref: "#/workspace/payouts",
+    guideHref: "#/learn/publishing_funnel",
+  }),
+  payouts: Object.freeze({
+    kicker: "Шаг 6 из 6",
+    note: "Начисление, решение и внешний перевод — разные проверяемые этапы",
+    now: "Сверьте сумму и текущий статус начисления по своей задаче.",
+    done: "Только статус «Выплачено» подтверждает завершённый перевод.",
+    guard: "Статус «Одобрено» ещё не означает, что деньги уже переведены.",
+    nextLabel: "Вернуться к обзору",
+    nextHref: "#/workspace/home",
+    guideHref: "#/learn/security_wb",
+  }),
+  feedback: Object.freeze({
+    kicker: "Помощь",
+    note: "Опишите препятствие — запрос сохранится в рабочем контексте",
+    now: "Опишите один вопрос: где остановились и что уже проверили.",
+    done: "Запрос сохранён и содержит достаточно данных для ответа.",
+    guard: "Не отправляйте пароли, коды входа, платёжные данные или секретные ключи.",
+    nextLabel: "Вернуться к работе",
+    nextHref: "#/workspace/home",
+    guideHref: "#/learn/security_wb",
+  }),
+  team: Object.freeze({
+    kicker: "Управление",
+    note: "Доступ выдаётся персонально и открывается после обучения",
+    now: "Проверьте участника, роль, обучение и последнее действие.",
+    done: "У человека есть только нужный доступ и понятный следующий шаг.",
+    guard: "Не создавайте общие учётки и не передавайте временный пароль в открытом чате.",
+    nextLabel: "Вернуться к обзору",
+    nextHref: "#/workspace/home",
+    guideHref: "#/learn/security_wb",
+  }),
 });
 
 const COURSE_VISUAL_EXAMPLES = Object.freeze({
@@ -1233,6 +1308,19 @@ function renderLearningHome() {
     : nextCourse
       ? completeCount === 0 ? "Начать с блока 1" : "Продолжить обучение"
       : examPassed ? "Проверить допуск" : "Начать экзамен";
+  const nextCourseIndex = nextCourse ? courses.findIndex((course) => course.code === nextCourse.code) : -1;
+  const afterNextCourse = nextCourseIndex >= 0 ? courses[nextCourseIndex + 1] : null;
+  const nowTitle = workspaceReady
+    ? "Допуск готов — откройте рабочий кабинет"
+    : nextCourse
+      ? `Сейчас: ${nextCourse.title}`
+      : "Сейчас: итоговый экзамен";
+  const nowDescription = workspaceReady
+    ? "Обучение завершено. Портал покажет одно главное действие на сегодня и проведёт по шести рабочим этапам."
+    : nextCourse
+      ? `Завершите только этот блок. ${afterNextCourse ? `После него откроется «${afterNextCourse.title}».` : "После него откроется итоговый экзамен."}`
+      : "Ответьте на 12 рабочих ситуаций. После успешной попытки автоматически откроется кабинет.";
+  const nowStep = workspaceReady ? "✓" : String(nextCourseIndex >= 0 ? nextCourseIndex + 1 : 5).padStart(2, "0");
 
   const content = `
     <div class="page-wrap learning-page">
@@ -1271,6 +1359,16 @@ function renderLearningHome() {
       </section>
 
       ${catalogReady ? "" : alertMarkup("Каталог обучения загрузился не полностью. Обновите страницу или обратитесь к администратору — допуск останется закрыт до восстановления данных.", "danger")}
+
+      <section class="card learning-now" aria-labelledby="learning-now-title">
+        <div class="learning-now-step" aria-hidden="true"><small>Сейчас</small><strong>${nowStep}</strong></div>
+        <div class="learning-now-copy">
+          <p class="eyebrow">Один обязательный шаг</p>
+          <h2 id="learning-now-title">${escapeHtml(nowTitle)}</h2>
+          <p>${escapeHtml(nowDescription)}</p>
+        </div>
+        <a class="btn" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
+      </section>
 
       <section id="work-map" class="card work-map-section" aria-labelledby="work-map-title">
         <div class="section-heading">
@@ -2102,7 +2200,7 @@ function learningScaffold(content, activePath) {
           <a class="nav-link ${activePath === "/learn/first-shift" ? "active" : ""}" href="#/learn/first-shift" ${activePath === "/learn/first-shift" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">↗</span><span>Первая смена</span>
           </a>
-          <a class="nav-link ${activePath === ACCOUNT_LAUNCH_PATH ? "active" : ""}" href="#${ACCOUNT_LAUNCH_PATH}" ${activePath === ACCOUNT_LAUNCH_PATH ? 'aria-current="page"' : ""}>
+          <a class="nav-link ${activePath.startsWith(ACCOUNT_LAUNCH_PATH) ? "active" : ""}" href="#${ACCOUNT_LAUNCH_PATH}" ${activePath.startsWith(ACCOUNT_LAUNCH_PATH) ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span>
           </a>
           <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activePath === "/learn/exam" ? 'aria-current="page"' : ""}>
@@ -2238,6 +2336,17 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
   });
 }
 
+function workspaceNavLinkMarkup(key, label, icon, activeSection) {
+  const stage = FACTORY_FLOW.find((item) => item.key === key);
+  const active = key === activeSection;
+  return `
+    <a class="nav-link ${stage ? "nav-link-stage" : ""} ${active ? "active" : ""}" href="#/workspace/${key}" ${active ? 'aria-current="page"' : ""}>
+      <span class="${stage ? "nav-stage-number" : "nav-icon"}" aria-hidden="true">${stage?.step || icon}</span>
+      <span class="nav-link-copy"><strong>${escapeHtml(label)}</strong>${stage ? `<small>${escapeHtml(stage.hint)}</small>` : ""}</span>
+    </a>
+  `;
+}
+
 function workspaceScaffold(content, activeSection) {
   const profile = displayProfile();
   const tabs = visibleWorkspaceTabs();
@@ -2253,10 +2362,9 @@ function workspaceScaffold(content, activeSection) {
             ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производственный цикл</span>` : ""}
             ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
             ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
-            <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}" ${key === activeSection ? 'aria-current="page"' : ""}>
-              <span class="nav-icon" aria-hidden="true">${icon}</span><span>${label}</span>
-            </a>
+            ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
           `).join("")}
+          <span class="nav-caption nav-caption-spaced">Знания</span>
           <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span><span>Обучение</span></a>
           <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span></a>
         </nav>
@@ -2376,9 +2484,14 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
         <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◇</span>Экзамен</a>
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span>Кабинет</a>` : ""}
       ` : `
+        <span class="nav-caption">Сегодня</span>
         ${visibleWorkspaceTabs().map(([key, label, icon]) => `
-          <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}" ${key === activeSection ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</a>
+          ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 01–06</span>` : ""}
+          ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
+          ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
+          ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
         `).join("")}
+        <span class="nav-caption nav-caption-spaced">Знания</span>
         <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
         <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
       `}
@@ -2545,7 +2658,7 @@ function isAutomaticGenerationWait(task) {
   );
 }
 
-function homeNextAction({ media, batches, tasks, placements }) {
+function homeNextAction({ media, batches, tasks, placements, publications, payouts }) {
   const blockedTask = tasks.find(
     (item) => String(item.status || "") === "blocked" && !isAutomaticGenerationWait(item),
   );
@@ -2556,6 +2669,8 @@ function homeNextAction({ media, batches, tasks, placements }) {
       description: "В задаче зафиксирован блокер. Уточните причину и продолжите только после решения.",
       href: "#/workspace/tasks",
       cta: "Открыть задачи",
+      doneWhen: "Причина понятна и решение руководителя сохранено в задаче.",
+      nextHint: "Вернитесь к тому же шагу, не начинайте новую работу.",
     };
   }
   const activeTask = tasks.find(
@@ -2568,6 +2683,8 @@ function homeNextAction({ media, batches, tasks, placements }) {
       description: activeTask.instructions || "Откройте задачу, выполните один следующий шаг и сохраните результат.",
       href: "#/workspace/tasks",
       cta: "Перейти к задаче",
+      doneWhen: "Статус задачи изменён, а результат или блокер сохранён.",
+      nextHint: "Портал сам покажет следующий этап после сохранения.",
     };
   }
   const activeGeneration = batches.find((item) => ["queued", "starting", "submitted", "processing", "running"].includes(String(item.status || "").toLowerCase()));
@@ -2578,6 +2695,8 @@ function homeNextAction({ media, batches, tasks, placements }) {
       description: "Запуск уже принят. Не запускайте его повторно — статус и готовый файл появятся в списке.",
       href: "#/workspace/generation",
       cta: "Проверить запуск",
+      doneWhen: "Появился готовый файл или понятная причина ошибки.",
+      nextHint: "Готовый ролик перейдёт в проверку задачи.",
     };
   }
   const openPlacement = placements.find(isActionablePlacement);
@@ -2588,6 +2707,39 @@ function homeNextAction({ media, batches, tasks, placements }) {
       description: "Сверьте назначенный аккаунт и рекламный статус, затем сохраните ссылку на опубликованный пост.",
       href: "#/workspace/placement",
       cta: "Открыть публикацию",
+      doneWhen: "В портал сохранена рабочая ссылка на конкретный ролик.",
+      nextHint: "После публикации внесите первый снимок метрик.",
+    };
+  }
+  const completedPlacementWithoutMetrics = placements.find((placement) => {
+    if (!isCompletedPlacement(placement)) return false;
+    const placementId = String(placement.id || placement.placement_id || "");
+    const publication = placementId
+      ? publications.find((item) => String(item.placement_id || item.id || "") === placementId)
+      : null;
+    return !publication?.observed_at;
+  });
+  if (completedPlacementWithoutMetrics) {
+    return {
+      step: "Зафиксируйте результат",
+      title: "Добавьте первый снимок метрик",
+      description: "Ролик уже опубликован. Сохраните показатели вместе с датой и ссылкой на конкретный пост.",
+      href: "#/workspace/stats",
+      cta: "Внести показатели",
+      doneWhen: "В разделе есть дата, источник и первый набор показателей.",
+      nextHint: "После проверки результата следите за начислением.",
+    };
+  }
+  const waitingPayout = payouts.find((item) => ["pending", "approved"].includes(String(item.status || "").toLowerCase()));
+  if (waitingPayout) {
+    return {
+      step: "Проверьте расчёт",
+      title: "Начисление ещё не завершено",
+      description: "Сверьте сумму и статус. «Одобрено» означает подтверждение, но не завершённый внешний перевод.",
+      href: "#/workspace/payouts",
+      cta: "Открыть выплаты",
+      doneWhen: "Статус изменился на «Выплачено» или сохранена понятная причина ожидания.",
+      nextHint: "После выплаты цикл этой задачи завершён.",
     };
   }
   if (!media.length) {
@@ -2597,6 +2749,8 @@ function homeNextAction({ media, batches, tasks, placements }) {
       description: "Загрузите фронтальный кадр с читаемой этикеткой — после этого он появится в форме создания видео.",
       href: "#/workspace/media",
       cta: "Добавить материал",
+      doneWhen: "Фото загрузилось, а товар, объём и этикетка совпадают.",
+      nextHint: "Перейдите в «Создание видео» и выберите этот исходник.",
     };
   }
   return {
@@ -2605,6 +2759,8 @@ function homeNextAction({ media, batches, tasks, placements }) {
     description: "Исходники уже в защищённом хранилище. Выберите товар, сценарий и подходящий режим запуска.",
     href: "#/workspace/generation",
     cta: "Создать видео",
+    doneWhen: "Один запуск создан после отдельной проверки стоимости.",
+    nextHint: "Дождитесь статуса, не оплачивайте повторный запуск.",
   };
 }
 
@@ -2650,7 +2806,7 @@ function renderHomeSection(homeState) {
   const activeGenerations = batches.filter((item) => ["queued", "starting", "submitted", "processing", "running"].includes(String(item.status || "").toLowerCase())).length;
   const openPlacements = placements.filter(isActionablePlacement).length;
   const waitingPayoutMinor = sumMinor(payouts.filter((item) => ["pending", "approved"].includes(String(item.status || ""))));
-  const action = homeNextAction({ media, batches, tasks, placements });
+  const action = homeNextAction({ media, batches, tasks, placements, publications, payouts });
   const firstName = displayProfile().name.split(/\s+/).filter(Boolean)[0] || "Сергей";
   const flowValues = {
     media: `${media.length}`,
@@ -2671,12 +2827,18 @@ function renderHomeSection(homeState) {
           <h1>${escapeHtml(firstName)}, всё важное — перед вами</h1>
           <p>Портал сам собирает следующий шаг: от точного исходника до публикации, результата и выплаты.</p>
           <article class="home-next-action">
-            <div>
-              <span>${escapeHtml(action.step)}</span>
-              <h2>${escapeHtml(action.title)}</h2>
-              <p>${escapeHtml(action.description)}</p>
+            <div class="home-next-action-main">
+              <div>
+                <span>${escapeHtml(action.step)}</span>
+                <h2>${escapeHtml(action.title)}</h2>
+                <p>${escapeHtml(action.description)}</p>
+              </div>
+              <a class="btn btn-light" href="${action.href}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>
             </div>
-            <a class="btn btn-light" href="${action.href}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>
+            <div class="home-next-action-proof">
+              <span><small>Готово, когда</small><strong>${escapeHtml(action.doneWhen)}</strong></span>
+              <span><small>Потом</small><strong>${escapeHtml(action.nextHint)}</strong></span>
+            </div>
           </article>
         </div>
         <div class="home-hero-visual" role="img" aria-label="Шесть этапов производственного цикла">
@@ -2886,7 +3048,7 @@ function renderGenerationSection(sectionState) {
 
         <section class="card">
           <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние запуски</h2><small class="muted">${activeRealJobs.length ? `Автопроверка каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : "Активных платных запусков нет"}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь."))}
+          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь.", { target: "mock-batch-form", label: "Настроить первый ролик" }))}
         </section>
       </div>
       ${(canManageAliases || aliases.length) ? `
@@ -3318,7 +3480,7 @@ function renderPlacementSection(sectionState) {
       ${pageHeader("Публикации", "Скачайте одобренный ролик, разместите его на указанной площадке и сохраните ссылку на сам пост.", `<span class="badge badge-info">${openCount} ждут действия</span>`)}
       ${alertMarkup("Нужна публичная ссылка именно на опубликованный пост. Ссылка на карточку товара не завершает задачу.", "info")}
       <div class="placement-list" style="margin-top:18px">
-        ${sectionBody(sectionState, items.length ? items.map(placementCard).join("") : emptyState("↗", "Нет задач на публикацию", "Здесь появятся только одобренные ролики с назначенной площадкой."))}
+        ${sectionBody(sectionState, items.length ? items.map(placementCard).join("") : emptyState("↗", "Публиковать пока нечего", "Ничего делать не нужно: здесь появится только одобренный ролик с назначенной площадкой.", { href: "#/workspace/tasks", label: "Проверить задачи" }))}
       </div>
     </div>
   `;
@@ -3402,7 +3564,7 @@ function renderStatsSection(sectionState) {
       </section>
       <section class="card">
         <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2></div><span class="badge">Автоматически · из файла · вручную</span></div>
-        ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Результатов пока нет", "После публикации сохраните ссылку на пост и добавьте первый снимок показателей."))}
+        ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Результатов пока нет", "Сначала опубликуйте одобренный ролик и сохраните ссылку на конкретный пост.", { href: "#/workspace/placement", label: "Проверить публикации" }))}
       </section>
     </div>
   `;
@@ -3446,7 +3608,7 @@ function renderPayoutsSection(sectionState) {
       </div>
       <section class="card">
         <div class="card-header"><div><p class="eyebrow">История</p><h2>Начисления и статусы</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="payouts">Обновить</button></div>
-        ${sectionBody(sectionState, items.length ? payoutsTable(items, canManagePayouts) : emptyState("₽", "Начислений пока нет", "Первое начисление появится после подтверждённой задачи и проверки результата."))}
+        ${sectionBody(sectionState, items.length ? payoutsTable(items, canManagePayouts) : emptyState("₽", "Начислений пока нет", "Ничего не потеряно: начисление появится после подтверждённой задачи и проверки результата.", { href: "#/workspace/tasks", label: "Проверить задачи" }))}
       </section>
     </div>
   `;
@@ -3503,7 +3665,7 @@ function renderTasksSection(sectionState) {
     <div class="page-wrap">
       ${pageHeader("Задачи", "Выполняйте только назначенные вам действия. Блокер лучше скрытой ошибки.", `<span class="badge badge-info">${items.filter((i) => !["done", "cancelled"].includes(i.status)).length} активных</span>`)}
       <div class="task-list">
-        ${sectionBody(sectionState, items.length ? items.map(taskCard).join("") : emptyState("✓", "Нет назначенных задач", "Когда руководитель назначит работу, она появится здесь."))}
+        ${sectionBody(sectionState, items.length ? items.map(taskCard).join("") : emptyState("✓", "Задач пока нет", "Ничего делать не нужно: новая работа появится здесь после назначения руководителем.", { href: "#/workspace/home", label: "Вернуться к обзору" }))}
       </div>
     </div>
   `;
@@ -3600,7 +3762,7 @@ function renderMediaSection(sectionState) {
         </section>
         <section>
           <div class="inline-actions" style="justify-content:space-between; margin-bottom:14px"><div><p class="eyebrow">Ваши файлы</p><h2 style="font:600 1.55rem/1.2 Georgia,serif; margin:0">${items.length} материалов</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Обновить</button></div>
-          ${sectionBody(sectionState, items.length ? `<div class="media-grid">${items.map(mediaCard).join("")}</div>` : emptyState("▧", "Материалов пока нет", "Добавьте точные фото товара — после этого их можно выбрать при создании видео."))}
+          ${sectionBody(sectionState, items.length ? `<div class="media-grid">${items.map(mediaCard).join("")}</div>` : emptyState("▧", "Материалов пока нет", "Добавьте точное фото товара — после загрузки оно станет доступно при создании видео.", { target: "media-upload-form", label: "Выбрать точное фото" }))}
         </section>
       </div>
     </div>
@@ -3807,6 +3969,27 @@ function feedbackCard(item) {
   return `<article class="card feedback-card"><div class="feedback-top"><div><p class="eyebrow">${escapeHtml(item.category || "запрос")} · ${formatDate(item.created_at)}</p><h3>${escapeHtml(item.title || "Без заголовка")}</h3><p>${escapeHtml(item.details || item.description || "")}</p></div>${statusBadge(item.status || "new")}</div>${item.response ? alertMarkup(item.response, "success") : ""}</article>`;
 }
 
+function workspaceDirectionMarkup(meta) {
+  if (!meta?.now || !meta?.done || !meta?.nextHref) return "";
+  return `
+    <section class="workspace-direction card" aria-label="Что делать в этом разделе">
+      <div class="workspace-direction-heading">
+        <span class="direction-seal" aria-hidden="true">A</span>
+        <div><p class="eyebrow">Маршрут без догадок</p><h2>Сделайте один шаг и проверьте результат</h2></div>
+      </div>
+      <ol class="workspace-direction-steps">
+        <li><span>01</span><div><small>Сделайте сейчас</small><strong>${escapeHtml(meta.now)}</strong></div></li>
+        <li><span>02</span><div><small>Готово, когда</small><strong>${escapeHtml(meta.done)}</strong></div></li>
+        <li><span>03</span><div><small>После этого</small><strong>${escapeHtml(meta.nextLabel)}</strong></div></li>
+      </ol>
+      <div class="workspace-direction-footer">
+        <p><span aria-hidden="true">!</span><strong>Стоп-правило:</strong> ${escapeHtml(meta.guard)}</p>
+        <a class="direction-next-link" href="${escapeHtml(meta.nextHref)}">Когда закончите: ${escapeHtml(meta.nextLabel)} <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  `;
+}
+
 function pageHeader(title, description, actions = "") {
   const activeSection = state.route.path.startsWith("/workspace/")
     ? state.route.path.replace("/workspace/", "")
@@ -3824,11 +4007,12 @@ function pageHeader(title, description, actions = "") {
         </div>
         <div class="page-actions">
           ${actions}
-          <a class="workspace-guide-link" href="#/learn"><span aria-hidden="true">?</span> Открыть инструкцию</a>
+          <a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>
         </div>
       </header>
       ${inFactoryFlow ? factoryFlowMarkup(activeSection) : ""}
     </section>
+    ${workspaceDirectionMarkup(meta)}
   `;
 }
 
@@ -3869,8 +4053,13 @@ function sectionBody(sectionState, readyMarkup) {
   return readyMarkup;
 }
 
-function emptyState(icon, title, message) {
-  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>`;
+function emptyState(icon, title, message, action = null) {
+  const actionMarkup = action?.href
+    ? `<a class="btn btn-secondary btn-small empty-state-action" href="${escapeHtml(action.href)}">${escapeHtml(action.label)} <span aria-hidden="true">→</span></a>`
+    : action?.target
+      ? `<button class="btn btn-secondary btn-small empty-state-action" type="button" data-action="scroll-to" data-target="${escapeHtml(action.target)}">${escapeHtml(action.label)} <span aria-hidden="true">↑</span></button>`
+      : "";
+  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p>${actionMarkup}</div>`;
 }
 
 function reserveManagerEmailAction(cooldowns, email) {
