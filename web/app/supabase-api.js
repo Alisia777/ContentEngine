@@ -77,25 +77,37 @@ export class CreatorApi {
   }
 
   async bootstrap(clientContext = {}) {
-    const response = await this.call(RPC.bootstrap, {
+    return this.call(RPC.bootstrap, {
       client_version: "supabase-spa-v1",
       ...clientContext,
     });
+  }
+
+  commitBootstrapContext(response) {
     const source = response?.data && typeof response.data === "object" ? response.data : response;
-    this.organizationId =
+    const organizationId =
       source?.organization?.id ??
       source?.membership?.organization_id ??
       source?.organization_id ??
       null;
     const serverBucket = source?.storage?.bucket;
     if (serverBucket && serverBucket !== this.config.STORAGE_BUCKET) {
-      throw new CreatorApiError("Supabase вернул неожиданный приватный bucket.", {
+      throw new CreatorApiError("Защищённое хранилище вернуло неожиданный ответ.", {
         code: "storage_bucket_mismatch",
       });
     }
-    this.storageBucket = serverBucket || this.config.STORAGE_BUCKET;
-    this.storagePrefix = source?.storage?.path_prefix || null;
-    return response;
+    const storageBucket = serverBucket || this.config.STORAGE_BUCKET;
+    const storagePrefix = source?.storage?.path_prefix || null;
+
+    this.organizationId = organizationId;
+    this.storageBucket = storageBucket;
+    this.storagePrefix = storagePrefix;
+  }
+
+  clearBootstrapContext() {
+    this.organizationId = null;
+    this.storageBucket = this.config.STORAGE_BUCKET;
+    this.storagePrefix = null;
   }
 
   completeModule(moduleCode) {
@@ -123,7 +135,7 @@ export class CreatorApi {
   createMockBatch(batch) {
     const count = Number(batch?.count);
     if (!Number.isInteger(count) || count < 1 || count > 50) {
-      throw new CreatorApiError("В одном mock batch разрешено от 1 до 50 вариантов.", {
+      throw new CreatorApiError("За один раз можно создать от 1 до 50 тестовых вариантов.", {
         code: "invalid_batch_size",
       });
     }
@@ -135,7 +147,7 @@ export class CreatorApi {
       });
     }
     if (!Array.isArray(batch?.media_ids) || batch.media_ids.length < 1) {
-      throw new CreatorApiError("Добавьте точное фото товара или packshot из Медиатеки.", {
+      throw new CreatorApiError("Добавьте точное фото товара или упаковки из раздела «Материалы».", {
         code: "exact_product_media_required",
       });
     }
@@ -169,7 +181,7 @@ export class CreatorApi {
     const model = String(batch?.model || "gen4_turbo");
     const sku = REAL_GENERATION_SKUS[model];
     if (!sku) {
-      throw new CreatorApiError("Выберите доступный платный режим Runway.", {
+      throw new CreatorApiError("Выберите доступный платный режим.", {
         code: "real_generation_sku_invalid",
       });
     }
@@ -183,7 +195,7 @@ export class CreatorApi {
       });
     }
     if (batch?.spend_confirmation !== sku.confirmation) {
-      throw new CreatorApiError(`Подтвердите один платный запуск Runway около $${sku.estimated_usd}.`, {
+      throw new CreatorApiError(`Подтвердите создание одного платного видео примерно за $${sku.estimated_usd}.`, {
         code: "real_spend_confirmation_required",
       });
     }
@@ -334,7 +346,7 @@ export class CreatorApi {
   withOrganization(payload) {
     if (this.organizationId === null || this.organizationId === undefined) {
       throw new CreatorApiError(
-        "Для аккаунта ещё не назначена команда. Обратитесь к администратору.",
+        "Для аккаунта ещё не назначена команда. Обратитесь к руководителю.",
         { code: "membership_required" },
       );
     }
@@ -507,18 +519,18 @@ function toFriendlyMessage(error) {
     exam_catalog_unavailable: "Каталог экзамена временно недоступен. Обновите страницу позже.",
     exam_cooldown: "Новая попытка экзамена пока недоступна. Дождитесь времени, указанного на экране.",
     exam_attempt_limit_active: "Лимит попыток за 24 часа исчерпан. Дождитесь времени следующей попытки на экране.",
-    membership_required: "Для аккаунта ещё не назначена команда. Обратитесь к администратору.",
-    membership_suspended: "Доступ приостановлен. Обратитесь к owner/admin вашей команды.",
-    membership_revoked: "Доступ отозван. Обратитесь к owner/admin вашей команды.",
-    inactive_membership: "Доступ к команде приостановлен. Обратитесь к администратору.",
-    active_membership_required: "Доступ к команде приостановлен. Обратитесь к администратору.",
-    profile_not_active: "Аккаунт приостановлен. Обратитесь к администратору.",
+    membership_required: "Для аккаунта ещё не назначена команда. Обратитесь к руководителю.",
+    membership_suspended: "Доступ приостановлен. Обратитесь к руководителю вашей команды.",
+    membership_revoked: "Доступ отозван. Обратитесь к руководителю вашей команды.",
+    inactive_membership: "Доступ к команде приостановлен. Обратитесь к руководителю.",
+    active_membership_required: "Доступ к команде приостановлен. Обратитесь к руководителю.",
+    profile_not_active: "Аккаунт приостановлен. Обратитесь к руководителю.",
     verified_email_required: "Для работы нужен аккаунт с подтверждённой почтой.",
     role_not_allowed: "У вашей роли нет права на это действие.",
-    mock_only_required: "Платная генерация отключена. Разрешён только mock-режим.",
-    real_generation_is_disabled: "Платная генерация отключена. Разрешён только mock-режим.",
+    mock_only_required: "Платная генерация отключена. Доступны только тестовые варианты без списаний.",
+    real_generation_is_disabled: "Платная генерация сейчас недоступна. Используйте тестовый режим без списаний.",
     real_generation_exactly_one_media_required: "Для платного запуска выберите ровно одно точное фото товара.",
-    real_spend_confirmation_required: "Подтвердите один платный запуск Runway по цене выбранного режима.",
+    real_spend_confirmation_required: "Подтвердите создание одного платного видео по указанной цене.",
     real_generation_sku_invalid: "Параметры платного режима не совпадают с подтверждённой ценой.",
     real_generation_action_invalid: "Неизвестное действие платной генерации.",
     real_generation_response_invalid: "Сервис генерации вернул некорректный ответ.",
@@ -531,41 +543,41 @@ function toFriendlyMessage(error) {
     origin_not_allowed: "Платная генерация недоступна с этого адреса портала.",
     generation_rejected: "Сервер отклонил платный запуск. Проверьте доступ, исходник и подтверждение расходов.",
     generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
-    provider_unavailable: "Runway временно недоступен. Повторите проверку позже — повторный запуск не требуется.",
-    invalid_batch_size: "В одном mock batch разрешено от 1 до 50 вариантов.",
-    count_invalid: "В одном mock batch разрешено от 1 до 50 вариантов.",
+    provider_unavailable: "Сервис видео временно недоступен. Повторите проверку позже — новый платный запуск не требуется.",
+    invalid_batch_size: "За один раз можно создать от 1 до 50 тестовых вариантов.",
+    count_invalid: "За один раз можно создать от 1 до 50 тестовых вариантов.",
     platform_invalid: "Выберите поддерживаемую площадку размещения.",
     format_invalid: "Выберите поддерживаемый формат видео.",
     brief_invalid: "Сократите описание ролика до 1200 символов.",
-    exact_product_media_required: "Добавьте и выберите точное фото товара или packshot из Медиатеки.",
+    exact_product_media_required: "Добавьте и выберите точное фото товара или упаковки из раздела «Материалы».",
     placement_destination_invalid: "Проверьте площадку и точный аккаунт или карточку размещения.",
     payout_minor_invalid: "Проверьте сумму вознаграждения.",
     certified_assignee_required: "Выберите активного участника, который уже сдал итоговый экзамен.",
-    payout_role_not_allowed: "Вознаграждение может назначить только owner или admin.",
+    payout_role_not_allowed: "Вознаграждение может назначить только руководитель.",
     assignee_role_not_allowed: "Назначать задачу другому участнику может только руководитель.",
     invalid_final_url: "Проверьте публичную ссылку на опубликованный ролик.",
     placement_not_found: "Задача размещения не найдена. Обновите раздел.",
     placement_access_denied: "Эта задача размещения назначена другому участнику.",
     placement_not_publishable: "Публикацию нельзя подтвердить в текущем статусе.",
-    placement_already_published: "Для этой публикации уже сохранён другой final URL.",
+    placement_already_published: "Для этой публикации уже сохранена другая ссылка на пост.",
     placement_compliance_ack_required: "Подтвердите проверку рекламного статуса и реквизитов из инструкции задачи.",
     placement_compliance_audit_failed: "Не удалось сохранить подтверждение рекламной проверки. Обновите задачу и повторите.",
-    published_placement_required: "Сначала подтвердите публикацию и её final URL.",
+    published_placement_required: "Сначала подтвердите публикацию и сохраните ссылку на пост.",
     observed_at_in_future: "Время снятия метрик не может быть в будущем.",
     observed_at_before_publication: "Снимок метрик должен быть сделан после публикации.",
     cumulative_metric_regression: "Накопительные метрики не могут быть меньше предыдущего снимка.",
     metric_payload_invalid: "Проверьте значения ручного снимка метрик.",
-    storage_access_denied: "Нет доступа к этой папке медиатеки.",
-    storage_object_not_found: "Загруженный файл не найден в приватном bucket. Повторите загрузку.",
+    storage_access_denied: "Нет доступа к этой папке раздела «Материалы».",
+    storage_object_not_found: "Загруженный файл не найден в защищённом хранилище. Повторите загрузку.",
     media_metadata_invalid: "Проверьте тип, размер и формат файла.",
     media_size_invalid: "Проверьте размер загружаемого файла.",
     media_object_conflict: "Файл с таким путём уже зарегистрирован с другими данными.",
-    media_access_denied: "Один из выбранных исходников больше недоступен. Обновите медиатеку.",
-    storage_bucket_mismatch: "Supabase вернул неожиданный приватный bucket.",
+    media_access_denied: "Один из выбранных исходников больше недоступен. Обновите раздел «Материалы».",
+    storage_bucket_mismatch: "Защищённое хранилище вернуло неожиданный ответ.",
     invalid_workspace_section: "Этот раздел кабинета недоступен.",
     workspace_section_invalid: "Этот раздел кабинета недоступен.",
-    payout_decision_forbidden: "Решение по выплате доступно только владельцу или администратору.",
-    self_payout_decision_forbidden: "Собственное начисление должен проверить другой владелец или администратор.",
+    payout_decision_forbidden: "Решение по выплате доступно только руководителю.",
+    self_payout_decision_forbidden: "Собственное начисление должен проверить другой руководитель.",
     payout_rejection_reason_required: "Укажите понятную причину отказа — не меньше 10 символов.",
     external_payment_reference_required: "Укажите номер внешней оплаты.",
     payout_must_be_approved_first: "Сначала одобрите начисление, затем фиксируйте оплату.",
@@ -576,8 +588,8 @@ function toFriendlyMessage(error) {
     wb_alias_forbidden: "Изменять связи артикулов может только уполномоченный участник команды.",
     wb_article_invalid: "Проверьте текущий и подменный артикулы Wildberries.",
     wb_alias_already_assigned: "Этот подменный артикул уже связан с другим товаром.",
-    wb_alias_product_immutable: "Существующую alias-связь нельзя перенести на другой товар.",
-    product_not_found: "Товар с таким SKU не найден. Сначала создайте для него mock batch.",
+    wb_alias_product_immutable: "Существующую связь артикулов нельзя перенести на другой товар.",
+    product_not_found: "Товар с таким артикулом не найден. Сначала создайте для него тестовые варианты.",
     feedback_category_invalid: "Проверьте тип и раздел запроса.",
     task_not_found: "Задача не найдена. Обновите список.",
     task_access_denied: "Эта задача назначена другому участнику.",
@@ -588,7 +600,10 @@ function toFriendlyMessage(error) {
   const matched = Object.keys(known).find((code) => diagnostic.includes(code));
   if (matched) return known[matched];
   if (raw.toLowerCase().includes("function") && raw.toLowerCase().includes("not found")) {
-    return "Облачный API ещё не применён к проекту Supabase.";
+    return "Рабочий сервис ещё не обновлён. Повторите попытку позже или сообщите руководителю.";
   }
-  return raw;
+  if (/network|fetch|timeout|connection/i.test(raw)) {
+    return "Связь прервалась. Проверьте интернет и повторите действие.";
+  }
+  return "Не удалось выполнить действие. Обновите раздел и попробуйте ещё раз.";
 }

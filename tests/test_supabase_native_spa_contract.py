@@ -154,7 +154,7 @@ def test_suspended_and_revoked_memberships_are_locked_before_learning_or_workspa
     assert 'accessState: String(source.state || "")' in app
     assert 'membershipLockDetails()) navigate("/access-locked", true)' in app
     assert "state.bootstrap || membershipLockDetails()" in app
-    assert "Обратитесь к owner/admin вашей команды." in app
+    assert "Обратитесь к руководителю вашей команды." in app
     locked_gate = app.index("if (membershipLockDetails())")
     learning_gate = app.index("if (!hasWorkspaceAccess())")
     assert locked_gate < learning_gate
@@ -267,7 +267,8 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert "exact_product_media_required" in adapter
     assert "state.sections.placement.status" in app
     assert "state.sections.tasks.status" in app
-    assert "Dry-run batch" in app
+    assert "Тестовые варианты · без списаний" in app
+    assert "Создано ${count} тестовых вариантов без списаний" in app
     assert "Реальная ИИ-генерация выключена: provider=mock" not in app
 
     assert 'REAL_GENERATION_FUNCTION = "creator-generate"' in adapter
@@ -291,8 +292,8 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert "edge:${REAL_GENERATION_FUNCTION}" in adapter
 
     assert 'name="generation_mode"' in app
-    assert "Runway gen4_turbo · 5 секунд · без голоса · ≈ 25 credits / $0.25" in app
-    assert "Блогер + голос · 8 секунд · ≈ 232 credits / $2.32" in app
+    assert "Анимация товара · 5 секунд · без голоса · ≈ $0.25" in app
+    assert "Блогер + голос · 8 секунд · ≈ $2.32" in app
     assert 'name="real_spend_confirmation"' in app
     assert "values.get(\"real_spend_confirmation\") !== generationSku.confirmation" in app
     assert "Number(values.get(\"count\")) !== 1" in app
@@ -339,20 +340,20 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260714.3' in index
+    assert './app.js?v=20260715.1' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:
     catalog = _text("catalog.js")
     app = _text("app.js")
     for label in (
-        "Генерация",
-        "Размещение",
-        "Статистика",
+        "Материалы",
+        "Создание видео",
+        "Публикации",
+        "Результаты",
         "Выплаты",
         "Задачи",
-        "Медиатека",
-        "Что добавить",
+        "Помощь и идеи",
         "Команда",
     ):
         assert label in catalog

@@ -1,12 +1,16 @@
 import json
+import hashlib
 from pathlib import Path
 import re
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "supabase/migrations/202607140005_training_visual_playbook.sql"
-SQL = MIGRATION.read_text(encoding="utf-8")
+BASE_MIGRATION = ROOT / "supabase/migrations/202607140005_training_visual_playbook.sql"
+BASE_SQL = BASE_MIGRATION.read_text(encoding="utf-8")
+LANGUAGE_MIGRATION = ROOT / "supabase/migrations/202607150001_premium_training_language.sql"
+LANGUAGE_SQL = LANGUAGE_MIGRATION.read_text(encoding="utf-8")
+SQL = LANGUAGE_SQL
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 
@@ -175,9 +179,9 @@ def test_first_block_starts_with_invitation_and_a_zero_experience_route() -> Non
         "пароль",
         "четыре блока",
         "экзамен",
-        "медиатека",
-        "генерация",
-        "очередь",
+        "материалы",
+        "создание видео",
+        "последние запуски",
     ):
         assert required in copy
 
@@ -220,13 +224,13 @@ def test_publishing_course_teaches_instagram_youtube_and_vk_end_to_end() -> None
         "caption",
         "аудитори",
         "publish",
-        "final url",
+        "ссылка на пост",
         "views",
         "reach",
         "interactions",
         "9:16",
         "720p",
-        "30 fps",
+        "30 кадров в секунду",
     ):
         assert required in instagram
 
@@ -241,7 +245,7 @@ def test_publishing_course_teaches_instagram_youtube_and_vk_end_to_end() -> None
         "audience",
         "visibility",
         "publish",
-        "final url",
+        "ссылка на пост",
         "views",
         "engaged views",
         "watch time",
@@ -250,7 +254,7 @@ def test_publishing_course_teaches_instagram_youtube_and_vk_end_to_end() -> None
         assert required in youtube
 
     access = json.dumps(lessons["social_account_access"], ensure_ascii=False).casefold()
-    for required in ("instagram", "youtube", "vk", "owner", "admin", "роль", "общий пароль"):
+    for required in ("instagram", "youtube", "vk", "руководитель", "роль", "общий пароль"):
         assert required in access
 
     vk_setup = json.dumps(
@@ -274,15 +278,15 @@ def test_publishing_course_teaches_instagram_youtube_and_vk_end_to_end() -> None
         "профиль",
         "сообщество",
         "клипы",
-        "approved",
+        "одобрен",
         "описание",
         "обложк",
         "9:16",
         "1080p",
         "стен",
         "опубликовать",
-        "final url",
-        "метрик",
+        "ссылка на пост",
+        "показател",
     ):
         assert required in vk
 
@@ -290,8 +294,8 @@ def test_publishing_course_teaches_instagram_youtube_and_vk_end_to_end() -> None
 def test_four_blocks_have_their_own_story_checks() -> None:
     catalog = _dollar_quoted_json()
     expected_topics = {
-        "factory_basics": ("приглаш", "медиатек", "платн"),
-        "video_quality": ("телефон", "8 секунд", "succeeded"),
+        "factory_basics": ("приглаш", "материал", "платн"),
+        "video_quality": ("телефон", "8 секунд", "видео готово"),
         "publishing_funnel": ("instagram", "youtube", "vk", "накрут", "реклам"),
         "security_wb": ("подмен", "начислен", "выплачен"),
     }
@@ -347,7 +351,7 @@ def test_advertising_lesson_stops_unclassified_or_prohibited_placement() -> None
         "не означает, что публикация не реклама",
         "внутреннее решение",
         "не обязательное заключение для фас или суда",
-        "owner или юрист",
+        "руководитель или юрист",
         "пометку «реклама»",
         "полное фио рекламодателя-физлица",
         "полное наименование юридического лица",
@@ -373,7 +377,7 @@ def test_advertising_lesson_stops_unclassified_or_prohibited_placement() -> None
     check_copy = json.dumps(check, ensure_ascii=False).casefold()
     assert check["correct_value"] == "stop"
     for required in (
-        "оплаты, cta, промокода и tracking-ссылки нет",
+        "оплаты, призыва, промокода и ссылки для перехода нет",
         "не проверил площадку на дату публикации",
         "не означает, что публикация не реклама",
         "не обязательное заключение для фас или суда",
@@ -386,14 +390,14 @@ def test_substitute_article_and_payout_are_explained_without_hidden_formula() ->
     lessons = {lesson["id"]: lesson for lesson in security["lessons"]}
 
     alias = json.dumps(lessons["wb_alias_history"], ensure_ascii=False).casefold()
-    for required in ("подменный артикул", "того же sku", "вкус", "объём", "исполнитель не выбирает"):
+    for required in ("подменный артикул", "того же товара", "вкус", "объём", "исполнитель не выбирает"):
         assert required in alias
 
     payout = json.dumps(lessons["calculation_and_payout"], ensure_ascii=False).casefold()
     for required in (
         "фиксирован",
         "0 ₽",
-        "final url",
+        "ссылкой на пост",
         "ожидает проверки",
         "выплачено",
         "вне портала",
@@ -422,9 +426,48 @@ def test_paid_generation_copy_is_current_and_does_not_claim_paid_ai_is_off() -> 
     assert "явного подтверждения расхода" in factory_copy
 
 
+def test_training_copy_matches_the_current_workspace_and_updates_existing_cloud_rows() -> None:
+    assert hashlib.sha256(BASE_MIGRATION.read_bytes()).hexdigest() == (
+        "e67cbf8a17e03c69f1e3d6b8a2523b119f0dc254994b79f424793636497daac0"
+    )
+    catalog_copy = json.dumps(_dollar_quoted_json(), ensure_ascii=False)
+    for stale in (
+        "Медиатека",
+        "Final URL",
+        "final URL",
+        "SUCCEEDED",
+        "approved MP4",
+        "Approved MP4",
+    ):
+        assert stale not in catalog_copy
+
+    for current in (
+        "Материалы",
+        "Создание видео",
+        "Публикации",
+        "Результаты",
+        "ссылка на пост",
+        "проверка качества",
+    ):
+        assert current.casefold() in catalog_copy.casefold()
+
+    lowered = LANGUAGE_SQL.casefold()
+    assert LANGUAGE_SQL.lstrip().casefold().startswith("begin;")
+    assert LANGUAGE_SQL.rstrip().casefold().endswith("commit;")
+    assert "forward-only authoritative snapshot" in lowered
+    assert lowered.index("drop constraint if exists training_modules_no_public_course_answer_keys") < lowered.index(
+        "update content_factory.training_modules"
+    )
+    assert "update content_factory.training_modules" in lowered
+    assert "insert into content_factory.training_questions" in lowered
+    assert "insert into content_factory_private.training_answer_keys" in lowered
+    assert "from rewritten_questions rewritten" in lowered
+    assert "premium_training_language_contract_failed" in lowered
+
+
 def test_migration_fails_closed_if_course_or_exam_contract_drifts() -> None:
     lowered = SQL.casefold()
-    assert "training_visual_catalog_contract_failed" in lowered
+    assert "premium_training_language_contract_failed" in lowered
     assert "active_course_codes is distinct from expected_course_codes" in lowered
     assert "invalid_content_count <> 0" in lowered
     assert "active_exam_count <> 1" in lowered
@@ -497,6 +540,6 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
     assert 'aria-controls="mobile-navigation"' in APP
 
     for asset in ("styles.css", "config.js", "app.js"):
-        assert f'./{asset}?v=20260714.3' in INDEX
-    assert './supabase-api.js?v=20260714.3' in APP
-    assert './catalog.js?v=20260714.3' in APP
+        assert f'./{asset}?v=20260715.1' in INDEX
+    assert './supabase-api.js?v=20260715.1' in APP
+    assert './catalog.js?v=20260715.1' in APP

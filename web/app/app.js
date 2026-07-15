@@ -1,10 +1,10 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260714.3";
+import { CreatorApi } from "./supabase-api.js?v=20260715.1";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260714.3";
+} from "./catalog.js?v=20260715.1";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const app = document.querySelector("#app");
@@ -24,7 +24,7 @@ const REAL_GENERATION_SKUS = Object.freeze({
     estimatedCredits: 25,
     estimatedUsd: "0.25",
     confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25",
-    label: "Runway gen4_turbo · 5 секунд · без голоса · ≈ 25 credits / $0.25",
+    label: "Анимация товара · 5 секунд · без голоса · ≈ $0.25",
   }),
   [REAL_SEEDANCE_MODE]: Object.freeze({
     model: "seedance2_fast",
@@ -34,18 +34,40 @@ const REAL_GENERATION_SKUS = Object.freeze({
     estimatedCredits: 232,
     estimatedUsd: "2.32",
     confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
-    label: "Блогер + голос · 8 секунд · ≈ 232 credits / $2.32",
+    label: "Блогер + голос · 8 секунд · ≈ $2.32",
   }),
 });
 const MEMBERSHIP_LOCK_COPY = Object.freeze({
   membership_suspended: Object.freeze({
     title: "Доступ приостановлен",
-    message: "Обратитесь к owner/admin вашей команды.",
+    message: "Обратитесь к руководителю вашей команды.",
   }),
   membership_revoked: Object.freeze({
     title: "Доступ отозван",
-    message: "Обратитесь к owner/admin вашей команды.",
+    message: "Обратитесь к руководителю вашей команды.",
   }),
+});
+
+const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
+const FACTORY_FLOW = Object.freeze([
+  Object.freeze({ key: "media", step: "01", label: "Материалы", hint: "точные фото и видео" }),
+  Object.freeze({ key: "generation", step: "02", label: "Создание видео", hint: "сценарий и ролик" }),
+  Object.freeze({ key: "tasks", step: "03", label: "Задачи", hint: "проверка результата" }),
+  Object.freeze({ key: "placement", step: "04", label: "Публикации", hint: "пост и ссылка" }),
+  Object.freeze({ key: "stats", step: "05", label: "Результаты", hint: "метрики с датой" }),
+  Object.freeze({ key: "payouts", step: "06", label: "Выплаты", hint: "начисление и расчёт" }),
+]);
+const HOME_SECTION_KEYS = Object.freeze(FACTORY_FLOW.map((item) => item.key));
+const WORKSPACE_SECTION_META = Object.freeze({
+  home: Object.freeze({ kicker: "Центр управления", note: "Одно главное действие и весь цикл без лишних переходов" }),
+  media: Object.freeze({ kicker: "Шаг 1 из 6", note: "После загрузки точный исходник станет доступен в генерации" }),
+  generation: Object.freeze({ kicker: "Шаг 2 из 6", note: "Сначала товар и сценарий, затем отдельное подтверждение стоимости" }),
+  tasks: Object.freeze({ kicker: "Шаг 3 из 6", note: "Начните назначенную работу или честно зафиксируйте блокер" }),
+  placement: Object.freeze({ kicker: "Шаг 4 из 6", note: "Публикуйте только одобренный файл и верните ссылку на сам пост" }),
+  stats: Object.freeze({ kicker: "Шаг 5 из 6", note: "Каждая цифра хранится вместе с источником и временем снимка" }),
+  payouts: Object.freeze({ kicker: "Шаг 6 из 6", note: "Начисление, решение и внешний перевод — разные проверяемые этапы" }),
+  feedback: Object.freeze({ kicker: "Помощь", note: "Опишите препятствие — запрос сохранится в рабочем контексте" }),
+  team: Object.freeze({ kicker: "Управление", note: "Доступ выдаётся персонально и открывается после обучения" }),
 });
 
 const state = {
@@ -59,12 +81,17 @@ const state = {
   authPurpose: null,
   forcePassword: false,
   route: parseRoute(),
+  routeTransition: true,
+  dataEpoch: 0,
+  bootstrapRequestId: 0,
   mobileNavOpen: false,
+  realGenerationStartInFlight: false,
   examResult: null,
   courseCheckResults: {},
   teamInviteResult: null,
+  home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   sections: Object.fromEntries(
-    WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null }]),
+    WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null, requestId: 0 }]),
   ),
   sessionId: getSessionId(),
 };
@@ -121,17 +148,28 @@ async function initialize() {
 function bindGlobalEvents() {
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
-    state.mobileNavOpen = false;
+    state.routeTransition = true;
+    if (
+      state.route.path === "/workspace/home"
+      && !["loading", "refreshing"].includes(state.home.status)
+    ) state.home.status = "idle";
+    setMobileNavOpen(false);
     render();
+    settleRouteView();
     track("route_viewed", { route: state.route.path });
+  });
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 820 && state.mobileNavOpen) setMobileNavOpen(false);
   });
 
   document.addEventListener("click", handleClick);
   document.addEventListener("submit", handleSubmit);
+  document.addEventListener("input", handleFormActivity);
   document.addEventListener("change", handleChange);
   document.addEventListener("dragover", handleDragOver);
   document.addEventListener("dragleave", handleDragLeave);
   document.addEventListener("drop", handleDrop);
+  document.addEventListener("keydown", handleKeyDown);
 }
 
 async function handleAuthStateChange(event, session) {
@@ -205,13 +243,26 @@ async function consumeAuthLink() {
 }
 
 async function loadBootstrap() {
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestApi = state.api;
+  const requestId = state.bootstrapRequestId + 1;
+  state.bootstrapRequestId = requestId;
   state.bootstrapStatus = "loading";
   state.bootstrapError = null;
   render();
 
   try {
-    const raw = await state.api.bootstrap({ session_id: state.sessionId });
-    state.bootstrap = normalizeBootstrap(raw);
+    const raw = await requestApi.bootstrap({ session_id: state.sessionId });
+    if (
+      requestId !== state.bootstrapRequestId
+      || requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestApi !== state.api
+    ) return;
+    const bootstrap = normalizeBootstrap(raw);
+    requestApi.commitBootstrapContext(raw);
+    state.bootstrap = bootstrap;
     state.courseCheckResults = Object.fromEntries(
       state.bootstrap.training.courseChecks.map((item) => [
         item.moduleCode,
@@ -236,6 +287,12 @@ async function loadBootstrap() {
     state.bootstrapStatus = "ready";
     state.bootstrapError = null;
   } catch (error) {
+    if (
+      requestId !== state.bootstrapRequestId
+      || requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestApi !== state.api
+    ) return;
     state.bootstrap = null;
     state.bootstrapStatus = "error";
     state.bootstrapError = error;
@@ -453,7 +510,7 @@ function establishDefaultRoute() {
   if (!state.session) navigate("/login", true);
   else if (state.forcePassword) navigate("/set-password", true);
   else if (membershipLockDetails()) navigate("/access-locked", true);
-  else if (hasWorkspaceAccess()) navigate("/workspace/generation", true);
+  else if (hasWorkspaceAccess()) navigate("/workspace/home", true);
   else navigate("/learn", true);
 }
 
@@ -518,10 +575,10 @@ function render() {
 
   const requestedSection = path.startsWith("/workspace/")
     ? path.replace("/workspace/", "")
-    : "generation";
+    : "home";
   const section = visibleWorkspaceTabs().some(([key]) => key === requestedSection)
     ? requestedSection
-    : "generation";
+    : "home";
   if (path !== `/workspace/${section}`) {
     navigate(`/workspace/${section}`, true);
     return;
@@ -622,8 +679,8 @@ function authLayout(panel) {
         </div>
         <div class="auth-steps" aria-label="Этапы работы">
           <div class="auth-step"><b>01 · ОБУЧЕНИЕ</b><span>4 коротких курса и экзамен</span></div>
-          <div class="auth-step"><b>02 · ПРОИЗВОДСТВО</b><span>Только назначенные SKU и материалы</span></div>
-          <div class="auth-step"><b>03 · РЕЗУЛЬТАТ</b><span>Final URL, метрики и выплата</span></div>
+          <div class="auth-step"><b>02 · ПРОИЗВОДСТВО</b><span>Только назначенные артикулы и материалы</span></div>
+          <div class="auth-step"><b>03 · РЕЗУЛЬТАТ</b><span>Ссылка на пост, показатели и выплата</span></div>
         </div>
       </section>
       <main id="main-content" class="auth-panel" tabindex="-1">${panel}</main>
@@ -644,13 +701,13 @@ function renderBootstrapLoading() {
 }
 
 function renderBootstrapError() {
-  const message = state.bootstrapError?.message || "Не удалось получить рабочие данные.";
+  console.error("Workspace bootstrap failed", state.bootstrapError);
   app.innerHTML = `
     <main id="main-content" class="error-page" tabindex="-1">
       <div class="boot-mark" aria-hidden="true">!</div>
       <p class="eyebrow">Вход выполнен, кабинет недоступен</p>
-      <h1>Облачная настройка не завершена</h1>
-      <p class="muted">${escapeHtml(message)}</p>
+      <h1>Не удалось загрузить рабочее место</h1>
+      <p class="muted">Проверьте соединение и попробуйте ещё раз. Если ошибка повторится, сообщите руководителю команды.</p>
       <div class="inline-actions" style="justify-content:center; margin-top:20px">
         <button class="btn" type="button" data-action="retry-bootstrap">Проверить снова</button>
         <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
@@ -686,7 +743,7 @@ function renderLearningHome() {
   const workspaceReady = hasWorkspaceAccess();
   const nextCourse = courses.find((course) => !completed.has(course.code));
   const nextHref = workspaceReady
-    ? "#/workspace/generation"
+    ? "#/workspace/home"
     : nextCourse
       ? `#/learn/${encodeURIComponent(nextCourse.code)}`
       : "#/learn/exam";
@@ -743,7 +800,7 @@ function renderLearningHome() {
           <p>Не нужно держать весь процесс в голове: каждый следующий шаг живёт в своём разделе портала.</p>
         </div>
         ${portalWorkflowMarkup()}
-        <div class="work-map-rule"><span aria-hidden="true">◎</span><p><strong>Главное правило:</strong> точный SKU, исходный файл и итоговая ссылка должны оставаться связаны от загрузки до метрики.</p></div>
+        <div class="work-map-rule"><span aria-hidden="true">◎</span><p><strong>Главное правило:</strong> точный артикул товара, исходный файл и итоговая ссылка должны оставаться связаны от загрузки до результата.</p></div>
       </section>
 
       <div class="learning-section-heading">
@@ -778,11 +835,11 @@ function renderLearningHome() {
 
 function portalWorkflowMarkup() {
   const steps = [
-    ["01", "Медиатека", "Добавьте точное фото товара и проверьте SKU."],
-    ["02", "Генерация", "Выберите режим, задайте сценарий и подтвердите стоимость."],
-    ["03", "Задачи", "Посмотрите весь MP4 и зафиксируйте QA-решение."],
-    ["04", "Размещение", "Опубликуйте только в назначенный аккаунт и верните final URL."],
-    ["05", "Статистика", "Запишите просмотры, переходы, заказы и результат."],
+    ["01", "Материалы", "Добавьте точное фото товара и проверьте артикул."],
+    ["02", "Создание видео", "Выберите режим, задайте сценарий и подтвердите стоимость."],
+    ["03", "Задачи", "Посмотрите ролик целиком: подтвердите качество или отправьте на доработку."],
+    ["04", "Публикации", "Разместите ролик только в назначенном аккаунте и сохраните ссылку на пост."],
+    ["05", "Результаты", "Запишите просмотры, переходы, заказы и выручку."],
     ["06", "Выплаты", "Проверьте сумму и статус начисления: ожидает, одобрено или выплачено."],
   ];
   return `
@@ -1072,7 +1129,7 @@ function renderExam() {
         <section class="card result-banner">
           <div class="result-score" aria-hidden="true">!</div>
           <h2>Экзамен временно недоступен</h2>
-          <p class="muted">Supabase не вернул полный каталог из четырёх курсов и двенадцати вопросов. Рабочий кабинет остаётся закрыт.</p>
+          <p class="muted">Система не получила полный каталог из четырёх курсов и двенадцати вопросов. Рабочий кабинет остаётся закрыт.</p>
           <button class="btn" type="button" data-action="retry-bootstrap">Проверить ещё раз</button>
         </section>
       </div>
@@ -1087,7 +1144,7 @@ function renderExam() {
         <section class="card result-banner">
           <div class="result-score">4/4</div>
           <h2>Сначала завершите четыре курса</h2>
-          <p class="muted">Экзамен откроется, когда Supabase подтвердит каждый обязательный модуль.</p>
+          <p class="muted">Экзамен откроется, когда система подтвердит каждый обязательный модуль.</p>
           <a class="btn" href="#/learn">Вернуться к курсам</a>
         </section>
       </div>
@@ -1105,7 +1162,7 @@ function renderExam() {
           <p class="eyebrow">Итоговый экзамен</p>
           <h2>Допуск к кабинету получен</h2>
           <p class="muted">Все рабочие разделы открыты. Правила качества и прослеживаемости продолжают действовать в каждой задаче.</p>
-          <a class="btn" href="#/workspace/generation">Перейти к работе <span aria-hidden="true">→</span></a>
+          <a class="btn" href="#/workspace/home">Перейти к работе <span aria-hidden="true">→</span></a>
         </section>
       </div>
     `;
@@ -1122,7 +1179,7 @@ function renderExam() {
           <p class="eyebrow">Итоговый экзамен · за 24 часа: ${state.bootstrap.training.exam.attemptCount24h}/${state.bootstrap.training.exam.attemptLimit24h} · всего: ${state.bootstrap.training.exam.attemptCount}</p>
           <h2>Новая попытка откроется ${escapeHtml(formatDate(retry.nextAttemptAt, true))}</h2>
           <p class="muted">Осталось ${escapeHtml(retry.waitLabel)}. Повторите четыре курса и вернитесь после паузы — рабочий кабинет пока остаётся закрыт.</p>
-          ${alertMarkup("Ответы и ключ проверки остаются на стороне Supabase. Система показывает только темы для повторения.", "info")}
+          ${alertMarkup("Ответы и ключ проверки хранятся на защищённом сервере. Здесь показаны только темы для повторения.", "info")}
           <a class="btn" href="#/learn">Повторить материалы</a>
         </section>
       </div>
@@ -1137,7 +1194,7 @@ function renderExam() {
         <section class="card result-banner">
           <div class="result-score" aria-hidden="true">!</div>
           <h2>Вопросы экзамена не загрузились</h2>
-          <p class="muted">Обновите данные из Supabase. До получения всех двенадцати сценариев отправка экзамена закрыта.</p>
+          <p class="muted">Обновите данные. До получения всех двенадцати сценариев отправка экзамена закрыта.</p>
           <button class="btn" type="button" data-action="retry-bootstrap">Загрузить снова</button>
         </section>
       </div>
@@ -1154,7 +1211,7 @@ function renderExam() {
         <div>
           <p class="eyebrow">Итоговый допуск · ${questions.length} сценариев</p>
           <h1>Как вы поступите в реальной работе?</h1>
-          <p>Ответьте на все вопросы. Для прохождения нужно ${finalExamPassScore()} правильных ответов из 12. Проверка выполняется на стороне Supabase.</p>
+          <p>Ответьте на все вопросы. Для прохождения нужно ${finalExamPassScore()} правильных ответов из 12. Проверка выполняется на защищённом сервере.</p>
         </div>
         <span class="badge badge-warning">Попытка за 24 часа ${Math.min(state.bootstrap.training.exam.attemptCount24h + 1, state.bootstrap.training.exam.attemptLimit24h)}/${state.bootstrap.training.exam.attemptLimit24h}</span>
       </header>
@@ -1221,6 +1278,7 @@ function examRetryState() {
 
 function learningScaffold(content, activePath) {
   const profile = displayProfile();
+  const transitionClass = consumeRouteTransitionClass();
   return `
     <div class="workspace-shell">
       <aside class="sidebar" aria-label="Навигация обучения">
@@ -1235,7 +1293,7 @@ function learningScaffold(content, activePath) {
           </a>
           ${hasWorkspaceAccess() ? `
             <span class="nav-caption" style="margin-top:15px">Работа</span>
-            <a class="nav-link" href="#/workspace/generation"><span class="nav-icon" aria-hidden="true">→</span><span>Открыть кабинет</span></a>
+            <a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span><span>Открыть кабинет</span></a>
           ` : `
             <span class="nav-caption" style="margin-top:15px">Работа</span>
             <span class="nav-link" aria-disabled="true" style="opacity:.42"><span class="nav-icon" aria-hidden="true">⌑</span><span>Закрыто до экзамена</span></span>
@@ -1246,19 +1304,20 @@ function learningScaffold(content, activePath) {
       <section class="workspace-main">
         ${mobileTopbarMarkup("Обучение")}
         ${state.mobileNavOpen ? mobileNavMarkup(true, "", activePath) : ""}
-        <main id="main-content" tabindex="-1">${content}</main>
+        <main id="main-content" class="${transitionClass}" tabindex="-1">${content}</main>
       </section>
     </div>
   `;
 }
 
 function renderWorkspace(section) {
-  const sectionState = state.sections[section];
+  const sectionState = section === "home" ? state.home : state.sections[section];
   if (sectionState.status === "idle") {
-    window.queueMicrotask(() => loadSection(section));
+    window.queueMicrotask(() => section === "home" ? loadHome() : loadSection(section));
   }
 
   const renderer = {
+    home: renderHomeSection,
     generation: renderGenerationSection,
     placement: renderPlacementSection,
     stats: renderStatsSection,
@@ -1269,25 +1328,115 @@ function renderWorkspace(section) {
     team: renderTeamSection,
   }[section];
 
-  const content = renderer(sectionState);
+  const initialSectionLoad = section !== "home"
+    && ["idle", "loading"].includes(sectionState.status)
+    && !sectionState.data;
+  const content = initialSectionLoad ? workspaceInitialLoadingMarkup(section) : renderer(sectionState);
+  const existingShell = app.querySelector(".workspace-shell[data-workspace-section]");
+  const existingContent = app.querySelector("#workspace-content");
+  if (existingShell?.dataset.workspaceSection === section && existingContent) {
+    const dirtyForms = captureDirtyWorkspaceForms(existingContent);
+    existingContent.innerHTML = content;
+    restoreDirtyWorkspaceForms(existingContent, dirtyForms);
+    return;
+  }
   app.innerHTML = workspaceScaffold(content, section);
+}
+
+function workspaceInitialLoadingMarkup(section) {
+  const label = visibleWorkspaceTabs().find(([key]) => key === section)?.[1] || "Рабочий раздел";
+  return `
+    <div class="page-wrap">
+      <section class="workspace-initial-loading card" role="status" aria-label="Загружаем раздел ${escapeHtml(label)}">
+        <span class="sr-only">Загружаем раздел ${escapeHtml(label)}…</span>
+        <div aria-hidden="true" class="skeleton skeleton-kicker"></div>
+        <div aria-hidden="true" class="skeleton skeleton-title"></div>
+        <div aria-hidden="true" class="skeleton skeleton-copy"></div>
+        <div aria-hidden="true" class="skeleton skeleton-panel"></div>
+      </section>
+    </div>
+  `;
+}
+
+function workspaceFormKey(form, index) {
+  if (form.id) return `id:${form.id}`;
+  if (form.dataset.placementId) return `placement:${form.dataset.placementId}`;
+  if (form.dataset.payoutId) return `payout:${form.dataset.payoutId}:${form.className}`;
+  return `index:${index}:${form.className}`;
+}
+
+function captureDirtyWorkspaceForms(container) {
+  return Array.from(container.querySelectorAll('form[data-dirty="true"], form[data-busy="true"]')).map((form, index) => ({
+    key: workspaceFormKey(form, index),
+    dirty: form.dataset.dirty === "true",
+    busy: form.dataset.busy === "true",
+    busyLabel: form.querySelector('button[type="submit"]')?.textContent || "",
+    fields: Array.from(form.elements).map((field) => {
+      const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
+      return {
+        value: field.value,
+        checked: checkable ? field.checked : null,
+        selectedValues: field instanceof HTMLSelectElement && field.multiple
+          ? Array.from(field.selectedOptions).map((option) => option.value)
+          : null,
+        files: field instanceof HTMLInputElement && field.type === "file"
+          ? Array.from(field.files || [])
+          : null,
+      };
+    }),
+  }));
+}
+
+function restoreDirtyWorkspaceForms(container, snapshots) {
+  if (!snapshots.length) return;
+  const forms = Array.from(container.querySelectorAll("form"));
+  snapshots.forEach((snapshot) => {
+    const form = forms.find((candidate, index) => workspaceFormKey(candidate, index) === snapshot.key);
+    if (!form) return;
+    Array.from(form.elements).forEach((field, fieldIndex) => {
+      const saved = snapshot.fields[fieldIndex];
+      if (!saved) return;
+      if (field instanceof HTMLInputElement && field.type === "file" && saved.files?.length) {
+        try {
+          const transfer = new DataTransfer();
+          saved.files.forEach((file) => transfer.items.add(file));
+          field.files = transfer.files;
+        } catch {
+          // Browsers that prohibit restoring a FileList keep the safe empty input.
+        }
+      } else if (field instanceof HTMLSelectElement && field.multiple && saved.selectedValues) {
+        Array.from(field.options).forEach((option) => {
+          option.selected = saved.selectedValues.includes(option.value);
+        });
+      } else if (saved.checked !== null && "checked" in field) {
+        field.checked = saved.checked;
+      } else if (!(field instanceof HTMLButtonElement)) {
+        field.value = saved.value;
+      }
+    });
+    if (snapshot.dirty) form.dataset.dirty = "true";
+    if (form.id === "mock-batch-form") syncGenerationModeForm(form);
+    if (form.id === "media-upload-form") showSelectedFile(form.elements.file?.files?.[0]);
+    if (snapshot.busy) setFormBusy(form, true, snapshot.busyLabel || "Подождите…");
+  });
 }
 
 function workspaceScaffold(content, activeSection) {
   const profile = displayProfile();
   const tabs = visibleWorkspaceTabs();
   const tabLabel = tabs.find(([key]) => key === activeSection)?.[1] || "Кабинет";
+  const transitionClass = consumeRouteTransitionClass();
   return `
-    <div class="workspace-shell">
+    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}">
       <aside class="sidebar" aria-label="Основная навигация">
         ${brandMarkup()}
         <nav class="workspace-nav">
-          <span class="nav-caption">Производство</span>
+          <span class="nav-caption">Рабочий день</span>
           ${tabs.map(([key, label, icon]) => `
-            ${key === "stats" ? `<span class="nav-caption" style="margin-top:15px">Результат</span>` : ""}
-            ${key === "media" ? `<span class="nav-caption" style="margin-top:15px">Материалы и помощь</span>` : ""}
-            ${key === "team" ? `<span class="nav-caption" style="margin-top:15px">Администрирование</span>` : ""}
-            <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}">
+            ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производственный цикл</span>` : ""}
+            ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
+            ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
+            <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}" ${key === activeSection ? 'aria-current="page"' : ""}>
               <span class="nav-icon" aria-hidden="true">${icon}</span><span>${label}</span>
             </a>
           `).join("")}
@@ -1298,7 +1447,7 @@ function workspaceScaffold(content, activeSection) {
       <section class="workspace-main">
         ${mobileTopbarMarkup(tabLabel)}
         ${state.mobileNavOpen ? mobileNavMarkup(false, activeSection) : ""}
-        <main id="main-content" tabindex="-1">${content}</main>
+        <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
       </section>
     </div>
   `;
@@ -1309,7 +1458,10 @@ function canManageTeam() {
 }
 
 function visibleWorkspaceTabs() {
-  return WORKSPACE_TABS.filter(([key]) => key !== "team" || canManageTeam());
+  return [
+    WORKSPACE_HOME_TAB,
+    ...WORKSPACE_TABS.filter(([key]) => key !== "team" || canManageTeam()),
+  ];
 }
 
 function brandMarkup() {
@@ -1324,7 +1476,7 @@ function brandMarkup() {
 function sidebarFooterMarkup(profile) {
   return `
     <div class="sidebar-footer">
-      <div class="sidebar-status"><span class="status-dot"></span><span>Supabase · защищено</span></div>
+      <div class="sidebar-status"><span class="status-dot"></span><span>Защищённое соединение</span></div>
       <div class="sidebar-user">
         <span class="avatar" aria-hidden="true">${escapeHtml(profile.initials)}</span>
         <div class="user-meta"><strong>${escapeHtml(profile.name)}</strong><span>${escapeHtml(profile.role)}</span></div>
@@ -1335,23 +1487,76 @@ function sidebarFooterMarkup(profile) {
 }
 
 function mobileTopbarMarkup(label) {
+  const menuLabel = state.mobileNavOpen ? "Закрыть меню" : "Открыть меню";
   return `
     <header class="mobile-topbar">
       <span class="mobile-brand">ALTEA · ${escapeHtml(label)}</span>
-      <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="Открыть меню" aria-controls="mobile-navigation" aria-expanded="${state.mobileNavOpen}">☰</button>
+      <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="${menuLabel}" aria-controls="mobile-navigation" aria-expanded="${state.mobileNavOpen}">${state.mobileNavOpen ? "×" : "☰"}</button>
     </header>
   `;
+}
+
+function setMobileNavOpen(open, restoreFocus = false) {
+  const nextOpen = Boolean(open);
+  const trigger = document.querySelector(".mobile-nav-trigger");
+  const existingNav = document.querySelector("#mobile-navigation");
+  state.mobileNavOpen = nextOpen;
+  document.body.classList.toggle("mobile-nav-open", nextOpen);
+
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", String(nextOpen));
+    trigger.setAttribute("aria-label", nextOpen ? "Закрыть меню" : "Открыть меню");
+    trigger.textContent = nextOpen ? "×" : "☰";
+  }
+
+  if (nextOpen && !existingNav) {
+    const learningOnly = state.route.path.startsWith("/learn");
+    const activeSection = state.route.path.startsWith("/workspace/")
+      ? state.route.path.replace("/workspace/", "")
+      : "";
+    document.querySelector(".mobile-topbar")?.insertAdjacentHTML(
+      "afterend",
+      mobileNavMarkup(learningOnly, activeSection, state.route.path),
+    );
+    window.queueMicrotask(() => document.querySelector("#mobile-navigation a, #mobile-navigation button")?.focus());
+  } else if (!nextOpen) {
+    existingNav?.remove();
+    if (restoreFocus) trigger?.focus();
+  }
+}
+
+function handleKeyDown(event) {
+  if (event.key === "Escape" && state.mobileNavOpen) {
+    event.preventDefault();
+    setMobileNavOpen(false, true);
+    return;
+  }
+  if (event.key === "Tab" && state.mobileNavOpen) {
+    const nav = document.querySelector("#mobile-navigation");
+    const focusable = Array.from(nav?.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])
+      .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 }
 
 function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = "") {
   return `
     <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
-        <a class="nav-link ${activeLearningPath === "/learn" ? "active" : ""}" href="#/learn" ${activeLearningPath === "/learn" ? 'aria-current="page"' : ""}><span class="nav-icon">◎</span>Курсы</a>
-        <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon">◇</span>Экзамен</a>
-        ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/generation"><span class="nav-icon">→</span>Кабинет</a>` : ""}
+        <a class="nav-link ${activeLearningPath === "/learn" ? "active" : ""}" href="#/learn" ${activeLearningPath === "/learn" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◎</span>Курсы</a>
+        <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◇</span>Экзамен</a>
+        ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span>Кабинет</a>` : ""}
       ` : visibleWorkspaceTabs().map(([key, label, icon]) => `
-        <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}"><span class="nav-icon">${icon}</span>${label}</a>
+        <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}" ${key === activeSection ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</a>
       `).join("")}
       <button class="btn btn-secondary btn-block" type="button" data-action="logout">Выйти</button>
     </nav>
@@ -1360,23 +1565,32 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
 
 async function loadSection(section, options = {}) {
   const target = state.sections[section];
-  if (!target || target.status === "loading") return;
-  target.status = "loading";
+  if (!target || ["loading", "refreshing"].includes(target.status)) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data ? "refreshing" : "loading";
   target.error = null;
   if (!options.silent) render();
 
   try {
     const raw = await state.api.workspaceSection(section);
-    target.data = raw?.data ?? raw ?? {};
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+    let data = raw?.data ?? raw ?? {};
     if (["generation", "media"].includes(section)) {
-      target.data = await hydratePrivateMedia(target.data);
+      data = await hydratePrivateMedia(data);
     }
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+    target.data = data;
     target.status = "ready";
   } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     target.error = error;
     target.status = "error";
   }
-  render();
+  if (state.route.path === `/workspace/${section}`) render();
+  else if (options.silent && section === "team") syncGenerationAssigneeOptions();
 }
 
 async function hydratePrivateMedia(data) {
@@ -1408,8 +1622,265 @@ async function hydratePrivateMedia(data) {
   return data;
 }
 
+async function loadHome() {
+  if (["loading", "refreshing"].includes(state.home.status)) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = state.home.requestId + 1;
+  state.home.requestId = requestId;
+  state.home.status = state.home.data ? "refreshing" : "loading";
+  state.home.error = null;
+  render();
+
+  const previousData = state.home.data || {};
+  const results = await Promise.all(HOME_SECTION_KEYS.map(async (section) => {
+    try {
+      const raw = await state.api.workspaceSection(section);
+      let data = raw?.data ?? raw ?? {};
+      if (["generation", "media"].includes(section)) data = await hydratePrivateMedia(data);
+      return { section, data, error: null };
+    } catch (error) {
+      console.error(`Home section failed: ${section}`, error);
+      return { section, data: previousData[section] || {}, error };
+    }
+  }));
+  if (
+    requestEpoch !== state.dataEpoch
+    || requestUserId !== state.user?.id
+    || requestId !== state.home.requestId
+  ) return;
+
+  const failed = results.filter((result) => result.error);
+  const hasPreviousData = Object.keys(previousData).length > 0;
+  state.home.data = Object.fromEntries(results.map((result) => [result.section, result.data]));
+  state.home.unavailable = failed.map((result) => result.section);
+  state.home.error = failed.length === results.length ? failed[0]?.error : null;
+  state.home.status = failed.length === results.length && !hasPreviousData ? "error" : "ready";
+  if (state.route.path === "/workspace/home") render();
+}
+
+function isActionablePlacement(item) {
+  return ["scheduled", "ready"].includes(String(item?.status || "").toLowerCase());
+}
+
+function isCompletedPlacement(item) {
+  return ["done", "completed", "published"].includes(String(item?.status || "").toLowerCase());
+}
+
+function isAutomaticGenerationWait(task) {
+  if (String(task?.task_type || "") !== "video_review") return false;
+  const result = task?.result && typeof task.result === "object"
+    ? task.result
+    : task?.result_json && typeof task.result_json === "object"
+      ? task.result_json
+      : {};
+  return ["queued", "starting", "submitted", "processing", "running"].includes(
+    String(result.generation_status || "").toLowerCase(),
+  );
+}
+
+function homeNextAction({ media, batches, tasks, placements }) {
+  const blockedTask = tasks.find(
+    (item) => String(item.status || "") === "blocked" && !isAutomaticGenerationWait(item),
+  );
+  if (blockedTask) {
+    return {
+      step: "Нужна помощь",
+      title: blockedTask.title || "Разберите препятствие в задаче",
+      description: "В задаче зафиксирован блокер. Уточните причину и продолжите только после решения.",
+      href: "#/workspace/tasks",
+      cta: "Открыть задачи",
+    };
+  }
+  const activeTask = tasks.find(
+    (item) => !["done", "cancelled", "blocked"].includes(String(item.status || "")) && !isAutomaticGenerationWait(item),
+  );
+  if (activeTask) {
+    return {
+      step: "Следующее действие",
+      title: activeTask.title || "Продолжите назначенную задачу",
+      description: activeTask.instructions || "Откройте задачу, выполните один следующий шаг и сохраните результат.",
+      href: "#/workspace/tasks",
+      cta: "Перейти к задаче",
+    };
+  }
+  const activeGeneration = batches.find((item) => ["queued", "starting", "submitted", "processing", "running"].includes(String(item.status || "").toLowerCase()));
+  if (activeGeneration) {
+    return {
+      step: "Видео создаётся",
+      title: activeGeneration.name || activeGeneration.sku || "Проверьте готовность ролика",
+      description: "Запуск уже принят. Не запускайте его повторно — статус и готовый файл появятся в списке.",
+      href: "#/workspace/generation",
+      cta: "Проверить запуск",
+    };
+  }
+  const openPlacement = placements.find(isActionablePlacement);
+  if (openPlacement) {
+    return {
+      step: "Готово к публикации",
+      title: openPlacement.title || openPlacement.product_name || "Опубликуйте одобренный ролик",
+      description: "Сверьте назначенный аккаунт и рекламный статус, затем сохраните ссылку на опубликованный пост.",
+      href: "#/workspace/placement",
+      cta: "Открыть публикацию",
+    };
+  }
+  if (!media.length) {
+    return {
+      step: "Начните здесь",
+      title: "Добавьте точное фото товара",
+      description: "Загрузите фронтальный кадр с читаемой этикеткой — после этого он появится в форме создания видео.",
+      href: "#/workspace/media",
+      cta: "Добавить материал",
+    };
+  }
+  return {
+    step: "Всё готово",
+    title: "Создайте следующий ролик",
+    description: "Исходники уже в защищённом хранилище. Выберите товар, сценарий и подходящий режим запуска.",
+    href: "#/workspace/generation",
+    cta: "Создать видео",
+  };
+}
+
+function renderHomeSection(homeState) {
+  if ((homeState.status === "loading" || homeState.status === "idle") && !homeState.data) {
+    return `
+      <div class="page-wrap workspace-home">
+        <section class="home-hero home-hero-loading" role="status" aria-label="Собираем рабочий день">
+          <span class="sr-only">Собираем рабочий день…</span>
+          <div aria-hidden="true" class="skeleton skeleton-title"></div>
+          <div aria-hidden="true" class="skeleton skeleton-copy"></div>
+          <div aria-hidden="true" class="skeleton skeleton-action"></div>
+        </section>
+        <div aria-hidden="true" class="metrics-grid home-metrics">${Array.from({ length: 4 }, () => '<div class="card metric-card"><div class="skeleton"></div></div>').join("")}</div>
+      </div>
+    `;
+  }
+  if (homeState.status === "error") {
+    return `
+      <div class="page-wrap workspace-home">
+        <section class="card home-error-state" role="alert">
+          <span class="home-error-mark" aria-hidden="true">!</span>
+          <p class="eyebrow">Рабочий день</p>
+          <h1>Не удалось собрать сводку</h1>
+          <p>Проверьте соединение и попробуйте ещё раз. Остальные разделы доступны в меню.</p>
+          <button class="btn" type="button" data-action="refresh-home">Попробовать снова</button>
+        </section>
+      </div>
+    `;
+  }
+
+  const data = homeState.data || {};
+  const media = listFrom(data.media || {}, "media", "items", "artifacts");
+  const batches = listFrom(data.generation || {}, "batches");
+  const tasks = listFrom(data.tasks || {}, "tasks", "items", "rows");
+  const placements = listFrom(data.placement || {}, "placements", "items", "tasks");
+  const stats = data.stats || {};
+  const publications = listFrom(stats, "publications", "items", "rows");
+  const payouts = listFrom(data.payouts || {}, "payouts", "items", "rows");
+  const activeTasks = tasks.filter(
+    (item) => !["done", "cancelled"].includes(String(item.status || "")) && !isAutomaticGenerationWait(item),
+  ).length;
+  const activeGenerations = batches.filter((item) => ["queued", "starting", "submitted", "processing", "running"].includes(String(item.status || "").toLowerCase())).length;
+  const openPlacements = placements.filter(isActionablePlacement).length;
+  const waitingPayoutMinor = sumMinor(payouts.filter((item) => ["pending", "approved"].includes(String(item.status || ""))));
+  const action = homeNextAction({ media, batches, tasks, placements });
+  const firstName = displayProfile().name.split(/\s+/).filter(Boolean)[0] || "Сергей";
+  const flowValues = {
+    media: `${media.length}`,
+    generation: activeGenerations ? `${activeGenerations} в работе` : `${batches.length}`,
+    tasks: activeTasks ? `${activeTasks} активных` : "0",
+    placement: openPlacements ? `${openPlacements} к выходу` : "0",
+    stats: `${publications.length}`,
+    payouts: formatMoney(waitingPayoutMinor),
+  };
+
+  return `
+    <div class="page-wrap workspace-home">
+      ${homeState.status === "refreshing" ? '<div class="refresh-indicator" role="status"><span aria-hidden="true"></span>Обновляем сводку…</div>' : ""}
+      ${homeState.unavailable?.length ? alertMarkup("Часть свежих данных пока недоступна. Показаны последние сохранённые значения; повторите обновление позже.", "warning") : ""}
+      <section class="home-hero">
+        <div class="home-hero-copy">
+          <p class="eyebrow">Сегодня в ALTEA</p>
+          <h1>${escapeHtml(firstName)}, всё важное — перед вами</h1>
+          <p>Портал сам собирает следующий шаг: от точного исходника до публикации, результата и выплаты.</p>
+          <article class="home-next-action">
+            <div>
+              <span>${escapeHtml(action.step)}</span>
+              <h2>${escapeHtml(action.title)}</h2>
+              <p>${escapeHtml(action.description)}</p>
+            </div>
+            <a class="btn btn-light" href="${action.href}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>
+          </article>
+        </div>
+        <div class="home-hero-visual" role="img" aria-label="Шесть этапов производственного цикла">
+          <span class="home-orbit home-orbit-one"></span>
+          <span class="home-orbit home-orbit-two"></span>
+          <div class="home-seal"><strong>A</strong><span>6 этапов</span></div>
+        </div>
+      </section>
+
+      <div class="metrics-grid home-metrics">
+        ${[
+          ["Активные задачи", activeTasks, "что требует действия сейчас", "tasks"],
+          ["Видео создаётся", activeGenerations, "запуски без повторной оплаты", "generation"],
+          ["К публикации", openPlacements, "одобренные ролики без ссылки", "placement"],
+          ["Ждёт выплаты", formatMoney(waitingPayoutMinor), "одобрено или на проверке", "payouts"],
+        ].map(([label, value, hint, key]) => `<a class="card metric-card home-metric-card" href="#/workspace/${key}"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small><span class="metric-arrow" aria-hidden="true">↗</span></a>`).join("")}
+      </div>
+      <p class="home-data-scope">Оперативная сводка показывает последние 50 записей каждого раздела. Полная история остаётся внутри разделов.</p>
+
+      <section class="card home-flow-card">
+        <div class="section-heading home-section-heading">
+          <div><p class="eyebrow">Карта производства</p><h2>Шесть этапов одного результата</h2></div>
+          <p>Каждый этап хранит свою часть истории товара. Нажмите на этап, чтобы продолжить работу.</p>
+        </div>
+        <ol class="home-flow-list">
+          ${FACTORY_FLOW.map((item) => `<li><a href="#/workspace/${item.key}"><span>${item.step}</span><div><strong>${item.label}</strong><small>${item.hint}</small></div><em>${escapeHtml(flowValues[item.key])}</em></a></li>`).join("")}
+        </ol>
+      </section>
+
+      <div class="home-guidance-grid">
+        <section class="card home-guidance-card">
+          <span class="guidance-mark" aria-hidden="true">✓</span>
+          <div><p class="eyebrow">Перед любым запуском</p><h2>Товар, файл и задача совпадают</h2><p>Не используйте похожий артикул, случайный референс или другой аккаунт публикации.</p></div>
+        </section>
+        <section class="card home-guidance-card home-guidance-card-accent">
+          <span class="guidance-mark" aria-hidden="true">!</span>
+          <div><p class="eyebrow">Если чего-то не хватает</p><h2>Остановитесь и зафиксируйте блокер</h2><p>Так руководитель увидит проблему, а результат не потеряет связь с исходной задачей.</p></div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
 function realGenerationSku(mode) {
   return REAL_GENERATION_SKUS[String(mode || "")] || null;
+}
+
+function generationAssignableMembers() {
+  const members = listFrom(state.sections.team.data || {}, "members").filter(
+    (member) => member.status === "active" && normalizeBoolean(member.exam_passed),
+  );
+  if (state.user?.id && !members.some((member) => String(member.profile_id) === String(state.user.id))) {
+    members.unshift({
+      profile_id: state.user.id,
+      display_name: state.bootstrap?.profile?.display_name || state.user.email || "Вы",
+      role: state.bootstrap?.membership?.role,
+      status: "active",
+      exam_passed: true,
+    });
+  }
+  return members;
+}
+
+function syncGenerationAssigneeOptions() {
+  const select = document.querySelector('#mock-batch-form select[name="assignee_id"]');
+  if (!select) return;
+  const selected = select.value;
+  select.innerHTML = generationAssignableMembers().map((member) => `
+    <option value="${escapeHtml(member.profile_id)}" ${String(member.profile_id) === String(selected || state.user?.id) ? "selected" : ""}>${escapeHtml(member.display_name || member.email || humanRole(member.role))}</option>
+  `).join("");
 }
 
 function isRealGenerationMode(mode) {
@@ -1430,40 +1901,26 @@ function renderGenerationSection(sectionState) {
   if (canAssignTeam && state.sections.team.status === "idle") {
     window.queueMicrotask(() => loadSection("team", { silent: true }));
   }
-  const assignableMembers = listFrom(state.sections.team.data || {}, "members").filter(
-    (member) => member.status === "active" && normalizeBoolean(member.exam_passed),
-  );
-  if (
-    state.user?.id &&
-    !assignableMembers.some((member) => String(member.profile_id) === String(state.user.id))
-  ) {
-    assignableMembers.unshift({
-      profile_id: state.user.id,
-      display_name: state.bootstrap?.profile?.display_name || state.user.email || "Вы",
-      role: state.bootstrap?.membership?.role,
-      status: "active",
-      exam_passed: true,
-    });
-  }
+  const assignableMembers = generationAssignableMembers();
   return `
     <div class="page-wrap">
       ${pageHeader(
-        "Генерация",
-        "Подготовьте бесплатный dry-run или один реальный ролик Runway по точному SKU и исходнику.",
+        "Создание видео",
+        "Создайте тестовые варианты без списаний или один готовый ролик по фотографии выбранного товара.",
         REAL_GENERATION_ENABLED
-          ? `<span class="badge badge-info">RUNWAY + MOCK</span>`
-          : `<span class="badge badge-mock">MOCK · 0 ₽</span>`,
+          ? `<span class="badge badge-info">ТЕСТОВЫЙ + ПЛАТНЫЙ</span>`
+          : `<span class="badge badge-mock">ТЕСТОВЫЙ · 0 ₽</span>`,
       )}
       <div class="split-grid">
         <section class="card card-pad">
-          <p class="eyebrow">Одно следующее действие</p>
+          <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
-          <p class="muted tiny">Mock создаёт до ${MAX_MOCK_BATCH_SIZE} dry-run вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с аудио.</p>
+          <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с озвучкой.</p>
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
             <label class="field">
               <span>Режим генерации *</span>
               <select id="generation-mode" name="generation_mode" required>
-                ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Mock · dry-run · 0 ₽</option>` : ""}
+                ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Тестовые варианты · без списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
                   <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}</option>
                   <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}</option>
@@ -1471,15 +1928,15 @@ function renderGenerationSection(sectionState) {
               </select>
             </label>
             <div id="real-generation-confirmation" ${defaultIsReal ? "" : "hidden"}>
-              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Платный запуск: ориентировочно ${defaultRealSku.estimatedCredits} credits / $${defaultRealSku.estimatedUsd}. Итог зависит от тарифа провайдера.</span></div>
-              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Runway создаёт аудио по текстовому запросу, но не гарантирует дословную русскую реплику. Проверьте результат перед публикацией." : "Этот режим создаёт видео без сгенерированной речи."}</p>
+              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Один ролик — около $${defaultRealSku.estimatedUsd} (${defaultRealSku.estimatedCredits} кредитов). Окончательная стоимость зависит от тарифа сервиса.</span></div>
+              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией." : "Этот режим создаёт видео без сгенерированной речи."}</p>
               <label class="option" style="margin-top:10px">
                 <input type="checkbox" name="real_spend_confirmation" value="${defaultRealSku.confirmation}" ${defaultIsReal ? "required" : ""} />
-                <span><strong>Подтверждаю один платный запуск Runway</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.model} · ${defaultRealSku.durationSeconds} секунд · ровно одно видео · около $${defaultRealSku.estimatedUsd}</small></span>
+                <span><strong>Подтверждаю создание одного платного видео</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.durationSeconds} секунд · одно видео · около $${defaultRealSku.estimatedUsd}</small></span>
               </label>
             </div>
             <label class="field">
-              <span>Артикул / SKU *</span>
+              <span>Код товара / артикул *</span>
               <input name="sku" required maxlength="120" placeholder="Например: WB-12345678" autocomplete="off" />
               <small class="field-hint">Скопируйте из назначенной карточки, не вводите похожий товар.</small>
             </label>
@@ -1487,18 +1944,18 @@ function renderGenerationSection(sectionState) {
               <span>Название товара *</span>
               <input name="product_name" required maxlength="180" placeholder="Точное название и вариант" autocomplete="off" />
             </label>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+            <div class="form-grid-2">
               <label class="field">
                 <span>Площадка *</span>
                 <select name="platform" required><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option><option value="vk">VK</option><option value="telegram">Telegram</option><option value="wildberries">Wildberries</option></select>
               </label>
               <label class="field">
-                <span>Аккаунт / карточка *</span>
+                <span>Аккаунт или карточка для публикации *</span>
                 <input name="destination_ref" required minlength="2" maxlength="240" placeholder="Точный @аккаунт, канал или карточка" autocomplete="off" />
               </label>
             </div>
             ${canAssignTeam ? `
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+              <div class="form-grid-2">
                 <label class="field">
                   <span>Исполнитель *</span>
                   <select name="assignee_id" required>
@@ -1507,17 +1964,17 @@ function renderGenerationSection(sectionState) {
                   <small class="field-hint">Доступны только участники, уже сдавшие экзамен.</small>
                 </label>
                 <label class="field">
-                  <span>Вознаграждение за задачу, ₽</span>
+                  <span>Начисление исполнителю, ₽</span>
                   <input name="payout_rub" type="number" min="0" max="10000" step="0.01" value="0" required />
-                  <small class="field-hint">Это начисление в реестре, не автоматический платёж.</small>
+                  <small class="field-hint">Сумма появится в разделе «Выплаты» после принятия задачи. Перевод выполняется отдельно.</small>
                 </label>
               </div>
             ` : ""}
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+            <div class="form-grid-2">
               <label class="field">
-                <span>Количество</span>
+                <span>Количество вариантов</span>
                 <input name="count" type="number" min="1" max="${defaultIsReal ? 1 : MAX_MOCK_BATCH_SIZE}" value="${defaultIsReal ? 1 : 5}" ${defaultIsReal ? "readonly" : ""} required />
-                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? "Платный режим всегда создаёт ровно одно видео." : `Mock: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
+                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? "Платный режим всегда создаёт ровно одно видео." : `Тестовый режим: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
               </label>
               <label class="field">
                 <span>Формат</span>
@@ -1525,31 +1982,31 @@ function renderGenerationSection(sectionState) {
               </label>
             </div>
             <label class="field">
-              <span>Что должен понять зритель</span>
-              <textarea name="brief" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Опишите блогера, точный товар, сцену и дословную реплику"></textarea>
+              <span>Сценарий и главная мысль</span>
+              <textarea name="brief" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Кто в кадре, где происходит действие, как показан товар и какую фразу произносит герой"></textarea>
               <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Перед оплатой вставьте сценарий именно выбранного товара и проверьте дословную реплику." : "Для платного режима опишите один ролик без неподтверждённых обещаний."}</small>
             </label>
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
-                <legend class="field-label">Точное фото товара *</legend>
-                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для mock можно выбрать один или несколько исходников."}</p>
+                <legend class="field-label">Фото выбранного товара *</legend>
+                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для тестового режима можно выбрать один или несколько исходников."}</p>
                 <div class="option-list" style="margin-top:8px">
                   ${exactMedia.slice(0, 8).map((item) => `
                     <label class="option">
                       <input type="${defaultIsReal ? "radio" : "checkbox"}" name="media_id" value="${escapeHtml(item.public_id || item.id)}" />
-                      <span><strong>${escapeHtml(item.original_filename || item.name || "Файл")}</strong><br /><small class="muted">${escapeHtml(item.kind || item.mime_type || "исходник")}</small></span>
+                      <span><strong>${escapeHtml(item.original_filename || item.name || "Файл")}</strong><br /><small class="muted">${escapeHtml(humanMediaKind(item.kind))}</small></span>
                     </label>
                   `).join("")}
                 </div>
               </fieldset>
-            ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или packshot в <a href="#/workspace/media">Медиатеку</a>. Без исходника запуск недоступен.</span></div>`}
-            <button id="generation-submit" class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>${defaultIsReal ? `Запустить 1 платное видео · около $${defaultRealSku.estimatedUsd}` : "Подготовить dry-run batch"}</button>
+            ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или упаковки в разделе <a href="#/workspace/media">«Материалы»</a>. Без исходника запуск недоступен.</span></div>`}
+            <button id="generation-submit" class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>${defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты"}</button>
           </form>
         </section>
 
         <section class="card">
-          <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние batch</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Пока нет запусков", "Заполните форму слева — первый batch появится здесь."))}
+          <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние запуски</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь."))}
         </section>
       </div>
       ${(canManageAliases || aliases.length) ? `
@@ -1559,17 +2016,17 @@ function renderGenerationSection(sectionState) {
               <p class="eyebrow">Идентичность товара</p>
               <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Артикулы Wildberries</h2>
               <p class="muted tiny"><strong>Подменный артикул</strong> — другой номер карточки WB, который руководитель подтвердил для того же точного товара. Это не похожий вкус, объём или упаковка. Исполнитель сам подменник не выбирает: он использует номер из задачи, а портал сохраняет старую и новую карточки с датой, не переписывая прошлые метрики.</p>
-              ${aliases.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>SKU</th><th>Текущий</th><th>Старый / подменный</th></tr></thead><tbody>${aliases.slice(0, 20).map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.current_article || item.canonical_article || "—")}</td><td>${escapeHtml(item.alias_article || item.wb_alias || "—")}</td></tr>`).join("")}</tbody></table></div>` : emptyState("WB", "Связей пока нет", "Подменник добавляет только руководитель после подтверждения, что товар действительно тот же.")}
+              ${aliases.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Код товара</th><th>Текущий</th><th>Старый / подменный</th></tr></thead><tbody>${aliases.slice(0, 20).map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.current_article || item.canonical_article || "—")}</td><td>${escapeHtml(item.alias_article || item.wb_alias || "—")}</td></tr>`).join("")}</tbody></table></div>` : emptyState("WB", "Связей пока нет", "Подменник добавляет только руководитель после подтверждения, что товар действительно тот же.")}
             </div>
             ${canManageAliases ? `
               <form id="wb-alias-form" class="form-stack" novalidate>
-                <label class="field"><span>Внутренний SKU *</span><input name="sku" required maxlength="120" placeholder="Точный SKU товара" /></label>
+                <label class="field"><span>Внутренний код товара *</span><input name="sku" required maxlength="120" placeholder="Точный код товара из задачи" /></label>
                 <label class="field"><span>Текущий артикул WB *</span><input name="current_article" required maxlength="120" inputmode="numeric" placeholder="Например: 123456789" /></label>
                 <label class="field"><span>Старый / подменный артикул того же товара *</span><input name="alias_article" required maxlength="120" inputmode="numeric" placeholder="Артикул из исторических данных" /></label>
                 <label class="field"><span>Почему появилась связь *</span><textarea name="reason" required minlength="5" maxlength="600" placeholder="Например: WB заменил карточку 13.07.2026; подтверждено владельцем"></textarea></label>
                 <button class="btn" type="submit">Сохранить связь без перезаписи истории</button>
               </form>
-            ` : alertMarkup("Изменять связи могут owner, admin или producer. Вам доступен только просмотр.", "info")}
+            ` : alertMarkup("Изменять связи может только руководитель или продюсер. Вам доступен просмотр.", "info")}
           </div>
         </section>
       ` : ""}
@@ -1580,22 +2037,22 @@ function renderGenerationSection(sectionState) {
 function generationTable(items) {
   return `
     <div class="table-wrap"><table class="data-table">
-      <thead><tr><th>Batch</th><th>SKU</th><th>Запрошено</th><th>Готово</th><th>Статус</th><th>Создан</th></tr></thead>
+      <thead><tr><th>Запуск</th><th>Код товара</th><th>Запрошено</th><th>Готово</th><th>Статус</th><th>Создан</th></tr></thead>
       <tbody>${items.map((item) => {
         const parameters = item.parameters && typeof item.parameters === "object" ? item.parameters : {};
         const real = String(item.mode || parameters.mode || "mock").toLowerCase() === "real";
         const model = String(item.model || parameters.model || "gen4_turbo");
         const duration = Number(item.duration_seconds || parameters.duration_seconds || 5);
         const audio = normalizeBoolean(item.audio ?? parameters.audio);
-        const realLabel = `Runway · ${model} · ${duration}s${audio ? " · audio" : ""} · paid`;
+        const realLabel = `Платный ролик · ${duration} секунд${audio ? " · с озвучкой" : " · без голоса"}`;
         const jobId = real ? String(parameters.job_id || "") : "";
         const status = String(item.status || parameters.job_status || "queued");
         const realAction = jobId
-          ? `<div style="margin-top:8px"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-job-id="${escapeHtml(jobId)}">${["succeeded", "completed"].includes(status.toLowerCase()) ? "Скачать MP4" : "Проверить статус"}</button></div>`
+          ? `<div style="margin-top:8px"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-job-id="${escapeHtml(jobId)}">${["succeeded", "completed"].includes(status.toLowerCase()) ? "Скачать ролик" : "Проверить статус"}</button></div>`
           : "";
         return `
           <tr>
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${real ? escapeHtml(realLabel) : "mock · dry-run"}</small></td>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${real ? escapeHtml(realLabel) : "Тестовые варианты · без списаний"}</small></td>
             <td>${escapeHtml(item.sku || parameters.sku || "—")}</td>
             <td>${formatNumber(item.total_requested ?? item.count ?? (real ? 1 : 0))}</td>
             <td>${formatNumber(item.total_accepted ?? item.completed ?? 0)}</td>
@@ -1611,20 +2068,21 @@ function generationTable(items) {
 function renderPlacementSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "placements", "items", "tasks");
-  const openCount = items.filter((item) => !["done", "completed", "published"].includes(item.status)).length;
+  const openCount = items.filter(isActionablePlacement).length;
   return `
     <div class="page-wrap">
-      ${pageHeader("Размещение", "Скачайте одобренный ролик, опубликуйте на назначенной площадке и верните final URL.", `<span class="badge badge-info">${openCount} ждут действия</span>`)}
-      ${alertMarkup("Final URL — это публичная ссылка на сам пост. Ссылка на карточку товара не завершает задачу.", "info")}
+      ${pageHeader("Публикации", "Скачайте одобренный ролик, разместите его на указанной площадке и сохраните ссылку на сам пост.", `<span class="badge badge-info">${openCount} ждут действия</span>`)}
+      ${alertMarkup("Нужна публичная ссылка именно на опубликованный пост. Ссылка на карточку товара не завершает задачу.", "info")}
       <div class="placement-list" style="margin-top:18px">
-        ${sectionBody(sectionState, items.length ? items.map(placementCard).join("") : emptyState("↗", "Нет задач на размещение", "Здесь появятся только одобренные ролики с назначенной площадкой."))}
+        ${sectionBody(sectionState, items.length ? items.map(placementCard).join("") : emptyState("↗", "Нет задач на публикацию", "Здесь появятся только одобренные ролики с назначенной площадкой."))}
       </div>
     </div>
   `;
 }
 
 function placementCard(item) {
-  const complete = ["done", "completed", "published"].includes(item.status);
+  const complete = isCompletedPlacement(item);
+  const actionable = isActionablePlacement(item);
   return `
     <article class="card placement-card">
       <div class="placement-top">
@@ -1638,22 +2096,22 @@ function placementCard(item) {
       <ul class="checklist">
         <li>Сверить назначенный аккаунт и площадку</li>
         <li>Проверить в инструкции решение: информационный материал или реклама</li>
-        <li>Если это реклама — сверить пометку «Реклама», рекламодателя, ERID и разрешение площадки</li>
-        <li>Использовать tracking link из задачи</li>
-        <li>После публикации вернуть final URL</li>
+        <li>Если это реклама — сверить пометку «Реклама», рекламодателя, идентификатор рекламы (ERID) и разрешение площадки</li>
+        <li>Использовать ссылку для перехода, указанную в задаче</li>
+        <li>После публикации сохранить ссылку на сам пост</li>
       </ul>
-      ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её owner/admin. Бирка соцсети не заменяет правовую проверку.", "warning")}
-      ${item.tracking_url ? `<p class="tiny"><strong>Tracking link:</strong> <a href="${safeExternalUrl(item.tracking_url)}" target="_blank" rel="noopener noreferrer">открыть безопасно</a></p>` : ""}
-      ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : `
+      ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её руководителю. Бирка соцсети не заменяет правовую проверку.", "warning")}
+      ${item.tracking_url ? `<p class="tiny"><strong>Ссылка из задачи:</strong> <a href="${safeExternalUrl(item.tracking_url)}" target="_blank" rel="noopener noreferrer">открыть</a></p>` : ""}
+      ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable ? `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
-          <label class="field" style="flex:1; min-width:250px"><span>Final URL поста</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
+          <label class="field" style="flex:1; min-width:250px"><span>Ссылка на опубликованный пост</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
           <label class="option" style="flex-basis:100%">
             <input type="checkbox" name="compliance_ack" value="confirmed" required />
-            <span><strong>Рекламный статус проверен по инструкции задачи</strong><br /><small class="muted">Если это реклама, обязательные реквизиты и разрешённая площадка подтверждены owner/admin; если решения нет — я не публикую.</small></span>
+            <span><strong>Рекламный статус проверен по инструкции задачи</strong><br /><small class="muted">Если это реклама, обязательные реквизиты и площадка подтверждены руководителем; если решения нет — я не публикую.</small></span>
           </label>
-          <button class="btn" type="submit" style="align-self:end">Подтвердить размещение</button>
+          <button class="btn" type="submit" style="align-self:end">Подтвердить публикацию</button>
         </form>
-      `}
+      ` : alertMarkup("Эта публикация закрыта и не требует действий. Если это ошибка, сообщите руководителю.", "info")}
     </article>
   `;
 }
@@ -1664,29 +2122,29 @@ function renderStatsSection(sectionState) {
   const rows = listFrom(data, "publications", "items", "rows");
   const publicationOptions = listFrom(data, "publication_options", "placements", "published_placements");
   const cards = [
-    ["Опубликовано", summary.published ?? summary.publications ?? 0, "роликов с final URL"],
+    ["Опубликовано", summary.published ?? summary.publications ?? 0, "роликов со ссылкой на пост"],
     ["Просмотры", summary.views ?? 0, "последний подтверждённый снимок"],
-    ["Переходы", summary.clicks ?? 0, "по tracking links"],
+    ["Переходы", summary.clicks ?? 0, "по ссылкам из задач"],
     ["CTR", formatPercent(summary.ctr ?? 0), "переходы / просмотры"],
   ];
   return `
     <div class="page-wrap">
-      ${pageHeader("Статистика", "Только прослеживаемые публикации: задача → final URL → источник метрик → снимок.", `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats">Обновить</button>`)}
+      ${pageHeader("Результаты", "Здесь собраны публикации, просмотры, переходы и заказы с датой последнего обновления.", `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats">Обновить</button>`)}
       <div class="metrics-grid">${cards.map(([label, value, hint]) => `
         <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
       `).join("")}</div>
       <section class="card card-pad" style="margin-bottom:22px">
-        <div class="split-grid" style="grid-template-columns:minmax(240px,.7fr) minmax(480px,1.3fr)">
+        <div class="split-grid split-grid-results">
           <div>
             <p class="eyebrow">Ручной снимок</p>
             <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Зафиксировать цифры на сейчас</h2>
             <p class="muted tiny">Введите <strong>накопительные итоги</strong> публикации, а не прирост за день. Например, если вчера было 900 просмотров, а сегодня 1200 — укажите 1200.</p>
-            ${alertMarkup("Источник будет честно помечен как manual. Официальные API-подключения появятся позже и не перезапишут историю снимков.", "info")}
+            ${alertMarkup("Результат будет помечен как введённый вручную. Будущие автоматические подключения не сотрут историю.", "info")}
           </div>
           ${publicationOptions.length ? `
             <form id="manual-metric-form" class="form-stack" novalidate>
               <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => `<option value="${escapeHtml(item.id || item.placement_id)}">${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`).join("")}</select></label>
-              <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px">
+              <div class="form-grid-2">
                 <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="0" required /></label>
                 <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="0" required /></label>
                 <label class="field"><span>Заказы *</span><input name="orders" type="number" min="0" step="1" value="0" required /></label>
@@ -1695,12 +2153,12 @@ function renderStatsSection(sectionState) {
               <label class="field"><span>Когда сняты цифры *</span><input name="observed_at" type="datetime-local" value="${datetimeLocalNow()}" required /></label>
               <button class="btn" type="submit">Сохранить накопительный снимок</button>
             </form>
-          ` : alertMarkup("Сначала подтвердите хотя бы одну публикацию через final URL в разделе «Размещение».", "warning")}
+          ` : alertMarkup("Сначала сохраните ссылку хотя бы на один пост в разделе «Публикации».", "warning")}
         </div>
       </section>
       <section class="card">
-        <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2></div><span class="badge">API / CSV / ручной снимок</span></div>
-        ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Метрик пока нет", "После размещения сохраните final URL и добавьте первый подтверждённый снимок."))}
+        <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2></div><span class="badge">Автоматически · из файла · вручную</span></div>
+        ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Результатов пока нет", "После публикации сохраните ссылку на пост и добавьте первый снимок показателей."))}
       </section>
     </div>
   `;
@@ -1716,7 +2174,7 @@ function statsTable(items) {
       <td>${formatNumber(item.clicks || 0)}</td>
       <td>${formatNumber(item.orders || 0)}</td>
       <td>${formatMoney(item.revenue_minor || 0)}</td>
-      <td><span class="badge">${escapeHtml(item.source || "не указан")}</span></td>
+      <td><span class="badge">${escapeHtml(humanMetricSource(item.source))}</span></td>
       <td>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</td>
     </tr>`).join("")}</tbody>
   </table></div>`;
@@ -1735,11 +2193,11 @@ function renderPayoutsSection(sectionState) {
       ${pageHeader(
         "Выплаты",
         canManagePayouts
-          ? "Проверьте начисление команды, затем отдельно зафиксируйте решение и факт внешней оплаты."
-          : "Здесь видны только ваши начисления. Решения принимает owner или admin; банковские реквизиты в кабинете не хранятся.",
+          ? "Проверьте начисление команды, затем отдельно зафиксируйте решение и факт перевода."
+          : "Здесь видны только ваши начисления. Решение принимает руководитель; банковские реквизиты в кабинете не хранятся.",
         `<span class="badge">${canManagePayouts ? "Реестр команды" : "Личный реестр"}</span>`,
       )}
-      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metrics-grid metrics-grid-three">
         ${[["Ожидает проверки", pendingMinor], ["Одобрено", approvedMinor], ["Выплачено", paidMinor]].map(([label, value]) => `<article class="card metric-card"><span class="metric-label">${label}</span><strong>${formatMoney(value)}</strong><small>по прослеживаемым задачам</small></article>`).join("")}
       </div>
       <section class="card">
@@ -1767,7 +2225,7 @@ function payoutDecisionMarkup(item) {
   const payoutId = escapeHtml(item.id || item.payout_id || "");
   const status = String(item.status || "pending").toLowerCase();
   if (String(item.profile_id || "") === String(state.user?.id || "")) {
-    return `<span class="muted tiny">Ваше начисление должен проверить другой owner/admin</span>`;
+    return `<span class="muted tiny">Ваше начисление должен проверить другой руководитель</span>`;
   }
   if (status === "pending") {
     return `
@@ -1842,7 +2300,7 @@ function taskActionsMarkup(item) {
       String(result.generation_status || ""),
     );
   if (activeRunwayReview) {
-    return '<span class="muted tiny">Видео создаётся в Runway. Статус задачи изменится автоматически.</span>';
+    return '<span class="muted tiny">Видео создаётся. Статус задачи изменится автоматически.</span>';
   }
   const manager = ["owner", "admin", "producer", "reviewer"].includes(
     state.bootstrap?.membership?.role,
@@ -1877,8 +2335,8 @@ function renderMediaSection(sectionState) {
   const items = listFrom(data, "media", "items", "artifacts");
   return `
     <div class="page-wrap">
-      ${pageHeader("Медиатека", "Приватные исходники и результаты разложены по папкам команды, пользователя и товара.", `<span class="badge badge-success">Приватный bucket</span>`)}
-      <div class="split-grid" style="grid-template-columns:minmax(280px,.65fr) minmax(480px,1.35fr)">
+      ${pageHeader("Материалы", "Загрузите точные фото и видео товара. Они появятся при создании ролика и останутся доступны только вашей команде.", `<span class="badge badge-success">Файлы защищены</span>`)}
+      <div class="split-grid split-grid-media">
         <section class="card card-pad">
           <p class="eyebrow">Добавить исходник</p>
           <h2 style="font:600 1.45rem/1.2 Georgia,serif; margin:0 0 8px">Точные фото или видео</h2>
@@ -1888,17 +2346,17 @@ function renderMediaSection(sectionState) {
               <span class="empty-icon" aria-hidden="true">⇧</span>
               <label for="media-file">Выбрать файл</label>
               <input id="media-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required />
-              <small class="muted">JPG, PNG, WEBP или MP4</small>
+              <small class="muted">Фото JPG, PNG, WEBP или видео MP4</small>
               <strong id="selected-file-name" style="margin-top:8px"></strong>
             </div>
-            <label class="field"><span>Тип материала</span><select name="kind"><option value="product_photo">Фото товара</option><option value="packshot">Packshot</option><option value="creator_reference">Референс креатора</option><option value="source_video">Исходное видео</option></select></label>
+            <label class="field"><span>Тип материала</span><select name="kind"><option value="product_photo">Фото товара</option><option value="packshot">Фото упаковки без фона</option><option value="creator_reference">Пример желаемого кадра</option><option value="source_video">Исходное видео</option></select></label>
             <label class="acknowledgement"><input name="rights_confirmed" type="checkbox" required /><span>У команды есть право использовать этот материал.</span></label>
-            <button class="btn btn-block" type="submit">Загрузить в приватную папку</button>
+            <button class="btn btn-block" type="submit">Загрузить в защищённую папку</button>
           </form>
         </section>
         <section>
           <div class="inline-actions" style="justify-content:space-between; margin-bottom:14px"><div><p class="eyebrow">Ваши файлы</p><h2 style="font:600 1.55rem/1.2 Georgia,serif; margin:0">${items.length} материалов</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Обновить</button></div>
-          ${sectionBody(sectionState, items.length ? `<div class="media-grid">${items.map(mediaCard).join("")}</div>` : emptyState("▧", "Медиатека пуста", "Добавьте точные фото товара — после этого их можно выбрать в mock batch."))}
+          ${sectionBody(sectionState, items.length ? `<div class="media-grid">${items.map(mediaCard).join("")}</div>` : emptyState("▧", "Материалов пока нет", "Добавьте точные фото товара — после этого их можно выбрать при создании видео."))}
         </section>
       </div>
     </div>
@@ -1918,7 +2376,7 @@ function mediaCard(item) {
       <div class="media-preview">${preview}</div>
       <div class="media-info">
         <strong title="${escapeHtml(item.original_filename || "Файл")}">${escapeHtml(item.original_filename || item.name || "Файл")}</strong>
-        <small>${escapeHtml(item.kind || "материал")} · ${formatBytes(item.size_bytes || 0)}</small>
+        <small>${escapeHtml(humanMediaKind(item.kind))} · ${formatBytes(item.size_bytes || 0)}</small>
         <div class="inline-actions" style="margin-top:10px">${url !== "#" ? `<a class="btn btn-secondary btn-small" href="${url}" target="_blank" rel="noopener noreferrer">Открыть</a>` : ""}${statusBadge(item.status || "ready")}</div>
       </div>
     </article>
@@ -1930,15 +2388,15 @@ function renderFeedbackSection(sectionState) {
   const items = listFrom(data, "feedback", "items", "requests");
   return `
     <div class="page-wrap">
-      ${pageHeader("Что добавить", "Опишите препятствие или идею. Запрос автоматически связан с вашим рабочим контекстом, но не включает секреты.", `<span class="badge">Обратная связь</span>`)}
+      ${pageHeader("Помощь и идеи", "Опишите, что мешает работе или что стоит улучшить. Не добавляйте пароли, коды и платёжные данные.", `<span class="badge">Связь с командой</span>`)}
       <div class="split-grid">
         <section class="card card-pad">
           <p class="eyebrow">Новый запрос</p>
           <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Что мешает выполнить работу?</h2>
           <form id="feedback-form" class="form-stack" style="margin-top:18px" novalidate>
             <div class="feedback-form-grid">
-              <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Генерация</option><option value="quality">Качество</option><option value="funnel">Воронка / размещение</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Аналитика</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
-              <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => key !== "team").map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
+              <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание видео</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
+              <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => !["home", "team"].includes(key)).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
               <label class="field field-wide"><span>Короткий заголовок *</span><input name="title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
               <label class="field field-wide"><span>Что произошло и какой результат нужен *</span><textarea name="description" required minlength="5" maxlength="2000" placeholder="Опишите шаги без паролей, токенов и платёжных реквизитов"></textarea></label>
             </div>
@@ -1956,7 +2414,7 @@ function renderFeedbackSection(sectionState) {
 
 function renderTeamSection(sectionState) {
   if (!canManageTeam()) {
-    return `<div class="page-wrap">${alertMarkup("Управление командой доступно только owner или admin.", "danger")}</div>`;
+    return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
   }
   const members = listFrom(sectionState.data || {}, "members");
   return `
@@ -2010,18 +2468,18 @@ function teamInviteResultMarkup(result) {
     invited: "Приглашение отправлено",
     already_exists: "Уже есть в Auth",
     rate_limited: "Лимит отправки",
-    smtp_required: "Нужен SMTP",
+    smtp_required: "Почта не настроена",
     failed: "Не отправлено",
   };
   return `
     <div class="card-pad" style="padding-top:0">
-      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:16px">
+      <div class="metrics-grid metrics-grid-three" style="margin-bottom:16px">
         <article class="metric-card"><span class="metric-label">Запрошено</span><strong>${formatNumber(result.requested ?? rows.length)}</strong></article>
         <article class="metric-card"><span class="metric-label">Отправлено</span><strong>${formatNumber(result.invited ?? 0)}</strong></article>
         <article class="metric-card"><span class="metric-label">Уже существуют</span><strong>${formatNumber(result.already_exists ?? 0)}</strong></article>
       </div>
-      ${smtpRequired ? alertMarkup("Supabase просит настроить собственный SMTP. Приглашения со статусом «Нужен SMTP» не были доставлены.", "warning") : ""}
-      ${rows.some((item) => item.status === "rate_limited") ? alertMarkup("Достигнут почтовый лимит Supabase. Не повторяйте весь список: позже отправьте только адреса со статусом «Лимит отправки».", "warning") : ""}
+      ${smtpRequired ? alertMarkup("Почтовая отправка портала ещё не настроена. Адреса со статусом «Почта не настроена» не получили приглашение.", "warning") : ""}
+      ${rows.some((item) => item.status === "rate_limited") ? alertMarkup("Достигнут лимит отправки писем. Не повторяйте весь список: позже отправьте только адреса со статусом «Лимит отправки».", "warning") : ""}
       <div class="table-wrap"><table class="data-table">
         <thead><tr><th>Email</th><th>Результат</th></tr></thead>
         <tbody>${rows.map((item) => `<tr><td>${escapeHtml(item.email || "—")}</td><td>${statusBadge(item.status || "failed")}<br /><small class="muted">${escapeHtml(statusLabels[item.status] || "Неизвестный результат")}</small></td></tr>`).join("")}</tbody>
@@ -2035,15 +2493,63 @@ function feedbackCard(item) {
 }
 
 function pageHeader(title, description, actions = "") {
-  return `<header class="page-header"><div><p class="eyebrow">Рабочий кабинет</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p></div>${actions ? `<div class="page-actions">${actions}</div>` : ""}</header>`;
+  const activeSection = state.route.path.startsWith("/workspace/")
+    ? state.route.path.replace("/workspace/", "")
+    : "home";
+  const meta = WORKSPACE_SECTION_META[activeSection] || WORKSPACE_SECTION_META.home;
+  const inFactoryFlow = FACTORY_FLOW.some((item) => item.key === activeSection);
+  return `
+    <section class="workspace-page-intro">
+      <header class="page-header">
+        <div class="page-header-copy">
+          <p class="eyebrow">${escapeHtml(meta.kicker)}</p>
+          <h1>${escapeHtml(title)}</h1>
+          <p>${escapeHtml(description)}</p>
+          <span class="page-context-note"><i aria-hidden="true"></i>${escapeHtml(meta.note)}</span>
+        </div>
+        <div class="page-actions">
+          ${actions}
+          <a class="workspace-guide-link" href="#/learn"><span aria-hidden="true">?</span> Открыть инструкцию</a>
+        </div>
+      </header>
+      ${inFactoryFlow ? factoryFlowMarkup(activeSection) : ""}
+    </section>
+  `;
+}
+
+function factoryFlowMarkup(activeSection) {
+  return `
+    <nav class="factory-flow" aria-label="Этапы производственного цикла">
+      <ol>
+        ${FACTORY_FLOW.map((item) => `
+          <li class="${item.key === activeSection ? "active" : ""}">
+            <a href="#/workspace/${item.key}" ${item.key === activeSection ? 'aria-current="step"' : ""}>
+              <span>${item.step}</span>
+              <div><strong>${item.label}</strong><small>${item.hint}</small></div>
+            </a>
+          </li>
+        `).join("")}
+      </ol>
+    </nav>
+  `;
 }
 
 function sectionBody(sectionState, readyMarkup) {
-  if (sectionState.status === "loading" || sectionState.status === "idle") {
-    return `<div class="skeleton-stack" aria-label="Загрузка"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`;
+  if ((sectionState.status === "loading" || sectionState.status === "idle") && !sectionState.data) {
+    return `<div class="skeleton-stack" role="status"><span class="sr-only">Загружаем данные…</span><div aria-hidden="true" class="skeleton"></div><div aria-hidden="true" class="skeleton"></div><div aria-hidden="true" class="skeleton"></div></div>`;
   }
   if (sectionState.status === "error") {
-    return `<div class="empty-state"><div class="empty-icon">!</div><h3>Не удалось загрузить раздел</h3><p>${escapeHtml(sectionState.error?.message || "Повторите попытку.")}</p></div>`;
+    console.error(sectionState.error);
+    const section = state.route.path.startsWith("/workspace/")
+      ? state.route.path.replace("/workspace/", "")
+      : "";
+    const retry = state.sections[section]
+      ? `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="${escapeHtml(section)}">Повторить</button>`
+      : "";
+    return `<div class="empty-state" role="alert"><div class="empty-icon" aria-hidden="true">!</div><h3>Не удалось загрузить раздел</h3><p>Проверьте соединение и попробуйте ещё раз. Если ошибка повторится, сообщите руководителю команды.</p>${retry}</div>`;
+  }
+  if (sectionState.status === "refreshing") {
+    return `<div class="refresh-indicator" role="status"><span aria-hidden="true"></span>Обновляем данные…</div>${readyMarkup}`;
   }
   return readyMarkup;
 }
@@ -2053,6 +2559,9 @@ function emptyState(icon, title, message) {
 }
 
 async function handleClick(event) {
+  if (state.mobileNavOpen && !event.target.closest(".mobile-nav, .mobile-nav-trigger")) {
+    setMobileNavOpen(false);
+  }
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
@@ -2063,8 +2572,14 @@ async function handleClick(event) {
   }
 
   if (action === "toggle-mobile-nav") {
-    state.mobileNavOpen = !state.mobileNavOpen;
-    render();
+    setMobileNavOpen(!state.mobileNavOpen, state.mobileNavOpen);
+    return;
+  }
+
+  if (action === "skip-to-content") {
+    const main = document.querySelector("#main-content");
+    main?.focus({ preventScroll: true });
+    scrollElementIntoView(main);
     return;
   }
 
@@ -2088,8 +2603,7 @@ async function handleClick(event) {
     const targetId = String(control.dataset.target || "");
     const target = targetId ? document.getElementById(targetId) : null;
     if (target) {
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      scrollElementIntoView(target);
       if (target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
     }
     return;
@@ -2099,7 +2613,7 @@ async function handleClick(event) {
     const moduleCode = control.dataset.moduleCode;
     if (state.courseCheckResults[moduleCode]?.passed !== true) {
       toast("Сначала пройдите мини-тест этого блока.", "error");
-      document.querySelector("#course-check-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollElementIntoView(document.querySelector("#course-check-form"));
       return;
     }
     const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
@@ -2116,7 +2630,7 @@ async function handleClick(event) {
       navigate("/learn", true);
     } catch (error) {
       control.disabled = false;
-      toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
     }
     return;
   }
@@ -2124,9 +2638,17 @@ async function handleClick(event) {
   if (action === "refresh-section") {
     const section = control.dataset.section;
     if (state.sections[section]) {
+      state.sections[section].requestId += 1;
       state.sections[section].status = "idle";
       render();
     }
+    return;
+  }
+
+  if (action === "refresh-home") {
+    state.home.requestId += 1;
+    state.home.status = "idle";
+    render();
     return;
   }
 
@@ -2142,14 +2664,14 @@ async function handleClick(event) {
         openExternalDownload(signedUrl);
         toast("Ролик готов. Открыта свежая защищённая ссылка.", "success");
       } else if (status === "failed") {
-        toast("Runway сообщил об ошибке генерации. Обновите очередь для подробностей.", "error");
+        toast("Сервис не смог создать ролик. Обновите список запусков и повторите попытку позже.", "error");
       } else {
-        toast(`Текущий статус Runway: ${humanGenerationStatus(status)}.`, "info");
+        toast(`Текущий статус видео: ${humanGenerationStatus(status)}.`, "info");
       }
       render();
     } catch (error) {
       control.disabled = false;
-      toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
     }
     return;
   }
@@ -2166,14 +2688,14 @@ async function handleClick(event) {
       render();
     } catch (error) {
       control.disabled = false;
-      toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
     }
     return;
   }
 
   if (action === "decide-payout") {
     if (!["owner", "admin"].includes(state.bootstrap?.membership?.role)) {
-      toast("Решение по выплате доступно только owner или admin.", "error");
+      toast("Решение по выплате доступно только руководителю.", "error");
       return;
     }
     control.disabled = true;
@@ -2186,7 +2708,7 @@ async function handleClick(event) {
       render();
     } catch (error) {
       control.disabled = false;
-      toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
     }
   }
 }
@@ -2215,6 +2737,8 @@ async function handleSubmit(event) {
 }
 
 function handleChange(event) {
+  handleFormActivity(event);
+
   if (event.target.matches("[data-course-ack]")) {
     syncCourseCompletionButton();
   }
@@ -2236,6 +2760,11 @@ function handleChange(event) {
   if (generationForm && event.target.name === "generation_mode") {
     syncGenerationModeForm(generationForm);
   }
+}
+
+function handleFormActivity(event) {
+  const form = event.target.closest?.("#workspace-content form");
+  if (form) form.dataset.dirty = "true";
 }
 
 function handleDragOver(event) {
@@ -2261,6 +2790,7 @@ function handleDrop(event) {
   const transfer = new DataTransfer();
   transfer.items.add(file);
   input.files = transfer.files;
+  zone.closest("form")?.setAttribute("data-dirty", "true");
   showSelectedFile(file);
 }
 
@@ -2322,23 +2852,23 @@ function syncGenerationModeForm(form) {
   if (countHint) {
     countHint.textContent = real
       ? "Платный режим всегда создаёт ровно одно видео."
-      : `Mock: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`;
+      : `Можно подготовить от 1 до ${MAX_MOCK_BATCH_SIZE} тестовых вариантов.`;
   }
   if (mediaHint) {
     mediaHint.textContent = real
       ? "Для платного запуска выберите ровно один исходник."
-      : "Для mock можно выбрать один или несколько исходников.";
+      : "Для тестовых вариантов можно выбрать один или несколько исходников.";
   }
   if (price && sku) {
-    price.textContent = `Платный запуск: ориентировочно ${sku.estimatedCredits} credits / $${sku.estimatedUsd}. Итог зависит от тарифа провайдера.`;
+    price.textContent = `Ориентировочная стоимость: $${sku.estimatedUsd} (${sku.estimatedCredits} кредитов). Итоговая сумма зависит от тарифа сервиса.`;
   }
   if (note && sku) {
     note.textContent = seedance
-      ? "Runway создаёт аудио по текстовому запросу, но не гарантирует дословную русскую реплику. Проверьте результат перед публикацией."
+      ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией."
       : "Этот режим создаёт видео без сгенерированной речи.";
   }
   if (confirmationCopy && sku) {
-    confirmationCopy.textContent = `${sku.model} · ${sku.durationSeconds} секунд · ровно одно видео · около $${sku.estimatedUsd}`;
+    confirmationCopy.textContent = `${sku.durationSeconds} секунд · одно видео · около $${sku.estimatedUsd}`;
   }
   if (briefHint) {
     briefHint.textContent = seedance
@@ -2347,8 +2877,8 @@ function syncGenerationModeForm(form) {
   }
   if (submit) {
     submit.textContent = real
-      ? `Запустить 1 платное видео · около $${sku.estimatedUsd}`
-      : "Подготовить dry-run batch";
+      ? `Создать одно платное видео · около $${sku.estimatedUsd}`
+      : "Создать тестовые варианты";
   }
 }
 
@@ -2367,7 +2897,7 @@ async function submitLogin(form) {
     await loadBootstrap();
     await track("login_succeeded", { method: "password" });
     if (membershipLockDetails()) navigate("/access-locked", true);
-    else if (hasWorkspaceAccess()) navigate("/workspace/generation", true);
+    else if (hasWorkspaceAccess()) navigate("/workspace/home", true);
     else navigate("/learn", true);
   } catch (error) {
     renderLogin(authErrorMessage(error));
@@ -2494,7 +3024,7 @@ async function submitCourseKnowledgeCheck(form) {
     });
     toast(passed ? "Мини-тест пройден." : "Есть ошибки — посмотрите отмеченные темы и повторите.", passed ? "success" : "info");
   } catch (error) {
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   } finally {
     if (form.isConnected) setFormBusy(form, false);
   }
@@ -2516,7 +3046,7 @@ async function submitExam(form) {
       ...form.querySelectorAll(`input[name="${CSS.escape(`answer_${question.code}`)}"]:checked`),
     ];
     if (!selected.length) {
-      selectedQuestionCard(question.code)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrollElementIntoView(selectedQuestionCard(question.code), "center");
       toast("Ответьте на все 12 вопросов.", "error");
       return;
     }
@@ -2542,17 +3072,17 @@ async function submitExam(form) {
     await loadBootstrap();
     if (hasWorkspaceAccess()) {
       toast("Экзамен сдан. Рабочий кабинет открыт.", "success");
-      navigate("/workspace/generation", true);
+      navigate("/workspace/home", true);
     } else {
       state.route = { path: "/learn/exam", query: new URLSearchParams() };
       render();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
     }
   } catch (error) {
     await loadBootstrap();
     state.route = { path: "/learn/exam", query: new URLSearchParams() };
     render();
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -2567,6 +3097,10 @@ async function submitGenerationBatch(form) {
 }
 
 async function submitRealGeneration(form, values, mode) {
+  if (state.realGenerationStartInFlight) {
+    toast("Платный запуск уже отправляется. Дождитесь результата текущего запроса.", "info");
+    return;
+  }
   if (!REAL_GENERATION_ENABLED) {
     toast("Платная генерация выключена в конфигурации портала.", "error");
     return;
@@ -2587,11 +3121,11 @@ async function submitRealGeneration(form, values, mode) {
     return;
   }
   if (!brief) {
-    toast("Для Runway укажите одну главную мысль ролика.", "error");
+    toast("Укажите одну главную мысль ролика.", "error");
     return;
   }
   if (values.get("real_spend_confirmation") !== generationSku.confirmation) {
-    toast(`Подтвердите один платный запуск Runway около $${generationSku.estimatedUsd}.`, "error");
+    toast(`Подтвердите создание одного платного видео примерно за $${generationSku.estimatedUsd}.`, "error");
     return;
   }
   const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
@@ -2621,7 +3155,8 @@ async function submitRealGeneration(form, values, mode) {
       : {}),
   };
 
-  setFormBusy(form, true, `Запускаем 1 видео Runway · ${generationSku.durationSeconds} секунд…`);
+  state.realGenerationStartInFlight = true;
+  setFormBusy(form, true, `Создаём одно видео · ${generationSku.durationSeconds} секунд…`);
   try {
     const result = await state.api.startRealGeneration(payload);
     if (!result?.job?.id) throw new Error("Runway принял запрос без номера задачи. Обновите очередь.");
@@ -2635,22 +3170,29 @@ async function submitRealGeneration(form, values, mode) {
       platform: payload.platform,
       has_media: true,
     });
+    delete form.dataset.dirty;
     form.reset();
     syncGenerationModeForm(form);
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
-    toast(`Платный запуск принят: 1 видео Runway ${generationSku.model}, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}.`, "success");
+    toast(`Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}.`, "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
+  } finally {
+    state.realGenerationStartInFlight = false;
+    const renderedForm = document.querySelector("#mock-batch-form");
+    if (renderedForm && renderedForm !== form && renderedForm.dataset.busy === "true") {
+      setFormBusy(renderedForm, false);
+    }
   }
 }
 
 async function submitMockBatch(form, values = new FormData(form)) {
   if (!MOCK_GENERATION_ENABLED) {
-    toast("Mock-режим выключен в конфигурации портала.", "error");
+    toast("Тестовый режим сейчас недоступен.", "error");
     return;
   }
   const count = Number(values.get("count"));
@@ -2660,7 +3202,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
     return;
   }
   if (!mediaIds.length) {
-    toast("Выберите хотя бы одно точное фото товара или packshot из Медиатеки.", "error");
+    toast("Выберите хотя бы одно точное фото товара или упаковки из раздела «Материалы».", "error");
     return;
   }
   const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
@@ -2668,7 +3210,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
     toast("Вознаграждение должно быть от 0 до 10 000 ₽ за задачу.", "error");
     return;
   }
-  setFormBusy(form, true, "Создаём mock batch…");
+  setFormBusy(form, true, "Создаём тестовые варианты…");
   try {
     const payload = {
       sku: String(values.get("sku") || "").trim(),
@@ -2695,16 +3237,17 @@ async function submitMockBatch(form, values = new FormData(form)) {
       delegated: Boolean(payload.assignee_id && payload.assignee_id !== state.user?.id),
       payout_minor: payload.payout_minor || 0,
     });
+    delete form.dataset.dirty;
     form.reset();
     syncGenerationModeForm(form);
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
-    toast(`Dry-run batch на ${count} вариантов создан. Задачи и размещение готовы; платный ИИ не вызывался.`, "success");
+    toast(`Создано ${count} тестовых вариантов без списаний. Задачи и публикации готовы.`, "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -2746,18 +3289,19 @@ async function submitManualMetric(form) {
       clicks,
       orders,
     });
+    delete form.dataset.dirty;
     state.sections.stats.status = "idle";
-    toast("Накопительный снимок метрик сохранён с источником manual.", "success");
+    toast("Текущие показатели сохранены как введённые вручную.", "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
 async function submitWbAlias(form) {
   if (!["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role)) {
-    toast("Изменять связи артикулов может owner, admin или producer.", "error");
+    toast("Изменять связи артикулов может только руководитель или продюсер.", "error");
     return;
   }
   const values = new FormData(form);
@@ -2784,6 +3328,7 @@ async function submitWbAlias(form) {
       current_article: payload.current_article,
       alias_article: payload.alias_article,
     });
+    delete form.dataset.dirty;
     form.reset();
     state.sections.generation.status = "idle";
     state.sections.stats.status = "idle";
@@ -2791,13 +3336,13 @@ async function submitWbAlias(form) {
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
 async function submitPayoutReject(form) {
   if (!["owner", "admin"].includes(state.bootstrap?.membership?.role)) {
-    toast("Решение по выплате доступно только owner или admin.", "error");
+    toast("Решение по выплате доступно только руководителю.", "error");
     return;
   }
   const notes = String(new FormData(form).get("notes") || "").trim();
@@ -2810,18 +3355,19 @@ async function submitPayoutReject(form) {
     const payoutId = form.dataset.payoutId;
     await state.api.decidePayout(payoutId, "reject", { notes });
     await track("payout_decided", { payout_id: String(payoutId), decision: "reject" });
+    delete form.dataset.dirty;
     state.sections.payouts.status = "idle";
     toast("Начисление отклонено, причина сохранена.", "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
 async function submitPayoutPaid(form) {
   if (!["owner", "admin"].includes(state.bootstrap?.membership?.role)) {
-    toast("Факт выплаты может подтвердить только owner или admin.", "error");
+    toast("Факт выплаты может подтвердить только руководитель.", "error");
     return;
   }
   const reference = String(new FormData(form).get("external_payment_reference") || "").trim();
@@ -2836,12 +3382,13 @@ async function submitPayoutPaid(form) {
       external_payment_reference: reference,
     });
     await track("payout_decided", { payout_id: String(payoutId), decision: "paid" });
+    delete form.dataset.dirty;
     state.sections.payouts.status = "idle";
     toast("Внешняя оплата подтверждена и добавлена в реестр.", "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -2858,14 +3405,15 @@ async function submitPlacement(form) {
     const taskId = form.dataset.placementId;
     await state.api.confirmPlacement(taskId, finalUrl, complianceAck);
     await track("placement_confirmed", { task_id: String(taskId), hostname: new URL(finalUrl).hostname });
+    delete form.dataset.dirty;
     state.sections.placement.status = "idle";
     state.sections.stats.status = "idle";
     state.sections.payouts.status = "idle";
-    toast("Final URL сохранён. Цикл публикации подтверждён.", "success");
+    toast("Ссылка на пост сохранена. Публикация подтверждена.", "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -2883,19 +3431,20 @@ async function submitFeedback(form) {
         category: String(values.get("category") || "other"),
       section: String(values.get("section") || "feedback"),
     });
+    delete form.dataset.dirty;
     form.reset();
     state.sections.feedback.status = "idle";
     toast("Запрос отправлен. Спасибо — он уже в общей очереди.", "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
 async function submitTeamInvites(form) {
   if (!canManageTeam() || !hasWorkspaceAccess()) {
-    toast("Приглашать команду может только сертифицированный owner или admin.", "error");
+    toast("Приглашать участников может только сертифицированный руководитель.", "error");
     return;
   }
   const raw = String(new FormData(form).get("emails") || "");
@@ -2922,6 +3471,7 @@ async function submitTeamInvites(form) {
       throw new Error("Supabase не вернул результаты приглашений.");
     }
     state.teamInviteResult = data;
+    delete form.dataset.dirty;
     state.sections.team.status = "idle";
     await track("team_invites_completed", {
       requested: Number(data.requested ?? emails.length),
@@ -2938,7 +3488,7 @@ async function submitTeamInvites(form) {
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -2956,13 +3506,15 @@ async function normalizeInviteFunctionError(error) {
   const messages = {
     invite_count_invalid: "За один запуск можно пригласить от 1 до 50 человек.",
     email_invalid: "Один или несколько email заполнены неверно.",
-    workspace_unavailable: "Рабочая команда Supabase пока недоступна.",
+    workspace_unavailable: "Рабочая команда временно недоступна. Повторите попытку позже.",
     final_exam_required: "Сначала завершите обучение и сдайте итоговый экзамен.",
-    team_management_forbidden: "Приглашать участников может только owner или admin.",
+    team_management_forbidden: "Приглашать участников может только руководитель.",
     origin_not_allowed: "Этот адрес приложения не разрешён для приглашений.",
     request_too_large: "Список приглашений слишком большой.",
   };
-  return new Error(messages[code] || authErrorMessage(error));
+  const normalized = new Error(messages[code] || authErrorMessage(error));
+  normalized.isUserSafe = true;
+  return normalized;
 }
 
 async function submitMedia(form) {
@@ -2982,7 +3534,7 @@ async function submitMedia(form) {
     return;
   }
 
-  setFormBusy(form, true, "Шифруем маршрут и загружаем…");
+  setFormBusy(form, true, "Проверяем файл и загружаем…");
   let objectKey = "";
   try {
     objectKey = privateObjectKey(file.name);
@@ -3004,15 +3556,16 @@ async function submitMedia(form) {
       throw registrationError;
     }
     await track("media_uploaded", { kind: String(values.get("kind")), mime_type: file.type, size_bytes: file.size });
+    delete form.dataset.dirty;
     form.reset();
     showSelectedFile(null);
     state.sections.media.status = "idle";
     state.sections.generation.status = "idle";
-    toast("Файл сохранён в приватной папке.", "success");
+    toast("Файл сохранён в защищённой папке.", "success");
     render();
   } catch (error) {
     setFormBusy(form, false);
-    toast(error.message, "error");
+      toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -3056,33 +3609,28 @@ function validateConfig(config) {
 }
 
 function renderSetup(problems) {
+  console.error("Portal configuration is incomplete", problems);
   app.innerHTML = `
     <main id="main-content" class="setup-screen" tabindex="-1">
       <section class="card setup-card">
         <div class="boot-mark" aria-hidden="true">A</div>
-        <p class="eyebrow">Одноразовая облачная настройка</p>
-        <h1 style="font:600 2.4rem/1.1 Georgia,serif; margin:8px 0">Подключите публичный ключ Supabase</h1>
-        <p class="muted">Интерфейс уже готов, но безопасно не запускается с пустой конфигурацией.</p>
-        ${problems.map((problem) => alertMarkup(problem, "warning")).join("")}
-        <ol>
-          <li>Откройте Supabase → Settings → API Keys.</li>
-          <li>Скопируйте только <strong>Publishable key</strong>, начинающийся с <code>sb_publishable_</code>.</li>
-          <li>Вставьте его в <code>web/app/config.js</code> вместо placeholder.</li>
-          <li>Никогда не используйте здесь Secret key или пароль базы.</li>
-        </ol>
-        <p class="tiny muted">Publishable key виден браузеру по замыслу Supabase. Доступ к данным ограничивают Auth, RLS и узкие RPC.</p>
+        <p class="eyebrow">Портал временно недоступен</p>
+        <h1 style="font:600 2.4rem/1.1 Georgia,serif; margin:8px 0">Не удалось запустить рабочее пространство</h1>
+        <p class="muted">Обновите страницу через несколько минут. Если экран появится снова, отправьте его руководителю команды — технические детали уже сохранены в журнале браузера.</p>
+        <button class="btn" type="button" data-action="reload-page">Обновить страницу</button>
       </section>
     </main>
   `;
 }
 
 function renderFatal(error) {
+  console.error("Portal startup failed", error);
   app.innerHTML = `
     <main id="main-content" class="error-page" tabindex="-1">
       <div class="boot-mark" aria-hidden="true">!</div>
       <p class="eyebrow">Ошибка запуска</p>
       <h1>Интерфейс не загрузился</h1>
-      <p class="muted">${escapeHtml(error?.message || "Обновите страницу или обратитесь к администратору.")}</p>
+      <p class="muted">Обновите страницу. Если ошибка повторится, сообщите руководителю команды.</p>
       <button class="btn" type="button" data-action="reload-page">Обновить страницу</button>
     </main>
   `;
@@ -3105,18 +3653,35 @@ function navigate(path, replace = false) {
     next.hash = hash;
     window.history.replaceState({}, "", next);
     state.route = parseRoute();
+    state.routeTransition = true;
+    if (
+      state.route.path === "/workspace/home"
+      && !["loading", "refreshing"].includes(state.home.status)
+    ) state.home.status = "idle";
     render();
+    settleRouteView();
   } else if (window.location.hash === hash) {
     state.route = parseRoute();
+    state.routeTransition = true;
+    if (
+      state.route.path === "/workspace/home"
+      && !["loading", "refreshing"].includes(state.home.status)
+    ) state.home.status = "idle";
     render();
+    settleRouteView();
   } else {
     window.location.hash = normalized;
   }
 }
 
 function clearAuthenticatedState() {
+  setMobileNavOpen(false);
+  state.dataEpoch += 1;
+  state.bootstrapRequestId += 1;
   state.session = null;
   state.user = null;
+  state.api?.clearBootstrapContext();
+  state.realGenerationStartInFlight = false;
   state.bootstrap = null;
   state.bootstrapStatus = "idle";
   state.bootstrapError = null;
@@ -3125,11 +3690,56 @@ function clearAuthenticatedState() {
   state.examResult = null;
   state.courseCheckResults = {};
   state.teamInviteResult = null;
+  state.home.status = "idle";
+  state.home.data = null;
+  state.home.error = null;
+  state.home.unavailable = [];
+  state.home.requestId += 1;
   for (const section of Object.values(state.sections)) {
+    section.requestId += 1;
     section.status = "idle";
     section.data = null;
     section.error = null;
   }
+}
+
+function consumeRouteTransitionClass() {
+  if (!state.routeTransition) return "";
+  state.routeTransition = false;
+  return "route-enter";
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+}
+
+function scrollElementIntoView(element, block = "start") {
+  element?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block });
+}
+
+function settleRouteView() {
+  window.requestAnimationFrame(() => {
+    const path = state.route.path;
+    let label = {
+      "/login": "Вход",
+      "/reset-password": "Восстановление доступа",
+      "/set-password": "Новый пароль",
+      "/access-locked": "Доступ приостановлен",
+      "/learn": "Обучение",
+      "/learn/exam": "Итоговый экзамен",
+    }[path];
+    if (!label && path.startsWith("/workspace/")) {
+      const section = path.replace("/workspace/", "");
+      label = visibleWorkspaceTabs().find(([key]) => key === section)?.[1] || "Рабочий кабинет";
+    }
+    if (!label && path.startsWith("/learn/")) {
+      const courseCode = path.replace("/learn/", "");
+      label = learningCourses().find((course) => course.code === courseCode)?.title || "Курс";
+    }
+    document.title = `${label || "Контент ИИ Завод"} · Контент ИИ Завод`;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.querySelector("#main-content")?.focus({ preventScroll: true });
+  });
 }
 
 function authRedirectUrl(purpose) {
@@ -3146,7 +3756,38 @@ function authErrorMessage(error) {
   if (normalized.includes("email not confirmed")) return "Сначала подтвердите почту по ссылке из приглашения.";
   if (normalized.includes("expired") || normalized.includes("otp")) return "Ссылка устарела или уже использована. Запросите новую.";
   if (normalized.includes("rate limit")) return "Слишком много попыток. Подождите несколько минут.";
-  return raw;
+  console.error("Authentication request failed", error);
+  return "Не удалось выполнить запрос. Проверьте соединение и попробуйте ещё раз.";
+}
+
+function actionErrorMessage(error) {
+  console.error("Workspace action failed", error);
+  if (error?.isUserSafe === true || error?.name === "CreatorApiError") {
+    return String(error.message || "Не удалось выполнить действие.");
+  }
+  const normalized = String(error?.message || "").toLowerCase();
+  if (normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "Слишком много запросов. Подождите несколько минут и повторите действие.";
+  }
+  if (normalized.includes("timeout") || normalized.includes("network") || normalized.includes("fetch")) {
+    return "Связь прервалась. Проверьте интернет и повторите действие.";
+  }
+  if (normalized.includes("permission") || normalized.includes("forbidden") || normalized.includes("row-level")) {
+    return "Для этого действия не хватает доступа. Обратитесь к руководителю команды.";
+  }
+  if (normalized.includes("duplicate") || normalized.includes("already exists")) {
+    return "Такая запись уже существует. Обновите раздел и проверьте результат.";
+  }
+  if (normalized.includes("insufficient") || normalized.includes("balance") || normalized.includes("credit")) {
+    return "Недостаточно средств для платного запуска. Проверьте баланс и повторите действие.";
+  }
+  if (normalized.includes("file") && (normalized.includes("size") || normalized.includes("type"))) {
+    return "Файл не подходит по формату или размеру. Выберите другой исходник.";
+  }
+  if (normalized.includes("session") || normalized.includes("jwt")) {
+    return "Сессия завершилась. Войдите в портал снова.";
+  }
+  return "Не удалось выполнить действие. Обновите раздел и попробуйте ещё раз.";
 }
 
 function displayProfile() {
@@ -3166,8 +3807,8 @@ function displayProfile() {
 
 function humanRole(role) {
   return {
-    owner: "Владелец",
-    admin: "Администратор",
+    owner: "Руководитель",
+    admin: "Администратор команды",
     producer: "Продюсер",
     reviewer: "Проверяющий",
     operator: "Оператор",
@@ -3179,15 +3820,42 @@ function humanRole(role) {
 
 function humanTaskType(type) {
   return {
-    mock_generation: "Подготовка mock-пакета",
+    mock_generation: "Подготовка тестовых вариантов",
     video_review: "Проверка качества",
     general: "Общая задача",
     create_video: "Создание ролика",
     review_video: "Проверка качества",
-    placement: "Размещение",
-    metrics: "Метрики",
+    placement: "Публикация",
+    metrics: "Сбор результатов",
     fix: "Исправление",
   }[type] || type || "Задача";
+}
+
+function humanMediaKind(kind) {
+  return {
+    product_photo: "Фото товара",
+    packshot: "Фото упаковки",
+    reference: "Референс",
+    creator_reference: "Референс креатора",
+    raw_video: "Исходное видео",
+    source_video: "Исходное видео",
+    generated_video: "Готовый ролик",
+    voiceover: "Озвучка",
+    subtitle: "Субтитры",
+  }[String(kind || "")] || "Материал";
+}
+
+function humanMetricSource(source) {
+  return {
+    manual: "Вручную",
+    csv: "Из файла",
+    import: "Из файла",
+    api: "Автоматически",
+    official_api: "Автоматически",
+    instagram: "Instagram",
+    youtube: "YouTube",
+    vk: "VK",
+  }[String(source || "").toLowerCase()] || "Подтверждённый источник";
 }
 
 function listFrom(data, ...keys) {
@@ -3228,7 +3896,7 @@ function statusBadge(status) {
     invited: "Отправлено",
     already_exists: "Уже существует",
     rate_limited: "Лимит",
-    smtp_required: "Нужен SMTP",
+    smtp_required: "Письмо не отправлено",
     new: "Новый",
     reviewing: "На рассмотрении",
     planned: "Запланировано",
@@ -3254,6 +3922,8 @@ function alertMarkup(message, type = "info") {
 }
 
 function setFormBusy(form, busy, label = "Подождите…") {
+  if (busy) form.dataset.busy = "true";
+  else delete form.dataset.busy;
   const controls = form.querySelectorAll("button, input, select, textarea");
   controls.forEach((control) => {
     if (busy) {

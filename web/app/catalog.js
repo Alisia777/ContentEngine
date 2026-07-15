@@ -16,12 +16,12 @@ export const REQUIRED_MODULE_CODES = Object.freeze([
 ]);
 
 export const WORKSPACE_TABS = Object.freeze([
-  ["generation", "Генерация", "✦"],
-  ["placement", "Размещение", "↗"],
-  ["stats", "Статистика", "◫"],
-  ["payouts", "Выплаты", "₽"],
+  ["media", "Материалы", "▧"],
+  ["generation", "Создание видео", "✦"],
   ["tasks", "Задачи", "✓"],
-  ["media", "Медиатека", "▧"],
-  ["feedback", "Что добавить", "+"],
+  ["placement", "Публикации", "↗"],
+  ["stats", "Результаты", "◫"],
+  ["payouts", "Выплаты", "₽"],
+  ["feedback", "Помощь и идеи", "+"],
   ["team", "Команда", "◎"],
 ]);
