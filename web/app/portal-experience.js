@@ -16,6 +16,11 @@ export const PORTAL_THEMES = Object.freeze([
     label: "Сапфир",
     description: "Глубокий синий и шампань",
   }),
+  Object.freeze({
+    id: "altea-dark",
+    label: "Тёмная",
+    description: "Ночной графит, фирменный зелёный и золото",
+  }),
 ]);
 
 export const GENERATION_ARCHIVE_PAGE_SIZE = 50;

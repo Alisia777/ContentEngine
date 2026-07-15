@@ -1,25 +1,25 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.6";
+import { CreatorApi } from "./supabase-api.js?v=20260715.7";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.6";
+} from "./catalog.js?v=20260715.7";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260715.6";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.6";
+} from "./account-launch-view.js?v=20260715.7";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.7";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260715.6";
+} from "./first-shift-full-scenario.js?v=20260715.7";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -34,10 +34,10 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260715.6";
+} from "./portal-experience.js?v=20260715.7";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.6";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.7";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -1143,22 +1143,17 @@ function render() {
   renderWorkspace(section);
 }
 
-function renderLogin(message = "") {
+function renderLogin(message = "", rememberedEmail = "") {
   app.innerHTML = authLayout(`
     <section class="auth-card" aria-labelledby="login-title">
       <p class="eyebrow">Вход для команды</p>
       <h2 id="login-title">Добро пожаловать</h2>
       <p class="lead">Используйте рабочую почту и ваш персональный пароль.</p>
-      <ol class="auth-start-route" aria-label="Как получить доступ">
-        <li><span>1</span><p><strong>Руководитель добавляет вашу рабочую почту</strong><small>Открытой регистрации нет — так чужой человек не попадёт в команду.</small></p></li>
-        <li><span>2</span><p><strong>Вы получаете приглашение или временный пароль</strong><small>При приглашении задайте пароль по ссылке. При ручном создании войдите с выданным временным паролем и смените его.</small></p></li>
-        <li><span>3</span><p><strong>После входа проходите 4 блока и экзамен</strong><small>Затем откроются рабочие разделы, задачи и ваши выплаты.</small></p></li>
-      </ol>
       ${message ? alertMarkup(message, "danger") : ""}
       <form id="login-form" class="form-stack" novalidate>
         <label class="field">
           <span>Рабочая почта</span>
-          <input name="email" type="email" autocomplete="username" inputmode="email" required placeholder="name@company.ru" />
+          <input name="email" type="email" autocomplete="username" inputmode="email" required placeholder="name@company.ru" value="${escapeHtml(rememberedEmail)}" />
         </label>
         <label class="field">
           <span>Пароль</span>
@@ -1169,11 +1164,18 @@ function renderLogin(message = "") {
       <div class="auth-actions">
         <a class="text-link" href="#/reset-password">Не помню пароль</a>
       </div>
-      <p class="auth-footer">Нет приглашения? Попросите руководителя добавить вас в команду. Самостоятельная регистрация закрыта.</p>
-      <p class="auth-footer">Сессия действует только в этой вкладке и завершится после её закрытия. Для массового запуска 50+ рекомендуется отдельный домен.</p>
+      <details class="auth-access-guide">
+        <summary>Как получить доступ впервые</summary>
+        <ol class="auth-start-route" aria-label="Как получить доступ">
+          <li><span>1</span><p><strong>Руководитель добавляет вашу рабочую почту</strong><small>Открытой регистрации нет — так чужой человек не попадёт в команду.</small></p></li>
+          <li><span>2</span><p><strong>Вы получаете приглашение или временный пароль</strong><small>Задайте пароль по ссылке или войдите с временным паролем и сразу смените его.</small></p></li>
+          <li><span>3</span><p><strong>После входа проходите 4 блока и экзамен</strong><small>Затем откроются рабочие разделы, задачи и ваши выплаты.</small></p></li>
+        </ol>
+      </details>
+      <p class="auth-footer"><strong>Нет приглашения?</strong> Попросите руководителя добавить вас в команду. Самостоятельная регистрация закрыта.<br /><span>Сессия действует только в этой вкладке и завершится после её закрытия.</span></p>
     </section>
   `);
-  focusFirst("#login-form input");
+  focusFirst(message ? '#login-form input[name="password"]' : "#login-form input");
 }
 
 function renderResetRequest(message = "") {
@@ -2286,12 +2288,69 @@ function renderWorkspace(section) {
   const existingShell = app.querySelector(".workspace-shell[data-workspace-section]");
   const existingContent = app.querySelector("#workspace-content");
   if (existingShell?.dataset.workspaceSection === section && existingContent) {
+    const focusedControl = captureWorkspaceFocus(existingContent);
     const dirtyForms = captureDirtyWorkspaceForms(existingContent);
     existingContent.innerHTML = content;
     restoreDirtyWorkspaceForms(existingContent, dirtyForms);
+    restoreWorkspaceFocus(existingContent, focusedControl, section);
     return;
   }
   app.innerHTML = workspaceScaffold(content, section);
+}
+
+function captureWorkspaceFocus(container) {
+  const active = document.activeElement;
+  if (!active || active === document.body || !container?.contains(active)) return null;
+  const forms = Array.from(container.querySelectorAll("form"));
+  return {
+    id: String(active.id || ""),
+    action: String(active.dataset?.action || ""),
+    name: String(active.getAttribute?.("name") || ""),
+    value: String(active.value || ""),
+    jobId: String(active.dataset?.jobId || ""),
+    outputAction: String(active.dataset?.outputAction || ""),
+    generationJobId: String(active.closest?.("[data-generation-job-id]")?.dataset?.generationJobId || ""),
+    formKey: active.form ? workspaceFormKey(active.form, forms.indexOf(active.form)) : "",
+    selectionStart: Number.isInteger(active.selectionStart) ? active.selectionStart : null,
+    selectionEnd: Number.isInteger(active.selectionEnd) ? active.selectionEnd : null,
+  };
+}
+
+function restoreWorkspaceFocus(container, identity, section) {
+  if (!identity) return;
+  window.queueMicrotask(() => {
+    const candidates = Array.from(container.querySelectorAll("button, a, input, select, textarea, [tabindex]"));
+    let target = identity.id ? candidates.find((item) => item.id === identity.id) : null;
+    if (!target && identity.action) {
+      target = candidates.find((item) => (
+        item.dataset?.action === identity.action
+        && (!identity.jobId || item.dataset?.jobId === identity.jobId)
+        && (!identity.outputAction || item.dataset?.outputAction === identity.outputAction)
+        && (!identity.generationJobId || item.closest?.("[data-generation-job-id]")?.dataset?.generationJobId === identity.generationJobId)
+      ));
+    }
+    if (!target && identity.name) {
+      const forms = Array.from(container.querySelectorAll("form"));
+      target = candidates.find((item) => {
+        const formKey = item.form ? workspaceFormKey(item.form, forms.indexOf(item.form)) : "";
+        return item.getAttribute?.("name") === identity.name
+          && (!identity.formKey || formKey === identity.formKey)
+          && (!identity.value || String(item.value || "") === identity.value);
+      });
+    }
+    if (!target || target.disabled || target.getAttribute?.("aria-hidden") === "true") {
+      target = section === "generation" ? container.querySelector("#generation-archive-summary") : null;
+    }
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    if (
+      identity.selectionStart !== null
+      && typeof target.setSelectionRange === "function"
+      && !target.disabled
+    ) {
+      target.setSelectionRange(identity.selectionStart, identity.selectionEnd ?? identity.selectionStart);
+    }
+  });
 }
 
 function workspaceInitialLoadingMarkup(section) {
@@ -2449,8 +2508,8 @@ function brandAtmosphereMarkup() {
 
 function themePickerMarkup(scope, compact = false) {
   return `
-    <div class="portal-theme-picker ${compact ? "is-compact" : ""}" role="group" aria-label="Цвет портала">
-      <span class="portal-theme-label">${compact ? "Тема" : "Цвет портала"}</span>
+    <div class="portal-theme-picker ${compact ? "is-compact" : ""}" role="group" aria-label="Оформление портала">
+      <span class="portal-theme-label">${compact ? "Тема" : "Оформление"}</span>
       <div class="portal-theme-options">
         ${PORTAL_THEMES.map((theme) => `
           <button
@@ -2472,7 +2531,12 @@ function applyPortalTheme(value, { persist = true, announce = false } = {}) {
   const theme = normalizePortalTheme(value);
   state.portalTheme = theme;
   document.documentElement.dataset.portalTheme = theme;
-  const browserColors = { emerald: "#183a35", bordeaux: "#5a2538", sapphire: "#183b63" };
+  const browserColors = {
+    emerald: "#183a35",
+    bordeaux: "#5a2538",
+    sapphire: "#183b63",
+    "altea-dark": "#0b1513",
+  };
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", browserColors[theme]);
   if (persist) persistPortalThemePreference(theme);
   document.querySelectorAll("[data-theme-value]").forEach((control) => {
@@ -3190,7 +3254,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
   const hasMoreVisible = visibleBatches.length < filteredBatches.length && filters.visible < GENERATION_VISIBLE_CAP;
   const archive = state.generationArchive;
   return `
-    <div class="generation-archive">
+    <div class="generation-archive" aria-busy="${archive.loadingMore ? "true" : "false"}">
       <form id="generation-archive-filter-form" class="generation-archive-toolbar" novalidate>
         <label class="field">
           <span>Период</span>
@@ -3214,27 +3278,28 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
           <span>Товар или запуск</span>
           <input name="query" maxlength="120" value="${escapeHtml(filters.query)}" placeholder="Артикул, название или ID" autocomplete="off" />
         </label>
-        <button class="btn btn-small" type="submit">Показать</button>
+        <button id="generation-archive-submit" class="btn btn-small" type="submit">Показать</button>
       </form>
-      <div class="generation-archive-summary" aria-live="polite">
+      <div id="generation-archive-summary" class="generation-archive-summary" tabindex="-1" aria-live="polite" aria-atomic="true">
         <span>Найдено <strong>${formatNumber(filteredBatches.length)}</strong> из ${formatNumber(batches.length)} загруженных</span>
         <span>На экране: ${formatNumber(visibleBatches.length)}</span>
       </div>
       ${archive.error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(archive.error)}</span></div>` : ""}
       ${visibleBatches.length
         ? generationTable(visibleBatches)
-        : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>По фильтру ничего нет</h3><p>Измените период, статус или строку поиска.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
+        : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>Среди ${formatNumber(batches.length)} загруженных запусков ничего нет</h3><p>Измените фильтр или загрузите более старую историю.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
       <div class="generation-archive-actions">
         ${hasMoreVisible ? `<button class="btn btn-secondary btn-small" type="button" data-action="show-more-generation">Показать ещё ${GENERATION_VISIBLE_STEP}</button>` : ""}
         ${filteredBatches.length > visibleBatches.length && filters.visible >= GENERATION_VISIBLE_CAP ? `<span class="muted tiny">Уточните период или поиск, чтобы не выводить больше ${GENERATION_VISIBLE_CAP} строк сразу</span>` : ""}
-        ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история</span>`}
+        ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : archive.error ? "Повторить загрузку истории" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история</span>`}
       </div>
-      <p class="generation-archive-note">На экран выводится только нужная часть архива — поэтому портал остаётся быстрым даже при сотнях роликов.</p>
+      <p class="generation-archive-note">Поиск работает по загруженной части архива. Для старых роликов нажмите «Загрузить ещё». <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
     </div>
   `;
 }
 
 function submitGenerationArchiveFilters(form) {
+  form.removeAttribute("data-dirty");
   const values = new FormData(form);
   state.generationArchive.filters = normalizeGenerationFilters({
     period: values.get("period"),
@@ -3244,6 +3309,13 @@ function submitGenerationArchiveFilters(form) {
   });
   state.generationArchive.error = "";
   renderWorkspace("generation");
+  focusGenerationArchiveSummary();
+}
+
+function focusGenerationArchiveSummary() {
+  window.queueMicrotask(() => {
+    document.querySelector("#generation-archive-summary")?.focus({ preventScroll: true });
+  });
 }
 
 async function loadMoreGenerationArchive() {
@@ -3299,7 +3371,8 @@ async function loadMoreGenerationArchive() {
 function generationTable(items) {
   return `
     <div class="table-wrap"><table class="data-table generation-table">
-      <thead><tr><th>Запуск</th><th>Код товара</th><th>Этап</th><th>Стоимость</th><th>Создан</th></tr></thead>
+      <caption class="sr-only">Архив запусков генерации видео</caption>
+      <thead><tr><th scope="col">Запуск</th><th scope="col">Код товара</th><th scope="col">Этап</th><th scope="col">Стоимость</th><th scope="col">Создан</th></tr></thead>
       <tbody>${items.map((item) => {
         const details = generationBatchDetails(item);
         if (!details.real) {
@@ -4302,6 +4375,7 @@ async function handleClick(event) {
   }
 
   if (action === "reset-generation-filters") {
+    document.querySelector("#generation-archive-filter-form")?.removeAttribute("data-dirty");
     state.generationArchive.filters = normalizeGenerationFilters({
       period: "4w",
       status: "all",
@@ -4310,6 +4384,7 @@ async function handleClick(event) {
     });
     state.generationArchive.error = "";
     renderWorkspace("generation");
+    focusGenerationArchiveSummary();
     return;
   }
 
@@ -4864,7 +4939,7 @@ async function submitLogin(form) {
       else navigate("/learn", true);
     }
   } catch (error) {
-    renderLogin(authErrorMessage(error));
+    renderLogin(authErrorMessage(error), email);
   }
 }
 

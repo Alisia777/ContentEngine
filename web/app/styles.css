@@ -189,6 +189,18 @@ textarea:focus-visible,
   display: none !important;
 }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+}
+
 .auth-layout {
   display: grid;
   min-height: 100vh;
@@ -328,13 +340,53 @@ textarea:focus-visible,
 }
 
 .auth-card .lead {
-  margin: 0 0 28px;
+  margin: 0 0 20px;
   color: var(--ink-soft);
+}
+
+.auth-access-guide {
+  margin-top: 18px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.auth-access-guide summary {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--forest);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 780;
+  list-style: none;
+}
+
+.auth-access-guide summary::-webkit-details-marker {
+  display: none;
+}
+
+.auth-access-guide summary::after {
+  color: var(--ink-soft);
+  content: "+";
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.auth-access-guide[open] summary::after {
+  content: "−";
+}
+
+.auth-access-guide[open] summary {
+  border-bottom: 1px solid var(--line);
 }
 
 .auth-start-route {
   display: grid;
-  margin: -8px 0 24px;
+  margin: 12px 0 14px;
   padding: 0;
   gap: 9px;
   list-style: none;
@@ -526,8 +578,8 @@ input[type="radio"] {
 }
 
 .auth-footer {
-  margin: 24px 0 0;
-  padding-top: 20px;
+  margin: 18px 0 0;
+  padding-top: 14px;
   border-top: 1px solid var(--line);
   color: var(--ink-soft);
   font-size: 0.82rem;
@@ -1694,6 +1746,12 @@ input[type="radio"] {
   margin: 0;
   color: var(--ink-soft);
   font-size: 0.82rem;
+}
+
+.auth-footer span {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 0.76rem;
 }
 
 .home-error-state {

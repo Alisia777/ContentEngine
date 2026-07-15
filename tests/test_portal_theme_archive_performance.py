@@ -52,7 +52,7 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index:end_index]
 
 
-def test_three_themes_normalize_and_storage_failures_never_block_the_portal() -> None:
+def test_four_themes_normalize_and_storage_failures_never_block_the_portal() -> None:
     result = _run_module_javascript(
         EXPERIENCE,
         """
@@ -78,6 +78,7 @@ def test_three_themes_normalize_and_storage_failures_never_block_the_portal() ->
             subject.normalizePortalTheme(" emerald "),
             subject.normalizePortalTheme("BORDEAUX"),
             subject.normalizePortalTheme("Sapphire"),
+            subject.normalizePortalTheme(" ALTEA-DARK "),
           ],
           fallback: [
             subject.normalizePortalTheme("unknown"),
@@ -96,10 +97,10 @@ def test_three_themes_normalize_and_storage_failures_never_block_the_portal() ->
     )
 
     assert result == {
-        "themes": ["emerald", "bordeaux", "sapphire"],
-        "labels": ["Изумруд", "Бордо", "Сапфир"],
+        "themes": ["emerald", "bordeaux", "sapphire", "altea-dark"],
+        "labels": ["Изумруд", "Бордо", "Сапфир", "Тёмная"],
         "frozen": True,
-        "normalized": ["emerald", "bordeaux", "sapphire"],
+        "normalized": ["emerald", "bordeaux", "sapphire", "altea-dark"],
         "fallback": ["emerald", "emerald"],
         "read": "bordeaux",
         "readFailure": "emerald",
@@ -410,8 +411,11 @@ def test_theme_archive_motion_and_brand_asset_hooks_are_wired_into_the_spa() -> 
     ):
         assert hook in APP
 
-    for theme in ("emerald", "bordeaux", "sapphire"):
+    for theme in ("emerald", "bordeaux", "sapphire", "altea-dark"):
         assert f':root[data-portal-theme="{theme}"]' in EXPERIENCE_CSS
+    assert 'color-scheme: dark' in EXPERIENCE_CSS
+    assert '"altea-dark"' in THEME_BOOTSTRAP
+    assert 'grid-template-columns: repeat(2, minmax(0, 1fr))' in EXPERIENCE_CSS
     for hook in (
         ".portal-theme-picker",
         ".generation-archive-toolbar",
