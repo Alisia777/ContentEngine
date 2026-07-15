@@ -1,10 +1,10 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.1";
+import { CreatorApi } from "./supabase-api.js?v=20260715.2";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.1";
+} from "./catalog.js?v=20260715.2";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const app = document.querySelector("#app");
@@ -68,6 +68,270 @@ const WORKSPACE_SECTION_META = Object.freeze({
   payouts: Object.freeze({ kicker: "Шаг 6 из 6", note: "Начисление, решение и внешний перевод — разные проверяемые этапы" }),
   feedback: Object.freeze({ kicker: "Помощь", note: "Опишите препятствие — запрос сохранится в рабочем контексте" }),
   team: Object.freeze({ kicker: "Управление", note: "Доступ выдаётся персонально и открывается после обучения" }),
+});
+
+const COURSE_VISUAL_EXAMPLES = Object.freeze({
+  factory_basics: Object.freeze({
+    theme: "portal",
+    kicker: "Сначала посмотрите",
+    title: "Первая задача — на трёх реальных экранах",
+    summary: "Не запоминайте меню. Сверяйте свой экран с примером и двигайтесь слева направо: точный товар → создание ролика → проверка результата.",
+    examples: Object.freeze([
+      Object.freeze({
+        step: "Экран 1",
+        anchorLesson: "sku_and_sources",
+        kind: "portal",
+        eyebrow: "Портал · Материалы",
+        title: "Добавьте именно тот товар, который стоит в задаче",
+        caption: "Фотографии упаковки и артикул должны относиться к одной карточке. Похожий вкус или объём — уже другой товар.",
+        result: "Материал готов к созданию видео",
+        items: Object.freeze([
+          Object.freeze({ label: "Артикул WB", value: "159068498" }),
+          Object.freeze({ label: "Исходники", value: "6 точных фото" }),
+          Object.freeze({ label: "Проверка", value: "Упаковка совпадает" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Экран 2",
+        anchorLesson: "generation_modes",
+        kind: "portal",
+        eyebrow: "Портал · Создание видео",
+        title: "Выберите формат и прочитайте стоимость до запуска",
+        caption: "Для восьмисекундного UGC выберите режим с блогером и голосом. Указанная цена — только пример: перед запуском сверьте фактическую сумму в портале и подтвердите её отдельно.",
+        result: "Один подтверждённый запуск",
+        items: Object.freeze([
+          Object.freeze({ label: "Режим", value: "Блогер + голос" }),
+          Object.freeze({ label: "Формат", value: "9:16 · 8 секунд" }),
+          Object.freeze({ label: "Стоимость", value: "Пример: ≈ $2.32" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Экран 3",
+        anchorLesson: "traceable_cycle",
+        kind: "portal",
+        eyebrow: "Портал · Задачи",
+        title: "Посмотрите ролик целиком и только потом подтвердите",
+        caption: "Сначала проверьте товар, руки и лицо, голос, надписи и последние кадры. Если есть ошибка — отправьте на доработку, а не публикуйте.",
+        result: "Одобренный файл можно размещать",
+        items: Object.freeze([
+          Object.freeze({ label: "Товар", value: "Совпадает" }),
+          Object.freeze({ label: "Звук", value: "Речь слышно" }),
+          Object.freeze({ label: "Статус", value: "Одобрено" }),
+        ]),
+      }),
+    ]),
+  }),
+  video_quality: Object.freeze({
+    theme: "shooting",
+    kicker: "Покадровая шпаргалка",
+    title: "Так выглядит хороший вертикальный исходник",
+    summary: "Телефон уже настроен, товар остаётся в безопасной зоне, а восемь секунд разбиты на простые кадры. Эти примеры можно повторить буквально.",
+    examples: Object.freeze([
+      Object.freeze({
+        step: "До записи",
+        anchorLesson: "shoot_vertical_source",
+        kind: "camera",
+        eyebrow: "Камера телефона",
+        title: "Вертикально 9:16, свет перед лицом",
+        caption: "Протрите камеру, встаньте лицом к окну и оставьте свободное место сверху и снизу — интерфейс соцсети не перекроет товар.",
+        result: "Лицо и упаковка читаются без увеличения",
+        items: Object.freeze([
+          Object.freeze({ label: "Формат", value: "9:16" }),
+          Object.freeze({ label: "Свет", value: "Перед вами" }),
+          Object.freeze({ label: "Фокус", value: "На товаре" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "0–8 сек",
+        anchorLesson: "eight_second_storyboard",
+        kind: "storyboard",
+        eyebrow: "Готовый план съёмки",
+        title: "Одна мысль — три коротких кадра",
+        caption: "Не пытайтесь рассказать всё. Покажите проблему, сам продукт и один понятный результат.",
+        result: "Ролик понятен даже без звука",
+        items: Object.freeze([
+          Object.freeze({ label: "0–2 сек", value: "Проблема или вопрос" }),
+          Object.freeze({ label: "2–5 сек", value: "Товар крупным планом" }),
+          Object.freeze({ label: "5–8 сек", value: "Результат + действие" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Перед запуском",
+        anchorLesson: "prompt_anatomy",
+        kind: "portal",
+        eyebrow: "Форма генерации",
+        title: "Промпт говорит, кто, где и что делает",
+        caption: "Укажите героя, продукт, действие, обстановку и короткую реплику. Не просите модель одновременно показать пять сцен.",
+        result: "Сценарий помещается в восемь секунд",
+        items: Object.freeze([
+          Object.freeze({ label: "Герой", value: "Бьюти-блогер" }),
+          Object.freeze({ label: "Действие", value: "Показывает флакон" }),
+          Object.freeze({ label: "Реплика", value: "Одна короткая мысль" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Контроль",
+        anchorLesson: "full_video_qa",
+        kind: "compare",
+        eyebrow: "Брак или готово",
+        title: "Проверьте весь ролик, включая последний кадр",
+        caption: "Искажённая этикетка, лишние пальцы, скачок лица, обрыв голоса или чужая упаковка — это доработка, даже если первые секунды хорошие.",
+        result: "В публикацию идёт только чистый файл",
+        items: Object.freeze([
+          Object.freeze({ label: "Стоп", value: "Артефакты и обрыв" }),
+          Object.freeze({ label: "Готово", value: "Товар и речь стабильны" }),
+        ]),
+      }),
+    ]),
+  }),
+  publishing_funnel: Object.freeze({
+    theme: "social",
+    kicker: "Три площадки — три маршрута",
+    title: "Куда нажать в Instagram, YouTube и VK",
+    summary: "Выберите площадку из задачи, повторите путь по кнопкам и верните в портал ссылку именно на опубликованный ролик. Ниже — прогрев нового аккаунта и стоп-проверка рекламы.",
+    examples: Object.freeze([
+      Object.freeze({
+        step: "Instagram",
+        anchorLesson: "instagram_reels_step_by_step",
+        kind: "social",
+        platform: "Instagram Reels",
+        eyebrow: "Новая публикация",
+        title: "«+» → Reels → выбрать файл → Поделиться",
+        caption: "Проверьте обложку, подпись и нужный аккаунт до нажатия «Поделиться». После публикации откройте ролик и скопируйте ссылку.",
+        result: "Ссылка ведёт на сам Reels",
+        items: Object.freeze([
+          Object.freeze({ label: "1", value: "Нажмите «+»" }),
+          Object.freeze({ label: "2", value: "Выберите Reels" }),
+          Object.freeze({ label: "3", value: "Поделиться" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "YouTube",
+        anchorLesson: "youtube_shorts_step_by_step",
+        kind: "social",
+        platform: "YouTube Shorts",
+        eyebrow: "Создать Shorts",
+        title: "«+» → Создать Shorts → загрузить → Далее",
+        caption: "Выберите правильный канал, задайте название и видимость из задачи. Не закрывайте приложение, пока загрузка не закончилась.",
+        result: "Ссылка открывает опубликованный Shorts",
+        items: Object.freeze([
+          Object.freeze({ label: "1", value: "Нажмите «+»" }),
+          Object.freeze({ label: "2", value: "Создать Shorts" }),
+          Object.freeze({ label: "3", value: "Загрузить" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "VK",
+        anchorLesson: "vk_clips_step_by_step",
+        kind: "social",
+        platform: "VK Клипы",
+        eyebrow: "Личный профиль или сообщество",
+        title: "Клипы → «+» → выбрать файл → Опубликовать",
+        caption: "Сначала сверьте, от чьего имени должна выйти публикация: личного профиля или бизнес-сообщества. Это разные места размещения.",
+        result: "Ролик опубликован от нужного имени",
+        items: Object.freeze([
+          Object.freeze({ label: "1", value: "Откройте Клипы" }),
+          Object.freeze({ label: "2", value: "Проверьте автора" }),
+          Object.freeze({ label: "3", value: "Опубликовать" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "До первой задачи",
+        anchorLesson: "new_account_safe_start",
+        kind: "calendar",
+        eyebrow: "Новый аккаунт",
+        title: "Прогрев — это нормальное поведение, а не спам",
+        caption: "Здесь нет магического числа дней или действий и нет гарантии от блокировки. Честно заполните профиль, включите защиту, используйте оригинальные материалы и не имитируйте массовую активность.",
+        result: "Аккаунт выглядит живым и управляемым",
+        items: Object.freeze([
+          Object.freeze({ label: "Шаг 1", value: "Профиль, контакты и 2FA" }),
+          Object.freeze({ label: "Шаг 2", value: "Проверить роль и доступ" }),
+          Object.freeze({ label: "Шаг 3", value: "Оригинальные материалы" }),
+          Object.freeze({ label: "Шаг 4", value: "Реальные ответы без спама" }),
+          Object.freeze({ label: "Шаг 5", value: "Статус аккаунта чистый" }),
+          Object.freeze({ label: "Готово", value: "Публикация по задаче" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Стоп-проверка",
+        anchorLesson: "advertising_classification_and_labeling",
+        kind: "decision",
+        eyebrow: "Рекламная маркировка",
+        title: "Не пытайтесь «избежать бирки» — сначала определите режим публикации",
+        caption: "Если есть оплата, бартер, обязательный бриф, промокод, ссылка или призыв к покупке — не публикуйте без решения руководителя и проверки маркировки. Сомнение тоже означает «стоп».",
+        result: "Решение зафиксировано до размещения",
+        items: Object.freeze([
+          Object.freeze({ label: "Есть признаки рекламы", value: "Стоп → руководителю" }),
+          Object.freeze({ label: "Есть сомнение", value: "Стоп → проверка" }),
+          Object.freeze({ label: "Режим подтверждён", value: "Действуйте по задаче" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "После публикации",
+        anchorLesson: "three_urls",
+        kind: "portal",
+        eyebrow: "Ссылка и результат",
+        title: "Верните ссылку на пост, а не на профиль или товар",
+        caption: "Откройте опубликованный ролик, скопируйте его адрес, проверьте ссылку в новой вкладке и только затем сохраните её в портале вместе с первым снимком метрик.",
+        result: "Пост открывается, дата и метрики зафиксированы",
+        items: Object.freeze([
+          Object.freeze({ label: "Ссылка", value: "На конкретный ролик" }),
+          Object.freeze({ label: "Проверка", value: "Открывается без ошибки" }),
+          Object.freeze({ label: "Метрики", value: "С датой и временем" }),
+        ]),
+      }),
+    ]),
+  }),
+  security_wb: Object.freeze({
+    theme: "payout",
+    kicker: "Товар и деньги без догадок",
+    title: "Подменный артикул и выплата — на одной схеме",
+    summary: "Подменник связывает историю одного и того же товара, а выплата проходит отдельные проверяемые статусы. Исполнитель не придумывает ни артикул, ни сумму.",
+    examples: Object.freeze([
+      Object.freeze({
+        step: "Артикул",
+        anchorLesson: "wb_alias_history",
+        kind: "alias",
+        eyebrow: "Карточка Wildberries",
+        title: "Подменный артикул — другой номер того же точного товара",
+        caption: "Совпадают вкус, объём, состав и упаковка. Номер выдаёт руководитель в задаче; исполнитель сам не ищет и не подбирает замену.",
+        result: "Старая история связана с текущей карточкой",
+        items: Object.freeze([
+          Object.freeze({ label: "Было", value: "Пример: 159068498" }),
+          Object.freeze({ label: "Стало", value: "Номер из задачи" }),
+          Object.freeze({ label: "Условие", value: "Тот же товар" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Расчёт",
+        anchorLesson: "calculation_and_payout",
+        kind: "portal",
+        eyebrow: "Карточка задачи",
+        title: "Сумма видна до начала работы",
+        caption: "Если в задаче указано 0 ₽ или сумма непонятна, не начинайте работу и не соглашайтесь на устную формулу вне портала.",
+        result: "Условия зафиксированы в задаче",
+        items: Object.freeze([
+          Object.freeze({ label: "Вознаграждение", value: "Сумма из задачи" }),
+          Object.freeze({ label: "Подтверждение", value: "Ссылка на пост" }),
+          Object.freeze({ label: "Просмотры", value: "Не меняют сумму сами" }),
+        ]),
+      }),
+      Object.freeze({
+        step: "Выплата",
+        anchorLesson: "calculation_and_payout",
+        kind: "payout",
+        eyebrow: "Статусы начисления",
+        title: "«Одобрено» ещё не означает «деньги переведены»",
+        caption: "Портал показывает путь начисления. Факт внешнего перевода отмечается отдельно — поэтому всегда сверяйте последний статус.",
+        result: "Выплата завершена только при статусе «Выплачено»",
+        items: Object.freeze([
+          Object.freeze({ label: "1", value: "Ожидает проверки" }),
+          Object.freeze({ label: "2", value: "Одобрено" }),
+          Object.freeze({ label: "3", value: "Выплачено" }),
+        ]),
+      }),
+    ]),
+  }),
 });
 
 const state = {
@@ -918,12 +1182,13 @@ function renderCourse(code) {
           <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Курс пройден" : "Обязательный курс"}</span>
         </div>
       </header>
+      ${courseVisualExamplesMarkup(course.code)}
       <div class="course-layout">
         <div>
           <nav class="card course-roadmap" aria-label="Содержание курса">
             <div><p class="eyebrow">Содержание</p><strong>Двигайтесь сверху вниз</strong></div>
             <ol>
-              ${course.lessons.map((lesson, index) => `<li><button type="button" data-action="scroll-to" data-target="lesson-${index + 1}"><span>${index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
+              ${course.lessons.map((lesson, index) => `<li><button type="button" data-action="scroll-to" data-target="${escapeHtml(lessonAnchorId(lesson, index))}"><span>${index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
               <li><button type="button" data-action="scroll-to" data-target="course-check"><span>✓</span>Мини-тест блока</button></li>
             </ol>
           </nav>
@@ -961,9 +1226,200 @@ function renderCourse(code) {
   track("course_opened", { module_code: course.code });
 }
 
+function courseVisualExamplesMarkup(courseCode) {
+  const safeCode = String(courseCode || "").replace(/[^a-z0-9_-]/g, "");
+  const guide = COURSE_VISUAL_EXAMPLES[safeCode];
+  if (!guide || !Array.isArray(guide.examples) || !guide.examples.length) return "";
+  const safeThemes = new Set(["portal", "shooting", "social", "payout"]);
+  const theme = safeThemes.has(guide.theme) ? guide.theme : "portal";
+  const headingId = `course-examples-${safeCode}`;
+  return `
+    <section class="card course-example-gallery course-example-theme-${theme}" aria-labelledby="${escapeHtml(headingId)}">
+      <header class="course-example-gallery-head">
+        <div>
+          <p class="eyebrow">${escapeHtml(guide.kicker || "Визуальные примеры")}</p>
+          <h2 id="${escapeHtml(headingId)}">${escapeHtml(guide.title || "Посмотрите, как выглядит готовый шаг")}</h2>
+        </div>
+        <p>${escapeHtml(guide.summary || "Сверьте свой экран с примером и повторите действие.")}</p>
+      </header>
+      <div class="course-example-grid">
+        ${guide.examples.map((example, index) => courseExampleCardMarkup(example, index)).join("")}
+      </div>
+      <footer class="course-example-gallery-note">
+        <span aria-hidden="true">↗</span>
+        <p><strong>Как пользоваться:</strong> откройте нужный экран в телефоне или портале, положите эту схему рядом и повторяйте шаги по порядку.</p>
+      </footer>
+    </section>
+  `;
+}
+
+function courseExampleCardMarkup(example, index) {
+  const step = example?.step || `Пример ${index + 1}`;
+  const eyebrow = example?.eyebrow || "Пошаговый пример";
+  const title = example?.title || "Повторите действие";
+  const caption = example?.caption || "Сверьте значения перед продолжением.";
+  const result = example?.result || "Шаг завершён";
+  const kind = courseExampleKind(example?.kind);
+  const anchorLesson = String(example?.anchorLesson || "").replace(/[^a-z0-9_-]/g, "");
+  const targetId = anchorLesson ? `lesson-${anchorLesson}` : "";
+  return `
+    <article class="course-example-card course-example-${kind}">
+      <div class="course-example-card-top">
+        <span>${escapeHtml(step)}</span>
+        <small>${String(index + 1).padStart(2, "0")}</small>
+      </div>
+      ${courseExampleVisualMarkup(example, kind)}
+      <div class="course-example-copy">
+        <p class="eyebrow">${escapeHtml(eyebrow)}</p>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(caption)}</p>
+      </div>
+      ${targetId ? `<button class="course-example-lesson-link" type="button" data-action="scroll-to" data-target="${escapeHtml(targetId)}">Разобрать подробно в уроке <span aria-hidden="true">↓</span></button>` : ""}
+      <div class="course-example-result"><span aria-hidden="true">✓</span><div><small>Должно получиться</small><strong>${escapeHtml(result)}</strong></div></div>
+    </article>
+  `;
+}
+
+function courseExampleKind(value) {
+  const kind = String(value || "portal");
+  return new Set(["portal", "camera", "storyboard", "compare", "social", "calendar", "decision", "alias", "payout"]).has(kind)
+    ? kind
+    : "portal";
+}
+
+function courseExampleItems(example, limit = 8) {
+  return Array.isArray(example?.items) ? example.items.slice(0, limit) : [];
+}
+
+function courseExampleVisualMarkup(example, kind = courseExampleKind(example?.kind)) {
+  const items = courseExampleItems(example);
+  const platform = example?.platform || "Публикация";
+  const visualLabel = example?.title || "Визуальный пример";
+
+  if (kind === "camera") {
+    return `
+      <div class="course-example-visual example-camera" role="img" aria-label="${escapeHtml(visualLabel)}">
+        <div class="example-phone-shell">
+          <div class="example-phone-notch"></div>
+          <div class="example-camera-grid" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <div class="example-camera-subject" aria-hidden="true"><span></span><i></i></div>
+          <span class="example-camera-format">9:16</span>
+          <span class="example-camera-rec">● REC</span>
+        </div>
+        <div class="example-visual-facts">${items.map((item) => `<span><small>${escapeHtml(item?.label || "Проверка")}</small><strong>${escapeHtml(item?.value || "—")}</strong></span>`).join("")}</div>
+      </div>
+    `;
+  }
+
+  if (kind === "storyboard") {
+    return `
+      <div class="course-example-visual example-storyboard" aria-label="${escapeHtml(visualLabel)}">
+        ${items.map((item, index) => `
+          <section>
+            <div class="example-story-frame example-story-frame-${index + 1}" aria-hidden="true"><i></i><span>${index + 1}</span></div>
+            <small>${escapeHtml(item?.label || `Кадр ${index + 1}`)}</small>
+            <strong>${escapeHtml(item?.value || "—")}</strong>
+          </section>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  if (kind === "compare") {
+    return `
+      <div class="course-example-visual example-compare" aria-label="${escapeHtml(visualLabel)}">
+        ${items.map((item, index) => `
+          <section class="${index === 0 ? "example-compare-stop" : "example-compare-go"}">
+            <span>${index === 0 ? "!" : "✓"}</span>
+            <small>${escapeHtml(item?.label || (index === 0 ? "Стоп" : "Готово"))}</small>
+            <strong>${escapeHtml(item?.value || "—")}</strong>
+            <div class="example-quality-frame" aria-hidden="true"><i></i><i></i><i></i></div>
+          </section>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  if (kind === "social") {
+    return `
+      <div class="course-example-visual example-social" aria-label="${escapeHtml(visualLabel)}">
+        <div class="example-phone-shell example-social-phone">
+          <div class="example-phone-notch"></div>
+          <header><span class="example-social-avatar">A</span><strong>${escapeHtml(platform)}</strong><i aria-hidden="true">•••</i></header>
+          <div class="example-social-video" aria-hidden="true"><span></span><i>▶</i></div>
+          <div class="example-social-actions" aria-hidden="true"><span>♡</span><span>○</span><span>↗</span></div>
+          <ol>${items.map((item) => `<li><span>${escapeHtml(item?.label || "•")}</span><strong>${escapeHtml(item?.value || "—")}</strong></li>`).join("")}</ol>
+        </div>
+      </div>
+    `;
+  }
+
+  if (kind === "calendar") {
+    return `
+      <div class="course-example-visual example-calendar" aria-label="${escapeHtml(visualLabel)}">
+        <div class="example-calendar-week">${items.map((item, index) => `<section class="${index === items.length - 1 ? "current" : ""}"><span>${escapeHtml(item?.label || `День ${index + 1}`)}</span><strong>${escapeHtml(item?.value || "—")}</strong><i aria-hidden="true">${index === items.length - 1 ? "→" : "✓"}</i></section>`).join("")}</div>
+      </div>
+    `;
+  }
+
+  if (kind === "decision") {
+    const tones = ["stop", "review", "go"];
+    return `
+      <div class="course-example-visual example-decision" aria-label="${escapeHtml(visualLabel)}">
+        ${items.map((item, index) => `<section class="example-decision-${tones[index] || "review"}"><span aria-hidden="true">${index === 0 ? "!" : index === 1 ? "?" : "✓"}</span><div><small>${escapeHtml(item?.label || "Проверка")}</small><strong>${escapeHtml(item?.value || "—")}</strong></div></section>`).join("")}
+      </div>
+    `;
+  }
+
+  if (kind === "alias") {
+    const previous = items[0];
+    const current = items[1];
+    const condition = items[2];
+    return `
+      <div class="course-example-visual example-alias" aria-label="${escapeHtml(visualLabel)}">
+        <div class="example-alias-flow">
+          <section><small>${escapeHtml(previous?.label || "Было")}</small><strong>${escapeHtml(previous?.value || "—")}</strong></section>
+          <span aria-hidden="true">→</span>
+          <section><small>${escapeHtml(current?.label || "Стало")}</small><strong>${escapeHtml(current?.value || "—")}</strong></section>
+        </div>
+        <div class="example-alias-condition"><span aria-hidden="true">=</span><strong>${escapeHtml(condition?.value || "Тот же товар")}</strong></div>
+      </div>
+    `;
+  }
+
+  if (kind === "payout") {
+    return `
+      <div class="course-example-visual example-payout" aria-label="${escapeHtml(visualLabel)}">
+        <ol>${items.map((item, index) => `<li class="${index === items.length - 1 ? "complete" : ""}"><span>${escapeHtml(item?.label || String(index + 1))}</span><div><strong>${escapeHtml(item?.value || "—")}</strong><small>${index === items.length - 1 ? "Факт перевода" : "Статус в портале"}</small></div></li>`).join("")}</ol>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="course-example-visual example-portal" aria-label="${escapeHtml(visualLabel)}">
+      <div class="example-portal-window">
+        <div class="example-portal-bar"><i></i><i></i><i></i><span>Контент ИИ Завод</span></div>
+        <div class="example-portal-body">
+          <aside aria-hidden="true"><span></span><span></span><span></span><span></span></aside>
+          <div class="example-portal-panel">
+            <div class="example-portal-heading" aria-hidden="true"><span></span><i></i></div>
+            ${items.map((item) => `<div class="example-portal-row"><small>${escapeHtml(item?.label || "Поле")}</small><strong>${escapeHtml(item?.value || "—")}</strong><span aria-hidden="true">✓</span></div>`).join("")}
+            <button type="button" tabindex="-1" aria-hidden="true">Продолжить →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function lessonAnchorId(lesson, index = 0) {
+  const lessonCode = String(lesson?.id || "").replace(/[^a-z0-9_-]/g, "");
+  return `lesson-${lessonCode || index + 1}`;
+}
+
 function lessonMarkup(lesson, index, total) {
   return `
-    <article id="lesson-${index + 1}" class="card lesson-card" tabindex="-1">
+    <article id="${escapeHtml(lessonAnchorId(lesson, index))}" class="card lesson-card" tabindex="-1">
       <div class="lesson-step-rail" aria-hidden="true"><span>${String(index + 1).padStart(2, "0")}</span><i></i><small>${String(total).padStart(2, "0")}</small></div>
       <div class="lesson-content">
         <header class="lesson-heading">
