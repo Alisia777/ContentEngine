@@ -301,7 +301,10 @@ class SupabaseAuthClient:
                 "email": email,
                 "email_confirm": True,
                 "user_metadata": {"display_name": display_name},
-                "app_metadata": {"contentengine_bootstrap_owner": True},
+                "app_metadata": {
+                    "contentengine_bootstrap_owner": True,
+                    "contentengine_password_change_required": True,
+                },
             },
         )
 
@@ -513,6 +516,9 @@ def bootstrap_owner(
     recovery_status = "not_required"
     if not state.signed_in and metadata.get(OWNER_RECOVERY_MARKER) is not True:
         client = require_auth_client()
+        metadata["contentengine_password_change_required"] = True
+        metadata.pop("contentengine_password_change_completed", None)
+        client.update_app_metadata(state.user_id, metadata)
         client.send_password_recovery(email=normalized_email)
         metadata[OWNER_RECOVERY_MARKER] = True
         client.update_app_metadata(state.user_id, metadata)

@@ -1,10 +1,18 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.2";
+import { CreatorApi } from "./supabase-api.js?v=20260715.3";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.2";
+} from "./catalog.js?v=20260715.3";
+import {
+  ACCOUNT_LAUNCH_PATH,
+  accountLaunchCenterMarkup,
+  accountLaunchGuideMarkup,
+  accountLaunchSlugFromPath,
+  evaluateAdvertisingAnswers,
+} from "./account-launch-view.js?v=20260715.3";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.3";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const app = document.querySelector("#app");
@@ -13,6 +21,20 @@ const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZ
 const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
 const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
 const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+const INVITE_REQUEST_TIMEOUT_MS = 25_000;
+const RESET_RESEND_COOLDOWN_MS = 60_000;
+const MANAGER_DASHBOARD_MAX_AGE_MS = 60_000;
+const MANAGER_EMAIL_ACTION_COOLDOWN_MS = 60_000;
+const PASSWORD_CHANGE_REQUIRED_MARKER = "contentengine_password_change_required";
+const PASSWORD_CHANGE_COMPLETED_MARKER = "contentengine_password_change_completed";
+const LEGACY_PASSWORD_CHANGE_MARKERS = Object.freeze([
+  "contentengine_github_member_provisioned",
+  "contentengine_owner_password_reset_once_20260714",
+]);
+const REAL_GENERATION_POLL_INTERVAL_MS = 7_000;
+const REAL_GENERATION_SOFT_TIMEOUT_MS = 20_000;
+const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
+const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_GENERATION_SKUS = Object.freeze({
@@ -334,6 +356,138 @@ const COURSE_VISUAL_EXAMPLES = Object.freeze({
   }),
 });
 
+const FIRST_SHIFT_STORAGE_PREFIX = "contentengine.first-shift.v1";
+const FIRST_SHIFT_SCENARIO = Object.freeze({
+  title: "Первая смена",
+  duration: "8–10 минут",
+  steps: Object.freeze([
+    Object.freeze({
+      id: "task",
+      label: "Задача",
+      title: "Сверьте товар до начала работы",
+      prompt: "В задаче указан учебный флакон ALTEA 30 мл и подменный артикул TRAIN-NEW-302. На выбранном фото — похожий флакон 50 мл. Что делать?",
+      kind: "portal",
+      items: Object.freeze([
+        Object.freeze({ label: "Товар", value: "ALTEA · 30 мл" }),
+        Object.freeze({ label: "Артикул", value: "TRAIN-NEW-302" }),
+        Object.freeze({ label: "Площадка", value: "VK Клипы" }),
+        Object.freeze({ label: "Сумма", value: "800 ₽" }),
+      ]),
+      options: Object.freeze([
+        Object.freeze({ value: "continue", label: "Продолжить: упаковка почти такая же" }),
+        Object.freeze({ value: "replace", label: "Самостоятельно подобрать другой артикул" }),
+        Object.freeze({ value: "stop", label: "Остановиться и сообщить о несовпадении товара" }),
+      ]),
+      answer: Object.freeze(["stop"]),
+      success: "Верно. Объём, упаковка и назначенный артикул должны совпасть до съёмки или генерации.",
+      retry: "Похожий товар не считается тем же товаром. Не заменяйте артикул самостоятельно и не продолжайте задачу.",
+    }),
+    Object.freeze({
+      id: "materials",
+      label: "Материалы",
+      title: "Оставьте только точные исходники",
+      prompt: "Какие материалы можно положить в одну задачу для учебного флакона ALTEA 30 мл? Выберите все подходящие.",
+      kind: "compare",
+      items: Object.freeze([
+        Object.freeze({ label: "Стоп", value: "Похожий флакон 50 мл" }),
+        Object.freeze({ label: "Готово", value: "Точный флакон 30 мл" }),
+      ]),
+      options: Object.freeze([
+        Object.freeze({ value: "front", label: "Чёткое фото лицевой этикетки 30 мл" }),
+        Object.freeze({ value: "hand", label: "Тот же флакон 30 мл в руке" }),
+        Object.freeze({ value: "fifty", label: "Похожий флакон 50 мл с другой крышкой" }),
+        Object.freeze({ value: "screenshot", label: "Скриншот чужого ролика с водяным знаком" }),
+      ]),
+      answer: Object.freeze(["front", "hand"]),
+      success: "Верно. Два ракурса одного точного товара дают модели понятную и непротиворечивую опору.",
+      retry: "В наборе должен остаться только один точный товар. Другой объём и чужой ролик создают подмену и риск брака.",
+      multiple: true,
+    }),
+    Object.freeze({
+      id: "production",
+      label: "Создание видео",
+      title: "Подготовьте один безопасный запуск",
+      prompt: "Какой вариант подходит для восьмисекундного вертикального ролика с блогером?",
+      kind: "portal",
+      items: Object.freeze([
+        Object.freeze({ label: "Режим", value: "Блогер + голос" }),
+        Object.freeze({ label: "Формат", value: "9:16 · 8 секунд" }),
+        Object.freeze({ label: "Запуск", value: "1 точный исходник" }),
+        Object.freeze({ label: "Стоимость", value: "Проверить до оплаты" }),
+      ]),
+      options: Object.freeze([
+        Object.freeze({ value: "safe", label: "Один точный исходник, 9:16, одна короткая реплика, стоимость проверена" }),
+        Object.freeze({ value: "mixed", label: "Смешать все найденные фото и попросить пять сцен" }),
+        Object.freeze({ value: "claim", label: "Добавить обещание лечебного результата без подтверждения" }),
+      ]),
+      answer: Object.freeze(["safe"]),
+      success: "Верно. Один товар, одна мысль и один подтверждённый запуск уменьшают риск брака и лишних списаний.",
+      retry: "Не смешивайте товары и не добавляйте неподтверждённые обещания. Сначала упростите сцену и проверьте стоимость.",
+    }),
+    Object.freeze({
+      id: "quality",
+      label: "Проверка",
+      title: "Найдите брак до публикации",
+      prompt: "В ролике этикетка меняется на последнем кадре, речь обрывается, но красный цвет жидкости стабилен. Что является браком?",
+      kind: "compare",
+      items: Object.freeze([
+        Object.freeze({ label: "Стоп", value: "Этикетка плывёт, речь обрывается" }),
+        Object.freeze({ label: "Не ошибка", value: "Цвет товара остаётся стабильным" }),
+      ]),
+      options: Object.freeze([
+        Object.freeze({ value: "label", label: "Искажённая этикетка в последнем кадре" }),
+        Object.freeze({ value: "audio", label: "Оборванная реплика блогера" }),
+        Object.freeze({ value: "color", label: "Стабильный красный цвет жидкости" }),
+        Object.freeze({ value: "approve", label: "Ничего: первые секунды выглядят хорошо" }),
+      ]),
+      answer: Object.freeze(["label", "audio"]),
+      success: "Верно. Ролик смотрят целиком: любой обрыв речи или изменение упаковки отправляет его на доработку.",
+      retry: "Проверьте именно изменения товара и целостность речи. Стабильный цвет сам по себе не является ошибкой.",
+      multiple: true,
+    }),
+    Object.freeze({
+      id: "publication",
+      label: "Публикация",
+      title: "Разместите только после решения по маркировке",
+      prompt: "Есть оплата и обязательный бриф, но в задаче нет решения по рекламной маркировке. Какой полный маршрут безопасен?",
+      kind: "decision",
+      items: Object.freeze([
+        Object.freeze({ label: "Есть признаки рекламы", value: "Стоп → руководителю" }),
+        Object.freeze({ label: "Решение получено", value: "Назначенный VK" }),
+        Object.freeze({ label: "После публикации", value: "URL самого клипа" }),
+      ]),
+      options: Object.freeze([
+        Object.freeze({ value: "safe", label: "Остановиться, получить решение, затем разместить в назначенном VK и вернуть URL клипа" }),
+        Object.freeze({ value: "hide", label: "Убрать название бренда, чтобы бирка не появилась" }),
+        Object.freeze({ value: "profile", label: "Опубликовать сразу и вернуть ссылку на профиль" }),
+      ]),
+      answer: Object.freeze(["safe"]),
+      success: "Верно. Сомнение означает остановку. После согласования нужен адрес конкретного опубликованного клипа, не профиля.",
+      retry: "Нельзя обходить маркировку или публиковать при неясном режиме. Сначала решение, затем назначенная площадка и URL поста.",
+    }),
+    Object.freeze({
+      id: "payout",
+      label: "Результат и выплата",
+      title: "Завершите доказуемый цикл",
+      prompt: "URL клипа сохранён, первые метрики внесены, а начисление имеет статус «Одобрено». Что это означает?",
+      kind: "payout",
+      items: Object.freeze([
+        Object.freeze({ label: "1", value: "Ожидает проверки" }),
+        Object.freeze({ label: "2", value: "Одобрено" }),
+        Object.freeze({ label: "3", value: "Выплачено" }),
+      ]),
+      options: Object.freeze([
+        Object.freeze({ value: "paid", label: "Деньги уже переведены, можно ничего не проверять" }),
+        Object.freeze({ value: "wait", label: "Начисление подтверждено, но перевод завершён только при статусе «Выплачено»" }),
+        Object.freeze({ value: "views", label: "Сумма автоматически меняется от каждого просмотра" }),
+      ]),
+      answer: Object.freeze(["wait"]),
+      success: "Верно. «Одобрено» и «Выплачено» — разные этапы; URL и метрики остаются доказательством выполненной задачи.",
+      retry: "Проверьте последний статус. Одобрение начисления ещё не подтверждает внешний перевод денег.",
+    }),
+  ]),
+});
+
 const state = {
   supabase: null,
   api: null,
@@ -344,15 +498,29 @@ const state = {
   bootstrapError: null,
   authPurpose: null,
   forcePassword: false,
+  authLinkError: null,
+  resetReceipt: null,
+  resetCountdownTimer: null,
   route: parseRoute(),
   routeTransition: true,
   dataEpoch: 0,
   bootstrapRequestId: 0,
   mobileNavOpen: false,
   realGenerationStartInFlight: false,
+  realGenerationStartNotice: "",
+  realGenerationPollTimer: null,
+  realGenerationPollInFlight: false,
+  realGenerationStatusRequests: new Map(),
+  realGenerationResults: new Map(),
+  realGenerationDrafts: new Map(),
+  lastRealGenerationJobId: null,
   examResult: null,
   courseCheckResults: {},
+  firstShift: null,
   teamInviteResult: null,
+  managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
+  managerRecoveryCooldowns: new Map(),
+  managerInviteCooldowns: new Map(),
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   sections: Object.fromEntries(
     WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null, requestId: 0 }]),
@@ -386,7 +554,13 @@ async function initialize() {
   });
   state.api = new CreatorApi(state.supabase, CONFIG);
 
-  const authLink = await consumeAuthLink();
+  let authLink = null;
+  try {
+    authLink = await consumeAuthLink();
+  } catch (error) {
+    state.authLinkError = normalizeAuthLinkError(error);
+    clearAuthLinkUrl("/auth-link-error");
+  }
   if (authLink?.purpose) {
     state.authPurpose = authLink.purpose;
     state.forcePassword = ["invite", "recovery"].includes(authLink.purpose);
@@ -396,6 +570,7 @@ async function initialize() {
   if (error) throw error;
   state.session = data.session;
   state.user = data.session?.user || null;
+  state.forcePassword = state.forcePassword || requiresPasswordChange(state.user);
 
   state.supabase.auth.onAuthStateChange((event, session) => {
     window.setTimeout(() => handleAuthStateChange(event, session), 0);
@@ -412,6 +587,12 @@ async function initialize() {
 function bindGlobalEvents() {
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
+    if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
+    if (
+      state.route.path === "/workspace/team"
+      && state.managerDashboard.status === "ready"
+      && Date.now() - state.managerDashboard.updatedAt > MANAGER_DASHBOARD_MAX_AGE_MS
+    ) state.managerDashboard.status = "idle";
     state.routeTransition = true;
     if (
       state.route.path === "/workspace/home"
@@ -424,6 +605,10 @@ function bindGlobalEvents() {
   });
   window.addEventListener("resize", () => {
     if (window.innerWidth > 820 && state.mobileNavOpen) setMobileNavOpen(false);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") scheduleRealGenerationPolling(250);
+    else stopRealGenerationPolling();
   });
 
   document.addEventListener("click", handleClick);
@@ -452,9 +637,10 @@ async function handleAuthStateChange(event, session) {
     return;
   }
 
-  if (event === "TOKEN_REFRESHED") {
+  if (["TOKEN_REFRESHED", "USER_UPDATED", "SIGNED_IN"].includes(event)) {
     state.session = session;
     state.user = session?.user || null;
+    state.forcePassword = state.forcePassword || requiresPasswordChange(state.user);
   }
 }
 
@@ -465,7 +651,13 @@ async function consumeAuthLink() {
     : "";
   const fragment = new URLSearchParams(rawHash);
   const errorDescription = query.get("error_description") || fragment.get("error_description");
-  if (errorDescription) throw new Error(errorDescription);
+  const errorCode = query.get("error_code") || query.get("error") || fragment.get("error_code") || fragment.get("error");
+  if (errorDescription || errorCode) {
+    const failure = new Error(errorDescription || "Auth link is invalid or has expired");
+    failure.code = errorCode || "auth_link_invalid";
+    failure.authPurpose = query.get("type") || query.get("auth") || fragment.get("type") || "unknown";
+    throw failure;
+  }
 
   let purpose = query.get("type") || query.get("auth") || fragment.get("type");
   const tokenHash = query.get("token_hash") || fragment.get("token_hash");
@@ -480,18 +672,27 @@ async function consumeAuthLink() {
       token_hash: tokenHash,
       type: purpose,
     });
-    if (error) throw error;
+    if (error) {
+      error.authPurpose = purpose;
+      throw error;
+    }
     accepted = true;
   } else if (code) {
     const { error } = await state.supabase.auth.exchangeCodeForSession(code);
-    if (error) throw error;
+    if (error) {
+      error.authPurpose = purpose;
+      throw error;
+    }
     accepted = true;
   } else if (accessToken && refreshToken) {
     const { error } = await state.supabase.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
-    if (error) throw error;
+    if (error) {
+      error.authPurpose = purpose;
+      throw error;
+    }
     accepted = true;
   }
 
@@ -504,6 +705,36 @@ async function consumeAuthLink() {
   }
 
   return { accepted, purpose };
+}
+
+function normalizeAuthLinkError(error) {
+  const raw = String(error?.message || "").toLowerCase();
+  const purpose = ["invite", "recovery"].includes(error?.authPurpose)
+    ? error.authPurpose
+    : raw.includes("invite") ? "invite" : "recovery";
+  const expired = raw.includes("expired") || raw.includes("invalid") || raw.includes("otp");
+  return {
+    purpose,
+    code: String(error?.code || (expired ? "auth_link_expired" : "auth_link_failed")),
+    expired,
+  };
+}
+
+function clearAuthLinkUrl(route = "/auth-link-error") {
+  const next = new URL(window.location.href);
+  next.search = "";
+  next.hash = `#${route}`;
+  window.history.replaceState({}, "", next);
+  state.route = parseRoute();
+}
+
+function requiresPasswordChange(user = state.user) {
+  const metadata = user?.app_metadata && typeof user.app_metadata === "object"
+    ? user.app_metadata
+    : {};
+  if (metadata[PASSWORD_CHANGE_REQUIRED_MARKER] === true) return true;
+  if (metadata[PASSWORD_CHANGE_COMPLETED_MARKER] === true) return false;
+  return LEGACY_PASSWORD_CHANGE_MARKERS.some((marker) => metadata[marker] === true);
 }
 
 async function loadBootstrap() {
@@ -542,6 +773,11 @@ async function loadBootstrap() {
       state.api.organizationId = null;
       state.examResult = null;
       state.teamInviteResult = null;
+      state.managerDashboard.requestId += 1;
+      state.managerDashboard.status = "idle";
+      state.managerDashboard.data = null;
+      state.managerDashboard.error = null;
+      state.managerDashboard.updatedAt = 0;
       for (const section of Object.values(state.sections)) {
         section.status = "idle";
         section.data = null;
@@ -780,6 +1016,12 @@ function establishDefaultRoute() {
 
 function render() {
   const path = state.route.path;
+  const accountLaunchSlug = accountLaunchSlugFromPath(path);
+
+  if (path === "/auth-link-error" && state.authLinkError) {
+    renderAuthLinkError();
+    return;
+  }
 
   if (!state.session) {
     if (path === "/reset-password") renderResetRequest();
@@ -812,6 +1054,14 @@ function render() {
       navigate("/learn", true);
       return;
     }
+    if (path === "/learn/first-shift") {
+      renderFirstShift();
+      return;
+    }
+    if (accountLaunchSlug !== null) {
+      renderAccountLaunch(accountLaunchSlug);
+      return;
+    }
     if (path.startsWith("/learn/") && path !== "/learn/exam") {
       renderCourse(path.replace("/learn/", ""));
       return;
@@ -826,6 +1076,14 @@ function render() {
 
   if (path === "/learn") {
     renderLearningHome();
+    return;
+  }
+  if (path === "/learn/first-shift") {
+    renderFirstShift();
+    return;
+  }
+  if (accountLaunchSlug !== null) {
+    renderAccountLaunch(accountLaunchSlug);
     return;
   }
   if (path.startsWith("/learn/") && path !== "/learn/exam") {
@@ -884,24 +1142,55 @@ function renderLogin(message = "") {
 }
 
 function renderResetRequest(message = "") {
+  const receipt = state.resetReceipt;
+  const resendAt = Number(receipt?.resendAt || 0);
+  const coolingDown = resendAt > Date.now();
+  const receiptMarkup = receipt ? alertMarkup(
+    `Запрос принят ${formatTime(receipt.requestedAt)} для ${receipt.maskedEmail}. Это ещё не подтверждение доставки письма. Проверьте «Входящие» и «Спам»; повторная отправка станет доступна ниже.`,
+    "warning",
+  ) : "";
   app.innerHTML = authLayout(`
     <section class="auth-card" aria-labelledby="reset-title">
       <p class="eyebrow">Восстановление доступа</p>
       <h2 id="reset-title">Задайте новый пароль</h2>
       <p class="lead">Мы отправим безопасную ссылку на рабочую почту.</p>
       ${message ? alertMarkup(message, "success") : ""}
+      ${receiptMarkup}
       <form id="reset-form" class="form-stack" novalidate>
         <label class="field">
           <span>Рабочая почта</span>
-          <input name="email" type="email" autocomplete="email" inputmode="email" required placeholder="name@company.ru" />
+          <input name="email" type="email" autocomplete="email" inputmode="email" required placeholder="name@company.ru" value="${escapeHtml(receipt?.email || "")}" />
         </label>
-        <button class="btn btn-block" type="submit">Отправить ссылку</button>
+        <button id="reset-submit" class="btn btn-block" type="submit" data-resend-at="${resendAt}" ${coolingDown ? "disabled" : ""}>${coolingDown ? "Повторить через 60 с" : receipt ? "Отправить ещё раз" : "Отправить ссылку"}</button>
       </form>
       <div class="auth-actions"><a class="text-link" href="#/login">Вернуться ко входу</a></div>
       <p class="auth-footer">Сотрудник поддержки никогда не попросит прислать пароль или содержимое ссылки.</p>
     </section>
   `);
   focusFirst("#reset-form input");
+  startResetResendCountdown();
+}
+
+function renderAuthLinkError() {
+  const failure = state.authLinkError || { purpose: "recovery", expired: true };
+  const recovery = failure.purpose !== "invite";
+  app.innerHTML = authLayout(`
+    <section class="auth-card" aria-labelledby="auth-link-error-title">
+      <p class="eyebrow">Ссылка больше не действует</p>
+      <h2 id="auth-link-error-title">${recovery ? "Запросите новую ссылку" : "Нужно новое приглашение"}</h2>
+      <p class="lead">${recovery
+        ? "Ссылка восстановления устарела, уже использована или открыта не полностью. Токен удалён из адресной строки."
+        : "Ссылка приглашения устарела, уже использована или открыта не полностью. Токен удалён из адресной строки."}</p>
+      ${alertMarkup(recovery
+        ? "Нажмите кнопку ниже и снова укажите ту же рабочую почту. Используйте только самое свежее письмо."
+        : "Попросите руководителя повторно отправить приглашение на ваш точный рабочий адрес.", "warning")}
+      <div class="form-stack">
+        <button class="btn btn-block" type="button" data-action="request-new-auth-link" data-purpose="${recovery ? "recovery" : "invite"}">${recovery ? "Запросить новую ссылку" : "Запросить новое приглашение у руководителя"}</button>
+      </div>
+      <p class="auth-footer">Обновлять эту страницу не нужно: недействительный токен уже очищен.</p>
+    </section>
+  `);
+  focusFirst("[data-action='request-new-auth-link']");
 }
 
 function renderSetPassword(message = "", type = "") {
@@ -909,20 +1198,20 @@ function renderSetPassword(message = "", type = "") {
     <section class="auth-card" aria-labelledby="password-title">
       <p class="eyebrow">${state.authPurpose === "invite" ? "Активация приглашения" : "Защита аккаунта"}</p>
       <h2 id="password-title">Придумайте пароль</h2>
-      <p class="lead">Не меньше 10 символов. Не используйте пароль от почты или соцсетей.</p>
+      <p class="lead">10–128 символов: строчная и заглавная латинские буквы и цифра. Не используйте пароль от почты или соцсетей.</p>
       ${message ? alertMarkup(message, type || "danger") : ""}
       <form id="password-form" class="form-stack" novalidate>
         <label class="field">
           <span>Новый пароль</span>
-          <input name="password" type="password" autocomplete="new-password" required minlength="10" placeholder="Минимум 10 символов" />
+          <input name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" placeholder="Например: NewFactory2026" />
         </label>
         <label class="field">
           <span>Повторите пароль</span>
-          <input name="password_confirmation" type="password" autocomplete="new-password" required minlength="10" placeholder="Ещё раз" />
+          <input name="password_confirmation" type="password" autocomplete="new-password" required minlength="10" maxlength="128" placeholder="Ещё раз" />
         </label>
         <button class="btn btn-block" type="submit">Сохранить и продолжить</button>
       </form>
-      <p class="auth-footer">Ссылка активации одноразовая. После сохранения начнётся обязательное обучение.</p>
+      <p class="auth-footer">До успешного сохранения нового пароля рабочие разделы останутся закрыты. Ссылка активации одноразовая.</p>
     </section>
   `);
   focusFirst("#password-form input");
@@ -999,6 +1288,7 @@ function renderMembershipLocked() {
 
 function renderLearningHome() {
   const completed = new Set(state.bootstrap.training.completedModules);
+  const firstShift = ensureFirstShiftState();
   const courses = learningCourses();
   const completeCount = REQUIRED_MODULE_CODES.filter((code) => completed.has(code)).length;
   const examPassed = state.bootstrap.training.exam.passed;
@@ -1067,6 +1357,28 @@ function renderLearningHome() {
         <div class="work-map-rule"><span aria-hidden="true">◎</span><p><strong>Главное правило:</strong> точный артикул товара, исходный файл и итоговая ссылка должны оставаться связаны от загрузки до результата.</p></div>
       </section>
 
+      <section class="card first-shift-invite" aria-labelledby="first-shift-invite-title">
+        <div class="first-shift-invite-mark" aria-hidden="true"><span>6</span><small>шагов</small></div>
+        <div>
+          <p class="eyebrow">Безопасная репетиция · ${escapeHtml(FIRST_SHIFT_SCENARIO.duration)}</p>
+          <h2 id="first-shift-invite-title">Пройдите первую смену без реальных действий</h2>
+          <p>Сверьте товар, выберите материалы, подготовьте ролик, найдите брак, решите вопрос публикации и проверьте выплату.</p>
+          <p class="first-shift-invite-note"><span aria-hidden="true">◎</span> Тренажёр не создаёт задач, не списывает деньги и не влияет на допуск.</p>
+        </div>
+        <a class="btn" href="#/learn/first-shift">${firstShift.finished ? "Посмотреть результат" : firstShift.completedStepIds.length || firstShift.stepIndex > 0 ? "Продолжить смену" : "Начать тренировку"} <span aria-hidden="true">→</span></a>
+      </section>
+
+      <section class="card first-shift-invite account-launch-invite" aria-labelledby="account-launch-invite-title">
+        <div class="first-shift-invite-mark" aria-hidden="true"><span>3</span><small>сети</small></div>
+        <div>
+          <p class="eyebrow">Instagram · YouTube · VK</p>
+          <h2 id="account-launch-invite-title">Запустите новый аккаунт с нуля</h2>
+          <p>Регистрация, защита входа, оформление, безопасный прогрев и чек-лист первой публикации — отдельно для каждой площадки.</p>
+          <p class="first-shift-invite-note"><span aria-hidden="true">!</span> Без выдуманных лимитов и советов по обходу рекламной маркировки.</p>
+        </div>
+        <a class="btn" href="#${ACCOUNT_LAUNCH_PATH}">Открыть центр запуска <span aria-hidden="true">→</span></a>
+      </section>
+
       <div class="learning-section-heading">
         <div>
           <p class="eyebrow">Маршрут обучения</p>
@@ -1095,6 +1407,19 @@ function renderLearningHome() {
     </div>
   `;
   app.innerHTML = learningScaffold(content, "/learn");
+}
+
+function renderAccountLaunch(slug = "") {
+  const savedChecks = slug ? restoreAccountLaunchChecks(slug) : [];
+  const body = slug
+    ? accountLaunchGuideMarkup(slug, savedChecks)
+    : accountLaunchCenterMarkup();
+  const content = `
+    <div class="page-wrap account-launch-page">
+      ${body || alertMarkup("Маршрут площадки не найден. Вернитесь в центр запуска и выберите Instagram, YouTube или VK.", "danger")}
+    </div>
+  `;
+  app.innerHTML = learningScaffold(content, ACCOUNT_LAUNCH_PATH);
 }
 
 function portalWorkflowMarkup() {
@@ -1224,6 +1549,236 @@ function renderCourse(code) {
   `;
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
   track("course_opened", { module_code: course.code });
+}
+
+function createFirstShiftState(userId = "") {
+  return {
+    userId: String(userId || ""),
+    stepIndex: 0,
+    completedStepIds: [],
+    attempts: {},
+    feedback: null,
+    finished: false,
+  };
+}
+
+function firstShiftStorageKey(userId = state.user?.id) {
+  const safeUserId = encodeURIComponent(String(userId || "anonymous"));
+  return `${FIRST_SHIFT_STORAGE_PREFIX}:${safeUserId}`;
+}
+
+function normalizeFirstShiftState(value, userId) {
+  const clean = createFirstShiftState(userId);
+  if (!value || typeof value !== "object") return clean;
+  const stepIds = new Set(FIRST_SHIFT_SCENARIO.steps.map((step) => step.id));
+  clean.completedStepIds = uniqueStrings(value.completedStepIds).filter((id) => stepIds.has(id));
+  clean.stepIndex = Math.min(
+    FIRST_SHIFT_SCENARIO.steps.length - 1,
+    Math.max(0, Number.isInteger(value.stepIndex) ? value.stepIndex : 0),
+  );
+  clean.attempts = Object.fromEntries(
+    Object.entries(value.attempts && typeof value.attempts === "object" ? value.attempts : {})
+      .filter(([id]) => stepIds.has(id))
+      .map(([id, count]) => [id, Math.min(99, Math.max(0, Number(count) || 0))]),
+  );
+  const currentStep = FIRST_SHIFT_SCENARIO.steps[clean.stepIndex];
+  const validOptionValues = new Set(currentStep.options.map((option) => option.value));
+  if (value.feedback?.stepId === currentStep.id) {
+    clean.feedback = {
+      stepId: currentStep.id,
+      passed: value.feedback.passed === true,
+      selected: uniqueStrings(value.feedback.selected).filter((item) => validOptionValues.has(item)),
+    };
+  }
+  clean.finished = value.finished === true && clean.completedStepIds.length === FIRST_SHIFT_SCENARIO.steps.length;
+  if (clean.finished) clean.stepIndex = FIRST_SHIFT_SCENARIO.steps.length - 1;
+  return clean;
+}
+
+function ensureFirstShiftState() {
+  const userId = String(state.user?.id || "");
+  if (state.firstShift?.userId === userId) return state.firstShift;
+  let stored = null;
+  try {
+    stored = JSON.parse(window.sessionStorage.getItem(firstShiftStorageKey(userId)) || "null");
+  } catch {
+    stored = null;
+  }
+  state.firstShift = normalizeFirstShiftState(stored, userId);
+  return state.firstShift;
+}
+
+function persistFirstShiftState() {
+  const practice = ensureFirstShiftState();
+  try {
+    window.sessionStorage.setItem(firstShiftStorageKey(practice.userId), JSON.stringify(practice));
+  } catch {
+    // The simulator still works in-memory when browser storage is unavailable.
+  }
+}
+
+function resetFirstShiftState() {
+  const userId = String(state.user?.id || "");
+  state.firstShift = createFirstShiftState(userId);
+  persistFirstShiftState();
+}
+
+function accountLaunchStorageKey(slug, userId = state.user?.id) {
+  const platform = String(slug || "").toLowerCase();
+  return userId && ["instagram", "youtube", "vk"].includes(platform)
+    ? `contentengine.account-launch.v1.${userId}.${platform}`
+    : null;
+}
+
+function restoreAccountLaunchChecks(slug) {
+  const key = accountLaunchStorageKey(slug);
+  if (!key) return [];
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return [];
+  }
+}
+
+function persistAccountLaunchChecks(slug, checks) {
+  const key = accountLaunchStorageKey(slug);
+  if (!key) return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify([...new Set(checks.map(String).filter(Boolean))]));
+  } catch {
+    // The checklist is a convenience only and must never block the lesson.
+  }
+}
+
+function clearAccountLaunchChecks(userId = state.user?.id) {
+  if (!userId) return;
+  try {
+    for (const slug of ["instagram", "youtube", "vk"]) {
+      window.sessionStorage.removeItem(accountLaunchStorageKey(slug, userId));
+    }
+  } catch {
+    // Logout must finish even when browser storage is unavailable.
+  }
+}
+
+function renderFirstShift() {
+  const practice = ensureFirstShiftState();
+  if (practice.finished) {
+    renderFirstShiftComplete();
+    return;
+  }
+  const step = FIRST_SHIFT_SCENARIO.steps[practice.stepIndex];
+  const stepComplete = practice.completedStepIds.includes(step.id);
+  const feedback = practice.feedback?.stepId === step.id ? practice.feedback : null;
+  const selected = new Set(feedback?.selected || []);
+  const completedCount = practice.completedStepIds.length;
+  const progressPercent = Math.round((completedCount / FIRST_SHIFT_SCENARIO.steps.length) * 100);
+  const content = `
+    <div class="page-wrap learning-page first-shift-page">
+      ${firstShiftSafetyBanner()}
+      <header class="card first-shift-hero">
+        <div>
+          <p class="eyebrow">Интерактивная репетиция · ${escapeHtml(FIRST_SHIFT_SCENARIO.duration)}</p>
+          <h1 id="first-shift-title" tabindex="-1">Первая смена: от задачи до выплаты</h1>
+          <p>Это учебный пример. Вы ничего не публикуете и не запускаете: выбирайте действие, читайте объяснение и исправляйте ошибку сразу.</p>
+        </div>
+        <div class="first-shift-progress-card">
+          <span>Прогресс смены</span>
+          <strong>${completedCount} / ${FIRST_SHIFT_SCENARIO.steps.length}</strong>
+          <div class="progress-bar progress-bar-gold" role="progressbar" aria-label="Прогресс первой смены" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}"><span style="width:${progressPercent}%"></span></div>
+        </div>
+      </header>
+
+      <div class="first-shift-layout">
+        <aside class="card first-shift-roadmap" aria-label="Шаги первой смены">
+          <p class="eyebrow">Маршрут</p>
+          <ol>
+            ${FIRST_SHIFT_SCENARIO.steps.map((item, index) => {
+              const complete = practice.completedStepIds.includes(item.id);
+              const current = index === practice.stepIndex;
+              return `<li class="${complete ? "complete" : ""} ${current ? "current" : ""}" ${current ? 'aria-current="step"' : ""}><span>${complete ? "✓" : index + 1}</span><div><strong>${escapeHtml(item.label)}</strong><small>${complete ? "готово" : current ? "сейчас" : "впереди"}</small></div></li>`;
+            }).join("")}
+          </ol>
+        </aside>
+
+        <section class="card first-shift-stage" aria-labelledby="first-shift-step-title">
+          <div class="first-shift-stage-head">
+            <div><p class="eyebrow">Шаг ${practice.stepIndex + 1} из ${FIRST_SHIFT_SCENARIO.steps.length} · ${escapeHtml(step.label)}</p><h2 id="first-shift-step-title" tabindex="-1">${escapeHtml(step.title)}</h2></div>
+            <span>Попыток: ${escapeHtml(String(practice.attempts[step.id] || 0))}</span>
+          </div>
+          <div class="first-shift-stage-grid">
+            ${courseExampleVisualMarkup(step, step.kind)}
+            <form id="first-shift-form" data-step-id="${escapeHtml(step.id)}" novalidate>
+              <fieldset class="first-shift-question" ${stepComplete ? "disabled" : ""}>
+                <legend>${escapeHtml(step.prompt)}</legend>
+                <div class="first-shift-options">
+                  ${step.options.map((option, index) => `
+                    <label>
+                      <input type="${step.multiple ? "checkbox" : "radio"}" name="first_shift_answer" value="${escapeHtml(option.value)}" ${selected.has(option.value) ? "checked" : ""} ${!step.multiple && index === 0 ? "required" : ""} />
+                      <span><i aria-hidden="true"></i>${escapeHtml(option.label)}</span>
+                    </label>
+                  `).join("")}
+                </div>
+              </fieldset>
+              <div id="first-shift-feedback" class="first-shift-feedback ${stepComplete ? "success" : feedback ? "retry" : ""}" aria-live="polite" tabindex="-1">
+                ${stepComplete
+                  ? `<span aria-hidden="true">✓</span><div><strong>Шаг выполнен</strong><p>${escapeHtml(step.success)}</p></div>`
+                  : feedback
+                    ? `<span aria-hidden="true">!</span><div><strong>Исправьте решение</strong><p>${escapeHtml(step.retry)}</p></div>`
+                    : `<span aria-hidden="true">?</span><div><strong>Выберите действие</strong><p>После проверки здесь появится объяснение. Ошибка не повлияет на допуск.</p></div>`}
+              </div>
+              <div class="first-shift-actions">
+                <button class="btn btn-secondary" type="button" data-action="first-shift-previous" ${practice.stepIndex === 0 ? "disabled" : ""}>← Назад</button>
+                ${stepComplete
+                  ? `<button class="btn" type="button" data-action="first-shift-next">${practice.stepIndex === FIRST_SHIFT_SCENARIO.steps.length - 1 ? "Завершить смену" : "Следующий шаг"} <span aria-hidden="true">→</span></button>`
+                  : `<button class="btn" type="submit">Проверить решение</button>`}
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
+      <div class="first-shift-footer-actions">
+        <a class="btn btn-secondary" href="#/learn">Вернуться к курсам</a>
+        <button class="text-button" type="button" data-action="first-shift-reset">Начать сначала</button>
+      </div>
+    </div>
+  `;
+  app.innerHTML = learningScaffold(content, "/learn/first-shift");
+}
+
+function firstShiftSafetyBanner() {
+  return `
+    <div class="first-shift-safety" role="status">
+      <span aria-hidden="true">◎</span>
+      <div><strong>Учебный режим · списаний нет</strong><small>Нет API-вызовов, реальной генерации, публикаций, начислений или влияния на допуск.</small></div>
+    </div>
+  `;
+}
+
+function renderFirstShiftComplete() {
+  const practice = ensureFirstShiftState();
+  const attempts = Object.values(practice.attempts).reduce((total, count) => total + Number(count || 0), 0);
+  const content = `
+    <div class="page-wrap learning-page first-shift-page">
+      ${firstShiftSafetyBanner()}
+      <section class="card first-shift-complete" aria-labelledby="first-shift-complete-title">
+        <div class="first-shift-complete-score" aria-hidden="true"><strong>6/6</strong><span>готово</span></div>
+        <div>
+          <p class="eyebrow">Репетиция завершена · ${attempts} попыток</p>
+          <h1 id="first-shift-complete-title" tabindex="-1">Вы прошли полный учебный цикл</h1>
+          <p>Вы остановили подмену товара, отобрали исходники, подготовили безопасный запуск, нашли брак, проверили публикацию и разобрались со статусом выплаты.</p>
+          <div class="first-shift-complete-note"><span aria-hidden="true">i</span><p><strong>Это тренировка, а не сертификация.</strong> Прогресс курсов, экзамен и доступ к кабинету не изменились.</p></div>
+          <div class="inline-actions">
+            <a class="btn" href="#/learn">Перейти к курсам <span aria-hidden="true">→</span></a>
+            <button class="btn btn-secondary" type="button" data-action="first-shift-reset">Пройти ещё раз</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+  app.innerHTML = learningScaffold(content, "/learn/first-shift");
 }
 
 function courseVisualExamplesMarkup(courseCode) {
@@ -1744,6 +2299,12 @@ function learningScaffold(content, activePath) {
           <a class="nav-link ${activePath === "/learn" ? "active" : ""}" href="#/learn" ${activePath === "/learn" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◎</span><span>Курсы</span>
           </a>
+          <a class="nav-link ${activePath === "/learn/first-shift" ? "active" : ""}" href="#/learn/first-shift" ${activePath === "/learn/first-shift" ? 'aria-current="page"' : ""}>
+            <span class="nav-icon" aria-hidden="true">↗</span><span>Первая смена</span>
+          </a>
+          <a class="nav-link ${activePath === ACCOUNT_LAUNCH_PATH ? "active" : ""}" href="#${ACCOUNT_LAUNCH_PATH}" ${activePath === ACCOUNT_LAUNCH_PATH ? 'aria-current="page"' : ""}>
+            <span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span>
+          </a>
           <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activePath === "/learn/exam" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◇</span><span>Итоговый экзамен</span>
           </a>
@@ -1897,6 +2458,7 @@ function workspaceScaffold(content, activeSection) {
             </a>
           `).join("")}
           <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span><span>Обучение</span></a>
+          <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span></a>
         </nav>
         ${sidebarFooterMarkup(profile)}
       </aside>
@@ -2009,11 +2571,17 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
     <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
         <a class="nav-link ${activeLearningPath === "/learn" ? "active" : ""}" href="#/learn" ${activeLearningPath === "/learn" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◎</span>Курсы</a>
+        <a class="nav-link ${activeLearningPath === "/learn/first-shift" ? "active" : ""}" href="#/learn/first-shift" ${activeLearningPath === "/learn/first-shift" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">↗</span>Первая смена</a>
+        <a class="nav-link ${activeLearningPath.startsWith(ACCOUNT_LAUNCH_PATH) ? "active" : ""}" href="#${ACCOUNT_LAUNCH_PATH}" ${activeLearningPath.startsWith(ACCOUNT_LAUNCH_PATH) ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
         <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◇</span>Экзамен</a>
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span>Кабинет</a>` : ""}
-      ` : visibleWorkspaceTabs().map(([key, label, icon]) => `
-        <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}" ${key === activeSection ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</a>
-      `).join("")}
+      ` : `
+        ${visibleWorkspaceTabs().map(([key, label, icon]) => `
+          <a class="nav-link ${key === activeSection ? "active" : ""}" href="#/workspace/${key}" ${key === activeSection ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</a>
+        `).join("")}
+        <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
+        <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
+      `}
       <button class="btn btn-secondary btn-block" type="button" data-action="logout">Выйти</button>
     </nav>
   `;
@@ -2034,6 +2602,24 @@ async function loadSection(section, options = {}) {
     const raw = await state.api.workspaceSection(section);
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     let data = raw?.data ?? raw ?? {};
+    if (section === "team") {
+      try {
+        const persisted = await withUiTimeout(
+          state.api.inviteAttempts(),
+          AUTH_REQUEST_TIMEOUT_MS,
+          "История приглашений временно недоступна.",
+        );
+        if (Array.isArray(persisted?.results) && persisted.results.length) {
+          state.teamInviteResult = persisted;
+          persistTeamInviteResult(persisted);
+        } else if (!state.teamInviteResult) {
+          state.teamInviteResult = restoreTeamInviteResult();
+        }
+      } catch (error) {
+        console.warn("Invite delivery history unavailable", error);
+        if (!state.teamInviteResult) state.teamInviteResult = restoreTeamInviteResult();
+      }
+    }
     if (["generation", "media"].includes(section)) {
       data = await hydratePrivateMedia(data);
     }
@@ -2047,6 +2633,30 @@ async function loadSection(section, options = {}) {
   }
   if (state.route.path === `/workspace/${section}`) render();
   else if (options.silent && section === "team") syncGenerationAssigneeOptions();
+}
+
+async function loadManagerDashboard({ silent = false } = {}) {
+  const target = state.managerDashboard;
+  if (!canManageTeam() || ["loading", "refreshing"].includes(target.status)) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data ? "refreshing" : "loading";
+  target.error = null;
+  if (!silent && state.route.path === "/workspace/team") render();
+  try {
+    const raw = await state.api.managerDashboard();
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+    target.data = raw?.data ?? raw ?? {};
+    target.status = "ready";
+    target.updatedAt = Date.now();
+  } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+    target.error = error;
+    target.status = "error";
+  }
+  if (state.route.path === "/workspace/team") render();
 }
 
 async function hydratePrivateMedia(data) {
@@ -2358,6 +2968,12 @@ function renderGenerationSection(sectionState) {
     window.queueMicrotask(() => loadSection("team", { silent: true }));
   }
   const assignableMembers = generationAssignableMembers();
+  const activeRealJobs = realGenerationJobsFromBatches(batches);
+  const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
+  window.queueMicrotask(() => {
+    scheduleRealGenerationPolling();
+    primeCompletedGenerationResults(batches);
+  });
   return `
     <div class="page-wrap">
       ${pageHeader(
@@ -2372,6 +2988,8 @@ function renderGenerationSection(sectionState) {
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
           <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с озвучкой.</p>
+          ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
+          ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
             <label class="field">
               <span>Режим генерации *</span>
@@ -2456,12 +3074,18 @@ function renderGenerationSection(sectionState) {
                 </div>
               </fieldset>
             ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или упаковки в разделе <a href="#/workspace/media">«Материалы»</a>. Без исходника запуск недоступен.</span></div>`}
-            <button id="generation-submit" class="btn btn-block" type="submit" ${exactMedia.length ? "" : "disabled"}>${defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты"}</button>
+            <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
           </form>
+          ${state.lastRealGenerationJobId && state.realGenerationDrafts.has(state.lastRealGenerationJobId) ? `
+            <div class="generation-repeat-panel" role="status">
+              <div><strong>Нужен ещё один вариант?</strong><span>Поля сохранены. Перед новым платным запуском ещё раз проверьте сценарий и подтвердите стоимость.</span></div>
+              <button class="btn btn-secondary btn-small" type="button" data-action="repeat-real-generation" data-job-id="${escapeHtml(state.lastRealGenerationJobId)}">Создать ещё вариант</button>
+            </div>
+          ` : ""}
         </section>
 
         <section class="card">
-          <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние запуски</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+          <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние запуски</h2><small class="muted">${activeRealJobs.length ? `Автопроверка каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : "Активных платных запусков нет"}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
           ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь."))}
         </section>
       </div>
@@ -2492,33 +3116,397 @@ function renderGenerationSection(sectionState) {
 
 function generationTable(items) {
   return `
-    <div class="table-wrap"><table class="data-table">
-      <thead><tr><th>Запуск</th><th>Код товара</th><th>Запрошено</th><th>Готово</th><th>Статус</th><th>Создан</th></tr></thead>
+    <div class="table-wrap"><table class="data-table generation-table">
+      <thead><tr><th>Запуск</th><th>Код товара</th><th>Этап</th><th>Стоимость</th><th>Создан</th></tr></thead>
       <tbody>${items.map((item) => {
-        const parameters = item.parameters && typeof item.parameters === "object" ? item.parameters : {};
-        const real = String(item.mode || parameters.mode || "mock").toLowerCase() === "real";
-        const model = String(item.model || parameters.model || "gen4_turbo");
-        const duration = Number(item.duration_seconds || parameters.duration_seconds || 5);
-        const audio = normalizeBoolean(item.audio ?? parameters.audio);
-        const realLabel = `Платный ролик · ${duration} секунд${audio ? " · с озвучкой" : " · без голоса"}`;
-        const jobId = real ? String(parameters.job_id || "") : "";
-        const status = String(item.status || parameters.job_status || "queued");
-        const realAction = jobId
-          ? `<div style="margin-top:8px"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-job-id="${escapeHtml(jobId)}">${["succeeded", "completed"].includes(status.toLowerCase()) ? "Скачать ролик" : "Проверить статус"}</button></div>`
+        const details = generationBatchDetails(item);
+        if (!details.real) {
+          return `
+            <tr>
+              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Тестовые варианты · без списаний</small></td>
+              <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
+              <td>${statusBadge(details.status)}<br /><small class="muted">Готово ${formatNumber(item.total_accepted ?? item.completed ?? 0)} из ${formatNumber(item.total_requested ?? item.count ?? 0)}</small></td>
+              <td>0 ₽</td>
+              <td>${formatDate(item.created_at)}</td>
+            </tr>
+          `;
+        }
+
+        const failure = details.failureCode ? generationFailureMessage(details.failureCode) : "";
+        const previewUrl = trustedCachedGenerationUrl(details.jobId);
+        const startingWarning = details.status === "starting"
+          ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно — сначала система проверит, был ли запрос принят сервисом.</span></div>`
+          : "";
+        const failureMarkup = details.status === "failed"
+          ? `<div class="generation-failure" role="alert"><strong>Ролик не создан</strong><span>${escapeHtml(failure || "Видеосервис завершил задачу с ошибкой.")}</span></div>`
+          : "";
+        const actions = generationActionsMarkup(details);
+        const preview = previewUrl
+          ? `<div class="generation-result-preview"><video src="${escapeHtml(previewUrl)}" controls preload="metadata" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video><small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
           : "";
         return `
-          <tr>
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${real ? escapeHtml(realLabel) : "Тестовые варианты · без списаний"}</small></td>
-            <td>${escapeHtml(item.sku || parameters.sku || "—")}</td>
-            <td>${formatNumber(item.total_requested ?? item.count ?? (real ? 1 : 0))}</td>
-            <td>${formatNumber(item.total_accepted ?? item.completed ?? 0)}</td>
-            <td>${statusBadge(status)}${realAction}</td>
-            <td>${formatDate(item.created_at)}</td>
+          <tr data-generation-job-id="${escapeHtml(details.jobId)}">
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}</small></td>
+            <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
+            <td>
+              ${generationStageMarkup(details.status)}
+              ${startingWarning}
+              ${failureMarkup}
+              ${details.transientError ? `<small class="generation-transient-error">${escapeHtml(details.transientError)}</small>` : ""}
+              ${actions}
+              ${preview}
+            </td>
+            <td>${generationCostMarkup(details)}</td>
+            <td>${formatDate(item.created_at)}${details.checkedAt ? `<br /><small class="muted">Проверено ${formatDate(details.checkedAt, true)}</small>` : ""}</td>
           </tr>
         `;
       }).join("")}</tbody>
     </table></div>
   `;
+}
+
+function generationBatchDetails(item) {
+  const parameters = item?.parameters && typeof item.parameters === "object" ? item.parameters : {};
+  const real = String(item?.mode || parameters.mode || "mock").toLowerCase() === "real";
+  const jobId = real ? String(parameters.job_id || "") : "";
+  const cached = jobId ? state.realGenerationResults.get(jobId) : null;
+  const job = cached?.job && typeof cached.job === "object" ? cached.job : {};
+  const billing = parameters.billing && typeof parameters.billing === "object" ? parameters.billing : {};
+  const status = String(job.status || item?.status || parameters.job_status || "queued").toLowerCase();
+  const estimatedMinor = firstFiniteNumber(job.estimated_cost_minor, item?.estimated_cost_minor, billing.estimated_cost_minor);
+  const actualMinor = firstFiniteNumber(job.actual_cost_minor, item?.actual_cost_minor, parameters.actual_cost_minor);
+  return {
+    item,
+    parameters,
+    real,
+    jobId,
+    status,
+    duration: Number(job.duration_seconds || item?.duration_seconds || parameters.duration_seconds || 5),
+    audio: normalizeBoolean(job.audio ?? item?.audio ?? parameters.audio),
+    estimatedMinor,
+    actualMinor,
+    failureCode: String(job.failure_code || parameters.failure_code || ""),
+    checkedAt: cached?.checkedAt || "",
+    transientError: cached?.transientError || "",
+  };
+}
+
+function generationStageMarkup(status) {
+  const normalized = String(status || "queued").toLowerCase();
+  const failed = normalized === "failed" || normalized === "cancelled";
+  const order = { queued: 0, starting: 0, submitted: 1, processing: 2, running: 2, saving: 3, uploading: 3, succeeded: 4, completed: 4 };
+  const current = order[normalized] ?? (failed ? 2 : 0);
+  const labels = ["Принято", "В очереди", "Создаётся", "Сохраняется", "Готово"];
+  return `
+    <div class="generation-stage" role="group" aria-label="Этап платной генерации: ${escapeHtml(humanGenerationStatus(normalized))}">
+      ${labels.map((label, index) => `<span class="${failed ? (index === current ? "is-error" : index < current ? "is-done" : "") : (index < current ? "is-done" : index === current ? "is-current" : "")}"><i aria-hidden="true">${failed && index === current ? "!" : (index < current ? "✓" : index + 1)}</i>${label}</span>`).join("")}
+    </div>
+  `;
+}
+
+function generationActionsMarkup(details) {
+  if (!details.jobId) return "";
+  if (["succeeded", "completed"].includes(details.status)) {
+    return `
+      <div class="generation-result-actions">
+        <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать видео</button>
+        <button class="btn btn-small" type="button" data-action="check-real-generation" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать MP4</button>
+        <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="open" data-job-id="${escapeHtml(details.jobId)}">Открыть отдельно</button>
+      </div>
+    `;
+  }
+  if (details.status === "failed" || details.status === "cancelled") {
+    const canRepeat = state.realGenerationDrafts.has(details.jobId);
+    return canRepeat
+      ? `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="repeat-real-generation" data-job-id="${escapeHtml(details.jobId)}">Создать новый вариант</button></div>`
+      : "";
+  }
+  return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
+}
+
+function generationCostMarkup(details) {
+  const estimated = details.estimatedMinor === null ? "—" : formatGenerationUsd(details.estimatedMinor);
+  const actual = details.actualMinor === null ? "уточняется" : formatGenerationUsd(details.actualMinor);
+  return `<div class="generation-cost"><span><small>Оценка</small><strong>${estimated}</strong></span><span><small>Фактически</small><strong>${actual}</strong></span></div>`;
+}
+
+function realGenerationJobsFromBatches(batches = listFrom(state.sections.generation.data || {}, "batches")) {
+  return batches
+    .map(generationBatchDetails)
+    .filter((details) => details.real && details.jobId && REAL_GENERATION_ACTIVE_STATUSES.has(details.status));
+}
+
+function stopRealGenerationPolling() {
+  if (state.realGenerationPollTimer !== null) {
+    window.clearTimeout(state.realGenerationPollTimer);
+    state.realGenerationPollTimer = null;
+  }
+}
+
+function scheduleRealGenerationPolling(delayMs = REAL_GENERATION_POLL_INTERVAL_MS) {
+  stopRealGenerationPolling();
+  if (
+    state.route.path !== "/workspace/generation"
+    || document.visibilityState !== "visible"
+    || !state.session
+    || state.realGenerationPollInFlight
+    || !realGenerationJobsFromBatches().length
+  ) return;
+  const delay = Math.max(250, Number(delayMs) || REAL_GENERATION_POLL_INTERVAL_MS);
+  state.realGenerationPollTimer = window.setTimeout(runRealGenerationPolling, delay);
+}
+
+async function runRealGenerationPolling() {
+  state.realGenerationPollTimer = null;
+  if (state.route.path !== "/workspace/generation" || document.visibilityState !== "visible") return;
+  const activeJobs = realGenerationJobsFromBatches();
+  if (!activeJobs.length || state.realGenerationPollInFlight) return;
+  state.realGenerationPollInFlight = true;
+  try {
+    await Promise.allSettled(activeJobs.map(async ({ jobId }) => {
+      const outcome = await waitForRealGenerationStatus(jobId, REAL_GENERATION_SOFT_TIMEOUT_MS, "auto");
+      if (outcome.timedOut) markGenerationStatusStillRunning(jobId);
+    }));
+  } finally {
+    state.realGenerationPollInFlight = false;
+    scheduleRealGenerationPolling();
+  }
+}
+
+function requestRealGenerationStatus(jobId, source = "manual") {
+  const normalizedJobId = String(jobId || "");
+  const existing = state.realGenerationStatusRequests.get(normalizedJobId);
+  if (existing?.promise) return existing.promise;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const promise = state.api.realGenerationStatus(normalizedJobId);
+  state.realGenerationStatusRequests.set(normalizedJobId, { promise, source });
+  promise.then(
+    (result) => {
+      if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
+        applyRealGenerationResult(normalizedJobId, result, { source });
+      }
+    },
+    (error) => {
+      if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
+        applyRealGenerationStatusError(normalizedJobId, error);
+      }
+    },
+  ).finally(() => {
+    const current = state.realGenerationStatusRequests.get(normalizedJobId);
+    if (current?.promise === promise) state.realGenerationStatusRequests.delete(normalizedJobId);
+    scheduleRealGenerationPolling();
+  });
+  return promise;
+}
+
+function waitForRealGenerationStatus(jobId, timeoutMs, source = "manual") {
+  return withSoftTimeoutResult(requestRealGenerationStatus(jobId, source), timeoutMs);
+}
+
+function withSoftTimeoutResult(operation, timeoutMs) {
+  let timerId;
+  const timeout = new Promise((resolve) => {
+    timerId = window.setTimeout(() => resolve({ timedOut: true, result: null }), timeoutMs);
+  });
+  return Promise.race([
+    Promise.resolve(operation).then((result) => ({ timedOut: false, result })),
+    timeout,
+  ]).finally(() => window.clearTimeout(timerId));
+}
+
+function applyRealGenerationResult(jobId, result, options = {}) {
+  const job = result?.job && typeof result.job === "object" ? result.job : null;
+  if (!job || String(job.id || "") !== String(jobId || "")) return;
+  const previous = state.realGenerationResults.get(jobId);
+  const signedUrl = String(result?.signed_url || "");
+  const safeSignedUrl = signedUrl && isTrustedGenerationDownload(signedUrl) ? signedUrl : "";
+  const checkedAt = new Date().toISOString();
+  state.realGenerationResults.set(jobId, {
+    job: { ...job },
+    signedUrl: safeSignedUrl || previous?.signedUrl || "",
+    signedUrlIssuedAt: safeSignedUrl ? Date.now() : (previous?.signedUrlIssuedAt || 0),
+    checkedAt,
+    transientError: "",
+  });
+  patchGenerationBatch(jobId, job);
+
+  const previousStatus = String(previous?.job?.status || "").toLowerCase();
+  const nextStatus = String(job.status || "").toLowerCase();
+  if (options.source === "auto" && previousStatus && previousStatus !== nextStatus) {
+    if (["succeeded", "completed"].includes(nextStatus)) {
+      toast("Платный ролик готов. Он доступен в очереди для просмотра и скачивания.", "success");
+    } else if (nextStatus === "failed") {
+      toast(generationFailureMessage(job.failure_code), "error");
+    }
+  }
+  if (options.renderNow !== false && state.route.path === "/workspace/generation") render();
+}
+
+function applyRealGenerationStatusError(jobId, error) {
+  const previous = state.realGenerationResults.get(jobId) || {};
+  const safeMessage = error?.isUserSafe === true || error?.name === "CreatorApiError"
+    ? String(error.message || "Сервис временно недоступен.")
+    : "Связь с видеосервисом временно прервалась. Проверка повторится автоматически.";
+  state.realGenerationResults.set(jobId, {
+    ...previous,
+    checkedAt: new Date().toISOString(),
+    transientError: safeMessage,
+  });
+  if (state.route.path === "/workspace/generation") render();
+}
+
+function markGenerationStatusStillRunning(jobId) {
+  const previous = state.realGenerationResults.get(jobId) || {};
+  state.realGenerationResults.set(jobId, {
+    ...previous,
+    transientError: "Проверка продолжается в фоне. Новый платный запуск не требуется.",
+  });
+  if (state.route.path === "/workspace/generation") render();
+}
+
+function patchGenerationBatch(jobId, job) {
+  const batches = listFrom(state.sections.generation.data || {}, "batches");
+  const batch = batches.find((item) => String(item?.parameters?.job_id || "") === String(jobId));
+  if (!batch) return;
+  batch.status = String(job.status || batch.status || "queued");
+  if (["succeeded", "completed"].includes(String(job.status || "").toLowerCase())) {
+    batch.total_created = 1;
+    batch.total_accepted = 1;
+  }
+  batch.parameters = {
+    ...(batch.parameters || {}),
+    job_status: job.status,
+    actual_cost_minor: job.actual_cost_minor,
+    failure_code: job.failure_code,
+  };
+}
+
+function primeCompletedGenerationResults(batches) {
+  if (state.route.path !== "/workspace/generation" || document.visibilityState !== "visible") return;
+  batches.map(generationBatchDetails).forEach((details) => {
+    if (!details.real || !details.jobId || !["succeeded", "completed", "failed", "cancelled"].includes(details.status)) return;
+    if (["succeeded", "completed"].includes(details.status) && trustedCachedGenerationUrl(details.jobId)) return;
+    const cached = state.realGenerationResults.get(details.jobId);
+    if (cached?.checkedAt && Date.now() - Date.parse(cached.checkedAt) < 60_000) return;
+    requestRealGenerationStatus(details.jobId, "prime").catch(() => {});
+  });
+}
+
+function trustedCachedGenerationUrl(jobId) {
+  const cached = state.realGenerationResults.get(String(jobId || ""));
+  if (!cached?.signedUrl || !cached.signedUrlIssuedAt) return "";
+  if (Date.now() - cached.signedUrlIssuedAt > REAL_GENERATION_URL_MAX_AGE_MS) return "";
+  return isTrustedGenerationDownload(cached.signedUrl) ? cached.signedUrl : "";
+}
+
+function generationFailureMessage(code) {
+  const messages = {
+    provider_configuration_error: "Видеосервис временно не настроен. Списание не подтверждено; перед новым запуском обратитесь к руководителю.",
+    provider_authentication_failed: "Видеосервис отклонил служебный доступ. Перед новым запуском обратитесь к руководителю.",
+    provider_credits_unavailable: "На балансе видеосервиса недостаточно кредитов. Пополните баланс и создайте новый запуск позже.",
+    provider_rate_limited: "Видеосервис временно ограничил частоту запросов. Подождите и повторите новым запуском позже.",
+    provider_request_rejected: "Видеосервис отклонил исходник или сценарий. Проверьте фото и текст перед новым запуском.",
+    provider_request_failed: "Видеосервис не смог принять запрос. Сначала проверьте фактическую стоимость, затем решите, нужен ли новый запуск.",
+    provider_task_failed: "Видеосервис начал работу, но не смог создать ролик. Стоимость показана рядом с задачей.",
+    provider_timeout: "Видеосервис не завершил ролик вовремя. Новый запуск делайте только после проверки стоимости.",
+    provider_response_invalid: "Видеосервис вернул неполный ответ. Обратитесь к руководителю до нового платного запуска.",
+    output_download_failed: "Ролик создан у видеосервиса, но портал пока не смог забрать файл. Повторите проверку статуса без нового запуска.",
+    output_validation_failed: "Полученный файл не прошёл безопасную проверку. Обратитесь к руководителю до нового запуска.",
+    output_upload_failed: "Ролик создан, но пока не сохранён в защищённой папке. Повторите проверку без нового запуска.",
+    internal_error: "Портал не завершил обработку ролика. Обратитесь к руководителю и не запускайте оплату повторно.",
+  };
+  return messages[String(code || "")] || "Видеосервис не смог создать ролик. Проверьте фактическую стоимость перед новым платным запуском.";
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+  }
+  return null;
+}
+
+function formatGenerationUsd(minor) {
+  const numeric = Number(minor);
+  return Number.isFinite(numeric) ? `$${(numeric / 100).toFixed(2)}` : "—";
+}
+
+function realGenerationDraftFromPayload(payload, mode) {
+  return {
+    generation_mode: mode,
+    sku: payload.sku,
+    product_name: payload.product_name,
+    count: "1",
+    format: payload.format,
+    brief: payload.brief,
+    media_ids: [...payload.media_ids],
+    platform: payload.platform,
+    destination_ref: payload.destination_ref,
+    assignee_id: payload.assignee_id || "",
+    payout_rub: Number(payload.payout_minor || 0) / 100,
+  };
+}
+
+function restoreRealGenerationDraft(jobId) {
+  const draft = state.realGenerationDrafts.get(String(jobId || ""));
+  const form = document.querySelector("#mock-batch-form");
+  if (!draft || !form) {
+    toast("Сохранённые поля этого запуска недоступны. Заполните новый запуск вручную.", "info");
+    return;
+  }
+  const setValue = (name, value) => {
+    const field = form.elements[name];
+    if (field) field.value = String(value ?? "");
+  };
+  setValue("generation_mode", draft.generation_mode);
+  syncGenerationModeForm(form);
+  for (const name of ["sku", "product_name", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
+    setValue(name, draft[name]);
+  }
+  form.querySelectorAll('input[name="media_id"]').forEach((input) => {
+    input.checked = draft.media_ids.includes(input.value);
+  });
+  if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
+  form.dataset.dirty = "true";
+  syncGenerationModeForm(form);
+  form.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  window.setTimeout(() => form.elements.brief?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 350);
+  toast("Поля восстановлены. Измените сценарий и заново подтвердите стоимость перед новым запуском.", "success");
+}
+
+function openGenerationWaitingWindow() {
+  try {
+    const opened = window.open("about:blank", "_blank");
+    if (!opened) return null;
+    opened.opener = null;
+    opened.document.title = "Готовим ролик";
+    opened.document.body.textContent = "Проверяем защищённую ссылку на ролик…";
+    return opened;
+  } catch {
+    return null;
+  }
+}
+
+function openGenerationOutput(url, pendingWindow = null) {
+  if (pendingWindow && !pendingWindow.closed) {
+    pendingWindow.location.replace(url);
+    return;
+  }
+  openExternalDownload(url);
+}
+
+function downloadGenerationOutput(url, jobId) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.referrerPolicy = "no-referrer";
+  link.download = `contentengine-${String(jobId || "video")}.mp4`;
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 function renderPlacementSection(sectionState) {
@@ -2872,6 +3860,9 @@ function renderTeamSection(sectionState) {
   if (!canManageTeam()) {
     return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
   }
+  if (state.managerDashboard.status === "idle") {
+    window.queueMicrotask(() => loadManagerDashboard({ silent: true }));
+  }
   const members = listFrom(sectionState.data || {}, "members");
   return `
     <div class="page-wrap">
@@ -2891,16 +3882,28 @@ function renderTeamSection(sectionState) {
           </form>
         </section>
         <section class="card">
-          <div class="card-header"><div><p class="eyebrow">Последний запуск</p><h2>Результаты доставки</h2></div></div>
-          ${state.teamInviteResult ? teamInviteResultMarkup(state.teamInviteResult) : emptyState("◎", "Приглашений ещё не было", "После отправки здесь появится результат по каждому адресу.")}
+          <div class="card-header"><div><p class="eyebrow">Последний запуск</p><h2>Результаты почтовых запросов</h2></div></div>
+          ${state.teamInviteResult ? teamInviteResultMarkup(state.teamInviteResult) : emptyState("◎", "Приглашений ещё не было", "После запуска здесь появится принятый сервисом статус по каждому адресу.")}
         </section>
       </div>
       <section class="card" style="margin-top:22px">
         <div class="card-header"><div><p class="eyebrow">Доступ и результат</p><h2>Участники команды</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="team">Обновить</button></div>
         ${sectionBody(sectionState, members.length ? teamMembersTable(members) : emptyState("◎", "В команде пока никого нет", "Отправьте приглашения выше — новые участники появятся после первого входа."))}
       </section>
+      ${managerDashboardSectionMarkup()}
     </div>
   `;
+}
+
+function managerDashboardSectionMarkup() {
+  const dashboard = state.managerDashboard;
+  if (["idle", "loading"].includes(dashboard.status) && !dashboard.data) {
+    return `<section class="manager-funnel manager-dashboard-loading" role="status"><div class="loading-line" aria-hidden="true"><span></span></div><strong>Собираем, где команда остановилась…</strong><p class="muted">Письмо, вход, обучение, генерация, публикация и выплата проверяются одним отчётом.</p></section>`;
+  }
+  if (dashboard.status === "error" && !dashboard.data) {
+    return `<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button></section>`;
+  }
+  return `${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {})}`;
 }
 
 function teamMembersTable(members) {
@@ -2921,27 +3924,83 @@ function teamInviteResultMarkup(result) {
   const rows = Array.isArray(result?.results) ? result.results : [];
   const smtpRequired = result?.smtp_required === true || rows.some((item) => item.status === "smtp_required");
   const statusLabels = {
-    invited: "Приглашение отправлено",
-    already_exists: "Уже есть в Auth",
+    invited: "Запрос принят сервисом; доставка письма не подтверждена",
+    already_exists: "Существующий аккаунт подключён; новое письмо не отправлялось",
     rate_limited: "Лимит отправки",
     smtp_required: "Почта не настроена",
     failed: "Не отправлено",
+    pending_verification: "Ответ не получен вовремя — проверьте историю перед повтором",
   };
+  const reasonLabels = {
+    invite_request_accepted: "Приглашение принято почтовым сервисом",
+    existing_account_connected: "Доступ существующего аккаунта активирован",
+    auth_user_already_exists: "Аккаунт уже существует",
+    email_rate_limited: "Сработал лимит почтовых запросов",
+    smtp_not_configured: "SMTP-провайдер не разрешил отправку",
+    auth_invite_failed: "Auth не принял запрос приглашения",
+    password_marker_failed: "Не удалось включить обязательную смену пароля",
+    membership_provision_failed: "Не удалось подготовить членство в команде",
+    membership_reconcile_failed: "Не удалось подключить существующий аккаунт",
+    auth_user_missing: "Auth не вернул созданный аккаунт",
+    client_timeout: "Портал перестал ждать ответ, операция могла завершиться позже",
+  };
+  const retryable = rows.filter((item) => !["invited", "already_exists"].includes(item.status));
   return `
     <div class="card-pad" style="padding-top:0">
+      ${result.requested_at ? `<p class="tiny muted">Последний запрос: ${escapeHtml(formatDate(result.requested_at, true))}${result.request_id ? ` · № ${escapeHtml(String(result.request_id).slice(0, 8))}` : ""}</p>` : ""}
       <div class="metrics-grid metrics-grid-three" style="margin-bottom:16px">
         <article class="metric-card"><span class="metric-label">Запрошено</span><strong>${formatNumber(result.requested ?? rows.length)}</strong></article>
-        <article class="metric-card"><span class="metric-label">Отправлено</span><strong>${formatNumber(result.invited ?? 0)}</strong></article>
+        <article class="metric-card"><span class="metric-label">Принято сервисом</span><strong>${formatNumber(result.invited ?? 0)}</strong></article>
         <article class="metric-card"><span class="metric-label">Уже существуют</span><strong>${formatNumber(result.already_exists ?? 0)}</strong></article>
       </div>
+      ${Number(result.invited || 0) > 0 ? alertMarkup("Статус «Принято сервисом» подтверждает запрос, но не попадание письма во «Входящие». Участнику нужно проверить также «Спам» и использовать только самое свежее письмо.", "info") : ""}
       ${smtpRequired ? alertMarkup("Почтовая отправка портала ещё не настроена. Адреса со статусом «Почта не настроена» не получили приглашение.", "warning") : ""}
       ${rows.some((item) => item.status === "rate_limited") ? alertMarkup("Достигнут лимит отправки писем. Не повторяйте весь список: позже отправьте только адреса со статусом «Лимит отправки».", "warning") : ""}
+      ${result.persistence === "unavailable" ? alertMarkup("Сервер не подтвердил сохранение истории этого запуска. Не повторяйте список вслепую: сначала нажмите «Обновить».", "warning") : ""}
       <div class="table-wrap"><table class="data-table">
         <thead><tr><th>Email</th><th>Результат</th></tr></thead>
-        <tbody>${rows.map((item) => `<tr><td>${escapeHtml(item.email || "—")}</td><td>${statusBadge(item.status || "failed")}<br /><small class="muted">${escapeHtml(statusLabels[item.status] || "Неизвестный результат")}</small></td></tr>`).join("")}</tbody>
+        <tbody>${rows.map((item) => `<tr><td>${escapeHtml(item.email || "—")}</td><td>${statusBadge(item.status || "failed")}<br /><small class="muted">${escapeHtml(statusLabels[item.status] || "Неизвестный результат")}</small>${item.reason_code ? `<br /><small class="muted">${escapeHtml(reasonLabels[item.reason_code] || item.reason_code)}</small>` : ""}</td></tr>`).join("")}</tbody>
       </table></div>
+      ${retryable.length ? `<button class="btn btn-secondary btn-small" type="button" data-action="prepare-failed-invites" style="margin-top:14px">Заполнить только неудачные (${retryable.length})</button>` : ""}
     </div>
   `;
+}
+
+function teamInviteStorageKey() {
+  const userId = state.user?.id;
+  const organizationId = state.bootstrap?.organization?.id;
+  return userId && organizationId
+    ? `contentengine.invite-result.v1.${organizationId}.${userId}`
+    : null;
+}
+
+function persistTeamInviteResult(result) {
+  const key = teamInviteStorageKey();
+  if (!key || !result) return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify({
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      result,
+    }));
+  } catch {
+    // The server-side invite ledger remains the source of truth.
+  }
+}
+
+function restoreTeamInviteResult() {
+  const key = teamInviteStorageKey();
+  if (!key) return null;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(key) || "null");
+    if (!saved?.result || Number(saved.expiresAt || 0) < Date.now()) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return saved.result;
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
 }
 
 function feedbackCard(item) {
@@ -3014,6 +4073,15 @@ function emptyState(icon, title, message) {
   return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>`;
 }
 
+function reserveManagerEmailAction(cooldowns, email) {
+  const key = String(email || "").trim().toLowerCase();
+  const now = Date.now();
+  const blockedUntil = Number(cooldowns.get(key) || 0);
+  if (blockedUntil > now) return Math.max(1, Math.ceil((blockedUntil - now) / 1_000));
+  cooldowns.set(key, now + MANAGER_EMAIL_ACTION_COOLDOWN_MS);
+  return 0;
+}
+
 async function handleClick(event) {
   if (state.mobileNavOpen && !event.target.closest(".mobile-nav, .mobile-nav-trigger")) {
     setMobileNavOpen(false);
@@ -3029,6 +4097,96 @@ async function handleClick(event) {
 
   if (action === "toggle-mobile-nav") {
     setMobileNavOpen(!state.mobileNavOpen, state.mobileNavOpen);
+    return;
+  }
+
+  if (action === "request-new-auth-link") {
+    const purpose = String(control.dataset.purpose || "recovery");
+    state.authLinkError = null;
+    navigate(purpose === "invite" ? "/login" : "/reset-password", true);
+    return;
+  }
+
+  if (action === "prepare-failed-invites") {
+    const rows = Array.isArray(state.teamInviteResult?.results) ? state.teamInviteResult.results : [];
+    const emails = rows
+      .filter((item) => !["invited", "already_exists"].includes(item.status))
+      .map((item) => String(item.email || "").trim())
+      .filter(Boolean);
+    const field = document.querySelector("#team-invite-form textarea[name='emails']");
+    if (field && emails.length) {
+      field.value = [...new Set(emails)].join("\n");
+      field.closest("form").dataset.dirty = "true";
+      scrollElementIntoView(field.closest(".card"));
+      field.focus({ preventScroll: true });
+      toast("В форму перенесены только адреса без подтверждённого результата. Проверьте список перед повтором.", "info");
+    }
+    return;
+  }
+
+  if (action === "refresh-manager-dashboard") {
+    if (["loading", "refreshing"].includes(state.managerDashboard.status)) {
+      toast("Сводка уже обновляется.", "info");
+      return;
+    }
+    await loadManagerDashboard();
+    return;
+  }
+
+  if (action === "retry-manager-invite") {
+    await retryManagerInvite(String(control.dataset.email || ""), control);
+    return;
+  }
+
+  if (action === "send-manager-recovery") {
+    const email = String(control.dataset.email || "").trim();
+    if (!canManageTeam() || !hasWorkspaceAccess()) {
+      toast("Отправить восстановление может только сертифицированный руководитель.", "error");
+      return;
+    }
+    if (!email) {
+      toast("У участника не указан рабочий email.", "error");
+      return;
+    }
+    const cooldownSeconds = reserveManagerEmailAction(state.managerRecoveryCooldowns, email);
+    if (cooldownSeconds > 0) {
+      toast(`Повтор для этого адреса временно закрыт. Подождите ${cooldownSeconds} сек. и сначала проверьте самое свежее письмо.`, "info");
+      return;
+    }
+    control.disabled = true;
+    const originalLabel = control.textContent;
+    control.textContent = "Отправляем…";
+    try {
+      const { error } = await withUiTimeout(
+        state.supabase.auth.resetPasswordForEmail(email, { redirectTo: authRedirectUrl("recovery") }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "recovery_request_timeout",
+      );
+      if (error) throw error;
+      toast(`Запрос восстановления для ${email} принят почтовым сервисом. Доставка письма ещё не подтверждена.`, "success");
+    } catch (error) {
+      toast(String(error?.message || "") === "recovery_request_timeout"
+        ? "Сервис не ответил за 15 секунд. Не отправляйте повтор сразу: сначала попросите участника проверить самое свежее письмо и «Спам»."
+        : authErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) {
+        control.disabled = false;
+        control.textContent = originalLabel;
+      }
+    }
+    return;
+  }
+
+  if (action === "copy-manager-reminder") {
+    const email = String(control.dataset.email || "участник");
+    const stage = String(control.dataset.stage || "обучение");
+    const message = `${email}, откройте портал Контент ИИ Завода и завершите ${stage}. Если вход не открывается или страница зависла, пришлите руководителю точный текст ошибки и снимок экрана — новый аккаунт создавать не нужно.`;
+    try {
+      await navigator.clipboard.writeText(message);
+      toast("Напоминание скопировано.", "success");
+    } catch {
+      toast(message, "info");
+    }
     return;
   }
 
@@ -3062,6 +4220,43 @@ async function handleClick(event) {
       scrollElementIntoView(target);
       if (target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
     }
+    return;
+  }
+
+  if (action === "first-shift-reset") {
+    resetFirstShiftState();
+    renderFirstShift();
+    window.queueMicrotask(() => document.querySelector("#first-shift-title")?.focus({ preventScroll: true }));
+    toast("Учебная смена начата заново.", "info");
+    return;
+  }
+
+  if (action === "first-shift-previous") {
+    const practice = ensureFirstShiftState();
+    practice.stepIndex = Math.max(0, practice.stepIndex - 1);
+    practice.feedback = null;
+    persistFirstShiftState();
+    renderFirstShift();
+    window.queueMicrotask(() => document.querySelector("#first-shift-step-title")?.focus?.({ preventScroll: true }));
+    return;
+  }
+
+  if (action === "first-shift-next") {
+    const practice = ensureFirstShiftState();
+    const step = FIRST_SHIFT_SCENARIO.steps[practice.stepIndex];
+    if (!practice.completedStepIds.includes(step.id)) {
+      toast("Сначала исправьте решение текущего шага.", "error");
+      return;
+    }
+    if (practice.stepIndex === FIRST_SHIFT_SCENARIO.steps.length - 1) {
+      practice.finished = true;
+    } else {
+      practice.stepIndex += 1;
+      practice.feedback = null;
+    }
+    persistFirstShiftState();
+    renderFirstShift();
+    window.queueMicrotask(() => document.querySelector(practice.finished ? "#first-shift-complete-title" : "#first-shift-step-title")?.focus?.({ preventScroll: true }));
     return;
   }
 
@@ -3108,26 +4303,56 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "repeat-real-generation") {
+    restoreRealGenerationDraft(control.dataset.jobId);
+    return;
+  }
+
   if (action === "check-real-generation") {
+    const jobId = String(control.dataset.jobId || "");
+    const outputAction = String(control.dataset.outputAction || "status");
+    const pendingWindow = outputAction === "open" ? openGenerationWaitingWindow() : null;
     control.disabled = true;
+    const originalLabel = control.textContent;
+    control.textContent = outputAction === "download" ? "Готовим файл…" : "Проверяем…";
     try {
-      const result = await state.api.realGenerationStatus(control.dataset.jobId);
+      const outcome = await waitForRealGenerationStatus(jobId, REAL_GENERATION_SOFT_TIMEOUT_MS, "manual");
+      if (outcome.timedOut) {
+        pendingWindow?.close();
+        toast("Проверка занимает больше обычного. Она продолжается без нового платного запуска — нажмите «Проверить сейчас» немного позже.", "info");
+        return;
+      }
+      const result = outcome.result;
       const status = String(result?.job?.status || "processing").toLowerCase();
       const signedUrl = String(result?.signed_url || "");
-      state.sections.generation.status = "idle";
       if (["succeeded", "completed"].includes(status) && signedUrl) {
         if (!isTrustedGenerationDownload(signedUrl)) throw new Error("Сервис вернул небезопасную ссылку на результат.");
-        openExternalDownload(signedUrl);
-        toast("Ролик готов. Открыта свежая защищённая ссылка.", "success");
+        if (outputAction === "download") {
+          downloadGenerationOutput(signedUrl, jobId);
+          toast("Ролик готов. Браузеру передан свежий MP4-файл.", "success");
+        } else if (outputAction === "open") {
+          openGenerationOutput(signedUrl, pendingWindow);
+          toast("Ролик открыт по свежей защищённой ссылке.", "success");
+        } else {
+          pendingWindow?.close();
+          toast("Ролик готов — его можно посмотреть и скачать в карточке запуска.", "success");
+        }
       } else if (status === "failed") {
-        toast("Сервис не смог создать ролик. Обновите список запусков и повторите попытку позже.", "error");
+        pendingWindow?.close();
+        toast(generationFailureMessage(result?.job?.failure_code), "error");
       } else {
+        pendingWindow?.close();
         toast(`Текущий статус видео: ${humanGenerationStatus(status)}.`, "info");
       }
-      render();
     } catch (error) {
-      control.disabled = false;
+      pendingWindow?.close();
       toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) {
+        control.disabled = false;
+        control.textContent = originalLabel;
+      }
+      scheduleRealGenerationPolling();
     }
     return;
   }
@@ -3179,6 +4404,8 @@ async function handleSubmit(event) {
   if (form.id === "login-form") await submitLogin(form);
   else if (form.id === "reset-form") await submitReset(form);
   else if (form.id === "password-form") await submitPassword(form);
+  else if (form.id === "first-shift-form") submitFirstShift(form);
+  else if (form.id === "account-ad-form") submitAccountAdvertisingCheck(form);
   else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
@@ -3194,6 +4421,15 @@ async function handleSubmit(event) {
 
 function handleChange(event) {
   handleFormActivity(event);
+
+  if (event.target.matches("[data-account-check]")) {
+    const guide = event.target.closest("[data-account-guide]");
+    const slug = String(guide?.dataset.accountGuide || "");
+    const checks = Array.from(guide?.querySelectorAll("[data-account-check]:checked") || [])
+      .map((input) => String(input.dataset.accountCheck || ""))
+      .filter(Boolean);
+    persistAccountLaunchChecks(slug, checks);
+  }
 
   if (event.target.matches("[data-course-ack]")) {
     syncCourseCompletionButton();
@@ -3216,6 +4452,21 @@ function handleChange(event) {
   if (generationForm && event.target.name === "generation_mode") {
     syncGenerationModeForm(generationForm);
   }
+}
+
+function submitAccountAdvertisingCheck(form) {
+  const values = new FormData(form);
+  const result = evaluateAdvertisingAnswers({
+    value_exchange: values.get("value_exchange"),
+    brand_control: values.get("brand_control"),
+    product_focus: values.get("product_focus"),
+  });
+  const target = form.querySelector("#account-ad-result");
+  if (!target) return;
+  target.dataset.status = result.status;
+  target.innerHTML = `<strong>${escapeHtml(result.title)}</strong><p>${escapeHtml(result.message)}</p>`;
+  target.focus?.({ preventScroll: true });
+  if (result.status === "review") toast("Публикация остановлена до проверки руководителем.", "info");
 }
 
 function handleFormActivity(event) {
@@ -3332,10 +4583,40 @@ function syncGenerationModeForm(form) {
       : "Для платного режима опишите один ролик без неподтверждённых обещаний.";
   }
   if (submit) {
-    submit.textContent = real
-      ? `Создать одно платное видео · около $${sku.estimatedUsd}`
-      : "Создать тестовые варианты";
+    submit.disabled = submit.disabled || state.realGenerationStartInFlight;
+    submit.textContent = state.realGenerationStartInFlight
+      ? "Проверяем платный запуск — не повторяйте"
+      : (real ? `Создать одно платное видео · около $${sku.estimatedUsd}` : "Создать тестовые варианты");
   }
+}
+
+function submitFirstShift(form) {
+  const practice = ensureFirstShiftState();
+  const step = FIRST_SHIFT_SCENARIO.steps[practice.stepIndex];
+  if (!step || String(form.dataset.stepId || "") !== step.id) {
+    toast("Шаг тренажёра изменился. Обновите решение.", "error");
+    renderFirstShift();
+    return;
+  }
+  const selected = Array.from(form.querySelectorAll('input[name="first_shift_answer"]:checked'))
+    .map((input) => String(input.value));
+  if (!selected.length) {
+    toast(step.multiple ? "Выберите один или несколько вариантов." : "Выберите один вариант.", "error");
+    return;
+  }
+  const expected = new Set(step.answer);
+  const actual = new Set(selected);
+  const passed = expected.size === actual.size && [...expected].every((value) => actual.has(value));
+  practice.attempts[step.id] = Number(practice.attempts[step.id] || 0) + 1;
+  practice.feedback = { stepId: step.id, passed, selected: uniqueStrings(selected) };
+  if (passed && !practice.completedStepIds.includes(step.id)) practice.completedStepIds.push(step.id);
+  persistFirstShiftState();
+  renderFirstShift();
+  window.queueMicrotask(() => {
+    const result = document.querySelector("#first-shift-feedback");
+    result?.focus({ preventScroll: true });
+    scrollElementIntoView(result, "center");
+  });
 }
 
 async function submitLogin(form) {
@@ -3344,17 +4625,24 @@ async function submitLogin(form) {
   const password = String(values.get("password") || "");
   setFormBusy(form, true, "Проверяем…");
   try {
-    const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await withUiTimeout(
+      state.supabase.auth.signInWithPassword({ email, password }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      "Сервер входа не ответил за 15 секунд. Проверьте соединение и повторите.",
+    );
     if (error) throw error;
     state.session = data.session;
     state.user = data.user;
-    state.forcePassword = false;
-    state.authPurpose = null;
-    await loadBootstrap();
+    state.forcePassword = requiresPasswordChange(data.user);
+    state.authPurpose = state.forcePassword ? "temporary" : null;
     await track("login_succeeded", { method: "password" });
-    if (membershipLockDetails()) navigate("/access-locked", true);
-    else if (hasWorkspaceAccess()) navigate("/workspace/home", true);
-    else navigate("/learn", true);
+    if (state.forcePassword) navigate("/set-password", true);
+    else {
+      await loadBootstrap();
+      if (membershipLockDetails()) navigate("/access-locked", true);
+      else if (hasWorkspaceAccess()) navigate("/workspace/home", true);
+      else navigate("/learn", true);
+    }
   } catch (error) {
     renderLogin(authErrorMessage(error));
   }
@@ -3372,7 +4660,14 @@ async function submitReset(form) {
       "Сервер восстановления не ответил за 15 секунд. Обновите страницу и повторите.",
     );
     if (error) throw error;
-    renderResetRequest("Если адрес зарегистрирован, письмо уже отправлено. Проверьте также папку «Спам».");
+    const requestedAt = new Date().toISOString();
+    state.resetReceipt = {
+      email,
+      maskedEmail: maskEmail(email),
+      requestedAt,
+      resendAt: Date.now() + RESET_RESEND_COOLDOWN_MS,
+    };
+    renderResetRequest();
   } catch (error) {
     toast(authErrorMessage(error), "error");
   } finally {
@@ -3388,15 +4683,56 @@ async function submitPassword(form) {
     renderSetPassword("Пароли не совпадают. Введите их ещё раз.");
     return;
   }
-  if (password.length < 10) {
-    renderSetPassword("Пароль должен содержать не меньше 10 символов.");
+  if (
+    password.length < 10 || password.length > 128 ||
+    !/[a-z]/u.test(password) || !/[A-Z]/u.test(password) || !/[0-9]/u.test(password) ||
+    Array.from(password).some((character) => /\p{Cc}/u.test(character))
+  ) {
+    renderSetPassword("Используйте 10–128 символов, строчную и заглавную латинские буквы и цифру.");
     return;
   }
   setFormBusy(form, true, "Сохраняем…");
   try {
-    const { data, error } = await state.supabase.auth.updateUser({ password });
-    if (error) throw error;
-    state.user = data.user || state.user;
+    if (requiresPasswordChange(state.user)) {
+      const { data, error } = await withUiTimeout(
+        state.supabase.functions.invoke("creator-set-password", { body: { password } }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "Сервер смены пароля не ответил за 15 секунд. Повторите — рабочие разделы остаются закрыты.",
+      );
+      if (error) throw await normalizePasswordFunctionError(error);
+      if (!data?.ok || data.password_change_required !== false) {
+        throw new Error("required_password_change_incomplete");
+      }
+      state.user = {
+        ...state.user,
+        app_metadata: data.app_metadata || {
+          ...(state.user?.app_metadata || {}),
+          [PASSWORD_CHANGE_REQUIRED_MARKER]: false,
+          [PASSWORD_CHANGE_COMPLETED_MARKER]: true,
+        },
+      };
+      try {
+        const { data: refreshed, error: refreshError } = await withUiTimeout(
+          state.supabase.auth.refreshSession(),
+          AUTH_REQUEST_TIMEOUT_MS,
+          "refresh_after_password_change_timeout",
+        );
+        if (!refreshError && refreshed?.session) {
+          state.session = refreshed.session;
+          state.user = refreshed.user || refreshed.session.user || state.user;
+        }
+      } catch (refreshError) {
+        console.warn("Session refresh after required password change failed", refreshError);
+      }
+    } else {
+      const { data, error } = await withUiTimeout(
+        state.supabase.auth.updateUser({ password }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "Сервер смены пароля не ответил за 15 секунд. Повторите попытку.",
+      );
+      if (error) throw error;
+      state.user = data.user || state.user;
+    }
     state.forcePassword = false;
     state.authPurpose = null;
     await loadBootstrap();
@@ -3612,11 +4948,32 @@ async function submitRealGeneration(form, values, mode) {
   };
 
   state.realGenerationStartInFlight = true;
-  setFormBusy(form, true, `Создаём одно видео · ${generationSku.durationSeconds} секунд…`);
+  state.realGenerationStartNotice = "";
+  setFormBusy(form, true, "Отправляем платный запуск…");
+  const draft = realGenerationDraftFromPayload(payload, mode);
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const startRequest = state.api.startRealGeneration(payload);
   try {
-    const result = await state.api.startRealGeneration(payload);
+    const firstWait = await withSoftTimeoutResult(startRequest, REAL_GENERATION_SOFT_TIMEOUT_MS);
+    let result;
+    if (firstWait.timedOut) {
+      state.realGenerationStartNotice = "Подтверждение запуска занимает больше обычного. Запрос продолжает проверяться; не нажимайте запуск повторно и не подтверждайте новую оплату.";
+      setFormBusy(form, false);
+      if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
+      form.dataset.dirty = "true";
+      render();
+      result = await startRequest;
+    } else {
+      result = firstWait.result;
+    }
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
     if (!result?.job?.id) throw new Error("Runway принял запрос без номера задачи. Обновите очередь.");
-    await track("real_generation_started", {
+    const jobId = String(result.job.id);
+    state.realGenerationDrafts.set(jobId, draft);
+    state.lastRealGenerationJobId = jobId;
+    applyRealGenerationResult(jobId, result, { renderNow: false });
+    track("real_generation_started", {
       provider: "runway",
       model: generationSku.model,
       duration_seconds: generationSku.durationSeconds,
@@ -3626,23 +4983,45 @@ async function submitRealGeneration(form, values, mode) {
       platform: payload.platform,
       has_media: true,
     });
-    delete form.dataset.dirty;
-    form.reset();
+    state.realGenerationStartNotice = "";
+    setFormBusy(form, false);
+    form.dataset.dirty = "true";
+    if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
     syncGenerationModeForm(form);
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
-    toast(`Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}.`, "success");
+    const resultStatus = String(result.job.status || "queued").toLowerCase();
+    if (resultStatus === "failed") {
+      toast(generationFailureMessage(result.job.failure_code), "error");
+    } else {
+      toast(`Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`, "success");
+    }
     render();
   } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
     setFormBusy(form, false);
-      toast(actionErrorMessage(error), "error");
+    if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
+    form.dataset.dirty = "true";
+    if (error?.job?.id) {
+      const jobId = String(error.job.id);
+      state.realGenerationDrafts.set(jobId, draft);
+      state.lastRealGenerationJobId = jobId;
+      applyRealGenerationResult(jobId, { job: error.job }, { renderNow: false });
+    }
+    state.realGenerationStartNotice = "Запуск не подтверждён окончательно. Сначала обновите очередь и проверьте существующую задачу; не создавайте дубликат с новой оплатой.";
+    state.sections.generation.status = "idle";
+    toast(actionErrorMessage(error), "error");
   } finally {
     state.realGenerationStartInFlight = false;
     const renderedForm = document.querySelector("#mock-batch-form");
-    if (renderedForm && renderedForm !== form && renderedForm.dataset.busy === "true") {
-      setFormBusy(renderedForm, false);
+    if (renderedForm) {
+      if (renderedForm.dataset.busy === "true") setFormBusy(renderedForm, false);
+      if (renderedForm.elements.real_spend_confirmation) renderedForm.elements.real_spend_confirmation.checked = false;
+      syncGenerationModeForm(renderedForm);
     }
+    if (state.route.path === "/workspace/generation") render();
+    scheduleRealGenerationPolling(500);
   }
 }
 
@@ -3919,14 +5298,17 @@ async function submitTeamInvites(form) {
 
   setFormBusy(form, true, "Отправляем приглашения…");
   try {
-    const { data, error } = await state.supabase.functions.invoke("creator-invite", {
-      body: { emails },
-    });
+    const { data, error } = await withUiTimeout(
+      state.supabase.functions.invoke("creator-invite", { body: { emails } }),
+      INVITE_REQUEST_TIMEOUT_MS,
+      "invite_request_timeout",
+    );
     if (error) throw await normalizeInviteFunctionError(error);
     if (!data || !Array.isArray(data.results)) {
       throw new Error("Supabase не вернул результаты приглашений.");
     }
     state.teamInviteResult = data;
+    persistTeamInviteResult(data);
     delete form.dataset.dirty;
     state.sections.team.status = "idle";
     await track("team_invites_completed", {
@@ -3937,14 +5319,80 @@ async function submitTeamInvites(form) {
     });
     toast(
       Number(data.invited || 0) > 0
-        ? `Отправлено приглашений: ${Number(data.invited)}.`
+        ? `Сервис принял запросов: ${Number(data.invited)}. Доставка писем ещё не подтверждена.`
         : "Запуск завершён. Проверьте статусы справа.",
       Number(data.failed || 0) > 0 ? "info" : "success",
     );
     render();
   } catch (error) {
     setFormBusy(form, false);
+    if (String(error?.message || "") === "invite_request_timeout") {
+      const uncertain = {
+        ok: false,
+        requested: emails.length,
+        invited: 0,
+        already_exists: 0,
+        failed: emails.length,
+        requested_at: new Date().toISOString(),
+        delivery_confirmed: false,
+        persistence: "unavailable",
+        results: emails.map((email) => ({
+          email,
+          status: "pending_verification",
+          reason_code: "client_timeout",
+          delivery_status: "not_requested",
+          membership_provisioned: false,
+        })),
+      };
+      state.teamInviteResult = uncertain;
+      persistTeamInviteResult(uncertain);
+      toast("Портал перестал ждать через 25 секунд. Не запускайте весь список повторно: нажмите «Обновить» и проверьте сохранённую историю.", "info");
+      render();
+    } else {
       toast(actionErrorMessage(error), "error");
+    }
+  }
+}
+
+async function retryManagerInvite(email, control) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!canManageTeam() || !hasWorkspaceAccess() || !/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u.test(normalizedEmail)) {
+    toast("Не удалось подготовить безопасный повтор для этого адреса.", "error");
+    return;
+  }
+  const cooldownSeconds = reserveManagerEmailAction(state.managerInviteCooldowns, normalizedEmail);
+  if (cooldownSeconds > 0) {
+    toast(`Повтор для этого адреса временно закрыт ещё на ${cooldownSeconds} сек. Сначала обновите журнал приглашений.`, "info");
+    return;
+  }
+  control.disabled = true;
+  const originalLabel = control.textContent;
+  control.textContent = "Проверяем и повторяем…";
+  try {
+    const { data, error } = await withUiTimeout(
+      state.supabase.functions.invoke("creator-invite", { body: { emails: [normalizedEmail] } }),
+      INVITE_REQUEST_TIMEOUT_MS,
+      "invite_request_timeout",
+    );
+    if (error) throw await normalizeInviteFunctionError(error);
+    if (!data || !Array.isArray(data.results)) throw new Error("Supabase не вернул результат приглашения.");
+    state.teamInviteResult = data;
+    persistTeamInviteResult(data);
+    state.sections.team.status = "idle";
+    state.managerDashboard.status = "idle";
+    toast("Повтор выполнен только для одного адреса. Проверьте новый статус и попросите участника использовать самое свежее письмо.", "success");
+    render();
+  } catch (error) {
+    if (String(error?.message || "") === "invite_request_timeout") {
+      toast("Сервис не ответил за 25 секунд. Не повторяйте адрес снова: сначала нажмите «Обновить» и проверьте журнал попыток.", "info");
+    } else {
+      toast(actionErrorMessage(error), "error");
+    }
+  } finally {
+    if (control.isConnected) {
+      control.disabled = false;
+      control.textContent = originalLabel;
+    }
   }
 }
 
@@ -3969,6 +5417,30 @@ async function normalizeInviteFunctionError(error) {
     request_too_large: "Список приглашений слишком большой.",
   };
   const normalized = new Error(messages[code] || authErrorMessage(error));
+  normalized.isUserSafe = true;
+  return normalized;
+}
+
+async function normalizePasswordFunctionError(error) {
+  let code = "";
+  try {
+    const response = error?.context;
+    if (response && typeof response.clone === "function") {
+      const payload = await response.clone().json();
+      code = String(payload?.code || "");
+    }
+  } catch {
+    // Fall back to a safe generic message.
+  }
+  const messages = {
+    password_policy_invalid: "Пароль не соответствует требованиям. Используйте 10–128 символов, буквы разного регистра и цифру.",
+    password_change_not_required: "Обязательная смена пароля уже завершена. Обновите страницу и войдите снова.",
+    session_required: "Сессия завершилась. Откройте свежую ссылку или войдите снова.",
+    account_unavailable: "Не удалось проверить аккаунт. Обратитесь к руководителю команды.",
+    password_update_failed: "Сервер не сохранил новый пароль. Рабочие разделы остаются закрыты; повторите попытку.",
+    origin_not_allowed: "Этот адрес портала не разрешён для смены пароля.",
+  };
+  const normalized = new Error(messages[code] || "Не удалось безопасно сохранить новый пароль. Повторите попытку.");
   normalized.isUserSafe = true;
   return normalized;
 }
@@ -4131,6 +5603,9 @@ function navigate(path, replace = false) {
 }
 
 function clearAuthenticatedState() {
+  clearAccountLaunchChecks(state.user?.id);
+  stopRealGenerationPolling();
+  if (state.resetCountdownTimer) window.clearInterval(state.resetCountdownTimer);
   setMobileNavOpen(false);
   state.dataEpoch += 1;
   state.bootstrapRequestId += 1;
@@ -4138,14 +5613,31 @@ function clearAuthenticatedState() {
   state.user = null;
   state.api?.clearBootstrapContext();
   state.realGenerationStartInFlight = false;
+  state.realGenerationStartNotice = "";
+  state.realGenerationPollInFlight = false;
+  state.realGenerationStatusRequests.clear();
+  state.realGenerationResults.clear();
+  state.realGenerationDrafts.clear();
+  state.lastRealGenerationJobId = null;
   state.bootstrap = null;
   state.bootstrapStatus = "idle";
   state.bootstrapError = null;
   state.forcePassword = false;
   state.authPurpose = null;
+  state.authLinkError = null;
+  state.resetReceipt = null;
+  state.resetCountdownTimer = null;
   state.examResult = null;
   state.courseCheckResults = {};
+  state.firstShift = null;
   state.teamInviteResult = null;
+  state.managerDashboard.requestId += 1;
+  state.managerDashboard.status = "idle";
+  state.managerDashboard.data = null;
+  state.managerDashboard.error = null;
+  state.managerDashboard.updatedAt = 0;
+  state.managerRecoveryCooldowns.clear();
+  state.managerInviteCooldowns.clear();
   state.home.status = "idle";
   state.home.data = null;
   state.home.error = null;
@@ -4182,8 +5674,14 @@ function settleRouteView() {
       "/set-password": "Новый пароль",
       "/access-locked": "Доступ приостановлен",
       "/learn": "Обучение",
+      "/learn/first-shift": "Первая смена",
+      "/learn/accounts": "Запуск аккаунтов",
       "/learn/exam": "Итоговый экзамен",
     }[path];
+    if (!label && path.startsWith("/learn/accounts/")) {
+      const platform = path.replace("/learn/accounts/", "");
+      label = `Запуск ${platform === "vk" ? "VK" : platform === "youtube" ? "YouTube" : "Instagram"}`;
+    }
     if (!label && path.startsWith("/workspace/")) {
       const section = path.replace("/workspace/", "");
       label = visibleWorkspaceTabs().find(([key]) => key === section)?.[1] || "Рабочий кабинет";
@@ -4208,10 +5706,13 @@ function authRedirectUrl(purpose) {
 function authErrorMessage(error) {
   const raw = String(error?.message || "Не удалось выполнить вход.");
   const normalized = raw.toLowerCase();
+  if (error?.isUserSafe === true) return raw;
   if (normalized.includes("invalid login credentials")) return "Почта или пароль не совпали. Проверьте раскладку и попробуйте ещё раз.";
   if (normalized.includes("email not confirmed")) return "Сначала подтвердите почту по ссылке из приглашения.";
   if (normalized.includes("expired") || normalized.includes("otp")) return "Ссылка устарела или уже использована. Запросите новую.";
   if (normalized.includes("rate limit")) return "Слишком много попыток. Подождите несколько минут.";
+  if (normalized.includes("не ответил за 15 секунд")) return raw;
+  if (normalized.includes("required_password_change_incomplete")) return "Сервер не подтвердил смену временного пароля. Рабочие разделы остаются закрыты; повторите попытку.";
   console.error("Authentication request failed", error);
   return "Не удалось выполнить запрос. Проверьте соединение и попробуйте ещё раз.";
 }
@@ -4349,10 +5850,11 @@ function statusBadge(status) {
     passed: "Сдан",
     active: "Активен",
     inactive: "Отключён",
-    invited: "Отправлено",
-    already_exists: "Уже существует",
+    invited: "Принято сервисом",
+    already_exists: "Аккаунт подключён",
     rate_limited: "Лимит",
     smtp_required: "Письмо не отправлено",
+    pending_verification: "Нужно проверить",
     new: "Новый",
     reviewing: "На рассмотрении",
     planned: "Запланировано",
@@ -4366,9 +5868,11 @@ function humanGenerationStatus(status) {
     submitted: "отправлено провайдеру",
     queued: "в очереди",
     processing: "генерируется",
+    running: "генерируется",
     succeeded: "готово",
     completed: "готово",
     failed: "ошибка",
+    cancelled: "отменено",
   }[status] || status || "неизвестно";
 }
 
@@ -4495,6 +5999,50 @@ function formatDate(value, withTime = false) {
     year: "numeric",
     ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
   }).format(date);
+}
+
+function formatTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "только что";
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function maskEmail(value) {
+  const email = String(value || "").trim();
+  const separator = email.lastIndexOf("@");
+  if (separator <= 0) return "указанного адреса";
+  const local = email.slice(0, separator);
+  const domain = email.slice(separator + 1);
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${"•".repeat(Math.max(3, Math.min(8, local.length - visible.length)))}@${domain}`;
+}
+
+function startResetResendCountdown() {
+  if (state.resetCountdownTimer) window.clearInterval(state.resetCountdownTimer);
+  const button = document.querySelector("#reset-submit[data-resend-at]");
+  if (!button) return;
+  const update = () => {
+    if (!button.isConnected) {
+      window.clearInterval(state.resetCountdownTimer);
+      state.resetCountdownTimer = null;
+      return;
+    }
+    const remaining = Math.max(0, Number(button.dataset.resendAt || 0) - Date.now());
+    if (remaining <= 0) {
+      button.disabled = false;
+      button.textContent = state.resetReceipt ? "Отправить ещё раз" : "Отправить ссылку";
+      window.clearInterval(state.resetCountdownTimer);
+      state.resetCountdownTimer = null;
+      return;
+    }
+    button.disabled = true;
+    button.textContent = `Повторить через ${Math.ceil(remaining / 1000)} с`;
+  };
+  update();
+  if (button.disabled) state.resetCountdownTimer = window.setInterval(update, 1000);
 }
 
 function formatBytes(bytes) {

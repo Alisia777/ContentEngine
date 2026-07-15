@@ -106,7 +106,11 @@ jobs:
           config = tomllib.loads(
               Path("supabase/config.toml").read_text(encoding="utf-8")
           )
-          for function_name in ("creator-invite", "creator-generate"):
+          for function_name in (
+              "creator-invite",
+              "creator-set-password",
+              "creator-generate",
+          ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
                   raise SystemExit(
@@ -125,6 +129,11 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-invite --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy authenticated required password change function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy creator-set-password --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy authenticated real generation function
         env:

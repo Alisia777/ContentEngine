@@ -23,6 +23,7 @@ EXPECTED_CREATOR_RPCS = (
     "creator_create_feedback",
     "creator_register_media",
     "creator_capture_event",
+    "creator_invite_delivery_attempts",
 )
 ACTION_PINS = {
     "actions/checkout": "df4cb1c069e1874edd31b4311f1884172cec0e10",
@@ -353,13 +354,14 @@ def test_creator_invite_function_is_explicitly_jwt_verified() -> None:
     assert 'auth: "user"' in source
     assert 'new Set(["owner", "admin"])' in source
     assert 'const MAX_INVITES = 50' in source
+    assert 'const MAX_CONCURRENT_INVITES = 5' in source
     assert 'bootstrap.workspaceOpen' in source
     assert '"system_provision_invited_member"' in source
     assert '"system_reconcile_invited_member"' in source
     assert "inviteData.user?.id" in source
     assert "deleteUser" not in source
     assert "idempotency_key:" in source
-    assert 'inviteFailure === "already_exists"' in source
+    assert 'inviteFailure?.status === "already_exists"' in source
     assert "membershipProvisioned" in source
     assert "localhost" not in source
     assert "127.0.0.1" not in source
@@ -367,6 +369,22 @@ def test_creator_invite_function_is_explicitly_jwt_verified() -> None:
     assert "supabase functions deploy creator-invite" in workflow
     assert "--no-verify-jwt" not in workflow
     assert "--prune" not in workflow
+
+
+def test_creator_set_password_function_is_explicitly_jwt_verified() -> None:
+    config = tomllib.loads(_text("supabase/config.toml"))
+    source = _text("supabase/functions/creator-set-password/index.ts")
+    workflow = _text(PRODUCTION_WORKFLOW)
+
+    assert (ROOT / "supabase/functions/creator-set-password/index.ts").is_file()
+    assert config["functions"]["creator-set-password"]["verify_jwt"] is True
+    assert 'auth: "user"' in source
+    assert "getUserById(userId)" in source
+    assert "updateUserById(userId" in source
+    assert "PASSWORD_CHANGE_REQUIRED_MARKER" in source
+    assert "PASSWORD_CHANGE_COMPLETED_MARKER" in source
+    assert "supabase functions deploy creator-set-password" in workflow
+    assert "--no-verify-jwt" not in workflow
 
 
 def test_creator_generate_function_is_explicitly_jwt_verified() -> None:
@@ -473,6 +491,9 @@ def test_ci_validates_supabase_contract_and_keeps_python_only_as_reference() -> 
     assert "deno fmt --check supabase/functions/creator-invite" in ci
     assert "deno lint supabase/functions/creator-invite/index.ts" in ci
     assert "deno check supabase/functions/creator-invite/index.ts" in ci
+    assert "deno fmt --check supabase/functions/creator-set-password" in ci
+    assert "deno lint supabase/functions/creator-set-password/index.ts" in ci
+    assert "deno check supabase/functions/creator-set-password/index.ts" in ci
     assert "deno fmt --check supabase/functions/creator-generate" in ci
     assert "deno lint supabase/functions/creator-generate/index.ts" in ci
     assert "deno check supabase/functions/creator-generate/index.ts" in ci

@@ -99,7 +99,11 @@ jobs:
           config = tomllib.loads(
               Path("supabase/config.toml").read_text(encoding="utf-8")
           )
-          for function_name in ("creator-invite", "creator-generate"):
+          for function_name in (
+              "creator-invite",
+              "creator-set-password",
+              "creator-generate",
+          ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
                   raise SystemExit(
@@ -117,16 +121,19 @@ jobs:
       - name: Check function formatting
         run: |
           deno fmt --check supabase/functions/creator-invite
+          deno fmt --check supabase/functions/creator-set-password
           deno fmt --check supabase/functions/creator-generate
 
       - name: Lint function
         run: |
           deno lint supabase/functions/creator-invite/index.ts
+          deno lint supabase/functions/creator-set-password/index.ts
           deno lint supabase/functions/creator-generate/index.ts
 
       - name: Type-check function
         run: |
           deno check supabase/functions/creator-invite/index.ts
+          deno check supabase/functions/creator-set-password/index.ts
           deno check supabase/functions/creator-generate/index.ts
 
   reference-postgres-migration:

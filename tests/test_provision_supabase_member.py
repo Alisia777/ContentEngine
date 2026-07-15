@@ -6,6 +6,7 @@ import pytest
 
 from scripts.provision_supabase_member import (
     MEMBER_PROVISION_MARKER,
+    PASSWORD_CHANGE_REQUIRED_MARKER,
     MemberProvisionError,
     MemberState,
     ProvisioningAuthority,
@@ -147,7 +148,10 @@ def test_fresh_member_is_created_confirmed_with_exact_limited_role(role: str) ->
             "email": MEMBER_EMAIL,
             "display_name": "Guest",
             "password": TEMP_PASSWORD,
-            "app_metadata": {MEMBER_PROVISION_MARKER: True},
+            "app_metadata": {
+                MEMBER_PROVISION_MARKER: True,
+                PASSWORD_CHANGE_REQUIRED_MARKER: True,
+            },
         }
     ]
     assert management.state.membership_role == role
@@ -237,6 +241,7 @@ def test_explicit_claim_recovers_unsigned_in_membership_free_identity() -> None:
             "provider": "email",
             "providers": ["email"],
             MEMBER_PROVISION_MARKER: True,
+            PASSWORD_CHANGE_REQUIRED_MARKER: True,
         },
     }]
 

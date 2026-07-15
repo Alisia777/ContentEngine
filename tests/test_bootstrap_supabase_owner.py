@@ -103,9 +103,10 @@ def test_fresh_project_creates_owner_and_sends_one_password_setup_email() -> Non
     assert result.membership_status == "created"
     assert result.recovery_status == "sent"
     assert keys == [SERVER_KEY]
-    assert [call[0] for call in auth.calls] == ["create", "recover", "metadata"]
+    assert [call[0] for call in auth.calls] == ["create", "metadata", "recover", "metadata"]
     assert management.state.owner_active is True
     assert management.state.app_metadata[OWNER_RECOVERY_MARKER] is True
+    assert management.state.app_metadata["contentengine_password_change_required"] is True
     assert sum(
         "system_initialize_owner" in str(query["sql"])
         for query in management.queries

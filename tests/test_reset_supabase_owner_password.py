@@ -9,6 +9,7 @@ import scripts.reset_supabase_owner_password as reset_module
 from scripts.bootstrap_supabase_owner import EXPECTED_PROJECT_REF
 from scripts.reset_supabase_owner_password import (
     ONE_SHOT_MARKER,
+    PASSWORD_CHANGE_REQUIRED_MARKER,
     OwnerPasswordResetError,
     SupabaseOwnerPasswordAuthClient,
     _github_actions_escape,
@@ -290,6 +291,7 @@ def test_auth_admin_transport_atomically_sets_password_and_one_shot_marker() -> 
         "app_metadata": {
             "existing": "preserved",
             ONE_SHOT_MARKER: True,
+            PASSWORD_CHANGE_REQUIRED_MARKER: True,
         },
     }
     assert api_request.get_header("Apikey") == SERVER_KEY

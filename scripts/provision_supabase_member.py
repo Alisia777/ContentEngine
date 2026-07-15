@@ -28,6 +28,8 @@ from scripts.bootstrap_supabase_owner import (
 
 
 MEMBER_PROVISION_MARKER = "contentengine_github_member_provisioned"
+PASSWORD_CHANGE_REQUIRED_MARKER = "contentengine_password_change_required"
+PASSWORD_CHANGE_COMPLETED_MARKER = "contentengine_password_change_completed"
 ALLOWED_MEMBER_ROLES = frozenset({"trainee", "viewer"})
 
 
@@ -281,7 +283,10 @@ def provision_member(
             email=normalized_email,
             display_name=validated_display_name,
             password=validated_password,
-            app_metadata={MEMBER_PROVISION_MARKER: True},
+            app_metadata={
+                MEMBER_PROVISION_MARKER: True,
+                PASSWORD_CHANGE_REQUIRED_MARKER: True,
+            },
         )
         identity_status = "created"
         state = read_member_state(
@@ -323,6 +328,8 @@ def provision_member(
                 "Pre-existing Supabase member has already signed in"
             )
         metadata[MEMBER_PROVISION_MARKER] = True
+        metadata[PASSWORD_CHANGE_REQUIRED_MARKER] = True
+        metadata.pop(PASSWORD_CHANGE_COMPLETED_MARKER, None)
         original_user_id = state.user_id
         require_auth_client().claim_confirmed_user_with_password(
             user_id=original_user_id,

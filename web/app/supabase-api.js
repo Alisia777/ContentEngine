@@ -22,6 +22,8 @@ export const RPC = Object.freeze({
   createFeedback: "creator_create_feedback",
   registerMedia: "creator_register_media",
   captureEvent: "creator_capture_event",
+  inviteAttempts: "creator_invite_delivery_attempts",
+  managerDashboard: "creator_manager_dashboard",
 });
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
@@ -48,6 +50,9 @@ export class CreatorApiError extends Error {
     this.code = details.code || "creator_api_error";
     this.details = details.details || null;
     this.hint = details.hint || null;
+    this.job = details.job && typeof details.job === "object" && !Array.isArray(details.job)
+      ? { ...details.job }
+      : null;
   }
 }
 
@@ -130,6 +135,14 @@ export class CreatorApi {
 
   workspaceSection(section) {
     return this.call(RPC.workspaceSection, this.withOrganization({ section }));
+  }
+
+  inviteAttempts() {
+    return this.call(RPC.inviteAttempts, this.withOrganization({}));
+  }
+
+  managerDashboard() {
+    return this.call(RPC.managerDashboard, this.withOrganization({}));
   }
 
   createMockBatch(batch) {
@@ -536,6 +549,11 @@ function toFriendlyMessage(error) {
     real_generation_response_invalid: "Сервис генерации вернул некорректный ответ.",
     real_generation_request_failed: "Не удалось вызвать сервис платной генерации. Повторите попытку позже.",
     real_generation_failed: "Платная генерация завершилась ошибкой. Проверьте статус задачи.",
+    real_generation_user_daily_quota_exceeded: "Дневной лимит платных запусков исчерпан. Продолжите после обновления лимита.",
+    real_generation_organization_daily_quota_exceeded: "Командный дневной лимит платных запусков исчерпан. Обратитесь к руководителю.",
+    real_generation_assignee_concurrency_exceeded: "У выбранного исполнителя уже создаётся платный ролик. Дождитесь его завершения — повторная оплата не требуется.",
+    real_generation_organization_concurrency_exceeded: "Командная очередь платных роликов заполнена. Дождитесь завершения текущих задач.",
+    seedance_approved_product_media_required: "Для восьмисекундного ролика выберите подтверждённое точное фото этого товара.",
     generation_job_id_invalid: "Не удалось определить платную задачу. Обновите раздел.",
     auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
     authentication_required: "Сессия истекла. Войдите снова перед платным запуском.",

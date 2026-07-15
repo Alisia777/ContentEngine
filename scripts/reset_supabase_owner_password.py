@@ -33,6 +33,8 @@ from scripts.bootstrap_supabase_owner import (
 MIN_PASSWORD_LENGTH = 18
 MAX_PASSWORD_LENGTH = 128
 ONE_SHOT_MARKER = "contentengine_owner_password_reset_once_20260714"
+PASSWORD_CHANGE_REQUIRED_MARKER = "contentengine_password_change_required"
+PASSWORD_CHANGE_COMPLETED_MARKER = "contentengine_password_change_completed"
 
 
 class OwnerPasswordResetError(RuntimeError):
@@ -205,6 +207,8 @@ class SupabaseOwnerPasswordAuthClient:
             raise OwnerPasswordResetError("Supabase owner metadata was invalid")
         marked_metadata = dict(app_metadata)
         marked_metadata[ONE_SHOT_MARKER] = True
+        marked_metadata[PASSWORD_CHANGE_REQUIRED_MARKER] = True
+        marked_metadata.pop(PASSWORD_CHANGE_COMPLETED_MARKER, None)
         payload = _http_json(
             opener=self._opener,
             url=f"{self._origin}/auth/v1/admin/users/{validated_user_id}",
