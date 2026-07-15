@@ -210,7 +210,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 14
+    assert len(set(rpc_names)) == 16
     for function_name in set(rpc_names):
         assert re.search(
             rf"function\s+public\.{re.escape(function_name)}\s*"
