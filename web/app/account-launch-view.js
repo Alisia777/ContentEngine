@@ -2,7 +2,7 @@ import {
   ACCOUNT_LAUNCH_GUIDES,
   ADVERTISING_DECISION_STEPS,
   accountLaunchGuide,
-} from "./account-launch-guides.js?v=20260715.3";
+} from "./account-launch-guides.js?v=20260715.4";
 
 export const ACCOUNT_LAUNCH_PATH = "/learn/accounts";
 
@@ -66,6 +66,7 @@ export function accountLaunchGuideMarkup(slug, savedChecks = []) {
           <span>Маршрут</span><strong>5 шагов</strong><small>от регистрации до ссылки на пост</small>
         </div>
       </header>
+      <div class="account-visual-root" data-account-visual-root data-account-platform="${escapeHtml(guide.slug)}"></div>
       ${guideSection(guide.slug, "01", "Регистрация и доступ", "Делайте по порядку — особенно если аккаунт новый.", guide.registration, "registration", checked)}
       ${guideSection(guide.slug, "02", "Профиль готов к работе", "Не публикуйте, пока каждый пункт не подтверждён.", guide.profile, "profile", checked)}
       ${rampMarkup(guide.ramp)}

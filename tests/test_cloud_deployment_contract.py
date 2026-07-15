@@ -85,11 +85,36 @@ def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() ->
     assert job["environment"] == "production"
     assert workflow["permissions"] == {"contents": "read"}
     assert job["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
+    trigger = workflow.get("on", workflow.get(True))
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    assert inputs["account"]["options"] == ["guest", "klimov"]
+    assert "email" not in inputs
+    assert "display_name" not in inputs
+    assert "distinct_from" not in inputs
     assert "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}" in source
+    assert "${{ inputs.email }}" not in source
+    assert "${{ inputs.display_name }}" not in source
+    assert "${{ inputs.distinct_from }}" not in source
     assert "python -m scripts.provision_supabase_member" in source
     assert "--email=\"$MEMBER_EMAIL\"" in source
     assert "--display-name=\"$MEMBER_DISPLAY_NAME\"" in source
     assert "--role=\"$MEMBER_ROLE\"" in source
+    assert "default: preview" in source
+    assert "- preview" in source and "- apply" in source
+    assert "PROVISION_MODE: ${{ inputs.mode }}" in source
+    assert "--distinct-from=\"$DISTINCT_FROM\"" in source
+    assert "--dry-run" in source
+    steps = {step["name"]: step for step in job["steps"]}
+    preview = steps["Preview protected account plan"]
+    apply = steps["Apply protected account plan without logging its password"]
+    assert preview["if"] == "inputs.mode == 'preview'"
+    assert apply["if"] == "inputs.mode == 'apply'"
+    assert "SUPABASE_MEMBER_TEMP_PASSWORD" not in preview["env"]
+    assert apply["env"]["SUPABASE_MEMBER_TEMP_PASSWORD"] == (
+        "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}"
+    )
     assert "type: choice" in source
     assert "- viewer" in source and "- trainee" in source
     assert "actions/upload-artifact" not in source

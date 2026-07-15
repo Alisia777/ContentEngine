@@ -62,6 +62,17 @@ class MemberProvisionResult:
     role: str
 
 
+@dataclass(frozen=True)
+class MemberProvisionPlan:
+    identity_action: str
+    membership_action: str
+    role: str
+
+    @property
+    def apply_required(self) -> bool:
+        return self.identity_action != "keep" or self.membership_action != "keep"
+
+
 class ManagementClient(Protocol):
     def execute(self, sql: str, *, read_only: bool = False) -> Any: ...
 
@@ -111,6 +122,22 @@ def _validated_temp_password(value: str) -> str:
             "SUPABASE_MEMBER_TEMP_PASSWORD does not meet the required policy"
         )
     return password
+
+
+def _validated_member_role(value: str) -> str:
+    role = str(value or "").strip().casefold()
+    if role not in ALLOWED_MEMBER_ROLES:
+        raise MemberProvisionError("Member role must be trainee or viewer")
+    return role
+
+
+def _require_distinct_account_email(email: str, distinct_from: list[str]) -> None:
+    normalized_email = _validated_email(email)
+    for value in distinct_from:
+        if _validated_email(value) == normalized_email:
+            raise MemberProvisionError(
+                "Distinct Supabase accounts require distinct email addresses"
+            )
 
 
 def read_provisioning_authority(
@@ -225,6 +252,88 @@ limit 2
     )
 
 
+def plan_member(
+    *,
+    management_client: ManagementClient,
+    email: str,
+    display_name: str,
+    role: str,
+    claim_existing: bool = False,
+    reset_signed_in: bool = False,
+    distinct_from: list[str] | None = None,
+) -> MemberProvisionPlan:
+    """Read production state and describe the safe idempotent action.
+
+    This path never reveals the server key, creates an Auth client, changes a
+    password, or calls the provisioning RPC. It intentionally uses the same
+    fail-closed ownership and membership checks as the apply path.
+    """
+
+    normalized_email = _validated_email(email)
+    _validated_display_name(display_name)
+    normalized_role = _validated_member_role(role)
+    _require_distinct_account_email(normalized_email, distinct_from or [])
+    authority = read_provisioning_authority(management_client)
+    state = read_member_state(
+        management_client,
+        email=normalized_email,
+        organization_id=authority.organization_id,
+    )
+
+    identity_action = "create"
+    if state.user_id is not None:
+        if not state.email_confirmed:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member email is not confirmed; manual review required"
+            )
+        if not state.auth_active:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member identity is not active"
+            )
+        identity_action = "keep"
+        if (state.app_metadata or {}).get(MEMBER_PROVISION_MARKER) is not True:
+            if not claim_existing:
+                raise MemberProvisionError(
+                    "Pre-existing Supabase member is not owned by this provisioning flow"
+                )
+            if state.membership_count != 0:
+                raise MemberProvisionError(
+                    "Pre-existing Supabase member already belongs to an organization"
+                )
+            metadata = dict(state.app_metadata or {})
+            if any(str(key).startswith("contentengine_") for key in metadata):
+                raise MemberProvisionError(
+                    "Pre-existing Supabase member has conflicting provisioning metadata"
+                )
+            if state.signed_in and not reset_signed_in:
+                raise MemberProvisionError(
+                    "Pre-existing Supabase member has already signed in"
+                )
+            identity_action = "reset" if state.signed_in else "claim"
+
+    membership_action = "create"
+    if state.membership_role is not None:
+        if state.membership_status != "active":
+            raise MemberProvisionError(
+                "Pre-existing Supabase member membership is not active"
+            )
+        if state.membership_role != normalized_role:
+            raise MemberProvisionError(
+                "Pre-existing Supabase member has an unexpected role"
+            )
+        membership_action = "keep"
+    elif state.membership_count != 0:
+        raise MemberProvisionError(
+            "Pre-existing Supabase member belongs to another organization"
+        )
+
+    return MemberProvisionPlan(
+        identity_action=identity_action,
+        membership_action=membership_action,
+        role=normalized_role,
+    )
+
+
 def initialize_member_membership(
     client: ManagementClient,
     *,
@@ -255,13 +364,13 @@ def provision_member(
     role: str,
     claim_existing: bool = False,
     reset_signed_in: bool = False,
+    distinct_from: list[str] | None = None,
 ) -> MemberProvisionResult:
     normalized_email = _validated_email(email)
     validated_display_name = _validated_display_name(display_name)
     validated_password = _validated_temp_password(temporary_password)
-    normalized_role = str(role or "").strip().casefold()
-    if normalized_role not in ALLOWED_MEMBER_ROLES:
-        raise MemberProvisionError("Member role must be trainee or viewer")
+    normalized_role = _validated_member_role(role)
+    _require_distinct_account_email(normalized_email, distinct_from or [])
     authority = read_provisioning_authority(management_client)
     state = read_member_state(
         management_client,
@@ -410,14 +519,28 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reset only a membership-free existing identity after explicit review",
     )
+    parser.add_argument(
+        "--distinct-from",
+        action="append",
+        default=[],
+        metavar="EMAIL",
+        help="Reject this request if it reuses another intended account email",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Read and validate the plan without creating, claiming, or provisioning",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    temporary_password = os.environ.get("SUPABASE_MEMBER_TEMP_PASSWORD", "")
-    if os.environ.get("GITHUB_ACTIONS") == "true" and temporary_password:
-        print(f"::add-mask::{temporary_password}", flush=True)
+    temporary_password = ""
+    if not args.dry_run:
+        temporary_password = os.environ.get("SUPABASE_MEMBER_TEMP_PASSWORD", "")
+        if os.environ.get("GITHUB_ACTIONS") == "true" and temporary_password:
+            print(f"::add-mask::{temporary_password}", flush=True)
     try:
         project_ref = os.environ.get("SUPABASE_PROJECT_REF", "").strip()
         access_token = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
@@ -425,20 +548,34 @@ def main(argv: list[str] | None = None) -> int:
             project_ref=project_ref,
             access_token=access_token,
         )
-        result = provision_member(
-            management_client=management_client,
-            auth_client_factory=lambda server_key: SupabaseAuthClient(
-                project_ref=project_ref,
-                server_key=server_key,
-                publishable_key=os.environ.get("SUPABASE_PUBLISHABLE_KEY", ""),
-            ),
-            email=args.email,
-            display_name=args.display_name,
-            temporary_password=temporary_password,
-            role=args.role,
-            claim_existing=args.claim_existing or args.reset_signed_in,
-            reset_signed_in=args.reset_signed_in,
-        )
+        if args.dry_run:
+            plan = plan_member(
+                management_client=management_client,
+                email=args.email,
+                display_name=args.display_name,
+                role=args.role,
+                claim_existing=args.claim_existing or args.reset_signed_in,
+                reset_signed_in=args.reset_signed_in,
+                distinct_from=args.distinct_from,
+            )
+            result = None
+        else:
+            plan = None
+            result = provision_member(
+                management_client=management_client,
+                auth_client_factory=lambda server_key: SupabaseAuthClient(
+                    project_ref=project_ref,
+                    server_key=server_key,
+                    publishable_key=os.environ.get("SUPABASE_PUBLISHABLE_KEY", ""),
+                ),
+                email=args.email,
+                display_name=args.display_name,
+                temporary_password=temporary_password,
+                role=args.role,
+                claim_existing=args.claim_existing or args.reset_signed_in,
+                reset_signed_in=args.reset_signed_in,
+                distinct_from=args.distinct_from,
+            )
     except (MemberProvisionError, OwnerBootstrapError) as exc:
         print(f"Supabase member provisioning stopped: {exc}", file=os.sys.stderr)
         return 1
@@ -449,12 +586,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    print(
-        "Supabase member provisioning complete: "
-        f"identity={result.identity_status} "
-        f"membership={result.membership_status} "
-        f"role={result.role}."
-    )
+    if plan is not None:
+        print(
+            "Supabase member provisioning preview: "
+            f"identity={plan.identity_action} "
+            f"membership={plan.membership_action} "
+            f"role={plan.role} "
+            f"apply_required={str(plan.apply_required).lower()}."
+        )
+    elif result is not None:
+        print(
+            "Supabase member provisioning complete: "
+            f"identity={result.identity_status} "
+            f"membership={result.membership_status} "
+            f"role={result.role}."
+        )
+    else:
+        raise AssertionError("Provisioning result was not initialized")
     return 0
 
 

@@ -1,20 +1,28 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.3";
+import { CreatorApi } from "./supabase-api.js?v=20260715.4";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.3";
+} from "./catalog.js?v=20260715.4";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260715.3";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.3";
+} from "./account-launch-view.js?v=20260715.4";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.4";
+import {
+  FIRST_SHIFT_FULL_ACTIONS,
+  FIRST_SHIFT_FULL_SCENARIO,
+  createFirstShiftFullState,
+  firstShiftFullScenarioMarkup,
+  reduceFirstShiftFullState,
+} from "./first-shift-full-scenario.js?v=20260715.4";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.4";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -356,136 +364,13 @@ const COURSE_VISUAL_EXAMPLES = Object.freeze({
   }),
 });
 
-const FIRST_SHIFT_STORAGE_PREFIX = "contentengine.first-shift.v1";
-const FIRST_SHIFT_SCENARIO = Object.freeze({
-  title: "Первая смена",
-  duration: "8–10 минут",
-  steps: Object.freeze([
-    Object.freeze({
-      id: "task",
-      label: "Задача",
-      title: "Сверьте товар до начала работы",
-      prompt: "В задаче указан учебный флакон ALTEA 30 мл и подменный артикул TRAIN-NEW-302. На выбранном фото — похожий флакон 50 мл. Что делать?",
-      kind: "portal",
-      items: Object.freeze([
-        Object.freeze({ label: "Товар", value: "ALTEA · 30 мл" }),
-        Object.freeze({ label: "Артикул", value: "TRAIN-NEW-302" }),
-        Object.freeze({ label: "Площадка", value: "VK Клипы" }),
-        Object.freeze({ label: "Сумма", value: "800 ₽" }),
-      ]),
-      options: Object.freeze([
-        Object.freeze({ value: "continue", label: "Продолжить: упаковка почти такая же" }),
-        Object.freeze({ value: "replace", label: "Самостоятельно подобрать другой артикул" }),
-        Object.freeze({ value: "stop", label: "Остановиться и сообщить о несовпадении товара" }),
-      ]),
-      answer: Object.freeze(["stop"]),
-      success: "Верно. Объём, упаковка и назначенный артикул должны совпасть до съёмки или генерации.",
-      retry: "Похожий товар не считается тем же товаром. Не заменяйте артикул самостоятельно и не продолжайте задачу.",
-    }),
-    Object.freeze({
-      id: "materials",
-      label: "Материалы",
-      title: "Оставьте только точные исходники",
-      prompt: "Какие материалы можно положить в одну задачу для учебного флакона ALTEA 30 мл? Выберите все подходящие.",
-      kind: "compare",
-      items: Object.freeze([
-        Object.freeze({ label: "Стоп", value: "Похожий флакон 50 мл" }),
-        Object.freeze({ label: "Готово", value: "Точный флакон 30 мл" }),
-      ]),
-      options: Object.freeze([
-        Object.freeze({ value: "front", label: "Чёткое фото лицевой этикетки 30 мл" }),
-        Object.freeze({ value: "hand", label: "Тот же флакон 30 мл в руке" }),
-        Object.freeze({ value: "fifty", label: "Похожий флакон 50 мл с другой крышкой" }),
-        Object.freeze({ value: "screenshot", label: "Скриншот чужого ролика с водяным знаком" }),
-      ]),
-      answer: Object.freeze(["front", "hand"]),
-      success: "Верно. Два ракурса одного точного товара дают модели понятную и непротиворечивую опору.",
-      retry: "В наборе должен остаться только один точный товар. Другой объём и чужой ролик создают подмену и риск брака.",
-      multiple: true,
-    }),
-    Object.freeze({
-      id: "production",
-      label: "Создание видео",
-      title: "Подготовьте один безопасный запуск",
-      prompt: "Какой вариант подходит для восьмисекундного вертикального ролика с блогером?",
-      kind: "portal",
-      items: Object.freeze([
-        Object.freeze({ label: "Режим", value: "Блогер + голос" }),
-        Object.freeze({ label: "Формат", value: "9:16 · 8 секунд" }),
-        Object.freeze({ label: "Запуск", value: "1 точный исходник" }),
-        Object.freeze({ label: "Стоимость", value: "Проверить до оплаты" }),
-      ]),
-      options: Object.freeze([
-        Object.freeze({ value: "safe", label: "Один точный исходник, 9:16, одна короткая реплика, стоимость проверена" }),
-        Object.freeze({ value: "mixed", label: "Смешать все найденные фото и попросить пять сцен" }),
-        Object.freeze({ value: "claim", label: "Добавить обещание лечебного результата без подтверждения" }),
-      ]),
-      answer: Object.freeze(["safe"]),
-      success: "Верно. Один товар, одна мысль и один подтверждённый запуск уменьшают риск брака и лишних списаний.",
-      retry: "Не смешивайте товары и не добавляйте неподтверждённые обещания. Сначала упростите сцену и проверьте стоимость.",
-    }),
-    Object.freeze({
-      id: "quality",
-      label: "Проверка",
-      title: "Найдите брак до публикации",
-      prompt: "В ролике этикетка меняется на последнем кадре, речь обрывается, но красный цвет жидкости стабилен. Что является браком?",
-      kind: "compare",
-      items: Object.freeze([
-        Object.freeze({ label: "Стоп", value: "Этикетка плывёт, речь обрывается" }),
-        Object.freeze({ label: "Не ошибка", value: "Цвет товара остаётся стабильным" }),
-      ]),
-      options: Object.freeze([
-        Object.freeze({ value: "label", label: "Искажённая этикетка в последнем кадре" }),
-        Object.freeze({ value: "audio", label: "Оборванная реплика блогера" }),
-        Object.freeze({ value: "color", label: "Стабильный красный цвет жидкости" }),
-        Object.freeze({ value: "approve", label: "Ничего: первые секунды выглядят хорошо" }),
-      ]),
-      answer: Object.freeze(["label", "audio"]),
-      success: "Верно. Ролик смотрят целиком: любой обрыв речи или изменение упаковки отправляет его на доработку.",
-      retry: "Проверьте именно изменения товара и целостность речи. Стабильный цвет сам по себе не является ошибкой.",
-      multiple: true,
-    }),
-    Object.freeze({
-      id: "publication",
-      label: "Публикация",
-      title: "Разместите только после решения по маркировке",
-      prompt: "Есть оплата и обязательный бриф, но в задаче нет решения по рекламной маркировке. Какой полный маршрут безопасен?",
-      kind: "decision",
-      items: Object.freeze([
-        Object.freeze({ label: "Есть признаки рекламы", value: "Стоп → руководителю" }),
-        Object.freeze({ label: "Решение получено", value: "Назначенный VK" }),
-        Object.freeze({ label: "После публикации", value: "URL самого клипа" }),
-      ]),
-      options: Object.freeze([
-        Object.freeze({ value: "safe", label: "Остановиться, получить решение, затем разместить в назначенном VK и вернуть URL клипа" }),
-        Object.freeze({ value: "hide", label: "Убрать название бренда, чтобы бирка не появилась" }),
-        Object.freeze({ value: "profile", label: "Опубликовать сразу и вернуть ссылку на профиль" }),
-      ]),
-      answer: Object.freeze(["safe"]),
-      success: "Верно. Сомнение означает остановку. После согласования нужен адрес конкретного опубликованного клипа, не профиля.",
-      retry: "Нельзя обходить маркировку или публиковать при неясном режиме. Сначала решение, затем назначенная площадка и URL поста.",
-    }),
-    Object.freeze({
-      id: "payout",
-      label: "Результат и выплата",
-      title: "Завершите доказуемый цикл",
-      prompt: "URL клипа сохранён, первые метрики внесены, а начисление имеет статус «Одобрено». Что это означает?",
-      kind: "payout",
-      items: Object.freeze([
-        Object.freeze({ label: "1", value: "Ожидает проверки" }),
-        Object.freeze({ label: "2", value: "Одобрено" }),
-        Object.freeze({ label: "3", value: "Выплачено" }),
-      ]),
-      options: Object.freeze([
-        Object.freeze({ value: "paid", label: "Деньги уже переведены, можно ничего не проверять" }),
-        Object.freeze({ value: "wait", label: "Начисление подтверждено, но перевод завершён только при статусе «Выплачено»" }),
-        Object.freeze({ value: "views", label: "Сумма автоматически меняется от каждого просмотра" }),
-      ]),
-      answer: Object.freeze(["wait"]),
-      success: "Верно. «Одобрено» и «Выплачено» — разные этапы; URL и метрики остаются доказательством выполненной задачи.",
-      retry: "Проверьте последний статус. Одобрение начисления ещё не подтверждает внешний перевод денег.",
-    }),
-  ]),
+const FIRST_SHIFT_STORAGE_PREFIX = "contentengine.first-shift.v2";
+const FIRST_SHIFT_FULL_EVENT_TYPES = Object.freeze({
+  [FIRST_SHIFT_FULL_ACTIONS.select]: "select",
+  [FIRST_SHIFT_FULL_ACTIONS.check]: "check",
+  [FIRST_SHIFT_FULL_ACTIONS.next]: "next",
+  [FIRST_SHIFT_FULL_ACTIONS.previous]: "previous",
+  [FIRST_SHIFT_FULL_ACTIONS.restart]: "restart",
 });
 
 const state = {
@@ -517,6 +402,9 @@ const state = {
   examResult: null,
   courseCheckResults: {},
   firstShift: null,
+  accountVisualController: null,
+  accountVisualMountRequest: 0,
+  accountVisualStates: new Map(),
   teamInviteResult: null,
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   managerRecoveryCooldowns: new Map(),
@@ -1014,7 +902,46 @@ function establishDefaultRoute() {
   else navigate("/learn", true);
 }
 
+function destroyAccountVisualController() {
+  state.accountVisualMountRequest += 1;
+  const current = state.accountVisualController;
+  if (current?.slug && current.instance?.getState) {
+    state.accountVisualStates.set(current.slug, current.instance.getState());
+  }
+  current?.instance?.destroy?.();
+  current?.destroy?.();
+  state.accountVisualController = null;
+}
+
+async function mountAccountVisualLesson(visualRoot, slug) {
+  const requestId = state.accountVisualMountRequest;
+  try {
+    const visualModule = await import(ACCOUNT_VISUAL_MODULE_URL);
+    if (
+      requestId !== state.accountVisualMountRequest
+      || !visualRoot.isConnected
+      || accountLaunchSlugFromPath(state.route.path) !== slug
+    ) return;
+    const savedState = state.accountVisualStates.get(slug) || {};
+    const instance = visualModule.mountAccountLaunchVisualExamples(visualRoot, {
+      ...savedState,
+      platform: slug,
+      lockPlatform: true,
+      instanceId: `account-visual-${slug}`,
+    });
+    state.accountVisualController = { slug, instance };
+  } catch (error) {
+    if (requestId !== state.accountVisualMountRequest || !visualRoot.isConnected) return;
+    console.error("Account launch visual examples failed", error);
+    visualRoot.innerHTML = alertMarkup(
+      "Наглядный пример временно не загрузился. Пошаговый чек-лист ниже остаётся доступен.",
+      "warning",
+    );
+  }
+}
+
 function render() {
+  destroyAccountVisualController();
   const path = state.route.path;
   const accountLaunchSlug = accountLaunchSlugFromPath(path);
 
@@ -1358,14 +1285,14 @@ function renderLearningHome() {
       </section>
 
       <section class="card first-shift-invite" aria-labelledby="first-shift-invite-title">
-        <div class="first-shift-invite-mark" aria-hidden="true"><span>6</span><small>шагов</small></div>
+        <div class="first-shift-invite-mark" aria-hidden="true"><span>${FIRST_SHIFT_FULL_SCENARIO.steps.length}</span><small>решений</small></div>
         <div>
-          <p class="eyebrow">Безопасная репетиция · ${escapeHtml(FIRST_SHIFT_SCENARIO.duration)}</p>
-          <h2 id="first-shift-invite-title">Пройдите первую смену без реальных действий</h2>
-          <p>Сверьте товар, выберите материалы, подготовьте ролик, найдите брак, решите вопрос публикации и проверьте выплату.</p>
+          <p class="eyebrow">Полная безопасная репетиция · ${FIRST_SHIFT_FULL_SCENARIO.durationMinutes} минут</p>
+          <h2 id="first-shift-invite-title">Пройдите полный путь от задачи до выплаты</h2>
+          <p>Проверьте основной и подменный артикулы, сумму, исходники, съёмку или генерацию, качество, публикацию, метрики и фактическую выплату.</p>
           <p class="first-shift-invite-note"><span aria-hidden="true">◎</span> Тренажёр не создаёт задач, не списывает деньги и не влияет на допуск.</p>
         </div>
-        <a class="btn" href="#/learn/first-shift">${firstShift.finished ? "Посмотреть результат" : firstShift.completedStepIds.length || firstShift.stepIndex > 0 ? "Продолжить смену" : "Начать тренировку"} <span aria-hidden="true">→</span></a>
+        <a class="btn" href="#/learn/first-shift">${firstShift.completed ? "Посмотреть результат" : firstShift.checked.length || firstShift.stepIndex > 0 ? "Продолжить смену" : "Начать тренировку"} <span aria-hidden="true">→</span></a>
       </section>
 
       <section class="card first-shift-invite account-launch-invite" aria-labelledby="account-launch-invite-title">
@@ -1420,6 +1347,10 @@ function renderAccountLaunch(slug = "") {
     </div>
   `;
   app.innerHTML = learningScaffold(content, ACCOUNT_LAUNCH_PATH);
+  if (!slug) return;
+  const visualRoot = app.querySelector("[data-account-visual-root]");
+  if (!visualRoot) return;
+  void mountAccountVisualLesson(visualRoot, slug);
 }
 
 function portalWorkflowMarkup() {
@@ -1551,48 +1482,16 @@ function renderCourse(code) {
   track("course_opened", { module_code: course.code });
 }
 
-function createFirstShiftState(userId = "") {
-  return {
-    userId: String(userId || ""),
-    stepIndex: 0,
-    completedStepIds: [],
-    attempts: {},
-    feedback: null,
-    finished: false,
-  };
-}
-
 function firstShiftStorageKey(userId = state.user?.id) {
   const safeUserId = encodeURIComponent(String(userId || "anonymous"));
   return `${FIRST_SHIFT_STORAGE_PREFIX}:${safeUserId}`;
 }
 
 function normalizeFirstShiftState(value, userId) {
-  const clean = createFirstShiftState(userId);
-  if (!value || typeof value !== "object") return clean;
-  const stepIds = new Set(FIRST_SHIFT_SCENARIO.steps.map((step) => step.id));
-  clean.completedStepIds = uniqueStrings(value.completedStepIds).filter((id) => stepIds.has(id));
-  clean.stepIndex = Math.min(
-    FIRST_SHIFT_SCENARIO.steps.length - 1,
-    Math.max(0, Number.isInteger(value.stepIndex) ? value.stepIndex : 0),
-  );
-  clean.attempts = Object.fromEntries(
-    Object.entries(value.attempts && typeof value.attempts === "object" ? value.attempts : {})
-      .filter(([id]) => stepIds.has(id))
-      .map(([id, count]) => [id, Math.min(99, Math.max(0, Number(count) || 0))]),
-  );
-  const currentStep = FIRST_SHIFT_SCENARIO.steps[clean.stepIndex];
-  const validOptionValues = new Set(currentStep.options.map((option) => option.value));
-  if (value.feedback?.stepId === currentStep.id) {
-    clean.feedback = {
-      stepId: currentStep.id,
-      passed: value.feedback.passed === true,
-      selected: uniqueStrings(value.feedback.selected).filter((item) => validOptionValues.has(item)),
-    };
-  }
-  clean.finished = value.finished === true && clean.completedStepIds.length === FIRST_SHIFT_SCENARIO.steps.length;
-  if (clean.finished) clean.stepIndex = FIRST_SHIFT_SCENARIO.steps.length - 1;
-  return clean;
+  return {
+    userId: String(userId || ""),
+    ...createFirstShiftFullState(value && typeof value === "object" ? value : {}),
+  };
 }
 
 function ensureFirstShiftState() {
@@ -1615,12 +1514,6 @@ function persistFirstShiftState() {
   } catch {
     // The simulator still works in-memory when browser storage is unavailable.
   }
-}
-
-function resetFirstShiftState() {
-  const userId = String(state.user?.id || "");
-  state.firstShift = createFirstShiftState(userId);
-  persistFirstShiftState();
 }
 
 function accountLaunchStorageKey(slug, userId = state.user?.id) {
@@ -1665,83 +1558,13 @@ function clearAccountLaunchChecks(userId = state.user?.id) {
 
 function renderFirstShift() {
   const practice = ensureFirstShiftState();
-  if (practice.finished) {
-    renderFirstShiftComplete();
-    return;
-  }
-  const step = FIRST_SHIFT_SCENARIO.steps[practice.stepIndex];
-  const stepComplete = practice.completedStepIds.includes(step.id);
-  const feedback = practice.feedback?.stepId === step.id ? practice.feedback : null;
-  const selected = new Set(feedback?.selected || []);
-  const completedCount = practice.completedStepIds.length;
-  const progressPercent = Math.round((completedCount / FIRST_SHIFT_SCENARIO.steps.length) * 100);
   const content = `
-    <div class="page-wrap learning-page first-shift-page">
+    <div class="page-wrap learning-page first-shift-page first-shift-full-page">
       ${firstShiftSafetyBanner()}
-      <header class="card first-shift-hero">
-        <div>
-          <p class="eyebrow">Интерактивная репетиция · ${escapeHtml(FIRST_SHIFT_SCENARIO.duration)}</p>
-          <h1 id="first-shift-title" tabindex="-1">Первая смена: от задачи до выплаты</h1>
-          <p>Это учебный пример. Вы ничего не публикуете и не запускаете: выбирайте действие, читайте объяснение и исправляйте ошибку сразу.</p>
-        </div>
-        <div class="first-shift-progress-card">
-          <span>Прогресс смены</span>
-          <strong>${completedCount} / ${FIRST_SHIFT_SCENARIO.steps.length}</strong>
-          <div class="progress-bar progress-bar-gold" role="progressbar" aria-label="Прогресс первой смены" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}"><span style="width:${progressPercent}%"></span></div>
-        </div>
-      </header>
-
-      <div class="first-shift-layout">
-        <aside class="card first-shift-roadmap" aria-label="Шаги первой смены">
-          <p class="eyebrow">Маршрут</p>
-          <ol>
-            ${FIRST_SHIFT_SCENARIO.steps.map((item, index) => {
-              const complete = practice.completedStepIds.includes(item.id);
-              const current = index === practice.stepIndex;
-              return `<li class="${complete ? "complete" : ""} ${current ? "current" : ""}" ${current ? 'aria-current="step"' : ""}><span>${complete ? "✓" : index + 1}</span><div><strong>${escapeHtml(item.label)}</strong><small>${complete ? "готово" : current ? "сейчас" : "впереди"}</small></div></li>`;
-            }).join("")}
-          </ol>
-        </aside>
-
-        <section class="card first-shift-stage" aria-labelledby="first-shift-step-title">
-          <div class="first-shift-stage-head">
-            <div><p class="eyebrow">Шаг ${practice.stepIndex + 1} из ${FIRST_SHIFT_SCENARIO.steps.length} · ${escapeHtml(step.label)}</p><h2 id="first-shift-step-title" tabindex="-1">${escapeHtml(step.title)}</h2></div>
-            <span>Попыток: ${escapeHtml(String(practice.attempts[step.id] || 0))}</span>
-          </div>
-          <div class="first-shift-stage-grid">
-            ${courseExampleVisualMarkup(step, step.kind)}
-            <form id="first-shift-form" data-step-id="${escapeHtml(step.id)}" novalidate>
-              <fieldset class="first-shift-question" ${stepComplete ? "disabled" : ""}>
-                <legend>${escapeHtml(step.prompt)}</legend>
-                <div class="first-shift-options">
-                  ${step.options.map((option, index) => `
-                    <label>
-                      <input type="${step.multiple ? "checkbox" : "radio"}" name="first_shift_answer" value="${escapeHtml(option.value)}" ${selected.has(option.value) ? "checked" : ""} ${!step.multiple && index === 0 ? "required" : ""} />
-                      <span><i aria-hidden="true"></i>${escapeHtml(option.label)}</span>
-                    </label>
-                  `).join("")}
-                </div>
-              </fieldset>
-              <div id="first-shift-feedback" class="first-shift-feedback ${stepComplete ? "success" : feedback ? "retry" : ""}" aria-live="polite" tabindex="-1">
-                ${stepComplete
-                  ? `<span aria-hidden="true">✓</span><div><strong>Шаг выполнен</strong><p>${escapeHtml(step.success)}</p></div>`
-                  : feedback
-                    ? `<span aria-hidden="true">!</span><div><strong>Исправьте решение</strong><p>${escapeHtml(step.retry)}</p></div>`
-                    : `<span aria-hidden="true">?</span><div><strong>Выберите действие</strong><p>После проверки здесь появится объяснение. Ошибка не повлияет на допуск.</p></div>`}
-              </div>
-              <div class="first-shift-actions">
-                <button class="btn btn-secondary" type="button" data-action="first-shift-previous" ${practice.stepIndex === 0 ? "disabled" : ""}>← Назад</button>
-                ${stepComplete
-                  ? `<button class="btn" type="button" data-action="first-shift-next">${practice.stepIndex === FIRST_SHIFT_SCENARIO.steps.length - 1 ? "Завершить смену" : "Следующий шаг"} <span aria-hidden="true">→</span></button>`
-                  : `<button class="btn" type="submit">Проверить решение</button>`}
-              </div>
-            </form>
-          </div>
-        </section>
-      </div>
+      ${firstShiftFullScenarioMarkup(practice)}
       <div class="first-shift-footer-actions">
         <a class="btn btn-secondary" href="#/learn">Вернуться к курсам</a>
-        <button class="text-button" type="button" data-action="first-shift-reset">Начать сначала</button>
+        <p class="muted">Результат хранится только в этой вкладке и не заменяет курсы или итоговый экзамен.</p>
       </div>
     </div>
   `;
@@ -1757,29 +1580,6 @@ function firstShiftSafetyBanner() {
   `;
 }
 
-function renderFirstShiftComplete() {
-  const practice = ensureFirstShiftState();
-  const attempts = Object.values(practice.attempts).reduce((total, count) => total + Number(count || 0), 0);
-  const content = `
-    <div class="page-wrap learning-page first-shift-page">
-      ${firstShiftSafetyBanner()}
-      <section class="card first-shift-complete" aria-labelledby="first-shift-complete-title">
-        <div class="first-shift-complete-score" aria-hidden="true"><strong>6/6</strong><span>готово</span></div>
-        <div>
-          <p class="eyebrow">Репетиция завершена · ${attempts} попыток</p>
-          <h1 id="first-shift-complete-title" tabindex="-1">Вы прошли полный учебный цикл</h1>
-          <p>Вы остановили подмену товара, отобрали исходники, подготовили безопасный запуск, нашли брак, проверили публикацию и разобрались со статусом выплаты.</p>
-          <div class="first-shift-complete-note"><span aria-hidden="true">i</span><p><strong>Это тренировка, а не сертификация.</strong> Прогресс курсов, экзамен и доступ к кабинету не изменились.</p></div>
-          <div class="inline-actions">
-            <a class="btn" href="#/learn">Перейти к курсам <span aria-hidden="true">→</span></a>
-            <button class="btn btn-secondary" type="button" data-action="first-shift-reset">Пройти ещё раз</button>
-          </div>
-        </div>
-      </section>
-    </div>
-  `;
-  app.innerHTML = learningScaffold(content, "/learn/first-shift");
-}
 
 function courseVisualExamplesMarkup(courseCode) {
   const safeCode = String(courseCode || "").replace(/[^a-z0-9_-]/g, "");
@@ -4223,42 +4023,47 @@ async function handleClick(event) {
     return;
   }
 
-  if (action === "first-shift-reset") {
-    resetFirstShiftState();
-    renderFirstShift();
-    window.queueMicrotask(() => document.querySelector("#first-shift-title")?.focus({ preventScroll: true }));
-    toast("Учебная смена начата заново.", "info");
-    return;
-  }
-
-  if (action === "first-shift-previous") {
+  const firstShiftEventType = FIRST_SHIFT_FULL_EVENT_TYPES[action];
+  if (firstShiftEventType) {
     const practice = ensureFirstShiftState();
-    practice.stepIndex = Math.max(0, practice.stepIndex - 1);
-    practice.feedback = null;
+    const eventPayload = {
+      type: firstShiftEventType,
+      stepId: String(control.dataset.stepId || ""),
+    };
+    if (firstShiftEventType === "select") {
+      eventPayload.value = String(control.value || "");
+      eventPayload.selected = control.checked === true;
+    }
+    state.firstShift = {
+      userId: practice.userId,
+      ...reduceFirstShiftFullState(practice, eventPayload),
+    };
     persistFirstShiftState();
-    renderFirstShift();
-    window.queueMicrotask(() => document.querySelector("#first-shift-step-title")?.focus?.({ preventScroll: true }));
-    return;
-  }
 
-  if (action === "first-shift-next") {
-    const practice = ensureFirstShiftState();
-    const step = FIRST_SHIFT_SCENARIO.steps[practice.stepIndex];
-    if (!practice.completedStepIds.includes(step.id)) {
-      toast("Сначала исправьте решение текущего шага.", "error");
+    if (firstShiftEventType === "select") {
+      renderFirstShift();
+      window.queueMicrotask(() => {
+        const selectedControl = [...app.querySelectorAll(`[data-action="${FIRST_SHIFT_FULL_ACTIONS.select}"]`)]
+          .find((input) => input.dataset.stepId === eventPayload.stepId && input.value === eventPayload.value);
+        selectedControl?.focus?.({ preventScroll: true });
+      });
       return;
     }
-    if (practice.stepIndex === FIRST_SHIFT_SCENARIO.steps.length - 1) {
-      practice.finished = true;
-    } else {
-      practice.stepIndex += 1;
-      practice.feedback = null;
-    }
-    persistFirstShiftState();
+
     renderFirstShift();
-    window.queueMicrotask(() => document.querySelector(practice.finished ? "#first-shift-complete-title" : "#first-shift-step-title")?.focus?.({ preventScroll: true }));
+    window.queueMicrotask(() => {
+      const target = firstShiftEventType === "check"
+        ? app.querySelector(".first-shift-full__feedback")
+        : (["next", "previous"].includes(firstShiftEventType) && !state.firstShift.completed
+            ? app.querySelector("#first-shift-step-title")
+            : app.querySelector("#first-shift-full-title"));
+      target?.focus?.({ preventScroll: true });
+      if (["check", "next", "previous"].includes(firstShiftEventType)) scrollElementIntoView(target, "center");
+    });
+    if (firstShiftEventType === "restart") toast("Полная учебная смена начата заново.", "info");
     return;
   }
+
 
   if (action === "complete-course") {
     const moduleCode = control.dataset.moduleCode;
@@ -4404,7 +4209,6 @@ async function handleSubmit(event) {
   if (form.id === "login-form") await submitLogin(form);
   else if (form.id === "reset-form") await submitReset(form);
   else if (form.id === "password-form") await submitPassword(form);
-  else if (form.id === "first-shift-form") submitFirstShift(form);
   else if (form.id === "account-ad-form") submitAccountAdvertisingCheck(form);
   else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
@@ -4590,34 +4394,6 @@ function syncGenerationModeForm(form) {
   }
 }
 
-function submitFirstShift(form) {
-  const practice = ensureFirstShiftState();
-  const step = FIRST_SHIFT_SCENARIO.steps[practice.stepIndex];
-  if (!step || String(form.dataset.stepId || "") !== step.id) {
-    toast("Шаг тренажёра изменился. Обновите решение.", "error");
-    renderFirstShift();
-    return;
-  }
-  const selected = Array.from(form.querySelectorAll('input[name="first_shift_answer"]:checked'))
-    .map((input) => String(input.value));
-  if (!selected.length) {
-    toast(step.multiple ? "Выберите один или несколько вариантов." : "Выберите один вариант.", "error");
-    return;
-  }
-  const expected = new Set(step.answer);
-  const actual = new Set(selected);
-  const passed = expected.size === actual.size && [...expected].every((value) => actual.has(value));
-  practice.attempts[step.id] = Number(practice.attempts[step.id] || 0) + 1;
-  practice.feedback = { stepId: step.id, passed, selected: uniqueStrings(selected) };
-  if (passed && !practice.completedStepIds.includes(step.id)) practice.completedStepIds.push(step.id);
-  persistFirstShiftState();
-  renderFirstShift();
-  window.queueMicrotask(() => {
-    const result = document.querySelector("#first-shift-feedback");
-    result?.focus({ preventScroll: true });
-    scrollElementIntoView(result, "center");
-  });
-}
 
 async function submitLogin(form) {
   const values = new FormData(form);
@@ -5603,6 +5379,8 @@ function navigate(path, replace = false) {
 }
 
 function clearAuthenticatedState() {
+  destroyAccountVisualController();
+  state.accountVisualStates.clear();
   clearAccountLaunchChecks(state.user?.id);
   stopRealGenerationPolling();
   if (state.resetCountdownTimer) window.clearInterval(state.resetCountdownTimer);

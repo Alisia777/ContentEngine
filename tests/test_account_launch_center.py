@@ -25,7 +25,7 @@ def _run_view_javascript(body: str):
         module_directory = Path(temporary_directory)
         (module_directory / "account-launch-guides.mjs").write_text(GUIDES, encoding="utf-8")
         (module_directory / "account-launch-view.mjs").write_text(
-            VIEW.replace("./account-launch-guides.js?v=20260715.3", "./account-launch-guides.mjs"),
+            VIEW.replace("./account-launch-guides.js?v=20260715.4", "./account-launch-guides.mjs"),
             encoding="utf-8",
         )
         (module_directory / "contract.mjs").write_text(
@@ -113,6 +113,7 @@ def test_center_is_written_for_a_true_beginner():
         "Официальная справка площадки",
     ):
         assert phrase in VIEW
+    assert "data-account-visual-root" in VIEW
 
 
 def test_warmup_explicitly_rejects_fake_platform_quotas():

@@ -6,7 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
-STYLES = (ROOT / "web/app/styles.css").read_text(encoding="utf-8")
+FULL = (ROOT / "web/app/first-shift-full-scenario.js").read_text(encoding="utf-8")
+FULL_STYLES = (ROOT / "web/app/first-shift-full-scenario.css").read_text(encoding="utf-8")
+INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 
 
 def _between(source: str, start: str, end: str) -> str:
@@ -15,45 +17,36 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index:end_index]
 
 
-def _media_blocks(css: str) -> list[str]:
-    blocks: list[str] = []
-    for match in re.finditer(r"@media\s*\([^)]*\)\s*\{", css):
-        depth = 1
-        cursor = match.end()
-        while cursor < len(css) and depth:
-            if css[cursor] == "{":
-                depth += 1
-            elif css[cursor] == "}":
-                depth -= 1
-            cursor += 1
-        assert depth == 0, "unterminated @media block"
-        blocks.append(css[match.start() : cursor])
-    return blocks
+def test_first_shift_uses_the_full_thirteen_decision_scenario() -> None:
+    step_ids = re.findall(r'^\s+id: "([a-z0-9_]+)",$', FULL, flags=re.MULTILINE)
 
-
-def test_first_shift_has_six_ordered_beginner_scenarios() -> None:
-    catalog = _between(APP, "const FIRST_SHIFT_SCENARIO", "const state =")
-    step_ids = re.findall(r'^\s+id: "([a-z]+)",$', catalog, flags=re.MULTILINE)
-
-    assert step_ids == [
-        "task",
-        "materials",
-        "production",
-        "quality",
-        "publication",
-        "payout",
-    ]
+    assert 'from "./first-shift-full-scenario.js?v=20260715.4"' in APP
+    assert len(set(step_ids) & {
+        "receive_task",
+        "verify_articles_reward",
+        "select_sources",
+        "build_shot_plan",
+        "approve_8s_brief",
+        "choose_production_path",
+        "paid_preflight",
+        "paid_status_without_restart",
+        "quality_control",
+        "choose_platform_disclosure",
+        "return_post_url",
+        "record_metrics",
+        "understand_payout",
+    }) == 13
     for term in (
         "подменный артикул",
         "точные исходники",
         "9:16",
-        "стоимость проверена",
-        "искажённая этикетка",
-        "рекламной маркировке",
-        "URL клипа",
+        "Стоимость видна до запуска",
+        "Этикетка меняет буквы",
+        "раскрытие",
+        "URL конкретного опубликованного клипа",
         "Выплачено",
     ):
-        assert term.casefold() in catalog.casefold()
+        assert term.casefold() in FULL.casefold()
 
 
 def test_first_shift_route_is_handled_before_generic_course_route_for_both_gates() -> None:
@@ -68,45 +61,45 @@ def test_first_shift_route_is_handled_before_generic_course_route_for_both_gates
     assert second_gate.index(route) < second_gate.index(generic)
 
 
-def test_first_shift_progress_is_user_scoped_session_only_and_resettable() -> None:
-    state_helpers = _between(APP, "function createFirstShiftState", "function renderFirstShift()")
+def test_first_shift_progress_is_user_scoped_session_only_and_restartable() -> None:
+    state_helpers = _between(APP, "function firstShiftStorageKey", "function renderFirstShift()")
     clear = _between(APP, "function clearAuthenticatedState", "function consumeRouteTransitionClass")
 
-    assert 'const FIRST_SHIFT_STORAGE_PREFIX = "contentengine.first-shift.v1";' in APP
+    assert 'const FIRST_SHIFT_STORAGE_PREFIX = "contentengine.first-shift.v2";' in APP
+    assert "createFirstShiftFullState" in state_helpers
     assert "state.user?.id" in state_helpers
     assert "encodeURIComponent" in state_helpers
     assert "window.sessionStorage.getItem(firstShiftStorageKey(userId))" in state_helpers
     assert "window.sessionStorage.setItem(firstShiftStorageKey(practice.userId)" in state_helpers
     assert "window.localStorage" not in state_helpers
-    assert "function resetFirstShiftState()" in state_helpers
+    assert '[FIRST_SHIFT_FULL_ACTIONS.restart]: "restart"' in APP
+    assert 'restart: "first-shift-full-restart"' in FULL
     assert "state.firstShift = null" in clear
 
 
 def test_first_shift_feedback_blocks_next_until_the_wrong_answer_is_corrected() -> None:
-    renderer = _between(APP, "function renderFirstShift()", "function firstShiftSafetyBanner")
-    submit = _between(APP, "function submitFirstShift", "async function submitLogin")
     clicks = _between(APP, "async function handleClick", "async function handleSubmit")
+    adapter = _between(clicks, "const firstShiftEventType", 'if (action === "complete-course")')
 
-    assert 'id="first-shift-form"' in renderer
-    assert 'aria-live="polite"' in renderer
-    assert "Исправьте решение" in renderer
-    assert "stepComplete" in renderer
-    assert 'data-action="first-shift-next"' in renderer
-    assert "expected.size === actual.size" in submit
-    assert "practice.feedback = { stepId: step.id, passed" in submit
-    assert "if (passed && !practice.completedStepIds.includes(step.id))" in submit
-    assert "persistFirstShiftState()" in submit
-    assert 'document.querySelector("#first-shift-feedback")' in submit
-
-    next_action = _between(clicks, 'if (action === "first-shift-next")', 'if (action === "complete-course")')
-    assert "if (!practice.completedStepIds.includes(step.id))" in next_action
-    assert next_action.index("if (!practice.completedStepIds.includes(step.id))") < next_action.index("practice.stepIndex += 1")
+    assert "data-first-shift-form" in FULL
+    assert 'role="status" tabindex="-1"' in FULL
+    assert 'data-action="${FIRST_SHIFT_FULL_ACTIONS.check}"' in FULL
+    assert 'data-action="${FIRST_SHIFT_FULL_ACTIONS.next}"' in FULL
+    assert "if (!passed) return state" in FULL
+    assert "evaluateFirstShiftFullAnswer" in FULL
+    assert "reduceFirstShiftFullState(practice, eventPayload)" in adapter
+    assert "persistFirstShiftState()" in adapter
+    assert 'app.querySelector(".first-shift-full__feedback")' in adapter
+    assert 'if (firstShiftEventType === "select")' in adapter
+    assert "renderFirstShift()" in adapter
+    assert "selectedControl?.focus?.({ preventScroll: true })" in adapter
 
 
 def test_first_shift_is_a_zero_side_effect_practice_not_a_training_gate() -> None:
     renderer = _between(APP, "function renderFirstShift()", "function courseVisualExamplesMarkup")
-    submit = _between(APP, "function submitFirstShift", "async function submitLogin")
-    isolated = renderer + submit
+    clicks = _between(APP, "async function handleClick", "async function handleSubmit")
+    adapter = _between(clicks, "const firstShiftEventType", 'if (action === "complete-course")')
+    isolated = renderer + FULL + adapter
 
     for forbidden in (
         "state.api",
@@ -118,9 +111,26 @@ def test_first_shift_is_a_zero_side_effect_practice_not_a_training_gate() -> Non
         "submitRealGeneration",
     ):
         assert forbidden not in isolated
-    assert "Это тренировка, а не сертификация." in renderer
-    assert "Прогресс курсов, экзамен и доступ к кабинету не изменились." in renderer
+    assert "не заменяет курсы или итоговый экзамен" in renderer
     assert "Учебный режим · списаний нет" in renderer
+
+
+def test_first_shift_legacy_simulator_is_fully_removed() -> None:
+    for legacy_contract in (
+        "const FIRST_SHIFT_SCENARIO",
+        "function createFirstShiftState",
+        "function resetFirstShiftState",
+        "function renderFirstShiftComplete",
+        "function submitFirstShift",
+        'action === "first-shift-reset"',
+        'action === "first-shift-previous"',
+        'action === "first-shift-next"',
+        'id="first-shift-form"',
+        "first_shift_answer",
+        "completedStepIds",
+        "practice.finished",
+    ):
+        assert legacy_contract not in APP
 
 
 def test_first_shift_is_linked_from_home_sidebar_and_mobile_navigation() -> None:
@@ -138,25 +148,15 @@ def test_first_shift_is_linked_from_home_sidebar_and_mobile_navigation() -> None
 
 
 def test_first_shift_has_keyboard_focus_status_and_360px_safe_layout_contracts() -> None:
-    assert 'id="first-shift-title" tabindex="-1"' in APP
-    assert 'id="first-shift-step-title" tabindex="-1"' in APP
-    assert 'aria-current="step"' in APP
-    assert 'role="progressbar" aria-label="Прогресс первой смены"' in APP
-    assert ".first-shift-options input:focus-visible + span" in STYLES
-    assert "outline: 3px solid #315e91" in STYLES
-    assert ".first-shift-layout" in STYLES
-    assert ".first-shift-stage-grid" in STYLES
-    assert "min-width: 0" in STYLES
-
-    responsive = _media_blocks(STYLES)
-    tablet = next(block for block in responsive if "max-width: 820px" in block)
-    phone = next(block for block in responsive if "max-width: 560px" in block)
-    narrow = next(block for block in responsive if "max-width: 380px" in block)
-    assert re.search(r"\.first-shift-layout\s*\{[^}]*grid-template-columns:\s*1fr", tablet, re.DOTALL)
-    assert re.search(r"\.first-shift-stage-grid\s*\{[^}]*grid-template-columns:\s*1fr", tablet, re.DOTALL)
-    assert re.search(
-        r"\.first-shift-roadmap ol\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)",
-        phone,
-        re.DOTALL,
-    )
-    assert re.search(r"\.first-shift-roadmap ol\s*\{[^}]*grid-template-columns:\s*1fr", narrow, re.DOTALL)
+    assert 'id="first-shift-full-title" tabindex="-1"' in FULL
+    assert 'id="first-shift-step-title" tabindex="-1"' in FULL
+    assert 'role="progressbar"' in FULL
+    assert 'aria-current="step"' in FULL
+    assert 'role="status" tabindex="-1"' in FULL
+    assert ".first-shift-full__option:has(input:focus-visible)" in FULL_STYLES
+    assert "min-width: 0" in FULL_STYLES
+    assert "width: 100%" in FULL_STYLES
+    assert "box-sizing: border-box" in FULL_STYLES
+    assert "@media (max-width: 760px)" in FULL_STYLES
+    assert "@media (prefers-reduced-motion: reduce)" in FULL_STYLES
+    assert './first-shift-full-scenario.css?v=20260715.4' in INDEX

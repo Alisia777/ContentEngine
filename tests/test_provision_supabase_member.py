@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
+import scripts.provision_supabase_member as provision_module
 
 from scripts.provision_supabase_member import (
     MEMBER_PROVISION_MARKER,
     PASSWORD_CHANGE_REQUIRED_MARKER,
     MemberProvisionError,
+    MemberProvisionPlan,
     MemberState,
     ProvisioningAuthority,
+    plan_member,
     provision_member,
 )
 
@@ -19,6 +23,7 @@ OWNER_ID = "22222222-2222-4222-8222-222222222222"
 MEMBER_ID = "33333333-3333-4333-8333-333333333333"
 MEMBER_EMAIL = "guest@example.com"
 TEMP_PASSWORD = "StrongTemporary42Password"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeManagement:
@@ -122,6 +127,145 @@ def _factory(auth: FakeAuth, captured_keys: list[str]):
         return auth
 
     return build
+
+
+def test_preview_of_fresh_member_is_read_only_and_needs_no_password() -> None:
+    management = FakeManagement(MemberState(user_id=None, app_metadata={}))
+
+    plan = plan_member(
+        management_client=management,
+        email=MEMBER_EMAIL,
+        display_name="Guest",
+        role="viewer",
+    )
+
+    assert plan == MemberProvisionPlan(
+        identity_action="create",
+        membership_action="create",
+        role="viewer",
+    )
+    assert plan.apply_required is True
+    assert management.server_key_calls == 0
+    assert len(management.queries) == 2
+    assert all(query["read_only"] is True for query in management.queries)
+    assert not any(
+        "system_provision_limited_member" in str(query["sql"])
+        for query in management.queries
+    )
+
+
+def test_preview_of_completed_member_is_an_idempotent_noop() -> None:
+    management = FakeManagement(
+        MemberState(
+            user_id=MEMBER_ID,
+            email_confirmed=True,
+            app_metadata={MEMBER_PROVISION_MARKER: True},
+            membership_count=1,
+            membership_role="viewer",
+            membership_status="active",
+        )
+    )
+
+    plan = plan_member(
+        management_client=management,
+        email=MEMBER_EMAIL,
+        display_name="Guest",
+        role="viewer",
+    )
+
+    assert plan.identity_action == "keep"
+    assert plan.membership_action == "keep"
+    assert plan.apply_required is False
+    assert management.server_key_calls == 0
+
+
+def test_preview_can_describe_but_not_execute_an_explicit_stale_identity_reset() -> None:
+    management = FakeManagement(
+        MemberState(
+            user_id=MEMBER_ID,
+            email_confirmed=True,
+            signed_in=True,
+            app_metadata={"provider": "email", "providers": ["email"]},
+        )
+    )
+
+    plan = plan_member(
+        management_client=management,
+        email=MEMBER_EMAIL,
+        display_name="Guest",
+        role="viewer",
+        claim_existing=True,
+        reset_signed_in=True,
+    )
+
+    assert plan.identity_action == "reset"
+    assert plan.membership_action == "create"
+    assert management.server_key_calls == 0
+    assert management.state.app_metadata == {
+        "provider": "email",
+        "providers": ["email"],
+    }
+
+
+def test_second_access_must_use_a_distinct_normalized_email() -> None:
+    management = FakeManagement(MemberState(user_id=None, app_metadata={}))
+
+    with pytest.raises(MemberProvisionError, match="distinct email"):
+        plan_member(
+            management_client=management,
+            email="Member.One@Example.Invalid",
+            display_name="V. Klimov second access",
+            role="viewer",
+            distinct_from=["member.one@example.invalid"],
+        )
+
+    assert management.queries == []
+
+
+def test_preview_cli_does_not_require_or_read_a_temporary_password(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    management = FakeManagement(MemberState(user_id=None, app_metadata={}))
+    monkeypatch.setattr(
+        provision_module,
+        "SupabaseManagementClient",
+        lambda **_kwargs: management,
+    )
+    monkeypatch.setenv("SUPABASE_PROJECT_REF", "iyckwryrucqrxwlowxow")
+    monkeypatch.setenv("SUPABASE_ACCESS_TOKEN", "test-management-token")
+    monkeypatch.setenv("SUPABASE_MEMBER_TEMP_PASSWORD", "preview-must-not-read-this")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    exit_code = provision_module.main([
+        "--email",
+        MEMBER_EMAIL,
+        "--display-name",
+        "Guest",
+        "--role",
+        "viewer",
+        "--dry-run",
+    ])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "provisioning preview" in output
+    assert "identity=create" in output
+    assert "membership=create" in output
+    assert "apply_required=true" in output
+    assert "::add-mask::" not in output
+    assert "preview-must-not-read-this" not in output
+    assert management.server_key_calls == 0
+
+
+def test_portal_schema_requires_distinct_email_identity_and_one_org_membership() -> None:
+    core = (ROOT / "supabase/migrations/202607130001_content_factory_core.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "create unique index if not exists profiles_email_lower_uq" in core
+    assert "on content_factory.profiles (lower(email))" in core
+    assert "constraint memberships_org_profile_uq unique (organization_id, profile_id)" in core
 
 
 @pytest.mark.parametrize("role", ["viewer", "trainee"])

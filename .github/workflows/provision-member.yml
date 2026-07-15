@@ -3,14 +3,14 @@ name: Provision limited Supabase member
 on:
   workflow_dispatch:
     inputs:
-      email:
-        description: Exact member email
+      account:
+        description: Protected account slot (PII stays in production secrets)
         required: true
-        type: string
-      display_name:
-        description: Member display name
-        required: true
-        type: string
+        default: guest
+        type: choice
+        options:
+          - guest
+          - klimov
       role:
         description: Least-privilege membership role
         required: true
@@ -19,6 +19,14 @@ on:
         options:
           - viewer
           - trainee
+      mode:
+        description: Preview reads state only; apply may create or claim the account
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - apply
       claim_existing:
         description: Claim an unsigned-in, membership-free existing Auth identity
         required: true
@@ -60,36 +68,116 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Require protected provisioning inputs
+      - name: Validate production project binding
         shell: bash
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_MEMBER_TEMP_PASSWORD: ${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}
+          PROVISION_MODE: ${{ inputs.mode }}
         run: |
-          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
-          : "${SUPABASE_MEMBER_TEMP_PASSWORD:?Configure a one-time member password in production}"
           : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
           : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
+          case "$PROVISION_MODE" in
+            preview) ;;
+            apply) ;;
+            *)
+              echo "Provision mode must be preview or apply" >&2
+              exit 1
+              ;;
+          esac
           if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
             echo "SUPABASE_PROJECT_REF does not match the reviewed production project" >&2
             exit 1
           fi
 
-      - name: Provision limited account without logging its password
+      - name: Preview protected account plan
+        if: inputs.mode == 'preview'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_MEMBER_TEMP_PASSWORD: ${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}
-          MEMBER_EMAIL: ${{ inputs.email }}
-          MEMBER_DISPLAY_NAME: ${{ inputs.display_name }}
+          GUEST_EMAIL: ${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}
+          GUEST_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_GUEST_DISPLAY_NAME }}
+          KLIMOV_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
+          KLIMOV_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
+          ACCOUNT_SLOT: ${{ inputs.account }}
           MEMBER_ROLE: ${{ inputs.role }}
           CLAIM_EXISTING: ${{ inputs.claim_existing }}
           RESET_SIGNED_IN: ${{ inputs.reset_signed_in }}
         shell: bash
         run: |
+          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+          case "$ACCOUNT_SLOT" in
+            guest)
+              MEMBER_EMAIL="$GUEST_EMAIL"
+              MEMBER_DISPLAY_NAME="$GUEST_DISPLAY_NAME"
+              DISTINCT_FROM="$KLIMOV_EMAIL"
+              ;;
+            klimov)
+              MEMBER_EMAIL="$KLIMOV_EMAIL"
+              MEMBER_DISPLAY_NAME="$KLIMOV_DISPLAY_NAME"
+              DISTINCT_FROM="$GUEST_EMAIL"
+              ;;
+            *)
+              echo "Unknown protected account slot" >&2
+              exit 1
+              ;;
+          esac
+          : "${MEMBER_EMAIL:?Configure the selected account email secret in production}"
+          : "${MEMBER_DISPLAY_NAME:?Configure the selected account display-name secret in production}"
+          : "${DISTINCT_FROM:?Configure the other account email secret in production}"
           args=(
             --email="$MEMBER_EMAIL"
             --display-name="$MEMBER_DISPLAY_NAME"
             --role="$MEMBER_ROLE"
+            --distinct-from="$DISTINCT_FROM"
+            --dry-run
+          )
+          if [ "$CLAIM_EXISTING" = "true" ]; then
+            args+=(--claim-existing)
+          fi
+          if [ "$RESET_SIGNED_IN" = "true" ]; then
+            args+=(--reset-signed-in)
+          fi
+          python -m scripts.provision_supabase_member "${args[@]}"
+
+      - name: Apply protected account plan without logging its password
+        if: inputs.mode == 'apply'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_MEMBER_TEMP_PASSWORD: ${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}
+          GUEST_EMAIL: ${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}
+          GUEST_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_GUEST_DISPLAY_NAME }}
+          KLIMOV_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
+          KLIMOV_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
+          ACCOUNT_SLOT: ${{ inputs.account }}
+          MEMBER_ROLE: ${{ inputs.role }}
+          CLAIM_EXISTING: ${{ inputs.claim_existing }}
+          RESET_SIGNED_IN: ${{ inputs.reset_signed_in }}
+        shell: bash
+        run: |
+          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+          : "${SUPABASE_MEMBER_TEMP_PASSWORD:?Configure a one-time member password in production}"
+          case "$ACCOUNT_SLOT" in
+            guest)
+              MEMBER_EMAIL="$GUEST_EMAIL"
+              MEMBER_DISPLAY_NAME="$GUEST_DISPLAY_NAME"
+              DISTINCT_FROM="$KLIMOV_EMAIL"
+              ;;
+            klimov)
+              MEMBER_EMAIL="$KLIMOV_EMAIL"
+              MEMBER_DISPLAY_NAME="$KLIMOV_DISPLAY_NAME"
+              DISTINCT_FROM="$GUEST_EMAIL"
+              ;;
+            *)
+              echo "Unknown protected account slot" >&2
+              exit 1
+              ;;
+          esac
+          : "${MEMBER_EMAIL:?Configure the selected account email secret in production}"
+          : "${MEMBER_DISPLAY_NAME:?Configure the selected account display-name secret in production}"
+          : "${DISTINCT_FROM:?Configure the other account email secret in production}"
+          args=(
+            --email="$MEMBER_EMAIL"
+            --display-name="$MEMBER_DISPLAY_NAME"
+            --role="$MEMBER_ROLE"
+            --distinct-from="$DISTINCT_FROM"
           )
           if [ "$CLAIM_EXISTING" = "true" ]; then
             args+=(--claim-existing)
