@@ -54,6 +54,7 @@ class HttpxTikTokDisplayTransport:
         fields: tuple[str, ...],
         video_ids: list[str],
     ) -> dict[str, Any]:
+        transport_failed = False
         try:
             with httpx.Client(timeout=self.timeout_seconds, follow_redirects=False) as client:
                 response = client.post(
@@ -66,8 +67,11 @@ class HttpxTikTokDisplayTransport:
                         "Content-Type": "application/json",
                     },
                 )
-        except httpx.HTTPError as exc:
-            raise DestinationConnectorDataError("tiktok_official_api_transport_failed") from exc
+        except httpx.HTTPError:
+            transport_failed = True
+        if transport_failed:
+            # Keep untrusted upstream text out of public and chained errors.
+            raise DestinationConnectorDataError("tiktok_official_api_transport_failed")
         if response.status_code in {401, 403}:
             raise DestinationConnectorDataError("tiktok_official_api_authorization_failed")
         if response.status_code >= 400:

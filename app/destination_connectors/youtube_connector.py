@@ -56,6 +56,7 @@ class HttpxYouTubeAnalyticsTransport:
         self.timeout_seconds = timeout_seconds
 
     def query_report(self, *, access_token: str, params: dict[str, str | int]) -> dict[str, Any]:
+        transport_failed = False
         try:
             with httpx.Client(timeout=self.timeout_seconds, follow_redirects=False) as client:
                 response = client.get(
@@ -66,8 +67,12 @@ class HttpxYouTubeAnalyticsTransport:
                         "Accept": "application/json",
                     },
                 )
-        except httpx.HTTPError as exc:
-            raise DestinationConnectorDataError("youtube_official_api_transport_failed") from exc
+        except httpx.HTTPError:
+            transport_failed = True
+        if transport_failed:
+            # Raise outside the except block so untrusted transport text is not retained
+            # in __context__ and cannot surface in a chained traceback.
+            raise DestinationConnectorDataError("youtube_official_api_transport_failed")
 
         if response.status_code in {401, 403}:
             raise DestinationConnectorDataError("youtube_official_api_authorization_failed")

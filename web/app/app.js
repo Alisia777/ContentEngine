@@ -1,34 +1,51 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.5";
+import { CreatorApi } from "./supabase-api.js?v=20260715.6";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.5";
+} from "./catalog.js?v=20260715.6";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260715.5";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.5";
+} from "./account-launch-view.js?v=20260715.6";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.6";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260715.5";
+} from "./first-shift-full-scenario.js?v=20260715.6";
+import {
+  GENERATION_ARCHIVE_PAGE_SIZE,
+  GENERATION_VISIBLE_CAP,
+  GENERATION_VISIBLE_STEP,
+  PORTAL_THEME_STORAGE_KEY,
+  PORTAL_THEMES,
+  boundedRoundRobinWindow,
+  filterGenerationBatches,
+  generationArchiveCursor,
+  generationWeekLabel,
+  mergeGenerationPages,
+  normalizeGenerationFilters,
+  normalizePortalTheme,
+  persistPortalThemePreference,
+} from "./portal-experience.js?v=20260715.6";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.5";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.6";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
 const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
 const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
 const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+const HOME_SECTION_TIMEOUT_MS = 8_000;
+const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
 const RESET_RESEND_COOLDOWN_MS = 60_000;
 const MANAGER_DASHBOARD_MAX_AGE_MS = 60_000;
@@ -463,6 +480,7 @@ const state = {
   resetCountdownTimer: null,
   route: parseRoute(),
   routeTransition: true,
+  portalTheme: normalizePortalTheme(document.documentElement.dataset.portalTheme),
   dataEpoch: 0,
   bootstrapRequestId: 0,
   mobileNavOpen: false,
@@ -470,6 +488,7 @@ const state = {
   realGenerationStartNotice: "",
   realGenerationPollTimer: null,
   realGenerationPollInFlight: false,
+  realGenerationPollCursor: 0,
   realGenerationStatusRequests: new Map(),
   realGenerationResults: new Map(),
   realGenerationDrafts: new Map(),
@@ -484,12 +503,21 @@ const state = {
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   managerRecoveryCooldowns: new Map(),
   managerInviteCooldowns: new Map(),
+  generationArchive: {
+    filters: normalizeGenerationFilters(),
+    loadingMore: false,
+    exhausted: false,
+    error: "",
+    requestId: 0,
+  },
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   sections: Object.fromEntries(
     WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null, requestId: 0 }]),
   ),
   sessionId: getSessionId(),
 };
+
+applyPortalTheme(state.portalTheme, { persist: false });
 
 initialize().catch((error) => {
   console.error(error);
@@ -548,6 +576,11 @@ async function initialize() {
 }
 
 function bindGlobalEvents() {
+  window.addEventListener("storage", (event) => {
+    if (event.key === PORTAL_THEME_STORAGE_KEY) {
+      applyPortalTheme(event.newValue, { persist: false, announce: false });
+    }
+  });
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
     if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
@@ -1222,9 +1255,11 @@ function renderSetPassword(message = "", type = "") {
 function authLayout(panel) {
   return `
     <div class="auth-layout">
+      ${brandAtmosphereMarkup()}
+      <div class="auth-theme-control">${themePickerMarkup("auth", true)}</div>
       <section class="auth-story" aria-label="О продукте">
         <div class="auth-brand">
-          <div class="brand-mark" aria-hidden="true">A</div>
+          <div class="brand-mark" aria-hidden="true"><img src="./assets/brand/logo_mark.svg" alt="" /></div>
           <div><strong>ALTEA</strong><span>Контент ИИ Завод</span></div>
         </div>
         <div class="auth-message">
@@ -2217,6 +2252,7 @@ function learningScaffold(content, activePath) {
         ${sidebarFooterMarkup(profile)}
       </aside>
       <section class="workspace-main">
+        ${brandAtmosphereMarkup()}
         ${mobileTopbarMarkup("Обучение")}
         ${state.mobileNavOpen ? mobileNavMarkup(true, "", activePath) : ""}
         <main id="main-content" class="${transitionClass}" tabindex="-1">${content}</main>
@@ -2371,6 +2407,7 @@ function workspaceScaffold(content, activeSection) {
         ${sidebarFooterMarkup(profile)}
       </aside>
       <section class="workspace-main">
+        ${brandAtmosphereMarkup()}
         ${mobileTopbarMarkup(tabLabel)}
         ${state.mobileNavOpen ? mobileNavMarkup(false, activeSection) : ""}
         <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
@@ -2393,15 +2430,66 @@ function visibleWorkspaceTabs() {
 function brandMarkup() {
   return `
     <div class="workspace-brand">
-      <div class="brand-mark" aria-hidden="true">A</div>
+      <div class="brand-mark" aria-hidden="true"><img src="./assets/brand/logo_mark.svg" alt="" /></div>
       <div><strong>ALTEA</strong><span>Контент ИИ Завод</span></div>
     </div>
   `;
 }
 
+function brandAtmosphereMarkup() {
+  return `
+    <div class="brand-atmosphere" aria-hidden="true">
+      <span class="brand-flower"></span>
+      <span class="brand-petal brand-petal-one"></span>
+      <span class="brand-petal brand-petal-two"></span>
+      <span class="brand-petal brand-petal-three"></span>
+    </div>
+  `;
+}
+
+function themePickerMarkup(scope, compact = false) {
+  return `
+    <div class="portal-theme-picker ${compact ? "is-compact" : ""}" role="group" aria-label="Цвет портала">
+      <span class="portal-theme-label">${compact ? "Тема" : "Цвет портала"}</span>
+      <div class="portal-theme-options">
+        ${PORTAL_THEMES.map((theme) => `
+          <button
+            id="portal-theme-${escapeHtml(scope)}-${escapeHtml(theme.id)}"
+            class="portal-theme-option ${state.portalTheme === theme.id ? "is-active" : ""}"
+            type="button"
+            data-action="set-portal-theme"
+            data-theme-value="${escapeHtml(theme.id)}"
+            aria-pressed="${state.portalTheme === theme.id ? "true" : "false"}"
+            title="${escapeHtml(`${theme.label}: ${theme.description}`)}"
+          ><span class="portal-theme-swatch" data-swatch="${escapeHtml(theme.id)}" aria-hidden="true"></span><span>${escapeHtml(theme.label)}</span></button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function applyPortalTheme(value, { persist = true, announce = false } = {}) {
+  const theme = normalizePortalTheme(value);
+  state.portalTheme = theme;
+  document.documentElement.dataset.portalTheme = theme;
+  const browserColors = { emerald: "#183a35", bordeaux: "#5a2538", sapphire: "#183b63" };
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", browserColors[theme]);
+  if (persist) persistPortalThemePreference(theme);
+  document.querySelectorAll("[data-theme-value]").forEach((control) => {
+    const active = control.dataset.themeValue === theme;
+    control.classList.toggle("is-active", active);
+    control.setAttribute("aria-pressed", String(active));
+  });
+  if (announce) {
+    const selected = PORTAL_THEMES.find((item) => item.id === theme);
+    toast(`Тема «${selected?.label || "Изумруд"}» включена.`, "success");
+  }
+}
+
 function sidebarFooterMarkup(profile) {
   return `
     <div class="sidebar-footer">
+      ${themePickerMarkup("sidebar")}
       <div class="sidebar-status"><span class="status-dot"></span><span>Защищённое соединение</span></div>
       <div class="sidebar-user">
         <span class="avatar" aria-hidden="true">${escapeHtml(profile.initials)}</span>
@@ -2495,6 +2583,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
         <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
         <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
       `}
+      ${themePickerMarkup("mobile", true)}
       <button class="btn btn-secondary btn-block" type="button" data-action="logout">Выйти</button>
     </nav>
   `;
@@ -2512,7 +2601,14 @@ async function loadSection(section, options = {}) {
   if (!options.silent) render();
 
   try {
-    const raw = await state.api.workspaceSection(section);
+    const raw = await withUiTimeout(
+      state.api.workspaceSection(
+        section,
+        section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
+      ),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "workspace_section_timeout",
+    );
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     let data = raw?.data ?? raw ?? {};
     if (section === "team") {
@@ -2533,12 +2629,19 @@ async function loadSection(section, options = {}) {
         if (!state.teamInviteResult) state.teamInviteResult = restoreTeamInviteResult();
       }
     }
-    if (["generation", "media"].includes(section)) {
+    if (section === "media") {
       data = await hydratePrivateMedia(data);
     }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     target.data = data;
     target.status = "ready";
+    if (section === "generation") {
+      const loadedBatches = listFrom(data, "batches");
+      state.generationArchive.requestId += 1;
+      state.generationArchive.loadingMore = false;
+      state.generationArchive.error = "";
+      state.generationArchive.exhausted = loadedBatches.length < GENERATION_ARCHIVE_PAGE_SIZE;
+    }
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     target.error = error;
@@ -2614,9 +2717,12 @@ async function loadHome() {
   const previousData = state.home.data || {};
   const results = await Promise.all(HOME_SECTION_KEYS.map(async (section) => {
     try {
-      const raw = await state.api.workspaceSection(section);
+      const raw = await withUiTimeout(
+        state.api.workspaceSection(section),
+        HOME_SECTION_TIMEOUT_MS,
+        "home_section_timeout",
+      );
       let data = raw?.data ?? raw ?? {};
-      if (["generation", "media"].includes(section)) data = await hydratePrivateMedia(data);
       return { section, data, error: null };
     } catch (error) {
       console.error(`Home section failed: ${section}`, error);
@@ -2856,7 +2962,7 @@ function renderHomeSection(homeState) {
           ["Ждёт выплаты", formatMoney(waitingPayoutMinor), "одобрено или на проверке", "payouts"],
         ].map(([label, value, hint, key]) => `<a class="card metric-card home-metric-card" href="#/workspace/${key}"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small><span class="metric-arrow" aria-hidden="true">↗</span></a>`).join("")}
       </div>
-      <p class="home-data-scope">Оперативная сводка показывает последние 50 записей каждого раздела. Полная история остаётся внутри разделов.</p>
+      <p class="home-data-scope">Оперативная сводка показывает последние 50 записей каждого раздела. Старые видео подгружаются в архиве порциями, не замедляя рабочий день.</p>
 
       <section class="card home-flow-card">
         <div class="section-heading home-section-heading">
@@ -2918,6 +3024,9 @@ function isRealGenerationMode(mode) {
 function renderGenerationSection(sectionState) {
   const data = sectionState.data || {};
   const batches = listFrom(data, "batches");
+  const archiveFilters = normalizeGenerationFilters(state.generationArchive.filters);
+  const filteredBatches = filterGenerationBatches(batches, archiveFilters);
+  const visibleBatches = filteredBatches.slice(0, archiveFilters.visible);
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
@@ -2934,7 +3043,6 @@ function renderGenerationSection(sectionState) {
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
-    primeCompletedGenerationResults(batches);
   });
   return `
     <div class="page-wrap">
@@ -3047,8 +3155,10 @@ function renderGenerationSection(sectionState) {
         </section>
 
         <section class="card">
-          <div class="card-header"><div><p class="eyebrow">Очередь</p><h2>Последние запуски</h2><small class="muted">${activeRealJobs.length ? `Автопроверка каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : "Активных платных запусков нет"}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-          ${sectionBody(sectionState, batches.length ? generationTable(batches) : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь.", { target: "mock-batch-form", label: "Настроить первый ролик" }))}
+          <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Видео по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных роликов каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : "Активных платных запусков нет"}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+          ${sectionBody(sectionState, batches.length
+            ? generationArchiveMarkup(batches, filteredBatches, visibleBatches, archiveFilters)
+            : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь.", { target: "mock-batch-form", label: "Настроить первый ролик" }))}
         </section>
       </div>
       ${(canManageAliases || aliases.length) ? `
@@ -3076,6 +3186,116 @@ function renderGenerationSection(sectionState) {
   `;
 }
 
+function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filters) {
+  const hasMoreVisible = visibleBatches.length < filteredBatches.length && filters.visible < GENERATION_VISIBLE_CAP;
+  const archive = state.generationArchive;
+  return `
+    <div class="generation-archive">
+      <form id="generation-archive-filter-form" class="generation-archive-toolbar" novalidate>
+        <label class="field">
+          <span>Период</span>
+          <select name="period">
+            <option value="week" ${filters.period === "week" ? "selected" : ""}>Эта неделя</option>
+            <option value="4w" ${filters.period === "4w" ? "selected" : ""}>Последние 4 недели</option>
+            <option value="12w" ${filters.period === "12w" ? "selected" : ""}>Последние 12 недель</option>
+            <option value="all" ${filters.period === "all" ? "selected" : ""}>Всё загруженное</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Статус</span>
+          <select name="status">
+            <option value="all" ${filters.status === "all" ? "selected" : ""}>Все статусы</option>
+            <option value="active" ${filters.status === "active" ? "selected" : ""}>Сейчас создаются</option>
+            <option value="ready" ${filters.status === "ready" ? "selected" : ""}>Готовые</option>
+            <option value="issue" ${filters.status === "issue" ? "selected" : ""}>С ошибкой</option>
+          </select>
+        </label>
+        <label class="field generation-archive-search">
+          <span>Товар или запуск</span>
+          <input name="query" maxlength="120" value="${escapeHtml(filters.query)}" placeholder="Артикул, название или ID" autocomplete="off" />
+        </label>
+        <button class="btn btn-small" type="submit">Показать</button>
+      </form>
+      <div class="generation-archive-summary" aria-live="polite">
+        <span>Найдено <strong>${formatNumber(filteredBatches.length)}</strong> из ${formatNumber(batches.length)} загруженных</span>
+        <span>На экране: ${formatNumber(visibleBatches.length)}</span>
+      </div>
+      ${archive.error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(archive.error)}</span></div>` : ""}
+      ${visibleBatches.length
+        ? generationTable(visibleBatches)
+        : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>По фильтру ничего нет</h3><p>Измените период, статус или строку поиска.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
+      <div class="generation-archive-actions">
+        ${hasMoreVisible ? `<button class="btn btn-secondary btn-small" type="button" data-action="show-more-generation">Показать ещё ${GENERATION_VISIBLE_STEP}</button>` : ""}
+        ${filteredBatches.length > visibleBatches.length && filters.visible >= GENERATION_VISIBLE_CAP ? `<span class="muted tiny">Уточните период или поиск, чтобы не выводить больше ${GENERATION_VISIBLE_CAP} строк сразу</span>` : ""}
+        ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история</span>`}
+      </div>
+      <p class="generation-archive-note">На экран выводится только нужная часть архива — поэтому портал остаётся быстрым даже при сотнях роликов.</p>
+    </div>
+  `;
+}
+
+function submitGenerationArchiveFilters(form) {
+  const values = new FormData(form);
+  state.generationArchive.filters = normalizeGenerationFilters({
+    period: values.get("period"),
+    status: values.get("status"),
+    query: values.get("query"),
+    visible: GENERATION_VISIBLE_STEP,
+  });
+  state.generationArchive.error = "";
+  renderWorkspace("generation");
+}
+
+async function loadMoreGenerationArchive() {
+  const archive = state.generationArchive;
+  const target = state.sections.generation;
+  if (archive.loadingMore || archive.exhausted || !target?.data) return;
+  const currentBatches = listFrom(target.data, "batches");
+  const cursor = generationArchiveCursor(currentBatches);
+  if (!cursor) {
+    archive.exhausted = true;
+    renderWorkspace("generation");
+    return;
+  }
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = archive.requestId + 1;
+  archive.requestId = requestId;
+  archive.loadingMore = true;
+  archive.error = "";
+  renderWorkspace("generation");
+  try {
+    const raw = await withUiTimeout(
+      state.api.workspaceSection("generation", {
+        page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+        cursor,
+      }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "workspace_section_timeout",
+    );
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== archive.requestId) return;
+    const incomingData = raw?.data ?? raw ?? {};
+    const incomingBatches = listFrom(incomingData, "batches");
+    const mergedBatches = mergeGenerationPages(currentBatches, incomingBatches);
+    target.data = {
+      ...target.data,
+      batches: mergedBatches,
+      _meta: incomingData?._meta || target.data?._meta,
+    };
+    target.status = "ready";
+    archive.exhausted = incomingBatches.length < GENERATION_ARCHIVE_PAGE_SIZE
+      || mergedBatches.length === currentBatches.length;
+  } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== archive.requestId) return;
+    archive.error = actionErrorMessage(error);
+  } finally {
+    if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id && requestId === archive.requestId) {
+      archive.loadingMore = false;
+      if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+    }
+  }
+}
+
 function generationTable(items) {
   return `
     <div class="table-wrap"><table class="data-table generation-table">
@@ -3089,7 +3309,7 @@ function generationTable(items) {
               <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
               <td>${statusBadge(details.status)}<br /><small class="muted">Готово ${formatNumber(item.total_accepted ?? item.completed ?? 0)} из ${formatNumber(item.total_requested ?? item.count ?? 0)}</small></td>
               <td>0 ₽</td>
-              <td>${formatDate(item.created_at)}</td>
+              <td>${formatDate(item.created_at)}<br /><small class="muted">${escapeHtml(generationWeekLabel(item.created_at))}</small></td>
             </tr>
           `;
         }
@@ -3104,7 +3324,7 @@ function generationTable(items) {
           : "";
         const actions = generationActionsMarkup(details);
         const preview = previewUrl
-          ? `<div class="generation-result-preview"><video src="${escapeHtml(previewUrl)}" controls preload="metadata" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video><small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
+          ? `<div class="generation-result-preview"><video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video><small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
           : "";
         return `
           <tr data-generation-job-id="${escapeHtml(details.jobId)}">
@@ -3119,7 +3339,7 @@ function generationTable(items) {
               ${preview}
             </td>
             <td>${generationCostMarkup(details)}</td>
-            <td>${formatDate(item.created_at)}${details.checkedAt ? `<br /><small class="muted">Проверено ${formatDate(details.checkedAt, true)}</small>` : ""}</td>
+            <td>${formatDate(item.created_at)}<br /><small class="muted">${escapeHtml(generationWeekLabel(item.created_at))}</small>${details.checkedAt ? `<br /><small class="muted">Проверено ${formatDate(details.checkedAt, true)}</small>` : ""}</td>
           </tr>
         `;
       }).join("")}</tbody>
@@ -3221,7 +3441,13 @@ function scheduleRealGenerationPolling(delayMs = REAL_GENERATION_POLL_INTERVAL_M
 async function runRealGenerationPolling() {
   state.realGenerationPollTimer = null;
   if (state.route.path !== "/workspace/generation" || document.visibilityState !== "visible") return;
-  const activeJobs = realGenerationJobsFromBatches();
+  const pollingWindow = boundedRoundRobinWindow(
+    realGenerationJobsFromBatches(),
+    state.realGenerationPollCursor,
+    4,
+  );
+  const activeJobs = pollingWindow.items;
+  state.realGenerationPollCursor = pollingWindow.nextCursor;
   if (!activeJobs.length || state.realGenerationPollInFlight) return;
   state.realGenerationPollInFlight = true;
   try {
@@ -3342,17 +3568,6 @@ function patchGenerationBatch(jobId, job) {
     actual_cost_minor: job.actual_cost_minor,
     failure_code: job.failure_code,
   };
-}
-
-function primeCompletedGenerationResults(batches) {
-  if (state.route.path !== "/workspace/generation" || document.visibilityState !== "visible") return;
-  batches.map(generationBatchDetails).forEach((details) => {
-    if (!details.real || !details.jobId || !["succeeded", "completed", "failed", "cancelled"].includes(details.status)) return;
-    if (["succeeded", "completed"].includes(details.status) && trustedCachedGenerationUrl(details.jobId)) return;
-    const cached = state.realGenerationResults.get(details.jobId);
-    if (cached?.checkedAt && Date.now() - Date.parse(cached.checkedAt) < 60_000) return;
-    requestRealGenerationStatus(details.jobId, "prime").catch(() => {});
-  });
 }
 
 function trustedCachedGenerationUrl(jobId) {
@@ -3525,13 +3740,14 @@ function placementCard(item) {
 function renderStatsSection(sectionState) {
   const data = sectionState.data || {};
   const summary = data.summary || data.metrics || {};
+  const summaryScope = data.summary_scope === "page" ? " · по последним загруженным записям" : "";
   const rows = listFrom(data, "publications", "items", "rows");
   const publicationOptions = listFrom(data, "publication_options", "placements", "published_placements");
   const cards = [
-    ["Опубликовано", summary.published ?? summary.publications ?? 0, "роликов со ссылкой на пост"],
-    ["Просмотры", summary.views ?? 0, "последний подтверждённый снимок"],
-    ["Переходы", summary.clicks ?? 0, "по ссылкам из задач"],
-    ["CTR", formatPercent(summary.ctr ?? 0), "переходы / просмотры"],
+    ["Опубликовано", summary.published ?? summary.publications ?? 0, `роликов со ссылкой на пост${summaryScope}`],
+    ["Просмотры", summary.views ?? 0, `последний подтверждённый снимок${summaryScope}`],
+    ["Переходы", summary.clicks ?? 0, `по ссылкам из задач${summaryScope}`],
+    ["CTR", formatPercent(summary.ctr ?? 0), `переходы / просмотры${summaryScope}`],
   ];
   return `
     <div class="page-wrap">
@@ -3591,6 +3807,7 @@ function renderPayoutsSection(sectionState) {
   const items = listFrom(data, "payouts", "items", "rows");
   const canManagePayouts = ["owner", "admin"].includes(state.bootstrap?.membership?.role);
   const totals = data.summary || {};
+  const totalsHint = data.summary ? "по серверной сводке" : "в последних 50 начислениях";
   const pendingMinor = totals.pending_minor ?? sumMinor(items.filter((i) => i.status === "pending"));
   const approvedMinor = totals.approved_minor ?? sumMinor(items.filter((i) => i.status === "approved"));
   const paidMinor = totals.paid_minor ?? sumMinor(items.filter((i) => i.status === "paid"));
@@ -3604,7 +3821,7 @@ function renderPayoutsSection(sectionState) {
         `<span class="badge">${canManagePayouts ? "Реестр команды" : "Личный реестр"}</span>`,
       )}
       <div class="metrics-grid metrics-grid-three">
-        ${[["Ожидает проверки", pendingMinor], ["Одобрено", approvedMinor], ["Выплачено", paidMinor]].map(([label, value]) => `<article class="card metric-card"><span class="metric-label">${label}</span><strong>${formatMoney(value)}</strong><small>по прослеживаемым задачам</small></article>`).join("")}
+        ${[["Ожидает проверки", pendingMinor], ["Одобрено", approvedMinor], ["Выплачено", paidMinor]].map(([label, value]) => `<article class="card metric-card"><span class="metric-label">${label}</span><strong>${formatMoney(value)}</strong><small>${totalsHint}</small></article>`).join("")}
       </div>
       <section class="card">
         <div class="card-header"><div><p class="eyebrow">История</p><h2>Начисления и статусы</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="payouts">Обновить</button></div>
@@ -3775,7 +3992,7 @@ function mediaCard(item) {
   let preview = `<span aria-hidden="true">${mime.startsWith("video/") ? "▶" : "▧"}</span>`;
   if (url !== "#") {
     if (mime.startsWith("image/")) preview = `<img src="${url}" alt="${escapeHtml(item.original_filename || "Исходник")}" loading="lazy" />`;
-    else if (mime === "video/mp4") preview = `<video src="${url}" preload="metadata" controls></video>`;
+    else if (mime === "video/mp4") preview = `<video src="${url}" preload="none" controls></video>`;
   }
   return `
     <article class="card media-card">
@@ -4079,6 +4296,37 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "set-portal-theme") {
+    applyPortalTheme(control.dataset.themeValue, { persist: true, announce: true });
+    return;
+  }
+
+  if (action === "reset-generation-filters") {
+    state.generationArchive.filters = normalizeGenerationFilters({
+      period: "4w",
+      status: "all",
+      query: "",
+      visible: GENERATION_VISIBLE_STEP,
+    });
+    state.generationArchive.error = "";
+    renderWorkspace("generation");
+    return;
+  }
+
+  if (action === "show-more-generation") {
+    state.generationArchive.filters = normalizeGenerationFilters({
+      ...state.generationArchive.filters,
+      visible: Number(state.generationArchive.filters?.visible || GENERATION_VISIBLE_STEP) + GENERATION_VISIBLE_STEP,
+    });
+    renderWorkspace("generation");
+    return;
+  }
+
+  if (action === "load-more-generation") {
+    await loadMoreGenerationArchive();
+    return;
+  }
+
   if (action === "reload-page") {
     window.location.reload();
     return;
@@ -4283,6 +4531,12 @@ async function handleClick(event) {
   if (action === "refresh-section") {
     const section = control.dataset.section;
     if (state.sections[section]) {
+      if (section === "generation") {
+        state.generationArchive.requestId += 1;
+        state.generationArchive.loadingMore = false;
+        state.generationArchive.exhausted = false;
+        state.generationArchive.error = "";
+      }
       state.sections[section].requestId += 1;
       state.sections[section].status = "idle";
       render();
@@ -4401,6 +4655,7 @@ async function handleSubmit(event) {
   else if (form.id === "account-ad-form") submitAccountAdvertisingCheck(form);
   else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
+  else if (form.id === "generation-archive-filter-form") submitGenerationArchiveFilters(form);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
@@ -5582,6 +5837,7 @@ function clearAuthenticatedState() {
   state.realGenerationStartInFlight = false;
   state.realGenerationStartNotice = "";
   state.realGenerationPollInFlight = false;
+  state.realGenerationPollCursor = 0;
   state.realGenerationStatusRequests.clear();
   state.realGenerationResults.clear();
   state.realGenerationDrafts.clear();
@@ -5605,6 +5861,11 @@ function clearAuthenticatedState() {
   state.managerDashboard.updatedAt = 0;
   state.managerRecoveryCooldowns.clear();
   state.managerInviteCooldowns.clear();
+  state.generationArchive.requestId += 1;
+  state.generationArchive.filters = normalizeGenerationFilters();
+  state.generationArchive.loadingMore = false;
+  state.generationArchive.exhausted = false;
+  state.generationArchive.error = "";
   state.home.status = "idle";
   state.home.data = null;
   state.home.error = null;

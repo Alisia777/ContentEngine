@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="ALTEA flower mark">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="50%" r="55%">
+      <stop offset="0" stop-color="#f6ead4"/>
+      <stop offset="0.55" stop-color="#d9b77a"/>
+      <stop offset="1" stop-color="#8b7045"/>
+    </radialGradient>
+  </defs>
+  <g fill="none" stroke="url(#g)" stroke-width="2.4" stroke-linejoin="round">
+    <path d="M60 16c14 13 17 26 0 42-17-16-14-29 0-42Z"/>
+    <path d="M82 25c5 18 0 30-22 33 3-22 11-31 22-33Z"/>
+    <path d="M98 48c-6 17-18 24-38 10 16-15 27-17 38-10Z"/>
+    <path d="M92 76c-18 9-31 5-32-18 20 4 29 10 32 18Z"/>
+    <path d="M60 101c-14-13-17-26 0-43 17 17 14 30 0 43Z"/>
+    <path d="M28 76c3-18 12-26 32-18-6 21-17 26-32 18Z"/>
+    <path d="M22 48c17-8 29-4 38 10-21 7-32 4-38-10Z"/>
+    <path d="M38 25c13 2 21 11 22 33-21-3-27-15-22-33Z"/>
+    <circle cx="60" cy="58" r="10"/>
+    <path d="M47 71c8-10 18-10 26 0M51 52c5-6 13-6 18 0"/>
+  </g>
+  <g fill="#f1d9aa">
+    <circle cx="54" cy="59" r="2.2"/>
+    <circle cx="60" cy="55" r="2.2"/>
+    <circle cx="66" cy="59" r="2.2"/>
+    <circle cx="60" cy="64" r="2.2"/>
+  </g>
+</svg>

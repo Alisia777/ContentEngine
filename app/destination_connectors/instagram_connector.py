@@ -73,6 +73,7 @@ class HttpxInstagramInsightsTransport:
             f"{INSTAGRAM_GRAPH_BASE_URL}/{quote(api_version, safe='')}/"
             f"{quote(media_id, safe='')}/insights"
         )
+        transport_failed = False
         try:
             with httpx.Client(timeout=self.timeout_seconds, follow_redirects=False) as client:
                 response = client.get(
@@ -83,8 +84,11 @@ class HttpxInstagramInsightsTransport:
                         "Accept": "application/json",
                     },
                 )
-        except httpx.HTTPError as exc:
-            raise DestinationConnectorDataError("instagram_official_api_transport_failed") from exc
+        except httpx.HTTPError:
+            transport_failed = True
+        if transport_failed:
+            # Keep untrusted upstream text out of public and chained errors.
+            raise DestinationConnectorDataError("instagram_official_api_transport_failed")
         if response.status_code in {401, 403}:
             raise DestinationConnectorDataError("instagram_official_api_authorization_failed")
         if response.status_code >= 400:

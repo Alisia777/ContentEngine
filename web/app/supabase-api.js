@@ -133,8 +133,26 @@ export class CreatorApi {
     });
   }
 
-  workspaceSection(section) {
-    return this.call(RPC.workspaceSection, this.withOrganization({ section }));
+  workspaceSection(section, options = {}) {
+    const payload = { section };
+    if (options.page_size !== undefined) {
+      const pageSize = Number(options.page_size);
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        throw new CreatorApiError("Можно загрузить от 1 до 100 записей за один запрос.", {
+          code: "workspace_page_size_invalid",
+        });
+      }
+      payload.page_size = pageSize;
+    }
+    if (options.cursor !== undefined) {
+      if (!options.cursor || typeof options.cursor !== "object" || Array.isArray(options.cursor)) {
+        throw new CreatorApiError("Курсор истории имеет неверный формат.", {
+          code: "workspace_cursor_invalid",
+        });
+      }
+      payload.cursor = options.cursor;
+    }
+    return this.call(RPC.workspaceSection, this.withOrganization(payload));
   }
 
   inviteAttempts() {

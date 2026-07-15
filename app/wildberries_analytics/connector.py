@@ -80,6 +80,7 @@ class HttpxWildberriesSellerAnalyticsGateway:
             raise WildberriesAnalyticsConfigurationError(
                 "wildberries_credential_reference_unresolved"
             )
+        transport_failed = False
         try:
             if self.client is not None:
                 response = self.client.post(
@@ -98,10 +99,13 @@ class HttpxWildberriesSellerAnalyticsGateway:
                         headers={"Authorization": api_key, "Content-Type": "application/json"},
                         json=body,
                     )
-        except httpx.HTTPError as exc:
+        except httpx.HTTPError:
+            transport_failed = True
+        if transport_failed:
+            # Keep untrusted upstream text out of public and chained errors.
             raise WildberriesAnalyticsTransportError(
                 "wildberries_official_api_transport_failed"
-            ) from exc
+            )
 
         if response.status_code in {401, 403}:
             raise WildberriesAnalyticsTransportError(
