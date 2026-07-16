@@ -423,7 +423,7 @@ select is(
 );
 select is(
   (
-    select metadata ->> 'automatic_provider_retry_allowed'
+    select properties ->> 'automatic_provider_retry_allowed'
     from content_factory.factory_events
     where event_name = 'real_generation_reconciliation_required'
       and entity_id = '97300000-0000-4000-8000-000000000002'
@@ -926,7 +926,7 @@ select throws_ok(
 );
 select is(
   (
-    select metadata ->> 'automatic_provider_retry_used'
+    select properties ->> 'automatic_provider_retry_used'
     from content_factory.factory_events
     where event_name = 'real_generation_reconciled_existing_task'
       and entity_id = '97400000-0000-4000-8000-000000000002'
