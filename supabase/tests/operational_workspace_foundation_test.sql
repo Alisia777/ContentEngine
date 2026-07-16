@@ -836,9 +836,15 @@ select is(
   'notification list reports unread count'
 );
 select is(
-  public.creator_notifications(jsonb_build_object(
-    'organization_id', '96100000-0000-4000-8000-000000000001'
-  )) #>> '{items,0,deep_link}',
+  (
+    select item ->> 'deep_link'
+    from jsonb_array_elements(
+      public.creator_notifications(jsonb_build_object(
+        'organization_id', '96100000-0000-4000-8000-000000000001'
+      )) -> 'items'
+    ) item
+    where item ->> 'kind' = 'work_ready'
+  ),
   '#/workspace/review?review=96400000-0000-4000-8000-000000000001',
   'notification list returns the safe deep link'
 );
