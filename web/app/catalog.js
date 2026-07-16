@@ -22,6 +22,7 @@ export const WORKSPACE_TABS = Object.freeze([
   ["placement", "Публикации", "↗"],
   ["stats", "Результаты", "◫"],
   ["payouts", "Выплаты", "₽"],
+  ["research", "Разбор товара", "⌕"],
   ["feedback", "Помощь и идеи", "+"],
   ["team", "Команда", "◎"],
 ]);

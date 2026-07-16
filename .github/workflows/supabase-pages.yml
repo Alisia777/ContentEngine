@@ -58,13 +58,18 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
           RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ -n "${RUNWAYML_API_SECRET:-}" ]; then
             echo "::add-mask::$RUNWAYML_API_SECRET"
           fi
+          if [ -n "${OPENAI_API_KEY:-}" ]; then
+            echo "::add-mask::$OPENAI_API_KEY"
+          fi
           : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in the production environment}"
           : "${SUPABASE_OWNER_EMAIL:?Configure SUPABASE_OWNER_EMAIL in the production environment}"
           : "${RUNWAYML_API_SECRET:?Configure RUNWAYML_API_SECRET in the production environment}"
+          : "${OPENAI_API_KEY:?Configure OPENAI_API_KEY in the production environment}"
           : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
           : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
           if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
@@ -96,6 +101,17 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF" \
             RUNWAYML_API_SECRET="$RUNWAYML_API_SECRET"
 
+      - name: Synchronize private OpenAI API secret
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "::add-mask::$OPENAI_API_KEY"
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            OPENAI_API_KEY="$OPENAI_API_KEY"
+
       - name: Require JWT verification for creator Edge Functions
         shell: bash
         run: |
@@ -110,6 +126,7 @@ jobs:
               "creator-invite",
               "creator-set-password",
               "creator-generate",
+              "creator-product-research",
           ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
@@ -139,6 +156,11 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-generate --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy authenticated product research function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy creator-product-research --project-ref "$SUPABASE_PROJECT_REF"
 
   build-pages:
     name: Build browser-only creator workspace
@@ -225,7 +247,7 @@ jobs:
       - name: Reject server secrets and localhost from Pages artifact
         shell: bash
         run: |
-          if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN|RUNWAYML_API_SECRET' _site/config.js; then
+          if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN|RUNWAYML_API_SECRET|OPENAI_API_KEY' _site/config.js; then
             echo "Server-only material entered the generated browser configuration" >&2
             exit 1
           fi

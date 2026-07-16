@@ -194,6 +194,18 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert 'echo "::add-mask::$RUNWAYML_API_SECRET"' in runway_secret["run"]
     assert "supabase secrets set" in runway_secret["run"]
     assert 'RUNWAYML_API_SECRET="$RUNWAYML_API_SECRET"' in runway_secret["run"]
+    openai_secret = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Synchronize private OpenAI API secret"
+    )
+    assert openai_secret["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+        "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}",
+    }
+    assert 'echo "::add-mask::$OPENAI_API_KEY"' in openai_secret["run"]
+    assert "supabase secrets set" in openai_secret["run"]
+    assert 'OPENAI_API_KEY="$OPENAI_API_KEY"' in openai_secret["run"]
     generate_deploy = next(
         step
         for step in migrate["steps"]
@@ -205,6 +217,16 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     )
     assert "--no-verify-jwt" not in generate_deploy["run"]
     assert "--prune" not in generate_deploy["run"]
+    research_deploy = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Deploy authenticated product research function"
+    )
+    assert research_deploy["run"] == (
+        'supabase functions deploy creator-product-research '
+        '--project-ref "$SUPABASE_PROJECT_REF"'
+    )
+    assert "--no-verify-jwt" not in research_deploy["run"]
     owner_step = next(
         step
         for step in owner["steps"]
@@ -288,7 +310,7 @@ def test_pages_build_accepts_only_browser_safe_configuration() -> None:
     assert "sb_publishable_*" in workflow
     assert "SUPABASE_SECRET_KEY" not in workflow
     assert "SUPABASE_SERVICE_ROLE_KEY" not in workflow
-    assert "OPENAI_API_KEY" not in workflow
+    assert "OPENAI_API_KEY" not in build["env"]
     assert "RUNWAYML_API_SECRET" not in build["env"]
     assert "_site/config.js" in workflow
     assert "cp -R web/app/. _site/" in workflow
@@ -522,6 +544,9 @@ def test_ci_validates_supabase_contract_and_keeps_python_only_as_reference() -> 
     assert "deno fmt --check supabase/functions/creator-generate" in ci
     assert "deno lint supabase/functions/creator-generate/index.ts" in ci
     assert "deno check supabase/functions/creator-generate/index.ts" in ci
+    assert "deno fmt --check supabase/functions/creator-product-research" in ci
+    assert "deno lint supabase/functions/creator-product-research/index.ts" in ci
+    assert "deno check supabase/functions/creator-product-research/index.ts" in ci
     assert "python -m pytest -q" in ci
     assert "reference-postgres-migration" in ci
     assert "docker build" not in ci
@@ -539,7 +564,10 @@ def test_cloud_documentation_describes_one_public_browser_workspace() -> None:
     assert "existing paid Supabase project" in guide
     assert "There is no general production application server or container" in normalized
     assert "authenticated creator-invite" in guide
-    assert "mock-only" in guide
+    assert "explicitly confirmed paid provider operations" in normalized
+    assert "paid product research" in normalized
+    assert "OPENAI_API_KEY" in guide
+    assert "RUNWAYML_API_SECRET" in guide
     assert "Creators do not install Python" in normalized
     assert "SUPABASE_ACCESS_TOKEN" in guide
     assert "SUPABASE_DB_PASSWORD" not in guide

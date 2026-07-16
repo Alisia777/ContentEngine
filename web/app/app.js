@@ -1,25 +1,33 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.7";
+import { CreatorApi } from "./supabase-api.js?v=20260715.8";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.7";
+} from "./catalog.js?v=20260715.8";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260715.7";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.7";
+} from "./account-launch-view.js?v=20260715.8";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.8";
+import {
+  normalizeProductResearch,
+  productResearchInputMarkup,
+  productResearchProgressMarkup,
+  productResearchResultMarkup,
+  productResearchStatusKind,
+  readProductResearchBrief,
+} from "./product-research-view.js?v=20260715.8";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260715.7";
+} from "./first-shift-full-scenario.js?v=20260715.8";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -34,10 +42,10 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260715.7";
+} from "./portal-experience.js?v=20260715.8";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.7";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.8";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -60,6 +68,8 @@ const REAL_GENERATION_POLL_INTERVAL_MS = 7_000;
 const REAL_GENERATION_SOFT_TIMEOUT_MS = 20_000;
 const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
+const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
+const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_GENERATION_SKUS = Object.freeze({
@@ -119,6 +129,16 @@ const WORKSPACE_SECTION_META = Object.freeze({
     nextLabel: "Создать ролик",
     nextHref: "#/workspace/generation",
     guideHref: "#/learn/factory_basics",
+  }),
+  research: Object.freeze({
+    kicker: "Исследование продукта",
+    note: "Публичные источники, вводные и гипотезы остаются раздельными до ручного утверждения",
+    now: "Добавьте точный товар, фотографии, публичную ссылку, площадки и подтверждённые факты.",
+    done: "Источники открываются, ТЗ отредактировано, а три сценария не содержат неподтверждённых обещаний.",
+    guard: "Прогноз не гарантирует просмотры и продажи. Не утверждайте ТЗ, пока не проверены источники, свойства товара и рекламный режим.",
+    nextLabel: "Утвердить ТЗ и создать задачи",
+    nextHref: "#/workspace/tasks",
+    guideHref: "#/learn/video_quality",
   }),
   generation: Object.freeze({
     kicker: "Шаг 2 из 6",
@@ -503,6 +523,15 @@ const state = {
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   managerRecoveryCooldowns: new Map(),
   managerInviteCooldowns: new Map(),
+  productResearch: {
+    phase: "idle",
+    record: null,
+    error: "",
+    notice: "",
+    pollTimer: null,
+    requestId: 0,
+    restoreAttempted: false,
+  },
   generationArchive: {
     filters: normalizeGenerationFilters(),
     loadingMore: false,
@@ -512,7 +541,7 @@ const state = {
   },
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   sections: Object.fromEntries(
-    WORKSPACE_TABS.map(([key]) => [key, { status: "idle", data: null, error: null, requestId: 0 }]),
+    WORKSPACE_TABS.map(([key]) => [key, { status: key === "research" ? "ready" : "idle", data: null, error: null, requestId: 0 }]),
   ),
   sessionId: getSessionId(),
 };
@@ -584,6 +613,7 @@ function bindGlobalEvents() {
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
     if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
+    if (state.route.path !== "/workspace/research") stopProductResearchPolling();
     if (
       state.route.path === "/workspace/team"
       && state.managerDashboard.status === "ready"
@@ -2265,7 +2295,9 @@ function learningScaffold(content, activePath) {
 
 function renderWorkspace(section) {
   const sectionState = section === "home" ? state.home : state.sections[section];
-  if (sectionState.status === "idle") {
+  if (section === "research" && sectionState.status === "idle") {
+    sectionState.status = "ready";
+  } else if (sectionState.status === "idle") {
     window.queueMicrotask(() => section === "home" ? loadHome() : loadSection(section));
   }
 
@@ -2277,6 +2309,7 @@ function renderWorkspace(section) {
     payouts: renderPayoutsSection,
     tasks: renderTasksSection,
     media: renderMediaSection,
+    research: renderProductResearchSection,
     feedback: renderFeedbackSection,
     team: renderTeamSection,
   }[section];
@@ -2479,10 +2512,17 @@ function canManageTeam() {
   return ["owner", "admin"].includes(state.bootstrap?.membership?.role);
 }
 
+function canManageProductResearch() {
+  return ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
+}
+
 function visibleWorkspaceTabs() {
   return [
     WORKSPACE_HOME_TAB,
-    ...WORKSPACE_TABS.filter(([key]) => key !== "team" || canManageTeam()),
+    ...WORKSPACE_TABS.filter(([key]) => (
+      (key !== "team" || canManageTeam())
+      && (key !== "research" || canManageProductResearch())
+    )),
   ];
 }
 
@@ -2712,6 +2752,7 @@ async function loadSection(section, options = {}) {
     target.status = "error";
   }
   if (state.route.path === `/workspace/${section}`) render();
+  else if (options.rerenderSection && state.route.path === `/workspace/${options.rerenderSection}`) render();
   else if (options.silent && section === "team") syncGenerationAssigneeOptions();
 }
 
@@ -3067,6 +3108,21 @@ function generationAssignableMembers() {
       role: state.bootstrap?.membership?.role,
       status: "active",
       exam_passed: true,
+    });
+  }
+  return members;
+}
+
+function productResearchAssignableMembers() {
+  const members = listFrom(state.sections.team.data || {}, "members")
+    .filter((member) => member.status === "active" && member.profile_id);
+  if (state.user?.id && !members.some((member) => String(member.profile_id) === String(state.user.id))) {
+    members.unshift({
+      profile_id: state.user.id,
+      display_name: state.bootstrap?.profile?.display_name || state.user.email || "Вы",
+      email: state.user.email || "",
+      role: state.bootstrap?.membership?.role,
+      status: "active",
     });
   }
   return members;
@@ -4026,6 +4082,155 @@ function taskActionsMarkup(item) {
   return "";
 }
 
+function renderProductResearchSection() {
+  if (!canManageProductResearch()) {
+    return `<div class="page-wrap">${alertMarkup("Разбор товара доступен руководителю и продюсеру.", "danger")}</div>`;
+  }
+  const research = state.productResearch;
+  restoreProductResearchSession();
+  const mediaState = state.sections.media;
+  if (mediaState.status === "idle") {
+    window.queueMicrotask(() => loadSection("media", { silent: true, rerenderSection: "research" }));
+  }
+  const teamState = state.sections.team;
+  if (teamState.status === "idle") {
+    window.queueMicrotask(() => loadSection("team", { silent: true, rerenderSection: "research" }));
+  }
+  const media = listFrom(mediaState.data || {}, "media", "items", "artifacts")
+    .filter((item) => String(item.mime_type || "").startsWith("image/") || ["product_photo", "packshot"].includes(String(item.kind || "")));
+  const statusKind = research.record ? productResearchStatusKind(research.record.status) : "";
+  let content;
+  if (["starting", "processing"].includes(research.phase) || statusKind === "active") {
+    content = productResearchProgressMarkup(research.record, research.error);
+  } else if (research.record && ["ready", "approved"].includes(statusKind)) {
+    content = productResearchResultMarkup(research.record, {
+      saving: research.phase === "saving",
+      approving: research.phase === "approving",
+      notice: research.notice,
+      error: research.error,
+      members: productResearchAssignableMembers(),
+      defaultAssigneeId: state.user?.id || "",
+    });
+  } else if (research.phase === "error" && research.record) {
+    content = productResearchProgressMarkup(research.record, research.error);
+  } else {
+    content = productResearchInputMarkup({
+      media,
+      mediaLoading: ["idle", "loading"].includes(mediaState.status),
+      error: research.error,
+    });
+  }
+  return `
+    <div class="page-wrap product-research-page">
+      ${pageHeader(
+        "Разбор товара",
+        "Фото, карточка и подтверждённые вводные превращаются в редактируемое ТЗ, три сценария и честную оценку потенциала.",
+        `<span class="badge badge-info">Человек утверждает итог</span>`,
+      )}
+      ${content}
+    </div>`;
+}
+
+function stopProductResearchPolling() {
+  if (state.productResearch.pollTimer) window.clearTimeout(state.productResearch.pollTimer);
+  state.productResearch.pollTimer = null;
+}
+
+function productResearchRunStorageKey() {
+  const userId = String(state.user?.id || "").trim();
+  const organizationId = String(state.bootstrap?.organization?.id || state.api?.organizationId || "").trim();
+  return userId && organizationId
+    ? `${PRODUCT_RESEARCH_RUN_STORAGE_KEY}:${organizationId}:${userId}`
+    : "";
+}
+
+function persistProductResearchRunId(runId) {
+  const key = productResearchRunStorageKey();
+  const normalizedRunId = String(runId || "").trim();
+  if (!key || !normalizedRunId) return;
+  try {
+    window.sessionStorage.setItem(key, normalizedRunId);
+  } catch {
+    // Status recovery remains available inside the current SPA session.
+  }
+}
+
+function clearProductResearchRunId() {
+  const key = productResearchRunStorageKey();
+  if (!key) return;
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // A blocked storage API must not prevent starting a fresh research run.
+  }
+}
+
+function restoreProductResearchSession() {
+  const research = state.productResearch;
+  if (research.restoreAttempted || research.record) return;
+  research.restoreAttempted = true;
+  const key = productResearchRunStorageKey();
+  if (!key) return;
+  let runId = "";
+  try {
+    runId = String(window.sessionStorage.getItem(key) || "").trim();
+  } catch {
+    return;
+  }
+  if (!runId) return;
+  research.record = normalizeProductResearch({ run: { id: runId, status: "queued" } });
+  research.phase = "processing";
+  window.queueMicrotask(() => pollProductResearchStatus({ silent: true }));
+}
+
+function scheduleProductResearchPolling(delay = PRODUCT_RESEARCH_POLL_INTERVAL_MS) {
+  stopProductResearchPolling();
+  if (
+    state.route.path !== "/workspace/research"
+    || !state.productResearch.record?.id
+    || productResearchStatusKind(state.productResearch.record.status) !== "active"
+  ) return;
+  state.productResearch.pollTimer = window.setTimeout(() => {
+    state.productResearch.pollTimer = null;
+    pollProductResearchStatus({ silent: true });
+  }, Math.max(250, Number(delay) || PRODUCT_RESEARCH_POLL_INTERVAL_MS));
+}
+
+async function pollProductResearchStatus({ silent = false } = {}) {
+  const research = state.productResearch;
+  const runId = String(research.record?.id || "");
+  if (!runId || ["starting", "saving", "approving"].includes(research.phase)) return;
+  const requestId = research.requestId + 1;
+  research.requestId = requestId;
+  if (!silent) {
+    research.phase = "processing";
+    research.error = "";
+    renderWorkspace("research");
+  }
+  try {
+    const raw = await withUiTimeout(
+      state.api.productResearchStatus(runId),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "product_research_status_timeout",
+    );
+    if (requestId !== research.requestId || runId !== String(research.record?.id || "")) return;
+    research.record = normalizeProductResearch(raw, research.record);
+    const kind = productResearchStatusKind(research.record.status);
+    research.phase = kind === "failed" ? "error" : kind === "active" ? "processing" : kind;
+    research.error = kind === "failed"
+      ? (research.record.failureMessage || "Исследование завершилось с ошибкой. Проверьте вводные или начните новый разбор.")
+      : "";
+  } catch (error) {
+    if (requestId !== research.requestId) return;
+    research.phase = "error";
+    research.error = String(error?.message || "") === "product_research_status_timeout"
+      ? "Сервер не ответил вовремя. Запуск не потерян — проверьте статус ещё раз."
+      : actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+  scheduleProductResearchPolling();
+}
+
 function renderMediaSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "media", "items", "artifacts");
@@ -4371,6 +4576,25 @@ async function handleClick(event) {
 
   if (action === "set-portal-theme") {
     applyPortalTheme(control.dataset.themeValue, { persist: true, announce: true });
+    return;
+  }
+
+  if (action === "refresh-product-research") {
+    await pollProductResearchStatus();
+    return;
+  }
+
+  if (action === "new-product-research") {
+    stopProductResearchPolling();
+    clearProductResearchRunId();
+    state.productResearch.requestId += 1;
+    state.productResearch.phase = "idle";
+    state.productResearch.record = null;
+    state.productResearch.error = "";
+    state.productResearch.notice = "";
+    state.productResearch.restoreAttempted = true;
+    renderWorkspace("research");
+    window.queueMicrotask(() => document.querySelector('#product-research-start-form input[name="product_name"]')?.focus());
     return;
   }
 
@@ -4731,6 +4955,8 @@ async function handleSubmit(event) {
   else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
   else if (form.id === "generation-archive-filter-form") submitGenerationArchiveFilters(form);
+  else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
+  else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
@@ -5740,6 +5966,219 @@ async function normalizePasswordFunctionError(error) {
   return normalized;
 }
 
+async function submitProductResearchStart(form) {
+  const values = new FormData(form);
+  const productName = String(values.get("product_name") || "").trim();
+  const sku = String(values.get("sku") || "").trim();
+  const marketplaceUrl = String(values.get("marketplace_url") || "").trim();
+  const sourceMediaIds = values.getAll("source_media_ids").map(String).filter(Boolean);
+  const platforms = values.getAll("platforms").map(String).filter((item) => ["instagram", "youtube", "vk"].includes(item));
+  if (!platforms.length) {
+    toast("Выберите хотя бы одну площадку: Instagram, YouTube или VK.", "error");
+    form.querySelector(".product-research-platforms")?.scrollIntoView({ block: "center" });
+    return;
+  }
+  if (!marketplaceUrl && !sourceMediaIds.length) {
+    toast("Добавьте публичную ссылку на товар или выберите хотя бы одно точное фото.", "error");
+    return;
+  }
+  if (sourceMediaIds.length > 5) {
+    toast("Для одного анализа выберите не больше пяти самых точных фотографий.", "error");
+    return;
+  }
+  if (marketplaceUrl && !isHttpsUrl(marketplaceUrl)) {
+    toast("Ссылка на товар должна начинаться с https://", "error");
+    form.elements.marketplace_url?.focus();
+    return;
+  }
+  const objectiveLabels = {
+    conversion: "Подготовить нативные товарные ролики для переходов и заказов",
+    awareness: "Подготовить ролики для узнаваемости товара и бренда",
+    ugc: "Подготовить естественный UGC-обзор от лица блогера",
+    education: "Понятно показать применение товара и снять основные вопросы",
+  };
+  const objectiveKey = String(values.get("objective") || "conversion");
+  const knownFacts = String(values.get("known_facts") || "").trim();
+  const objective = [objectiveLabels[objectiveKey] || objectiveLabels.conversion, knownFacts ? `Подтверждённые вводные пользователя: ${knownFacts}` : ""]
+    .filter(Boolean)
+    .join("\n");
+  const previous = normalizeProductResearch({ run: { status: "queued" } }, {
+    productName,
+    sku,
+    status: "queued",
+  });
+  stopProductResearchPolling();
+  state.productResearch.requestId += 1;
+  state.productResearch.phase = "starting";
+  state.productResearch.record = previous;
+  state.productResearch.error = "";
+  state.productResearch.notice = "";
+  renderWorkspace("research");
+  try {
+    const raw = await state.api.startProductResearch(
+      {
+        sku,
+        product_name: productName,
+        objective,
+        marketplace_url: marketplaceUrl || null,
+        source_media_ids: sourceMediaIds,
+        platforms,
+      },
+      {
+        onRunCreated: (run) => {
+          persistProductResearchRunId(run?.id);
+          state.productResearch.record = normalizeProductResearch({ run }, previous);
+        },
+      },
+    );
+    state.productResearch.record = normalizeProductResearch(raw, previous);
+    persistProductResearchRunId(state.productResearch.record.id);
+    const kind = productResearchStatusKind(state.productResearch.record.status);
+    state.productResearch.phase = kind === "ready" ? "ready" : "processing";
+    await track("product_research_started", {
+      run_id: state.productResearch.record.id,
+      source_media_count: sourceMediaIds.length,
+      platform_count: platforms.length,
+    });
+  } catch (error) {
+    const recoverableRun = error?.job?.id
+      ? normalizeProductResearch({ run: error.job }, previous)
+      : null;
+    state.productResearch.record = recoverableRun;
+    state.productResearch.phase = "error";
+    state.productResearch.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+  scheduleProductResearchPolling(800);
+}
+
+async function submitProductResearchBrief(form, submitter) {
+  const research = state.productResearch;
+  const mode = String(submitter?.dataset?.researchSubmit || "save");
+  if (!research.record?.id || !["save", "approve"].includes(mode)) {
+    toast("Не удалось определить действие с ТЗ. Обновите раздел.", "error");
+    return;
+  }
+  if (mode === "approve" && form.elements.approve_ack?.checked !== true) {
+    toast("Перед созданием задач подтвердите ручную проверку фактов и сценариев.", "error");
+    form.elements.approve_ack?.focus();
+    return;
+  }
+  const draft = readProductResearchBrief(form);
+  if (draft.scenarios.some((scenario) => !scenario.hook || !scenario.script || !scenario.task_title)) {
+    toast("В каждом из трёх сценариев заполните хук, реплику и название задачи.", "error");
+    return;
+  }
+  const sourceIds = Array.from(new Set(research.record.sourceIds || [])).filter(Boolean);
+  if (!sourceIds.length) {
+    toast("У ТЗ нет подтверждённых источников. Обновите статус исследования.", "error");
+    return;
+  }
+  const editableBrief = mergeProductResearchBrief(research.record.rawBrief, draft);
+  const taskBlueprint = productResearchTaskBlueprint(draft.scenarios);
+  research.phase = mode === "approve" ? "approving" : "saving";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const saved = await state.api.saveCreativeBriefDraft(research.record.id, {
+      title: draft.title,
+      brief: editableBrief,
+      source_ids: sourceIds,
+      task_blueprint: taskBlueprint,
+    });
+    const savedDraftId = String(saved?.draft?.id || saved?.data?.draft?.id || "");
+    const localRecord = normalizeProductResearch({
+      run: { id: research.record.id, status: "completed" },
+      latest_draft: {
+        id: savedDraftId || research.record.draftId,
+        title: draft.title,
+        brief: editableBrief,
+        source_ids: sourceIds,
+        task_blueprint: taskBlueprint,
+      },
+      sources: research.record.sources,
+      forecasts: [{
+        score: research.record.score,
+        confidence: research.record.confidence,
+        factors: {
+          strengths: research.record.factors.filter((factor) => factor.impact >= 0).map((factor) => factor.label),
+          risks: research.record.factors.filter((factor) => factor.impact < 0).map((factor) => factor.label),
+        },
+      }],
+    }, research.record);
+    research.record = localRecord;
+    form.removeAttribute("data-dirty");
+    if (mode === "approve") {
+      const draftId = savedDraftId || localRecord.draftId;
+      const approved = await state.api.approveCreativeBrief(draftId);
+      research.record = normalizeProductResearch(approved, {
+        ...localRecord,
+        status: "approved",
+      });
+      research.phase = "approved";
+      research.notice = "ТЗ утверждено. Портал создал три связанные задачи без повторного копирования текста.";
+      state.sections.tasks.status = "idle";
+      await track("product_research_approved", {
+        run_id: research.record.id,
+        task_count: research.record.taskIds.length,
+      });
+    } else {
+      research.phase = "ready";
+      research.notice = "Черновик сохранён новой версией. Задачи ещё не создавались.";
+      await track("product_research_draft_saved", { run_id: research.record.id });
+    }
+  } catch (error) {
+    research.phase = "ready";
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+function mergeProductResearchBrief(base, draft) {
+  const original = base && typeof base === "object" && !Array.isArray(base) ? base : {};
+  const originalScenarios = Array.isArray(original.scenarios) ? original.scenarios : [];
+  return {
+    ...original,
+    target_audience: draft.target_audience,
+    key_message: draft.key_message,
+    proof_points: splitResearchLines(draft.proof_points),
+    avoid_claims: splitResearchLines(draft.avoid_claims),
+    visual_direction: draft.visual_direction,
+    cta: draft.cta,
+    scenarios: draft.scenarios.map((scenario, index) => ({
+      ...(originalScenarios[index] || {}),
+      title: scenario.title,
+      platform: scenario.platform,
+      hook: scenario.hook,
+      spoken_script: scenario.script,
+      shot_list: splitResearchLines(scenario.shot_list),
+      task_title: scenario.task_title,
+    })),
+  };
+}
+
+function productResearchTaskBlueprint(scenarios) {
+  return scenarios.map((scenario) => ({
+    task_type: "general",
+    assignee_id: scenario.assignee_id,
+    title: scenario.task_title,
+    instructions: [
+      `Угол подачи: ${scenario.title}`,
+      `Площадка: ${scenario.platform}`,
+      `Хук: ${scenario.hook}`,
+      `Реплика блогера: ${scenario.script}`,
+      `Кадры:\n${scenario.shot_list}`,
+    ].join("\n"),
+    priority: 3,
+    payout_minor: 0,
+  }));
+}
+
+function splitResearchLines(value) {
+  return String(value || "").split(/\r?\n/u).map((item) => item.trim()).filter(Boolean);
+}
+
 async function submitMedia(form) {
   const values = new FormData(form);
   const file = values.get("file");
@@ -5902,6 +6341,7 @@ function clearAuthenticatedState() {
   state.accountVisualStates.clear();
   clearAccountLaunchChecks(state.user?.id);
   stopRealGenerationPolling();
+  stopProductResearchPolling();
   if (state.resetCountdownTimer) window.clearInterval(state.resetCountdownTimer);
   setMobileNavOpen(false);
   state.dataEpoch += 1;
@@ -5936,6 +6376,12 @@ function clearAuthenticatedState() {
   state.managerDashboard.updatedAt = 0;
   state.managerRecoveryCooldowns.clear();
   state.managerInviteCooldowns.clear();
+  state.productResearch.requestId += 1;
+  state.productResearch.phase = "idle";
+  state.productResearch.record = null;
+  state.productResearch.error = "";
+  state.productResearch.notice = "";
+  state.productResearch.restoreAttempted = false;
   state.generationArchive.requestId += 1;
   state.generationArchive.filters = normalizeGenerationFilters();
   state.generationArchive.loadingMore = false;

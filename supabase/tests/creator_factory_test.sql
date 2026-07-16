@@ -54,12 +54,14 @@ select is(
         'creator_transition_task', 'creator_create_feedback',
         'creator_register_media', 'creator_capture_event',
         'creator_start_real_generation', 'creator_real_generation_status',
-        'creator_invite_delivery_attempts', 'creator_manager_dashboard'
+        'creator_invite_delivery_attempts', 'creator_manager_dashboard',
+        'creator_start_product_research', 'creator_product_research_status',
+        'creator_save_creative_brief_draft', 'creator_approve_creative_brief'
       ])
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  18,
+  22,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -72,7 +74,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  18,
+  22,
   'authenticated can execute all creator RPCs'
 );
 
@@ -98,7 +100,9 @@ select is(
       and procedure.proname in (
         'system_initialize_owner',
         'system_provision_invited_member',
-        'system_reconcile_invited_member'
+        'system_reconcile_invited_member',
+        'system_claim_product_research',
+        'system_complete_product_research'
       )
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
@@ -115,11 +119,13 @@ select is(
       and procedure.proname in (
         'system_initialize_owner',
         'system_provision_invited_member',
-        'system_reconcile_invited_member'
+        'system_reconcile_invited_member',
+        'system_claim_product_research',
+        'system_complete_product_research'
       )
       and has_function_privilege('service_role', procedure.oid, 'execute')
   ),
-  3,
+  5,
   'service_role can execute all system onboarding RPCs'
 );
 

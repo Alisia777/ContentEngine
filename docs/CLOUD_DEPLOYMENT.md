@@ -28,24 +28,22 @@ credential. Every business mutation goes through a narrow `public.creator_*`
 RPC that derives the caller from `auth.uid()`. Durable state lives in PostgreSQL
 and private media lives in Supabase Storage.
 
-There is no general production application server or container. The only
-server-side HTTP function in this release is the authenticated
-`creator-invite` administrative boundary. The Python/FastAPI monolith in
-`app/`, `scripts/`, `migrations/`, and `Dockerfile` remains a reference
-implementation and regression harness only.
+There is no general production application server or container. Narrow,
+authenticated Supabase Edge Functions provide the server-only boundaries for
+invitations, password setup, paid video generation, and product research. The
+Python/FastAPI monolith in `app/`, `scripts/`, `migrations/`, and `Dockerfile`
+remains a reference implementation and regression harness only.
 
 ## Current MVP capability boundary
 
-The Supabase-native MVP is deliberately `mock-only` for generation. It can
-create batches of at most 50 generation tasks, move work through review and
-placement, register private media, collect manual metric snapshots, preserve
-Wildberries replacement-article history, record payouts, and measure the
-funnel. Database guards reject `real` generation and any spend flag.
-
-No OpenAI or Runway secret is needed or accepted by the Pages deployment. Real
-provider execution requires a separate server-side queue/Edge Function design,
-an idempotent spend ledger, and explicit owner approval; it is not silently
-enabled by this release.
+The Supabase-native portal supports both free mock tasks and explicitly
+confirmed paid provider operations. Paid video generation and paid product
+research remain behind authenticated Edge Functions, role/certification gates,
+idempotent database commands, quotas, and a human confirmation in the portal.
+Provider keys are server-only Supabase secrets and never enter the Pages
+artifact. Product research produces source-backed editable drafts and a
+heuristic creative-potential score; it does not promise views or sales and does
+not create creator tasks until a person approves the draft.
 
 ## Repository contract
 
@@ -118,6 +116,8 @@ encrypted secrets in that environment:
 | `SUPABASE_ACCESS_TOKEN` | Revocable Supabase personal access token used only by the production migration/configuration steps |
 | `SUPABASE_EXAM_KEYS_B64` | Base64-encoded, idempotent SQL payload that provisions the private exam grading keys after migrations |
 | `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
+| `RUNWAYML_API_SECRET` | Server-only provider key synchronized to Supabase for explicitly confirmed paid video generation |
+| `OPENAI_API_KEY` | Server-only provider key synchronized to Supabase for explicitly confirmed product research with web search and image analysis |
 
 Configure these as repository **Variables**, because the independent Pages
 build job must read them:
@@ -278,10 +278,11 @@ If a migration fails, Pages is not published by the workflow.
 ## Scaling for 50+ creators
 
 GitHub Pages serves static assets and does not hold sessions or files. Supabase
-handles Auth, database concurrency, RLS, and object storage. Add indexes and RPC
-pagination based on measured query latency; do not add client-side table access
-or shared secrets to improve speed. Generation remains mock/task preparation
-until a separately approved server-side executor exists.
+handles Auth, database concurrency, RLS, object storage, and the narrow
+provider-facing Edge Functions. Add indexes and RPC pagination based on measured
+query latency; do not add client-side table access or shared secrets to improve
+speed. Every paid action must keep its explicit confirmation, quota,
+idempotency, and audit trail as capacity grows.
 
 An owner/admin uses the **Команда** tab, which calls the authenticated
 `creator-invite` Edge Function for batches of at most 50 unique addresses. The

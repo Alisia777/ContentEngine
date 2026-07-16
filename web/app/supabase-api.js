@@ -24,9 +24,14 @@ export const RPC = Object.freeze({
   captureEvent: "creator_capture_event",
   inviteAttempts: "creator_invite_delivery_attempts",
   managerDashboard: "creator_manager_dashboard",
+  startProductResearch: "creator_start_product_research",
+  productResearchStatus: "creator_product_research_status",
+  saveCreativeBriefDraft: "creator_save_creative_brief_draft",
+  approveCreativeBrief: "creator_approve_creative_brief",
 });
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
+const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
     duration_seconds: 5,
@@ -161,6 +166,127 @@ export class CreatorApi {
 
   managerDashboard() {
     return this.call(RPC.managerDashboard, this.withOrganization({}));
+  }
+
+  async startProductResearch(input, { onRunCreated } = {}) {
+    const productName = String(input?.product_name || "").trim();
+    const sku = String(input?.sku || "").trim();
+    if (!productName || !sku || productName.length > 180 || sku.length > 120) {
+      throw new CreatorApiError("Укажите название товара и проверьте артикул.", {
+        code: "product_research_input_invalid",
+      });
+    }
+    const supportedPlatforms = new Set(["instagram", "youtube", "vk"]);
+    if (
+      !Array.isArray(input?.platforms)
+      || input.platforms.length < 1
+      || input.platforms.some((platform) => !supportedPlatforms.has(String(platform)))
+    ) {
+      throw new CreatorApiError("Выберите хотя бы одну площадку для будущих роликов.", {
+        code: "product_research_platform_required",
+      });
+    }
+
+    const created = await this.mutate(RPC.startProductResearch, input);
+    const source = created?.data && typeof created.data === "object" ? created.data : created;
+    const run = source?.run || source?.research || {};
+    const runId = String(run?.id || source?.run_id || source?.research_id || source?.id || "").trim();
+    if (!runId) {
+      throw new CreatorApiError("Сервер не вернул номер исследования. Обновите раздел и повторите.", {
+        code: "product_research_run_missing",
+      });
+    }
+    if (typeof onRunCreated === "function") {
+      try {
+        onRunCreated({ id: runId, status: String(run?.status || "queued") });
+      } catch {
+        // Recovery storage is a UI convenience; it must not cancel a paid run.
+      }
+    }
+
+    let accepted;
+    try {
+      accepted = await this.invokeProductResearch({
+        action: "analyze",
+        research_id: runId,
+      });
+    } catch (error) {
+      error.job = { id: runId, status: String(run?.status || "queued") };
+      throw error;
+    }
+    return { ...source, run: { ...run, id: runId }, analysis_request: accepted };
+  }
+
+  productResearchStatus(runId) {
+    return this.call(RPC.productResearchStatus, this.withOrganization({
+      run_id: this.requireResearchRunId(runId),
+    }));
+  }
+
+  saveCreativeBriefDraft(runId, draft) {
+    return this.mutate(RPC.saveCreativeBriefDraft, {
+      run_id: this.requireResearchRunId(runId),
+      title: draft?.title,
+      brief: draft?.brief,
+      source_ids: draft?.source_ids,
+      task_blueprint: draft?.task_blueprint,
+    });
+  }
+
+  approveCreativeBrief(draftId) {
+    const normalizedDraftId = String(draftId || "").trim();
+    if (!normalizedDraftId || normalizedDraftId.length > 128) {
+      throw new CreatorApiError("Сначала сохраните актуальный черновик ТЗ.", {
+        code: "creative_brief_draft_invalid",
+      });
+    }
+    return this.mutate(RPC.approveCreativeBrief, {
+      draft_id: normalizedDraftId,
+    });
+  }
+
+  requireResearchRunId(value) {
+    const runId = String(value || "").trim();
+    if (!runId || runId.length > 128) {
+      throw new CreatorApiError("Не удалось определить исследование. Начните новый разбор.", {
+        code: "product_research_run_invalid",
+      });
+    }
+    return runId;
+  }
+
+  async invokeProductResearch(payload) {
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      throw new CreatorApiError("Сессия истекла. Войдите снова перед запуском анализа.", {
+        code: "auth_session_required",
+      });
+    }
+
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(PRODUCT_RESEARCH_FUNCTION, {
+        body: payload,
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }));
+    } catch {
+      throw new CreatorApiError("Не удалось запустить анализ товара. Повторите попытку позже.", {
+        code: "product_research_request_failed",
+      });
+    }
+    if (error) {
+      throw new CreatorApiError("Сервис анализа товара временно недоступен. Запуск сохранён — проверьте его статус позже.", {
+        code: error?.code || "product_research_request_failed",
+      });
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data) || data.ok === false || data.error) {
+      throw new CreatorApiError("Сервис анализа товара вернул некорректный ответ.", {
+        code: "product_research_response_invalid",
+      });
+    }
+    return data;
   }
 
   createMockBatch(batch) {
@@ -579,6 +705,33 @@ function toFriendlyMessage(error) {
     origin_not_allowed: "Платная генерация недоступна с этого адреса портала.",
     generation_rejected: "Сервер отклонил платный запуск. Проверьте доступ, исходник и подтверждение расходов.",
     generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
+    product_research_input_invalid: "Проверьте название товара и артикул.",
+    product_research_platform_required: "Выберите хотя бы одну площадку для будущих роликов.",
+    product_research_run_missing: "Сервер не вернул номер исследования. Обновите раздел и повторите.",
+    product_research_run_invalid: "Не удалось определить исследование. Начните новый разбор.",
+    product_research_request_failed: "Не удалось запустить анализ товара. Повторите попытку позже.",
+    product_research_response_invalid: "Сервис анализа товара вернул некорректный ответ.",
+    research_payload_too_large: "Слишком много вводных для одного разбора. Сократите текст или количество фотографий.",
+    research_payload_invalid: "Проверьте название, артикул, ссылку и вводные товара.",
+    marketplace_url_invalid: "Укажите полную публичную ссылку на карточку товара, начиная с https://.",
+    source_media_ids_invalid: "Можно выбрать не более пяти фотографий товара.",
+    platforms_invalid: "Выберите хотя бы одну площадку: Instagram, YouTube или VK.",
+    research_source_required: "Добавьте публичную ссылку на товар или точное фото из «Материалов».",
+    research_user_daily_limit: "Ваш дневной лимит анализов исчерпан. Новые платные запросы будут доступны после обновления лимита.",
+    research_org_daily_limit: "Дневной лимит анализов команды исчерпан. Обратитесь к руководителю.",
+    research_media_not_allowed: "Выбранное фото недоступно для анализа. Проверьте формат, права и статус материала.",
+    research_run_not_found: "Исследование не найдено. Начните новый разбор.",
+    research_run_not_allowed: "У вас нет доступа к этому исследованию.",
+    research_run_not_completed: "Анализ ещё не завершён. Сначала обновите его статус.",
+    input_validation_failed: "Сервис не смог безопасно прочитать исходные данные. Проверьте товар и начните новый разбор.",
+    processing_lease_expired: "Анализ завершён по безопасному таймауту и не будет запущен повторно автоматически. Новый запуск требует отдельного подтверждения.",
+    provider_outcome_unknown: "Провайдер мог принять платный запрос, но результат не подтверждён. Автоматического повторного списания нет — перед новым запуском проверьте расходы.",
+    source_ids_invalid: "У ТЗ нет подтверждённых источников. Обновите исследование.",
+    brief_source_mismatch: "Один из источников больше не относится к этому исследованию. Обновите раздел.",
+    task_blueprint_invalid: "Проверьте названия и содержание трёх будущих задач.",
+    creative_brief_draft_invalid: "Сначала сохраните актуальный черновик ТЗ.",
+    creative_brief_not_latest: "ТЗ уже изменилось в другой вкладке. Обновите раздел перед утверждением.",
+    creative_brief_not_approvable: "Этот черновик уже обработан. Обновите раздел.",
     provider_unavailable: "Сервис видео временно недоступен. Повторите проверку позже — новый платный запуск не требуется.",
     invalid_batch_size: "За один раз можно создать от 1 до 50 тестовых вариантов.",
     count_invalid: "За один раз можно создать от 1 до 50 тестовых вариантов.",

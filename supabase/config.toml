@@ -86,5 +86,8 @@ verify_jwt = true
 [functions.creator-generate]
 verify_jwt = true
 
+[functions.creator-product-research]
+verify_jwt = true
+
 [analytics]
 enabled = false

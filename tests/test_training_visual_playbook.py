@@ -540,6 +540,6 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
     assert 'aria-controls="mobile-navigation"' in APP
 
     for asset in ("styles.css", "config.js", "app.js"):
-        assert f'./{asset}?v=20260715.7' in INDEX
-    assert './supabase-api.js?v=20260715.7' in APP
-    assert './catalog.js?v=20260715.7' in APP
+        assert f'./{asset}?v=20260715.8' in INDEX
+    assert './supabase-api.js?v=20260715.8' in APP
+    assert './catalog.js?v=20260715.8' in APP
