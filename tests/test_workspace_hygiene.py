@@ -62,6 +62,7 @@ def test_workspace_hygiene_gitignore_covers_runtime_artifacts():
         "*.tmp",
     }
     assert required_entries.issubset(set(gitignore))
+    assert "!web/app/assets/training/*.mp4" in gitignore
 
 
 def test_clean_local_artifacts_dry_run_is_safe():
@@ -84,6 +85,9 @@ def test_no_runtime_artifacts_tracked_in_repository():
     forbidden_suffixes = (".db", ".sqlite", ".sqlite3", ".mp4", ".mov", ".webm", ".avi")
     forbidden_exact = {".env"}
     forbidden_prefixes = ("media/", "logs/")
+    curated_training_prefix = "web/app/assets/training/"
+    curated_training_suffixes = (".mp4", ".webm")
+    curated_training_max_bytes = 20 * 1024 * 1024
 
     offenders = []
     for file_path in tracked_files:
@@ -93,6 +97,14 @@ def test_no_runtime_artifacts_tracked_in_repository():
         elif normalized.startswith(forbidden_prefixes):
             offenders.append(normalized)
         elif normalized.endswith(forbidden_suffixes):
-            offenders.append(normalized)
+            is_curated_training_asset = (
+                normalized.startswith(curated_training_prefix)
+                and normalized.endswith(curated_training_suffixes)
+            )
+            if not is_curated_training_asset:
+                offenders.append(normalized)
+                continue
+            asset = REPO_ROOT / normalized
+            assert 0 < asset.stat().st_size <= curated_training_max_bytes
 
     assert offenders == []
