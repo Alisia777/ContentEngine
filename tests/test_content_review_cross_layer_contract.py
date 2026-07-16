@@ -209,6 +209,10 @@ def test_legal_sources_and_release_gate_are_durable_not_cosmetic() -> None:
     assert "'placement'" in migration
     assert "content-review-placement-task:" in migration
     assert "content-review-placement:" in migration
+    assert (
+        "on conflict on constraint placements_organization_id_task_id_key"
+        in migration
+    )
 
 
 def test_release_context_queue_risks_and_publication_url_fail_closed() -> None:
@@ -248,3 +252,5 @@ def test_release_context_queue_risks_and_publication_url_fail_closed() -> None:
     assert "ad_probability: adProbability" in edge
     assert "SCOPE.BROWSER_FRAMES_ADVISORY" in edge
     assert "external_ai_processing_basis_required" in edge
+    assert "length(final_url_value) not between 12 and 2000" in migration
+    assert "{3,1992}" not in migration

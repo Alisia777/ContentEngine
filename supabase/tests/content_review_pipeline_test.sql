@@ -797,7 +797,7 @@ select is(
       'organization_id', '95100000-0000-4000-8000-000000000001'
     )) -> 'media'
   ),
-  2,
+  3,
   'operator catalog contains only owned eligible media'
 );
 

@@ -2140,7 +2140,8 @@ begin
         'media_watched_confirmed', media_watched_value
       )
     )
-    on conflict (organization_id, task_id) do nothing
+    on conflict on constraint placements_organization_id_task_id_key
+      do nothing
     returning id into placement_id_value;
 
     if placement_id_value is null then
@@ -2495,7 +2496,8 @@ begin
   if final_url_value is null then
     return true;
   end if;
-  if final_url_value !~ '^https://[^[:space:]]{3,1992}$' then
+  if length(final_url_value) not between 12 and 2000
+     or final_url_value !~ '^https://[^[:space:]]+$' then
     return false;
   end if;
 
