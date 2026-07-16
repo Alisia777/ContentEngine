@@ -698,8 +698,8 @@ select is(
     'organization_id', '93100000-0000-4000-8000-000000000001',
     'run_id', (select run_id from research_test_context)
   )) -> 'sources'),
-  3,
-  'status returns its citations'
+  4,
+  'status returns every citation, including immutable product-photo evidence'
 );
 
 update research_test_context context
