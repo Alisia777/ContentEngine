@@ -1,18 +1,18 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260715.8";
+import { CreatorApi } from "./supabase-api.js?v=20260716.1";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260715.8";
+} from "./catalog.js?v=20260716.1";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260715.8";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260715.8";
+} from "./account-launch-view.js?v=20260716.1";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260716.1";
 import {
   normalizeProductResearch,
   productResearchInputMarkup,
@@ -20,14 +20,14 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260715.8";
+} from "./product-research-view.js?v=20260716.1";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260715.8";
+} from "./first-shift-full-scenario.js?v=20260716.1";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -42,10 +42,23 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260715.8";
+} from "./portal-experience.js?v=20260716.1";
+import {
+  normalizeWorkspaceBoard,
+  workspaceBoardItemByKey,
+  workspaceBoardItemKey,
+  workspaceBoardMarkup,
+} from "./workspace-board-view.js?v=20260716.1";
+import {
+  normalizeInteractiveWalkthroughs,
+  setTrainingWalkthroughStep,
+  stopTrainingWalkthrough,
+  trainingInteractiveMarkup,
+  trainingWalkthroughStorageKey,
+} from "./training-interactive.js?v=20260716.1";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260715.8";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.1";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -70,6 +83,14 @@ const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
+const OPERATIONAL_WORKSPACE_ROLES = new Set([
+  "owner",
+  "admin",
+  "producer",
+  "reviewer",
+  "operator",
+]);
+const TRAINING_WALKTHROUGH_STEP_INTERVAL_MS = 4_500;
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_GENERATION_SKUS = Object.freeze({
@@ -532,6 +553,20 @@ const state = {
     requestId: 0,
     restoreAttempted: false,
   },
+  workspaceBoard: {
+    selectedFolderId: "all",
+    selectedItemKey: "",
+    query: "",
+    entityType: "all",
+    busy: false,
+    notice: "",
+    error: "",
+    dragging: null,
+    loadingMore: false,
+    hasMore: false,
+    nextCursor: null,
+  },
+  trainingWalkthroughTimers: new Map(),
   generationArchive: {
     filters: normalizeGenerationFilters(),
     loadingMore: false,
@@ -641,9 +676,11 @@ function bindGlobalEvents() {
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("input", handleFormActivity);
   document.addEventListener("change", handleChange);
+  document.addEventListener("dragstart", handleDragStart);
   document.addEventListener("dragover", handleDragOver);
   document.addEventListener("dragleave", handleDragLeave);
   document.addEventListener("drop", handleDrop);
+  document.addEventListener("dragend", handleDragEnd);
   document.addEventListener("keydown", handleKeyDown);
 }
 
@@ -910,8 +947,18 @@ function membershipLockDetails(bootstrap = state.bootstrap) {
   return MEMBERSHIP_LOCK_COPY[bootstrap?.accessState] || null;
 }
 
+function hasOperationalWorkspaceRole() {
+  const role = String(state.bootstrap?.membership?.role || "");
+  return OPERATIONAL_WORKSPACE_ROLES.has(role);
+}
+
 function hasWorkspaceAccess() {
-  if (!state.bootstrap || state.bootstrap.workspaceAccess !== true || !trainingCatalogReady()) return false;
+  if (
+    !state.bootstrap
+    || state.bootstrap.workspaceAccess !== true
+    || !hasOperationalWorkspaceRole()
+    || !trainingCatalogReady()
+  ) return false;
   const completed = new Set(state.bootstrap.training.completedModules);
   return (
     REQUIRED_MODULE_CODES.every((code) => completed.has(code)) &&
@@ -975,6 +1022,7 @@ function learningCourses() {
         level: String(meta.level || "Практический курс"),
         completionChecklist,
         knowledgeCheck,
+        interactiveWalkthroughs: normalizeInteractiveWalkthroughs(content.interactive_walkthroughs),
         lessons,
       };
     });
@@ -1079,6 +1127,7 @@ async function mountAccountVisualLesson(visualRoot, slug) {
 }
 
 function render() {
+  stopAllTrainingWalkthroughs();
   destroyAccountVisualController();
   const path = state.route.path;
   const accountLaunchSlug = accountLaunchSlugFromPath(path);
@@ -1364,38 +1413,59 @@ function renderLearningHome() {
   const progress = Math.round(((completeCount + (examPassed ? 1 : 0)) / 5) * 100);
   const catalogReady = trainingCatalogReady();
   const workspaceReady = hasWorkspaceAccess();
+  const rolePending = examPassed && !hasOperationalWorkspaceRole();
   const nextCourse = courses.find((course) => !completed.has(course.code));
-  const nextHref = workspaceReady
+  const nextHref = rolePending
+    ? "#/learn/first-shift"
+    : workspaceReady
     ? "#/workspace/home"
     : nextCourse
       ? `#/learn/${encodeURIComponent(nextCourse.code)}`
       : "#/learn/exam";
-  const nextLabel = workspaceReady
+  const nextLabel = rolePending
+    ? "Пройти учебную смену"
+    : workspaceReady
     ? "Перейти к работе"
     : nextCourse
       ? completeCount === 0 ? "Начать с блока 1" : "Продолжить обучение"
       : examPassed ? "Проверить допуск" : "Начать экзамен";
   const nextCourseIndex = nextCourse ? courses.findIndex((course) => course.code === nextCourse.code) : -1;
   const afterNextCourse = nextCourseIndex >= 0 ? courses[nextCourseIndex + 1] : null;
-  const nowTitle = workspaceReady
+  const nowTitle = rolePending
+    ? "Экзамен сдан — ожидается рабочая роль"
+    : workspaceReady
     ? "Допуск готов — откройте рабочий кабинет"
     : nextCourse
       ? `Сейчас: ${nextCourse.title}`
       : "Сейчас: итоговый экзамен";
-  const nowDescription = workspaceReady
+  const nowDescription = rolePending
+    ? "Руководитель должен назначить рабочую роль. До этого кабинет остаётся закрытым, но курсы и безопасная учебная смена доступны."
+    : workspaceReady
     ? "Обучение завершено. Портал покажет одно главное действие на сегодня и проведёт по шести рабочим этапам."
     : nextCourse
       ? `Завершите только этот блок. ${afterNextCourse ? `После него откроется «${afterNextCourse.title}».` : "После него откроется итоговый экзамен."}`
       : "Ответьте на 12 рабочих ситуаций. После успешной попытки автоматически откроется кабинет.";
-  const nowStep = workspaceReady ? "✓" : String(nextCourseIndex >= 0 ? nextCourseIndex + 1 : 5).padStart(2, "0");
+  const nowStep = workspaceReady || rolePending
+    ? "✓"
+    : String(nextCourseIndex >= 0 ? nextCourseIndex + 1 : 5).padStart(2, "0");
+  const heroTitle = workspaceReady
+    ? "Вы готовы к производству"
+    : rolePending
+      ? "Обучение завершено — ожидается роль"
+      : "Освойте весь цикл на одном экране";
+  const heroDescription = workspaceReady
+    ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой."
+    : rolePending
+      ? "Экзамен уже сдан. Рабочие разделы откроются после назначения роли руководителем команды."
+      : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу.";
 
   const content = `
     <div class="page-wrap learning-page">
       <section class="card learning-hero">
         <div class="learning-hero-copy">
           <p class="eyebrow learning-eyebrow">Практическая академия ALTEA</p>
-          <h1>${workspaceReady ? "Вы готовы к производству" : "Освойте весь цикл на одном экране"}</h1>
-          <p>${workspaceReady ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой." : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу."}</p>
+          <h1>${heroTitle}</h1>
+          <p>${heroDescription}</p>
           <div class="learning-hero-actions">
             <a class="btn btn-light" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
             <button class="btn btn-ghost-light" type="button" data-action="scroll-to" data-target="work-map">Посмотреть карту работы</button>
@@ -1604,6 +1674,7 @@ function renderCourse(code) {
         </div>
       </header>
       ${courseVisualExamplesMarkup(course.code)}
+      ${trainingInteractiveMarkup(course.code, course.interactiveWalkthroughs)}
       <div class="course-layout">
         <div>
           <nav class="card course-roadmap" aria-label="Содержание курса">
@@ -1644,7 +1715,120 @@ function renderCourse(code) {
     </div>
   `;
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
+  restoreTrainingWalkthroughState(course.code);
   track("course_opened", { module_code: course.code });
+}
+
+function trainingWalkthroughRoot(control) {
+  return control?.closest?.("[data-training-walkthrough]") || null;
+}
+
+function trainingWalkthroughStateKey(root) {
+  return trainingWalkthroughStorageKey(
+    state.user?.id,
+    root?.dataset?.trainingCourse,
+    root?.dataset?.trainingWalkthrough,
+  );
+}
+
+function persistTrainingWalkthroughState(root) {
+  const key = trainingWalkthroughStateKey(root);
+  if (!key || !root) return;
+  const payload = {
+    step: Math.max(0, Number(root.dataset.trainingStep) || 0),
+    checks: Array.from(root.querySelectorAll("[data-training-check]")).map((input) => input.checked === true),
+  };
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // Training progress in this tab is a convenience; the course gate remains server-side.
+  }
+}
+
+function restoreTrainingWalkthroughState(courseCode) {
+  document.querySelectorAll(`[data-training-course="${CSS.escape(courseCode)}"]`).forEach((root) => {
+    const key = trainingWalkthroughStateKey(root);
+    if (!key) return;
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(key) || "{}");
+      setTrainingWalkthroughStep(root, Math.max(0, Number(saved.step) || 0));
+      const checks = Array.isArray(saved.checks) ? saved.checks : [];
+      root.querySelectorAll("[data-training-check]").forEach((input, index) => {
+        input.checked = checks[index] === true;
+      });
+    } catch {
+      setTrainingWalkthroughStep(root, 0);
+    }
+  });
+}
+
+function stopTrainingWalkthroughSession(root) {
+  const timer = state.trainingWalkthroughTimers.get(root);
+  if (timer) window.clearInterval(timer);
+  state.trainingWalkthroughTimers.delete(root);
+  stopTrainingWalkthrough(root);
+  persistTrainingWalkthroughState(root);
+}
+
+function stopAllTrainingWalkthroughs() {
+  for (const [root, timer] of state.trainingWalkthroughTimers.entries()) {
+    window.clearInterval(timer);
+    stopTrainingWalkthrough(root);
+    persistTrainingWalkthroughState(root);
+  }
+  state.trainingWalkthroughTimers.clear();
+  document.querySelectorAll("[data-training-walkthrough]").forEach((root) => {
+    stopTrainingWalkthrough(root);
+    persistTrainingWalkthroughState(root);
+  });
+}
+
+function setTrainingWalkthroughStepAndPersist(root, index) {
+  stopTrainingWalkthroughSession(root);
+  const next = setTrainingWalkthroughStep(root, index);
+  persistTrainingWalkthroughState(root);
+  return next;
+}
+
+async function toggleTrainingWalkthrough(root) {
+  if (!root) return;
+  if (root.dataset.trainingPlaying === "true") {
+    stopTrainingWalkthroughSession(root);
+    return;
+  }
+
+  const video = root.querySelector("[data-training-video]");
+  if (video) {
+    try {
+      await video.play();
+      root.dataset.trainingPlaying = "true";
+      root.querySelector('[data-action="training-walkthrough-play"]')?.setAttribute("aria-pressed", "true");
+      video.onended = () => stopTrainingWalkthroughSession(root);
+    } catch {
+      toast("Видео не запустилось. Используйте покадровый разбор и текстовую расшифровку.", "info");
+    }
+    return;
+  }
+
+  root.dataset.trainingPlaying = "true";
+  root.querySelector('[data-action="training-walkthrough-play"]')?.setAttribute("aria-pressed", "true");
+  const timer = window.setInterval(() => {
+    if (!root.isConnected) {
+      stopTrainingWalkthroughSession(root);
+      return;
+    }
+    const current = Math.max(0, Number(root.dataset.trainingStep) || 0);
+    const total = Math.max(1, Number(root.dataset.trainingStepCount) || 1);
+    if (current >= total - 1) {
+      stopTrainingWalkthroughSession(root);
+      return;
+    }
+    setTrainingWalkthroughStep(root, current + 1);
+    root.dataset.trainingPlaying = "true";
+    root.querySelector('[data-action="training-walkthrough-play"]')?.setAttribute("aria-pressed", "true");
+    persistTrainingWalkthroughState(root);
+  }, TRAINING_WALKTHROUGH_STEP_INTERVAL_MS);
+  state.trainingWalkthroughTimers.set(root, timer);
 }
 
 function firstShiftStorageKey(userId = state.user?.id) {
@@ -2255,6 +2439,8 @@ function examRetryState() {
 function learningScaffold(content, activePath) {
   const profile = displayProfile();
   const transitionClass = consumeRouteTransitionClass();
+  const rolePending = state.bootstrap?.training?.exam?.passed === true
+    && !hasOperationalWorkspaceRole();
   return `
     <div class="workspace-shell">
       <aside class="sidebar" aria-label="Навигация обучения">
@@ -2278,7 +2464,7 @@ function learningScaffold(content, activePath) {
             <a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span><span>Открыть кабинет</span></a>
           ` : `
             <span class="nav-caption" style="margin-top:15px">Работа</span>
-            <span class="nav-link" aria-disabled="true" style="opacity:.42"><span class="nav-icon" aria-hidden="true">⌑</span><span>Закрыто до экзамена</span></span>
+            <span class="nav-link" aria-disabled="true" style="opacity:.42"><span class="nav-icon" aria-hidden="true">⌑</span><span>${rolePending ? "Ожидается рабочая роль" : "Закрыто до экзамена"}</span></span>
           `}
         </nav>
         ${sidebarFooterMarkup(profile)}
@@ -2293,6 +2479,247 @@ function learningScaffold(content, activePath) {
   `;
 }
 
+function renderWorkspaceBoardSection(sectionState) {
+  const board = normalizeWorkspaceBoard(sectionState.data || {});
+  const markup = workspaceBoardMarkup(board, {
+    selectedFolderId: state.workspaceBoard.selectedFolderId,
+    selectedItemKey: state.workspaceBoard.selectedItemKey,
+    query: state.workspaceBoard.query,
+    entityType: state.workspaceBoard.entityType,
+    busy: state.workspaceBoard.busy || sectionState.status === "refreshing",
+    notice: state.workspaceBoard.notice,
+    error: state.workspaceBoard.error,
+  });
+  const pagination = state.workspaceBoard.hasMore
+    ? `
+      <div class="workspace-board-pagination">
+        <button class="btn btn-secondary" type="button" data-action="load-more-workspace-items" ${state.workspaceBoard.loadingMore ? "disabled" : ""}>
+          ${state.workspaceBoard.loadingMore ? "Загружаем…" : "Показать ещё объекты"}
+        </button>
+        <span class="muted tiny">Объекты загружаются частями по 100 — рабочий стол не зависает при большой медиатеке.</span>
+      </div>`
+    : "";
+  return `<div class="page-wrap page-wrap-workspace-board">${sectionBody(sectionState, `${markup}${pagination}`)}</div>`;
+}
+
+function currentWorkspaceBoard() {
+  return normalizeWorkspaceBoard(state.sections.board?.data || {});
+}
+
+function workspaceBoardBrowserOptions(cursor = null) {
+  const options = { page_size: 100 };
+  const folderId = String(state.workspaceBoard.selectedFolderId || "all");
+  if (folderId === "root") options.folder_id = null;
+  else if (folderId !== "all") options.folder_id = folderId;
+  if (state.workspaceBoard.query) options.search = state.workspaceBoard.query;
+  if (state.workspaceBoard.entityType !== "all") {
+    options.entity_types = [state.workspaceBoard.entityType];
+  }
+  if (cursor) options.cursor = cursor;
+  return options;
+}
+
+function workspaceBoardQuerySignature() {
+  return JSON.stringify(workspaceBoardBrowserOptions());
+}
+
+async function refreshWorkspaceBoardAfterMutation() {
+  const target = state.sections.board;
+  if (!target) return;
+  if (["loading", "refreshing"].includes(target.status)) target.status = "ready";
+  await loadSection("board", { silent: true });
+}
+
+async function submitWorkspaceFolderCreate(form) {
+  const values = new FormData(form);
+  const name = String(values.get("folder_name") || "").trim();
+  const rawParentId = String(values.get("parent_folder_id") || "root");
+  state.workspaceBoard.busy = true;
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.notice = "";
+  renderWorkspace("board");
+  try {
+    const response = await state.api.createWorkspaceFolder({
+      name,
+      parentId: rawParentId === "root" ? null : rawParentId,
+    });
+    const source = response?.data ?? response ?? {};
+    const folderId = String(source.folder?.id || source.folder_id || "");
+    if (folderId) state.workspaceBoard.selectedFolderId = folderId;
+    state.workspaceBoard.notice = `Папка «${name}» создана.`;
+    await refreshWorkspaceBoardAfterMutation();
+  } catch (error) {
+    state.workspaceBoard.error = actionErrorMessage(error);
+  } finally {
+    state.workspaceBoard.busy = false;
+    if (state.route.path === "/workspace/board") renderWorkspace("board");
+  }
+}
+
+async function submitWorkspaceFolderEdit(form) {
+  const values = new FormData(form);
+  const folderId = String(values.get("folder_id") || "");
+  const name = String(values.get("folder_name") || "").trim();
+  const expectedVersion = Math.max(1, Number(values.get("folder_version")) || 1);
+  state.workspaceBoard.busy = true;
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.notice = "";
+  renderWorkspace("board");
+  try {
+    await state.api.updateWorkspaceFolder(folderId, {
+      expectedVersion,
+      name,
+    });
+    state.workspaceBoard.notice = `Название папки сохранено: «${name}».`;
+    await refreshWorkspaceBoardAfterMutation();
+  } catch (error) {
+    state.workspaceBoard.error = actionErrorMessage(error);
+  } finally {
+    state.workspaceBoard.busy = false;
+    if (state.route.path === "/workspace/board") renderWorkspace("board");
+  }
+}
+
+async function submitWorkspaceBoardFilters(form) {
+  const values = new FormData(form);
+  state.workspaceBoard.query = String(values.get("query") || "").trim().slice(0, 120);
+  state.workspaceBoard.entityType = String(values.get("entity_type") || "all");
+  state.workspaceBoard.notice = "";
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.hasMore = false;
+  state.workspaceBoard.nextCursor = null;
+  await loadSection("board");
+}
+
+async function archiveWorkspaceBoardFolder(folderId, expectedVersion) {
+  const board = currentWorkspaceBoard();
+  const folder = board.folders.find((item) => item.id === String(folderId || ""));
+  if (!folder) {
+    state.workspaceBoard.error = "Папка больше не найдена. Обновите рабочий стол.";
+    renderWorkspace("board");
+    return;
+  }
+  if (!window.confirm(`Архивировать пустую папку «${folder.name}»?`)) return;
+  state.workspaceBoard.busy = true;
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.notice = "";
+  renderWorkspace("board");
+  try {
+    await state.api.updateWorkspaceFolder(folder.id, {
+      expectedVersion: Math.max(1, Number(expectedVersion) || folder.version || 1),
+      archive: true,
+    });
+    state.workspaceBoard.selectedFolderId = "all";
+    state.workspaceBoard.selectedItemKey = "";
+    state.workspaceBoard.notice = `Папка «${folder.name}» отправлена в архив.`;
+    await refreshWorkspaceBoardAfterMutation();
+  } catch (error) {
+    state.workspaceBoard.error = actionErrorMessage(error);
+  } finally {
+    state.workspaceBoard.busy = false;
+    if (state.route.path === "/workspace/board") renderWorkspace("board");
+  }
+}
+
+async function moveWorkspaceBoardItem({
+  entityType,
+  entityId,
+  itemKey,
+  destinationFolderId,
+}) {
+  const board = currentWorkspaceBoard();
+  const normalizedKey = String(itemKey || workspaceBoardItemKey(entityType, entityId));
+  const item = workspaceBoardItemByKey(board, normalizedKey);
+  if (!item) {
+    state.workspaceBoard.error = "Объект больше не найден. Обновите рабочий стол.";
+    state.workspaceBoard.notice = "";
+    renderWorkspace("board");
+    return;
+  }
+  const destination = String(destinationFolderId || "root");
+  const destinationId = destination === "root" ? null : destination;
+  if ((item.folderId || null) === destinationId) {
+    state.workspaceBoard.notice = "Объект уже находится в этой папке.";
+    state.workspaceBoard.error = "";
+    renderWorkspace("board");
+    return;
+  }
+  state.workspaceBoard.busy = true;
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.notice = "";
+  renderWorkspace("board");
+  try {
+    await state.api.moveWorkspaceItems(
+      [{ type: item.entityType, id: item.id }],
+      destinationId,
+    );
+    const destinationName = destinationId
+      ? board.folders.find((folder) => folder.id === destinationId)?.name || "выбранную папку"
+      : "Без папки";
+    state.workspaceBoard.selectedFolderId = destinationId || "root";
+    state.workspaceBoard.selectedItemKey = item.key;
+    state.workspaceBoard.notice = `«${item.title}» перемещён в «${destinationName}».`;
+    await refreshWorkspaceBoardAfterMutation();
+  } catch (error) {
+    state.workspaceBoard.error = actionErrorMessage(error);
+  } finally {
+    state.workspaceBoard.busy = false;
+    if (state.route.path === "/workspace/board") renderWorkspace("board");
+  }
+}
+
+async function loadMoreWorkspaceBoard() {
+  const cursor = state.workspaceBoard.nextCursor;
+  if (!cursor || state.workspaceBoard.loadingMore || !state.workspaceBoard.hasMore) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const sectionRequestId = state.sections.board.requestId;
+  const querySignature = workspaceBoardQuerySignature();
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && sectionRequestId === state.sections.board.requestId
+    && querySignature === workspaceBoardQuerySignature()
+  );
+  state.workspaceBoard.loadingMore = true;
+  state.workspaceBoard.error = "";
+  renderWorkspace("board");
+  try {
+    const raw = await withUiTimeout(
+      state.api.workspaceBrowser(workspaceBoardBrowserOptions(cursor)),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "workspace_section_timeout",
+    );
+    if (!requestIsCurrent()) return;
+    const next = await hydratePrivateMedia(raw?.data ?? raw ?? {});
+    if (!requestIsCurrent()) return;
+    const previous = state.sections.board.data || {};
+    const itemMap = new Map();
+    [...listFrom(previous, "items"), ...listFrom(next, "items")].forEach((item) => {
+      const key = workspaceBoardItemKey(
+        item?.entity_type || item?.type,
+        item?.id || item?.item_id,
+      );
+      if (key) itemMap.set(key, item);
+    });
+    state.sections.board.data = {
+      ...previous,
+      ...next,
+      folders: Array.isArray(next.folders) ? next.folders : previous.folders,
+      items: [...itemMap.values()],
+    };
+    const meta = next?._meta && typeof next._meta === "object" ? next._meta : {};
+    state.workspaceBoard.hasMore = meta.has_more === true;
+    state.workspaceBoard.nextCursor = meta.next_cursor || null;
+    state.workspaceBoard.notice = `Загружено объектов: ${itemMap.size}.`;
+  } catch (error) {
+    if (requestIsCurrent()) state.workspaceBoard.error = actionErrorMessage(error);
+  } finally {
+    state.workspaceBoard.loadingMore = false;
+    if (requestIsCurrent() && state.route.path === "/workspace/board") renderWorkspace("board");
+  }
+}
+
 function renderWorkspace(section) {
   const sectionState = section === "home" ? state.home : state.sections[section];
   if (section === "research" && sectionState.status === "idle") {
@@ -2303,6 +2730,7 @@ function renderWorkspace(section) {
 
   const renderer = {
     home: renderHomeSection,
+    board: renderWorkspaceBoardSection,
     generation: renderGenerationSection,
     placement: renderPlacementSection,
     stats: renderStatsSection,
@@ -2649,6 +3077,19 @@ function handleKeyDown(event) {
     setMobileNavOpen(false, true);
     return;
   }
+  if (
+    event.key === "Escape"
+    && state.route.path === "/workspace/board"
+    && (state.workspaceBoard.dragging || state.workspaceBoard.selectedItemKey)
+  ) {
+    event.preventDefault();
+    state.workspaceBoard.dragging = null;
+    state.workspaceBoard.selectedItemKey = "";
+    state.workspaceBoard.notice = "";
+    clearWorkspaceDropTargets();
+    renderWorkspace("board");
+    return;
+  }
   if (event.key === "Tab" && state.mobileNavOpen) {
     const nav = document.querySelector("#mobile-navigation");
     const focusable = Array.from(nav?.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])
@@ -2705,11 +3146,14 @@ async function loadSection(section, options = {}) {
   if (!options.silent) render();
 
   try {
+    const sectionRequest = section === "board"
+      ? state.api.workspaceBrowser(workspaceBoardBrowserOptions())
+      : state.api.workspaceSection(
+          section,
+          section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
+        );
     const raw = await withUiTimeout(
-      state.api.workspaceSection(
-        section,
-        section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
-      ),
+      sectionRequest,
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "workspace_section_timeout",
     );
@@ -2733,12 +3177,18 @@ async function loadSection(section, options = {}) {
         if (!state.teamInviteResult) state.teamInviteResult = restoreTeamInviteResult();
       }
     }
-    if (section === "media") {
+    if (section === "media" || section === "board") {
       data = await hydratePrivateMedia(data);
     }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     target.data = data;
     target.status = "ready";
+    if (section === "board") {
+      const meta = data?._meta && typeof data._meta === "object" ? data._meta : {};
+      state.workspaceBoard.loadingMore = false;
+      state.workspaceBoard.hasMore = meta.has_more === true;
+      state.workspaceBoard.nextCursor = meta.next_cursor || null;
+    }
     if (section === "generation") {
       const loadedBatches = listFrom(data, "batches");
       state.generationArchive.requestId += 1;
@@ -3068,6 +3518,15 @@ function renderHomeSection(homeState) {
         ].map(([label, value, hint, key]) => `<a class="card metric-card home-metric-card" href="#/workspace/${key}"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small><span class="metric-arrow" aria-hidden="true">↗</span></a>`).join("")}
       </div>
       <p class="home-data-scope">Оперативная сводка показывает последние 50 записей каждого раздела. Старые видео подгружаются в архиве порциями, не замедляя рабочий день.</p>
+      <a class="card home-board-shortcut" href="#/workspace/board">
+        <span class="home-board-shortcut__mark" aria-hidden="true">▦</span>
+        <span class="home-board-shortcut__copy">
+          <small>Рабочее пространство</small>
+          <strong>Разложить материалы и задачи по папкам</strong>
+          <span>Карточки открываются нажатием, перемещаются мышью или через доступное меню на телефоне.</span>
+        </span>
+        <span class="home-board-shortcut__action">Открыть <i aria-hidden="true">→</i></span>
+      </a>
 
       <section class="card home-flow-card">
         <div class="section-heading home-section-heading">
@@ -4570,12 +5029,106 @@ async function handleClick(event) {
   if (state.mobileNavOpen && !event.target.closest(".mobile-nav, .mobile-nav-trigger")) {
     setMobileNavOpen(false);
   }
+  const workspaceDragHandle = event.target.closest("[data-workspace-drag-item]");
+  if (workspaceDragHandle) {
+    state.workspaceBoard.selectedItemKey = workspaceDragHandle.dataset.itemKey
+      || workspaceBoardItemKey(
+        workspaceDragHandle.dataset.entityType,
+        workspaceDragHandle.dataset.entityId,
+      );
+    state.workspaceBoard.notice = "Объект выбран. Укажите папку в панели справа или перетащите ручку на папку.";
+    state.workspaceBoard.error = "";
+    renderWorkspace("board");
+    window.queueMicrotask(() => document.querySelector("[data-workspace-item-drawer] button[data-action='move-workspace-item']")?.focus());
+    return;
+  }
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "training-walkthrough-play") {
+    await toggleTrainingWalkthrough(trainingWalkthroughRoot(control));
+    return;
+  }
+
+  if (["training-walkthrough-previous", "training-walkthrough-next", "training-walkthrough-reset"].includes(action)) {
+    const root = trainingWalkthroughRoot(control);
+    const current = Math.max(0, Number(root?.dataset?.trainingStep) || 0);
+    const next = action === "training-walkthrough-previous"
+      ? current - 1
+      : action === "training-walkthrough-next"
+        ? current + 1
+        : 0;
+    setTrainingWalkthroughStepAndPersist(root, next);
+    return;
+  }
+
   if (action === "set-portal-theme") {
     applyPortalTheme(control.dataset.themeValue, { persist: true, announce: true });
+    return;
+  }
+
+  if (action === "select-workspace-folder") {
+    state.workspaceBoard.selectedFolderId = String(control.dataset.folderId || "all");
+    state.workspaceBoard.selectedItemKey = "";
+    state.workspaceBoard.notice = "";
+    state.workspaceBoard.error = "";
+    state.workspaceBoard.hasMore = false;
+    state.workspaceBoard.nextCursor = null;
+    await loadSection("board");
+    return;
+  }
+
+  if (action === "open-workspace-item") {
+    state.workspaceBoard.selectedItemKey = String(
+      control.dataset.itemKey
+      || workspaceBoardItemKey(control.dataset.entityType, control.dataset.entityId),
+    );
+    state.workspaceBoard.notice = "";
+    state.workspaceBoard.error = "";
+    renderWorkspace("board");
+    window.queueMicrotask(() => document.querySelector("[data-workspace-item-drawer] [data-action='close-workspace-item']")?.focus());
+    return;
+  }
+
+  if (action === "close-workspace-item") {
+    state.workspaceBoard.selectedItemKey = "";
+    renderWorkspace("board");
+    window.queueMicrotask(() => document.querySelector(".workspace-board__item-open")?.focus());
+    return;
+  }
+
+  if (action === "move-workspace-item") {
+    await moveWorkspaceBoardItem({
+      entityType: control.dataset.entityType,
+      entityId: control.dataset.entityId,
+      itemKey: control.dataset.itemKey,
+      destinationFolderId: control.dataset.targetFolderId || control.dataset.folderId,
+    });
+    return;
+  }
+
+  if (action === "archive-workspace-folder") {
+    await archiveWorkspaceBoardFolder(
+      control.dataset.folderId,
+      Number(control.dataset.folderVersion) || 1,
+    );
+    return;
+  }
+
+  if (action === "reset-workspace-filters") {
+    state.workspaceBoard.query = "";
+    state.workspaceBoard.entityType = "all";
+    state.workspaceBoard.notice = "";
+    state.workspaceBoard.error = "";
+    state.workspaceBoard.hasMore = false;
+    state.workspaceBoard.nextCursor = null;
+    await loadSection("board");
+    return;
+  }
+
+  if (action === "load-more-workspace-items") {
+    await loadMoreWorkspaceBoard();
     return;
   }
 
@@ -4954,6 +5507,9 @@ async function handleSubmit(event) {
   else if (form.id === "account-ad-form") submitAccountAdvertisingCheck(form);
   else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
   else if (form.id === "exam-form") await submitExam(form);
+  else if (form.id === "workspace-folder-create-form") await submitWorkspaceFolderCreate(form);
+  else if (form.id === "workspace-folder-edit-form") await submitWorkspaceFolderEdit(form);
+  else if (form.id === "workspace-board-filter-form") await submitWorkspaceBoardFilters(form);
   else if (form.id === "generation-archive-filter-form") submitGenerationArchiveFilters(form);
   else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
@@ -4982,6 +5538,10 @@ function handleChange(event) {
 
   if (event.target.matches("[data-course-ack]")) {
     syncCourseCompletionButton();
+  }
+
+  if (event.target.matches("[data-training-check]")) {
+    persistTrainingWalkthroughState(trainingWalkthroughRoot(event.target));
   }
 
   if (event.target.closest("#exam-form")) {
@@ -5023,7 +5583,44 @@ function handleFormActivity(event) {
   if (form) form.dataset.dirty = "true";
 }
 
+function clearWorkspaceDropTargets() {
+  document.querySelectorAll("[data-workspace-drop-folder].is-drop-target").forEach((target) => {
+    target.classList.remove("is-drop-target");
+    target.removeAttribute("data-drop-active");
+  });
+  document.querySelectorAll(".workspace-board__item.is-dragging").forEach((item) => {
+    item.classList.remove("is-dragging");
+  });
+}
+
+function handleDragStart(event) {
+  const handle = event.target.closest?.("[data-workspace-drag-item]");
+  if (!handle || state.workspaceBoard.busy) return;
+  const entityType = String(handle.dataset.entityType || "");
+  const entityId = String(handle.dataset.entityId || "");
+  const itemKey = String(handle.dataset.itemKey || workspaceBoardItemKey(entityType, entityId));
+  if (!entityType || !entityId || !itemKey) {
+    event.preventDefault();
+    return;
+  }
+  state.workspaceBoard.dragging = { entityType, entityId, itemKey };
+  handle.closest(".workspace-board__item")?.classList.add("is-dragging");
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", itemKey);
+  }
+}
+
 function handleDragOver(event) {
+  const folder = event.target.closest?.("[data-workspace-drop-folder]");
+  if (folder && state.workspaceBoard.dragging && !state.workspaceBoard.busy) {
+    event.preventDefault();
+    clearWorkspaceDropTargets();
+    folder.classList.add("is-drop-target");
+    folder.setAttribute("data-drop-active", "true");
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    return;
+  }
   const zone = event.target.closest("[data-upload-zone]");
   if (!zone) return;
   event.preventDefault();
@@ -5031,11 +5628,26 @@ function handleDragOver(event) {
 }
 
 function handleDragLeave(event) {
+  const folder = event.target.closest?.("[data-workspace-drop-folder]");
+  if (folder && !folder.contains(event.relatedTarget)) {
+    folder.classList.remove("is-drop-target");
+    folder.removeAttribute("data-drop-active");
+  }
   const zone = event.target.closest("[data-upload-zone]");
-  if (zone) zone.classList.remove("dragover");
+  if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("dragover");
 }
 
-function handleDrop(event) {
+async function handleDrop(event) {
+  const folder = event.target.closest?.("[data-workspace-drop-folder]");
+  if (folder && state.workspaceBoard.dragging) {
+    event.preventDefault();
+    const dragging = { ...state.workspaceBoard.dragging };
+    const destinationFolderId = String(folder.dataset.folderId || "root");
+    state.workspaceBoard.dragging = null;
+    clearWorkspaceDropTargets();
+    await moveWorkspaceBoardItem({ ...dragging, destinationFolderId });
+    return;
+  }
   const zone = event.target.closest("[data-upload-zone]");
   if (!zone) return;
   event.preventDefault();
@@ -5048,6 +5660,11 @@ function handleDrop(event) {
   input.files = transfer.files;
   zone.closest("form")?.setAttribute("data-dirty", "true");
   showSelectedFile(file);
+}
+
+function handleDragEnd() {
+  state.workspaceBoard.dragging = null;
+  clearWorkspaceDropTargets();
 }
 
 function showSelectedFile(file) {
@@ -6337,6 +6954,8 @@ function navigate(path, replace = false) {
 }
 
 function clearAuthenticatedState() {
+  stopAllTrainingWalkthroughs();
+  clearWorkspaceDropTargets();
   destroyAccountVisualController();
   state.accountVisualStates.clear();
   clearAccountLaunchChecks(state.user?.id);
@@ -6382,6 +7001,17 @@ function clearAuthenticatedState() {
   state.productResearch.error = "";
   state.productResearch.notice = "";
   state.productResearch.restoreAttempted = false;
+  state.workspaceBoard.selectedFolderId = "all";
+  state.workspaceBoard.selectedItemKey = "";
+  state.workspaceBoard.query = "";
+  state.workspaceBoard.entityType = "all";
+  state.workspaceBoard.busy = false;
+  state.workspaceBoard.notice = "";
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.dragging = null;
+  state.workspaceBoard.loadingMore = false;
+  state.workspaceBoard.hasMore = false;
+  state.workspaceBoard.nextCursor = null;
   state.generationArchive.requestId += 1;
   state.generationArchive.filters = normalizeGenerationFilters();
   state.generationArchive.loadingMore = false;

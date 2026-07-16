@@ -240,12 +240,17 @@ def test_preserved_exam_does_not_claim_a_locked_workspace_is_ready() -> None:
     ]
 
     assert "const workspaceReady = hasWorkspaceAccess();" in learning_home
-    assert "const nextHref = workspaceReady" in learning_home
-    assert "const nextLabel = workspaceReady" in learning_home
-    assert '${workspaceReady ? "Вы готовы к производству"' in learning_home
+    assert (
+        "const rolePending = examPassed && !hasOperationalWorkspaceRole();"
+        in learning_home
+    )
+    assert "const nextHref = rolePending" in learning_home
+    assert "const nextLabel = rolePending" in learning_home
+    assert "const nowTitle = rolePending" in learning_home
+    assert "ожидается рабочая роль" in learning_home
     assert "nextCourse?.code === course.code && !workspaceReady" in learning_home
     assert "nextCourse?.code === course.code && !examPassed" not in learning_home
-    assert '${examPassed ? "допуск получен"' not in learning_home
+    assert 'workspaceReady\n    ? "#/workspace/home"' in learning_home
 
 
 def test_bootstrap_course_wrapper_preserves_fail_closed_membership_states() -> None:
@@ -380,7 +385,7 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
         encoding="utf-8"
     ).casefold()
     assert "'creator_submit_course_check'" in creator
-    assert creator.count("\n  22,\n") >= 2
+    assert creator.count("\n  26,\n") >= 2
     assert "perform public.creator_submit_course_check" in creator
     assert "'pgtap-course-check-' || module_row.code" in creator
     assert "answer_key.correct_answers" in creator

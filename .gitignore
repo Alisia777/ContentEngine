@@ -38,6 +38,7 @@ supabase/.temp/
 
 *.log
 *.mp4
+!web/app/assets/training/*.mp4
 *.mov
 *.webm
 *.avi

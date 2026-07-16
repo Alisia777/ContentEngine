@@ -13,6 +13,10 @@ export const RPC = Object.freeze({
   submitCourseCheck: "creator_submit_course_check",
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
+  workspaceBrowser: "creator_workspace_browser",
+  createWorkspaceFolder: "creator_create_workspace_folder",
+  updateWorkspaceFolder: "creator_update_workspace_folder",
+  moveWorkspaceItems: "creator_move_workspace_items",
   createMockBatch: "creator_create_mock_batch",
   recordMetric: "creator_record_metric",
   setWbAlias: "creator_set_wb_alias",
@@ -158,6 +162,135 @@ export class CreatorApi {
       payload.cursor = options.cursor;
     }
     return this.call(RPC.workspaceSection, this.withOrganization(payload));
+  }
+
+  workspaceBrowser(options = {}) {
+    const payload = {};
+    if (
+      Object.prototype.hasOwnProperty.call(options, "folder_id")
+      || Object.prototype.hasOwnProperty.call(options, "folderId")
+    ) {
+      const folderId = options.folder_id ?? options.folderId;
+      payload.folder_id = folderId && folderId !== "root" ? String(folderId) : null;
+    }
+    if (options.page_size !== undefined) {
+      const pageSize = Number(options.page_size);
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        throw new CreatorApiError("Можно загрузить от 1 до 100 объектов за один запрос.", {
+          code: "workspace_page_size_invalid",
+        });
+      }
+      payload.page_size = pageSize;
+    }
+    if (options.search !== undefined) {
+      const search = String(options.search || "").trim();
+      if (search.length > 120 || /[\u0000-\u001f\u007f]/u.test(search)) {
+        throw new CreatorApiError("Сократите запрос поиска до 120 символов.", {
+          code: "workspace_search_invalid",
+        });
+      }
+      if (search) payload.search = search;
+    }
+    if (options.entity_types !== undefined) {
+      const supported = new Set(["media", "task"]);
+      if (
+        !Array.isArray(options.entity_types)
+        || options.entity_types.length < 1
+        || options.entity_types.length > 2
+        || options.entity_types.some((type) => !supported.has(String(type)))
+      ) {
+        throw new CreatorApiError("Выберите материалы, задачи или оба типа объектов.", {
+          code: "workspace_entity_types_invalid",
+        });
+      }
+      payload.entity_types = [...new Set(options.entity_types.map(String))];
+    }
+    if (options.cursor !== undefined) {
+      if (!options.cursor || typeof options.cursor !== "object" || Array.isArray(options.cursor)) {
+        throw new CreatorApiError("Курсор рабочего пространства имеет неверный формат.", {
+          code: "workspace_cursor_invalid",
+        });
+      }
+      payload.cursor = options.cursor;
+    }
+    return this.call(RPC.workspaceBrowser, this.withOrganization(payload));
+  }
+
+  createWorkspaceFolder({ name, parentId = null, colorToken = "emerald" }) {
+    const folderName = String(name || "").trim();
+    const color = String(colorToken || "emerald").trim().toLowerCase();
+    if (!folderName || folderName.length > 120 || /[\u0000-\u001f\u007f]/u.test(folderName)) {
+      throw new CreatorApiError("Укажите название папки длиной до 120 символов.", {
+        code: "workspace_folder_name_invalid",
+      });
+    }
+    if (!["emerald", "gold", "rose", "blue", "violet", "slate"].includes(color)) {
+      throw new CreatorApiError("Выберите доступный цвет папки.", {
+        code: "workspace_folder_color_invalid",
+      });
+    }
+    return this.mutate(RPC.createWorkspaceFolder, {
+      name: folderName,
+      parent_id: parentId || null,
+      color_token: color,
+    });
+  }
+
+  updateWorkspaceFolder(folderId, changes = {}) {
+    const expectedVersion = Number(changes.expectedVersion);
+    if (!folderId || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CreatorApiError("Папка изменилась. Обновите рабочий стол и повторите действие.", {
+        code: "workspace_folder_version_invalid",
+      });
+    }
+    const payload = {
+      folder_id: String(folderId),
+      expected_version: expectedVersion,
+    };
+    if (changes.name !== undefined) {
+      const name = String(changes.name || "").trim();
+      if (!name || name.length > 120 || /[\u0000-\u001f\u007f]/u.test(name)) {
+        throw new CreatorApiError("Укажите название папки длиной до 120 символов.", {
+          code: "workspace_folder_name_invalid",
+        });
+      }
+      payload.name = name;
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, "parentId")) {
+      payload.parent_id = changes.parentId || null;
+    }
+    if (changes.colorToken !== undefined) {
+      payload.color_token = String(changes.colorToken || "").trim().toLowerCase();
+    }
+    if (changes.archive === true) payload.archive = true;
+    if (Object.keys(payload).length === 2) {
+      throw new CreatorApiError("Выберите изменение папки.", {
+        code: "workspace_folder_update_payload_invalid",
+      });
+    }
+    return this.mutate(RPC.updateWorkspaceFolder, payload);
+  }
+
+  moveWorkspaceItems(items, destinationFolderId = null) {
+    const normalized = Array.isArray(items)
+      ? items.map((item) => ({
+          type: String(item?.type || ""),
+          id: String(item?.id || ""),
+        }))
+      : [];
+    if (
+      normalized.length < 1
+      || normalized.length > 100
+      || normalized.some((item) => !["media", "task"].includes(item.type) || !item.id)
+    ) {
+      throw new CreatorApiError("Выберите от 1 до 100 доступных материалов или задач.", {
+        code: "workspace_items_invalid",
+      });
+    }
+    return this.mutate(RPC.moveWorkspaceItems, {
+      destination_folder_id: destinationFolderId || null,
+      items: normalized,
+    });
   }
 
   inviteAttempts() {
@@ -765,6 +898,33 @@ function toFriendlyMessage(error) {
     storage_bucket_mismatch: "Защищённое хранилище вернуло неожиданный ответ.",
     invalid_workspace_section: "Этот раздел кабинета недоступен.",
     workspace_section_invalid: "Этот раздел кабинета недоступен.",
+    workspace_browser_payload_invalid: "Фильтры рабочего пространства имеют неверный формат.",
+    workspace_page_size_invalid: "Можно загрузить от 1 до 100 объектов за один запрос.",
+    workspace_search_invalid: "Сократите запрос поиска до 120 символов.",
+    workspace_entity_types_invalid: "Выберите материалы, задачи или оба типа объектов.",
+    workspace_media_kinds_invalid: "Один из типов материалов больше не поддерживается.",
+    workspace_task_statuses_invalid: "Один из статусов задач больше не поддерживается.",
+    workspace_cursor_invalid: "Список объектов изменился. Обновите рабочий стол.",
+    workspace_folder_create_payload_invalid: "Проверьте название и расположение новой папки.",
+    workspace_folder_update_payload_invalid: "Выберите изменение папки и повторите действие.",
+    workspace_folder_name_invalid: "Укажите понятное название папки длиной до 120 символов.",
+    workspace_folder_color_invalid: "Выберите доступный цвет папки.",
+    workspace_folder_name_conflict: "В этой папке уже есть папка с таким названием.",
+    workspace_folder_parent_not_found: "Родительская папка больше не существует. Обновите рабочий стол.",
+    workspace_folder_not_found: "Папка больше не существует или недоступна.",
+    workspace_folder_archived: "Папка уже находится в архиве.",
+    workspace_folder_version_invalid: "Папка изменилась. Обновите рабочий стол и повторите действие.",
+    workspace_folder_version_conflict: "Папка была изменена в другой вкладке. Обновите рабочий стол.",
+    workspace_folder_not_empty: "Перед архивацией переместите из папки все объекты и вложенные папки.",
+    workspace_folder_cycle: "Папку нельзя переместить внутрь самой себя.",
+    workspace_folder_depth_exceeded: "Достигнута максимальная глубина: восемь уровней папок.",
+    workspace_active_folder_quota_exceeded: "В команде уже создано слишком много активных папок.",
+    workspace_total_folder_quota_exceeded: "Лимит истории папок исчерпан. Обратитесь к администратору.",
+    workspace_position_exhausted: "Не удалось определить порядок объектов. Обновите рабочий стол.",
+    workspace_move_payload_invalid: "Не удалось прочитать команду перемещения.",
+    workspace_items_invalid: "Выберите от 1 до 100 доступных материалов или задач.",
+    workspace_items_duplicate: "Один объект выбран для перемещения несколько раз.",
+    workspace_item_access_denied: "Один из выбранных объектов недоступен вашей роли.",
     payout_decision_forbidden: "Решение по выплате доступно только руководителю.",
     self_payout_decision_forbidden: "Собственное начисление должен проверить другой руководитель.",
     payout_rejection_reason_required: "Укажите понятную причину отказа — не меньше 10 символов.",

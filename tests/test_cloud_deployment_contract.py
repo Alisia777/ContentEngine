@@ -24,6 +24,10 @@ EXPECTED_CREATOR_RPCS = (
     "creator_register_media",
     "creator_capture_event",
     "creator_invite_delivery_attempts",
+    "creator_workspace_browser",
+    "creator_create_workspace_folder",
+    "creator_update_workspace_folder",
+    "creator_move_workspace_items",
 )
 ACTION_PINS = {
     "actions/checkout": "df4cb1c069e1874edd31b4311f1884172cec0e10",
