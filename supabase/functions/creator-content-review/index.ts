@@ -67,6 +67,7 @@ const PROVIDER_FAILURE_CODES = new Set([
   "provider_unavailable",
   "image_access_failed",
   "input_validation_failed",
+  "external_ai_processing_basis_required",
   "internal_error",
 ]);
 const UNKNOWN_PROVIDER_OUTCOME_MESSAGE =
@@ -1617,7 +1618,7 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
   }
 
   if (
-    stringInput(claim.run.input, "people_present") === "yes" &&
+    stringInput(claim.run.input, "people_present") !== "no" &&
     !boolInput(claim.run.input, "external_ai_processing_confirmed")
   ) {
     return await fail(

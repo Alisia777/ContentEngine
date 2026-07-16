@@ -210,8 +210,10 @@ def test_baa_is_distinct_from_protein_and_external_ai_processing_is_explicit() -
     assert "Для БАД нельзя создавать впечатление" in VIEW
     assert "external_ai_processing_confirmed" in VIEW
     assert "external_ai_processing_confirmed" in API
-    assert "input.people_present === \"yes\" && !input.external_ai_processing_confirmed" in APP
-    assert 'peoplePresent === "yes" && input?.external_ai_processing_confirmed !== true' in API
+    assert "input.people_present !== \"no\" && !input.external_ai_processing_confirmed" in APP
+    assert 'peoplePresent !== "no" && input?.external_ai_processing_confirmed !== true' in API
+    assert 'const peopleMayBePresent = String(form.elements.people_present?.value || "unknown") !== "no"' in VIEW
+    assert 'toggleConditional(form, "[data-review-person-consent]", peopleMayBePresent)' in VIEW
 
 
 def test_generated_paid_video_is_prefilled_as_advertising_before_paid_review() -> None:

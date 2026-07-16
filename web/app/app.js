@@ -7504,7 +7504,7 @@ async function submitContentReview(form) {
   if (input.people_present === "yes" && !input.person_consent_confirmed) {
     toast("В кадре есть узнаваемые люди, но согласие не подтверждено. Проверка продолжится и зафиксирует это как риск.", "info");
   }
-  if (input.people_present === "yes" && !input.external_ai_processing_confirmed) {
+  if (input.people_present !== "no" && !input.external_ai_processing_confirmed) {
     toast("Контрольные кадры с узнаваемыми людьми нельзя отправлять внешнему AI-провайдеру без подтверждённого законного основания и информирования.", "error");
     form.elements.external_ai_processing_confirmed?.focus();
     return;

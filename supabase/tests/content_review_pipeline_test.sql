@@ -128,7 +128,7 @@ begin
       'limitations', jsonb_build_array('Manual exact-video review required'),
       'compliance_status', 'block',
       'blockers_count', 1,
-      'warnings_count', 2,
+      'warnings_count', 0,
       'strengths', jsonb_build_array('Товар хорошо виден в кадре'),
       'findings', jsonb_build_array(jsonb_build_object(
         'code', 'CLAIM.MEDICAL',
@@ -198,7 +198,7 @@ begin
     'limitations', jsonb_build_array('Manual exact-video review required'),
     'compliance_status', 'pass_with_warnings',
     'blockers_count', 0,
-    'warnings_count', 1,
+    'warnings_count', 0,
     'strengths', jsonb_build_array(
       'Хук понятен',
       'Товар показан крупно'
@@ -477,6 +477,28 @@ values
     'image/webp', 2048, repeat('d', 64), 'ready',
     '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
     'content-review-media-timeout'
+  ),
+  (
+    '95300000-0000-4000-8000-000000000006',
+    '95100000-0000-4000-8000-000000000001',
+    '95000000-0000-4000-8000-000000000001',
+    null,
+    'contentengine-private',
+    '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/productless-a.webp',
+    'image/webp', 2048, repeat('6', 64), 'ready',
+    '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
+    'content-review-media-productless-a'
+  ),
+  (
+    '95300000-0000-4000-8000-000000000007',
+    '95100000-0000-4000-8000-000000000001',
+    '95000000-0000-4000-8000-000000000001',
+    null,
+    'contentengine-private',
+    '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/productless-b.webp',
+    'image/webp', 2048, repeat('7', 64), 'ready',
+    '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
+    'content-review-media-productless-b'
   );
 
 insert into content_factory.generation_batches (
@@ -792,13 +814,20 @@ select throws_ok(
 );
 
 select is(
-  jsonb_array_length(
-    public.creator_content_review_catalog(jsonb_build_object(
-      'organization_id', '95100000-0000-4000-8000-000000000001'
-    )) -> 'media'
+  (
+    select array_agg(item.value ->> 'id' order by item.value ->> 'id')
+    from jsonb_array_elements(
+      public.creator_content_review_catalog(jsonb_build_object(
+        'organization_id', '95100000-0000-4000-8000-000000000001'
+      )) -> 'media'
+    ) item(value)
   ),
-  3,
-  'operator catalog contains only owned eligible media'
+  array[
+    '95300000-0000-4000-8000-000000000002',
+    '95300000-0000-4000-8000-000000000003',
+    '95300000-0000-4000-8000-000000000005'
+  ]::text[],
+  'operator catalog exposes exactly owned or assigned eligible media'
 );
 
 do $$
@@ -1028,6 +1057,118 @@ begin
     'review_id',
     (select pass_review_id from content_review_test_context)
   ));
+end;
+$$;
+
+select throws_ok(
+  $$select public.system_complete_content_review(jsonb_build_object(
+    'review_id', (
+      select pass_review_id from content_review_test_context
+    ),
+    'status', 'completed',
+    'result', jsonb_set(
+      pg_temp.review_result('human_review'),
+      '{compliance_status}',
+      '"pass_with_warnings"'::jsonb
+    ),
+    'moderation', '{}'::jsonb,
+    'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+    'model_provider', 'openai',
+    'model_version', 'gpt-5.5'
+  ))$$,
+  '22023',
+  'content_review_compliance_status_invalid',
+  'provider cannot label a high-risk finding as pass-with-warnings'
+);
+
+select throws_ok(
+  $$select public.system_complete_content_review(jsonb_build_object(
+    'review_id', (
+      select pass_review_id from content_review_test_context
+    ),
+    'status', 'completed',
+    'result', jsonb_set(
+      pg_temp.review_result('pass'),
+      '{compliance_status}',
+      '"human_review"'::jsonb
+    ),
+    'moderation', '{}'::jsonb,
+    'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+    'model_provider', 'openai',
+    'model_version', 'gpt-5.5'
+  ))$$,
+  '22023',
+  'content_review_compliance_status_invalid',
+  'provider cannot invent human-review status without matching findings'
+);
+
+select throws_ok(
+  $$select public.system_complete_content_review(jsonb_build_object(
+    'review_id', (
+      select pass_review_id from content_review_test_context
+    ),
+    'status', 'completed',
+    'result', jsonb_set(
+      pg_temp.review_result('pass'),
+      '{warnings_count}',
+      '1'::jsonb
+    ),
+    'moderation', '{}'::jsonb,
+    'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+    'model_provider', 'openai',
+    'model_version', 'gpt-5.5'
+  ))$$,
+  '22023',
+  'content_review_warning_count_invalid',
+  'provider warning count must equal high and medium findings'
+);
+
+select throws_ok(
+  $$select public.system_complete_content_review(jsonb_build_object(
+    'review_id', (
+      select pass_review_id from content_review_test_context
+    ),
+    'status', 'completed',
+    'result', jsonb_set(
+      jsonb_set(
+        pg_temp.review_result('pass'),
+        '{findings,0,severity}',
+        '"medium"'::jsonb
+      ),
+      '{warnings_count}',
+      '1'::jsonb
+    ),
+    'moderation', '{}'::jsonb,
+    'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+    'model_provider', 'openai',
+    'model_version', 'gpt-5.5'
+  ))$$,
+  '22023',
+  'content_review_compliance_status_invalid',
+  'a medium-only finding still requires human-review compliance status'
+);
+
+select lives_ok(
+  $$select content_factory_private.validate_content_review_result(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          pg_temp.review_result('pass'),
+          '{findings,0,severity}',
+          '"medium"'::jsonb
+        ),
+        '{warnings_count}',
+        '1'::jsonb
+      ),
+      '{compliance_status}',
+      '"human_review"'::jsonb
+    )
+  )$$,
+  'medium-only result is accepted with one warning and human review'
+);
+
+do $$
+begin
   perform public.system_complete_content_review(jsonb_build_object(
     'review_id',
     (select pass_review_id from content_review_test_context),
@@ -1100,6 +1241,55 @@ select is(
   'independent reviewer can approve blocker-free current media'
 );
 
+insert into content_factory.content_review_runs (
+  id, organization_id, media_object_id, requested_by, status,
+  media_sha256_snapshot, input, result, moderation, ruleset_version,
+  model_provider, model_version, request_hash, completion_hash,
+  idempotency_key, started_at, finished_at
+)
+values (
+  '95400000-0000-4000-8000-000000000010',
+  '95100000-0000-4000-8000-000000000001',
+  '95300000-0000-4000-8000-000000000004',
+  '95000000-0000-4000-8000-000000000001',
+  'completed',
+  repeat('d', 64),
+  jsonb_build_object(
+    'media_id', '95300000-0000-4000-8000-000000000004',
+    'platform', 'vk',
+    'product_category', 'cosmetics',
+    'content_kind', 'informational'
+  ),
+  jsonb_set(
+    pg_temp.review_result('human_review'),
+    '{compliance_status}',
+    '"pass_with_warnings"'::jsonb
+  ),
+  '{}'::jsonb,
+  'ru-content-compliance-2026-07-16.1',
+  'openai',
+  'gpt-5.5',
+  repeat('7', 64),
+  repeat('8', 64),
+  'content-review-malformed-provider-label',
+  now(),
+  now()
+);
+
+select throws_ok(
+  $$select public.creator_decide_content_review(jsonb_build_object(
+    'organization_id', '95100000-0000-4000-8000-000000000001',
+    'review_id', '95400000-0000-4000-8000-000000000010',
+    'idempotency_key', 'content-review-actual-risk-ack',
+    'decision', 'approved',
+    'media_watched_confirmed', true,
+    'comment', 'Reviewer confirms the actual finding risk before approval.'
+  ))$$,
+  '22023',
+  'content_review_risk_acknowledgement_required',
+  'approval derives required acknowledgement from findings, not provider label'
+);
+
 do $$
 begin
   perform set_config(
@@ -1109,6 +1299,134 @@ begin
   );
 end;
 $$;
+
+create temporary table stale_sha_completion on commit drop as
+select public.creator_start_content_review(jsonb_build_object(
+  'organization_id', '95100000-0000-4000-8000-000000000001',
+  'idempotency_key', 'content-review-stale-sha-completion',
+  'media_object_id', '95300000-0000-4000-8000-000000000003',
+  'platform', 'vk',
+  'product_category', 'cosmetics',
+  'declared_ad_status', 'informational'
+)) as value;
+
+select ok(
+  (
+    public.system_claim_content_review(jsonb_build_object(
+      'review_id', (select value ->> 'review_id' from stale_sha_completion)
+    )) ->> 'claimed'
+  )::boolean,
+  'worker claims media before the completion-time SHA race'
+);
+
+update content_factory.media_objects
+set sha256 = repeat('8', 64)
+where id = '95300000-0000-4000-8000-000000000003';
+
+select is(
+  public.system_complete_content_review(jsonb_build_object(
+    'review_id', (select value ->> 'review_id' from stale_sha_completion),
+    'status', 'completed',
+    'result', pg_temp.review_result('pass'),
+    'moderation', '{}'::jsonb,
+    'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+    'model_provider', 'openai',
+    'model_version', 'gpt-5.5'
+  )) ->> 'error_code',
+  'media_stale_during_review',
+  'completion fails closed when source bytes change after claim'
+);
+
+select is(
+  (select status
+   from content_factory.content_review_runs
+   where id = (
+     select (value ->> 'review_id')::uuid from stale_sha_completion
+   )),
+  'failed',
+  'completion-time SHA mismatch becomes terminal'
+);
+
+select ok(
+  (
+    public.system_complete_content_review(jsonb_build_object(
+      'review_id', (select value ->> 'review_id' from stale_sha_completion),
+      'status', 'completed',
+      'result', pg_temp.review_result('pass'),
+      'moderation', '{}'::jsonb,
+      'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+      'model_provider', 'openai',
+      'model_version', 'gpt-5.5'
+    )) ->> 'idempotent'
+  )::boolean,
+  'lost stale-SHA response can be replayed idempotently'
+);
+
+update content_factory.media_objects
+set sha256 = repeat('c', 64)
+where id = '95300000-0000-4000-8000-000000000003';
+
+create temporary table stale_status_completion on commit drop as
+select public.creator_start_content_review(jsonb_build_object(
+  'organization_id', '95100000-0000-4000-8000-000000000001',
+  'idempotency_key', 'content-review-stale-status-completion',
+  'media_object_id', '95300000-0000-4000-8000-000000000003',
+  'platform', 'vk',
+  'product_category', 'cosmetics',
+  'declared_ad_status', 'informational'
+)) as value;
+
+select ok(
+  (
+    public.system_claim_content_review(jsonb_build_object(
+      'review_id', (select value ->> 'review_id' from stale_status_completion)
+    )) ->> 'claimed'
+  )::boolean,
+  'worker claims media before the completion-time status race'
+);
+
+update content_factory.media_objects
+set status = 'archived'
+where id = '95300000-0000-4000-8000-000000000003';
+
+select is(
+  public.system_complete_content_review(jsonb_build_object(
+    'review_id', (select value ->> 'review_id' from stale_status_completion),
+    'status', 'failed',
+    'error_code', 'provider_failed',
+    'error_message', 'Provider failed after the source was archived.'
+  )) ->> 'error_code',
+  'media_stale_during_review',
+  'trusted media staleness takes precedence over a provider failure'
+);
+
+select is(
+  (select status
+   from content_factory.content_review_runs
+   where id = (
+     select (value ->> 'review_id')::uuid from stale_status_completion
+   )),
+  'failed',
+  'completion-time lifecycle mismatch becomes terminal'
+);
+
+select ok(
+  (
+    public.system_complete_content_review(jsonb_build_object(
+      'review_id', (
+        select value ->> 'review_id' from stale_status_completion
+      ),
+      'status', 'failed',
+      'error_code', 'provider_failed',
+      'error_message', 'Provider failed after the source was archived.'
+    )) ->> 'idempotent'
+  )::boolean,
+  'lost stale-status response can be replayed idempotently'
+);
+
+update content_factory.media_objects
+set status = 'ready'
+where id = '95300000-0000-4000-8000-000000000003';
 
 update content_review_test_context
 set stale_start = public.creator_start_content_review(jsonb_build_object(
@@ -1498,10 +1816,28 @@ values (
   now() - interval '10 minutes'
 );
 
+create temporary table expired_completion_payload on commit drop as
+select jsonb_build_object(
+  'review_id', '95400000-0000-4000-8000-000000000001',
+  'status', 'completed',
+  'result', pg_temp.review_result('pass'),
+  'moderation', '{}'::jsonb,
+  'ruleset_version', 'ru-content-compliance-2026-07-16.1',
+  'model_provider', 'openai',
+  'model_version', 'gpt-5.5'
+) as value;
+
 select is(
-  public.creator_content_review_status(jsonb_build_object(
-    'review_id', '95400000-0000-4000-8000-000000000001'
-  )) -> 'run' ->> 'status',
+  public.system_complete_content_review(
+    (select value from expired_completion_payload)
+  ) ->> 'status',
+  'failed',
+  'expired worker completion fails closed without browser status polling'
+);
+select is(
+  (select status
+   from content_factory.content_review_runs
+   where id = '95400000-0000-4000-8000-000000000001'),
   'failed',
   'expired paid worker lease becomes terminal'
 );
@@ -1512,15 +1848,13 @@ select is(
   'processing_lease_expired',
   'lease timeout has an explicit restart-required error'
 );
-select throws_ok(
-  $$select public.system_complete_content_review(jsonb_build_object(
-    'review_id', '95400000-0000-4000-8000-000000000001',
-    'status', 'failed',
-    'error_code', 'late_worker'
-  ))$$,
-  '23505',
-  'content_review_completion_conflict',
-  'a late worker cannot overwrite terminal timeout evidence'
+select ok(
+  (
+    public.system_complete_content_review(
+      (select value from expired_completion_payload)
+    ) ->> 'idempotent'
+  )::boolean,
+  'lost lease-timeout response can be replayed idempotently'
 );
 
 insert into content_factory.content_review_runs (
@@ -1613,6 +1947,91 @@ select is(
    )),
   'media_stale_before_review',
   'stale pre-provider cancellation has an auditable reason'
+);
+
+do $$
+begin
+  perform set_config(
+    'request.jwt.claim.sub',
+    '95000000-0000-4000-8000-000000000001',
+    true
+  );
+end;
+$$;
+
+insert into content_factory.content_review_runs (
+  id, organization_id, media_object_id, requested_by, status,
+  media_sha256_snapshot, input, result, moderation, ruleset_version,
+  model_provider, model_version, request_hash, completion_hash,
+  idempotency_key, started_at, finished_at
+)
+values (
+  '95400000-0000-4000-8000-000000000011',
+  '95100000-0000-4000-8000-000000000001',
+  '95300000-0000-4000-8000-000000000006',
+  '95000000-0000-4000-8000-000000000001',
+  'completed',
+  repeat('6', 64),
+  jsonb_build_object(
+    'media_id', '95300000-0000-4000-8000-000000000006',
+    'platform', 'vk',
+    'product_category', 'other',
+    'content_kind', 'informational'
+  ),
+  pg_temp.review_result('pass'),
+  '{}'::jsonb,
+  'ru-content-compliance-2026-07-16.1',
+  'openai',
+  'gpt-5.5',
+  repeat('1', 64),
+  repeat('2', 64),
+  'content-review-productless-parent',
+  now(),
+  now()
+);
+
+select throws_ok(
+  $$select public.creator_start_content_review(jsonb_build_object(
+    'organization_id', '95100000-0000-4000-8000-000000000001',
+    'idempotency_key', 'content-review-parent-null-vs-product',
+    'media_object_id', '95300000-0000-4000-8000-000000000001',
+    'parent_review_id', '95400000-0000-4000-8000-000000000011',
+    'platform', 'vk',
+    'product_category', 'cosmetics',
+    'declared_ad_status', 'informational'
+  ))$$,
+  '22023',
+  'parent_content_review_product_mismatch',
+  'explicit parent cannot cross between productless and product media'
+);
+
+select throws_ok(
+  $$select public.creator_start_content_review(jsonb_build_object(
+    'organization_id', '95100000-0000-4000-8000-000000000001',
+    'idempotency_key', 'content-review-parent-productless-cross-media',
+    'media_object_id', '95300000-0000-4000-8000-000000000007',
+    'parent_review_id', '95400000-0000-4000-8000-000000000011',
+    'platform', 'vk',
+    'product_category', 'other',
+    'declared_ad_status', 'informational'
+  ))$$,
+  '22023',
+  'parent_content_review_product_mismatch',
+  'productless history cannot cross between unrelated media'
+);
+
+select is(
+  public.creator_start_content_review(jsonb_build_object(
+    'organization_id', '95100000-0000-4000-8000-000000000001',
+    'idempotency_key', 'content-review-parent-productless-same-media',
+    'media_object_id', '95300000-0000-4000-8000-000000000006',
+    'parent_review_id', '95400000-0000-4000-8000-000000000011',
+    'platform', 'vk',
+    'product_category', 'other',
+    'declared_ad_status', 'informational'
+  )) ->> 'parent_review_id',
+  '95400000-0000-4000-8000-000000000011',
+  'productless history is allowed for the exact same media'
 );
 
 do $$

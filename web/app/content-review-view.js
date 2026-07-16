@@ -280,12 +280,12 @@ export function syncContentReviewFormVisibility(form) {
   if (!form) return;
   const advertising = String(form.elements.content_kind?.value || "unknown") === "advertising";
   const baa = String(form.elements.product_category?.value || "other") === "baa";
-  const peoplePresent = String(form.elements.people_present?.value || "unknown") === "yes";
+  const peopleMayBePresent = String(form.elements.people_present?.value || "unknown") !== "no";
   const aiGenerated = form.elements.ai_generated?.checked === true;
   const largeAudience = form.elements.audience_over_10000?.checked === true;
   toggleConditional(form, "[data-review-advertising]", advertising);
   toggleConditional(form, "[data-review-baa]", baa);
-  toggleConditional(form, "[data-review-person-consent]", peoplePresent);
+  toggleConditional(form, "[data-review-person-consent]", peopleMayBePresent);
   toggleConditional(form, "[data-review-ai-disclosure]", aiGenerated);
   toggleConditional(form, "[data-review-rkn]", largeAudience);
 }

@@ -266,8 +266,11 @@ declare
   blockers_value integer;
   warnings_value integer;
   actual_blockers integer;
+  actual_warnings integer;
+  actual_human_review boolean := false;
   confidence_value numeric;
   compliance_value text;
+  expected_compliance_value text;
 begin
   if value is null
      or jsonb_typeof(value) <> 'object'
@@ -395,6 +398,7 @@ begin
   end if;
 
   actual_blockers := 0;
+  actual_warnings := 0;
   for item in
     select element.value
     from jsonb_array_elements(value -> 'findings') element(value)
@@ -443,14 +447,36 @@ begin
     if item ->> 'severity' = 'blocker' then
       actual_blockers := actual_blockers + 1;
     end if;
+    if item ->> 'severity' in ('high', 'medium') then
+      actual_warnings := actual_warnings + 1;
+    end if;
+    if item ->> 'severity' in ('high', 'medium')
+       or item -> 'human_review_required'
+            is not distinct from 'true'::jsonb then
+      actual_human_review := true;
+    end if;
   end loop;
 
-  if actual_blockers <> blockers_value
-     or (blockers_value > 0 and compliance_value <> 'block')
-     or (blockers_value = 0 and compliance_value = 'block') then
+  if actual_blockers <> blockers_value then
     raise exception using
       errcode = '22023',
       message = 'content_review_blocker_count_invalid';
+  end if;
+  if actual_warnings <> warnings_value then
+    raise exception using
+      errcode = '22023',
+      message = 'content_review_warning_count_invalid';
+  end if;
+
+  expected_compliance_value := case
+    when actual_blockers > 0 then 'block'
+    when actual_human_review then 'human_review'
+    else 'pass_with_warnings'
+  end;
+  if compliance_value <> expected_compliance_value then
+    raise exception using
+      errcode = '22023',
+      message = 'content_review_compliance_status_invalid';
   end if;
 
   for item in
@@ -506,7 +532,7 @@ as $$
       select 1
       from jsonb_array_elements(coalesce(value -> 'findings', '[]'::jsonb))
         finding(value)
-      where finding.value ->> 'severity' in ('blocker', 'high')
+      where finding.value ->> 'severity' in ('blocker', 'high', 'medium')
          or finding.value -> 'human_review_required'
               is not distinct from 'true'::jsonb
     )
@@ -981,15 +1007,11 @@ begin
     from content_factory.media_objects media
     where media.organization_id = organization_id
       and media.id = parent_row.media_object_id;
-    if media_row.product_id is not null
-       and parent_product_id is not null
-       and media_row.product_id <> parent_product_id then
-      raise exception using
-        errcode = '22023',
-        message = 'parent_content_review_product_mismatch';
-    end if;
-    if media_row.product_id is null
-       and parent_row.media_object_id <> media_id_value then
+    if media_row.product_id is distinct from parent_product_id
+       or (
+         media_row.product_id is null
+         and parent_row.media_object_id is distinct from media_id_value
+       ) then
       raise exception using
         errcode = '22023',
         message = 'parent_content_review_product_mismatch';
@@ -1849,27 +1871,33 @@ begin
         errcode = '55000',
         message = 'content_review_media_stale';
     end if;
-    if coalesce((review_row.result ->> 'blockers_count')::integer, 0) > 0
+    if exists (
+         select 1
+         from jsonb_array_elements(
+           coalesce(review_row.result -> 'findings', '[]'::jsonb)
+         ) finding(value)
+         where finding.value ->> 'severity' = 'blocker'
+       )
+       or coalesce((review_row.result ->> 'blockers_count')::integer, 0) > 0
        or review_row.result ->> 'compliance_status' = 'block' then
       raise exception using
         errcode = '55000',
         message = 'content_review_blockers_unresolved';
     end if;
-    if review_row.result ->> 'compliance_status' = 'human_review'
-       and exists (
-         select 1
-         from jsonb_array_elements(
-           coalesce(review_row.result -> 'findings', '[]'::jsonb)
-         ) finding(value)
-         where (
-           finding.value ->> 'severity' in ('blocker', 'high')
-           or finding.value -> 'human_review_required'
-                is not distinct from 'true'::jsonb
-         )
-         and not acknowledgements_value @> jsonb_build_array(
-           finding.value ->> 'code'
-         )
-       ) then
+    if exists (
+      select 1
+      from jsonb_array_elements(
+        coalesce(review_row.result -> 'findings', '[]'::jsonb)
+      ) finding(value)
+      where (
+        finding.value ->> 'severity' in ('blocker', 'high')
+        or finding.value -> 'human_review_required'
+             is not distinct from 'true'::jsonb
+      )
+      and not acknowledgements_value @> jsonb_build_array(
+        finding.value ->> 'code'
+      )
+    ) then
       raise exception using
         errcode = '22023',
         message = 'content_review_risk_acknowledgement_required';
@@ -2335,6 +2363,7 @@ declare
   review_id_value uuid;
   status_value text;
   review_row content_factory.content_review_runs%rowtype;
+  media_row content_factory.media_objects%rowtype;
   result_value jsonb := coalesce(p_payload -> 'result', '{}'::jsonb);
   moderation_value jsonb := coalesce(p_payload -> 'moderation', '{}'::jsonb);
   ruleset_value text;
@@ -2344,6 +2373,10 @@ declare
   error_message_value text;
   completion_payload jsonb;
   completion_hash_value text;
+  timeout_message text :=
+    'Проверка контента не завершилась вовремя. Запустите её заново.';
+  stale_message text :=
+    'Файл изменился во время проверки. Запустите проверку заново.';
 begin
   p_payload := content_factory_private.require_payload(p_payload);
   if length(p_payload::text) > 360000
@@ -2386,6 +2419,19 @@ begin
   end if;
 
   if review_row.status in ('completed', 'failed', 'cancelled') then
+    if review_row.status = 'failed'
+       and review_row.error_code in (
+         'processing_lease_expired',
+         'media_stale_during_review'
+       ) then
+      return jsonb_build_object(
+        'ok', true,
+        'review_id', review_id_value,
+        'status', 'failed',
+        'error_code', review_row.error_code,
+        'idempotent', true
+      );
+    end if;
     if review_row.status = status_value
        and review_row.completion_hash = completion_hash_value then
       return jsonb_build_object(
@@ -2404,6 +2450,70 @@ begin
     raise exception using
       errcode = '55000',
       message = 'content_review_not_claimed';
+  end if;
+
+  -- The lease is checked again under the run lock. A late provider response
+  -- must fail closed even when no browser has polled the public status RPC.
+  if review_row.lease_expires_at <= now() then
+    completion_payload := jsonb_build_object(
+      'status', 'failed',
+      'error_code', 'processing_lease_expired',
+      'error_message', timeout_message
+    );
+    completion_hash_value := content_factory_private.json_hash(
+      completion_payload
+    );
+    update content_factory.content_review_runs review
+    set status = 'failed',
+        error_code = 'processing_lease_expired',
+        error_message = timeout_message,
+        completion_hash = completion_hash_value
+    where review.id = review_id_value
+      and review.status = 'processing';
+
+    return jsonb_build_object(
+      'ok', true,
+      'review_id', review_id_value,
+      'status', 'failed',
+      'error_code', 'processing_lease_expired',
+      'idempotent', false
+    );
+  end if;
+
+  -- Lock the exact media row while accepting the worker outcome. This closes
+  -- the claim-to-completion race for both lifecycle state and source bytes.
+  select media.* into media_row
+  from content_factory.media_objects media
+  where media.organization_id = review_row.organization_id
+    and media.id = review_row.media_object_id
+  for update;
+
+  if media_row.id is null
+     or media_row.status is distinct from 'ready'
+     or media_row.sha256 is distinct from review_row.media_sha256_snapshot then
+    completion_payload := jsonb_build_object(
+      'status', 'failed',
+      'error_code', 'media_stale_during_review',
+      'error_message', stale_message
+    );
+    completion_hash_value := content_factory_private.json_hash(
+      completion_payload
+    );
+    update content_factory.content_review_runs review
+    set status = 'failed',
+        error_code = 'media_stale_during_review',
+        error_message = stale_message,
+        completion_hash = completion_hash_value
+    where review.id = review_id_value
+      and review.status = 'processing';
+
+    return jsonb_build_object(
+      'ok', true,
+      'review_id', review_id_value,
+      'status', 'failed',
+      'error_code', 'media_stale_during_review',
+      'idempotent', false
+    );
   end if;
 
   if status_value = 'failed' then

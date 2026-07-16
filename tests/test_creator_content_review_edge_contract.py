@@ -115,7 +115,10 @@ def test_review_fails_closed_before_paid_provider_for_stale_or_private_people_me
     assert 'value.status !== "ready"' in source[:provider]
     assert "value.snapshot_matches !== true" in source[:provider]
     assert '"external_ai_processing_basis_required"' in source[:provider]
-    assert 'stringInput(claim.run.input, "people_present") === "yes"' in source[:provider]
+    assert '"external_ai_processing_basis_required",' in source[
+        source.index("const PROVIDER_FAILURE_CODES") : provider
+    ]
+    assert 'stringInput(claim.run.input, "people_present") !== "no"' in source[:provider]
     assert 'boolInput(claim.run.input, "external_ai_processing_confirmed")' in source[:provider]
 
 

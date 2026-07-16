@@ -9,9 +9,14 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607160004_real_generation_reconciliation.sql"
 )
+PGTAP_TEST = (
+    ROOT
+    / "supabase/tests/real_generation_reconciliation_test.sql"
+)
 EDGE_PATH = ROOT / "supabase/functions/creator-generate/index.ts"
 SQL = MIGRATION.read_text(encoding="utf-8")
 LOWER = SQL.casefold()
+PGTAP = PGTAP_TEST.read_text(encoding="utf-8").casefold()
 EDGE = EDGE_PATH.read_text(encoding="utf-8")
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
@@ -115,6 +120,112 @@ def test_ambiguous_submission_is_durably_marked_without_releasing_spend() -> Non
     assert "task_row.assignee_id is distinct from job_row.assigned_to" in body
 
 
+def test_unresolved_incident_authoritatively_freezes_new_paid_jobs() -> None:
+    start = LOWER.index(
+        "create or replace function content_factory_private."
+        "guard_real_generation_reconciliation_freeze()"
+    )
+    end = LOWER.index(
+        "create or replace function public."
+        "system_mark_real_generation_reconciliation_required",
+        start,
+    )
+    freeze = LOWER[start:end]
+
+    assert "security definer" in freeze
+    assert "set search_path = ''" in freeze
+    assert "real_generation_reconciliation_unresolved" in freeze
+    assert "pg_advisory_xact_lock" in freeze
+    assert "real_generation_quota:organization" in freeze
+    assert "real_generation_reconciliation_required" in freeze
+    assert (
+        "content_factory_private.real_generation_reconciliation_unresolved("
+        in freeze
+    )
+    assert "before insert or update of mode, allow_real_spend" in freeze
+    assert LOWER.count("hashtext('real_generation_quota:organization')") >= 3
+
+    edge_start = EDGE.index(
+        "const { data: startData, error: startError }"
+    )
+    edge_end = EDGE.index("const startJob = readStartJob", edge_start)
+    edge_start_error = EDGE[edge_start:edge_end]
+    assert (
+        'startError.message === "real_generation_reconciliation_required"'
+        in edge_start_error
+    )
+    assert '"real_generation_reconciliation_required"' in edge_start_error
+    assert "code === \"generation_rejected\" ? 403 : 409" in edge_start_error
+
+    for token in (
+        "real_generation_reconciliation_required",
+        "real_generation_reconciliation_task_time_mismatch",
+        "real_generation_reconciliation_already_resolved",
+        "confirm_no_submission",
+        "attach_existing_task",
+        "to_jsonb('false'::text)",
+        "automatic_provider_retry_used",
+        "does not freeze another",
+        "cannot release another unresolved incident",
+        "leaves no partial generation batch",
+        "leaves no partial review task",
+    ):
+        assert token in PGTAP
+
+
+def test_unresolved_job_cannot_escape_through_legacy_state_updates() -> None:
+    start = LOWER.index(
+        "create or replace function content_factory_private."
+        "guard_real_generation_reconciliation_transition()"
+    )
+    end = LOWER.index(
+        "create or replace function public."
+        "system_mark_real_generation_reconciliation_required",
+        start,
+    )
+    guard = LOWER[start:end]
+
+    for token in (
+        "security definer",
+        "real_generation_reconciliation_unresolved",
+        "new.status = 'starting'",
+        "new.actual_cost_minor = 0",
+        "is distinct from 'true'::jsonb",
+        "content_factory_private.json_hash",
+        "membership.role in ('owner', 'admin')",
+        "resolution_value = 'attach_existing_task'",
+        "new.status = 'submitted'",
+        "resolution_value = 'confirm_no_submission'",
+        "new.status = 'failed'",
+        "real_generation_reconciliation_required",
+        "before update on content_factory.generation_jobs",
+    ):
+        assert token in guard
+
+    for token in (
+        "system_update_real_generation",
+        "legacy provider updater cannot bypass",
+        "leaves the job reconcilable and frozen",
+        "malformed unresolved marker cannot be cleared",
+        "status surfaces a malformed fail-closed marker as unresolved",
+        "reconciliation normalizes the malformed marker",
+        "b_generation_jobs_reconciliation_transition_guard",
+    ):
+        assert token in PGTAP
+
+
+def test_mark_and_reconcile_take_org_lock_before_job_row_lock() -> None:
+    for name in (
+        "system_mark_real_generation_reconciliation_required",
+        "system_reconcile_real_generation",
+    ):
+        _, body = _function(name)
+        advisory = body.index("pg_advisory_xact_lock")
+        row_lock = body.index("for update")
+        assert "select job.organization_id into organization_id_value" in body
+        assert advisory < row_lock
+
+
 def test_manual_resolution_is_locked_idempotent_and_revalidates_actor() -> None:
     _, body = _function("system_reconcile_real_generation")
     for token in (
@@ -132,6 +243,9 @@ def test_manual_resolution_is_locked_idempotent_and_revalidates_actor() -> None:
         assert token in body
 
     assert body.count("for update") >= 3
+    assert "real_generation_reconciliation_unresolved" in body
+    assert "jsonb_set(" in body
+    assert "'{reconciliation_required}'" in body
     assert "job_row.output ->> 'reconciliation_incident_id'" in body
     assert "is distinct from incident_id_value::text" in body
     assert "batch_row.input ->> 'job_id' is distinct from job_row.id::text" in body
@@ -288,6 +402,7 @@ def test_browser_adapter_validates_and_idempotently_sends_manual_resolution() ->
     assert 'new Set(["start", "status", "reconcile"])' in API
     assert 'const idempotencyKey = action !== "status"' in API
     assert "this.mutationKeys[fingerprint] || crypto.randomUUID()" in API
+    assert "real_generation_reconciliation_required" in API
 
 
 def test_portal_stops_polling_and_hides_repeat_while_incident_is_open() -> None:

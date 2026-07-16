@@ -464,7 +464,7 @@ export class CreatorApi {
         code: "content_review_context_invalid",
       });
     }
-    if (peoplePresent === "yes" && input?.external_ai_processing_confirmed !== true) {
+    if (peoplePresent !== "no" && input?.external_ai_processing_confirmed !== true) {
       throw new CreatorApiError("Подтвердите законное основание и информирование для передачи контрольных кадров с узнаваемыми людьми внешнему AI-провайдеру.", {
         code: "content_review_external_ai_processing_required",
       });
@@ -1181,6 +1181,7 @@ function toFriendlyMessage(error) {
     generation_reconciliation_task_mismatch: "Runway task не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",
     generation_reconciliation_wait_required: "Для подтверждения отсутствия Runway task подождите две минуты после фиксации инцидента.",
     generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
+    real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к Runway.",
     auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
     authentication_required: "Сессия истекла. Войдите снова перед платным запуском.",
     invalid_payload: "Проверьте поля платного запуска и выбранный исходник.",

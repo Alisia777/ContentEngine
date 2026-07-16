@@ -1503,8 +1503,19 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     "creator_start_real_generation",
     { p_payload: rpcPayload(startPayload) },
   );
+  if (startError) {
+    const code =
+      startError.message === "real_generation_reconciliation_required"
+        ? "real_generation_reconciliation_required"
+        : "generation_rejected";
+    return json(
+      request,
+      { ok: false, code },
+      code === "generation_rejected" ? 403 : 409,
+    );
+  }
   const startJob = readStartJob(startData);
-  if (startError || startJob === null) {
+  if (startJob === null) {
     return json(request, { ok: false, code: "generation_rejected" }, 403);
   }
   const startRecord = startData as Record<string, unknown>;

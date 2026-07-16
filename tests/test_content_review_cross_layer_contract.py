@@ -252,5 +252,35 @@ def test_release_context_queue_risks_and_publication_url_fail_closed() -> None:
     assert "ad_probability: adProbability" in edge
     assert "SCOPE.BROWSER_FRAMES_ADVISORY" in edge
     assert "external_ai_processing_basis_required" in edge
+    assert 'stringInput(claim.run.input, "people_present") !== "no"' in edge
     assert "length(final_url_value) not between 12 and 2000" in migration
     assert "{3,1992}" not in migration
+
+
+def test_completion_and_compliance_revalidate_trusted_evidence() -> None:
+    migration = _read(MIGRATION)
+    pgtap = _read(PGTAP)
+    completion = migration[
+        migration.index("create or replace function public.system_complete_content_review") :
+        migration.index(
+            "create or replace function content_factory_private.placement_url_matches_platform"
+        )
+    ]
+
+    for marker in (
+        "content_review_warning_count_invalid",
+        "content_review_compliance_status_invalid",
+        "processing_lease_expired",
+        "media_stale_during_review",
+        "parent_content_review_product_mismatch",
+    ):
+        assert marker in migration
+        assert marker in pgtap
+
+    assert "item ->> 'severity' in ('high', 'medium')" in migration
+    assert "for update;" in completion
+    assert "review_row.lease_expires_at <= now()" in completion
+    assert "media_row.sha256 is distinct from review_row.media_sha256_snapshot" in completion
+    assert "without browser status polling" in pgtap
+    assert "staleness takes precedence over a provider failure" in pgtap
+    assert "replayed idempotently" in pgtap

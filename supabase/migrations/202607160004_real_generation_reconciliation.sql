@@ -5,6 +5,326 @@ begin;
 -- paid job in `starting`, add a durable incident marker, and require an
 -- owner/admin reconciliation before the organization can spend again.
 
+-- The marker is an organization-wide spend freeze, not just a UI warning.
+-- Use the same advisory lock as the paid-start quota path so an insert and a
+-- mark/reconcile transition cannot pass each other between check and write.
+create or replace function
+  content_factory_private.real_generation_reconciliation_unresolved(
+    value jsonb
+  )
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select coalesce(value ? 'reconciliation_required', false)
+    and value -> 'reconciliation_required'
+      is distinct from 'false'::jsonb
+$$;
+
+revoke all on function
+  content_factory_private.real_generation_reconciliation_unresolved(jsonb)
+  from public, anon, authenticated;
+
+create index if not exists generation_jobs_reconciliation_freeze_idx
+  on content_factory.generation_jobs (organization_id)
+  where mode = 'real'
+    and allow_real_spend
+    and content_factory_private.real_generation_reconciliation_unresolved(
+      output
+    );
+
+create or replace function content_factory_private.guard_real_generation_reconciliation_freeze()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.mode <> 'real' or not new.allow_real_spend then
+    return new;
+  end if;
+
+  -- Normal updates to an already-paid job must remain possible so the system
+  -- can mark and reconcile it. Only a newly inserted/converted paid job spends
+  -- a fresh provider slot.
+  if tg_op = 'UPDATE'
+     and old.mode = 'real'
+     and old.allow_real_spend
+     and old.organization_id = new.organization_id then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtext(new.organization_id::text),
+    hashtext('real_generation_quota:organization')
+  );
+
+  if exists (
+    select 1
+    from content_factory.generation_jobs job
+    where job.organization_id = new.organization_id
+      and job.mode = 'real'
+      and job.allow_real_spend
+      and content_factory_private.real_generation_reconciliation_unresolved(
+        job.output
+      )
+  ) then
+    raise exception using
+      errcode = '55000',
+      message = 'real_generation_reconciliation_required';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists a_generation_jobs_reconciliation_freeze_guard
+  on content_factory.generation_jobs;
+create trigger a_generation_jobs_reconciliation_freeze_guard
+before insert or update of mode, allow_real_spend, organization_id
+on content_factory.generation_jobs
+for each row execute function
+  content_factory_private.guard_real_generation_reconciliation_freeze();
+
+revoke all on function
+  content_factory_private.guard_real_generation_reconciliation_freeze()
+  from public, anon, authenticated;
+
+-- Once a job is unresolved, older provider-state updaters must not move it
+-- out of `starting` or clear the marker. Only the two complete reconciliation
+-- row shapes below are valid terminal exits.
+create or replace function content_factory_private.guard_real_generation_reconciliation_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  old_unresolved boolean;
+  resolution_value text;
+  incident_id_value uuid;
+  resolved_by_value uuid;
+  required_at_value timestamptz;
+  resolved_at_value timestamptz;
+  provider_task_id_value text;
+  provider_task_created_at_value timestamptz;
+  provider_status_value text;
+  evidence_reference_value text;
+  reason_value text;
+  payload_hash_value text;
+  expected_payload_hash text;
+begin
+  old_unresolved := old.mode = 'real'
+    and old.provider = 'runway'
+    and old.allow_real_spend
+    and content_factory_private.real_generation_reconciliation_unresolved(
+      old.output
+    );
+  if not old_unresolved then
+    return new;
+  end if;
+
+  if new.id is distinct from old.id
+     or new.organization_id is distinct from old.organization_id
+     or new.product_id is distinct from old.product_id
+     or new.batch_id is distinct from old.batch_id
+     or new.requested_by is distinct from old.requested_by
+     or new.assigned_to is distinct from old.assigned_to
+     or new.mode is distinct from old.mode
+     or new.provider is distinct from old.provider
+     or new.allow_real_spend is distinct from old.allow_real_spend
+     or new.estimated_cost_minor is distinct from old.estimated_cost_minor
+     or new.input is distinct from old.input
+     or new.request_hash is distinct from old.request_hash
+     or new.idempotency_key is distinct from old.idempotency_key then
+    raise exception using
+      errcode = '55000',
+      message = 'real_generation_reconciliation_required';
+  end if;
+
+  -- Harmless metadata maintenance may keep the job unresolved, but cannot
+  -- attach a provider task, alter the incident identity, or leave `starting`.
+  if new.status = 'starting'
+     and new.actual_cost_minor = 0
+     and nullif(btrim(new.output ->> 'provider_task_id'), '') is null
+     and new.output ? 'reconciliation_required'
+     and new.output -> 'reconciliation_required'
+       is distinct from 'false'::jsonb
+     and new.output -> 'starting_at'
+       is not distinct from old.output -> 'starting_at'
+     and new.output -> 'reconciliation_incident_id'
+       is not distinct from old.output -> 'reconciliation_incident_id'
+     and new.output -> 'reconciliation_reason_code'
+       is not distinct from old.output -> 'reconciliation_reason_code'
+     and new.output -> 'reconciliation_resolution'
+       is not distinct from old.output -> 'reconciliation_resolution'
+     and new.output -> 'reconciliation_resolved_at'
+       is not distinct from old.output -> 'reconciliation_resolved_at'
+     and new.output -> 'reconciliation_resolved_by'
+       is not distinct from old.output -> 'reconciliation_resolved_by'
+     and new.output -> 'reconciliation_evidence_reference'
+       is not distinct from old.output -> 'reconciliation_evidence_reference'
+     and new.output -> 'reconciliation_reason'
+       is not distinct from old.output -> 'reconciliation_reason'
+     and new.output -> 'reconciliation_payload_hash'
+       is not distinct from old.output -> 'reconciliation_payload_hash' then
+    return new;
+  end if;
+
+  resolution_value := nullif(
+    btrim(new.output ->> 'reconciliation_resolution'),
+    ''
+  );
+  provider_task_id_value := nullif(
+    btrim(new.output ->> 'provider_task_id'),
+    ''
+  );
+  provider_status_value := nullif(
+    btrim(new.output ->> 'provider_status_at_reconciliation'),
+    ''
+  );
+  evidence_reference_value := nullif(
+    btrim(new.output ->> 'reconciliation_evidence_reference'),
+    ''
+  );
+  reason_value := nullif(
+    btrim(new.output ->> 'reconciliation_reason'),
+    ''
+  );
+  payload_hash_value := nullif(
+    btrim(new.output ->> 'reconciliation_payload_hash'),
+    ''
+  );
+
+  begin
+    incident_id_value :=
+      (old.output ->> 'reconciliation_incident_id')::uuid;
+    resolved_by_value :=
+      (new.output ->> 'reconciliation_resolved_by')::uuid;
+    required_at_value :=
+      (old.output ->> 'reconciliation_required_at')::timestamptz;
+    resolved_at_value :=
+      (new.output ->> 'reconciliation_resolved_at')::timestamptz;
+    if nullif(
+      btrim(new.output ->> 'provider_task_created_at'),
+      ''
+    ) is not null then
+      provider_task_created_at_value :=
+        (new.output ->> 'provider_task_created_at')::timestamptz;
+    end if;
+  exception when others then
+    raise exception using
+      errcode = '55000',
+      message = 'real_generation_reconciliation_required';
+  end;
+
+  if old.status <> 'starting'
+     or old.actual_cost_minor <> 0
+     or nullif(btrim(old.output ->> 'provider_task_id'), '') is not null
+     or old.output -> 'reconciliation_required'
+       is distinct from 'true'::jsonb
+     or new.output -> 'reconciliation_required'
+       is distinct from 'false'::jsonb
+     or new.output -> 'reconciliation_incident_id'
+       is distinct from old.output -> 'reconciliation_incident_id'
+     or new.output -> 'reconciliation_required_at'
+       is distinct from old.output -> 'reconciliation_required_at'
+     or new.output -> 'reconciliation_reason_code'
+       is distinct from old.output -> 'reconciliation_reason_code'
+     or new.output -> 'starting_at'
+       is distinct from old.output -> 'starting_at'
+     or incident_id_value is null
+     or required_at_value is null
+     or resolved_at_value is null
+     or resolved_at_value < required_at_value
+     or resolved_at_value > now() + interval '1 minute'
+     or evidence_reference_value is null
+     or length(evidence_reference_value) not between 8 and 500
+     or reason_value is null
+     or length(reason_value) not between 20 and 1000
+     or payload_hash_value !~ '^[0-9a-f]{64}$'
+     or not exists (
+       select 1
+       from content_factory.memberships membership
+       join content_factory.profiles profile
+         on profile.id = membership.profile_id
+       where membership.organization_id = old.organization_id
+         and membership.profile_id = resolved_by_value
+         and membership.status = 'active'
+         and membership.role in ('owner', 'admin')
+         and profile.status = 'active'
+     ) then
+    raise exception using
+      errcode = '55000',
+      message = 'real_generation_reconciliation_required';
+  end if;
+
+  expected_payload_hash := content_factory_private.json_hash(
+    jsonb_build_object(
+      'incident_id', incident_id_value,
+      'resolution', resolution_value,
+      'provider_task_id', provider_task_id_value,
+      'provider_task_created_at', provider_task_created_at_value,
+      'provider_status', provider_status_value,
+      'evidence_reference', evidence_reference_value,
+      'reason', reason_value
+    )
+  );
+  if payload_hash_value is distinct from expected_payload_hash then
+    raise exception using
+      errcode = '55000',
+      message = 'real_generation_reconciliation_required';
+  end if;
+
+  if resolution_value = 'attach_existing_task'
+     and new.status = 'submitted'
+     and new.actual_cost_minor = new.estimated_cost_minor
+     and provider_task_id_value
+       ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'
+     and provider_task_created_at_value is not null
+     and provider_status_value in (
+       'PENDING', 'THROTTLED', 'RUNNING', 'SUCCEEDED',
+       'FAILED', 'CANCELED', 'CANCELLED'
+     )
+     and new.output ->> 'submission_state' = 'confirmed_submitted'
+     and new.output ->> 'currency' = 'USD'
+     and new.output ->> 'failure_code' is null then
+    return new;
+  end if;
+
+  if resolution_value = 'confirm_no_submission'
+     and new.status = 'failed'
+     and new.actual_cost_minor = 0
+     and provider_task_id_value is null
+     and provider_task_created_at_value is null
+     and provider_status_value is null
+     and new.output ->> 'submission_state' = 'confirmed_not_submitted'
+     and new.output ->> 'failure_code'
+       = 'provider_submission_not_found'
+     and new.output ->> 'output_media_id' is null
+     and new.output ->> 'currency' = 'USD' then
+    return new;
+  end if;
+
+  raise exception using
+    errcode = '55000',
+    message = 'real_generation_reconciliation_required';
+end;
+$$;
+
+drop trigger if exists b_generation_jobs_reconciliation_transition_guard
+  on content_factory.generation_jobs;
+create trigger b_generation_jobs_reconciliation_transition_guard
+before update on content_factory.generation_jobs
+for each row execute function
+  content_factory_private.guard_real_generation_reconciliation_transition();
+
+revoke all on function
+  content_factory_private.guard_real_generation_reconciliation_transition()
+  from public, anon, authenticated;
+
 create or replace function public.system_mark_real_generation_reconciliation_required(
   p_payload jsonb default '{}'::jsonb
 )
@@ -19,6 +339,7 @@ declare
   reason_code_value text;
   incident_id_value uuid;
   starting_at_value timestamptz;
+  organization_id_value uuid;
   linked_task_count integer;
   linked_task_id uuid;
   job_row content_factory.generation_jobs%rowtype;
@@ -48,9 +369,25 @@ begin
       message = 'real_generation_reconciliation_reason_invalid';
   end if;
 
+  select job.organization_id into organization_id_value
+  from content_factory.generation_jobs job
+  where job.id = job_id_value;
+
+  if organization_id_value is null then
+    raise exception using
+      errcode = 'P0002',
+      message = 'real_generation_not_found';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtext(organization_id_value::text),
+    hashtext('real_generation_quota:organization')
+  );
+
   select job.* into job_row
   from content_factory.generation_jobs job
   where job.id = job_id_value
+    and job.organization_id = organization_id_value
   for update;
 
   if job_row.id is null
@@ -62,11 +399,29 @@ begin
       message = 'real_generation_not_found';
   end if;
 
-  already_required := coalesce(
-    job_row.output -> 'reconciliation_required',
-    'false'::jsonb
-  ) = 'true'::jsonb;
+  already_required :=
+    content_factory_private.real_generation_reconciliation_unresolved(
+      job_row.output
+    );
   if already_required then
+    if job_row.status = 'starting'
+       and job_row.actual_cost_minor = 0
+       and nullif(
+         btrim(job_row.output ->> 'provider_task_id'),
+         ''
+       ) is null
+       and job_row.output -> 'reconciliation_required'
+         is distinct from 'true'::jsonb then
+      update content_factory.generation_jobs job
+      set output = jsonb_set(
+        job.output,
+        '{reconciliation_required}',
+        'true'::jsonb,
+        true
+      )
+      where job.id = job_row.id
+      returning * into job_row;
+    end if;
     return jsonb_build_object(
       'ok', true,
       'marked', false,
@@ -266,10 +621,9 @@ begin
   end if;
   if job_row.status <> 'starting'
      or nullif(btrim(job_row.output ->> 'provider_task_id'), '') is not null
-     or coalesce(
-       job_row.output -> 'reconciliation_required',
-       'false'::jsonb
-     ) <> 'true'::jsonb
+     or not content_factory_private.real_generation_reconciliation_unresolved(
+       job_row.output
+     )
      or coalesce(
        job_row.output ->> 'reconciliation_incident_id',
        ''
@@ -320,6 +674,7 @@ declare
   provider_task_created_at_value timestamptz;
   provider_status_value text;
   actor_role text;
+  organization_id_value uuid;
   starting_at_value timestamptz;
   required_at_value timestamptz;
   payload_hash text;
@@ -424,9 +779,24 @@ begin
       message = 'real_generation_reconciliation_no_submission_invalid';
   end if;
 
+  select job.organization_id into organization_id_value
+  from content_factory.generation_jobs job
+  where job.id = job_id_value;
+  if organization_id_value is null then
+    raise exception using
+      errcode = 'P0002',
+      message = 'real_generation_not_found';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtext(organization_id_value::text),
+    hashtext('real_generation_quota:organization')
+  );
+
   select job.* into job_row
   from content_factory.generation_jobs job
   where job.id = job_id_value
+    and job.organization_id = organization_id_value
   for update;
   if job_row.id is null
      or job_row.mode <> 'real'
@@ -499,16 +869,30 @@ begin
     );
   end if;
 
-  if coalesce(
-       job_row.output -> 'reconciliation_required',
-       'false'::jsonb
-     ) <> 'true'::jsonb
+  if not content_factory_private.real_generation_reconciliation_unresolved(
+       job_row.output
+     )
      or job_row.status <> 'starting'
      or nullif(btrim(job_row.output ->> 'provider_task_id'), '') is not null
      or job_row.actual_cost_minor <> 0 then
     raise exception using
       errcode = '55000',
       message = 'real_generation_reconciliation_not_required';
+  end if;
+
+  -- A fail-closed malformed marker still blocks spend, but an authorized
+  -- owner/admin can normalize it inside the locked reconciliation command.
+  if job_row.output -> 'reconciliation_required'
+       is distinct from 'true'::jsonb then
+    update content_factory.generation_jobs job
+    set output = jsonb_set(
+      job.output,
+      '{reconciliation_required}',
+      'true'::jsonb,
+      true
+    )
+    where job.id = job_row.id
+    returning * into job_row;
   end if;
 
   begin
@@ -784,10 +1168,10 @@ begin
       message = 'real_generation_not_found';
   end if;
 
-  reconciliation_required_value := coalesce(
-    job_row.output -> 'reconciliation_required',
-    'false'::jsonb
-  ) = 'true'::jsonb;
+  reconciliation_required_value :=
+    content_factory_private.real_generation_reconciliation_unresolved(
+      job_row.output
+    );
 
   return jsonb_build_object(
     'ok', true,
