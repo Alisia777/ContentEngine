@@ -1,0 +1,116 @@
+name: Configure production Auth SMTP
+
+on:
+  workflow_dispatch:
+    inputs:
+      sending_domain:
+        description: Exact domain used after @ in SMTP_ADMIN_EMAIL
+        required: true
+        type: string
+      dkim_selector:
+        description: DKIM selector supplied by the mail provider
+        required: true
+        type: string
+      expected_spf_include:
+        description: Exact SPF include token supplied by the mail provider
+        required: true
+        type: string
+      dkim_record_type:
+        description: Record type required by the mail provider
+        required: true
+        default: CNAME
+        type: choice
+        options:
+          - CNAME
+          - TXT
+      expected_dkim_value:
+        description: Exact DKIM CNAME target or complete TXT value
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-auth-smtp
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SMTP_ADMIN_EMAIL: ${{ secrets.SMTP_ADMIN_EMAIL }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_SENDER_NAME: ${{ vars.SMTP_SENDER_NAME }}
+      SENDING_DOMAIN: ${{ inputs.sending_domain }}
+      DKIM_SELECTOR: ${{ inputs.dkim_selector }}
+      EXPECTED_SPF_INCLUDE: ${{ inputs.expected_spf_include }}
+      DKIM_RECORD_TYPE: ${{ inputs.dkim_record_type }}
+      EXPECTED_DKIM_VALUE: ${{ inputs.expected_dkim_value }}
+      EXPECTED_SUPABASE_PROJECT_REF: iyckwryrucqrxwlowxow
+    steps:
+      - name: Check out reviewed main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Require protected coordinates and SMTP credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          echo "::add-mask::$SMTP_USER"
+          echo "::add-mask::$SMTP_PASS"
+          : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF}"
+          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN}"
+          : "${SMTP_ADMIN_EMAIL:?Configure SMTP_ADMIN_EMAIL}"
+          : "${SMTP_HOST:?Configure SMTP_HOST}"
+          : "${SMTP_PORT:?Configure SMTP_PORT}"
+          : "${SMTP_USER:?Configure SMTP_USER}"
+          : "${SMTP_PASS:?Configure SMTP_PASS}"
+          : "${SMTP_SENDER_NAME:?Configure SMTP_SENDER_NAME}"
+          : "${SENDING_DOMAIN:?Enter sending_domain}"
+          : "${DKIM_SELECTOR:?Enter dkim_selector}"
+          : "${EXPECTED_SPF_INCLUDE:?Enter expected_spf_include}"
+          : "${DKIM_RECORD_TYPE:?Choose dkim_record_type}"
+          : "${EXPECTED_DKIM_VALUE:?Enter expected_dkim_value}"
+          if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
+            echo "SUPABASE_PROJECT_REF does not match the reviewed production project" >&2
+            exit 1
+          fi
+          FROM_DOMAIN="${SMTP_ADMIN_EMAIL##*@}"
+          if [ "${FROM_DOMAIN,,}" != "${SENDING_DOMAIN,,}" ]; then
+            echo "SMTP_ADMIN_EMAIL must use the exact reviewed sending_domain" >&2
+            exit 1
+          fi
+
+      - name: Verify public SPF, DKIM and DMARC records
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate_auth_dns.py \
+            --domain "$SENDING_DOMAIN" \
+            --selector "$DKIM_SELECTOR" \
+            --expected-spf-include "$EXPECTED_SPF_INCLUDE" \
+            --dkim-record-type "$DKIM_RECORD_TYPE" \
+            --expected-dkim-value "$EXPECTED_DKIM_VALUE"
+
+      - name: Validate configuration without transmitting secrets
+        run: python scripts/configure_supabase_auth_smtp.py --dry-run
+
+      - name: Configure Supabase Auth custom SMTP
+        run: python scripts/configure_supabase_auth_smtp.py

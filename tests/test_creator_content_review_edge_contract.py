@@ -149,7 +149,9 @@ def test_image_review_uses_the_protected_original_not_browser_supplied_frames() 
     assert 'if (claim.run.media.mimeType.startsWith("image/"))' in evidence
     assert "createSignedUrl(" in evidence
     assert "validateSignedStorageUrl" in evidence
-    assert "} else {\n    imageUrls.push(...payload.frames);" in evidence
+    assert "} else { imageUrls.push(...payload.frames);" in " ".join(
+        evidence.split()
+    )
 
 
 def test_review_rules_are_versioned_and_source_linked() -> None:

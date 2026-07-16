@@ -1,0 +1,660 @@
+.my-work-page {
+  --my-work-danger: var(--portal-danger-ink, #9d2d27);
+  --my-work-danger-bg: var(--portal-danger-bg, #fff0ee);
+  --my-work-warning: var(--portal-warning-ink, #75520c);
+  --my-work-warning-bg: var(--portal-warning-bg, #fff6df);
+  --my-work-success: var(--portal-success-ink, #1f6b50);
+  --my-work-success-bg: var(--portal-success-bg, #eaf7f1);
+  --my-work-info: var(--portal-info-ink, var(--portal-primary));
+  --my-work-info-bg: var(--portal-info-bg, var(--portal-primary-soft));
+}
+
+body.notification-center-open {
+  overflow: hidden;
+}
+
+.workspace-notification-nav {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-notification-count {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 7px;
+  color: var(--portal-primary-deep);
+  background: var(--portal-accent);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.my-work-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 20px;
+  padding: clamp(24px, 4vw, 42px);
+  color: var(--portal-action-ink, #fff);
+  background:
+    radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--portal-accent) 30%, transparent), transparent 28%),
+    linear-gradient(135deg, var(--portal-primary-deep), var(--portal-primary));
+  border: 1px solid color-mix(in srgb, var(--portal-accent) 28%, transparent);
+  border-radius: 28px;
+  box-shadow: var(--shadow-raised);
+}
+
+.my-work-hero::after {
+  content: "";
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  right: -90px;
+  bottom: -150px;
+  border: 1px solid color-mix(in srgb, var(--portal-accent) 45%, transparent);
+  border-radius: 48% 52% 48% 52%;
+  transform: rotate(24deg);
+}
+
+.my-work-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.my-work-hero h1 {
+  max-width: 720px;
+  margin: 4px 0 10px;
+  font: 600 clamp(2.3rem, 6vw, 4.7rem)/0.96 Georgia, serif;
+}
+
+.my-work-hero p:not(.eyebrow) {
+  max-width: 720px;
+  margin: 0;
+  color: color-mix(in srgb, var(--portal-action-ink, #fff) 82%, transparent);
+}
+
+.my-work-hero .eyebrow {
+  color: var(--portal-accent);
+}
+
+.my-work-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: max-content;
+}
+
+.my-work-hero-actions .btn-secondary {
+  color: var(--portal-action-ink, #fff);
+  background: color-mix(in srgb, var(--portal-surface) 10%, transparent);
+  border-color: color-mix(in srgb, var(--portal-surface) 26%, transparent);
+}
+
+.my-work-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.my-work-summary-card {
+  display: grid;
+  gap: 5px;
+  min-height: 132px;
+  padding: 20px;
+  background: var(--portal-surface);
+  border: 1px solid var(--portal-line);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.my-work-summary-card span,
+.my-work-summary-card small {
+  color: var(--portal-ink-soft);
+}
+
+.my-work-summary-card strong {
+  font: 600 clamp(2rem, 4vw, 3rem)/1 Georgia, serif;
+}
+
+.my-work-summary-card--action {
+  border-color: color-mix(in srgb, var(--portal-accent) 50%, var(--portal-line));
+}
+
+.my-work-summary-card--overdue strong {
+  color: var(--my-work-danger);
+}
+
+.my-work-summary-card--notifications strong {
+  color: var(--portal-primary);
+}
+
+.my-work-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.my-work-sidebar {
+  position: sticky;
+  top: 18px;
+}
+
+.my-work-main {
+  min-width: 0;
+}
+
+.my-work-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.my-work-section-heading h2 {
+  margin: 2px 0 0;
+  font: 600 1.55rem/1.1 Georgia, serif;
+}
+
+.my-work-view-list {
+  display: grid;
+  gap: 5px;
+}
+
+.my-work-view-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 4px;
+}
+
+.my-work-view-button,
+.my-work-view-delete {
+  min-height: 42px;
+  color: var(--portal-ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.my-work-view-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 11px;
+  text-align: left;
+}
+
+.my-work-view-button small {
+  color: var(--portal-ink-soft);
+}
+
+.my-work-view-button:hover,
+.my-work-view-button.active {
+  background: var(--portal-primary-soft);
+  border-color: var(--portal-line);
+}
+
+.my-work-view-button.active {
+  font-weight: 700;
+}
+
+.my-work-view-delete:hover {
+  color: var(--my-work-danger);
+  background: var(--my-work-danger-bg);
+}
+
+.my-work-save-view {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--portal-line);
+}
+
+.my-work-filter {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.my-work-filter-top {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.my-work-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.my-work-filter-group legend {
+  flex: 0 0 100%;
+  margin-bottom: 3px;
+  color: var(--portal-ink-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.my-work-filter-chip {
+  position: relative;
+  cursor: pointer;
+}
+
+.my-work-filter-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.my-work-filter-chip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 7px 12px;
+  color: var(--portal-ink-soft);
+  background: var(--portal-surface-soft);
+  border: 1px solid var(--portal-line);
+  border-radius: 999px;
+  transition: 150ms ease;
+}
+
+.my-work-filter-chip input:focus-visible + span {
+  outline: 3px solid color-mix(in srgb, var(--portal-focus) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.my-work-filter-chip input:checked + span {
+  color: var(--portal-action-ink, #fff);
+  background: var(--portal-primary);
+  border-color: var(--portal-primary);
+}
+
+.my-work-queue {
+  display: grid;
+  gap: 10px;
+}
+
+.my-work-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  background: var(--portal-surface);
+  border: 1px solid var(--portal-line);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.my-work-item--overdue {
+  border-color: color-mix(in srgb, var(--my-work-danger) 48%, var(--portal-line));
+}
+
+.my-work-item-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--portal-primary);
+  background: var(--portal-primary-soft);
+  border-radius: 14px;
+  font-weight: 800;
+}
+
+.my-work-item-copy {
+  min-width: 0;
+}
+
+.my-work-item-copy h3 {
+  margin: 6px 0 4px;
+  font: 600 1.18rem/1.2 Georgia, serif;
+}
+
+.my-work-item-copy > p {
+  margin: 0;
+  color: var(--portal-ink-soft);
+}
+
+.my-work-item-meta,
+.my-work-item-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.my-work-item-meta > span:first-child {
+  color: var(--portal-ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.my-work-status,
+.my-work-overdue {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.my-work-status--info {
+  color: var(--my-work-info);
+  background: var(--my-work-info-bg);
+}
+
+.my-work-status--warning {
+  color: var(--my-work-warning);
+  background: var(--my-work-warning-bg);
+}
+
+.my-work-status--danger,
+.my-work-overdue {
+  color: var(--my-work-danger);
+  background: var(--my-work-danger-bg);
+}
+
+.my-work-status--success {
+  color: var(--my-work-success);
+  background: var(--my-work-success-bg);
+}
+
+.my-work-item-facts {
+  margin-top: 10px;
+  color: var(--portal-ink-soft);
+  font-size: 0.82rem;
+}
+
+.my-work-item-facts span {
+  display: flex;
+  gap: 5px;
+}
+
+.my-work-item-facts small {
+  font-weight: 700;
+}
+
+.my-work-item-action {
+  white-space: nowrap;
+}
+
+.my-work-empty {
+  display: grid;
+  place-items: center;
+  min-height: 250px;
+  padding: 40px;
+  text-align: center;
+  background: var(--portal-surface);
+  border: 1px dashed var(--portal-line-strong);
+  border-radius: 24px;
+}
+
+.my-work-empty > span,
+.notification-empty > span {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  color: var(--portal-primary);
+  background: var(--portal-primary-soft);
+  border-radius: 50%;
+  font-size: 1.35rem;
+}
+
+.my-work-empty h3,
+.notification-empty strong {
+  margin: 14px 0 4px;
+  font: 600 1.25rem/1.2 Georgia, serif;
+}
+
+.my-work-empty p,
+.notification-empty p {
+  margin: 0;
+  color: var(--portal-ink-soft);
+}
+
+.notification-layer {
+  position: fixed;
+  z-index: 150;
+  inset: 0;
+}
+
+.notification-layer[hidden] {
+  display: none;
+}
+
+.notification-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  background: rgba(4, 17, 14, 0.48);
+  border: 0;
+  cursor: default;
+}
+
+.notification-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(440px, 100%);
+  height: 100%;
+  padding: 24px;
+  color: var(--portal-ink);
+  background: var(--portal-surface);
+  border-left: 1px solid var(--portal-line);
+  box-shadow: -24px 0 70px rgba(0, 0, 0, 0.22);
+  animation: notification-drawer-enter 180ms ease-out;
+}
+
+.notification-drawer > header,
+.notification-toolbar,
+.notification-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notification-drawer h2 {
+  margin: 2px 0 0;
+  font: 600 2rem/1 Georgia, serif;
+}
+
+.notification-close {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--portal-ink);
+  background: var(--portal-surface-soft);
+  border: 1px solid var(--portal-line);
+  border-radius: 50%;
+  font-size: 1.4rem;
+  cursor: pointer;
+}
+
+.notification-toolbar {
+  min-height: 52px;
+  margin: 15px 0 8px;
+  color: var(--portal-ink-soft);
+  border-top: 1px solid var(--portal-line);
+  border-bottom: 1px solid var(--portal-line);
+}
+
+.notification-list {
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 4px 2px 20px 0;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 11px;
+  width: 100%;
+  padding: 12px;
+  color: var(--portal-ink);
+  text-align: left;
+  text-decoration: none;
+  background: var(--portal-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--portal-primary) 12%, var(--portal-line));
+  border-radius: 15px;
+  cursor: pointer;
+}
+
+.notification-item.read {
+  background: transparent;
+}
+
+.notification-item:hover {
+  border-color: var(--portal-line-strong);
+}
+
+.notification-item p {
+  margin: 3px 0 7px;
+  color: var(--portal-ink-soft);
+  font-size: 0.9rem;
+}
+
+.notification-item time {
+  color: var(--portal-ink-soft);
+  font-size: 0.74rem;
+}
+
+.notification-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--my-work-info);
+  background: var(--my-work-info-bg);
+  border-radius: 11px;
+  font-weight: 800;
+}
+
+.notification-icon--success {
+  color: var(--my-work-success);
+  background: var(--my-work-success-bg);
+}
+
+.notification-icon--warning {
+  color: var(--my-work-warning);
+  background: var(--my-work-warning-bg);
+}
+
+.notification-icon--danger {
+  color: var(--my-work-danger);
+  background: var(--my-work-danger-bg);
+}
+
+.notification-unread {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  background: var(--portal-accent);
+  border-radius: 50%;
+}
+
+.notification-empty,
+.notification-loading {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 280px;
+  text-align: center;
+}
+
+[data-deep-link-focused="true"] {
+  scroll-margin-block: 96px;
+  outline: 3px solid var(--portal-accent);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--portal-accent) 24%, transparent);
+}
+
+@keyframes notification-drawer-enter {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@media (max-width: 1050px) {
+  .my-work-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .my-work-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .my-work-sidebar {
+    position: static;
+  }
+}
+
+@media (max-width: 700px) {
+  .my-work-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .my-work-hero-actions {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .my-work-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .my-work-summary-card {
+    min-height: 112px;
+    padding: 16px;
+  }
+
+  .my-work-filter-top,
+  .my-work-item {
+    grid-template-columns: 1fr;
+  }
+
+  .my-work-item-icon {
+    display: none;
+  }
+
+  .my-work-item-action {
+    width: 100%;
+  }
+
+  .notification-drawer {
+    padding: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-drawer {
+    animation: none;
+  }
+}

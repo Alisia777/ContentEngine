@@ -97,7 +97,11 @@ def test_runway_request_and_polling_are_fixed_to_reviewed_contract() -> None:
     assert 'audio: true' in source
     assert '`${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`' in source
     assert "const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;" in source
-    assert "Date.now() - Date.parse(current.updatedAt) < MIN_PROVIDER_POLL_INTERVAL_MS" in source
+    compact = " ".join(source.split())
+    assert (
+        "Date.now() - Date.parse(current.updatedAt) < "
+        "MIN_PROVIDER_POLL_INTERVAL_MS"
+    ) in compact
     for status in (
         "PENDING",
         "THROTTLED",

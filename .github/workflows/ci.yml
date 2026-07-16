@@ -78,7 +78,7 @@ jobs:
         run: supabase test db
 
   creator-edge-functions:
-    name: Validate authenticated creator Edge Functions
+    name: Validate creator Edge Functions
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -118,6 +118,17 @@ jobs:
                   raise SystemExit(
                       f"{function_name} must set verify_jwt = true"
                   )
+          worker_name = "creator-background-worker"
+          worker_entrypoint = (
+              Path("supabase/functions") / worker_name / "index.ts"
+          )
+          if not worker_entrypoint.is_file():
+              raise SystemExit(f"Missing {worker_name} Edge Function entrypoint")
+          worker_config = config.get("functions", {}).get(worker_name, {})
+          if worker_config.get("verify_jwt") is not False:
+              raise SystemExit(
+                  f"{worker_name} must set verify_jwt = false"
+              )
           PY
 
       - name: Check function formatting
@@ -127,6 +138,8 @@ jobs:
           deno fmt --check supabase/functions/creator-generate
           deno fmt --check supabase/functions/creator-product-research
           deno fmt --check supabase/functions/creator-content-review
+          deno fmt --check supabase/functions/creator-background-worker
+          deno fmt --check supabase/functions/_shared/internal-worker-auth.ts
 
       - name: Lint function
         run: |
@@ -135,6 +148,8 @@ jobs:
           deno lint supabase/functions/creator-generate/index.ts
           deno lint supabase/functions/creator-product-research/index.ts
           deno lint supabase/functions/creator-content-review/index.ts
+          deno lint supabase/functions/creator-background-worker/index.ts
+          deno lint supabase/functions/_shared/internal-worker-auth.ts
 
       - name: Type-check function
         run: |
@@ -143,6 +158,8 @@ jobs:
           deno check supabase/functions/creator-generate/index.ts
           deno check supabase/functions/creator-product-research/index.ts
           deno check supabase/functions/creator-content-review/index.ts
+          deno check supabase/functions/creator-background-worker/index.ts
+          deno check supabase/functions/_shared/internal-worker-auth.ts
 
   reference-postgres-migration:
     name: Validate reference Alembic/PostgreSQL model

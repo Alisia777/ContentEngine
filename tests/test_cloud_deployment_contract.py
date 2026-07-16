@@ -315,7 +315,7 @@ def test_pages_build_accepts_only_browser_safe_configuration() -> None:
         'if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]'
     ) == 2
     assert "sb_publishable_*" in workflow
-    assert "SUPABASE_SECRET_KEY" not in workflow
+    assert "SUPABASE_SECRET_KEY" not in str(build)
     assert "SUPABASE_SERVICE_ROLE_KEY" not in workflow
     assert "OPENAI_API_KEY" not in build["env"]
     assert "RUNWAYML_API_SECRET" not in build["env"]
@@ -421,7 +421,12 @@ def test_creator_invite_function_is_explicitly_jwt_verified() -> None:
     assert "127.0.0.1" not in source
     workflow = _text(PRODUCTION_WORKFLOW)
     assert "supabase functions deploy creator-invite" in workflow
-    assert "--no-verify-jwt" not in workflow
+    deploy_step = next(
+        step
+        for step in _yaml(PRODUCTION_WORKFLOW)["jobs"]["migrate"]["steps"]
+        if step.get("name") == "Deploy authenticated creator invitation function"
+    )
+    assert "--no-verify-jwt" not in deploy_step["run"]
     assert "--prune" not in workflow
 
 
@@ -438,7 +443,13 @@ def test_creator_set_password_function_is_explicitly_jwt_verified() -> None:
     assert "PASSWORD_CHANGE_REQUIRED_MARKER" in source
     assert "PASSWORD_CHANGE_COMPLETED_MARKER" in source
     assert "supabase functions deploy creator-set-password" in workflow
-    assert "--no-verify-jwt" not in workflow
+    deploy_step = next(
+        step
+        for step in _yaml(PRODUCTION_WORKFLOW)["jobs"]["migrate"]["steps"]
+        if step.get("name")
+        == "Deploy authenticated required password change function"
+    )
+    assert "--no-verify-jwt" not in deploy_step["run"]
 
 
 def test_creator_generate_function_is_explicitly_jwt_verified() -> None:
@@ -455,7 +466,12 @@ def test_creator_generate_function_is_explicitly_jwt_verified() -> None:
     assert '"system_update_real_generation"' in source
     assert 'Deno.env.get("RUNWAYML_API_SECRET")' in source
     assert "supabase functions deploy creator-generate" in workflow
-    assert "--no-verify-jwt" not in workflow
+    deploy_step = next(
+        step
+        for step in _yaml(PRODUCTION_WORKFLOW)["jobs"]["migrate"]["steps"]
+        if step.get("name") == "Deploy authenticated real generation function"
+    )
+    assert "--no-verify-jwt" not in deploy_step["run"]
     assert "--prune" not in workflow
 
 

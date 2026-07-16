@@ -59,6 +59,7 @@ jobs:
           SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
           RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
         run: |
           if [ -n "${RUNWAYML_API_SECRET:-}" ]; then
             echo "::add-mask::$RUNWAYML_API_SECRET"
@@ -66,12 +67,20 @@ jobs:
           if [ -n "${OPENAI_API_KEY:-}" ]; then
             echo "::add-mask::$OPENAI_API_KEY"
           fi
+          if [ -n "${CONTENTENGINE_WORKER_SECRET:-}" ]; then
+            echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
+          fi
           : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in the production environment}"
           : "${SUPABASE_OWNER_EMAIL:?Configure SUPABASE_OWNER_EMAIL in the production environment}"
           : "${RUNWAYML_API_SECRET:?Configure RUNWAYML_API_SECRET in the production environment}"
           : "${OPENAI_API_KEY:?Configure OPENAI_API_KEY in the production environment}"
+          : "${CONTENTENGINE_WORKER_SECRET:?Configure CONTENTENGINE_WORKER_SECRET in the production environment}"
           : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
           : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
+          if [ "${#CONTENTENGINE_WORKER_SECRET}" -lt 32 ]; then
+            echo "CONTENTENGINE_WORKER_SECRET must contain at least 32 characters" >&2
+            exit 1
+          fi
           if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
             echo "SUPABASE_PROJECT_REF does not match the reviewed production project" >&2
             exit 1
@@ -112,7 +121,18 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF" \
             OPENAI_API_KEY="$OPENAI_API_KEY"
 
-      - name: Require JWT verification for creator Edge Functions
+      - name: Synchronize private background worker secret
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
+        run: |
+          echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            CONTENTENGINE_WORKER_SECRET="$CONTENTENGINE_WORKER_SECRET"
+
+      - name: Require reviewed authentication modes for creator Edge Functions
         shell: bash
         run: |
           python3 - <<'PY'
@@ -141,6 +161,17 @@ jobs:
                   raise SystemExit(
                       f"{function_name} must set verify_jwt = true"
                   )
+          worker_name = "creator-background-worker"
+          worker_entrypoint = (
+              Path("supabase/functions") / worker_name / "index.ts"
+          )
+          if not worker_entrypoint.is_file():
+              raise SystemExit(f"Missing {worker_name} Edge Function entrypoint")
+          worker_config = config.get("functions", {}).get(worker_name, {})
+          if worker_config.get("verify_jwt") is not False:
+              raise SystemExit(
+                  f"{worker_name} must set verify_jwt = false"
+              )
           PY
 
       - name: Deploy authenticated creator invitation function
@@ -167,6 +198,14 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-content-review --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy secret-authenticated background worker function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          supabase functions deploy creator-background-worker
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --no-verify-jwt
 
   build-pages:
     name: Build browser-only creator workspace

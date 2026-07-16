@@ -28,6 +28,12 @@ export const RPC = Object.freeze({
   captureEvent: "creator_capture_event",
   inviteAttempts: "creator_invite_delivery_attempts",
   managerDashboard: "creator_manager_dashboard",
+  myWork: "creator_my_work",
+  notifications: "creator_notifications",
+  markNotificationsRead: "creator_mark_notifications_read",
+  trainingProgress: "creator_training_progress",
+  saveTrainingProgress: "creator_save_training_progress",
+  savedWorkViews: "creator_saved_work_views",
   startProductResearch: "creator_start_product_research",
   productResearchStatus: "creator_product_research_status",
   saveCreativeBriefDraft: "creator_save_creative_brief_draft",
@@ -62,6 +68,9 @@ export class CreatorApiError extends Error {
     super(message);
     this.name = "CreatorApiError";
     this.code = details.code || "creator_api_error";
+    this.serverCode = /^[a-z0-9_]{3,96}$/u.test(String(details.message || ""))
+      ? String(details.message)
+      : null;
     this.details = details.details || null;
     this.hint = details.hint || null;
     this.job = details.job && typeof details.job === "object" && !Array.isArray(details.job)
@@ -304,6 +313,215 @@ export class CreatorApi {
 
   managerDashboard() {
     return this.call(RPC.managerDashboard, this.withOrganization({}));
+  }
+
+  myWork(options = {}) {
+    const payload = {};
+    const query = String(options.query || "").trim();
+    if (query.length > 120 || /[\u0000-\u001f\u007f]/u.test(query)) {
+      throw new CreatorApiError("Сократите запрос поиска до 120 символов.", {
+        code: "my_work_query_invalid",
+      });
+    }
+    if (query) payload.query = query;
+
+    const itemTypes = normalizeStringArray(options.item_types ?? options.itemTypes);
+    const supportedItemTypes = new Set(["task", "generation", "review", "placement", "payout"]);
+    if (
+      itemTypes.length > supportedItemTypes.size
+      || itemTypes.some((itemType) => !supportedItemTypes.has(itemType))
+    ) {
+      throw new CreatorApiError("Выберите доступные типы рабочих объектов.", {
+        code: "my_work_item_types_invalid",
+      });
+    }
+    if (itemTypes.length) payload.item_types = itemTypes;
+
+    const statuses = normalizeStringArray(options.statuses);
+    if (
+      statuses.length > 20
+      || statuses.some((status) => !/^[a-z0-9_-]{1,80}$/u.test(status))
+    ) {
+      throw new CreatorApiError("Проверьте выбранные статусы очереди.", {
+        code: "my_work_statuses_invalid",
+      });
+    }
+    if (statuses.length) payload.statuses = statuses;
+
+    const pageSize = options.page_size === undefined ? 50 : Number(options.page_size);
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new CreatorApiError("Можно загрузить от 1 до 100 рабочих объектов.", {
+        code: "my_work_page_size_invalid",
+      });
+    }
+    payload.page_size = pageSize;
+    if (options.cursor !== undefined && options.cursor !== null) {
+      if (!options.cursor || typeof options.cursor !== "object" || Array.isArray(options.cursor)) {
+        throw new CreatorApiError("Курсор рабочей очереди имеет неверный формат.", {
+          code: "my_work_cursor_invalid",
+        });
+      }
+      payload.cursor = options.cursor;
+    }
+    return this.call(RPC.myWork, this.withOrganization(payload));
+  }
+
+  notifications(options = {}) {
+    const pageSize = options.page_size === undefined ? 50 : Number(options.page_size);
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new CreatorApiError("Можно загрузить от 1 до 100 уведомлений.", {
+        code: "notifications_page_size_invalid",
+      });
+    }
+    const payload = {
+      unread_only: options.unread_only === true,
+      page_size: pageSize,
+    };
+    if (options.cursor !== undefined && options.cursor !== null) {
+      if (!options.cursor || typeof options.cursor !== "object" || Array.isArray(options.cursor)) {
+        throw new CreatorApiError("Курсор уведомлений имеет неверный формат.", {
+          code: "notifications_cursor_invalid",
+        });
+      }
+      payload.cursor = options.cursor;
+    }
+    return this.call(RPC.notifications, this.withOrganization(payload));
+  }
+
+  markNotificationsRead(notificationIds, isRead = true) {
+    const ids = normalizeStringArray(notificationIds);
+    if (
+      ids.length < 1
+      || ids.length > 100
+      || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/iu.test(id))
+    ) {
+      throw new CreatorApiError("Выберите от 1 до 100 уведомлений.", {
+        code: "notification_ids_invalid",
+      });
+    }
+    return this.mutate(RPC.markNotificationsRead, {
+      notification_ids: ids,
+      is_read: isRead === true,
+    });
+  }
+
+  markAllNotificationsRead() {
+    return this.mutate(RPC.markNotificationsRead, {
+      all_unread: true,
+      is_read: true,
+    });
+  }
+
+  trainingProgress(moduleCode = "") {
+    const normalizedModuleCode = String(moduleCode || "").trim();
+    if (
+      normalizedModuleCode
+      && !/^[a-z0-9_:-]{1,120}$/iu.test(normalizedModuleCode)
+    ) {
+      throw new CreatorApiError("Код учебного блока имеет неверный формат.", {
+        code: "training_module_code_invalid",
+      });
+    }
+    return this.call(RPC.trainingProgress, this.withOrganization(
+      normalizedModuleCode ? { module_code: normalizedModuleCode } : {},
+    ));
+  }
+
+  saveTrainingProgress(progress) {
+    const moduleCode = String(progress?.module_code || "").trim();
+    const walkthroughId = String(progress?.walkthrough_id || "").trim();
+    if (
+      !/^[a-z0-9_:-]{1,120}$/iu.test(moduleCode)
+      || !/^[a-z0-9_:-]{1,160}$/iu.test(walkthroughId)
+    ) {
+      throw new CreatorApiError("Не удалось определить учебный тренажёр.", {
+        code: "training_progress_identity_invalid",
+      });
+    }
+    const completedFrameIds = normalizeStringArray(progress?.completed_frame_ids);
+    if (
+      completedFrameIds.length > 200
+      || completedFrameIds.some((frameId) => frameId.length > 160)
+    ) {
+      throw new CreatorApiError("Прогресс учебного тренажёра имеет неверный формат.", {
+        code: "training_progress_frames_invalid",
+      });
+    }
+    const positionSeconds = Number(progress?.position_seconds || 0);
+    if (!Number.isFinite(positionSeconds) || positionSeconds < 0 || positionSeconds > 86_400) {
+      throw new CreatorApiError("Позиция учебного видео имеет неверный формат.", {
+        code: "training_progress_position_invalid",
+      });
+    }
+    const payload = {
+      module_code: moduleCode,
+      walkthrough_id: walkthroughId,
+      current_frame_id: progress?.current_frame_id
+        ? String(progress.current_frame_id).slice(0, 160)
+        : null,
+      position_seconds: positionSeconds,
+      completed_frame_ids: completedFrameIds,
+      completed: progress?.completed === true,
+    };
+    if (progress?.expected_version !== undefined && progress?.expected_version !== null) {
+      const expectedVersion = Number(progress.expected_version);
+      if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+        throw new CreatorApiError("Версия учебного прогресса устарела.", {
+          code: "training_progress_version_invalid",
+        });
+      }
+      payload.expected_version = expectedVersion;
+    }
+    return this.mutate(RPC.saveTrainingProgress, payload);
+  }
+
+  savedWorkViews(options = {}) {
+    const action = String(options.action || "list").trim().toLowerCase();
+    if (!["list", "upsert", "delete", "set_default"].includes(action)) {
+      throw new CreatorApiError("Неизвестное действие с сохранённым фильтром.", {
+        code: "saved_work_view_action_invalid",
+      });
+    }
+    const payload = { action };
+    if (options.view_id) payload.view_id = String(options.view_id);
+    if (options.expected_version !== undefined) {
+      const expectedVersion = Number(options.expected_version);
+      if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+        throw new CreatorApiError("Версия сохранённого фильтра устарела.", {
+          code: "saved_work_view_version_invalid",
+        });
+      }
+      payload.expected_version = expectedVersion;
+    }
+    if (action === "upsert") {
+      const name = String(options.name || "").trim();
+      if (name.length < 2 || name.length > 80 || /[\u0000-\u001f\u007f]/u.test(name)) {
+        throw new CreatorApiError("Введите название фильтра от 2 до 80 символов.", {
+          code: "saved_work_view_name_invalid",
+        });
+      }
+      payload.name = name;
+      if (
+        options.is_default !== undefined
+        && typeof options.is_default !== "boolean"
+      ) {
+        throw new CreatorApiError("Признак фильтра по умолчанию имеет неверный формат.", {
+          code: "saved_work_view_is_default_invalid",
+        });
+      }
+      payload.is_default = options.is_default === true;
+      payload.filters = {
+        query: String(options.filters?.query || "").trim().slice(0, 120),
+        statuses: normalizeStringArray(options.filters?.statuses).slice(0, 20),
+        item_types: normalizeStringArray(
+          options.filters?.item_types ?? options.filters?.itemTypes,
+        ).filter((itemType) => ["task", "generation", "review", "placement", "payout"].includes(itemType)),
+      };
+    }
+    if (action === "list") {
+      return this.call(RPC.savedWorkViews, this.withOrganization(payload));
+    }
+    return this.mutate(RPC.savedWorkViews, payload);
   }
 
   async startProductResearch(input, { onRunCreated } = {}) {
@@ -1071,6 +1289,15 @@ function stableStringify(value) {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .map((item) => String(item || "").trim().toLowerCase())
+      .filter(Boolean),
+  )];
 }
 
 async function creatorFunctionError(error) {

@@ -1,4 +1,9 @@
-import { withSupabase } from "npm:@supabase/server@1.3.0";
+import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
+import {
+  INTERNAL_WORKER_HEADER,
+  isInternalWorkerAuthorized,
+  isInternalWorkerRequest,
+} from "../_shared/internal-worker-auth.ts";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -79,6 +84,21 @@ type ContentEngineDatabase = {
         Returns: Json;
       };
     };
+  };
+  content_factory: {
+    Tables: {
+      product_research_runs: {
+        Row: {
+          id: string;
+          status: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+    };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 };
 
@@ -1281,7 +1301,7 @@ function buildCompletionPayload(
   return validateJsonBounds(payload) ? payload : null;
 }
 
-const creatorProductResearch = withSupabase<ContentEngineDatabase>({
+const CREATOR_PRODUCT_RESEARCH_USER_OPTIONS = {
   auth: "user",
   cors: {
     "Access-Control-Allow-Headers":
@@ -1290,29 +1310,68 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
     "Access-Control-Allow-Origin": PUBLIC_APP_ORIGIN,
     Vary: "Origin",
   },
-}, async (request, context) => {
+} as const;
+
+const CREATOR_PRODUCT_RESEARCH_WORKER_OPTIONS = {
+  auth: "none",
+  cors: false,
+} as const;
+
+async function handleCreatorProductResearch(
+  request: Request,
+  context: SupabaseContext<ContentEngineDatabase>,
+  internalWorker: boolean,
+): Promise<Response> {
+  if (internalWorker && !(await isInternalWorkerAuthorized(request))) {
+    return json(request, { ok: false, code: "authentication_required" }, 401);
+  }
+  const supabaseAdmin = context.supabaseAdmin;
   if (request.method !== "POST") {
     return json(request, { ok: false, code: "method_not_allowed" }, 405);
   }
-  if (request.headers.get("origin") !== PUBLIC_APP_ORIGIN) {
+  if (
+    (!internalWorker &&
+      request.headers.get("origin") !== PUBLIC_APP_ORIGIN) ||
+    (internalWorker && request.headers.get("origin") !== null)
+  ) {
     return json(request, { ok: false, code: "origin_not_allowed" }, 403);
   }
+  if (
+    internalWorker &&
+    request.headers.get(INTERNAL_WORKER_HEADER) !== "1"
+  ) {
+    return json(
+      request,
+      { ok: false, code: "worker_request_required" },
+      403,
+    );
+  }
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLocaleLowerCase("en-US").startsWith("application/json")) {
+  if (
+    !contentType.toLocaleLowerCase("en-US").startsWith("application/json")
+  ) {
     return json(request, { ok: false, code: "content_type_invalid" }, 415);
   }
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  const contentLength = Number(
+    request.headers.get("content-length") ?? "0",
+  );
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
     return json(request, { ok: false, code: "request_too_large" }, 413);
   }
-  if (!context.userClaims?.id) {
-    return json(request, { ok: false, code: "authentication_required" }, 401);
+  if (!internalWorker && !context.userClaims?.id) {
+    return json(
+      request,
+      { ok: false, code: "authentication_required" },
+      401,
+    );
   }
 
   let body: unknown;
   try {
     const bytes = await readBoundedStream(request.body, MAX_BODY_BYTES);
-    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    body = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
   } catch {
     return json(request, { ok: false, code: "invalid_json" }, 400);
   }
@@ -1330,6 +1389,23 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
       status: ResearchRun["status"];
     } | null
   > => {
+    if (internalWorker) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .schema("content_factory")
+          .from("product_research_runs")
+          .select("id, status")
+          .eq("id", payload.research_id)
+          .maybeSingle();
+        if (error || data === null) return null;
+        return readPublicStatusEnvelope({
+          ok: true,
+          run: { id: data.id, status: data.status },
+        }, payload.research_id);
+      } catch {
+        return null;
+      }
+    }
     try {
       const { data, error } = await context.supabase.rpc(
         "creator_product_research_status",
@@ -1350,11 +1426,13 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
     // never repeats the paid provider call.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const { data, error } = await context.supabaseAdmin.rpc(
+        const { data, error } = await supabaseAdmin.rpc(
           "system_complete_product_research",
           { p_payload: completionPayload },
         );
-        if (error === null && isRecord(data) && data.ok === true) return true;
+        if (error === null && isRecord(data) && data.ok === true) {
+          return true;
+        }
       } catch {
         // Retry once with the byte-for-byte equivalent JSON payload.
       }
@@ -1391,7 +1469,7 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
 
   let claim: { claimed: boolean; run: ResearchRun } | null = null;
   try {
-    const { data, error } = await context.supabaseAdmin.rpc(
+    const { data, error } = await supabaseAdmin.rpc(
       "system_claim_product_research",
       { p_payload: { run_id: payload.research_id } },
     );
@@ -1446,7 +1524,7 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
   const signedImageUrls: string[] = [];
   for (const photo of claim.run.photos) {
     try {
-      const { data, error } = await context.supabaseAdmin.storage.from(
+      const { data, error } = await supabaseAdmin.storage.from(
         STORAGE_BUCKET,
       ).createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS);
       const signedUrl = error
@@ -1542,7 +1620,11 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
       "Источники или структура результата не прошли проверку.",
     );
   }
-  const completionPayload = buildCompletionPayload(claim.run, result, model);
+  const completionPayload = buildCompletionPayload(
+    claim.run,
+    result,
+    model,
+  );
   if (completionPayload === null || !(await complete(completionPayload))) {
     return json(request, { ok: false, code: "research_unavailable" }, 503);
   }
@@ -1550,7 +1632,16 @@ const creatorProductResearch = withSupabase<ContentEngineDatabase>({
   return completed === null
     ? json(request, { ok: false, code: "research_unavailable" }, 503)
     : json(request, completed.data);
-});
+}
+
+const creatorProductResearch = withSupabase<ContentEngineDatabase>(
+  CREATOR_PRODUCT_RESEARCH_USER_OPTIONS,
+  (request, context) => handleCreatorProductResearch(request, context, false),
+);
+const creatorProductResearchWorker = withSupabase<ContentEngineDatabase>(
+  CREATOR_PRODUCT_RESEARCH_WORKER_OPTIONS,
+  (request, context) => handleCreatorProductResearch(request, context, true),
+);
 
 export default {
   fetch(request: Request): Promise<Response> | Response {
@@ -1562,6 +1653,9 @@ export default {
         status: 204,
         headers: responseHeaders(request),
       });
+    }
+    if (isInternalWorkerRequest(request)) {
+      return creatorProductResearchWorker(request);
     }
     return creatorProductResearch(request);
   },

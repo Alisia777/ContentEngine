@@ -118,6 +118,7 @@ encrypted secrets in that environment:
 | `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 | `RUNWAYML_API_SECRET` | Server-only provider key synchronized to Supabase for explicitly confirmed paid video generation |
 | `OPENAI_API_KEY` | Server-only provider key synchronized to Supabase for explicitly confirmed product research with web search and image analysis |
+| `CONTENTENGINE_WORKER_SECRET` | Random 32+ character secret shared only by the scheduled GitHub worker and the private Edge worker |
 
 Configure these as repository **Variables**, because the independent Pages
 build job must read them:
@@ -164,6 +165,32 @@ is not sent until the committed `/auth/accept/` bridge is live at the canonical
 URL.
 Subsequent invitations must authenticate the caller and enforce owner/admin
 organization scope before using Auth Admin operations.
+
+### Durable background work and notification delivery
+
+`Dispatch background content work` runs every five minutes and may also be
+started manually from `main`. It polls only already-submitted Runway task IDs;
+it never calls the paid generation start action and never selects `queued` or
+`starting` generation rows.
+
+Before dispatch, the worker calls the service-role-only lease reconciler.
+Expired product-research and content-review leases become terminal
+`processing_lease_expired` failures in one database transaction. They are not
+requeued because the provider may already have accepted the paid request. A
+human must inspect the history and explicitly create a new run.
+
+Terminal generation, research and review transitions write a transactional
+notification outbox row. Delivery uses short database leases, an idempotent
+notification key and bounded exponential retry. If notification insertion
+commits but the RPC response is lost, the next cycle observes the existing
+notification and marks the outbox row delivered. After 12 failed attempts the
+row remains as a visible failed outbox item; it is never silently deleted.
+
+The scheduled workflow prints only aggregate outbox counts. Any unresolved or
+failed delivery makes the run fail with
+`notification_unresolved=<count>` so the production Actions history remains
+an operational alert. Never put the worker secret, recipient identifiers or
+notification bodies into workflow output.
 
 ## Existing paid Supabase project
 
@@ -312,6 +339,41 @@ to 2 messages per hour. After custom SMTP is enabled, Supabase initially applies
 a 30-messages-per-hour limit. Before inviting 50+ people, raise the Auth rate
 limit and the provider limit together, verify SPF/DKIM/DMARC, and roll out in
 controlled batches rather than creating an email spike.
+
+### Production Auth SMTP cutover
+
+The repository contains a protected manual workflow,
+`Configure production Auth SMTP`. Use it only after the chosen mail provider
+has verified a dedicated authentication sending domain (for example,
+`auth.example.com`) and published its DNS records.
+
+Add these values to the protected GitHub `production` environment:
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `SMTP_ADMIN_EMAIL` | secret | Exact From address, for example `no-reply@auth.example.com` |
+| `SMTP_HOST` | secret | Provider SMTP hostname |
+| `SMTP_PORT` | secret | Provider SMTP port, normally `587` |
+| `SMTP_USER` | secret | Provider SMTP user |
+| `SMTP_PASS` | secret | Provider SMTP password or token |
+| `SMTP_SENDER_NAME` | variable | Human-readable sender name |
+
+Dispatch the workflow from `main` and enter the exact domain after `@`, the
+provider's DKIM selector, its exact SPF `include:` token, the DKIM record type,
+and the exact DKIM CNAME target or complete TXT value. The workflow rejects
+multiple SPF/DMARC records, an SPF record that does not authorize the reviewed
+provider, a revoked/empty DKIM key, and any DKIM value that differs from the
+provider instructions. Only after those checks does it validate the protected
+SMTP values and patch the official Supabase Auth configuration through the
+Management API. It never accepts SMTP credentials as workflow inputs and never
+prints them.
+
+A successful configuration means Supabase handed future Auth mail to the
+chosen provider. It does **not** prove inbox delivery. Verify one invite and one
+recovery message in the provider delivery log and the recipient mailbox. To
+show `delivered`, `deferred`, `bounced` and `complained` inside the portal, the
+next provider-specific step is a signed delivery webhook; until that webhook is
+configured the honest UI status remains `accepted_unconfirmed`.
 
 ## Local/reference profile
 

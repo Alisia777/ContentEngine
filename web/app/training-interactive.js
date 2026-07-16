@@ -163,7 +163,7 @@ function walkthroughMarkup(courseCode, walkthrough, index) {
       </div>
     `;
   return `
-    <article class="training-walkthrough" data-training-walkthrough="${escapeHtml(walkthrough.id)}" data-training-course="${escapeHtml(courseCode)}" data-training-step="0" data-training-step-count="${walkthrough.frames.length}" data-training-playing="false" aria-labelledby="${escapeHtml(titleId)}">
+    <article class="training-walkthrough" data-training-walkthrough="${escapeHtml(walkthrough.id)}" data-training-course="${escapeHtml(courseCode)}" data-training-step="0" data-training-step-count="${walkthrough.frames.length}" data-training-duration-seconds="${walkthrough.durationSeconds}" data-training-playing="false" aria-labelledby="${escapeHtml(titleId)}">
       <header class="training-walkthrough__heading">
         <div>
           <p class="training-interactive__eyebrow">${escapeHtml(walkthrough.eyebrow)} · разбор ${index + 1}</p>
@@ -209,7 +209,7 @@ function walkthroughMarkup(courseCode, walkthrough, index) {
 
 function frameMarkup(frame, index) {
   return `
-    <section class="training-walkthrough__frame" data-training-frame data-training-frame-index="${index}" aria-label="Кадр ${index + 1}: ${escapeHtml(frame.title)}"${index ? ' hidden aria-hidden="true"' : ' aria-hidden="false"'}>
+    <section class="training-walkthrough__frame" data-training-frame data-training-frame-id="${escapeHtml(frame.id)}" data-training-frame-index="${index}" aria-label="Кадр ${index + 1}: ${escapeHtml(frame.title)}"${index ? ' hidden aria-hidden="true"' : ' aria-hidden="false"'}>
       <div class="training-walkthrough__frame-visual" role="img" aria-label="${escapeHtml(frame.visualLabel)}">
         <span>${escapeHtml(frame.time)}</span>
         <i aria-hidden="true"></i>

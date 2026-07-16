@@ -1,4 +1,9 @@
-import { withSupabase } from "npm:@supabase/server@1.3.0";
+import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
+import {
+  INTERNAL_WORKER_HEADER,
+  isInternalWorkerAuthorized,
+  isInternalWorkerRequest,
+} from "../_shared/internal-worker-auth.ts";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
@@ -95,6 +100,30 @@ type ContentEngineDatabase = {
         Returns: Json;
       };
     };
+  };
+  content_factory: {
+    Tables: {
+      generation_jobs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          batch_id: string;
+          status: string;
+          mode: string;
+          provider: string;
+          input: Json;
+          output: Json;
+          estimated_cost_minor: number;
+          actual_cost_minor: number | null;
+          updated_at: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+    };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 };
 
@@ -626,6 +655,64 @@ function readStatusJob(value: unknown): StatusJob | null {
   };
 }
 
+function nullableString(
+  value: Record<string, unknown>,
+  key: string,
+): string | null {
+  return typeof value[key] === "string" ? value[key] as string : null;
+}
+
+function readInternalStatusRow(value: unknown): StatusJob | null {
+  if (
+    !isRecord(value) || !isRecord(value.input) || !isRecord(value.output)
+  ) {
+    return null;
+  }
+  const input = value.input;
+  const output = value.output;
+  const billing = isRecord(input.billing) ? input.billing : {};
+  return readStatusJob({
+    ok: true,
+    job: {
+      id: value.id,
+      batch_id: value.batch_id,
+      status: value.status,
+      provider: value.provider,
+      provider_task_id: nullableString(output, "provider_task_id"),
+      model: input.model,
+      duration_seconds: input.duration_seconds,
+      audio: input.audio === true,
+      ratio: input.ratio,
+      estimated_cost_minor: value.estimated_cost_minor,
+      estimated_credits: billing.estimated_credits,
+      actual_cost_minor: value.actual_cost_minor,
+      output_object_name: input.output_object_name,
+      output_media_id: nullableString(output, "output_media_id"),
+      failure_code: nullableString(output, "failure_code"),
+      submission_state: nullableString(output, "submission_state"),
+      reconciliation_required: output.reconciliation_required === true,
+      reconciliation_incident_id: nullableString(
+        output,
+        "reconciliation_incident_id",
+      ),
+      reconciliation_required_at: nullableString(
+        output,
+        "reconciliation_required_at",
+      ),
+      reconciliation_reason_code: nullableString(
+        output,
+        "reconciliation_reason_code",
+      ),
+      reconciliation_resolution: nullableString(
+        output,
+        "reconciliation_resolution",
+      ),
+      can_reconcile: false,
+      updated_at: value.updated_at,
+    },
+  });
+}
+
 function readReconciliationContext(
   value: unknown,
   payload: ReconcilePayload,
@@ -862,7 +949,7 @@ function parseCreatedRunwayTask(value: unknown): { id: string } | null {
   return { id: value.id };
 }
 
-const creatorGenerate = withSupabase<ContentEngineDatabase>({
+const CREATOR_GENERATE_USER_OPTIONS = {
   auth: "user",
   cors: {
     "Access-Control-Allow-Headers":
@@ -871,23 +958,60 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     "Access-Control-Allow-Origin": PUBLIC_APP_ORIGIN,
     Vary: "Origin",
   },
-}, async (request, context) => {
+} as const;
+
+const CREATOR_GENERATE_WORKER_OPTIONS = {
+  auth: "none",
+  cors: false,
+} as const;
+
+async function handleCreatorGenerate(
+  request: Request,
+  context: SupabaseContext<ContentEngineDatabase>,
+  internalWorker: boolean,
+): Promise<Response> {
+  if (internalWorker && !(await isInternalWorkerAuthorized(request))) {
+    return json(request, { ok: false, code: "authentication_required" }, 401);
+  }
+  const supabaseAdmin = context.supabaseAdmin;
   if (request.method !== "POST") {
     return json(request, { ok: false, code: "method_not_allowed" }, 405);
   }
-  if (request.headers.get("origin") !== PUBLIC_APP_ORIGIN) {
+  if (
+    (!internalWorker &&
+      request.headers.get("origin") !== PUBLIC_APP_ORIGIN) ||
+    (internalWorker && request.headers.get("origin") !== null)
+  ) {
     return json(request, { ok: false, code: "origin_not_allowed" }, 403);
   }
+  if (
+    internalWorker &&
+    request.headers.get(INTERNAL_WORKER_HEADER) !== "1"
+  ) {
+    return json(
+      request,
+      { ok: false, code: "worker_request_required" },
+      403,
+    );
+  }
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLocaleLowerCase("en-US").startsWith("application/json")) {
+  if (
+    !contentType.toLocaleLowerCase("en-US").startsWith("application/json")
+  ) {
     return json(request, { ok: false, code: "content_type_invalid" }, 415);
   }
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  const contentLength = Number(
+    request.headers.get("content-length") ?? "0",
+  );
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
     return json(request, { ok: false, code: "request_too_large" }, 413);
   }
-  if (!context.userClaims?.id) {
-    return json(request, { ok: false, code: "authentication_required" }, 401);
+  if (!internalWorker && !context.userClaims?.id) {
+    return json(
+      request,
+      { ok: false, code: "authentication_required" },
+      401,
+    );
   }
 
   let bodyText: string;
@@ -908,6 +1032,24 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     organizationId: string,
     jobId: string,
   ): Promise<StatusJob | null> => {
+    if (internalWorker) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .schema("content_factory")
+          .from("generation_jobs")
+          .select(
+            "id, organization_id, batch_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
+          )
+          .eq("organization_id", organizationId)
+          .eq("id", jobId)
+          .eq("mode", "real")
+          .eq("provider", "runway")
+          .maybeSingle();
+        return error || data === null ? null : readInternalStatusRow(data);
+      } catch {
+        return null;
+      }
+    }
     try {
       const { data, error } = await context.supabase.rpc(
         "creator_real_generation_status",
@@ -926,7 +1068,7 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     payload: Record<string, Json>,
   ): Promise<Json | null> => {
     try {
-      const { data, error } = await context.supabaseAdmin.rpc(
+      const { data, error } = await supabaseAdmin.rpc(
         "system_update_real_generation",
         { p_payload: payload },
       );
@@ -945,7 +1087,7 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       | "provider_create_state_stale",
   ): Promise<boolean> => {
     try {
-      const { data, error } = await context.supabaseAdmin.rpc(
+      const { data, error } = await supabaseAdmin.rpc(
         "system_mark_real_generation_reconciliation_required",
         { p_payload: { job_id: jobId, reason_code: reasonCode } },
       );
@@ -978,7 +1120,7 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     payload: Record<string, Json>,
   ): Promise<boolean> => {
     try {
-      const { data, error } = await context.supabaseAdmin.rpc(
+      const { data, error } = await supabaseAdmin.rpc(
         "system_reconcile_real_generation",
         { p_payload: payload },
       );
@@ -1009,7 +1151,7 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
 
   const signOutput = async (job: StatusJob): Promise<string | null> => {
     try {
-      const { data, error } = await context.supabaseAdmin.storage.from(
+      const { data, error } = await supabaseAdmin.storage.from(
         STORAGE_BUCKET,
       ).createSignedUrl(job.outputObjectName, OUTPUT_URL_TTL_SECONDS);
       if (error || data === null) return null;
@@ -1026,9 +1168,13 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
   ): Promise<Response> => {
     const current = await readCurrentStatus(organizationId, jobId);
     if (current === null) {
-      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
     }
-    const signedUrl = current.status === "succeeded"
+    const signedUrl = !internalWorker && current.status === "succeeded"
       ? await signOutput(current)
       : null;
     return json(request, {
@@ -1063,10 +1209,14 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       payload.job_id,
     );
     if (current === null) {
-      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
     }
     if (current.status === "succeeded") {
-      const signedUrl = await signOutput(current);
+      const signedUrl = internalWorker ? null : await signOutput(current);
       return json(request, {
         ok: true,
         ...(batch ? { batch } : {}),
@@ -1091,9 +1241,11 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
           current.id,
           "provider_create_state_stale",
         );
-        current =
-          await readCurrentStatus(payload.organization_id, payload.job_id) ??
-            current;
+        current = await readCurrentStatus(
+          payload.organization_id,
+          payload.job_id,
+        ) ??
+          current;
       }
       return json(request, {
         ok: true,
@@ -1109,7 +1261,8 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       );
     }
     if (
-      Date.now() - Date.parse(current.updatedAt) < MIN_PROVIDER_POLL_INTERVAL_MS
+      Date.now() - Date.parse(current.updatedAt) <
+        MIN_PROVIDER_POLL_INTERVAL_MS
     ) {
       return json(request, {
         ok: true,
@@ -1167,7 +1320,9 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       );
     }
     const providerTask = parseRunwayTask(providerValue);
-    if (providerTask === null || providerTask.id !== current.providerTaskId) {
+    if (
+      providerTask === null || providerTask.id !== current.providerTaskId
+    ) {
       return await respondProviderUnavailable(
         payload.organization_id,
         payload.job_id,
@@ -1175,7 +1330,8 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       );
     }
     if (
-      providerTask.status === "PENDING" || providerTask.status === "THROTTLED"
+      providerTask.status === "PENDING" ||
+      providerTask.status === "THROTTLED"
     ) {
       return json(request, {
         ok: true,
@@ -1252,7 +1408,9 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
           job: safeJob(current),
         }, 503);
       }
-      if (refreshed.status === "succeeded" || refreshed.status === "failed") {
+      if (
+        refreshed.status === "succeeded" || refreshed.status === "failed"
+      ) {
         return await respondWithCurrent(
           payload.organization_id,
           payload.job_id,
@@ -1300,7 +1458,10 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
           batch,
         );
       }
-      outputBytes = await readBoundedBytes(outputResponse, MAX_OUTPUT_BYTES);
+      outputBytes = await readBoundedBytes(
+        outputResponse,
+        MAX_OUTPUT_BYTES,
+      );
     } catch {
       return await respondProviderUnavailable(
         payload.organization_id,
@@ -1316,7 +1477,7 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       );
     }
     const digest = await sha256Hex(outputBytes);
-    const storage = context.supabaseAdmin.storage.from(STORAGE_BUCKET);
+    const storage = supabaseAdmin.storage.from(STORAGE_BUCKET);
     const { error: uploadError } = await storage.upload(
       current.outputObjectName,
       outputBytes,
@@ -1345,11 +1506,22 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       sha256: digest,
     });
     if (completed === null) {
-      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
     }
-    current = await readCurrentStatus(payload.organization_id, payload.job_id);
+    current = await readCurrentStatus(
+      payload.organization_id,
+      payload.job_id,
+    );
     if (current === null || current.status !== "succeeded") {
-      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
     }
     const signedUrl = await signOutput(current);
     return json(request, {
@@ -1454,7 +1626,8 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
         providerTask.id !== payload.provider_task_id ||
         !allowedStatuses.has(providerTask.status) ||
         !Number.isFinite(providerCreatedAt) ||
-        providerCreatedAt < startingAt - RECONCILIATION_TASK_EARLY_SKEW_MS ||
+        providerCreatedAt <
+          startingAt - RECONCILIATION_TASK_EARLY_SKEW_MS ||
         providerCreatedAt > startingAt + RECONCILIATION_TASK_LATE_SKEW_MS ||
         providerCreatedAt > Date.now() + 60_000
       ) {
@@ -1484,16 +1657,23 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
         409,
       );
     }
-    return await respondWithCurrent(payload.organization_id, payload.job_id);
+    return await respondWithCurrent(
+      payload.organization_id,
+      payload.job_id,
+    );
   };
 
   const reconcilePayload = readReconcilePayload(body);
-  if (reconcilePayload !== null) {
+  if (!internalWorker && reconcilePayload !== null) {
     return await handleReconciliation(reconcilePayload);
   }
 
   const statusPayload = readStatusPayload(body);
   if (statusPayload !== null) return await handleStatus(statusPayload);
+
+  if (internalWorker) {
+    return json(request, { ok: false, code: "invalid_payload" }, 400);
+  }
 
   const startPayload = readStartPayload(body);
   if (startPayload === null) {
@@ -1532,7 +1712,11 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     current === null || current.batchId !== startJob.batchId ||
     current.outputObjectName !== startJob.outputObjectName
   ) {
-    return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    return json(
+      request,
+      { ok: false, code: "generation_unavailable" },
+      503,
+    );
   }
   const statusRequest: StatusPayload = {
     action: "status",
@@ -1551,7 +1735,11 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     !isRecord(claimValue) || claimValue.ok !== true ||
     typeof claimValue.claimed !== "boolean"
   ) {
-    return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    return json(
+      request,
+      { ok: false, code: "generation_unavailable" },
+      503,
+    );
   }
   if (!claimValue.claimed) {
     return await respondWithCurrent(
@@ -1704,7 +1892,16 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     startJob.id,
     batch,
   );
-});
+}
+
+const creatorGenerate = withSupabase<ContentEngineDatabase>(
+  CREATOR_GENERATE_USER_OPTIONS,
+  (request, context) => handleCreatorGenerate(request, context, false),
+);
+const creatorGenerateWorker = withSupabase<ContentEngineDatabase>(
+  CREATOR_GENERATE_WORKER_OPTIONS,
+  (request, context) => handleCreatorGenerate(request, context, true),
+);
 
 export default {
   fetch(request: Request): Promise<Response> | Response {
@@ -1716,6 +1913,9 @@ export default {
         status: 204,
         headers: responseHeaders(request),
       });
+    }
+    if (isInternalWorkerRequest(request)) {
+      return creatorGenerateWorker(request);
     }
     return creatorGenerate(request);
   },

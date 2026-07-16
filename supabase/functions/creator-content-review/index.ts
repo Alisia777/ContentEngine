@@ -1,4 +1,9 @@
-import { withSupabase } from "npm:@supabase/server@1.3.0";
+import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
+import {
+  INTERNAL_WORKER_HEADER,
+  isInternalWorkerAuthorized,
+  isInternalWorkerRequest,
+} from "../_shared/internal-worker-auth.ts";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -99,6 +104,21 @@ type ContentEngineDatabase = {
         Returns: Json;
       };
     };
+  };
+  content_factory: {
+    Tables: {
+      content_review_runs: {
+        Row: {
+          id: string;
+          status: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+    };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 };
 
@@ -1474,7 +1494,7 @@ function readPublicStatusEnvelope(
   };
 }
 
-const creatorContentReview = withSupabase<ContentEngineDatabase>({
+const CREATOR_CONTENT_REVIEW_USER_OPTIONS = {
   auth: "user",
   cors: {
     "Access-Control-Allow-Headers":
@@ -1483,29 +1503,68 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
     "Access-Control-Allow-Origin": PUBLIC_APP_ORIGIN,
     Vary: "Origin",
   },
-}, async (request, context) => {
+} as const;
+
+const CREATOR_CONTENT_REVIEW_WORKER_OPTIONS = {
+  auth: "none",
+  cors: false,
+} as const;
+
+async function handleCreatorContentReview(
+  request: Request,
+  context: SupabaseContext<ContentEngineDatabase>,
+  internalWorker: boolean,
+): Promise<Response> {
+  if (internalWorker && !(await isInternalWorkerAuthorized(request))) {
+    return json(request, { ok: false, code: "authentication_required" }, 401);
+  }
+  const supabaseAdmin = context.supabaseAdmin;
   if (request.method !== "POST") {
     return json(request, { ok: false, code: "method_not_allowed" }, 405);
   }
-  if (request.headers.get("origin") !== PUBLIC_APP_ORIGIN) {
+  if (
+    (!internalWorker &&
+      request.headers.get("origin") !== PUBLIC_APP_ORIGIN) ||
+    (internalWorker && request.headers.get("origin") !== null)
+  ) {
     return json(request, { ok: false, code: "origin_not_allowed" }, 403);
   }
+  if (
+    internalWorker &&
+    request.headers.get(INTERNAL_WORKER_HEADER) !== "1"
+  ) {
+    return json(
+      request,
+      { ok: false, code: "worker_request_required" },
+      403,
+    );
+  }
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLocaleLowerCase("en-US").startsWith("application/json")) {
+  if (
+    !contentType.toLocaleLowerCase("en-US").startsWith("application/json")
+  ) {
     return json(request, { ok: false, code: "content_type_invalid" }, 415);
   }
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  const contentLength = Number(
+    request.headers.get("content-length") ?? "0",
+  );
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
     return json(request, { ok: false, code: "request_too_large" }, 413);
   }
-  if (!context.userClaims?.id) {
-    return json(request, { ok: false, code: "authentication_required" }, 401);
+  if (!internalWorker && !context.userClaims?.id) {
+    return json(
+      request,
+      { ok: false, code: "authentication_required" },
+      401,
+    );
   }
 
   let body: unknown;
   try {
     const bytes = await readBoundedStream(request.body, MAX_BODY_BYTES);
-    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    body = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
   } catch {
     return json(request, { ok: false, code: "invalid_json" }, 400);
   }
@@ -1517,6 +1576,23 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
   const readCurrentStatus = async (): Promise<
     { data: Json; status: ReviewRun["status"] } | null
   > => {
+    if (internalWorker) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .schema("content_factory")
+          .from("content_review_runs")
+          .select("id, status")
+          .eq("id", payload.review_id)
+          .maybeSingle();
+        if (error || data === null) return null;
+        return readPublicStatusEnvelope({
+          ok: true,
+          run: { id: data.id, status: data.status },
+        }, payload.review_id);
+      } catch {
+        return null;
+      }
+    }
     try {
       const { data, error } = await context.supabase.rpc(
         "creator_content_review_status",
@@ -1533,11 +1609,13 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
   ): Promise<boolean> => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const { data, error } = await context.supabaseAdmin.rpc(
+        const { data, error } = await supabaseAdmin.rpc(
           "system_complete_content_review",
           { p_payload: completionPayload },
         );
-        if (error === null && isRecord(data) && data.ok === true) return true;
+        if (error === null && isRecord(data) && data.ok === true) {
+          return true;
+        }
       } catch {
         // Idempotent completion retry; the provider call is never repeated.
       }
@@ -1565,7 +1643,11 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
 
   const authorized = await readCurrentStatus();
   if (authorized === null) {
-    return json(request, { ok: false, code: "content_review_rejected" }, 403);
+    return json(
+      request,
+      { ok: false, code: "content_review_rejected" },
+      403,
+    );
   }
   if (authorized.status !== "queued") {
     return json(
@@ -1577,7 +1659,7 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
 
   let claim: { claimed: boolean; run: ReviewRun } | null = null;
   try {
-    const { data, error } = await context.supabaseAdmin.rpc(
+    const { data, error } = await supabaseAdmin.rpc(
       "system_claim_content_review",
       { p_payload: { review_id: payload.review_id } },
     );
@@ -1594,7 +1676,11 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
   if (!claim.claimed) {
     const current = await readCurrentStatus();
     return current === null
-      ? json(request, { ok: false, code: "content_review_unavailable" }, 503)
+      ? json(
+        request,
+        { ok: false, code: "content_review_unavailable" },
+        503,
+      )
       : json(
         request,
         current.data,
@@ -1638,7 +1724,7 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
   const imageUrls: string[] = [];
   if (claim.run.media.mimeType.startsWith("image/")) {
     try {
-      const { data, error } = await context.supabaseAdmin.storage.from(
+      const { data, error } = await supabaseAdmin.storage.from(
         STORAGE_BUCKET,
       ).createSignedUrl(
         claim.run.media.objectName,
@@ -1720,7 +1806,9 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
     const moderationResponse = moderationSettled.value;
     if (moderationResponse.ok) {
       try {
-        moderation = readModeration(await readProviderJson(moderationResponse));
+        moderation = readModeration(
+          await readProviderJson(moderationResponse),
+        );
       } catch {
         moderation = {
           status: "unavailable",
@@ -1801,7 +1889,16 @@ const creatorContentReview = withSupabase<ContentEngineDatabase>({
   return completed === null
     ? json(request, { ok: false, code: "content_review_unavailable" }, 503)
     : json(request, completed.data);
-});
+}
+
+const creatorContentReview = withSupabase<ContentEngineDatabase>(
+  CREATOR_CONTENT_REVIEW_USER_OPTIONS,
+  (request, context) => handleCreatorContentReview(request, context, false),
+);
+const creatorContentReviewWorker = withSupabase<ContentEngineDatabase>(
+  CREATOR_CONTENT_REVIEW_WORKER_OPTIONS,
+  (request, context) => handleCreatorContentReview(request, context, true),
+);
 
 export default {
   fetch(request: Request): Promise<Response> | Response {
@@ -1813,6 +1910,9 @@ export default {
         status: 204,
         headers: responseHeaders(request),
       });
+    }
+    if (isInternalWorkerRequest(request)) {
+      return creatorContentReviewWorker(request);
     }
     return creatorContentReview(request);
   },

@@ -32,6 +32,7 @@ export const NAVIGATION_MODES = Object.freeze([
 
 export const SIMPLE_WORKSPACE_TAB_KEYS = Object.freeze([
   "home",
+  "work",
   "media",
   "generation",
   "review",
@@ -49,6 +50,7 @@ export const WORKSPACE_TABS = Object.freeze([
   ["placement", "Публикации", "↗"],
   ["stats", "Результаты", "◫"],
   ["payouts", "Выплаты", "₽"],
+  ["work", "Моя работа", "●"],
   ["board", "Рабочий стол", "▦"],
   ["research", "Разбор товара", "⌕"],
   ["feedback", "Помощь и идеи", "+"],

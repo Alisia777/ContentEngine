@@ -1,0 +1,113 @@
+name: Dispatch background content work
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: production-background-content-worker
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Continue durable provider work
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      EXPECTED_SUPABASE_PROJECT_REF: iyckwryrucqrxwlowxow
+    steps:
+      - name: Require reviewed worker coordinates
+        shell: bash
+        env:
+          CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
+        run: |
+          if [ -n "${CONTENTENGINE_WORKER_SECRET:-}" ]; then
+            echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
+          fi
+          : "${CONTENTENGINE_WORKER_SECRET:?Configure CONTENTENGINE_WORKER_SECRET in the production environment}"
+          : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
+          if [ "${#CONTENTENGINE_WORKER_SECRET}" -lt 32 ]; then
+            echo "CONTENTENGINE_WORKER_SECRET must contain at least 32 characters" >&2
+            exit 1
+          fi
+          if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
+            echo "SUPABASE_PROJECT_REF does not match the reviewed production project" >&2
+            exit 1
+          fi
+
+      - name: Dispatch bounded background batch
+        shell: bash
+        env:
+          CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
+        run: |
+          echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status="$(
+            curl --silent --show-error \
+              --connect-timeout 15 \
+              --max-time 360 \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header "content-type: application/json" \
+              --header "x-contentengine-internal-worker: 1" \
+              --header "x-contentengine-worker-secret: $CONTENTENGINE_WORKER_SECRET" \
+              --data '{"generation_limit":4,"research_limit":1,"review_limit":1}' \
+              "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/creator-background-worker"
+          )"
+          python3 - "$status" "$response_file" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          status = int(sys.argv[1])
+          path = Path(sys.argv[2])
+          if path.stat().st_size > 65536:
+              raise SystemExit("Background worker returned an oversized response")
+          try:
+              payload = json.loads(path.read_text(encoding="utf-8"))
+          except (UnicodeError, json.JSONDecodeError):
+              raise SystemExit("Background worker returned invalid JSON")
+          notification = payload.get("notification")
+          if not isinstance(notification, dict):
+              notification = {}
+          visible = {
+              "selected": payload.get("selected", {}),
+              "completed": payload.get("completed", {}),
+              "pending": payload.get("pending", {}),
+              "failed": payload.get("failed", {}),
+              "expired_leases": payload.get("expired_leases", {}),
+              "skipped_video_reviews": payload.get(
+                  "skipped_video_reviews", 0
+              ),
+              "notification": notification,
+          }
+          print(
+              "Background worker batch:",
+              json.dumps(
+                  visible,
+                  ensure_ascii=True,
+                  separators=(",", ":"),
+              ),
+          )
+          if not 200 <= status < 300 or payload.get("ok") is not True:
+              code = payload.get("code", "batch_failed")
+              unresolved = notification.get("unresolved", "unknown")
+              delivery_failed = notification.get("failed", "unknown")
+              raise SystemExit(
+                  "Background worker failed safely: "
+                  f"{code}; notification_unresolved={unresolved}; "
+                  f"notification_failed={delivery_failed}"
+              )
+          if notification.get("unresolved", 0) != 0:
+              raise SystemExit(
+                  "Background worker left unresolved notification delivery: "
+                  f"{notification.get('unresolved')}"
+              )
+          PY

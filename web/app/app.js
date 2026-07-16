@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260716.3";
+import { CreatorApi } from "./supabase-api.js?v=20260716.4";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -7,7 +7,7 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260716.2";
+} from "./catalog.js?v=20260716.3";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
@@ -70,7 +70,17 @@ import {
   stopTrainingWalkthrough,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260716.2";
+} from "./training-interactive.js?v=20260716.3";
+import {
+  myWorkRequestOptions,
+  myWorkWorkspaceMarkup,
+  normalizeMyWork,
+  normalizeMyWorkFilters,
+  normalizeNotifications,
+  normalizeSavedWorkViews,
+  notificationCenterMarkup,
+  readMyWorkFilters,
+} from "./my-work-view.js?v=20260716.4";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
@@ -591,6 +601,7 @@ const state = {
   resetCountdownTimer: null,
   route: parseRoute(),
   routeTransition: true,
+  workspaceDeepLinkFocusKey: "",
   portalTheme: normalizePortalTheme(document.documentElement.dataset.portalTheme),
   navigationMode: restoreNavigationModePreference(),
   dataEpoch: 0,
@@ -646,7 +657,29 @@ const state = {
     hasMore: false,
     nextCursor: null,
   },
+  myWork: {
+    filters: normalizeMyWorkFilters(),
+    selectedViewId: "",
+    savedViews: [],
+    notifications: normalizeNotifications(),
+    notificationsStatus: "idle",
+    notificationsError: "",
+    notificationsOpen: false,
+    notificationsRequestId: 0,
+    notificationsMutationEpoch: 0,
+    notice: "",
+    error: "",
+    loadingMore: false,
+    viewsLoaded: false,
+  },
   trainingWalkthroughTimers: new Map(),
+  trainingProgress: {
+    items: new Map(),
+    loadedModules: new Set(),
+    loadRequests: new Map(),
+    saveTimers: new Map(),
+    saveQueues: new Map(),
+  },
   generationArchive: {
     filters: normalizeGenerationFilters(),
     loadingMore: false,
@@ -830,6 +863,7 @@ function bindGlobalEvents() {
   });
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
+    state.workspaceDeepLinkFocusKey = "";
     if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
     if (state.route.path !== "/workspace/research") stopProductResearchPolling();
     if (state.route.path !== "/workspace/review") stopContentReviewPolling();
@@ -844,6 +878,8 @@ function bindGlobalEvents() {
       && !["loading", "refreshing"].includes(state.home.status)
     ) state.home.status = "idle";
     setMobileNavOpen(false);
+    state.myWork.notificationsOpen = false;
+    document.body.classList.remove("notification-center-open");
     render();
     settleRouteView();
     track("route_viewed", { route: state.route.path });
@@ -1904,6 +1940,7 @@ function renderCourse(code) {
   `;
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
   restoreTrainingWalkthroughState(course.code);
+  void restoreServerTrainingWalkthroughState(course.code);
   track("course_opened", { module_code: course.code });
 }
 
@@ -1929,8 +1966,9 @@ function persistTrainingWalkthroughState(root) {
   try {
     window.sessionStorage.setItem(key, JSON.stringify(payload));
   } catch {
-    // Training progress in this tab is a convenience; the course gate remains server-side.
+    // Server synchronization below remains the durable path.
   }
+  scheduleServerTrainingWalkthroughProgress(root);
 }
 
 function restoreTrainingWalkthroughState(courseCode) {
@@ -1948,6 +1986,309 @@ function restoreTrainingWalkthroughState(courseCode) {
       setTrainingWalkthroughStep(root, 0);
     }
   });
+}
+
+function trainingProgressKey(moduleCode, walkthroughId) {
+  return `${String(moduleCode || "").trim()}:${String(walkthroughId || "").trim()}`;
+}
+
+function normalizeServerTrainingProgress(raw) {
+  const root = raw?.data && typeof raw.data === "object" ? raw.data : raw || {};
+  return (Array.isArray(root.items) ? root.items : [])
+    .map((item) => ({
+      moduleCode: String(item?.module_code || ""),
+      walkthroughId: String(item?.walkthrough_id || ""),
+      currentFrameId: String(item?.current_frame_id || ""),
+      positionSeconds: Math.max(0, Number(item?.position_seconds) || 0),
+      completedFrameIds: Array.isArray(item?.completed_frame_ids)
+        ? [...new Set(item.completed_frame_ids.map(String).filter(Boolean))]
+        : [],
+      completed: item?.completed === true,
+      updatedAt: String(item?.updated_at || ""),
+      version: Math.max(1, Number(item?.version) || 1),
+    }))
+    .filter((item) => item.moduleCode && item.walkthroughId);
+}
+
+async function restoreServerTrainingWalkthroughState(courseCode) {
+  const moduleCode = String(courseCode || "").trim();
+  if (
+    !moduleCode
+    || !state.api
+    || state.trainingProgress.loadedModules.has(moduleCode)
+    || state.trainingProgress.loadRequests.has(moduleCode)
+  ) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const request = state.api.trainingProgress(moduleCode);
+  state.trainingProgress.loadRequests.set(moduleCode, request);
+  try {
+    const raw = await request;
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    for (const progress of normalizeServerTrainingProgress(raw)) {
+      const key = trainingProgressKey(progress.moduleCode, progress.walkthroughId);
+      const current = state.trainingProgress.items.get(key);
+      let effectiveProgress = current;
+      if (!current || progress.version >= current.version) {
+        state.trainingProgress.items.set(key, progress);
+        effectiveProgress = progress;
+      }
+      const queue = state.trainingProgress.saveQueues.get(key);
+      if (effectiveProgress && !queue?.inFlight && !queue?.latestPayload) {
+        applyServerTrainingProgress(effectiveProgress);
+      }
+    }
+    state.trainingProgress.loadedModules.add(moduleCode);
+  } catch (error) {
+    console.warn("Training walkthrough progress unavailable", error);
+  } finally {
+    if (state.trainingProgress.loadRequests.get(moduleCode) === request) {
+      state.trainingProgress.loadRequests.delete(moduleCode);
+    }
+  }
+}
+
+function applyServerTrainingProgress(progress) {
+  if (state.route.path !== `/learn/${progress.moduleCode}`) return;
+  const root = document.querySelector(
+    `[data-training-course="${CSS.escape(progress.moduleCode)}"]`
+    + `[data-training-walkthrough="${CSS.escape(progress.walkthroughId)}"]`,
+  );
+  if (!root) return;
+  const frames = Array.from(root.querySelectorAll("[data-training-frame]"));
+  const currentIndex = frames.findIndex(
+    (frame) => frame.dataset.trainingFrameId === progress.currentFrameId,
+  );
+  const completedIndex = frames.reduce(
+    (latest, frame, index) => (
+      progress.completedFrameIds.includes(frame.dataset.trainingFrameId)
+        ? Math.max(latest, index)
+        : latest
+    ),
+    -1,
+  );
+  const localIndex = Math.max(0, Number(root.dataset.trainingStep) || 0);
+  const serverIndex = currentIndex >= 0 ? currentIndex : Math.max(0, completedIndex);
+  setTrainingWalkthroughStep(
+    root,
+    Math.max(localIndex, serverIndex),
+  );
+  root.dataset.trainingProgressVersion = String(progress.version);
+  const video = root.querySelector("[data-training-video]");
+  if (video && progress.positionSeconds > 0) {
+    const restorePosition = () => {
+      const duration = Number(video.duration);
+      const serverPosition = Number.isFinite(duration)
+        ? Math.min(duration, progress.positionSeconds)
+        : progress.positionSeconds;
+      video.currentTime = Math.max(Number(video.currentTime) || 0, serverPosition);
+    };
+    if (video.readyState >= 1) restorePosition();
+    else video.addEventListener("loadedmetadata", restorePosition, { once: true });
+  }
+}
+
+function serverTrainingProgressPayload(root) {
+  if (!root) return null;
+  const moduleCode = String(root.dataset.trainingCourse || "");
+  const walkthroughId = String(root.dataset.trainingWalkthrough || "");
+  const frames = Array.from(root.querySelectorAll("[data-training-frame]"));
+  const currentIndex = Math.max(
+    0,
+    Math.min(frames.length - 1, Number(root.dataset.trainingStep) || 0),
+  );
+  const currentFrameId = String(frames[currentIndex]?.dataset.trainingFrameId || "");
+  if (!moduleCode || !walkthroughId || !currentFrameId || !frames.length) return null;
+  const completedFrameIds = frames
+    .slice(0, currentIndex + 1)
+    .map((frame) => String(frame.dataset.trainingFrameId || ""))
+    .filter(Boolean);
+  const checks = Array.from(root.querySelectorAll("[data-training-check]"));
+  const completed = currentIndex === frames.length - 1
+    && (!checks.length || checks.every((input) => input.checked === true));
+  const video = root.querySelector("[data-training-video]");
+  const durationSeconds = Math.max(1, Number(root.dataset.trainingDurationSeconds) || 1);
+  const positionSeconds = Number.isFinite(Number(video?.currentTime)) && Number(video?.currentTime) > 0
+    ? Number(video.currentTime.toFixed(3))
+    : Number(Math.min(
+      durationSeconds,
+      durationSeconds * ((currentIndex + 1) / frames.length),
+    ).toFixed(3));
+  return {
+    module_code: moduleCode,
+    walkthrough_id: walkthroughId,
+    current_frame_id: currentFrameId,
+    position_seconds: positionSeconds,
+    completed_frame_ids: completedFrameIds,
+    completed,
+  };
+}
+
+function mergeTrainingProgressPayload(previous, next) {
+  if (!previous) return {
+    ...next,
+    completed_frame_ids: [...new Set(next.completed_frame_ids || [])],
+  };
+  if (!next) return previous;
+  return {
+    ...previous,
+    ...next,
+    current_frame_id: next.current_frame_id || previous.current_frame_id,
+    position_seconds: Math.max(
+      Number(previous.position_seconds) || 0,
+      Number(next.position_seconds) || 0,
+    ),
+    completed_frame_ids: [...new Set([
+      ...(previous.completed_frame_ids || []),
+      ...(next.completed_frame_ids || []),
+    ])],
+    completed: previous.completed === true || next.completed === true,
+  };
+}
+
+function trainingProgressQueueIsCurrent(queue) {
+  return Boolean(
+    queue
+    && state.api
+    && state.session
+    && state.trainingProgress.saveQueues.get(queue.key) === queue
+    && queue.requestEpoch === state.dataEpoch
+    && queue.requestUserId === state.user?.id
+  );
+}
+
+function scheduleTrainingProgressQueueDrain(key, delayMs = 0) {
+  const previousTimer = state.trainingProgress.saveTimers.get(key);
+  if (previousTimer) window.clearTimeout(previousTimer);
+  const timer = window.setTimeout(() => {
+    state.trainingProgress.saveTimers.delete(key);
+    void drainTrainingProgressSaveQueue(key);
+  }, Math.max(0, Number(delayMs) || 0));
+  state.trainingProgress.saveTimers.set(key, timer);
+}
+
+async function refreshTrainingProgressVersion(queue) {
+  const raw = await state.api.trainingProgress(queue.moduleCode);
+  if (!trainingProgressQueueIsCurrent(queue)) return false;
+  let targetFound = false;
+  for (const progress of normalizeServerTrainingProgress(raw)) {
+    const key = trainingProgressKey(progress.moduleCode, progress.walkthroughId);
+    const current = state.trainingProgress.items.get(key);
+    if (!current || progress.version >= current.version) {
+      state.trainingProgress.items.set(key, progress);
+    }
+    if (key === queue.key) targetFound = true;
+  }
+  if (!targetFound) state.trainingProgress.items.delete(queue.key);
+  state.trainingProgress.loadedModules.add(queue.moduleCode);
+  return true;
+}
+
+async function drainTrainingProgressSaveQueue(key) {
+  const queue = state.trainingProgress.saveQueues.get(key);
+  if (!trainingProgressQueueIsCurrent(queue) || queue.inFlight || !queue.latestPayload) return;
+  queue.inFlight = true;
+  let payload = queue.latestPayload;
+  queue.latestPayload = null;
+  let retryDelay = null;
+  let conflictRetries = 0;
+  try {
+    while (trainingProgressQueueIsCurrent(queue)) {
+      if (queue.latestPayload) {
+        payload = mergeTrainingProgressPayload(payload, queue.latestPayload);
+        queue.latestPayload = null;
+      }
+      const current = state.trainingProgress.items.get(key);
+      const requestPayload = { ...payload };
+      if (current?.version) requestPayload.expected_version = current.version;
+      else delete requestPayload.expected_version;
+      try {
+        const raw = await state.api.saveTrainingProgress(requestPayload);
+        if (!trainingProgressQueueIsCurrent(queue)) return;
+        const source = raw?.data && typeof raw.data === "object" ? raw.data : raw || {};
+        const savedItems = normalizeServerTrainingProgress({
+          items: source.progress ? [source.progress] : [],
+        });
+        const saved = savedItems[0];
+        if (!saved) {
+          throw new Error("training_progress_response_invalid");
+        }
+        const previous = state.trainingProgress.items.get(key);
+        if (!previous || saved.version >= previous.version) {
+          state.trainingProgress.items.set(key, saved);
+          if (queue.root?.isConnected) {
+            queue.root.dataset.trainingProgressVersion = String(saved.version);
+          }
+        }
+        queue.failureCount = 0;
+        break;
+      } catch (error) {
+        if (
+          String(error?.serverCode || error?.code || "") !==
+            "training_progress_version_conflict"
+        ) {
+          queue.latestPayload = mergeTrainingProgressPayload(payload, queue.latestPayload);
+          queue.failureCount = Math.min(5, (queue.failureCount || 0) + 1);
+          retryDelay = Math.min(30_000, 1_500 * (2 ** (queue.failureCount - 1)));
+          console.warn("Training walkthrough progress was not synchronized", error);
+          break;
+        }
+        conflictRetries += 1;
+        let refreshed = false;
+        try {
+          refreshed = await refreshTrainingProgressVersion(queue);
+        } catch (refreshError) {
+          queue.latestPayload = mergeTrainingProgressPayload(payload, queue.latestPayload);
+          queue.failureCount = Math.min(5, (queue.failureCount || 0) + 1);
+          retryDelay = Math.min(30_000, 1_500 * (2 ** (queue.failureCount - 1)));
+          console.warn("Training walkthrough progress version refresh failed", refreshError);
+          break;
+        }
+        if (!refreshed || !trainingProgressQueueIsCurrent(queue)) return;
+        payload = mergeTrainingProgressPayload(payload, queue.latestPayload);
+        queue.latestPayload = null;
+        if (conflictRetries >= 2) {
+          queue.latestPayload = mergeTrainingProgressPayload(payload, queue.latestPayload);
+          retryDelay = 1_500;
+          break;
+        }
+      }
+    }
+  } finally {
+    queue.inFlight = false;
+    if (!trainingProgressQueueIsCurrent(queue)) return;
+    if (queue.latestPayload) {
+      if (retryDelay !== null) scheduleTrainingProgressQueueDrain(key, retryDelay);
+      else window.queueMicrotask(() => void drainTrainingProgressSaveQueue(key));
+    } else {
+      queue.failureCount = 0;
+      state.trainingProgress.saveQueues.delete(key);
+    }
+  }
+}
+
+function scheduleServerTrainingWalkthroughProgress(root, delayMs = 650) {
+  const payload = serverTrainingProgressPayload(root);
+  if (!payload || !state.api || !state.session) return;
+  const key = trainingProgressKey(payload.module_code, payload.walkthrough_id);
+  let queue = state.trainingProgress.saveQueues.get(key);
+  if (!trainingProgressQueueIsCurrent(queue)) {
+    queue = {
+      key,
+      moduleCode: payload.module_code,
+      walkthroughId: payload.walkthrough_id,
+      requestEpoch: state.dataEpoch,
+      requestUserId: state.user?.id,
+      latestPayload: null,
+      inFlight: false,
+      failureCount: 0,
+      root,
+    };
+    state.trainingProgress.saveQueues.set(key, queue);
+  }
+  queue.root = root;
+  queue.latestPayload = mergeTrainingProgressPayload(queue.latestPayload, payload);
+  if (!queue.inFlight) scheduleTrainingProgressQueueDrain(key, delayMs);
 }
 
 function stopTrainingWalkthroughSession(root) {
@@ -1991,6 +2332,7 @@ async function toggleTrainingWalkthrough(root) {
       await video.play();
       root.dataset.trainingPlaying = "true";
       root.querySelector('[data-action="training-walkthrough-play"]')?.setAttribute("aria-pressed", "true");
+      video.onpause = () => persistTrainingWalkthroughState(root);
       video.onended = () => stopTrainingWalkthroughSession(root);
     } catch {
       toast("Видео не запустилось. Используйте покадровый разбор и текстовую расшифровку.", "info");
@@ -2917,6 +3259,9 @@ async function loadMoreWorkspaceBoard() {
 }
 
 function renderWorkspace(section) {
+  if (state.myWork.notificationsStatus === "idle") {
+    window.queueMicrotask(() => loadMyWorkNotifications({ silent: true }));
+  }
   const sectionState = section === "home" ? state.home : state.sections[section];
   if (section === "research" && sectionState.status === "idle") {
     sectionState.status = "ready";
@@ -2926,6 +3271,7 @@ function renderWorkspace(section) {
 
   const renderer = {
     home: renderHomeSection,
+    work: renderMyWorkSection,
     board: renderWorkspaceBoardSection,
     generation: renderGenerationSection,
     review: renderContentReviewSection,
@@ -2951,9 +3297,12 @@ function renderWorkspace(section) {
     existingContent.innerHTML = content;
     restoreDirtyWorkspaceForms(existingContent, dirtyForms);
     restoreWorkspaceFocus(existingContent, focusedControl, section);
+    refreshNotificationLayer();
+    scheduleWorkspaceDeepLinkFocus(section);
     return;
   }
   app.innerHTML = workspaceScaffold(content, section);
+  scheduleWorkspaceDeepLinkFocus(section);
 }
 
 function captureWorkspaceFocus(container) {
@@ -3100,6 +3449,17 @@ function workspaceNavLinkMarkup(key, label, icon, activeSection) {
   `;
 }
 
+function workspaceNotificationButtonMarkup() {
+  const unread = Math.max(0, Number(state.myWork.notifications?.counts?.unread) || 0);
+  return `
+    <button class="nav-link workspace-notification-nav" type="button" data-action="toggle-work-notifications" aria-haspopup="dialog">
+      <span class="nav-icon" aria-hidden="true">!</span>
+      <span class="nav-link-copy"><strong>Уведомления</strong><small>${unread ? `${formatNumber(unread)} новых` : "Новых событий нет"}</small></span>
+      ${unread ? `<span class="workspace-notification-count" data-notification-count>${formatNumber(unread)}</span>` : ""}
+    </button>
+  `;
+}
+
 function workspaceScaffold(content, activeSection) {
   const profile = displayProfile();
   const tabs = workspaceNavigationTabs(activeSection);
@@ -3111,6 +3471,7 @@ function workspaceScaffold(content, activeSection) {
         ${brandMarkup()}
         <nav class="workspace-nav">
           <span class="nav-caption">Рабочий день</span>
+          ${workspaceNotificationButtonMarkup()}
           ${tabs.map(([key, label, icon]) => `
             ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производственный цикл</span>` : ""}
             ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
@@ -3129,8 +3490,34 @@ function workspaceScaffold(content, activeSection) {
         ${state.mobileNavOpen ? mobileNavMarkup(false, activeSection) : ""}
         <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
       </section>
+      <div id="workspace-notification-layer">${notificationCenterMarkup(state.myWork.notifications, {
+        open: state.myWork.notificationsOpen,
+        loading: state.myWork.notificationsStatus === "loading",
+        error: state.myWork.notificationsError,
+      })}</div>
     </div>
   `;
+}
+
+function refreshNotificationLayer({ focus = false } = {}) {
+  const host = document.querySelector("#workspace-notification-layer");
+  if (host) {
+    host.innerHTML = notificationCenterMarkup(state.myWork.notifications, {
+      open: state.myWork.notificationsOpen,
+      loading: state.myWork.notificationsStatus === "loading",
+      error: state.myWork.notificationsError,
+    });
+  }
+  document.body.classList.toggle("notification-center-open", state.myWork.notificationsOpen);
+  document.querySelectorAll(".workspace-notification-nav").forEach((control) => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = workspaceNotificationButtonMarkup().trim();
+    const replacement = wrapper.firstElementChild;
+    if (replacement) control.replaceWith(replacement);
+  });
+  if (focus && state.myWork.notificationsOpen) {
+    window.queueMicrotask(() => document.querySelector(".notification-close")?.focus());
+  }
 }
 
 function canManageTeam() {
@@ -3142,12 +3529,15 @@ function canManageProductResearch() {
 }
 
 function visibleWorkspaceTabs() {
+  const accessible = WORKSPACE_TABS.filter(([key]) => (
+    (key !== "team" || canManageTeam())
+    && (key !== "research" || canManageProductResearch())
+  ));
+  const workTab = accessible.find(([key]) => key === "work");
   return [
     WORKSPACE_HOME_TAB,
-    ...WORKSPACE_TABS.filter(([key]) => (
-      (key !== "team" || canManageTeam())
-      && (key !== "research" || canManageProductResearch())
-    )),
+    ...(workTab ? [workTab] : []),
+    ...accessible.filter(([key]) => key !== "work"),
   ];
 }
 
@@ -3334,6 +3724,13 @@ function handleKeyDown(event) {
     setMobileNavOpen(false, true);
     return;
   }
+  if (event.key === "Escape" && state.myWork.notificationsOpen) {
+    event.preventDefault();
+    state.myWork.notificationsOpen = false;
+    refreshNotificationLayer();
+    document.querySelector(".workspace-notification-nav")?.focus();
+    return;
+  }
   if (
     event.key === "Escape"
     && state.route.path === "/workspace/board"
@@ -3375,6 +3772,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span>Кабинет</a>` : ""}
       ` : `
         <span class="nav-caption">Сегодня</span>
+        ${workspaceNotificationButtonMarkup()}
         ${workspaceNavigationTabs(activeSection).map(([key, label, icon]) => `
           ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 01–07</span>` : ""}
           ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
@@ -3401,10 +3799,13 @@ async function loadSection(section, options = {}) {
   target.requestId = requestId;
   target.status = target.data ? "refreshing" : "loading";
   target.error = null;
+  if (section === "work") state.myWork.error = "";
   if (!options.silent) render();
 
   try {
-    const sectionRequest = section === "board"
+    const sectionRequest = section === "work"
+      ? state.api.myWork(myWorkRequestOptions(state.myWork.filters))
+      : section === "board"
       ? state.api.workspaceBrowser(workspaceBoardBrowserOptions())
       : section === "review"
         ? state.api.contentReviewCatalog({ limit: 50 })
@@ -3412,11 +3813,59 @@ async function loadSection(section, options = {}) {
           section,
           section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
         );
-    const raw = await withUiTimeout(
+    let raw = await withUiTimeout(
       sectionRequest,
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "workspace_section_timeout",
     );
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+    if (section === "work") {
+      const firstViewLoad = !state.myWork.viewsLoaded;
+      const notificationFetch = beginMyWorkNotificationFetch();
+      const [viewsResult, notificationsResult] = await Promise.allSettled([
+        withUiTimeout(
+          state.api.savedWorkViews({ action: "list" }),
+          WORKSPACE_REQUEST_TIMEOUT_MS,
+          "saved_work_views_timeout",
+        ),
+        withUiTimeout(
+          state.api.notifications({ page_size: 50 }),
+          WORKSPACE_REQUEST_TIMEOUT_MS,
+          "notifications_timeout",
+        ),
+      ]);
+      if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+      if (viewsResult.status === "fulfilled") {
+        state.myWork.savedViews = normalizeSavedWorkViews(viewsResult.value);
+        state.myWork.viewsLoaded = true;
+      }
+      if (myWorkNotificationFetchIsCurrent(notificationFetch)) {
+        if (notificationsResult.status === "fulfilled") {
+          state.myWork.notifications = normalizeNotifications(notificationsResult.value);
+          state.myWork.notificationsStatus = "ready";
+          state.myWork.notificationsError = "";
+        } else {
+          state.myWork.notificationsStatus = "error";
+          state.myWork.notificationsError = "Уведомления временно не загрузились. Рабочая очередь доступна.";
+        }
+      }
+
+      const noLocalFilters = !state.myWork.filters.query
+        && !state.myWork.filters.itemTypes.length
+        && !state.myWork.filters.statuses.length;
+      const defaultView = firstViewLoad && noLocalFilters
+        ? state.myWork.savedViews.find((view) => view.isDefault)
+        : null;
+      if (defaultView) {
+        state.myWork.selectedViewId = defaultView.id;
+        state.myWork.filters = normalizeMyWorkFilters(defaultView.filters);
+        raw = await withUiTimeout(
+          state.api.myWork(myWorkRequestOptions(state.myWork.filters)),
+          WORKSPACE_REQUEST_TIMEOUT_MS,
+          "workspace_section_timeout",
+        );
+      }
+    }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     let data = raw?.data ?? raw ?? {};
     if (section === "team") {
@@ -3458,8 +3907,40 @@ async function loadSection(section, options = {}) {
     }
     if (section === "review") {
       const catalog = normalizeContentReviewCatalog(data);
-      const selectedId = String(state.contentReview.record?.id || "");
-      state.contentReview.record = catalog.runs.find((item) => item.id === selectedId)
+      const routeReviewId = safeWorkspaceRouteEntityId("review");
+      let routeRecord = routeReviewId
+        ? catalog.runs.find((item) => item.id === routeReviewId)
+          || (String(state.contentReview.record?.id || "") === routeReviewId
+            ? state.contentReview.record
+            : null)
+        : null;
+      if (routeReviewId && !routeRecord) {
+        try {
+          const routeStatus = await withUiTimeout(
+            state.api.contentReviewStatus(routeReviewId),
+            WORKSPACE_REQUEST_TIMEOUT_MS,
+            "content_review_status_timeout",
+          );
+          const hydratedRouteStatus = await hydratePrivateMedia(
+            routeStatus,
+            { refreshSignedUrls: true },
+          );
+          const normalizedRouteRecord = normalizeContentReviewRun(hydratedRouteStatus);
+          if (normalizedRouteRecord.id === routeReviewId) {
+            routeRecord = normalizedRouteRecord;
+          }
+        } catch (error) {
+          console.warn("Deep-linked content review is unavailable", error);
+        }
+      }
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      const selectedId = routeReviewId || String(state.contentReview.record?.id || "");
+      state.contentReview.record = routeRecord
+        || catalog.runs.find((item) => item.id === selectedId)
         || catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
         || catalog.runs[0]
         || null;
@@ -3481,6 +3962,173 @@ async function loadSection(section, options = {}) {
   if (state.route.path === `/workspace/${section}`) render();
   else if (options.rerenderSection && state.route.path === `/workspace/${options.rerenderSection}`) render();
   else if (options.silent && section === "team") syncGenerationAssigneeOptions();
+}
+
+function beginMyWorkNotificationFetch() {
+  state.myWork.notificationsRequestId += 1;
+  return {
+    requestId: state.myWork.notificationsRequestId,
+    mutationEpoch: state.myWork.notificationsMutationEpoch,
+    dataEpoch: state.dataEpoch,
+    userId: state.user?.id,
+  };
+}
+
+function myWorkNotificationFetchIsCurrent(request) {
+  return Boolean(
+    request
+    && request.requestId === state.myWork.notificationsRequestId
+    && request.mutationEpoch === state.myWork.notificationsMutationEpoch
+    && request.dataEpoch === state.dataEpoch
+    && request.userId === state.user?.id
+  );
+}
+
+async function loadMyWorkNotifications({ silent = false } = {}) {
+  if (state.myWork.notificationsStatus === "loading") return;
+  const request = beginMyWorkNotificationFetch();
+  state.myWork.notificationsStatus = "loading";
+  state.myWork.notificationsError = "";
+  if (!silent) refreshNotificationLayer();
+  try {
+    const raw = await withUiTimeout(
+      state.api.notifications({ page_size: 50 }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "notifications_timeout",
+    );
+    if (!myWorkNotificationFetchIsCurrent(request)) return;
+    state.myWork.notifications = normalizeNotifications(raw);
+    state.myWork.notificationsStatus = "ready";
+  } catch (error) {
+    if (!myWorkNotificationFetchIsCurrent(request)) return;
+    state.myWork.notificationsStatus = "error";
+    state.myWork.notificationsError = "Не удалось обновить уведомления. Рабочие разделы продолжают работать.";
+    console.warn("Notifications unavailable", error);
+  }
+  if (!myWorkNotificationFetchIsCurrent(request)) return;
+  refreshNotificationLayer();
+  if (state.route.path === "/workspace/work") renderWorkspace("work");
+}
+
+async function markMyWorkNotificationsRead(notificationIds) {
+  const ids = [...new Set((notificationIds || []).map(String).filter(Boolean))].slice(0, 100);
+  if (!ids.length) return;
+  state.myWork.notificationsMutationEpoch += 1;
+  state.myWork.notificationsRequestId += 1;
+  try {
+    await state.api.markNotificationsRead(ids, true);
+    state.myWork.notificationsMutationEpoch += 1;
+    const now = new Date().toISOString();
+    const marked = new Set(ids);
+    state.myWork.notifications = {
+      ...state.myWork.notifications,
+      counts: {
+        ...state.myWork.notifications.counts,
+        unread: Math.max(
+          0,
+          Number(state.myWork.notifications.counts?.unread || 0)
+          - state.myWork.notifications.items.filter((item) => marked.has(item.id) && !item.readAt).length,
+        ),
+      },
+      items: state.myWork.notifications.items.map((item) => (
+        marked.has(item.id) ? { ...item, readAt: item.readAt || now } : item
+      )),
+    };
+    state.myWork.notificationsStatus = "ready";
+    state.myWork.notificationsError = "";
+    refreshNotificationLayer();
+    if (state.route.path === "/workspace/work") renderWorkspace("work");
+  } catch (error) {
+    state.myWork.notificationsMutationEpoch += 1;
+    if (state.myWork.notificationsStatus === "loading") {
+      state.myWork.notificationsStatus = "ready";
+    }
+    state.myWork.notificationsError = actionErrorMessage(error);
+    refreshNotificationLayer();
+  }
+}
+
+async function markAllMyWorkNotificationsRead() {
+  if (!Number(state.myWork.notifications.counts?.unread || 0)) return;
+  state.myWork.notificationsMutationEpoch += 1;
+  state.myWork.notificationsRequestId += 1;
+  try {
+    await state.api.markAllNotificationsRead();
+    state.myWork.notificationsMutationEpoch += 1;
+    const now = new Date().toISOString();
+    state.myWork.notifications = {
+      ...state.myWork.notifications,
+      counts: {
+        ...state.myWork.notifications.counts,
+        unread: 0,
+      },
+      items: state.myWork.notifications.items.map((item) => ({
+        ...item,
+        readAt: item.readAt || now,
+      })),
+    };
+    state.myWork.notificationsStatus = "ready";
+    state.myWork.notificationsError = "";
+    refreshNotificationLayer();
+    if (state.route.path === "/workspace/work") renderWorkspace("work");
+  } catch (error) {
+    state.myWork.notificationsMutationEpoch += 1;
+    if (state.myWork.notificationsStatus === "loading") {
+      state.myWork.notificationsStatus = "ready";
+    }
+    state.myWork.notificationsError = actionErrorMessage(error);
+    refreshNotificationLayer();
+  }
+}
+
+async function loadMoreMyWork() {
+  const target = state.sections.work;
+  const current = normalizeMyWork(target.data);
+  if (!current.nextCursor || state.myWork.loadingMore) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const sectionRequestId = target.requestId;
+  state.myWork.loadingMore = true;
+  state.myWork.error = "";
+  renderWorkspace("work");
+  try {
+    const raw = await withUiTimeout(
+      state.api.myWork(myWorkRequestOptions(state.myWork.filters, current.nextCursor)),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "workspace_section_timeout",
+    );
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || sectionRequestId !== target.requestId
+    ) return;
+    const next = normalizeMyWork(raw);
+    const itemMap = new Map();
+    [...current.items, ...next.items].forEach((item) => {
+      itemMap.set(`${item.itemType}:${item.id}`, item);
+    });
+    target.data = {
+      ...next,
+      items: [...itemMap.values()],
+    };
+  } catch (error) {
+    if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
+      state.myWork.error = actionErrorMessage(error);
+    }
+  } finally {
+    state.myWork.loadingMore = false;
+    if (state.route.path === "/workspace/work") renderWorkspace("work");
+  }
+}
+
+async function reloadSavedWorkViews() {
+  const raw = await withUiTimeout(
+    state.api.savedWorkViews({ action: "list" }),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "saved_work_views_timeout",
+  );
+  state.myWork.savedViews = normalizeSavedWorkViews(raw);
+  state.myWork.viewsLoaded = true;
 }
 
 async function loadManagerDashboard({ silent = false } = {}) {
@@ -4225,7 +4873,7 @@ function generationTable(items) {
           ? `<div class="generation-result-preview"><video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video><small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
           : "";
         return `
-          <tr data-generation-job-id="${escapeHtml(details.jobId)}">
+          <tr data-generation-job-id="${escapeHtml(details.jobId)}" tabindex="-1">
             <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}</small></td>
             <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
             <td>
@@ -4690,9 +5338,17 @@ function canDecideContentReview() {
 
 function renderContentReviewSection(sectionState) {
   const catalog = normalizeContentReviewCatalog(sectionState.data || {});
-  const currentId = String(state.contentReview.record?.id || "");
+  const routeReviewId = safeWorkspaceRouteEntityId("review");
+  const currentId = routeReviewId || String(state.contentReview.record?.id || "");
   const catalogRecord = catalog.runs.find((item) => item.id === currentId);
-  if (catalogRecord && (!state.contentReview.record || state.contentReview.record.summaryOnly)) {
+  if (
+    catalogRecord
+    && (
+      routeReviewId
+      || !state.contentReview.record
+      || state.contentReview.record.summaryOnly
+    )
+  ) {
     state.contentReview.record = catalogRecord;
   }
   else if (!state.contentReview.record) {
@@ -4941,6 +5597,21 @@ function upsertContentReviewRun(run) {
   }
 }
 
+function renderMyWorkSection(sectionState) {
+  return myWorkWorkspaceMarkup({
+    work: sectionState.data || {},
+    notifications: state.myWork.notifications,
+    savedViews: state.myWork.savedViews,
+    filters: state.myWork.filters,
+    selectedViewId: state.myWork.selectedViewId,
+    notice: state.myWork.notice,
+    error: state.myWork.error || (sectionState.status === "error"
+      ? "Единая очередь временно не загрузилась. Обновите раздел."
+      : ""),
+    loadingMore: state.myWork.loadingMore,
+  });
+}
+
 function renderPlacementSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "placements", "items", "tasks");
@@ -4960,7 +5631,7 @@ function placementCard(item) {
   const complete = isCompletedPlacement(item);
   const actionable = isActionablePlacement(item);
   return `
-    <article class="card placement-card">
+    <article class="card placement-card" data-placement-id="${escapeHtml(item.id || item.placement_id || "")}" tabindex="-1">
       <div class="placement-top">
         <div>
           <p class="eyebrow">${escapeHtml(item.platform || item.destination || "Площадка")}</p>
@@ -5046,7 +5717,7 @@ function renderStatsSection(sectionState) {
 function statsTable(items) {
   return `<div class="table-wrap"><table class="data-table">
     <thead><tr><th>Публикация</th><th>Площадка</th><th>Просмотры</th><th>Переходы</th><th>Заказы</th><th>Выручка</th><th>Источник</th><th>Снимок</th></tr></thead>
-    <tbody>${items.map((item) => `<tr>
+    <tbody>${items.map((item) => `<tr data-payout-id="${escapeHtml(item.id || item.payout_id || "")}" tabindex="-1">
       <td><strong>${escapeHtml(item.title || item.sku || `#${item.id}`)}</strong>${item.final_url ? `<br /><a class="tiny" href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}</td>
       <td>${escapeHtml(item.platform || "—")}</td>
       <td>${formatNumber(item.views || 0)}</td>
@@ -5149,7 +5820,7 @@ function taskCard(item) {
   const checklist = Array.isArray(item.checklist) ? item.checklist : item.checklist_json || [];
   const payoutMinor = Math.max(0, Number(item.payout_minor || 0));
   return `
-    <article class="card task-card">
+    <article class="card task-card" data-task-id="${escapeHtml(item.id || item.task_id || "")}" tabindex="-1">
       <div class="task-top">
         <div>
           <p class="eyebrow">${escapeHtml(humanTaskType(item.task_type))} · приоритет ${Number(item.priority || 3)}</p>
@@ -5728,6 +6399,88 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "toggle-work-notifications") {
+    event.preventDefault();
+    state.myWork.notificationsOpen = !state.myWork.notificationsOpen;
+    refreshNotificationLayer({ focus: state.myWork.notificationsOpen });
+    if (
+      state.myWork.notificationsOpen
+      && ["idle", "error"].includes(state.myWork.notificationsStatus)
+    ) {
+      void loadMyWorkNotifications();
+    }
+    return;
+  }
+
+  if (action === "open-work-notification") {
+    const notificationId = String(control.dataset.notificationId || "");
+    if (notificationId) void markMyWorkNotificationsRead([notificationId]);
+    return;
+  }
+
+  if (action === "mark-all-notifications-read") {
+    await markAllMyWorkNotificationsRead();
+    return;
+  }
+
+  if (action === "refresh-my-work") {
+    state.myWork.notice = "";
+    state.myWork.error = "";
+    await loadSection("work");
+    return;
+  }
+
+  if (action === "reset-my-work-filters") {
+    state.myWork.filters = normalizeMyWorkFilters();
+    state.myWork.selectedViewId = "";
+    state.myWork.notice = "";
+    state.myWork.error = "";
+    await loadSection("work");
+    return;
+  }
+
+  if (action === "load-more-my-work") {
+    await loadMoreMyWork();
+    return;
+  }
+
+  if (action === "apply-my-work-view") {
+    const viewId = String(control.dataset.viewId || "");
+    const view = state.myWork.savedViews.find((item) => item.id === viewId);
+    state.myWork.selectedViewId = view?.id || "";
+    state.myWork.filters = normalizeMyWorkFilters(view?.filters);
+    state.myWork.notice = view
+      ? `Фильтр «${view.name}» применён.`
+      : "";
+    state.myWork.error = "";
+    await loadSection("work");
+    return;
+  }
+
+  if (action === "delete-my-work-view") {
+    const viewId = String(control.dataset.viewId || "");
+    const version = Number(control.dataset.viewVersion || 0);
+    if (!viewId || !window.confirm("Удалить сохранённый фильтр?")) return;
+    try {
+      await state.api.savedWorkViews({
+        action: "delete",
+        view_id: viewId,
+        expected_version: version,
+      });
+      if (state.myWork.selectedViewId === viewId) {
+        state.myWork.selectedViewId = "";
+        state.myWork.filters = normalizeMyWorkFilters();
+      }
+      await reloadSavedWorkViews();
+      state.myWork.notice = "Сохранённый фильтр удалён.";
+      state.myWork.error = "";
+    } catch (error) {
+      state.myWork.error = actionErrorMessage(error);
+    }
+    renderWorkspace("work");
+    return;
+  }
+
   if (action === "training-walkthrough-play") {
     await toggleTrainingWalkthrough(trainingWalkthroughRoot(control));
     return;
@@ -6245,6 +6998,8 @@ async function handleSubmit(event) {
   else if (form.id === "workspace-folder-create-form") await submitWorkspaceFolderCreate(form);
   else if (form.id === "workspace-folder-edit-form") await submitWorkspaceFolderEdit(form);
   else if (form.id === "workspace-board-filter-form") await submitWorkspaceBoardFilters(form);
+  else if (form.id === "my-work-filter-form") await submitMyWorkFilters(form);
+  else if (form.id === "save-my-work-view-form") await submitSavedMyWorkView(form);
   else if (form.id === "generation-archive-filter-form") submitGenerationArchiveFilters(form);
   else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
@@ -6260,6 +7015,50 @@ async function handleSubmit(event) {
   else if (form.classList.contains("placement-form")) await submitPlacement(form);
   else if (form.classList.contains("payout-reject-form")) await submitPayoutReject(form);
   else if (form.classList.contains("payout-paid-form")) await submitPayoutPaid(form);
+}
+
+async function submitMyWorkFilters(form) {
+  state.myWork.filters = readMyWorkFilters(form);
+  state.myWork.selectedViewId = "";
+  state.myWork.notice = "";
+  state.myWork.error = "";
+  await loadSection("work");
+}
+
+async function submitSavedMyWorkView(form) {
+  const values = new FormData(form);
+  const name = String(values.get("name") || "").trim();
+  const makeDefault = values.get("is_default") === "true";
+  setFormBusy(form, true, "Сохраняем…");
+  try {
+    const raw = await state.api.savedWorkViews({
+      action: "upsert",
+      name,
+      filters: state.myWork.filters,
+      is_default: makeDefault,
+    });
+    let views = normalizeSavedWorkViews(raw);
+    if (!views.length) {
+      await reloadSavedWorkViews();
+      views = state.myWork.savedViews;
+    } else {
+      state.myWork.savedViews = views;
+      state.myWork.viewsLoaded = true;
+    }
+    const saved = views
+      .filter((view) => view.name.toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU"))
+      .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))[0]
+      || views[0];
+    state.myWork.selectedViewId = saved?.id || "";
+    state.myWork.notice = `Фильтр «${name}» сохранён${makeDefault ? " и назначен основным" : ""}.`;
+    state.myWork.error = "";
+    form.reset();
+  } catch (error) {
+    state.myWork.error = actionErrorMessage(error);
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
+    if (state.route.path === "/workspace/work") renderWorkspace("work");
+  }
 }
 
 function handleChange(event) {
@@ -7978,6 +8777,7 @@ function navigate(path, replace = false) {
     next.hash = hash;
     window.history.replaceState({}, "", next);
     state.route = parseRoute();
+    state.workspaceDeepLinkFocusKey = "";
     state.routeTransition = true;
     if (
       state.route.path === "/workspace/home"
@@ -7987,6 +8787,7 @@ function navigate(path, replace = false) {
     settleRouteView();
   } else if (window.location.hash === hash) {
     state.route = parseRoute();
+    state.workspaceDeepLinkFocusKey = "";
     state.routeTransition = true;
     if (
       state.route.path === "/workspace/home"
@@ -8035,6 +8836,14 @@ function clearAuthenticatedState() {
   state.examResult = null;
   state.courseCheckResults = {};
   state.firstShift = null;
+  for (const timer of state.trainingProgress.saveTimers.values()) {
+    window.clearTimeout(timer);
+  }
+  state.trainingProgress.items.clear();
+  state.trainingProgress.loadedModules.clear();
+  state.trainingProgress.loadRequests.clear();
+  state.trainingProgress.saveTimers.clear();
+  state.trainingProgress.saveQueues.clear();
   state.teamInviteResult = null;
   state.managerDashboard.requestId += 1;
   state.managerDashboard.status = "idle";
@@ -8066,6 +8875,21 @@ function clearAuthenticatedState() {
   state.workspaceBoard.loadingMore = false;
   state.workspaceBoard.hasMore = false;
   state.workspaceBoard.nextCursor = null;
+  state.myWork.filters = normalizeMyWorkFilters();
+  state.myWork.selectedViewId = "";
+  state.myWork.savedViews = [];
+  state.myWork.notifications = normalizeNotifications();
+  state.myWork.notificationsStatus = "idle";
+  state.myWork.notificationsError = "";
+  state.myWork.notificationsOpen = false;
+  state.myWork.notificationsRequestId += 1;
+  state.myWork.notificationsMutationEpoch += 1;
+  state.myWork.notice = "";
+  state.myWork.error = "";
+  state.myWork.loadingMore = false;
+  state.myWork.viewsLoaded = false;
+  state.workspaceDeepLinkFocusKey = "";
+  document.body.classList.remove("notification-center-open");
   state.generationArchive.requestId += 1;
   state.generationArchive.filters = normalizeGenerationFilters();
   state.generationArchive.loadingMore = false;
@@ -8096,6 +8920,72 @@ function prefersReducedMotion() {
 
 function scrollElementIntoView(element, block = "start") {
   element?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block });
+}
+
+function safeWorkspaceRouteEntityId(parameterName) {
+  if (!state.route.path.startsWith("/workspace/")) return "";
+  const values = state.route.query.getAll(parameterName);
+  if (values.length !== 1) return "";
+  const value = String(values[0] || "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value)
+    ? value
+    : "";
+}
+
+function workspaceDeepLinkTarget(section) {
+  const definitions = {
+    work: ["item", (id) => [`[data-work-item-id="${id}"]`]],
+    tasks: ["item", (id) => [`[data-task-id="${id}"]`]],
+    generation: ["job", (id) => [`[data-generation-job-id="${id}"]`]],
+    review: ["review", (id) => [
+      `[data-review-result-id="${id}"]`,
+      `.content-review-decision-form[data-review-id="${id}"]`,
+      `[data-action="open-content-review"][data-review-id="${id}"]`,
+    ]],
+    placement: ["placement", (id) => [`[data-placement-id="${id}"]`]],
+    payouts: ["payout", (id) => [`[data-payout-id="${id}"]`]],
+  };
+  const definition = definitions[section];
+  if (!definition || state.route.path !== `/workspace/${section}`) return null;
+  const [parameterName, selectorsFor] = definition;
+  const entityId = safeWorkspaceRouteEntityId(parameterName);
+  if (!entityId) return null;
+  return {
+    key: `${state.route.path}?${parameterName}=${entityId}`,
+    selectors: selectorsFor(entityId),
+  };
+}
+
+function scheduleWorkspaceDeepLinkFocus(section) {
+  const targetDefinition = workspaceDeepLinkTarget(section);
+  if (
+    !targetDefinition
+    || state.workspaceDeepLinkFocusKey === targetDefinition.key
+  ) return;
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    if (state.route.path !== `/workspace/${section}`) return;
+    const currentDefinition = workspaceDeepLinkTarget(section);
+    if (!currentDefinition || currentDefinition.key !== targetDefinition.key) return;
+    const target = currentDefinition.selectors
+      .map((selector) => document.querySelector(selector))
+      .find(Boolean);
+    if (!target) return;
+    state.workspaceDeepLinkFocusKey = currentDefinition.key;
+    target.dataset.deepLinkFocused = "true";
+    const focusTarget = target.matches(
+      "a[href], button, input, select, textarea, [tabindex]",
+    )
+      ? target
+      : target.querySelector(
+        "a[href], button:not([disabled]), input:not([disabled]), "
+        + "select:not([disabled]), textarea:not([disabled]), [tabindex]",
+      );
+    focusTarget?.focus?.({ preventScroll: true });
+    scrollElementIntoView(target, "center");
+    window.setTimeout(() => {
+      if (target.isConnected) delete target.dataset.deepLinkFocused;
+    }, 2400);
+  }));
 }
 
 function settleRouteView() {

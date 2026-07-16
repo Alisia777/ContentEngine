@@ -231,7 +231,10 @@ def test_ci_and_cloud_runbook_enforce_public_schema_security_contract() -> None:
     assert "python scripts/verify_postgres_schema_security.py" in workflow
     assert "Keep the Supabase Data API enabled" in runbook
     assert "narrow `public.creator_*` functions" in runbook
-    assert 'schemas = ["public", "graphql_public"]' in supabase_config
+    assert (
+        'schemas = ["public", "graphql_public", "content_factory"]'
+        in supabase_config
+    )
     assert (
         "revoke all on all tables in schema content_factory "
         "from public, anon, authenticated"
