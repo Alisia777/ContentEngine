@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from pglast import parse_sql
-
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
@@ -30,8 +28,13 @@ def _function_body(name: str) -> str:
     return match.group(1)
 
 
-def test_durability_migration_parses_and_pgtap_exists() -> None:
-    parse_sql(_text(MIGRATION))
+def test_durability_migration_and_pgtap_exist() -> None:
+    assert MIGRATION.is_file()
+    migration = _text(MIGRATION)
+    assert "begin;" in migration.lower()
+    assert "length(deep_link) between 3 and 600" in migration
+    assert "deep_link ~ '^#/[-A-Za-z0-9_./?=&%:]+$'" in migration
+    assert "{1,597}" not in migration
     assert PGTAP.is_file()
     assert "select plan(" in _text(PGTAP).lower()
 

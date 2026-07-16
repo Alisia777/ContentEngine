@@ -13,7 +13,7 @@ create table if not exists content_factory.user_notifications (
     body text not null check (length(btrim(body)) between 1 and 2000),
     deep_link text not null check (
       length(deep_link) between 3 and 600
-      and deep_link ~ '^#/[-A-Za-z0-9_./?=&%:]{1,597}$'
+      and deep_link ~ '^#/[-A-Za-z0-9_./?=&%:]+$'
     ),
     entity_type text check (
       entity_type is null
@@ -1341,7 +1341,8 @@ begin
 
   if kind_value !~ '^[a-z][a-z0-9_]{2,79}$'
      or severity_value not in ('info', 'success', 'warning', 'error')
-     or deep_link_value !~ '^#/[-A-Za-z0-9_./?=&%:]{1,597}$'
+     or length(deep_link_value) not between 3 and 600
+     or deep_link_value !~ '^#/[-A-Za-z0-9_./?=&%:]+$'
      or (
        entity_type_value is not null
        and entity_type_value !~ '^[a-z][a-z0-9_]{1,79}$'

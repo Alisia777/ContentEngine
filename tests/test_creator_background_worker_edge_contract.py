@@ -184,6 +184,7 @@ def test_scheduled_dispatch_is_non_overlapping_secret_scoped_and_safe() -> None:
     text = _text(SCHEDULE)
     workflow = yaml.safe_load(text)
     dispatch = workflow["jobs"]["dispatch"]
+    triggers = workflow.get("on") or workflow.get(True)
 
     assert 'cron: "*/5 * * * *"' in text
     assert workflow["permissions"] == {}
@@ -191,6 +192,10 @@ def test_scheduled_dispatch_is_non_overlapping_secret_scoped_and_safe() -> None:
         "group": "production-background-content-worker",
         "cancel-in-progress": False,
     }
+    smoke_input = triggers["workflow_dispatch"]["inputs"]["smoke_only"]
+    assert smoke_input["type"] == "boolean"
+    assert smoke_input["default"] is True
+    assert smoke_input["required"] is True
     assert dispatch["environment"] == "production"
     assert dispatch["timeout-minutes"] == 8
     assert "SUPABASE_SERVICE_ROLE_KEY" not in text
@@ -206,6 +211,10 @@ def test_scheduled_dispatch_is_non_overlapping_secret_scoped_and_safe() -> None:
     assert '"generation_limit":4' in text
     assert '"research_limit":1' in text
     assert '"review_limit":1' in text
+    assert '"generation_limit":0' in text
+    assert '"research_limit":0' in text
+    assert '"review_limit":0' in text
+    assert '--data "$payload"' in text
     assert "payload.get(\"ok\") is not True" in text
     assert '"expired_leases": payload.get("expired_leases", {})' in text
     assert 'notification_unresolved={unresolved}' in text

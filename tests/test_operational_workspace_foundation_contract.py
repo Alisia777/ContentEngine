@@ -175,7 +175,9 @@ def test_notification_contract_is_safe_idempotent_and_audited() -> None:
     assert "content_factory_private.json_hash(request_payload)" in emitting
     assert "'notification_emitted'" in emitting
     assert "'system'" in emitting
+    assert "length(deep_link_value) not between 3 and 600" in emitting
     assert "deep_link_value !~ '^#/" in emitting
+    assert "{1,597}" not in SQL
 
 
 def test_training_progress_is_catalog_bound_monotonic_and_syncable() -> None:

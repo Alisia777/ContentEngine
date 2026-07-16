@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      smoke_only:
+        description: Check authentication, leases, outbox, and health without provider work
+        required: true
+        default: true
+        type: boolean
 
 permissions: {}
 
@@ -44,8 +50,13 @@ jobs:
         shell: bash
         env:
           CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
+          SMOKE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.smoke_only || false }}
         run: |
           echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
+          payload='{"generation_limit":4,"research_limit":1,"review_limit":1}'
+          if [ "${SMOKE_ONLY:-false}" = "true" ]; then
+            payload='{"generation_limit":0,"research_limit":0,"review_limit":0}'
+          fi
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
           status="$(
@@ -58,7 +69,7 @@ jobs:
               --header "content-type: application/json" \
               --header "x-contentengine-internal-worker: 1" \
               --header "x-contentengine-worker-secret: $CONTENTENGINE_WORKER_SECRET" \
-              --data '{"generation_limit":4,"research_limit":1,"review_limit":1}' \
+              --data "$payload" \
               "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/creator-background-worker"
           )"
           python3 - "$status" "$response_file" <<'PY'
