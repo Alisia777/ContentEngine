@@ -15,6 +15,32 @@ export const REQUIRED_MODULE_CODES = Object.freeze([
   "security_wb",
 ]);
 
+export const NAVIGATION_MODE_STORAGE_KEY = "contentengine.navigation-mode.v1";
+
+export const NAVIGATION_MODES = Object.freeze([
+  Object.freeze({
+    id: "simple",
+    label: "Простой",
+    description: "Основной производственный путь без служебных разделов",
+  }),
+  Object.freeze({
+    id: "all",
+    label: "Все инструменты",
+    description: "Весь доступный набор рабочих и управленческих разделов",
+  }),
+]);
+
+export const SIMPLE_WORKSPACE_TAB_KEYS = Object.freeze([
+  "home",
+  "media",
+  "generation",
+  "review",
+  "tasks",
+  "placement",
+  "stats",
+  "payouts",
+]);
+
 export const WORKSPACE_TABS = Object.freeze([
   ["media", "Материалы", "▧"],
   ["generation", "Создание видео", "✦"],

@@ -98,7 +98,7 @@ def test_home_and_section_headers_share_the_premium_flow_language() -> None:
     assert 'class="home-hero"' in home
     assert 'class="home-flow-list"' in home
     assert "FACTORY_FLOW.map" in home
-    assert "Семь этапов одного результата" in home
+    assert "<h2>${FACTORY_FLOW.length} этапов одного результата</h2>" in home
     assert 'class="workspace-page-intro"' in header
     assert "factoryFlowMarkup(activeSection)" in header
     assert 'class="factory-flow"' in flow

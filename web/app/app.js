@@ -2,7 +2,10 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { CreatorApi } from "./supabase-api.js?v=20260716.3";
 import {
   FINAL_EXAM_CODE,
+  NAVIGATION_MODES,
+  NAVIGATION_MODE_STORAGE_KEY,
   REQUIRED_MODULE_CODES,
+  SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
 } from "./catalog.js?v=20260716.2";
 import {
@@ -141,13 +144,55 @@ const MEMBERSHIP_LOCK_COPY = Object.freeze({
 
 const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
-  Object.freeze({ key: "media", step: "01", label: "Материалы", hint: "точные фото и видео" }),
-  Object.freeze({ key: "generation", step: "02", label: "Создание видео", hint: "сценарий и ролик" }),
-  Object.freeze({ key: "review", step: "03", label: "Проверка", hint: "качество и риски" }),
-  Object.freeze({ key: "tasks", step: "04", label: "Задачи", hint: "решение человека" }),
-  Object.freeze({ key: "placement", step: "05", label: "Публикации", hint: "пост и ссылка" }),
-  Object.freeze({ key: "stats", step: "06", label: "Результаты", hint: "метрики с датой" }),
-  Object.freeze({ key: "payouts", step: "07", label: "Выплаты", hint: "начисление и расчёт" }),
+  Object.freeze({
+    key: "media",
+    step: "01",
+    label: "Материалы",
+    hint: "точные фото и видео",
+    learning: "Добавьте точное фото товара и проверьте артикул.",
+  }),
+  Object.freeze({
+    key: "generation",
+    step: "02",
+    label: "Создание видео",
+    hint: "сценарий и ролик",
+    learning: "Выберите режим, задайте сценарий и подтвердите стоимость.",
+  }),
+  Object.freeze({
+    key: "review",
+    step: "03",
+    label: "Проверка",
+    hint: "качество и риски",
+    learning: "Проверьте готовый ролик, рекламный контекст и все найденные блокеры.",
+  }),
+  Object.freeze({
+    key: "tasks",
+    step: "04",
+    label: "Задачи",
+    hint: "решение человека",
+    learning: "Подтвердите качество или сохраните точную причину доработки.",
+  }),
+  Object.freeze({
+    key: "placement",
+    step: "05",
+    label: "Публикации",
+    hint: "пост и ссылка",
+    learning: "Разместите одобренный ролик в назначенном аккаунте и сохраните ссылку.",
+  }),
+  Object.freeze({
+    key: "stats",
+    step: "06",
+    label: "Результаты",
+    hint: "метрики с датой",
+    learning: "Запишите показатели вместе с источником и временем снимка.",
+  }),
+  Object.freeze({
+    key: "payouts",
+    step: "07",
+    label: "Выплаты",
+    hint: "начисление и расчёт",
+    learning: "Проверьте сумму и отличайте начисление, одобрение и фактическую выплату.",
+  }),
 ]);
 const HOME_SECTION_KEYS = Object.freeze(FACTORY_FLOW.map((item) => item.key));
 const WORKSPACE_SECTION_META = Object.freeze({
@@ -547,6 +592,7 @@ const state = {
   route: parseRoute(),
   routeTransition: true,
   portalTheme: normalizePortalTheme(document.documentElement.dataset.portalTheme),
+  navigationMode: restoreNavigationModePreference(),
   dataEpoch: 0,
   bootstrapRequestId: 0,
   mobileNavOpen: false,
@@ -616,6 +662,7 @@ const state = {
 };
 
 applyPortalTheme(state.portalTheme, { persist: false });
+applyNavigationMode(state.navigationMode, { persist: false, rerender: false });
 
 initialize().catch((error) => {
   console.error(error);
@@ -679,6 +726,25 @@ function safeStorageRemove(storage, key) {
   } catch {
     // Cleanup is best effort and never broadens session persistence.
   }
+}
+
+function navigationPreferenceStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeNavigationMode(value) {
+  const requested = String(value || "").trim().toLowerCase();
+  return NAVIGATION_MODES.some((mode) => mode.id === requested) ? requested : "simple";
+}
+
+function restoreNavigationModePreference() {
+  return normalizeNavigationMode(
+    safeStorageGet(navigationPreferenceStorage(), NAVIGATION_MODE_STORAGE_KEY),
+  );
 }
 
 function clearStoredPkceVerifier() {
@@ -753,6 +819,13 @@ function bindGlobalEvents() {
   window.addEventListener("storage", (event) => {
     if (event.key === PORTAL_THEME_STORAGE_KEY) {
       applyPortalTheme(event.newValue, { persist: false, announce: false });
+    }
+    if (event.key === NAVIGATION_MODE_STORAGE_KEY) {
+      applyNavigationMode(event.newValue, {
+        persist: false,
+        announce: false,
+        rerender: true,
+      });
     }
   });
   window.addEventListener("hashchange", () => {
@@ -1533,14 +1606,14 @@ function renderLearningHome() {
   const rolePending = examPassed && !hasOperationalWorkspaceRole();
   const nextCourse = courses.find((course) => !completed.has(course.code));
   const nextHref = rolePending
-    ? "#/learn/first-shift"
+    ? "#/learn"
     : workspaceReady
     ? "#/workspace/home"
     : nextCourse
       ? `#/learn/${encodeURIComponent(nextCourse.code)}`
       : "#/learn/exam";
   const nextLabel = rolePending
-    ? "Пройти учебную смену"
+    ? "Проверить назначение роли"
     : workspaceReady
     ? "Перейти к работе"
     : nextCourse
@@ -1549,16 +1622,16 @@ function renderLearningHome() {
   const nextCourseIndex = nextCourse ? courses.findIndex((course) => course.code === nextCourse.code) : -1;
   const afterNextCourse = nextCourseIndex >= 0 ? courses[nextCourseIndex + 1] : null;
   const nowTitle = rolePending
-    ? "Экзамен сдан — ожидается рабочая роль"
+    ? "Экзамен сдан — рабочую роль назначает руководитель"
     : workspaceReady
     ? "Допуск готов — откройте рабочий кабинет"
     : nextCourse
       ? `Сейчас: ${nextCourse.title}`
       : "Сейчас: итоговый экзамен";
   const nowDescription = rolePending
-    ? "Руководитель должен назначить рабочую роль. До этого кабинет остаётся закрытым, но курсы и безопасная учебная смена доступны."
+    ? "Руководитель команды должен назначить вам рабочую роль. Только после этого откроется кабинет; учебная смена ниже остаётся необязательной тренировкой."
     : workspaceReady
-    ? "Обучение завершено. Портал покажет одно главное действие на сегодня и проведёт по шести рабочим этапам."
+    ? `Обучение завершено. Портал покажет одно главное действие на сегодня и проведёт по ${FACTORY_FLOW.length} рабочим этапам.`
     : nextCourse
       ? `Завершите только этот блок. ${afterNextCourse ? `После него откроется «${afterNextCourse.title}».` : "После него откроется итоговый экзамен."}`
       : "Ответьте на 12 рабочих ситуаций. После успешной попытки автоматически откроется кабинет.";
@@ -1568,13 +1641,19 @@ function renderLearningHome() {
   const heroTitle = workspaceReady
     ? "Вы готовы к производству"
     : rolePending
-      ? "Обучение завершено — ожидается роль"
+      ? "Обучение завершено — роль назначает руководитель"
       : "Освойте весь цикл на одном экране";
   const heroDescription = workspaceReady
     ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой."
     : rolePending
-      ? "Экзамен уже сдан. Рабочие разделы откроются после назначения роли руководителем команды."
+      ? "Экзамен уже сдан. Руководитель команды должен назначить рабочую роль; учебная смена остаётся дополнительной практикой и не открывает кабинет."
       : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу.";
+  const primaryActionMarkup = rolePending
+    ? `<button class="btn" type="button" data-action="retry-bootstrap">Проверить назначение роли <span aria-hidden="true">↻</span></button>`
+    : `<a class="btn" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>`;
+  const heroPrimaryActionMarkup = rolePending
+    ? `<button class="btn btn-light" type="button" data-action="retry-bootstrap">Проверить назначение роли <span aria-hidden="true">↻</span></button>`
+    : `<a class="btn btn-light" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>`;
 
   const content = `
     <div class="page-wrap learning-page">
@@ -1584,7 +1663,7 @@ function renderLearningHome() {
           <h1>${heroTitle}</h1>
           <p>${heroDescription}</p>
           <div class="learning-hero-actions">
-            <a class="btn btn-light" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
+            ${heroPrimaryActionMarkup}
             <button class="btn btn-ghost-light" type="button" data-action="scroll-to" data-target="work-map">Посмотреть карту работы</button>
           </div>
         </div>
@@ -1621,14 +1700,14 @@ function renderLearningHome() {
           <h2 id="learning-now-title">${escapeHtml(nowTitle)}</h2>
           <p>${escapeHtml(nowDescription)}</p>
         </div>
-        <a class="btn" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>
+        ${primaryActionMarkup}
       </section>
 
       <section id="work-map" class="card work-map-section" aria-labelledby="work-map-title">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Как устроена работа</p>
-            <h2 id="work-map-title">Один товар проходит шесть понятных этапов</h2>
+            <h2 id="work-map-title">Один товар проходит ${FACTORY_FLOW.length} понятных этапов</h2>
           </div>
           <p>Не нужно держать весь процесс в голове: каждый следующий шаг живёт в своём разделе портала.</p>
         </div>
@@ -1706,21 +1785,13 @@ function renderAccountLaunch(slug = "") {
 }
 
 function portalWorkflowMarkup() {
-  const steps = [
-    ["01", "Материалы", "Добавьте точное фото товара и проверьте артикул."],
-    ["02", "Создание видео", "Выберите режим, задайте сценарий и подтвердите стоимость."],
-    ["03", "Задачи", "Посмотрите ролик целиком: подтвердите качество или отправьте на доработку."],
-    ["04", "Публикации", "Разместите ролик только в назначенном аккаунте и сохраните ссылку на пост."],
-    ["05", "Результаты", "Запишите просмотры, переходы, заказы и выручку."],
-    ["06", "Выплаты", "Проверьте сумму и статус начисления: ожидает, одобрено или выплачено."],
-  ];
   return `
-    <ol class="portal-workflow">
-      ${steps.map(([number, title, description], index) => `
+    <ol class="portal-workflow" style="--workflow-step-count:${FACTORY_FLOW.length}">
+      ${FACTORY_FLOW.map((item, index) => `
         <li>
-          <div class="workflow-node"><span>${number}</span><i aria-hidden="true">${index === steps.length - 1 ? "✓" : "→"}</i></div>
-          <strong>${title}</strong>
-          <p>${description}</p>
+          <div class="workflow-node"><span>${item.step}</span><i aria-hidden="true">${index === FACTORY_FLOW.length - 1 ? "✓" : "→"}</i></div>
+          <strong>${escapeHtml(item.label)}</strong>
+          <p>${escapeHtml(item.learning)}</p>
         </li>
       `).join("")}
     </ol>
@@ -2432,14 +2503,22 @@ function renderExam() {
 
   if (state.bootstrap.training.exam.passed) {
     const score = state.bootstrap.training.exam.score;
+    const workspaceReady = hasWorkspaceAccess();
     const content = `
       <div class="page-wrap">
         <section class="card result-banner">
           <div class="result-score">${score ? `${score}%` : "✓"}</div>
           <p class="eyebrow">Итоговый экзамен</p>
-          <h2>Допуск к кабинету получен</h2>
-          <p class="muted">Все рабочие разделы открыты. Правила качества и прослеживаемости продолжают действовать в каждой задаче.</p>
-          <a class="btn" href="#/workspace/home">Перейти к работе <span aria-hidden="true">→</span></a>
+          <h2>${workspaceReady ? "Допуск к кабинету получен" : "Экзамен сдан — роль назначает руководитель"}</h2>
+          <p class="muted">${workspaceReady
+            ? "Все рабочие разделы открыты. Правила качества и прослеживаемости продолжают действовать в каждой задаче."
+            : "Руководитель команды должен назначить вам рабочую роль. До назначения кабинет закрыт; учебная смена остаётся дополнительной тренировкой и не заменяет назначение роли."}</p>
+          ${workspaceReady
+            ? `<a class="btn" href="#/workspace/home">Перейти к работе <span aria-hidden="true">→</span></a>`
+            : `<div class="inline-actions" style="justify-content:center">
+                <button class="btn" type="button" data-action="retry-bootstrap">Проверить назначение роли <span aria-hidden="true">↻</span></button>
+                <a class="btn btn-secondary" href="#/learn/first-shift">Пройти учебную смену</a>
+              </div>`}
         </section>
       </div>
     `;
@@ -2581,7 +2660,7 @@ function learningScaffold(content, activePath) {
             <a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span><span>Открыть кабинет</span></a>
           ` : `
             <span class="nav-caption" style="margin-top:15px">Работа</span>
-            <span class="nav-link" aria-disabled="true" style="opacity:.42"><span class="nav-icon" aria-hidden="true">⌑</span><span>${rolePending ? "Ожидается рабочая роль" : "Закрыто до экзамена"}</span></span>
+            <span class="nav-link" aria-disabled="true" style="opacity:.58"><span class="nav-icon" aria-hidden="true">⌑</span><span>${rolePending ? "Роль назначает руководитель" : "Закрыто до экзамена"}</span></span>
           `}
         </nav>
         ${sidebarFooterMarkup(profile)}
@@ -3023,7 +3102,7 @@ function workspaceNavLinkMarkup(key, label, icon, activeSection) {
 
 function workspaceScaffold(content, activeSection) {
   const profile = displayProfile();
-  const tabs = visibleWorkspaceTabs();
+  const tabs = workspaceNavigationTabs(activeSection);
   const tabLabel = tabs.find(([key]) => key === activeSection)?.[1] || "Кабинет";
   const transitionClass = consumeRouteTransitionClass();
   return `
@@ -3072,6 +3151,13 @@ function visibleWorkspaceTabs() {
   ];
 }
 
+function workspaceNavigationTabs(activeSection = "") {
+  const accessibleTabs = visibleWorkspaceTabs();
+  if (state.navigationMode === "all") return accessibleTabs;
+  const simpleKeys = new Set(SIMPLE_WORKSPACE_TAB_KEYS);
+  return accessibleTabs.filter(([key]) => simpleKeys.has(key) || key === activeSection);
+}
+
 function brandMarkup() {
   return `
     <div class="workspace-brand">
@@ -3113,6 +3199,30 @@ function themePickerMarkup(scope, compact = false) {
   `;
 }
 
+function navigationModePickerMarkup(scope, compact = false) {
+  return `
+    <div class="navigation-mode-picker ${compact ? "is-compact" : ""}" role="group" aria-label="Режим рабочего меню">
+      <span class="navigation-mode-label">Меню</span>
+      <div class="navigation-mode-options">
+        ${NAVIGATION_MODES.map((mode) => `
+          <button
+            id="navigation-mode-${escapeHtml(scope)}-${escapeHtml(mode.id)}"
+            class="navigation-mode-option ${state.navigationMode === mode.id ? "is-active" : ""}"
+            type="button"
+            data-action="set-navigation-mode"
+            data-navigation-mode="${escapeHtml(mode.id)}"
+            aria-pressed="${state.navigationMode === mode.id ? "true" : "false"}"
+            title="${escapeHtml(mode.description)}"
+          >${escapeHtml(mode.label)}</button>
+        `).join("")}
+      </div>
+      <small>${state.navigationMode === "simple"
+        ? "Показан основной путь. Служебные разделы доступны в режиме «Все инструменты»."
+        : "Показаны все доступные рабочие и управленческие разделы."}</small>
+    </div>
+  `;
+}
+
 function applyPortalTheme(value, { persist = true, announce = false } = {}) {
   const theme = normalizePortalTheme(value);
   state.portalTheme = theme;
@@ -3136,9 +3246,38 @@ function applyPortalTheme(value, { persist = true, announce = false } = {}) {
   }
 }
 
+function applyNavigationMode(value, {
+  persist = true,
+  announce = false,
+  rerender = false,
+} = {}) {
+  const navigationMode = normalizeNavigationMode(value);
+  const changed = state.navigationMode !== navigationMode;
+  state.navigationMode = navigationMode;
+  document.documentElement.dataset.navigationMode = navigationMode;
+  if (persist) {
+    safeStorageSet(
+      navigationPreferenceStorage(),
+      NAVIGATION_MODE_STORAGE_KEY,
+      navigationMode,
+    );
+  }
+  document.querySelectorAll("[data-navigation-mode]").forEach((control) => {
+    const active = control.dataset.navigationMode === navigationMode;
+    control.classList.toggle("is-active", active);
+    control.setAttribute("aria-pressed", String(active));
+  });
+  if (rerender && changed) render();
+  if (announce && changed) {
+    const selected = NAVIGATION_MODES.find((mode) => mode.id === navigationMode);
+    toast(`Меню «${selected?.label || "Простой"}» включено.`, "success");
+  }
+}
+
 function sidebarFooterMarkup(profile) {
   return `
     <div class="sidebar-footer">
+      ${navigationModePickerMarkup("sidebar")}
       ${themePickerMarkup("sidebar")}
       <div class="sidebar-status"><span class="status-dot"></span><span>Защищённое соединение</span></div>
       <div class="sidebar-user">
@@ -3236,7 +3375,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span>Кабинет</a>` : ""}
       ` : `
         <span class="nav-caption">Сегодня</span>
-        ${visibleWorkspaceTabs().map(([key, label, icon]) => `
+        ${workspaceNavigationTabs(activeSection).map(([key, label, icon]) => `
           ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 01–07</span>` : ""}
           ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
           ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
@@ -3246,6 +3385,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
         <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
         <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
       `}
+      ${navigationModePickerMarkup("mobile", true)}
       ${themePickerMarkup("mobile", true)}
       <button class="btn btn-secondary btn-block" type="button" data-action="logout">Выйти</button>
     </nav>
@@ -3668,10 +3808,10 @@ function renderHomeSection(homeState) {
             </div>
           </article>
         </div>
-        <div class="home-hero-visual" role="img" aria-label="Семь этапов производственного цикла">
+        <div class="home-hero-visual" role="img" aria-label="${FACTORY_FLOW.length} этапов производственного цикла">
           <span class="home-orbit home-orbit-one"></span>
           <span class="home-orbit home-orbit-two"></span>
-          <div class="home-seal"><strong>A</strong><span>7 этапов</span></div>
+          <div class="home-seal"><strong>A</strong><span>${FACTORY_FLOW.length} этапов</span></div>
         </div>
       </section>
 
@@ -3696,10 +3836,10 @@ function renderHomeSection(homeState) {
 
       <section class="card home-flow-card">
         <div class="section-heading home-section-heading">
-          <div><p class="eyebrow">Карта производства</p><h2>Семь этапов одного результата</h2></div>
+          <div><p class="eyebrow">Карта производства</p><h2>${FACTORY_FLOW.length} этапов одного результата</h2></div>
           <p>Каждый этап хранит свою часть истории товара. Нажмите на этап, чтобы продолжить работу.</p>
         </div>
-        <ol class="home-flow-list">
+        <ol class="home-flow-list" style="--workflow-step-count:${FACTORY_FLOW.length}">
           ${FACTORY_FLOW.map((item) => `<li><a href="#/workspace/${item.key}"><span>${item.step}</span><div><strong>${item.label}</strong><small>${item.hint}</small></div><em>${escapeHtml(flowValues[item.key])}</em></a></li>`).join("")}
         </ol>
       </section>
@@ -5515,7 +5655,7 @@ function pageHeader(title, description, actions = "") {
 function factoryFlowMarkup(activeSection) {
   return `
     <nav class="factory-flow" aria-label="Этапы производственного цикла">
-      <ol>
+      <ol style="--workflow-step-count:${FACTORY_FLOW.length}">
         ${FACTORY_FLOW.map((item) => `
           <li class="${item.key === activeSection ? "active" : ""}">
             <a href="#/workspace/${item.key}" ${item.key === activeSection ? 'aria-current="step"' : ""}>
@@ -5607,6 +5747,15 @@ async function handleClick(event) {
 
   if (action === "set-portal-theme") {
     applyPortalTheme(control.dataset.themeValue, { persist: true, announce: true });
+    return;
+  }
+
+  if (action === "set-navigation-mode") {
+    applyNavigationMode(control.dataset.navigationMode, {
+      persist: true,
+      announce: true,
+      rerender: true,
+    });
     return;
   }
 
@@ -6596,6 +6745,7 @@ async function submitExam(form) {
       toast("Экзамен сдан. Рабочий кабинет открыт.", "success");
       navigate("/workspace/home", true);
     } else {
+      toast("Экзамен сдан. Теперь руководитель должен назначить вам рабочую роль.", "success");
       state.route = { path: "/learn/exam", query: new URLSearchParams() };
       render();
       window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });

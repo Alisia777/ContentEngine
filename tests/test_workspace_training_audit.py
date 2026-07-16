@@ -71,8 +71,9 @@ def test_workspace_release_floor_is_wired_end_to_end() -> None:
     assert "sectionRequestId === state.sections.board.requestId" in APP
     assert "querySignature === workspaceBoardQuerySignature()" in APP
     assert "OPERATIONAL_WORKSPACE_ROLES.has(role)" in APP
-    assert "Экзамен сдан — ожидается рабочая роль" in APP
-    assert "Ожидается рабочая роль" in APP
+    assert "Экзамен сдан — рабочую роль назначает руководитель" in APP
+    assert "Роль назначает руководитель" in APP
+    assert "учебная смена остаётся дополнительной тренировкой" in APP
 
     # Drag-and-drop must not be the only interaction model.
     assert "доступная замена drag-and-drop" in WORKSPACE_VIEW.lower()

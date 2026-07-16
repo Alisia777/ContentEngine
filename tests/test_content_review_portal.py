@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -15,9 +16,10 @@ INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
 
 def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert '["review", "Проверка контента", "◈"]' in CATALOG
-    assert 'Object.freeze({ key: "review", step: "03"' in APP
+    flow = APP[APP.index("const FACTORY_FLOW") : APP.index("const HOME_SECTION_KEYS")]
+    assert re.search(r'key:\s*"review",\s*step:\s*"03"', flow)
     assert "Шаг 3 из 7" in APP
-    assert "Семь этапов одного результата" in APP
+    assert "<h2>${FACTORY_FLOW.length} этапов одного результата</h2>" in APP
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
