@@ -380,7 +380,7 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
         encoding="utf-8"
     ).casefold()
     assert "'creator_submit_course_check'" in creator
-    assert creator.count("\n  18,\n") >= 2
+    assert creator.count("\n  22,\n") >= 2
     assert "perform public.creator_submit_course_check" in creator
     assert "'pgtap-course-check-' || module_row.code" in creator
     assert "answer_key.correct_answers" in creator
