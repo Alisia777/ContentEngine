@@ -11,6 +11,7 @@ on:
         options:
           - guest
           - klimov
+          - pavlenko
       role:
         description: Least-privilege membership role
         required: true
@@ -96,6 +97,8 @@ jobs:
           GUEST_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_GUEST_DISPLAY_NAME }}
           KLIMOV_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
           KLIMOV_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
+          PAVLENKO_EMAIL: ${{ secrets.SUPABASE_MEMBER_PAVLENKO_EMAIL }}
+          PAVLENKO_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_PAVLENKO_DISPLAY_NAME }}
           ACCOUNT_SLOT: ${{ inputs.account }}
           MEMBER_ROLE: ${{ inputs.role }}
           CLAIM_EXISTING: ${{ inputs.claim_existing }}
@@ -107,12 +110,20 @@ jobs:
             guest)
               MEMBER_EMAIL="$GUEST_EMAIL"
               MEMBER_DISPLAY_NAME="$GUEST_DISPLAY_NAME"
-              DISTINCT_FROM="$KLIMOV_EMAIL"
+              DISTINCT_FROM_ONE="$KLIMOV_EMAIL"
+              DISTINCT_FROM_TWO="$PAVLENKO_EMAIL"
               ;;
             klimov)
               MEMBER_EMAIL="$KLIMOV_EMAIL"
               MEMBER_DISPLAY_NAME="$KLIMOV_DISPLAY_NAME"
-              DISTINCT_FROM="$GUEST_EMAIL"
+              DISTINCT_FROM_ONE="$GUEST_EMAIL"
+              DISTINCT_FROM_TWO="$PAVLENKO_EMAIL"
+              ;;
+            pavlenko)
+              MEMBER_EMAIL="$PAVLENKO_EMAIL"
+              MEMBER_DISPLAY_NAME="$PAVLENKO_DISPLAY_NAME"
+              DISTINCT_FROM_ONE="$GUEST_EMAIL"
+              DISTINCT_FROM_TWO="$KLIMOV_EMAIL"
               ;;
             *)
               echo "Unknown protected account slot" >&2
@@ -121,12 +132,14 @@ jobs:
           esac
           : "${MEMBER_EMAIL:?Configure the selected account email secret in production}"
           : "${MEMBER_DISPLAY_NAME:?Configure the selected account display-name secret in production}"
-          : "${DISTINCT_FROM:?Configure the other account email secret in production}"
+          : "${DISTINCT_FROM_ONE:?Configure the first other account email secret in production}"
+          : "${DISTINCT_FROM_TWO:?Configure the second other account email secret in production}"
           args=(
             --email="$MEMBER_EMAIL"
             --display-name="$MEMBER_DISPLAY_NAME"
             --role="$MEMBER_ROLE"
-            --distinct-from="$DISTINCT_FROM"
+            --distinct-from="$DISTINCT_FROM_ONE"
+            --distinct-from="$DISTINCT_FROM_TWO"
             --dry-run
           )
           if [ "$CLAIM_EXISTING" = "true" ]; then
@@ -146,6 +159,8 @@ jobs:
           GUEST_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_GUEST_DISPLAY_NAME }}
           KLIMOV_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
           KLIMOV_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
+          PAVLENKO_EMAIL: ${{ secrets.SUPABASE_MEMBER_PAVLENKO_EMAIL }}
+          PAVLENKO_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_PAVLENKO_DISPLAY_NAME }}
           ACCOUNT_SLOT: ${{ inputs.account }}
           MEMBER_ROLE: ${{ inputs.role }}
           CLAIM_EXISTING: ${{ inputs.claim_existing }}
@@ -158,12 +173,20 @@ jobs:
             guest)
               MEMBER_EMAIL="$GUEST_EMAIL"
               MEMBER_DISPLAY_NAME="$GUEST_DISPLAY_NAME"
-              DISTINCT_FROM="$KLIMOV_EMAIL"
+              DISTINCT_FROM_ONE="$KLIMOV_EMAIL"
+              DISTINCT_FROM_TWO="$PAVLENKO_EMAIL"
               ;;
             klimov)
               MEMBER_EMAIL="$KLIMOV_EMAIL"
               MEMBER_DISPLAY_NAME="$KLIMOV_DISPLAY_NAME"
-              DISTINCT_FROM="$GUEST_EMAIL"
+              DISTINCT_FROM_ONE="$GUEST_EMAIL"
+              DISTINCT_FROM_TWO="$PAVLENKO_EMAIL"
+              ;;
+            pavlenko)
+              MEMBER_EMAIL="$PAVLENKO_EMAIL"
+              MEMBER_DISPLAY_NAME="$PAVLENKO_DISPLAY_NAME"
+              DISTINCT_FROM_ONE="$GUEST_EMAIL"
+              DISTINCT_FROM_TWO="$KLIMOV_EMAIL"
               ;;
             *)
               echo "Unknown protected account slot" >&2
@@ -172,12 +195,14 @@ jobs:
           esac
           : "${MEMBER_EMAIL:?Configure the selected account email secret in production}"
           : "${MEMBER_DISPLAY_NAME:?Configure the selected account display-name secret in production}"
-          : "${DISTINCT_FROM:?Configure the other account email secret in production}"
+          : "${DISTINCT_FROM_ONE:?Configure the first other account email secret in production}"
+          : "${DISTINCT_FROM_TWO:?Configure the second other account email secret in production}"
           args=(
             --email="$MEMBER_EMAIL"
             --display-name="$MEMBER_DISPLAY_NAME"
             --role="$MEMBER_ROLE"
-            --distinct-from="$DISTINCT_FROM"
+            --distinct-from="$DISTINCT_FROM_ONE"
+            --distinct-from="$DISTINCT_FROM_TWO"
           )
           if [ "$CLAIM_EXISTING" = "true" ]; then
             args+=(--claim-existing)

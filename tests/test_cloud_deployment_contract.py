@@ -91,13 +91,15 @@ def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() ->
     assert job["env"]["SUPABASE_PROJECT_REF"] == "${{ vars.SUPABASE_PROJECT_REF }}"
     trigger = workflow.get("on", workflow.get(True))
     inputs = trigger["workflow_dispatch"]["inputs"]
-    assert inputs["account"]["options"] == ["guest", "klimov"]
+    assert inputs["account"]["options"] == ["guest", "klimov", "pavlenko"]
     assert "email" not in inputs
     assert "display_name" not in inputs
     assert "distinct_from" not in inputs
     assert "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}" in source
     assert "${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}" in source
     assert "${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_PAVLENKO_EMAIL }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_PAVLENKO_DISPLAY_NAME }}" in source
     assert "${{ inputs.email }}" not in source
     assert "${{ inputs.display_name }}" not in source
     assert "${{ inputs.distinct_from }}" not in source
@@ -108,7 +110,8 @@ def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() ->
     assert "default: preview" in source
     assert "- preview" in source and "- apply" in source
     assert "PROVISION_MODE: ${{ inputs.mode }}" in source
-    assert "--distinct-from=\"$DISTINCT_FROM\"" in source
+    assert "--distinct-from=\"$DISTINCT_FROM_ONE\"" in source
+    assert "--distinct-from=\"$DISTINCT_FROM_TWO\"" in source
     assert "--dry-run" in source
     steps = {step["name"]: step for step in job["steps"]}
     preview = steps["Preview protected account plan"]
