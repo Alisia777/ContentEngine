@@ -1,5 +1,10 @@
 from pathlib import Path
+import json
 import re
+import shutil
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,15 +76,107 @@ def test_auth_supports_password_invite_recovery_and_hash_routes_without_signup()
     assert '#/workspace/generation' in app
 
 
-def test_auth_session_is_tab_scoped_and_never_uses_shared_local_storage() -> None:
+def test_auth_session_is_tab_scoped_while_only_pkce_verifier_is_cross_tab() -> None:
     app = _text("app.js")
     assert "persistSession: true" in app
-    assert "storage: window.sessionStorage" in app
+    assert "storage: createHybridAuthStorage()" in app
     assert "contentengine.creator-workspace." in app
     assert ".auth-session.v1" in app
-    assert "localStorage" not in app
+    assert "const verifierStorage = window.localStorage" in app
+    assert "const sessionStorage = window.sessionStorage" in app
+    assert "isPkceVerifierStorageKey" in app
+    assert "safeStorageSet(sessionStorage, key, value)" in app
+    assert "safeStorageSet(verifierStorage, key, value)" in app
+    assert "clearStoredPkceVerifier();" in app
     assert "Сессия действует только в этой вкладке" in app
     assert "Самостоятельная регистрация закрыта" in app
+
+
+def test_blocked_local_storage_keeps_pkce_verifier_in_session_fallback() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable auth storage contracts")
+
+    app = _text("app.js")
+    helpers = app[
+        app.index("function createHybridAuthStorage()") :
+        app.index("function clearStoredPkceVerifier()")
+    ]
+    script = f"""
+const createMemoryStorage = (blocked = false) => {{
+  const values = new Map();
+  return {{
+    getItem(key) {{
+      if (blocked) throw new Error("blocked");
+      return values.has(key) ? values.get(key) : null;
+    }},
+    setItem(key, value) {{
+      if (blocked) throw new Error("blocked");
+      values.set(key, String(value));
+    }},
+    removeItem(key) {{
+      if (blocked) throw new Error("blocked");
+      values.delete(key);
+    }},
+    dump() {{ return Object.fromEntries(values); }},
+  }};
+}};
+{helpers}
+const verifierKey = "contentengine.auth-code-verifier";
+const sessionKey = "contentengine.auth-session";
+
+const blockedLocal = createMemoryStorage(true);
+const blockedSession = createMemoryStorage(false);
+globalThis.window = {{
+  localStorage: blockedLocal,
+  sessionStorage: blockedSession,
+}};
+const blocked = createHybridAuthStorage();
+blocked.setItem(verifierKey, "fallback-verifier");
+blocked.setItem(sessionKey, "tab-token");
+
+const availableLocal = createMemoryStorage(false);
+const availableSession = createMemoryStorage(false);
+globalThis.window = {{
+  localStorage: availableLocal,
+  sessionStorage: availableSession,
+}};
+const available = createHybridAuthStorage();
+available.setItem(verifierKey, "shared-verifier");
+available.setItem(sessionKey, "tab-token");
+
+process.stdout.write(JSON.stringify({{
+  blockedVerifier: blocked.getItem(verifierKey),
+  blockedSessionValue: blocked.getItem(sessionKey),
+  blockedSession: blockedSession.dump(),
+  sharedVerifier: available.getItem(verifierKey),
+  sharedLocal: availableLocal.dump(),
+  sharedSession: availableSession.dump(),
+}}));
+"""
+    result = subprocess.run(
+        [node, "-e", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["blockedVerifier"] == "fallback-verifier"
+    assert payload["blockedSessionValue"] == "tab-token"
+    assert payload["blockedSession"] == {
+        "contentengine.auth-code-verifier": "fallback-verifier",
+        "contentengine.auth-session": "tab-token",
+    }
+    assert payload["sharedVerifier"] == "shared-verifier"
+    assert payload["sharedLocal"] == {
+        "contentengine.auth-code-verifier": "shared-verifier",
+    }
+    assert payload["sharedSession"] == {
+        "contentengine.auth-session": "tab-token",
+    }
 
 
 def test_training_is_server_owned_with_exact_fail_closed_catalog_and_hard_gate() -> None:
@@ -210,7 +307,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 24
+    assert len(set(rpc_names)) == 28
     for function_name in set(rpc_names):
         assert re.search(
             rf"function\s+public\.{re.escape(function_name)}\s*"
@@ -340,7 +437,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260716.1' in index
+    assert './app.js?v=20260716.3' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

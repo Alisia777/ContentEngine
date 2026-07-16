@@ -127,6 +127,7 @@ jobs:
               "creator-set-password",
               "creator-generate",
               "creator-product-research",
+              "creator-content-review",
           ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
@@ -161,6 +162,11 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-product-research --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy authenticated content review function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy creator-content-review --project-ref "$SUPABASE_PROJECT_REF"
 
   build-pages:
     name: Build browser-only creator workspace

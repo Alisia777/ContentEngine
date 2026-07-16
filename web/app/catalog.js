@@ -18,6 +18,7 @@ export const REQUIRED_MODULE_CODES = Object.freeze([
 export const WORKSPACE_TABS = Object.freeze([
   ["media", "Материалы", "▧"],
   ["generation", "Создание видео", "✦"],
+  ["review", "Проверка контента", "◈"],
   ["tasks", "Задачи", "✓"],
   ["placement", "Публикации", "↗"],
   ["stats", "Результаты", "◫"],

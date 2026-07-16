@@ -12,7 +12,15 @@ INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 SUPABASE_API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
 
 
-EXPECTED_FLOW = ["media", "generation", "tasks", "placement", "stats", "payouts"]
+EXPECTED_FLOW = [
+    "media",
+    "generation",
+    "review",
+    "tasks",
+    "placement",
+    "stats",
+    "payouts",
+]
 
 
 def _between(source: str, start: str, end: str) -> str:
@@ -61,24 +69,25 @@ def test_workspace_opens_on_a_dedicated_today_home() -> None:
     assert 'href="#/workspace/home"' in APP
 
 
-def test_factory_flow_has_six_ordered_user_facing_stages() -> None:
+def test_factory_flow_has_seven_ordered_user_facing_stages() -> None:
     flow = _between(APP, "const FACTORY_FLOW", "const HOME_SECTION_KEYS")
     flow_keys = re.findall(r'key:\s*"([a-z]+)"', flow)
     flow_steps = re.findall(r'step:\s*"(\d{2})"', flow)
 
     assert flow_keys == EXPECTED_FLOW
-    assert flow_steps == ["01", "02", "03", "04", "05", "06"]
-    assert _workspace_tab_keys()[:6] == EXPECTED_FLOW
+    assert flow_steps == ["01", "02", "03", "04", "05", "06", "07"]
+    assert _workspace_tab_keys()[:7] == EXPECTED_FLOW
     assert [
         "Материалы",
         "Создание видео",
+        "Проверка контента",
         "Задачи",
         "Публикации",
         "Результаты",
         "Выплаты",
     ] == re.findall(r'\[\s*"[a-z]+"\s*,\s*"([^"]+)"', _between(
         CATALOG, "export const WORKSPACE_TABS", "]);"
-    ))[:6]
+    ))[:7]
 
 
 def test_home_and_section_headers_share_the_premium_flow_language() -> None:
@@ -89,7 +98,7 @@ def test_home_and_section_headers_share_the_premium_flow_language() -> None:
     assert 'class="home-hero"' in home
     assert 'class="home-flow-list"' in home
     assert "FACTORY_FLOW.map" in home
-    assert "Шесть этапов одного результата" in home
+    assert "Семь этапов одного результата" in home
     assert 'class="workspace-page-intro"' in header
     assert "factoryFlowMarkup(activeSection)" in header
     assert 'class="factory-flow"' in flow
@@ -142,7 +151,7 @@ def test_navigation_is_grouped_and_factory_steps_are_numbered() -> None:
     assert 'class="nav-link-copy"' in nav_link
     assert "workspaceNavLinkMarkup" in scaffold
     assert "Знания" in scaffold
-    assert "Производство · 01–06" in mobile
+    assert "Производство · 01–07" in mobile
     assert "Знания" in mobile
     assert ".nav-link-stage" in STYLES
     assert ".nav-stage-number" in STYLES

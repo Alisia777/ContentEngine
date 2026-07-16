@@ -5486,6 +5486,11 @@ input[type="radio"] {
   background: #fff9e8;
 }
 
+.generation-reconcile-warning-critical {
+  border-color: #d5ad54;
+  box-shadow: inset 3px 0 0 #b98718;
+}
+
 .generation-failure {
   border: 1px solid #e4b7b2;
   color: #7f2f28;
@@ -5504,6 +5509,66 @@ input[type="radio"] {
   margin-top: 10px;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.generation-reconciliation-readonly,
+.generation-reconciliation-form {
+  margin-top: 10px;
+  border: 1px solid #dfc57e;
+  border-radius: 12px;
+  background: #fffbef;
+}
+
+.generation-reconciliation-readonly {
+  display: grid;
+  padding: 11px 12px;
+  color: #604915;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  gap: 3px;
+}
+
+.generation-reconciliation-form {
+  display: grid;
+  max-width: 620px;
+  padding: 13px;
+  gap: 10px;
+}
+
+.generation-reconciliation-heading {
+  display: grid;
+  color: #4d3b12;
+  font-size: 0.73rem;
+  line-height: 1.45;
+  gap: 2px;
+}
+
+.generation-reconciliation-form .field {
+  gap: 4px;
+}
+
+.generation-reconciliation-form input,
+.generation-reconciliation-form textarea {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 0.76rem;
+}
+
+.generation-reconciliation-form textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.generation-reconciliation-confirmation {
+  padding: 9px 10px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.generation-reconciliation-note {
+  color: #715b28;
+  font-size: 0.68rem;
+  line-height: 1.4;
 }
 
 .generation-result-preview {

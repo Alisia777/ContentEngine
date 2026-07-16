@@ -32,10 +32,15 @@ export const RPC = Object.freeze({
   productResearchStatus: "creator_product_research_status",
   saveCreativeBriefDraft: "creator_save_creative_brief_draft",
   approveCreativeBrief: "creator_approve_creative_brief",
+  contentReviewCatalog: "creator_content_review_catalog",
+  startContentReview: "creator_start_content_review",
+  contentReviewStatus: "creator_content_review_status",
+  decideContentReview: "creator_decide_content_review",
 });
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
+const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
     duration_seconds: 5,
@@ -422,6 +427,217 @@ export class CreatorApi {
     return data;
   }
 
+  contentReviewCatalog({ limit = 50 } = {}) {
+    const normalizedLimit = Number(limit);
+    if (!Number.isInteger(normalizedLimit) || normalizedLimit < 1 || normalizedLimit > 50) {
+      throw new CreatorApiError("История проверки может содержать от 1 до 50 записей.", {
+        code: "content_review_limit_invalid",
+      });
+    }
+    return this.call(RPC.contentReviewCatalog, this.withOrganization({
+      media_limit: normalizedLimit,
+      run_limit: normalizedLimit,
+    }));
+  }
+
+  async startContentReview(input, { frames = [], onRunCreated } = {}) {
+    const mediaId = String(input?.media_id || "").trim();
+    const platform = String(input?.platform || "").trim().toLowerCase();
+    const contentKind = String(input?.content_kind || "").trim().toLowerCase();
+    const productCategory = String(input?.product_category || "").trim().toLowerCase();
+    const peoplePresent = String(input?.people_present || "unknown").trim().toLowerCase();
+    const supportedPlatforms = new Set(["instagram", "youtube", "vk", "tiktok", "telegram", "wildberries", "other"]);
+    const supportedContentKinds = new Set(["unknown", "informational", "advertising"]);
+    const supportedCategories = new Set(["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"]);
+    if (!mediaId || mediaId.length > 180) {
+      throw new CreatorApiError("Выберите точное изображение или MP4 из раздела «Материалы».", {
+        code: "content_review_media_required",
+      });
+    }
+    if (!supportedPlatforms.has(platform) || !supportedContentKinds.has(contentKind)) {
+      throw new CreatorApiError("Проверьте площадку и рекламный статус материала.", {
+        code: "content_review_context_invalid",
+      });
+    }
+    if (!supportedCategories.has(productCategory) || !["unknown", "yes", "no"].includes(peoplePresent)) {
+      throw new CreatorApiError("Проверьте категорию товара и наличие людей в кадре.", {
+        code: "content_review_context_invalid",
+      });
+    }
+    if (peoplePresent === "yes" && input?.external_ai_processing_confirmed !== true) {
+      throw new CreatorApiError("Подтвердите законное основание и информирование для передачи контрольных кадров с узнаваемыми людьми внешнему AI-провайдеру.", {
+        code: "content_review_external_ai_processing_required",
+      });
+    }
+    const captionText = String(input?.caption_text || "").trim();
+    const scriptText = String(input?.script_text || "").trim();
+    if (captionText.length > 6_000 || scriptText.length > 6_000) {
+      throw new CreatorApiError("Сократите подпись и сценарий до 6000 символов каждый.", {
+        code: "content_review_text_too_large",
+      });
+    }
+    const technicalMetrics = input?.technical_metrics;
+    if (!technicalMetrics || typeof technicalMetrics !== "object" || Array.isArray(technicalMetrics)) {
+      throw new CreatorApiError("Браузер не смог подготовить технические параметры файла.", {
+        code: "content_review_metrics_required",
+      });
+    }
+    const safeFrames = normalizeContentReviewFrames(
+      frames,
+      String(technicalMetrics.source_type || "").toLowerCase(),
+    );
+
+    const payload = {
+      media_id: mediaId,
+      ...(input?.parent_review_id ? { parent_review_id: String(input.parent_review_id) } : {}),
+      platform,
+      content_kind: contentKind,
+      product_category: productCategory,
+      caption_text: captionText,
+      script_text: scriptText,
+      advertiser_name: String(input?.advertiser_name || "").trim(),
+      erid: String(input?.erid || "").trim(),
+      technical_metrics: technicalMetrics,
+      rights_confirmed: input?.rights_confirmed === true,
+      claims_verified: input?.claims_verified === true,
+      ad_label_confirmed: input?.ad_label_confirmed === true,
+      ord_confirmed: input?.ord_confirmed === true,
+      audience_over_10000: input?.audience_over_10000 === true,
+      rkn_registered: input?.rkn_registered === true,
+      people_present: peoplePresent,
+      person_consent_confirmed: input?.person_consent_confirmed === true,
+      external_ai_processing_confirmed: input?.external_ai_processing_confirmed === true,
+      ai_generated: input?.ai_generated === true,
+      ai_disclosure_confirmed: input?.ai_disclosure_confirmed === true,
+      captions_confirmed: input?.captions_confirmed === true,
+      mandatory_warning_confirmed: input?.mandatory_warning_confirmed === true,
+    };
+    const created = await this.mutate(RPC.startContentReview, payload);
+    const source = created?.data && typeof created.data === "object" ? created.data : created;
+    const run = source?.run || source?.review || {};
+    const reviewId = String(run?.id || source?.review_id || source?.id || "").trim();
+    if (!reviewId) {
+      throw new CreatorApiError("Сервер не вернул номер проверки. Обновите раздел и повторите.", {
+        code: "content_review_run_missing",
+      });
+    }
+    if (typeof onRunCreated === "function") {
+      try {
+        onRunCreated({ ...run, id: reviewId, status: String(run?.status || "queued") });
+      } catch {
+        // UI recovery must never cancel the durable server-side run.
+      }
+    }
+
+    let accepted;
+    try {
+      accepted = await this.invokeContentReview({
+        action: "analyze",
+        review_id: reviewId,
+        frames: safeFrames,
+      });
+    } catch (error) {
+      error.job = { id: reviewId, status: String(run?.status || "queued") };
+      throw error;
+    }
+    return {
+      ...source,
+      run: { ...run, id: reviewId },
+      analysis_request: accepted,
+    };
+  }
+
+  contentReviewStatus(reviewId) {
+    return this.call(RPC.contentReviewStatus, this.withOrganization({
+      review_id: this.requireContentReviewId(reviewId),
+    }));
+  }
+
+  decideContentReview(reviewId, decision, comment, {
+    resolvedRecommendationCodes = [],
+    riskAcknowledgements = [],
+    mediaWatchedConfirmed = false,
+  } = {}) {
+    const normalizedDecision = String(decision || "").trim().toLowerCase();
+    const normalizedComment = String(comment || "").trim();
+    if (!["approved", "needs_changes", "rejected"].includes(normalizedDecision)) {
+      throw new CreatorApiError("Выберите итог проверки: одобрить, доработать или отклонить.", {
+        code: "content_review_decision_invalid",
+      });
+    }
+    if (normalizedComment.length < 10 || normalizedComment.length > 2_000) {
+      throw new CreatorApiError("Объясните решение текстом от 10 до 2000 символов.", {
+        code: "content_review_decision_reason_invalid",
+      });
+    }
+    const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
+    const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
+    if (mediaWatchedConfirmed !== true) {
+      throw new CreatorApiError("Перед решением полностью просмотрите защищённый файл со звуком и субтитрами.", {
+        code: "content_review_media_watch_required",
+      });
+    }
+    return this.mutate(RPC.decideContentReview, {
+      review_id: this.requireContentReviewId(reviewId),
+      decision: normalizedDecision,
+      comment: normalizedComment,
+      resolved_recommendation_codes: safeResolvedCodes,
+      risk_acknowledgements: safeRiskAcknowledgements,
+      media_watched_confirmed: true,
+    });
+  }
+
+  requireContentReviewId(value) {
+    const reviewId = String(value || "").trim();
+    if (!reviewId || reviewId.length > 180) {
+      throw new CreatorApiError("Не удалось определить проверку. Обновите раздел.", {
+        code: "content_review_id_invalid",
+      });
+    }
+    return reviewId;
+  }
+
+  async invokeContentReview(payload) {
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      throw new CreatorApiError("Сессия истекла. Войдите снова перед проверкой контента.", {
+        code: "auth_session_required",
+      });
+    }
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(CONTENT_REVIEW_FUNCTION, {
+        body: payload,
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }));
+    } catch {
+      throw new CreatorApiError("Не удалось запустить проверку контента. Запись сохранена — проверьте статус позже.", {
+        code: "content_review_request_failed",
+      });
+    }
+    if (error) {
+      throw await contentReviewFunctionError(error);
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new CreatorApiError("Сервис проверки контента вернул некорректный ответ.", {
+        code: "content_review_response_invalid",
+      });
+    }
+    if (data.ok === false || data.error) {
+      const responseError = data.error && typeof data.error === "object" && !Array.isArray(data.error)
+        ? data.error
+        : {
+            code: data.code || (typeof data.error === "string" ? data.error : "content_review_response_invalid"),
+            details: data.details || null,
+            hint: data.hint || null,
+          };
+      throw new CreatorApiError(safeContentReviewMessage(responseError), responseError);
+    }
+    return data;
+  }
+
   createMockBatch(batch) {
     const count = Number(batch?.count);
     if (!Number.isInteger(count) || count < 1 || count > 50) {
@@ -514,8 +730,61 @@ export class CreatorApi {
     return this.invokeRealGeneration("status", { job_id: normalizedJobId });
   }
 
+  reconcileRealGeneration(jobId, details = {}) {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const normalizedJobId = String(jobId || "").trim();
+    const incidentId = String(details.incident_id || "").trim();
+    const resolution = String(details.resolution || "").trim();
+    const evidenceReference = String(details.evidence_reference || "").trim();
+    const reason = String(details.reason || "").trim();
+    const providerTaskId = String(details.provider_task_id || "").trim();
+    const attachExistingTask = resolution === "attach_existing_task";
+    const confirmNoSubmission = resolution === "confirm_no_submission";
+
+    if (!uuidPattern.test(normalizedJobId) || !uuidPattern.test(incidentId)) {
+      throw new CreatorApiError("Не удалось определить инцидент платного запуска. Обновите раздел.", {
+        code: "generation_reconciliation_incident_invalid",
+      });
+    }
+    if (!attachExistingTask && !confirmNoSubmission) {
+      throw new CreatorApiError("Выберите результат ручной сверки платного запуска.", {
+        code: "generation_reconciliation_resolution_invalid",
+      });
+    }
+    if (
+      evidenceReference.length < 8
+      || evidenceReference.length > 500
+      || reason.length < 20
+      || reason.length > 1_000
+    ) {
+      throw new CreatorApiError("Добавьте проверяемое основание и подробную причину ручной сверки.", {
+        code: "generation_reconciliation_evidence_invalid",
+      });
+    }
+    if (
+      attachExistingTask
+      && !/^[a-z0-9][a-z0-9_-]{0,127}$/i.test(providerTaskId)
+    ) {
+      throw new CreatorApiError("Укажите точный Runway task ID из панели видеосервиса.", {
+        code: "generation_reconciliation_task_id_invalid",
+      });
+    }
+
+    return this.invokeRealGeneration("reconcile", {
+      job_id: normalizedJobId,
+      incident_id: incidentId,
+      resolution,
+      evidence_reference: evidenceReference,
+      reason,
+      confirmation: attachExistingTask
+        ? "RUNWAY_TASK_ID_VERIFIED"
+        : "RUNWAY_NO_TASK_VERIFIED",
+      ...(attachExistingTask ? { provider_task_id: providerTaskId } : {}),
+    });
+  }
+
   async invokeRealGeneration(action, payload = {}) {
-    if (!new Set(["start", "status"]).has(action)) {
+    if (!new Set(["start", "status", "reconcile"]).has(action)) {
       throw new CreatorApiError("Неизвестное действие платной генерации.", {
         code: "real_generation_action_invalid",
       });
@@ -532,7 +801,7 @@ export class CreatorApi {
     const scopedPayload = this.withOrganization({ ...payload, action });
     const actorId = String(sessionData.session?.user?.id || "unknown");
     const fingerprint = `edge:${REAL_GENERATION_FUNCTION}:${actorId}:${stableStringify(scopedPayload)}`;
-    const idempotencyKey = action === "start"
+    const idempotencyKey = action !== "status"
       ? (this.mutationKeys[fingerprint] || crypto.randomUUID())
       : null;
     if (idempotencyKey) {
@@ -735,6 +1004,45 @@ export class CreatorApi {
   }
 }
 
+function normalizeContentReviewFrames(frames, sourceType = "") {
+  const expectedCount = sourceType === "video"
+    ? Array.isArray(frames) && frames.length >= 4 && frames.length <= 5
+    : sourceType === "image"
+      ? Array.isArray(frames) && frames.length === 1
+      : Array.isArray(frames) && frames.length >= 1 && frames.length <= 5;
+  if (!expectedCount) {
+    throw new CreatorApiError("Проверке нужен один кадр изображения или от четырёх до пяти кадров видео.", {
+      code: "content_review_frames_invalid",
+    });
+  }
+  const normalized = frames.map((value) => String(value || ""));
+  const framePattern = /^data:image\/jpeg;base64,[a-z0-9+/=]+$/iu;
+  if (
+    normalized.some((value) => value.length < 100 || value.length > 330_000 || !framePattern.test(value))
+    || normalized.reduce((total, value) => total + value.length, 0) > 1_650_000
+  ) {
+    throw new CreatorApiError("Кадры имеют небезопасный формат или слишком большой размер.", {
+      code: "content_review_frames_invalid",
+    });
+  }
+  return normalized;
+}
+
+function normalizeContentReviewCodes(values) {
+  if (!Array.isArray(values) || values.length > 80) {
+    throw new CreatorApiError("Список подтверждений проверки имеет неверный формат.", {
+      code: "content_review_decision_codes_invalid",
+    });
+  }
+  const normalized = [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+  if (normalized.some((value) => value.length > 120 || !/^[a-z0-9_.:-]+$/iu.test(value))) {
+    throw new CreatorApiError("Список подтверждений проверки имеет неверный формат.", {
+      code: "content_review_decision_codes_invalid",
+    });
+  }
+  return normalized;
+}
+
 const MUTATION_KEY_STORAGE = "contentengine.pending-mutation-keys.v1";
 
 function readMutationKeys() {
@@ -781,6 +1089,38 @@ async function creatorFunctionError(error) {
     }
   }
   return new CreatorApiError(safeGenerationMessage(details), details);
+}
+
+async function contentReviewFunctionError(error) {
+  let details = {
+    code: error?.code || "content_review_request_failed",
+    message: error?.message || "Не удалось вызвать сервис проверки контента.",
+  };
+  const response = error?.context;
+  if (response && typeof response.clone === "function") {
+    try {
+      const body = await response.clone().json();
+      if (body?.error && typeof body.error === "object" && !Array.isArray(body.error)) {
+        details = { ...details, ...body.error };
+      } else if (body && typeof body === "object" && !Array.isArray(body)) {
+        details = {
+          ...details,
+          ...body,
+          code: body.code || (typeof body.error === "string" ? body.error : details.code),
+        };
+      }
+    } catch {
+      // Never expose raw provider or infrastructure responses to the browser.
+    }
+  }
+  return new CreatorApiError(safeContentReviewMessage(details), details);
+}
+
+function safeContentReviewMessage(details) {
+  return toFriendlyMessage({
+    code: details?.code || "content_review_request_failed",
+    message: "Сервис проверки временно недоступен. Запуск сохранён — проверьте его статус позже.",
+  });
 }
 
 function safeGenerationMessage(details) {
@@ -832,6 +1172,15 @@ function toFriendlyMessage(error) {
     real_generation_organization_concurrency_exceeded: "Командная очередь платных роликов заполнена. Дождитесь завершения текущих задач.",
     seedance_approved_product_media_required: "Для восьмисекундного ролика выберите подтверждённое точное фото этого товара.",
     generation_job_id_invalid: "Не удалось определить платную задачу. Обновите раздел.",
+    generation_reconciliation_incident_invalid: "Не удалось определить инцидент платного запуска. Обновите раздел.",
+    generation_reconciliation_resolution_invalid: "Выберите результат ручной сверки платного запуска.",
+    generation_reconciliation_evidence_invalid: "Добавьте проверяемое основание и подробную причину ручной сверки.",
+    generation_reconciliation_task_id_invalid: "Укажите точный Runway task ID из панели видеосервиса.",
+    generation_reconciliation_forbidden: "Ручную сверку платного запуска может выполнить только владелец или администратор команды.",
+    generation_reconciliation_task_not_found: "Runway task с таким ID не найден. Проверьте номер в панели видеосервиса.",
+    generation_reconciliation_task_mismatch: "Runway task не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",
+    generation_reconciliation_wait_required: "Для подтверждения отсутствия Runway task подождите две минуты после фиксации инцидента.",
+    generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
     auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
     authentication_required: "Сессия истекла. Войдите снова перед платным запуском.",
     invalid_payload: "Проверьте поля платного запуска и выбранный исходник.",
@@ -849,6 +1198,57 @@ function toFriendlyMessage(error) {
     marketplace_url_invalid: "Укажите полную публичную ссылку на карточку товара, начиная с https://.",
     source_media_ids_invalid: "Можно выбрать не более пяти фотографий товара.",
     platforms_invalid: "Выберите хотя бы одну площадку: Instagram, YouTube или VK.",
+    content_review_limit_invalid: "История проверки может содержать от 1 до 50 записей.",
+    content_review_media_required: "Выберите точное изображение или MP4 из раздела «Материалы».",
+    content_review_context_invalid: "Проверьте площадку, статус публикации, категорию товара и наличие людей.",
+    content_review_text_too_large: "Сократите подпись и сценарий до 6000 символов каждый.",
+    content_review_metrics_required: "Браузер не смог подготовить технические параметры файла.",
+    content_review_frames_invalid: "Не удалось подготовить безопасную выборку кадров.",
+    content_review_run_missing: "Сервер не вернул номер проверки. Обновите раздел и повторите.",
+    content_review_id_invalid: "Не удалось определить проверку. Обновите раздел.",
+    content_review_request_failed: "Сервис проверки временно недоступен. Запуск сохранён — проверьте его статус позже.",
+    content_review_response_invalid: "Сервис проверки контента вернул некорректный ответ.",
+    content_review_decision_invalid: "Выберите итог проверки: одобрить, доработать или отклонить.",
+    content_review_decision_reason_invalid: "Объясните решение текстом от 10 до 2000 символов.",
+    content_review_decision_codes_invalid: "Список подтверждений проверки имеет неверный формат.",
+    content_review_media_watch_required: "Перед решением полностью просмотрите защищённый файл со звуком и субтитрами.",
+    content_review_external_ai_processing_required: "Для контрольных кадров с узнаваемыми людьми подтвердите законное основание и необходимое информирование о внешней AI-обработке.",
+    external_ai_processing_basis_required: "Для контрольных кадров с узнаваемыми людьми подтвердите законное основание и необходимое информирование о передаче данных внешнему AI-провайдеру.",
+    content_review_not_completed: "Решение можно сохранить только после завершения проверки.",
+    content_review_already_decided: "По этой версии уже сохранено неизменяемое решение.",
+    content_review_approval_blocked: "Одобрение недоступно, пока в результате есть критические блокеры.",
+    content_review_media_unavailable: "Выбранный материал недоступен вашей команде.",
+    content_review_start_payload_invalid: "Проверьте поля новой проверки и выбранный материал.",
+    content_review_input_invalid: "Проверьте площадку, категорию, тексты и подтверждения.",
+    content_review_media_not_accessible: "Выбранный материал недоступен вашей роли или уже удалён.",
+    content_review_certification_required: "Сначала завершите обучение и итоговый экзамен оператора.",
+    content_review_product_category_unverified: "Категория товара ещё не подтверждена руководителем. Попросите владельца или проверяющего классифицировать товар.",
+    content_review_product_category_mismatch: "Выбранная категория не совпадает с сохранённой категорией этого товара.",
+    content_review_already_active: "Для этого файла уже выполняется проверка. Откройте её в истории.",
+    content_review_user_daily_limit: "Дневной лимит проверок для аккаунта исчерпан.",
+    content_review_org_daily_limit: "Командный дневной лимит проверок исчерпан.",
+    content_review_not_found: "Проверка не найдена или недоступна вашей роли.",
+    content_review_not_decidable: "Решение можно сохранить только после завершения проверки.",
+    content_review_decision_already_recorded: "По этой версии уже сохранено неизменяемое решение.",
+    content_review_blockers_unresolved: "Одобрение недоступно, пока остаются критические блокеры.",
+    content_review_risk_acknowledgement_required: "Отметьте риск, который был проверен человеком.",
+    risk_acknowledgement_unknown: "Подтверждать можно только риски из текущего неизменяемого результата.",
+    resolved_recommendation_code_unknown: "Отмечать исправленными можно только рекомендации из текущего результата.",
+    content_review_media_stale: "Файл изменился после проверки. Запустите новую проверку этой версии.",
+    high_risk_content_requires_independent_review: "Контент высокого риска должен проверить другой руководитель.",
+    content_review_generation_not_succeeded: "Готовый ролик ещё не подтверждён видеосервисом. Обновите генерацию и не принимайте задачу вручную.",
+    content_review_approval_evidence_required: "Задачу готового ролика можно завершить только через сохранённое решение в разделе «Проверка контента».",
+    generated_video_review_task_invalid: "Задача готового ролика изменилась или уже обработана. Обновите задачи и проверку контента.",
+    generated_video_job_invalid: "Готовый файл больше не совпадает с подтверждённым платным запуском. Обновите генерацию и обратитесь к руководителю.",
+    generated_video_platform_prohibited: "Платную рекламную публикацию на выбранной площадке выпускать нельзя. Выберите разрешённый канал и создайте новое задание.",
+    generated_video_review_context_invalid: "Контекст проверки не совпадает с платным заданием: площадка, рекламный статус или AI-происхождение изменились.",
+    generated_video_product_context_invalid: "Категория или товар изменились после проверки. Запустите новую проверку из актуальной карточки товара.",
+    generated_video_placement_input_invalid: "У платного запуска не подтверждены площадка или точный аккаунт размещения. Исправьте вводные до одобрения.",
+    final_url_platform_mismatch: "Финальная ссылка ведёт не на ту площадку, которая указана в задаче размещения.",
+    content_review_placement_task_conflict: "Публикационная задача для этого решения уже существует в другом состоянии. Обновите задачи.",
+    content_review_placement_conflict: "Публикация для этого решения уже существует в другом состоянии. Обновите раздел публикаций.",
+    parent_content_review_invalid: "Предыдущая проверка для сравнения недоступна.",
+    parent_content_review_product_mismatch: "Сравнивать можно только версии того же товара.",
     research_source_required: "Добавьте публичную ссылку на товар или точное фото из «Материалов».",
     research_user_daily_limit: "Ваш дневной лимит анализов исчерпан. Новые платные запросы будут доступны после обновления лимита.",
     research_org_daily_limit: "Дневной лимит анализов команды исчерпан. Обратитесь к руководителю.",

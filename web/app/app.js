@@ -1,18 +1,18 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260716.1";
+import { CreatorApi } from "./supabase-api.js?v=20260716.3";
 import {
   FINAL_EXAM_CODE,
   REQUIRED_MODULE_CODES,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260716.1";
+} from "./catalog.js?v=20260716.2";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260716.1";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260716.1";
+} from "./account-launch-view.js?v=20260716.2";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260716.2";
 import {
   normalizeProductResearch,
   productResearchInputMarkup,
@@ -20,14 +20,26 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260716.1";
+} from "./product-research-view.js?v=20260716.2";
+import {
+  captureContentReviewEvidence,
+  contentReviewHasBlockers,
+  contentReviewRequiredRiskCodes,
+  contentReviewStatusKind,
+  contentReviewWorkspaceMarkup,
+  normalizeContentReviewCatalog,
+  normalizeContentReviewRun,
+  readContentReviewDecision,
+  readContentReviewForm,
+  syncContentReviewFormVisibility,
+} from "./content-review-view.js?v=20260716.3";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260716.1";
+} from "./first-shift-full-scenario.js?v=20260716.2";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -42,23 +54,23 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260716.1";
+} from "./portal-experience.js?v=20260716.2";
 import {
   normalizeWorkspaceBoard,
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260716.1";
+} from "./workspace-board-view.js?v=20260716.2";
 import {
   normalizeInteractiveWalkthroughs,
   setTrainingWalkthroughStep,
   stopTrainingWalkthrough,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260716.1";
+} from "./training-interactive.js?v=20260716.2";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.1";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -82,6 +94,7 @@ const REAL_GENERATION_SOFT_TIMEOUT_MS = 20_000;
 const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
+const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
 const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "owner",
@@ -130,10 +143,11 @@ const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
   Object.freeze({ key: "media", step: "01", label: "Материалы", hint: "точные фото и видео" }),
   Object.freeze({ key: "generation", step: "02", label: "Создание видео", hint: "сценарий и ролик" }),
-  Object.freeze({ key: "tasks", step: "03", label: "Задачи", hint: "проверка результата" }),
-  Object.freeze({ key: "placement", step: "04", label: "Публикации", hint: "пост и ссылка" }),
-  Object.freeze({ key: "stats", step: "05", label: "Результаты", hint: "метрики с датой" }),
-  Object.freeze({ key: "payouts", step: "06", label: "Выплаты", hint: "начисление и расчёт" }),
+  Object.freeze({ key: "review", step: "03", label: "Проверка", hint: "качество и риски" }),
+  Object.freeze({ key: "tasks", step: "04", label: "Задачи", hint: "решение человека" }),
+  Object.freeze({ key: "placement", step: "05", label: "Публикации", hint: "пост и ссылка" }),
+  Object.freeze({ key: "stats", step: "06", label: "Результаты", hint: "метрики с датой" }),
+  Object.freeze({ key: "payouts", step: "07", label: "Выплаты", hint: "начисление и расчёт" }),
 ]);
 const HOME_SECTION_KEYS = Object.freeze(FACTORY_FLOW.map((item) => item.key));
 const WORKSPACE_SECTION_META = Object.freeze({
@@ -142,7 +156,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     note: "Одно главное действие и весь цикл без лишних переходов",
   }),
   media: Object.freeze({
-    kicker: "Шаг 1 из 6",
+    kicker: "Шаг 1 из 7",
     note: "После загрузки точный исходник станет доступен в генерации",
     now: "Загрузите фото именно того товара, который указан в задаче.",
     done: "Артикул, объём и упаковка совпадают, а этикетка читается.",
@@ -162,17 +176,27 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/video_quality",
   }),
   generation: Object.freeze({
-    kicker: "Шаг 2 из 6",
+    kicker: "Шаг 2 из 7",
     note: "Сначала товар и сценарий, затем отдельное подтверждение стоимости",
     now: "Выберите один точный исходник и опишите один короткий ролик.",
     done: "Проверены формат, реплика и цена; создан ровно один запуск.",
     guard: "Не нажимайте запуск повторно, пока уже созданная работа обрабатывается.",
-    nextLabel: "Проверить задачу",
+    nextLabel: "Проверить контент",
+    nextHref: "#/workspace/review",
+    guideHref: "#/learn/video_quality",
+  }),
+  review: Object.freeze({
+    kicker: "Шаг 3 из 7",
+    note: "Качество и правовые риски оцениваются отдельно до решения человека",
+    now: "Выберите готовый файл, площадку и честно заполните рекламный контекст.",
+    done: "Блокеры прочитаны, рекомендации понятны, а решение ответственного сохранено отдельной записью.",
+    guard: "Высокий балл качества не отменяет рекламный, медицинский или правовой блокер.",
+    nextLabel: "Открыть задачи",
     nextHref: "#/workspace/tasks",
     guideHref: "#/learn/video_quality",
   }),
   tasks: Object.freeze({
-    kicker: "Шаг 3 из 6",
+    kicker: "Шаг 4 из 7",
     note: "Начните назначенную работу или честно зафиксируйте блокер",
     now: "Откройте назначенную задачу и посмотрите результат целиком.",
     done: "Ролик одобрен или точная причина доработки сохранена в задаче.",
@@ -182,7 +206,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/factory_basics",
   }),
   placement: Object.freeze({
-    kicker: "Шаг 4 из 6",
+    kicker: "Шаг 5 из 7",
     note: "Публикуйте только одобренный файл и верните ссылку на сам пост",
     now: "Сверьте площадку, аккаунт и готовое решение по маркировке.",
     done: "Пост опубликован, а в портал сохранён URL самого ролика.",
@@ -192,7 +216,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/publishing_funnel",
   }),
   stats: Object.freeze({
-    kicker: "Шаг 5 из 6",
+    kicker: "Шаг 6 из 7",
     note: "Каждая цифра хранится вместе с источником и временем снимка",
     now: "Добавьте первый снимок показателей с датой и источником.",
     done: "Метрики привязаны к конкретному опубликованному ролику.",
@@ -202,7 +226,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/publishing_funnel",
   }),
   payouts: Object.freeze({
-    kicker: "Шаг 6 из 6",
+    kicker: "Шаг 7 из 7",
     note: "Начисление, решение и внешний перевод — разные проверяемые этапы",
     now: "Сверьте сумму и текущий статус начисления по своей задаче.",
     done: "Только статус «Выплачено» подтверждает завершённый перевод.",
@@ -509,6 +533,7 @@ const FIRST_SHIFT_FULL_EVENT_TYPES = Object.freeze({
 const state = {
   supabase: null,
   api: null,
+  authStorageKey: "",
   session: null,
   user: null,
   bootstrap: null,
@@ -553,6 +578,15 @@ const state = {
     requestId: 0,
     restoreAttempted: false,
   },
+  contentReview: {
+    phase: "idle",
+    record: null,
+    error: "",
+    notice: "",
+    pollTimer: null,
+    requestId: 0,
+    pendingMediaId: "",
+  },
   workspaceBoard: {
     selectedFolderId: "all",
     selectedItemKey: "",
@@ -588,6 +622,81 @@ initialize().catch((error) => {
   renderFatal(error);
 });
 
+function createHybridAuthStorage() {
+  const verifierStorage = window.localStorage;
+  const sessionStorage = window.sessionStorage;
+  return {
+    getItem(key) {
+      if (!isPkceVerifierStorageKey(key)) return safeStorageGet(sessionStorage, key);
+      return safeStorageGet(sessionStorage, key) ?? safeStorageGet(verifierStorage, key);
+    },
+    setItem(key, value) {
+      if (!isPkceVerifierStorageKey(key)) {
+        safeStorageSet(sessionStorage, key, value);
+        return;
+      }
+      if (safeStorageSet(verifierStorage, key, value)) {
+        safeStorageRemove(sessionStorage, key);
+      } else {
+        safeStorageSet(sessionStorage, key, value);
+      }
+    },
+    removeItem(key) {
+      if (!isPkceVerifierStorageKey(key)) {
+        safeStorageRemove(sessionStorage, key);
+        return;
+      }
+      safeStorageRemove(verifierStorage, key);
+      safeStorageRemove(sessionStorage, key);
+    },
+  };
+}
+
+function isPkceVerifierStorageKey(key) {
+  return String(key || "").toLowerCase().includes("code-verifier");
+}
+
+function safeStorageGet(storage, key) {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(storage, key, value) {
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeStorageRemove(storage, key) {
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Cleanup is best effort and never broadens session persistence.
+  }
+}
+
+function clearStoredPkceVerifier() {
+  const prefix = String(state.authStorageKey || "");
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    try {
+      const keys = [];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key && key.startsWith(prefix) && isPkceVerifierStorageKey(key)) keys.push(key);
+      }
+      keys.forEach((key) => storage.removeItem(key));
+    } catch {
+      // A stale verifier expires harmlessly; the actual auth session remains tab-scoped.
+    }
+  }
+}
+
 async function initialize() {
   bindGlobalEvents();
 
@@ -597,14 +706,15 @@ async function initialize() {
     return;
   }
 
+  state.authStorageKey = `contentengine.creator-workspace.${new URL(CONFIG.SUPABASE_URL).hostname}.auth-session.v1`;
   state.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: false,
       flowType: "pkce",
-      storage: window.sessionStorage,
-      storageKey: `contentengine.creator-workspace.${new URL(CONFIG.SUPABASE_URL).hostname}.auth-session.v1`,
+      storage: createHybridAuthStorage(),
+      storageKey: state.authStorageKey,
     },
   });
   state.api = new CreatorApi(state.supabase, CONFIG);
@@ -649,6 +759,7 @@ function bindGlobalEvents() {
     state.route = parseRoute();
     if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
     if (state.route.path !== "/workspace/research") stopProductResearchPolling();
+    if (state.route.path !== "/workspace/review") stopContentReviewPolling();
     if (
       state.route.path === "/workspace/team"
       && state.managerDashboard.status === "ready"
@@ -668,8 +779,13 @@ function bindGlobalEvents() {
     if (window.innerWidth > 820 && state.mobileNavOpen) setMobileNavOpen(false);
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") scheduleRealGenerationPolling(250);
-    else stopRealGenerationPolling();
+    if (document.visibilityState === "visible") {
+      scheduleRealGenerationPolling(250);
+      scheduleContentReviewPolling(250);
+    } else {
+      stopRealGenerationPolling();
+      stopContentReviewPolling();
+    }
   });
 
   document.addEventListener("click", handleClick);
@@ -760,6 +876,7 @@ async function consumeAuthLink() {
   }
 
   if (accepted) {
+    clearStoredPkceVerifier();
     const next = new URL(window.location.href);
     next.search = "";
     next.hash = ["invite", "recovery"].includes(purpose) ? "#/set-password" : "#/learn";
@@ -2732,6 +2849,7 @@ function renderWorkspace(section) {
     home: renderHomeSection,
     board: renderWorkspaceBoardSection,
     generation: renderGenerationSection,
+    review: renderContentReviewSection,
     placement: renderPlacementSection,
     stats: renderStatsSection,
     payouts: renderPayoutsSection,
@@ -3119,7 +3237,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
       ` : `
         <span class="nav-caption">Сегодня</span>
         ${visibleWorkspaceTabs().map(([key, label, icon]) => `
-          ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 01–06</span>` : ""}
+          ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 01–07</span>` : ""}
           ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
           ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
           ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
@@ -3148,7 +3266,9 @@ async function loadSection(section, options = {}) {
   try {
     const sectionRequest = section === "board"
       ? state.api.workspaceBrowser(workspaceBoardBrowserOptions())
-      : state.api.workspaceSection(
+      : section === "review"
+        ? state.api.contentReviewCatalog({ limit: 50 })
+        : state.api.workspaceSection(
           section,
           section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
         );
@@ -3177,7 +3297,7 @@ async function loadSection(section, options = {}) {
         if (!state.teamInviteResult) state.teamInviteResult = restoreTeamInviteResult();
       }
     }
-    if (section === "media" || section === "board") {
+    if (section === "media" || section === "board" || section === "review") {
       data = await hydratePrivateMedia(data);
     }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
@@ -3195,6 +3315,23 @@ async function loadSection(section, options = {}) {
       state.generationArchive.loadingMore = false;
       state.generationArchive.error = "";
       state.generationArchive.exhausted = loadedBatches.length < GENERATION_ARCHIVE_PAGE_SIZE;
+    }
+    if (section === "review") {
+      const catalog = normalizeContentReviewCatalog(data);
+      const selectedId = String(state.contentReview.record?.id || "");
+      state.contentReview.record = catalog.runs.find((item) => item.id === selectedId)
+        || catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
+        || catalog.runs[0]
+        || null;
+      state.contentReview.phase = state.contentReview.record?.summaryOnly
+        ? "refreshing"
+        : state.contentReview.record && contentReviewStatusKind(state.contentReview.record.status) === "active"
+          ? "processing"
+          : "idle";
+      scheduleContentReviewPolling();
+      if (state.contentReview.record?.summaryOnly) {
+        window.queueMicrotask(() => pollContentReviewStatus({ silent: true, refreshMedia: true }));
+      }
     }
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
@@ -3230,28 +3367,49 @@ async function loadManagerDashboard({ silent = false } = {}) {
   if (state.route.path === "/workspace/team") render();
 }
 
-async function hydratePrivateMedia(data) {
+async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
   if (!data || typeof data !== "object") return data;
   const listKeys = ["media", "media_items", "items", "artifacts"];
+  const roots = [data];
+  if (data.data && typeof data.data === "object" && !Array.isArray(data.data)) roots.push(data.data);
+  const singularHolders = [];
   const objectKeys = [];
-  for (const key of listKeys) {
-    if (!Array.isArray(data[key])) continue;
-    for (const item of data[key]) {
-      const objectKey = item?.object_name || item?.object_key;
-      if (objectKey && !item.signed_url) objectKeys.push(String(objectKey));
+  for (const root of roots) {
+    for (const key of listKeys) {
+      if (!Array.isArray(root[key])) continue;
+      for (const item of root[key]) {
+        const objectKey = item?.object_name || item?.object_key;
+        if (objectKey && (refreshSignedUrls || !item.signed_url)) objectKeys.push(String(objectKey));
+      }
+    }
+    for (const holder of [root, root.run, root.review]) {
+      if (!holder || typeof holder !== "object" || Array.isArray(holder)) continue;
+      const item = holder.media;
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      singularHolders.push({ holder, item });
+      const objectKey = item.object_name || item.object_key;
+      if (objectKey && (refreshSignedUrls || !item.signed_url)) objectKeys.push(String(objectKey));
     }
   }
   if (!objectKeys.length) return data;
   try {
-    const signedUrls = await state.api.signedPrivateObjectUrls(objectKeys);
-    for (const key of listKeys) {
-      if (!Array.isArray(data[key])) continue;
-      data[key] = data[key].map((item) => {
-        const objectKey = item?.object_name || item?.object_key;
-        return objectKey && signedUrls.has(String(objectKey))
-          ? { ...item, signed_url: signedUrls.get(String(objectKey)) }
-          : item;
-      });
+    const signedUrls = await state.api.signedPrivateObjectUrls([...new Set(objectKeys)]);
+    for (const root of roots) {
+      for (const key of listKeys) {
+        if (!Array.isArray(root[key])) continue;
+        root[key] = root[key].map((item) => {
+          const objectKey = item?.object_name || item?.object_key;
+          return objectKey && signedUrls.has(String(objectKey))
+            ? { ...item, signed_url: signedUrls.get(String(objectKey)) }
+            : item;
+        });
+      }
+    }
+    for (const { holder, item } of singularHolders) {
+      const objectKey = item.object_name || item.object_key;
+      if (objectKey && signedUrls.has(String(objectKey))) {
+        holder.media = { ...item, signed_url: signedUrls.get(String(objectKey)) };
+      }
     }
   } catch {
     // Metadata remains usable when a short-lived preview URL cannot be issued.
@@ -3273,7 +3431,9 @@ async function loadHome() {
   const results = await Promise.all(HOME_SECTION_KEYS.map(async (section) => {
     try {
       const raw = await withUiTimeout(
-        state.api.workspaceSection(section),
+        section === "review"
+          ? state.api.contentReviewCatalog({ limit: 50 })
+          : state.api.workspaceSection(section),
         HOME_SECTION_TIMEOUT_MS,
         "home_section_timeout",
       );
@@ -3456,6 +3616,7 @@ function renderHomeSection(homeState) {
   const data = homeState.data || {};
   const media = listFrom(data.media || {}, "media", "items", "artifacts");
   const batches = listFrom(data.generation || {}, "batches");
+  const reviewRuns = normalizeContentReviewCatalog(data.review || {}).runs;
   const tasks = listFrom(data.tasks || {}, "tasks", "items", "rows");
   const placements = listFrom(data.placement || {}, "placements", "items", "tasks");
   const stats = data.stats || {};
@@ -3465,6 +3626,10 @@ function renderHomeSection(homeState) {
     (item) => !["done", "cancelled"].includes(String(item.status || "")) && !isAutomaticGenerationWait(item),
   ).length;
   const activeGenerations = batches.filter((item) => ["queued", "starting", "submitted", "processing", "running"].includes(String(item.status || "").toLowerCase())).length;
+  const reviewBlockers = reviewRuns.filter((item) => (
+    contentReviewStatusKind(item.status) === "ready" && contentReviewHasBlockers(item) && !item.decision
+  )).length;
+  const activeReviews = reviewRuns.filter((item) => contentReviewStatusKind(item.status) === "active").length;
   const openPlacements = placements.filter(isActionablePlacement).length;
   const waitingPayoutMinor = sumMinor(payouts.filter((item) => ["pending", "approved"].includes(String(item.status || ""))));
   const action = homeNextAction({ media, batches, tasks, placements, publications, payouts });
@@ -3472,6 +3637,7 @@ function renderHomeSection(homeState) {
   const flowValues = {
     media: `${media.length}`,
     generation: activeGenerations ? `${activeGenerations} в работе` : `${batches.length}`,
+    review: activeReviews ? `${activeReviews} в работе` : reviewBlockers ? `${reviewBlockers} блокеров` : `${reviewRuns.length}`,
     tasks: activeTasks ? `${activeTasks} активных` : "0",
     placement: openPlacements ? `${openPlacements} к выходу` : "0",
     stats: `${publications.length}`,
@@ -3502,10 +3668,10 @@ function renderHomeSection(homeState) {
             </div>
           </article>
         </div>
-        <div class="home-hero-visual" role="img" aria-label="Шесть этапов производственного цикла">
+        <div class="home-hero-visual" role="img" aria-label="Семь этапов производственного цикла">
           <span class="home-orbit home-orbit-one"></span>
           <span class="home-orbit home-orbit-two"></span>
-          <div class="home-seal"><strong>A</strong><span>6 этапов</span></div>
+          <div class="home-seal"><strong>A</strong><span>7 этапов</span></div>
         </div>
       </section>
 
@@ -3530,7 +3696,7 @@ function renderHomeSection(homeState) {
 
       <section class="card home-flow-card">
         <div class="section-heading home-section-heading">
-          <div><p class="eyebrow">Карта производства</p><h2>Шесть этапов одного результата</h2></div>
+          <div><p class="eyebrow">Карта производства</p><h2>Семь этапов одного результата</h2></div>
           <p>Каждый этап хранит свою часть истории товара. Нажмите на этап, чтобы продолжить работу.</p>
         </div>
         <ol class="home-flow-list">
@@ -3619,6 +3785,7 @@ function renderGenerationSection(sectionState) {
   }
   const assignableMembers = generationAssignableMembers();
   const activeRealJobs = realGenerationJobsFromBatches(batches);
+  const reconciliationRealJobs = realGenerationReconciliationJobsFromBatches(batches);
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
@@ -3639,6 +3806,7 @@ function renderGenerationSection(sectionState) {
           <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с озвучкой.</p>
           ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
+          ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
             <label class="field">
               <span>Режим генерации *</span>
@@ -3725,7 +3893,7 @@ function renderGenerationSection(sectionState) {
             ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или упаковки в разделе <a href="#/workspace/media">«Материалы»</a>. Без исходника запуск недоступен.</span></div>`}
             <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
           </form>
-          ${state.lastRealGenerationJobId && state.realGenerationDrafts.has(state.lastRealGenerationJobId) ? `
+          ${canRepeatRealGeneration(state.lastRealGenerationJobId) ? `
             <div class="generation-repeat-panel" role="status">
               <div><strong>Нужен ещё один вариант?</strong><span>Поля сохранены. Перед новым платным запуском ещё раз проверьте сценарий и подтвердите стоимость.</span></div>
               <button class="btn btn-secondary btn-small" type="button" data-action="repeat-real-generation" data-job-id="${escapeHtml(state.lastRealGenerationJobId)}">Создать ещё вариант</button>
@@ -3734,7 +3902,7 @@ function renderGenerationSection(sectionState) {
         </section>
 
         <section class="card">
-          <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Видео по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных роликов каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : "Активных платных запусков нет"}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+          <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Видео по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных роликов каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
           ${sectionBody(sectionState, batches.length
             ? generationArchiveMarkup(batches, filteredBatches, visibleBatches, archiveFilters)
             : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь.", { target: "mock-batch-form", label: "Настроить первый ролик" }))}
@@ -3904,8 +4072,10 @@ function generationTable(items) {
 
         const failure = details.failureCode ? generationFailureMessage(details.failureCode) : "";
         const previewUrl = trustedCachedGenerationUrl(details.jobId);
-        const startingWarning = details.status === "starting"
-          ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно — сначала система проверит, был ли запрос принят сервисом.</span></div>`
+        const startingWarning = details.reconciliationRequired
+          ? `<div class="generation-reconcile-warning generation-reconcile-warning-critical" role="alert"><strong>Нужна ручная сверка Runway.</strong><span>Автоопрос остановлен, потому что исход платного POST неизвестен. Новый запуск запрещён до фиксации существующего task ID или подтверждения его отсутствия.</span></div>`
+          : details.status === "starting"
+            ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно — сначала система проверит, был ли запрос принят сервисом.</span></div>`
           : "";
         const failureMarkup = details.status === "failed"
           ? `<div class="generation-failure" role="alert"><strong>Ролик не создан</strong><span>${escapeHtml(failure || "Видеосервис завершил задачу с ошибкой.")}</span></div>`
@@ -3956,6 +4126,23 @@ function generationBatchDetails(item) {
     estimatedMinor,
     actualMinor,
     failureCode: String(job.failure_code || parameters.failure_code || ""),
+    submissionState: String(job.submission_state || parameters.submission_state || ""),
+    reconciliationRequired: normalizeBoolean(
+      job.reconciliation_required ?? parameters.reconciliation_required,
+    ),
+    reconciliationIncidentId: String(
+      job.reconciliation_incident_id || parameters.reconciliation_incident_id || "",
+    ),
+    reconciliationRequiredAt: String(
+      job.reconciliation_required_at || parameters.reconciliation_required_at || "",
+    ),
+    reconciliationReasonCode: String(
+      job.reconciliation_reason_code || parameters.reconciliation_reason_code || "",
+    ),
+    reconciliationResolution: String(
+      job.reconciliation_resolution || parameters.reconciliation_resolution || "",
+    ),
+    canReconcile: normalizeBoolean(job.can_reconcile ?? parameters.can_reconcile),
     checkedAt: cached?.checkedAt || "",
     transientError: cached?.transientError || "",
   };
@@ -3976,17 +4163,57 @@ function generationStageMarkup(status) {
 
 function generationActionsMarkup(details) {
   if (!details.jobId) return "";
+  if (details.reconciliationRequired) {
+    if (!details.canReconcile || !details.reconciliationIncidentId) {
+      return `
+        <div class="generation-reconciliation-readonly" role="status">
+          <strong>Действие руководителя</strong>
+          <span>Ручную сверку выполняет владелец или администратор команды в этой карточке. До решения новый платный запуск не создавайте.</span>
+        </div>
+      `;
+    }
+    return `
+      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" novalidate>
+        <div class="generation-reconciliation-heading">
+          <strong>Сверить с панелью Runway</strong>
+          <span>Проверяйте только task, созданный рядом со временем этого запуска. Портал дополнительно сверит ID, статус и createdAt через API.</span>
+        </div>
+        <label class="field">
+          <span>Runway task ID</span>
+          <input name="provider_task_id" maxlength="128" placeholder="Нужен для кнопки «Прикрепить task»" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Основание проверки *</span>
+          <input name="evidence_reference" required minlength="8" maxlength="500" placeholder="Например: Runway dashboard, 16.07 14:35" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Что именно проверено *</span>
+          <textarea name="reason" required minlength="20" maxlength="1000" placeholder="Укажите время, модель, товар и почему task относится к этому запуску или отсутствует"></textarea>
+        </label>
+        <label class="option generation-reconciliation-confirmation">
+          <input type="checkbox" name="manual_confirmation" value="confirmed" required />
+          <span>Подтверждаю ручную проверку в Runway и понимаю, что портал не повторяет платный POST автоматически.</span>
+        </label>
+        <div class="generation-result-actions">
+          <button class="btn btn-small" type="submit" name="resolution" value="attach_existing_task">Прикрепить найденный task</button>
+          <button class="btn btn-secondary btn-small" type="submit" name="resolution" value="confirm_no_submission">Подтвердить: task отсутствует</button>
+        </div>
+        <small class="generation-reconciliation-note">Подтверждение отсутствия станет доступно не раньше чем через две минуты после фиксации инцидента.</small>
+      </form>
+    `;
+  }
   if (["succeeded", "completed"].includes(details.status)) {
     return `
       <div class="generation-result-actions">
         <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать видео</button>
         <button class="btn btn-small" type="button" data-action="check-real-generation" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать MP4</button>
         <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="open" data-job-id="${escapeHtml(details.jobId)}">Открыть отдельно</button>
+        <a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>
       </div>
     `;
   }
   if (details.status === "failed" || details.status === "cancelled") {
-    const canRepeat = state.realGenerationDrafts.has(details.jobId);
+    const canRepeat = canRepeatRealGeneration(details.jobId);
     return canRepeat
       ? `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="repeat-real-generation" data-job-id="${escapeHtml(details.jobId)}">Создать новый вариант</button></div>`
       : "";
@@ -4003,7 +4230,31 @@ function generationCostMarkup(details) {
 function realGenerationJobsFromBatches(batches = listFrom(state.sections.generation.data || {}, "batches")) {
   return batches
     .map(generationBatchDetails)
-    .filter((details) => details.real && details.jobId && REAL_GENERATION_ACTIVE_STATUSES.has(details.status));
+    .filter((details) =>
+      details.real
+      && details.jobId
+      && !details.reconciliationRequired
+      && REAL_GENERATION_ACTIVE_STATUSES.has(details.status)
+    );
+}
+
+function realGenerationReconciliationJobsFromBatches(
+  batches = listFrom(state.sections.generation.data || {}, "batches"),
+) {
+  return batches
+    .map(generationBatchDetails)
+    .filter((details) => details.real && details.jobId && details.reconciliationRequired);
+}
+
+function canRepeatRealGeneration(jobId) {
+  const normalizedJobId = String(jobId || "");
+  if (!normalizedJobId || !state.realGenerationDrafts.has(normalizedJobId)) return false;
+  const batch = listFrom(state.sections.generation.data || {}, "batches")
+    .find((item) => String(item?.parameters?.job_id || "") === normalizedJobId);
+  if (!batch) return false;
+  const details = generationBatchDetails(batch);
+  return !details.reconciliationRequired
+    && ["succeeded", "completed", "failed", "cancelled"].includes(details.status);
 }
 
 function stopRealGenerationPolling() {
@@ -4109,12 +4360,23 @@ function applyRealGenerationResult(jobId, result, options = {}) {
 
   const previousStatus = String(previous?.job?.status || "").toLowerCase();
   const nextStatus = String(job.status || "").toLowerCase();
+  const previousReconciliationRequired = normalizeBoolean(
+    previous?.job?.reconciliation_required,
+  );
+  const nextReconciliationRequired = normalizeBoolean(job.reconciliation_required);
   if (options.source === "auto" && previousStatus && previousStatus !== nextStatus) {
     if (["succeeded", "completed"].includes(nextStatus)) {
       toast("Платный ролик готов. Он доступен в очереди для просмотра и скачивания.", "success");
     } else if (nextStatus === "failed") {
       toast(generationFailureMessage(job.failure_code), "error");
     }
+  }
+  if (
+    options.source === "auto"
+    && !previousReconciliationRequired
+    && nextReconciliationRequired
+  ) {
+    toast("Автопроверка платного запуска остановлена безопасно. Нужна ручная сверка владельцем или администратором; новый запуск не создавайте.", "info");
   }
   if (options.renderNow !== false && state.route.path === "/workspace/generation") render();
 }
@@ -4155,6 +4417,13 @@ function patchGenerationBatch(jobId, job) {
     job_status: job.status,
     actual_cost_minor: job.actual_cost_minor,
     failure_code: job.failure_code,
+    submission_state: job.submission_state,
+    reconciliation_required: job.reconciliation_required,
+    reconciliation_incident_id: job.reconciliation_incident_id,
+    reconciliation_required_at: job.reconciliation_required_at,
+    reconciliation_reason_code: job.reconciliation_reason_code,
+    reconciliation_resolution: job.reconciliation_resolution,
+    can_reconcile: job.can_reconcile,
   };
 }
 
@@ -4176,6 +4445,7 @@ function generationFailureMessage(code) {
     provider_task_failed: "Видеосервис начал работу, но не смог создать ролик. Стоимость показана рядом с задачей.",
     provider_timeout: "Видеосервис не завершил ролик вовремя. Новый запуск делайте только после проверки стоимости.",
     provider_response_invalid: "Видеосервис вернул неполный ответ. Обратитесь к руководителю до нового платного запуска.",
+    provider_submission_not_found: "Руководитель подтвердил, что Runway task для этого запуска отсутствует. Списание не зафиксировано; новый запуск создаётся отдельно с новым подтверждением цены.",
     output_download_failed: "Ролик создан у видеосервиса, но портал пока не смог забрать файл. Повторите проверку статуса без нового запуска.",
     output_validation_failed: "Полученный файл не прошёл безопасную проверку. Обратитесь к руководителю до нового запуска.",
     output_upload_failed: "Ролик создан, но пока не сохранён в защищённой папке. Повторите проверку без нового запуска.",
@@ -4274,6 +4544,263 @@ function downloadGenerationOutput(url, jobId) {
   link.remove();
 }
 
+function canDecideContentReview() {
+  return ["owner", "admin", "producer", "reviewer"].includes(state.bootstrap?.membership?.role);
+}
+
+function renderContentReviewSection(sectionState) {
+  const catalog = normalizeContentReviewCatalog(sectionState.data || {});
+  const currentId = String(state.contentReview.record?.id || "");
+  const catalogRecord = catalog.runs.find((item) => item.id === currentId);
+  if (catalogRecord && (!state.contentReview.record || state.contentReview.record.summaryOnly)) {
+    state.contentReview.record = catalogRecord;
+  }
+  else if (!state.contentReview.record) {
+    state.contentReview.record = catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
+      || catalog.runs[0]
+      || null;
+  }
+  if (state.contentReview.record && contentReviewStatusKind(state.contentReview.record.status) === "active") {
+    window.queueMicrotask(() => scheduleContentReviewPolling());
+  }
+  window.queueMicrotask(() => {
+    bindContentReviewDecisionMedia();
+    selectPendingContentReviewMedia();
+  });
+  return `
+    <div class="page-wrap content-review-page">
+      ${pageHeader(
+        "Проверка контента",
+        "Проверьте готовый файл до публикации: отдельно качество ролика, отдельно риски и обязательные реквизиты.",
+        `<span class="badge badge-info">Решение принимает человек</span>`,
+      )}
+      ${contentReviewWorkspaceMarkup({
+        catalog,
+        currentRun: state.contentReview.record,
+        phase: state.contentReview.phase,
+        error: state.contentReview.error,
+        notice: state.contentReview.notice,
+        canDecide: canDecideContentReview(),
+      })}
+    </div>`;
+}
+
+function selectPendingContentReviewMedia() {
+  const mediaId = String(state.contentReview.pendingMediaId || "");
+  if (!mediaId || state.route.path !== "/workspace/review") return;
+  const controls = Array.from(document.querySelectorAll('#content-review-form input[name="media_id"]'));
+  const target = controls.find((control) => String(control.value || "") === mediaId);
+  if (!target) return;
+  target.checked = true;
+  target.form?.setAttribute("data-dirty", "true");
+  state.contentReview.pendingMediaId = "";
+  target.closest(".content-review-media-option")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.focus({ preventScroll: true });
+}
+
+function bindContentReviewDecisionMedia() {
+  const form = document.querySelector(".content-review-decision-form");
+  if (!form || form.dataset.mediaBinding === "true") return;
+  form.dataset.mediaBinding = "true";
+  const media = form.querySelector("[data-content-review-exact-media]");
+  const stateNode = form.querySelector("[data-content-review-media-state]");
+  const watchControl = form.elements.media_watched_confirmed;
+  const submitControls = Array.from(form.querySelectorAll("[data-review-decision-submit]"));
+  const setLocked = (status, message) => {
+    form.dataset.exactMediaState = status;
+    if (watchControl) {
+      watchControl.checked = false;
+      watchControl.disabled = true;
+    }
+    submitControls.forEach((control) => {
+      control.disabled = true;
+    });
+    if (stateNode) {
+      stateNode.textContent = message;
+      stateNode.classList.toggle("is-error", status === "error" || status === "unavailable");
+      stateNode.classList.toggle("is-ready", false);
+    }
+  };
+  const setReady = (message) => {
+    form.dataset.exactMediaState = "ready";
+    if (watchControl) watchControl.disabled = false;
+    submitControls.forEach((control) => {
+      control.disabled = false;
+    });
+    if (stateNode) {
+      stateNode.textContent = message;
+      stateNode.classList.remove("is-error");
+      stateNode.classList.add("is-ready");
+    }
+  };
+  if (!media) {
+    setLocked("unavailable", stateNode?.textContent || "Точный файл недоступен. Обновите статус проверки.");
+    return;
+  }
+  const mediaSource = () => String(media.currentSrc || media.getAttribute("src") || "");
+  const onError = () => setLocked(
+    "error",
+    "Не удалось открыть точный защищённый файл. Решение заблокировано: обновите статус и попробуйте снова.",
+  );
+  media.addEventListener("error", onError);
+  if (media instanceof HTMLVideoElement) {
+    let loadedSource = "";
+    const onLoadStart = () => {
+      loadedSource = "";
+      delete media.dataset.contentReviewEndedSrc;
+      setLocked("loading", "Загружаем метаданные MP4. После загрузки воспроизведите этот же файл до конца.");
+    };
+    const onLoadedMetadata = () => {
+      loadedSource = mediaSource();
+      if (!loadedSource || !Number.isFinite(media.duration) || media.duration <= 0) {
+        onError();
+        return;
+      }
+      media.dataset.contentReviewLoadedSrc = loadedSource;
+      setLocked("metadata", "MP4 доступен. Воспроизведите этот же файл до события окончания; затем подтвердите личный просмотр.");
+    };
+    const onEnded = () => {
+      const endedSource = mediaSource();
+      if (!loadedSource || endedSource !== loadedSource || media.dataset.contentReviewLoadedSrc !== endedSource) {
+        setLocked("error", "Источник MP4 изменился во время просмотра. Обновите статус и просмотрите точный файл заново.");
+        return;
+      }
+      media.dataset.contentReviewEndedSrc = endedSource;
+      setReady("Браузер получил событие окончания для этого MP4. Теперь подтвердите личную проверку звука и субтитров.");
+    };
+    media.addEventListener("loadstart", onLoadStart);
+    media.addEventListener("loadedmetadata", onLoadedMetadata);
+    media.addEventListener("ended", onEnded);
+    media.addEventListener("emptied", onLoadStart);
+    if (media.readyState >= HTMLMediaElement.HAVE_METADATA) onLoadedMetadata();
+    else setLocked("loading", "Загружаем метаданные MP4. После загрузки воспроизведите этот же файл до конца.");
+    return;
+  }
+  if (media instanceof HTMLImageElement) {
+    const onLoad = () => {
+      if (!media.naturalWidth || !media.naturalHeight) {
+        onError();
+        return;
+      }
+      setReady("Изображение загружено. Осмотрите точный файл и подтвердите личную проверку.");
+    };
+    media.addEventListener("load", onLoad);
+    if (media.complete) {
+      if (media.naturalWidth > 0) onLoad();
+      else onError();
+    } else {
+      setLocked("loading", "Проверяем доступность точного изображения.");
+    }
+  }
+}
+
+function contentReviewExactMediaReady(form) {
+  if (form?.dataset.exactMediaState !== "ready") return false;
+  const media = form.querySelector("[data-content-review-exact-media]");
+  if (media instanceof HTMLVideoElement) {
+    const currentSource = String(media.currentSrc || media.getAttribute("src") || "");
+    return Boolean(
+      currentSource
+      && media.dataset.contentReviewLoadedSrc === currentSource
+      && media.dataset.contentReviewEndedSrc === currentSource
+      && media.ended,
+    );
+  }
+  return media instanceof HTMLImageElement && media.complete && media.naturalWidth > 0;
+}
+
+function stopContentReviewPolling() {
+  if (state.contentReview.pollTimer !== null) {
+    window.clearTimeout(state.contentReview.pollTimer);
+    state.contentReview.pollTimer = null;
+  }
+}
+
+function scheduleContentReviewPolling(delay = CONTENT_REVIEW_POLL_INTERVAL_MS) {
+  stopContentReviewPolling();
+  const record = state.contentReview.record;
+  if (
+    state.route.path !== "/workspace/review"
+    || document.visibilityState !== "visible"
+    || !record?.id
+    || contentReviewStatusKind(record.status) !== "active"
+    || ["preparing", "starting", "refreshing", "deciding"].includes(state.contentReview.phase)
+  ) return;
+  state.contentReview.pollTimer = window.setTimeout(() => {
+    state.contentReview.pollTimer = null;
+    pollContentReviewStatus({ silent: true });
+  }, Math.max(250, Number(delay) || CONTENT_REVIEW_POLL_INTERVAL_MS));
+}
+
+async function pollContentReviewStatus({ silent = false, refreshMedia = false } = {}) {
+  const review = state.contentReview;
+  const reviewId = String(review.record?.id || "");
+  if (!reviewId || ["preparing", "starting", "deciding"].includes(review.phase)) return;
+  const requestId = review.requestId + 1;
+  review.requestId = requestId;
+  if (!silent) {
+    review.phase = "refreshing";
+    review.error = "";
+    renderWorkspace("review");
+  }
+  try {
+    let raw = await withUiTimeout(
+      state.api.contentReviewStatus(reviewId),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "content_review_status_timeout",
+    );
+    const returnedStatus = String(
+      raw?.run?.status
+      || raw?.review?.status
+      || raw?.data?.run?.status
+      || raw?.data?.review?.status
+      || "",
+    );
+    if (refreshMedia || contentReviewStatusKind(returnedStatus) === "ready") {
+      raw = await hydratePrivateMedia(raw, { refreshSignedUrls: true });
+    }
+    if (requestId !== review.requestId || reviewId !== String(review.record?.id || "")) return;
+    const previousKind = contentReviewStatusKind(review.record?.status);
+    review.record = normalizeContentReviewRun(raw, review.record);
+    const kind = contentReviewStatusKind(review.record.status);
+    review.phase = kind === "active" ? "processing" : kind === "failed" ? "error" : "idle";
+    review.error = kind === "failed"
+      ? (review.record.failureMessage || "Проверка завершилась с ошибкой. Исходный материал не потерян.")
+      : "";
+    upsertContentReviewRun(review.record);
+    if (previousKind === "active" && kind === "ready") {
+      review.notice = "Проверка завершена. Прочитайте блокеры и рекомендации, затем зафиксируйте решение человека.";
+      await track("content_review_completed", {
+        review_id: review.record.id,
+        overall_score: review.record.result.overallScore,
+        compliance_status: review.record.result.complianceStatus,
+        blockers_count: review.record.result.blockersCount,
+      });
+    }
+  } catch (error) {
+    if (requestId !== review.requestId) return;
+    review.phase = contentReviewStatusKind(review.record?.status) === "active" ? "processing" : "error";
+    review.error = String(error?.message || "") === "content_review_status_timeout"
+      ? "Сервер не ответил вовремя. Проверка не потеряна — статус обновится автоматически."
+      : actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/review") renderWorkspace("review");
+  scheduleContentReviewPolling();
+}
+
+function upsertContentReviewRun(run) {
+  const target = state.sections.review;
+  if (!target?.data || !run?.id) return;
+  const current = listFrom(target.data, "runs", "recent_reviews", "reviews", "history", "items");
+  const next = [run, ...current.filter((item) => String(item?.id || item?.review_id || "") !== String(run.id))];
+  if (Array.isArray(target.data.runs) || !["recent_reviews", "reviews", "history", "items"].some((key) => Array.isArray(target.data[key]))) {
+    target.data = { ...target.data, runs: next };
+  } else {
+    const key = ["recent_reviews", "reviews", "history", "items"].find((candidate) => Array.isArray(target.data[candidate]));
+    target.data = { ...target.data, [key]: next };
+  }
+}
+
 function renderPlacementSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "placements", "items", "tasks");
@@ -4304,12 +4831,14 @@ function placementCard(item) {
       </div>
       <ul class="checklist">
         <li>Сверить назначенный аккаунт и площадку</li>
+        <li>Открыть «Проверку контента» и убедиться, что по этой версии нет нерешённых блокеров</li>
         <li>Проверить в инструкции решение: информационный материал или реклама</li>
         <li>Если это реклама — сверить пометку «Реклама», рекламодателя, идентификатор рекламы (ERID) и разрешение площадки</li>
         <li>Использовать ссылку для перехода, указанную в задаче</li>
         <li>После публикации сохранить ссылку на сам пост</li>
       </ul>
       ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её руководителю. Бирка соцсети не заменяет правовую проверку.", "warning")}
+      <p class="tiny"><a href="#/workspace/review">Открыть историю проверки контента →</a></p>
       ${item.tracking_url ? `<p class="tiny"><strong>Ссылка из задачи:</strong> <a href="${safeExternalUrl(item.tracking_url)}" target="_blank" rel="noopener noreferrer">открыть</a></p>` : ""}
       ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable ? `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
@@ -4504,7 +5033,14 @@ function taskCard(item) {
 function taskActionsMarkup(item) {
   const taskId = escapeHtml(item.id || "");
   const status = String(item.status || "todo");
-  const result = item.result && typeof item.result === "object" ? item.result : {};
+  const result = item.result && typeof item.result === "object"
+    ? item.result
+    : item.result_json && typeof item.result_json === "object"
+      ? item.result_json
+      : {};
+  const manager = ["owner", "admin", "producer", "reviewer"].includes(
+    state.bootstrap?.membership?.role,
+  );
   const activeRunwayReview = item.task_type === "video_review" &&
     result.provider === "runway" &&
     ["queued", "starting", "submitted", "processing"].includes(
@@ -4513,11 +5049,17 @@ function taskActionsMarkup(item) {
   if (activeRunwayReview) {
     return '<span class="muted tiny">Видео создаётся. Статус задачи изменится автоматически.</span>';
   }
-  const manager = ["owner", "admin", "producer", "reviewer"].includes(
-    state.bootstrap?.membership?.role,
-  );
   const action = (nextStatus, label, secondary = false) =>
     `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}">${label}</button>`;
+  const generatedVideoReady = item.task_type === "video_review"
+    && String(result.generation_status || "").toLowerCase() === "succeeded"
+    && String(result.output_media_id || "").trim();
+  if (generatedVideoReady && ["submitted", "review"].includes(status)) {
+    return `
+      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}">Открыть проверку контента</button>
+      ${manager ? action("blocked", "Вернуть с блокером", true) : ""}
+    `;
+  }
 
   if (status === "todo") {
     return action("in_progress", "Начать") + action("blocked", "Есть блокер", true);
@@ -4737,7 +5279,7 @@ function mediaCard(item) {
       <div class="media-info">
         <strong title="${escapeHtml(item.original_filename || "Файл")}">${escapeHtml(item.original_filename || item.name || "Файл")}</strong>
         <small>${escapeHtml(humanMediaKind(item.kind))} · ${formatBytes(item.size_bytes || 0)}</small>
-        <div class="inline-actions" style="margin-top:10px">${url !== "#" ? `<a class="btn btn-secondary btn-small" href="${url}" target="_blank" rel="noopener noreferrer">Открыть</a>` : ""}${statusBadge(item.status || "ready")}</div>
+        <div class="inline-actions" style="margin-top:10px">${url !== "#" ? `<a class="btn btn-secondary btn-small" href="${url}" target="_blank" rel="noopener noreferrer">Открыть</a>` : ""}<a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить</a>${statusBadge(item.status || "ready")}</div>
       </div>
     </article>
   `;
@@ -5137,6 +5679,50 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-generated-content-review") {
+    const mediaId = String(control.dataset.mediaId || "").trim();
+    if (!mediaId) {
+      toast("У готового ролика не найден точный файл. Обновите задачи и генерацию.", "error");
+      return;
+    }
+    state.contentReview.pendingMediaId = mediaId;
+    state.contentReview.record = null;
+    state.contentReview.phase = "idle";
+    state.contentReview.error = "";
+    state.contentReview.notice = "Выберите контекст публикации и запустите обязательную проверку готового ролика.";
+    navigate("/workspace/review");
+    return;
+  }
+
+  if (action === "open-content-review") {
+    const reviewId = String(control.dataset.reviewId || "");
+    const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+    const selected = catalog.runs.find((item) => item.id === reviewId);
+    if (!selected) {
+      toast("Эта проверка не найдена в загруженной истории. Обновите раздел.", "error");
+      return;
+    }
+    state.contentReview.record = selected;
+    state.contentReview.phase = "refreshing";
+    state.contentReview.error = "";
+    state.contentReview.notice = "";
+    renderWorkspace("review");
+    await pollContentReviewStatus({ silent: true, refreshMedia: true });
+    scheduleContentReviewPolling(250);
+    window.queueMicrotask(() => document.querySelector("[data-review-result-id], .content-review-progress, .content-review-failed")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    return;
+  }
+
+  if (action === "refresh-content-review") {
+    const reviewId = String(control.dataset.reviewId || state.contentReview.record?.id || "");
+    if (reviewId && reviewId !== String(state.contentReview.record?.id || "")) {
+      const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+      state.contentReview.record = catalog.runs.find((item) => item.id === reviewId) || state.contentReview.record;
+    }
+    await pollContentReviewStatus({ refreshMedia: true });
+    return;
+  }
+
   if (action === "new-product-research") {
     stopProductResearchPolling();
     clearProductResearchRunId();
@@ -5513,6 +6099,9 @@ async function handleSubmit(event) {
   else if (form.id === "generation-archive-filter-form") submitGenerationArchiveFilters(form);
   else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
+  else if (form.id === "content-review-form") await submitContentReview(form);
+  else if (form.classList.contains("content-review-decision-form")) await submitContentReviewDecision(form, event.submitter);
+  else if (form.classList.contains("generation-reconciliation-form")) await submitRealGenerationReconciliation(form, event.submitter);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
@@ -5561,6 +6150,9 @@ function handleChange(event) {
   if (generationForm && event.target.name === "generation_mode") {
     syncGenerationModeForm(generationForm);
   }
+
+  const contentReviewForm = event.target.closest("#content-review-form");
+  if (contentReviewForm) syncContentReviewFormVisibility(contentReviewForm);
 }
 
 function submitAccountAdvertisingCheck(form) {
@@ -6024,6 +6616,71 @@ async function submitGenerationBatch(form) {
     return;
   }
   await submitMockBatch(form, values);
+}
+
+async function submitRealGenerationReconciliation(form, submitter) {
+  const resolution = String(submitter?.value || "");
+  const values = new FormData(form);
+  const jobId = String(form.dataset.jobId || "");
+  const incidentId = String(form.dataset.incidentId || "");
+  const providerTaskId = String(values.get("provider_task_id") || "").trim();
+  const evidenceReference = String(values.get("evidence_reference") || "").trim();
+  const reason = String(values.get("reason") || "").trim();
+
+  if (!["owner", "admin"].includes(state.bootstrap?.membership?.role)) {
+    toast("Ручную сверку платного запуска может выполнить только владелец или администратор.", "error");
+    return;
+  }
+  if (!["attach_existing_task", "confirm_no_submission"].includes(resolution)) {
+    toast("Выберите результат ручной сверки.", "error");
+    return;
+  }
+  if (values.get("manual_confirmation") !== "confirmed") {
+    toast("Подтвердите, что вручную проверили запуск в панели Runway.", "error");
+    return;
+  }
+  if (resolution === "attach_existing_task" && !providerTaskId) {
+    toast("Для прикрепления укажите точный Runway task ID.", "error");
+    form.elements.provider_task_id?.focus();
+    return;
+  }
+
+  setFormBusy(form, true, resolution === "attach_existing_task"
+    ? "Проверяем Runway task…"
+    : "Фиксируем отсутствие task…");
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  try {
+    const result = await state.api.reconcileRealGeneration(jobId, {
+      incident_id: incidentId,
+      resolution,
+      provider_task_id: providerTaskId,
+      evidence_reference: evidenceReference,
+      reason,
+    });
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    applyRealGenerationResult(jobId, result, { renderNow: false, source: "manual" });
+    state.sections.generation.status = "idle";
+    state.sections.tasks.status = "idle";
+    if (resolution === "attach_existing_task") {
+      toast("Runway task подтверждён и прикреплён. Портал продолжит обработку без повторного платного запуска.", "success");
+    } else {
+      toast("Отсутствие Runway task зафиксировано. Этот запуск закрыт без списания; новый создаётся отдельно.", "success");
+    }
+  } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    toast(actionErrorMessage(error), "error");
+  } finally {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && form.isConnected
+    ) {
+      setFormBusy(form, false);
+    }
+    if (state.route.path === "/workspace/generation") render();
+    scheduleRealGenerationPolling(500);
+  }
 }
 
 async function submitRealGeneration(form, values, mode) {
@@ -6692,7 +7349,7 @@ async function submitProductResearchBrief(form, submitter) {
     return;
   }
   const editableBrief = mergeProductResearchBrief(research.record.rawBrief, draft);
-  const taskBlueprint = productResearchTaskBlueprint(draft.scenarios);
+  const taskBlueprint = productResearchTaskBlueprint(draft);
   research.phase = mode === "approve" ? "approving" : "saving";
   research.error = "";
   research.notice = "";
@@ -6775,8 +7432,23 @@ function mergeProductResearchBrief(base, draft) {
   };
 }
 
-function productResearchTaskBlueprint(scenarios) {
-  return scenarios.map((scenario) => ({
+function productResearchTaskBlueprint(draft) {
+  const proofPoints = splitResearchLines(draft.proof_points);
+  const avoidClaims = splitResearchLines(draft.avoid_claims);
+  const sharedInstructions = [
+    draft.target_audience ? `Целевая аудитория: ${draft.target_audience}` : "",
+    draft.key_message ? `Главная мысль: ${draft.key_message}` : "",
+    proofPoints.length
+      ? `Подтверждённые доказательства — использовать только в этой формулировке:\n${proofPoints.map((item) => `• ${item}`).join("\n")}`
+      : "Подтверждённые доказательства: не указаны — не добавлять свойства от себя.",
+    avoidClaims.length
+      ? `Запрещённые и неподтверждённые обещания — не использовать:\n${avoidClaims.map((item) => `• ${item}`).join("\n")}`
+      : "Запрещённые обещания: отдельно не перечислены — любые новые факты сначала вернуть на проверку.",
+    draft.visual_direction ? `Визуальное направление: ${draft.visual_direction}` : "",
+    draft.cta ? `Разрешённый призыв к действию: ${draft.cta}` : "",
+    "Ручная проверка перед сдачей: сверить товар и упаковку, дословную реплику, доказательства, рекламный статус и запрещённые обещания.",
+  ].filter(Boolean);
+  return draft.scenarios.map((scenario) => ({
     task_type: "general",
     assignee_id: scenario.assignee_id,
     title: scenario.task_title,
@@ -6786,6 +7458,7 @@ function productResearchTaskBlueprint(scenarios) {
       `Хук: ${scenario.hook}`,
       `Реплика блогера: ${scenario.script}`,
       `Кадры:\n${scenario.shot_list}`,
+      ...sharedInstructions,
     ].join("\n"),
     priority: 3,
     payout_minor: 0,
@@ -6794,6 +7467,229 @@ function productResearchTaskBlueprint(scenarios) {
 
 function splitResearchLines(value) {
   return String(value || "").split(/\r?\n/u).map((item) => item.trim()).filter(Boolean);
+}
+
+async function submitContentReview(form) {
+  const review = state.contentReview;
+  if (["preparing", "starting", "processing", "deciding"].includes(review.phase)) {
+    toast("Текущая проверка ещё не завершена. Дождитесь результата или откройте её статус.", "info");
+    return;
+  }
+  const input = readContentReviewForm(form);
+  const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+  const media = catalog.media.find((item) => item.id === input.media_id);
+  if (!media) {
+    toast("Выбранный материал не найден. Обновите раздел и выберите файл снова.", "error");
+    return;
+  }
+  if (String(media.metadata?.kind || "") === "generated_video") {
+    input.content_kind = "advertising";
+    input.ai_generated = true;
+    if (form.elements.content_kind) form.elements.content_kind.value = "advertising";
+    if (form.elements.ai_generated) form.elements.ai_generated.checked = true;
+    syncContentReviewFormVisibility(form);
+    if (
+      !input.advertiser_name ||
+      !input.erid ||
+      !input.ad_label_confirmed ||
+      !input.ord_confirmed ||
+      !input.rights_confirmed ||
+      !input.claims_verified
+    ) {
+      toast("Готовый платный AI-ролик проверяется только как реклама. Заполните рекламодателя и ERID, подтвердите маркировку, ОРД, права и факты о товаре.", "error");
+      form.elements.advertiser_name?.focus();
+      return;
+    }
+  }
+  if (input.people_present === "yes" && !input.person_consent_confirmed) {
+    toast("В кадре есть узнаваемые люди, но согласие не подтверждено. Проверка продолжится и зафиксирует это как риск.", "info");
+  }
+  if (input.people_present === "yes" && !input.external_ai_processing_confirmed) {
+    toast("Контрольные кадры с узнаваемыми людьми нельзя отправлять внешнему AI-провайдеру без подтверждённого законного основания и информирования.", "error");
+    form.elements.external_ai_processing_confirmed?.focus();
+    return;
+  }
+  if (input.content_kind === "advertising" && (!input.advertiser_name || !input.erid)) {
+    toast("У рекламы не заполнены рекламодатель или ERID. Проверка продолжится, но публикация, скорее всего, будет заблокирована.", "info");
+  }
+  const completedRuns = catalog.runs.filter((item) => contentReviewStatusKind(item.status) === "ready");
+  const previousSameMedia = completedRuns.find((item) => item.mediaId === media.id);
+  const previousSameProduct = media.productId
+    ? completedRuns.find((item) => item.media?.productId === media.productId)
+    : null;
+  const previous = previousSameMedia || previousSameProduct || null;
+  const comparisonScope = previousSameMedia ? "этого же файла" : previousSameProduct ? "предыдущего файла того же товара" : "";
+  stopContentReviewPolling();
+  review.requestId += 1;
+  review.phase = "preparing";
+  review.error = "";
+  review.notice = comparisonScope
+    ? `Новый результат будет сравниваться с проверкой ${comparisonScope}.`
+    : "Это первая сопоставимая проверка: история изменений начнёт собираться с этой версии.";
+  renderWorkspace("review");
+  let evidence;
+  try {
+    evidence = await captureContentReviewEvidence(media);
+  } catch (error) {
+    review.phase = "idle";
+    review.error = actionErrorMessage(error);
+    renderWorkspace("review");
+    return;
+  }
+  review.phase = "starting";
+  renderWorkspace("review");
+  try {
+    const raw = await state.api.startContentReview(
+      {
+        ...input,
+        parent_review_id: previous?.id || null,
+        technical_metrics: evidence.technical_metrics,
+      },
+      {
+        frames: evidence.frames,
+        onRunCreated: (run) => {
+          review.record = normalizeContentReviewRun({ run }, {
+            id: run?.id,
+            status: run?.status || "queued",
+            mediaId: media.id,
+            media,
+            input: {
+              mediaId: media.id,
+              platform: input.platform,
+              contentKind: input.content_kind,
+              productCategory: input.product_category,
+            },
+          });
+          upsertContentReviewRun(review.record);
+        },
+      },
+    );
+    review.record = normalizeContentReviewRun(raw, review.record || {
+      mediaId: media.id,
+      media,
+    });
+    upsertContentReviewRun(review.record);
+    review.phase = contentReviewStatusKind(review.record.status) === "ready" ? "idle" : "processing";
+    review.notice = previous
+      ? `Проверка создана и связана с ${comparisonScope}. Не запускайте её повторно — статус обновится автоматически.`
+      : "Проверка создана. Не запускайте её повторно — статус обновится автоматически.";
+    form.removeAttribute("data-dirty");
+    await track("content_review_started", {
+      review_id: review.record.id,
+      media_id: media.id,
+      platform: input.platform,
+      content_kind: input.content_kind,
+      frame_count: evidence.frames.length,
+      raw_video_sent: false,
+      comparison_scope: previousSameMedia ? "same_media" : previousSameProduct ? "same_product" : "none",
+    });
+  } catch (error) {
+    const recoverable = error?.job?.id
+      ? normalizeContentReviewRun({ run: error.job }, {
+          mediaId: media.id,
+          media,
+          input: {
+            mediaId: media.id,
+            platform: input.platform,
+            contentKind: input.content_kind,
+            productCategory: input.product_category,
+          },
+        })
+      : null;
+    review.record = recoverable;
+    review.phase = recoverable ? "processing" : "idle";
+    review.error = actionErrorMessage(error);
+    if (recoverable) upsertContentReviewRun(recoverable);
+  }
+  if (state.route.path === "/workspace/review") renderWorkspace("review");
+  scheduleContentReviewPolling(800);
+}
+
+async function submitContentReviewDecision(form, submitter) {
+  if (!canDecideContentReview()) {
+    toast("Финальное решение доступно только руководителю, продюсеру или проверяющему.", "error");
+    return;
+  }
+  const review = state.contentReview;
+  const reviewId = String(form.dataset.reviewId || "");
+  if (!reviewId || reviewId !== String(review.record?.id || "")) {
+    toast("Откройте актуальную проверку и повторите решение.", "error");
+    return;
+  }
+  if (!contentReviewExactMediaReady(form)) {
+    toast("Решение заблокировано: точный файл не загрузился или MP4 не был воспроизведён до конца без смены источника.", "error");
+    form.querySelector("[data-content-review-exact-media]")?.focus();
+    return;
+  }
+  const decision = readContentReviewDecision(form, submitter);
+  if (decision.decision === "approved" && contentReviewHasBlockers(review.record)) {
+    toast("Одобрение недоступно: в этой версии остаются критические блокеры.", "error");
+    return;
+  }
+  if (!decision.mediaWatchedConfirmed) {
+    toast("Сначала полностью просмотрите именно этот защищённый файл, включая звук и субтитры.", "error");
+    form.elements.media_watched_confirmed?.focus();
+    return;
+  }
+  const requiredRiskCodes = contentReviewRequiredRiskCodes(review.record);
+  const acknowledgedRiskCodes = new Set(decision.riskAcknowledgements);
+  const missingRiskCodes = requiredRiskCodes.filter((code) => !acknowledgedRiskCodes.has(code));
+  if (decision.decision === "approved" && missingRiskCodes.length) {
+    toast(`Для одобрения подтвердите каждый высокий или обязательный риск: осталось ${missingRiskCodes.length}.`, "error");
+    Array.from(form.querySelectorAll('input[name="risk_acknowledgements"]'))
+      .find((control) => control.value === missingRiskCodes[0])
+      ?.focus();
+    return;
+  }
+  review.phase = "deciding";
+  review.error = "";
+  review.notice = "";
+  renderWorkspace("review");
+  try {
+    const raw = await state.api.decideContentReview(
+      reviewId,
+      decision.decision,
+      decision.reason,
+      {
+        resolvedRecommendationCodes: decision.resolvedRecommendationCodes,
+        riskAcknowledgements: decision.riskAcknowledgements,
+        mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
+      },
+    );
+    review.record = normalizeContentReviewRun(raw, review.record);
+    upsertContentReviewRun(review.record);
+    review.phase = "idle";
+    review.notice = "Неизменяемое решение сохранено. Для исправленного файла создайте новую проверку.";
+    try {
+      const [freshStatus, freshCatalog] = await Promise.all([
+        state.api.contentReviewStatus(reviewId),
+        state.api.contentReviewCatalog({ limit: 50 }),
+      ]);
+      const [hydratedStatus, hydratedCatalog] = await Promise.all([
+        hydratePrivateMedia(freshStatus, { refreshSignedUrls: true }),
+        hydratePrivateMedia(freshCatalog, { refreshSignedUrls: true }),
+      ]);
+      review.record = normalizeContentReviewRun(hydratedStatus, review.record);
+      state.sections.review.data = hydratedCatalog;
+      state.sections.review.status = "ready";
+      state.sections.review.error = null;
+      upsertContentReviewRun(review.record);
+    } catch (refreshError) {
+      console.warn("Content review post-decision refresh failed", refreshError);
+      review.error = "Решение сохранено, но свежий статус не загрузился. Нажмите «Обновить» — повторно решение не отправляйте.";
+    }
+    await track("content_review_decided", {
+      review_id: reviewId,
+      decision: decision.decision,
+      resolved_recommendation_count: decision.resolvedRecommendationCodes.length,
+      risk_acknowledgement_count: decision.riskAcknowledgements.length,
+      media_watched_confirmed: true,
+    });
+  } catch (error) {
+    review.phase = "idle";
+    review.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/review") renderWorkspace("review");
 }
 
 async function submitMedia(form) {
@@ -6961,6 +7857,8 @@ function clearAuthenticatedState() {
   clearAccountLaunchChecks(state.user?.id);
   stopRealGenerationPolling();
   stopProductResearchPolling();
+  stopContentReviewPolling();
+  clearStoredPkceVerifier();
   if (state.resetCountdownTimer) window.clearInterval(state.resetCountdownTimer);
   setMobileNavOpen(false);
   state.dataEpoch += 1;
@@ -7001,6 +7899,12 @@ function clearAuthenticatedState() {
   state.productResearch.error = "";
   state.productResearch.notice = "";
   state.productResearch.restoreAttempted = false;
+  state.contentReview.requestId += 1;
+  state.contentReview.phase = "idle";
+  state.contentReview.record = null;
+  state.contentReview.error = "";
+  state.contentReview.notice = "";
+  state.contentReview.pendingMediaId = "";
   state.workspaceBoard.selectedFolderId = "all";
   state.workspaceBoard.selectedItemKey = "";
   state.workspaceBoard.query = "";

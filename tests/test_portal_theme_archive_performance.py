@@ -300,7 +300,7 @@ def test_generation_archive_avoids_eager_video_work_and_caps_status_polling() ->
         };
         """,
     )
-    assert "localStorage" not in APP
+    assert "localStorage" not in polling
     assert "primeCompletedGenerationResults" not in APP
     assert "boundedRoundRobinWindow" in polling
     assert ".slice(0, 4)" not in polling

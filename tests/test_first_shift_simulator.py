@@ -20,7 +20,7 @@ def _between(source: str, start: str, end: str) -> str:
 def test_first_shift_uses_the_full_thirteen_decision_scenario() -> None:
     step_ids = re.findall(r'^\s+id: "([a-z0-9_]+)",$', FULL, flags=re.MULTILINE)
 
-    assert 'from "./first-shift-full-scenario.js?v=20260716.1"' in APP
+    assert 'from "./first-shift-full-scenario.js?v=20260716.2"' in APP
     assert len(set(step_ids) & {
         "receive_task",
         "verify_articles_reward",
@@ -159,4 +159,4 @@ def test_first_shift_has_keyboard_focus_status_and_360px_safe_layout_contracts()
     assert "box-sizing: border-box" in FULL_STYLES
     assert "@media (max-width: 760px)" in FULL_STYLES
     assert "@media (prefers-reduced-motion: reduce)" in FULL_STYLES
-    assert './first-shift-full-scenario.css?v=20260716.1' in INDEX
+    assert './first-shift-full-scenario.css?v=20260716.2' in INDEX

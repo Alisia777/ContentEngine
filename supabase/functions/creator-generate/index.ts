@@ -12,6 +12,9 @@ const INPUT_URL_TTL_SECONDS = 3_600;
 const OUTPUT_URL_TTL_SECONDS = 300;
 const PROVIDER_TIMEOUT_MS = 20_000;
 const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;
+const STARTING_RECONCILIATION_AFTER_MS = 90_000;
+const RECONCILIATION_TASK_EARLY_SKEW_MS = 2 * 60_000;
+const RECONCILIATION_TASK_LATE_SKEW_MS = 10 * 60_000;
 const OUTPUT_TIMEOUT_MS = 120_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -47,6 +50,7 @@ const FAILURE_CODES = new Set([
   "provider_task_failed",
   "provider_timeout",
   "provider_response_invalid",
+  "provider_submission_not_found",
   "output_download_failed",
   "output_validation_failed",
   "output_upload_failed",
@@ -74,7 +78,19 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      creator_real_generation_reconciliation_context: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_update_real_generation: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_mark_real_generation_reconciliation_required: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_reconcile_real_generation: {
         Args: { p_payload: Json };
         Returns: Json;
       };
@@ -131,6 +147,28 @@ type StatusPayload = {
   job_id: string;
 };
 
+type ReconcilePayload = {
+  action: "reconcile";
+  organization_id: string;
+  job_id: string;
+  incident_id: string;
+  idempotency_key: string;
+  resolution: "attach_existing_task" | "confirm_no_submission";
+  provider_task_id?: string;
+  evidence_reference: string;
+  reason: string;
+  confirmation:
+    | "RUNWAY_TASK_ID_VERIFIED"
+    | "RUNWAY_NO_TASK_VERIFIED";
+};
+
+type ReconciliationContext = {
+  actorId: string;
+  incidentId: string;
+  startingAt: string;
+  requiredAt: string;
+};
+
 type StartJob = {
   id: string;
   batchId: string;
@@ -163,6 +201,13 @@ type StatusJob = {
   outputObjectName: string;
   outputMediaId: string | null;
   failureCode: string | null;
+  submissionState: string | null;
+  reconciliationRequired: boolean;
+  reconciliationIncidentId: string | null;
+  reconciliationRequiredAt: string | null;
+  reconciliationReasonCode: string | null;
+  reconciliationResolution: string | null;
+  canReconcile: boolean;
   updatedAt: string;
 };
 
@@ -182,6 +227,13 @@ type SafeJob = {
   output_object_name: string;
   output_media_id: string | null;
   failure_code: string | null;
+  submission_state: string | null;
+  reconciliation_required: boolean;
+  reconciliation_incident_id: string | null;
+  reconciliation_required_at: string | null;
+  reconciliation_reason_code: string | null;
+  reconciliation_resolution: string | null;
+  can_reconcile: boolean;
   updated_at: string;
 };
 
@@ -368,6 +420,52 @@ function readStatusPayload(value: unknown): StatusPayload | null {
   return value as StatusPayload;
 }
 
+function readReconcilePayload(value: unknown): ReconcilePayload | null {
+  if (!isRecord(value)) return null;
+  const required = new Set([
+    "action",
+    "organization_id",
+    "job_id",
+    "incident_id",
+    "idempotency_key",
+    "resolution",
+    "evidence_reference",
+    "reason",
+    "confirmation",
+  ]);
+  const allowed = new Set([...required, "provider_task_id"]);
+  if (
+    !hasOnlyKeys(value, allowed) ||
+    ![...required].every((key) => Object.hasOwn(value, key))
+  ) {
+    return null;
+  }
+  const attach = value.resolution === "attach_existing_task";
+  const noSubmission = value.resolution === "confirm_no_submission";
+  if (
+    value.action !== "reconcile" ||
+    !isUuid(value.organization_id) ||
+    !isUuid(value.job_id) ||
+    !isUuid(value.incident_id) ||
+    typeof value.idempotency_key !== "string" ||
+    !IDEMPOTENCY_PATTERN.test(value.idempotency_key) ||
+    (!attach && !noSubmission) ||
+    !isBoundedText(value.evidence_reference, 8, 500) ||
+    !isBoundedText(value.reason, 20, 1_000) ||
+    (attach && (
+      !isValidTaskId(value.provider_task_id) ||
+      value.confirmation !== "RUNWAY_TASK_ID_VERIFIED"
+    )) ||
+    (noSubmission && (
+      Object.hasOwn(value, "provider_task_id") ||
+      value.confirmation !== "RUNWAY_NO_TASK_VERIFIED"
+    ))
+  ) {
+    return null;
+  }
+  return value as ReconcilePayload;
+}
+
 function rpcPayload(payload: StartPayload | StatusPayload): Json {
   const { action: _action, ...rest } = payload;
   return rest as Json;
@@ -458,6 +556,11 @@ function readStatusJob(value: unknown): StatusJob | null {
   const actualCostMinor = job.actual_cost_minor;
   const outputMediaId = job.output_media_id;
   const failureCode = job.failure_code;
+  const submissionState = job.submission_state;
+  const reconciliationIncidentId = job.reconciliation_incident_id;
+  const reconciliationRequiredAt = job.reconciliation_required_at;
+  const reconciliationReasonCode = job.reconciliation_reason_code;
+  const reconciliationResolution = job.reconciliation_resolution;
   const sku = readRunwaySku(job);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) ||
@@ -472,6 +575,25 @@ function readStatusJob(value: unknown): StatusJob | null {
     (outputMediaId !== null && !isUuid(outputMediaId)) ||
     (failureCode !== null &&
       (typeof failureCode !== "string" || !FAILURE_CODES.has(failureCode))) ||
+    (submissionState !== null &&
+      (typeof submissionState !== "string" ||
+        !["unknown", "confirmed_submitted", "confirmed_not_submitted"].includes(
+          submissionState,
+        ))) ||
+    typeof job.reconciliation_required !== "boolean" ||
+    (reconciliationIncidentId !== null &&
+      !isUuid(reconciliationIncidentId)) ||
+    (reconciliationRequiredAt !== null &&
+      (typeof reconciliationRequiredAt !== "string" ||
+        !Number.isFinite(Date.parse(reconciliationRequiredAt)))) ||
+    (reconciliationReasonCode !== null &&
+      !isBoundedText(reconciliationReasonCode, 8, 80)) ||
+    (reconciliationResolution !== null &&
+      (typeof reconciliationResolution !== "string" ||
+        !["attach_existing_task", "confirm_no_submission"].includes(
+          reconciliationResolution,
+        ))) ||
+    typeof job.can_reconcile !== "boolean" ||
     typeof job.updated_at !== "string" ||
     !Number.isFinite(Date.parse(job.updated_at))
   ) {
@@ -493,7 +615,45 @@ function readStatusJob(value: unknown): StatusJob | null {
     outputObjectName: job.output_object_name,
     outputMediaId,
     failureCode,
+    submissionState,
+    reconciliationRequired: job.reconciliation_required,
+    reconciliationIncidentId,
+    reconciliationRequiredAt,
+    reconciliationReasonCode,
+    reconciliationResolution,
+    canReconcile: job.can_reconcile,
     updatedAt: job.updated_at,
+  };
+}
+
+function readReconciliationContext(
+  value: unknown,
+  payload: ReconcilePayload,
+): ReconciliationContext | null {
+  if (
+    !isRecord(value) || value.ok !== true || !isUuid(value.actor_id) ||
+    !isRecord(value.job)
+  ) {
+    return null;
+  }
+  const job = value.job;
+  if (
+    job.id !== payload.job_id ||
+    job.organization_id !== payload.organization_id ||
+    job.status !== "starting" ||
+    job.reconciliation_incident_id !== payload.incident_id ||
+    typeof job.starting_at !== "string" ||
+    !Number.isFinite(Date.parse(job.starting_at)) ||
+    typeof job.reconciliation_required_at !== "string" ||
+    !Number.isFinite(Date.parse(job.reconciliation_required_at))
+  ) {
+    return null;
+  }
+  return {
+    actorId: value.actor_id,
+    incidentId: job.reconciliation_incident_id,
+    startingAt: job.starting_at,
+    requiredAt: job.reconciliation_required_at,
   };
 }
 
@@ -514,6 +674,13 @@ function safeJob(job: StatusJob): SafeJob {
     output_object_name: job.outputObjectName,
     output_media_id: job.outputMediaId,
     failure_code: job.failureCode,
+    submission_state: job.submissionState,
+    reconciliation_required: job.reconciliationRequired,
+    reconciliation_incident_id: job.reconciliationIncidentId,
+    reconciliation_required_at: job.reconciliationRequiredAt,
+    reconciliation_reason_code: job.reconciliationReasonCode,
+    reconciliation_resolution: job.reconciliationResolution,
+    can_reconcile: job.canReconcile,
     updated_at: job.updatedAt,
   };
 }
@@ -676,14 +843,18 @@ function validateSupabaseSignedUrl(value: unknown): string | null {
 
 function parseRunwayTask(
   value: unknown,
-): { id: string; status: string } | null {
+): { id: string; status: string; createdAt: string | null } | null {
   if (
     !isRecord(value) || !isValidTaskId(value.id) ||
     typeof value.status !== "string"
   ) {
     return null;
   }
-  return { id: value.id, status: value.status };
+  const createdAt = typeof value.createdAt === "string" &&
+      Number.isFinite(Date.parse(value.createdAt))
+    ? value.createdAt
+    : null;
+  return { id: value.id, status: value.status, createdAt };
 }
 
 function parseCreatedRunwayTask(value: unknown): { id: string } | null {
@@ -762,6 +933,58 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       return error ? null : data;
     } catch {
       return null;
+    }
+  };
+
+  const markReconciliationRequired = async (
+    jobId: string,
+    reasonCode:
+      | "provider_create_timeout"
+      | "provider_create_http_unknown"
+      | "provider_create_response_unknown"
+      | "provider_create_state_stale",
+  ): Promise<boolean> => {
+    try {
+      const { data, error } = await context.supabaseAdmin.rpc(
+        "system_mark_real_generation_reconciliation_required",
+        { p_payload: { job_id: jobId, reason_code: reasonCode } },
+      );
+      return error === null && isRecord(data) && data.ok === true;
+    } catch {
+      return false;
+    }
+  };
+
+  const readReconciliationAuthorization = async (
+    payload: ReconcilePayload,
+  ): Promise<ReconciliationContext | null> => {
+    try {
+      const { data, error } = await context.supabase.rpc(
+        "creator_real_generation_reconciliation_context",
+        {
+          p_payload: {
+            organization_id: payload.organization_id,
+            job_id: payload.job_id,
+          },
+        },
+      );
+      return error === null ? readReconciliationContext(data, payload) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const reconcileSystemJob = async (
+    payload: Record<string, Json>,
+  ): Promise<boolean> => {
+    try {
+      const { data, error } = await context.supabaseAdmin.rpc(
+        "system_reconcile_real_generation",
+        { p_payload: payload },
+      );
+      return error === null && isRecord(data) && data.ok === true;
+    } catch {
+      return false;
     }
   };
 
@@ -859,6 +1082,19 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       });
     }
     if (current.status === "starting") {
+      if (
+        !current.reconciliationRequired &&
+        Date.now() - Date.parse(current.updatedAt) >=
+          STARTING_RECONCILIATION_AFTER_MS
+      ) {
+        await markReconciliationRequired(
+          current.id,
+          "provider_create_state_stale",
+        );
+        current =
+          await readCurrentStatus(payload.organization_id, payload.job_id) ??
+            current;
+      }
       return json(request, {
         ok: true,
         ...(batch ? { batch } : {}),
@@ -1124,6 +1360,138 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
     });
   };
 
+  const handleReconciliation = async (
+    payload: ReconcilePayload,
+  ): Promise<Response> => {
+    const authorization = await readReconciliationAuthorization(payload);
+    if (authorization === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_reconciliation_forbidden" },
+        403,
+      );
+    }
+
+    const systemPayload: Record<string, Json> = {
+      job_id: payload.job_id,
+      actor_id: authorization.actorId,
+      incident_id: authorization.incidentId,
+      idempotency_key: payload.idempotency_key,
+      resolution: payload.resolution,
+      evidence_reference: payload.evidence_reference,
+      reason: payload.reason,
+    };
+
+    if (payload.resolution === "attach_existing_task") {
+      const secret = runwaySecret();
+      if (secret === null) {
+        return json(
+          request,
+          { ok: false, code: "provider_unavailable" },
+          503,
+        );
+      }
+      let providerResponse: Response;
+      try {
+        providerResponse = await fetchWithTimeout(
+          `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`,
+          {
+            method: "GET",
+            redirect: "manual",
+            headers: {
+              authorization: `Bearer ${secret}`,
+              "x-runway-version": RUNWAY_API_VERSION,
+            },
+          },
+          PROVIDER_TIMEOUT_MS,
+        );
+      } catch {
+        return json(
+          request,
+          { ok: false, code: "provider_unavailable" },
+          503,
+        );
+      }
+      if (!providerResponse.ok) {
+        await providerResponse.body?.cancel();
+        return json(
+          request,
+          {
+            ok: false,
+            code: providerResponse.status === 404
+              ? "generation_reconciliation_task_not_found"
+              : "provider_unavailable",
+          },
+          providerResponse.status === 404 ? 422 : 503,
+        );
+      }
+      let providerValue: unknown;
+      try {
+        providerValue = await readProviderJson(providerResponse);
+      } catch {
+        return json(
+          request,
+          { ok: false, code: "provider_unavailable" },
+          503,
+        );
+      }
+      const providerTask = parseRunwayTask(providerValue);
+      const allowedStatuses = new Set([
+        "PENDING",
+        "THROTTLED",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELED",
+        "CANCELLED",
+      ]);
+      const startingAt = Date.parse(authorization.startingAt);
+      const providerCreatedAt = providerTask?.createdAt
+        ? Date.parse(providerTask.createdAt)
+        : Number.NaN;
+      if (
+        providerTask === null ||
+        providerTask.id !== payload.provider_task_id ||
+        !allowedStatuses.has(providerTask.status) ||
+        !Number.isFinite(providerCreatedAt) ||
+        providerCreatedAt < startingAt - RECONCILIATION_TASK_EARLY_SKEW_MS ||
+        providerCreatedAt > startingAt + RECONCILIATION_TASK_LATE_SKEW_MS ||
+        providerCreatedAt > Date.now() + 60_000
+      ) {
+        return json(
+          request,
+          { ok: false, code: "generation_reconciliation_task_mismatch" },
+          422,
+        );
+      }
+      systemPayload.provider_task_id = providerTask.id;
+      systemPayload.provider_task_created_at = providerTask.createdAt;
+      systemPayload.provider_status = providerTask.status;
+    } else if (
+      Date.now() - Date.parse(authorization.requiredAt) < 2 * 60_000
+    ) {
+      return json(
+        request,
+        { ok: false, code: "generation_reconciliation_wait_required" },
+        409,
+      );
+    }
+
+    if (!(await reconcileSystemJob(systemPayload))) {
+      return json(
+        request,
+        { ok: false, code: "generation_reconciliation_rejected" },
+        409,
+      );
+    }
+    return await respondWithCurrent(payload.organization_id, payload.job_id);
+  };
+
+  const reconcilePayload = readReconcilePayload(body);
+  if (reconcilePayload !== null) {
+    return await handleReconciliation(reconcilePayload);
+  }
+
   const statusPayload = readStatusPayload(body);
   if (statusPayload !== null) return await handleStatus(statusPayload);
 
@@ -1242,6 +1610,10 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
       PROVIDER_TIMEOUT_MS,
     );
   } catch {
+    await markReconciliationRequired(
+      startJob.id,
+      "provider_create_timeout",
+    );
     return await respondProviderUnavailable(
       startPayload.organization_id,
       startJob.id,
@@ -1261,6 +1633,10 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
         batch,
       );
     }
+    await markReconciliationRequired(
+      startJob.id,
+      "provider_create_http_unknown",
+    );
     return await respondProviderUnavailable(
       startPayload.organization_id,
       startJob.id,
@@ -1272,6 +1648,10 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
   try {
     createdValue = await readProviderJson(createResponse);
   } catch {
+    await markReconciliationRequired(
+      startJob.id,
+      "provider_create_response_unknown",
+    );
     return await respondProviderUnavailable(
       startPayload.organization_id,
       startJob.id,
@@ -1280,6 +1660,10 @@ const creatorGenerate = withSupabase<ContentEngineDatabase>({
   }
   const providerTask = parseCreatedRunwayTask(createdValue);
   if (providerTask === null) {
+    await markReconciliationRequired(
+      startJob.id,
+      "provider_create_response_unknown",
+    );
     return await respondProviderUnavailable(
       startPayload.organization_id,
       startJob.id,

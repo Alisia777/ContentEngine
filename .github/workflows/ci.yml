@@ -104,6 +104,7 @@ jobs:
               "creator-set-password",
               "creator-generate",
               "creator-product-research",
+              "creator-content-review",
           ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
@@ -125,6 +126,7 @@ jobs:
           deno fmt --check supabase/functions/creator-set-password
           deno fmt --check supabase/functions/creator-generate
           deno fmt --check supabase/functions/creator-product-research
+          deno fmt --check supabase/functions/creator-content-review
 
       - name: Lint function
         run: |
@@ -132,6 +134,7 @@ jobs:
           deno lint supabase/functions/creator-set-password/index.ts
           deno lint supabase/functions/creator-generate/index.ts
           deno lint supabase/functions/creator-product-research/index.ts
+          deno lint supabase/functions/creator-content-review/index.ts
 
       - name: Type-check function
         run: |
@@ -139,6 +142,7 @@ jobs:
           deno check supabase/functions/creator-set-password/index.ts
           deno check supabase/functions/creator-generate/index.ts
           deno check supabase/functions/creator-product-research/index.ts
+          deno check supabase/functions/creator-content-review/index.ts
 
   reference-postgres-migration:
     name: Validate reference Alembic/PostgreSQL model
