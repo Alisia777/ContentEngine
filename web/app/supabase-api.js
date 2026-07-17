@@ -55,6 +55,7 @@ const REAL_GENERATION_FUNCTION = "creator-generate";
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const ACCESS_FUNCTION = "creator-access";
+const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
 const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
     duration_seconds: 5,
@@ -512,6 +513,52 @@ export class CreatorApi {
       });
     }
     return source;
+  }
+
+  async requestPublicPasswordRecovery({ email, requestId }) {
+    const normalizedEmail = normalizeAccessEmail(email);
+    const normalizedRequestId = String(requestId || "").trim();
+    if (!normalizedEmail) {
+      throw new CreatorApiError("Укажите рабочую почту в формате name@company.ru.", {
+        code: "public_recovery_email_invalid",
+      });
+    }
+    if (!isUuid(normalizedRequestId)) {
+      throw new CreatorApiError("Не удалось подготовить безопасный номер запроса.", {
+        code: "public_recovery_request_id_invalid",
+      });
+    }
+
+    return this.invokePublicRecovery("request", {
+      email: normalizedEmail,
+      request_id: normalizedRequestId,
+    });
+  }
+
+  async getPublicRecoveryReceipt({ receiptToken } = {}) {
+    const normalizedReceiptToken = normalizePublicRecoveryToken(receiptToken);
+    if (!normalizedReceiptToken) {
+      throw new CreatorApiError("Сохранённая квитанция недоступна.", {
+        code: "public_recovery_receipt_invalid",
+      });
+    }
+    return this.invokePublicRecovery("status", { receipt_token: normalizedReceiptToken });
+  }
+
+  async invokePublicRecovery(action, payload) {
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(PUBLIC_RECOVERY_FUNCTION, {
+        body: { action, ...payload },
+      }));
+    } catch {
+      throw new CreatorApiError("Сервис восстановления временно не ответил. Сохраните квитанцию и повторите проверку позже.", {
+        code: "public_recovery_request_failed",
+      });
+    }
+    if (error) throw await publicRecoveryFunctionError(error);
+    return normalizePublicRecoveryResponse(data, action, payload);
   }
 
   myWork(options = {}) {
@@ -1685,6 +1732,100 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     String(value || ""),
   );
+}
+
+function normalizePublicRecoveryToken(value) {
+  const token = String(value || "").trim();
+  if (token.length < 16 || token.length > 512 || !/^[a-z0-9._~-]+$/iu.test(token)) return "";
+  return token;
+}
+
+function normalizePublicRecoveryResponse(data, expectedAction, context = {}) {
+  const source = data?.data && typeof data.data === "object" && !Array.isArray(data.data)
+    ? data.data
+    : data;
+  const receipt = source?.receipt && typeof source.receipt === "object" && !Array.isArray(source.receipt)
+    ? source.receipt
+    : source;
+  const action = String(source?.action || receipt?.action || expectedAction).trim().toLowerCase();
+  const receiptToken = normalizePublicRecoveryToken(
+    receipt?.receipt_token || source?.receipt_token || context.receipt_token,
+  );
+  const requestId = String(
+    receipt?.request_id || source?.request_id || context.request_id || "",
+  ).trim();
+  const status = String(receipt?.status || source?.status || "accepted").trim().toLowerCase();
+  const retryAfterSeconds = Number(
+    receipt?.retry_after_seconds ?? source?.retry_after_seconds ?? 0,
+  );
+  const requestedAt = String(receipt?.requested_at || source?.requested_at || "").trim();
+  const cooldownCandidate = String(
+    receipt?.cooldown_until || source?.cooldown_until
+      || receipt?.retry_not_before || source?.retry_not_before || "",
+  ).trim();
+  const cooldownDate = cooldownCandidate ? new Date(cooldownCandidate) : null;
+  const requestedDate = requestedAt ? new Date(requestedAt) : null;
+
+  if (
+    !source
+    || typeof source !== "object"
+    || Array.isArray(source)
+    || source.ok !== true
+    || action !== expectedAction
+    || !receiptToken
+    || (expectedAction === "request" && !isUuid(requestId))
+    || !/^[a-z0-9_]{2,64}$/u.test(status)
+    || !Number.isInteger(retryAfterSeconds)
+    || retryAfterSeconds < 0
+    || retryAfterSeconds > 86_400
+    || (requestedDate && Number.isNaN(requestedDate.getTime()))
+    || (cooldownDate && Number.isNaN(cooldownDate.getTime()))
+  ) {
+    throw new CreatorApiError("Сервис восстановления вернул неполную квитанцию. Не запускайте новый запрос.", {
+      code: "public_recovery_response_invalid",
+    });
+  }
+
+  return {
+    receiptToken,
+    requestId,
+    status,
+    requestedAt: requestedDate?.toISOString() || new Date().toISOString(),
+    cooldownUntil: cooldownDate?.toISOString()
+      || new Date(Date.now() + retryAfterSeconds * 1000).toISOString(),
+    retryAfterSeconds,
+  };
+}
+
+async function publicRecoveryFunctionError(error) {
+  let code = String(error?.code || "public_recovery_request_failed");
+  let retryAfterSeconds = 0;
+  const response = error?.context;
+  if (response && typeof response.clone === "function") {
+    try {
+      const body = await response.clone().json();
+      if (body && typeof body === "object" && !Array.isArray(body)) {
+        const candidate = String(body.code || body.error?.code || "");
+        if (/^[a-z0-9_]{3,96}$/u.test(candidate)) code = candidate;
+        const retryCandidate = Number(body.retry_after_seconds || body.error?.retry_after_seconds);
+        if (Number.isInteger(retryCandidate) && retryCandidate > 0 && retryCandidate <= 86_400) {
+          retryAfterSeconds = retryCandidate;
+        }
+      }
+    } catch {
+      // Never expose account existence or raw Auth provider responses.
+    }
+  }
+  const retry = retryAfterSeconds
+    ? ` Повторная проверка станет доступна примерно через ${retryAfterSeconds} сек.`
+    : "";
+  const message = ["email_rate_limited", "public_recovery_rate_limited"].includes(code)
+    ? `Запрос уже принят сервером.${retry}`
+    : "Сервис восстановления временно не ответил. Квитанция сохранена; повторите проверку позже.";
+  return new CreatorApiError(message, {
+    code,
+    details: retryAfterSeconds ? { retry_after_seconds: retryAfterSeconds } : null,
+  });
 }
 
 async function accessFunctionError(error) {

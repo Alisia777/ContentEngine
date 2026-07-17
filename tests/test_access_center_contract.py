@@ -316,7 +316,9 @@ def test_manager_workspace_wires_server_inspection_repair_and_refresh() -> None:
         "async function submitPassword",
         1,
     )[0]
-    assert "resetPasswordForEmail" in public_reset
+    assert "resetPasswordForEmail" not in public_reset
+    assert "state.api.requestPublicPasswordRecovery" in public_reset
+    assert "persistPublicRecoveryReceipt" in public_reset
 
 
 def test_manager_dashboard_exposes_only_the_verified_access_center_action() -> None:

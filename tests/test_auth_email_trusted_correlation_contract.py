@@ -42,11 +42,14 @@ def test_recipient_window_is_never_exact_or_projected() -> None:
     assert "provider_message_id =" not in projection
 
 
-def test_access_retry_is_fail_closed_without_trusted_correlation() -> None:
+def test_access_retry_requires_actual_untrusted_provider_evidence_for_manual_review() -> None:
     assert "delivery_is_unresolved" in MIGRATION
     assert "delivery_snapshot ->> 'status' in ('reserved', 'accepted')" in MIGRATION
     assert "delivery_snapshot ->> 'correlation_status' = 'exact'" in MIGRATION
     assert "delivery_snapshot ->> 'correlation_basis' = 'provider_message_id'" in MIGRATION
+    assert "from content_factory.auth_email_delivery_events event" in MIGRATION
+    assert "event.correlation_status in ('ambiguous', 'unmatched')" in MIGRATION
+    assert "event.recipient = result ->> 'email'" in MIGRATION
     assert "result ->> 'recommended_action' in ('invite', 'recovery')" in MIGRATION
     assert "'{recommended_action}', '\"manual_review\"'::jsonb" in MIGRATION
 

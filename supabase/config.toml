@@ -98,6 +98,9 @@ verify_jwt = false
 [functions.creator-access]
 verify_jwt = true
 
+[functions.creator-recovery]
+verify_jwt = false
+
 [functions.auth-email-webhook]
 verify_jwt = false
 

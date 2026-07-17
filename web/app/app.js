@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260717.7";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260717.9";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -110,7 +110,8 @@ const AUTH_LINK_TIMEOUT_MESSAGE = "The auth service timed out. Retry this same l
 const HOME_SECTION_TIMEOUT_MS = 8_000;
 const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
-const RESET_RESEND_COOLDOWN_MS = 60_000;
+const PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY = "contentengine.public-recovery-receipt.v1";
+const PUBLIC_RECOVERY_PENDING_STATUSES = new Set(["requesting", "outcome_unknown", "provider_outcome_unknown"]);
 const MANAGER_DASHBOARD_MAX_AGE_MS = 60_000;
 const MANAGER_EMAIL_ACTION_COOLDOWN_MS = 60_000;
 const PASSWORD_CHANGE_REQUIRED_MARKER = "contentengine_password_change_required";
@@ -620,7 +621,7 @@ const state = {
   authPurpose: null,
   forcePassword: false,
   authLinkError: null,
-  resetReceipt: null,
+  resetReceipt: readStoredPublicRecoveryReceipt(),
   resetCountdownTimer: null,
   route: parseRoute(),
   routeTransition: true,
@@ -877,6 +878,7 @@ async function initialize() {
     },
   });
   state.api = new CreatorApi(state.supabase, CONFIG);
+  void restorePublicRecoveryReceipt();
 
   let authLink = null;
   try {
@@ -927,6 +929,13 @@ function bindGlobalEvents() {
         announce: false,
         rerender: true,
       });
+    }
+    if (event.key === PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY) {
+      state.resetReceipt = readStoredPublicRecoveryReceipt();
+      if (state.route.path === "/reset-password") {
+        renderResetRequest();
+        void restorePublicRecoveryReceipt();
+      }
     }
   });
   window.setInterval(
@@ -1641,12 +1650,22 @@ function renderLogin(message = "", rememberedEmail = "") {
 
 function renderResetRequest(message = "") {
   const receipt = state.resetReceipt;
-  const resendAt = Number(receipt?.resendAt || 0);
+  const resendAt = Number(receipt?.cooldownUntil || 0);
   const coolingDown = resendAt > Date.now();
-  const receiptMarkup = receipt ? alertMarkup(
-    `Запрос принят ${formatTime(receipt.requestedAt)} для ${receipt.maskedEmail}. Это ещё не подтверждение доставки письма. Проверьте «Входящие» и «Спам»; повторная отправка станет доступна ниже.`,
-    "warning",
-  ) : "";
+  const outcomeUnknown = PUBLIC_RECOVERY_PENDING_STATUSES.has(String(receipt?.status || ""));
+  const retrySameRequest = shouldRetrySamePublicRecoveryRequest(receipt);
+  const requestedTime = receipt?.requestedAt ? ` ${formatTime(receipt.requestedAt)}` : "";
+  const addressHint = receipt?.maskedEmail ? ` для ${receipt.maskedEmail}` : "";
+  const receiptMarkup = receipt
+    ? alertMarkup(
+      outcomeUnknown
+        ? retrySameRequest
+          ? "Связь прервалась до подтверждения результата. Номер запроса сохранён. Повторите с тем же адресом: сервер проверит тот же запрос и не создаст дубликат."
+          : "Сервер сохранил квитанцию, но почтовый сервис не подтвердил итог. Дождитесь окончания защитного интервала; затем можно создать новый запрос."
+        : `Запрос принят сервером${requestedTime}${addressHint}. Это квитанция запроса, а не подтверждение доставки письма. Проверьте «Входящие» и «Спам».`,
+      outcomeUnknown ? "warning" : "success",
+    )
+    : "";
   app.innerHTML = authLayout(`
     <section class="auth-card" aria-labelledby="reset-title">
       <p class="eyebrow">Восстановление доступа</p>
@@ -1657,12 +1676,12 @@ function renderResetRequest(message = "") {
       <form id="reset-form" class="form-stack" novalidate>
         <label class="field">
           <span>Рабочая почта</span>
-          <input name="email" type="email" autocomplete="email" inputmode="email" required placeholder="name@company.ru" value="${escapeHtml(receipt?.email || "")}" />
+          <input name="email" type="email" autocomplete="email" inputmode="email" required placeholder="name@company.ru" />
         </label>
-        <button id="reset-submit" class="btn btn-block" type="submit" data-resend-at="${resendAt}" ${coolingDown ? "disabled" : ""}>${coolingDown ? "Повторить через 60 с" : receipt ? "Отправить ещё раз" : "Получить ссылку"}</button>
+        <button id="reset-submit" class="btn btn-block" type="submit" data-resend-at="${resendAt}" ${coolingDown ? "disabled" : ""}>${coolingDown ? "Повторная отправка временно закрыта" : retrySameRequest ? "Проверить тот же запрос" : receipt ? "Отправить ещё раз" : "Получить ссылку"}</button>
       </form>
       <div class="auth-actions"><a class="text-link" href="#/login">Вернуться ко входу</a></div>
-      <p class="auth-footer">Сотрудник поддержки никогда не попросит прислать пароль или содержимое ссылки.</p>
+      <p class="auth-footer">Ответ одинаков для любого адреса и не раскрывает наличие аккаунта. Сотрудник поддержки никогда не попросит прислать пароль или содержимое ссылки.</p>
     </section>
   `);
   focusFirst("#reset-form input");
@@ -8143,27 +8162,63 @@ async function submitLogin(form) {
 }
 
 async function submitReset(form) {
-  const email = String(new FormData(form).get("email") || "").trim();
-  setFormBusy(form, true, "Отправляем…");
-  try {
-    const { error } = await withUiTimeout(
-      state.supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: authRedirectUrl("recovery"),
-      }),
-      AUTH_REQUEST_TIMEOUT_MS,
-      "Сервер восстановления не ответил за 15 секунд. Обновите страницу и повторите.",
-    );
-    if (error) throw error;
-    const requestedAt = new Date().toISOString();
-    state.resetReceipt = {
-      email,
-      maskedEmail: maskEmail(email),
-      requestedAt,
-      resendAt: Date.now() + RESET_RESEND_COOLDOWN_MS,
+  const email = normalizeAccessCenterEmail(new FormData(form).get("email"));
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(email) || email.length > 254) {
+    toast("Укажите рабочую почту в формате name@company.ru.", "error");
+    return;
+  }
+
+  const previousReceipt = state.resetReceipt;
+  const retrySameRequest = shouldRetrySamePublicRecoveryRequest(previousReceipt);
+  const requestId = retrySameRequest && previousReceipt?.requestId
+    ? previousReceipt.requestId
+    : crypto.randomUUID();
+  state.resetReceipt = retrySameRequest
+    ? {
+      ...previousReceipt,
+      requestId,
+      status: "requesting",
+    }
+    : {
+      receiptToken: "",
+      requestId,
+      status: "requesting",
+      cooldownUntil: 0,
+      maskedEmail: "",
     };
+  persistPublicRecoveryReceipt(state.resetReceipt);
+  setFormBusy(form, true, retrySameRequest ? "Проверяем тот же запрос…" : "Отправляем…");
+
+  try {
+    const receipt = await withUiTimeout(
+      state.api.requestPublicPasswordRecovery({ email, requestId }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      "Сервер восстановления пока не подтвердил результат.",
+    );
+    state.resetReceipt = publicRecoveryReceiptState(receipt, {
+      maskedEmail: maskEmail(email),
+    });
+    persistPublicRecoveryReceipt(state.resetReceipt);
     renderResetRequest();
   } catch (error) {
-    toast(authErrorMessage(error), "error");
+    const retryAfterSeconds = Number(error?.details?.retry_after_seconds || 0);
+    const serverCooldownUntil = Number.isInteger(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Date.now() + retryAfterSeconds * 1000
+      : 0;
+    state.resetReceipt = {
+      ...state.resetReceipt,
+      status: "outcome_unknown",
+      cooldownUntil: Math.max(
+        Number(state.resetReceipt?.cooldownUntil || 0),
+        serverCooldownUntil,
+      ),
+    };
+    persistPublicRecoveryReceipt(state.resetReceipt);
+    renderResetRequest();
+    toast(
+      "Ответ сервера не подтверждён. Квитанция и номер запроса сохранены — введите тот же адрес и повторите проверку.",
+      "error",
+    );
   } finally {
     if (form.isConnected) setFormBusy(form, false);
   }
@@ -9944,7 +9999,7 @@ function clearAuthenticatedState() {
   state.forcePassword = false;
   state.authPurpose = null;
   state.authLinkError = null;
-  state.resetReceipt = null;
+  state.resetReceipt = readStoredPublicRecoveryReceipt();
   state.resetCountdownTimer = null;
   state.examResult = null;
   state.courseCheckResults = {};
@@ -10456,6 +10511,91 @@ function formatDate(value, withTime = false) {
   }).format(date);
 }
 
+function shouldRetrySamePublicRecoveryRequest(receipt) {
+  return Boolean(
+    receipt?.requestId
+    && !receipt?.receiptToken
+    && PUBLIC_RECOVERY_PENDING_STATUSES.has(String(receipt?.status || "")),
+  );
+}
+function publicRecoveryReceiptState(receipt, { maskedEmail = "" } = {}) {
+  const cooldownDate = new Date(receipt?.cooldownUntil || "");
+  return {
+    receiptToken: String(receipt?.receiptToken || ""),
+    requestId: String(receipt?.requestId || ""),
+    status: String(receipt?.status || "accepted"),
+    requestedAt: String(receipt?.requestedAt || ""),
+    cooldownUntil: Number.isNaN(cooldownDate.getTime()) ? 0 : cooldownDate.getTime(),
+    maskedEmail: String(maskedEmail || ""),
+  };
+}
+
+function readStoredPublicRecoveryReceipt() {
+  let parsed;
+  try {
+    parsed = JSON.parse(
+      safeStorageGet(window.localStorage, PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY) || "null",
+    );
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const receiptToken = String(parsed.receipt_token || "").trim();
+  const requestId = String(parsed.request_id || "").trim();
+  const status = String(parsed.status || "").trim().toLowerCase();
+  const cooldownUntil = Number(parsed.cooldown_until || 0);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId)
+    || (receiptToken && (
+      receiptToken.length < 16
+      || receiptToken.length > 512
+      || !/^[a-z0-9._~-]+$/iu.test(receiptToken)
+    ))
+    || !/^[a-z0-9_]{2,64}$/u.test(status)
+    || !Number.isFinite(cooldownUntil)
+    || cooldownUntil < 0
+  ) return null;
+  return { receiptToken, requestId, status, cooldownUntil };
+}
+
+function persistPublicRecoveryReceipt(receipt) {
+  const requestId = String(receipt?.requestId || "").trim();
+  if (!requestId) return;
+  safeStorageSet(
+    window.localStorage,
+    PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY,
+    JSON.stringify({
+      receipt_token: String(receipt?.receiptToken || ""),
+      request_id: requestId,
+      status: String(receipt?.status || "outcome_unknown"),
+      cooldown_until: Math.max(0, Number(receipt?.cooldownUntil || 0)),
+    }),
+  );
+}
+
+async function restorePublicRecoveryReceipt() {
+  const current = state.resetReceipt;
+  if (!state.api || !current?.receiptToken) return;
+  try {
+    const receipt = await withUiTimeout(
+      state.api.getPublicRecoveryReceipt({ receiptToken: current.receiptToken }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      "Сервер квитанций временно не ответил.",
+    );
+    state.resetReceipt = publicRecoveryReceiptState(
+      {
+        ...receipt,
+        requestId: receipt.requestId || current.requestId,
+      },
+      { maskedEmail: current.maskedEmail || "" },
+    );
+    persistPublicRecoveryReceipt(state.resetReceipt);
+    if (state.route.path === "/reset-password") renderResetRequest();
+  } catch (error) {
+    console.warn("Public recovery receipt refresh failed; preserved local receipt", error);
+  }
+}
+
 function formatTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "только что";
@@ -10488,7 +10628,9 @@ function startResetResendCountdown() {
     const remaining = Math.max(0, Number(button.dataset.resendAt || 0) - Date.now());
     if (remaining <= 0) {
       button.disabled = false;
-      button.textContent = state.resetReceipt ? "Отправить ещё раз" : "Получить ссылку";
+      button.textContent = shouldRetrySamePublicRecoveryRequest(state.resetReceipt)
+        ? "Проверить тот же запрос"
+        : state.resetReceipt ? "Отправить ещё раз" : "Получить ссылку";
       window.clearInterval(state.resetCountdownTimer);
       state.resetCountdownTimer = null;
       return;

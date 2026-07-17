@@ -352,10 +352,23 @@ begin
     and not (
       delivery_snapshot ->> 'correlation_status' = 'exact'
       and delivery_snapshot ->> 'correlation_basis' = 'provider_message_id'
+    )
+    and exists (
+      select 1
+      from content_factory.auth_email_delivery_events event
+      where event.recipient = result ->> 'email'
+        and event.correlation_status in ('ambiguous', 'unmatched')
+        and event.event_created_at >=
+          (delivery_snapshot ->> 'requested_at')::timestamptz
+            - interval '5 minutes'
+        and event.event_created_at <=
+          (delivery_snapshot ->> 'requested_at')::timestamptz
+            + interval '72 hours'
     );
 
-  -- Keep the short pending-delivery cooldown, but once it expires never turn
-  -- an ambiguous/unmatched accepted send into an automatic resend action.
+  -- Keep the short pending-delivery cooldown. Once it expires, only an actual
+  -- ambiguous/unmatched provider event blocks an automatic resend. A historical
+  -- accepted_unconfirmed attempt with no callback evidence remains repairable.
   if delivery_is_unresolved
      and result ->> 'recommended_action' in ('invite', 'recovery') then
     result := jsonb_set(
