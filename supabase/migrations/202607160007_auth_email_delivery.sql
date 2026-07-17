@@ -1224,6 +1224,7 @@ begin
 
   with delivery_candidates as (
     select
+      attempt.id as candidate_id,
       attempt.requested_at,
       attempt.created_at,
       jsonb_build_object(
@@ -1244,6 +1245,7 @@ begin
       and attempt.duplicate_of_attempt_id is null
     union all
     select
+      attempt.id as candidate_id,
       attempt.requested_at,
       attempt.created_at,
       jsonb_build_object(
@@ -1279,7 +1281,13 @@ begin
   )
   select candidate.snapshot into delivery_snapshot
   from delivery_candidates candidate
-  order by candidate.requested_at desc, candidate.created_at desc
+  order by
+    candidate.requested_at desc,
+    candidate.created_at desc,
+    content_factory_private.auth_email_delivery_rank(
+      candidate.snapshot ->> 'delivery_status'
+    ) desc,
+    candidate.candidate_id desc
   limit 1;
 
   if delivery_snapshot is not null
