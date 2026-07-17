@@ -728,6 +728,26 @@ values (
     'idempotency_key', 'spend-policy-monthly-limit-0001'
   ))
 );
+insert into spend_test_context (name, payload)
+values (
+  'default_campaign_policy_v2',
+  public.creator_update_generation_campaign_spend_policy(jsonb_build_object(
+    'organization_id', 'a1000000-0000-4000-8000-000000000001',
+    'campaign_id', (
+      select id
+      from content_factory.generation_campaigns
+      where organization_id = 'a1000000-0000-4000-8000-000000000001'
+        and kind = 'default'
+    ),
+    'paid_generation_enabled', true,
+    'daily_limit_minor', 100,
+    'monthly_limit_minor', 100,
+    'per_request_limit_minor', 25,
+    'expected_version', 1,
+    'reason', 'Keep the compatibility campaign aligned with the raised organization day limit.',
+    'idempotency_key', 'spend-default-campaign-monthly-limit-0001'
+  ))
+);
 reset role;
 
 -- Seed a committed event on another day in the same accounting month. This
