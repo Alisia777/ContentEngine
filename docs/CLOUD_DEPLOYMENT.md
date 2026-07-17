@@ -118,7 +118,7 @@ encrypted secrets in that environment:
 | `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 | `RUNWAYML_API_SECRET` | Server-only provider key synchronized to Supabase for explicitly confirmed paid video generation |
 | `OPENAI_API_KEY` | Server-only provider key synchronized to Supabase for explicitly confirmed product research with web search and image analysis |
-| `CONTENTENGINE_WORKER_SECRET` | Random 32+ character secret shared only by the scheduled GitHub worker and the private Edge worker |
+| `CONTENTENGINE_WORKER_SECRET` | Random 32+ character secret synchronized to the private Edge worker and Supabase Vault for native Cron dispatch |
 
 Configure these as repository **Variables**, because the independent Pages
 build job must read them:
@@ -168,10 +168,21 @@ organization scope before using Auth Admin operations.
 
 ### Durable background work and notification delivery
 
-`Dispatch background content work` runs every five minutes and may also be
-started manually from `main`. It polls only already-submitted Runway task IDs;
-it never calls the paid generation start action and never selects `queued` or
-`starting` generation rows.
+Supabase Cron runs `contentengine-background-worker-v1` every two minutes and
+uses `pg_net` plus two named Vault secrets to invoke the private Edge worker.
+The browser and GitHub scheduler are not in the production processing path.
+The GitHub `Watch background content health` workflow remains an hourly
+provider-free Edge endpoint/outbox smoke and a manual smoke entrypoint. It does
+not validate or replace the native Cron schedule. The
+worker polls only already-submitted Runway task IDs; it never calls the paid
+generation start action and never selects `queued` or `starting` generation
+rows for a paid retry.
+
+Each invocation first obtains a database-owned lease and records a durable run
+and heartbeat. Generation poll timing, attempts, last failure and stalled state
+are also server-owned. Overlapping invocations do not claim the same work, and
+a stalled provider task creates one deduplicated operator notification instead
+of silently polling forever or repeating the paid POST.
 
 Before dispatch, the worker calls the service-role-only lease reconciler.
 Expired product-research and content-review leases become terminal
@@ -186,11 +197,12 @@ commits but the RPC response is lost, the next cycle observes the existing
 notification and marks the outbox row delivered. After 12 failed attempts the
 row remains as a visible failed outbox item; it is never silently deleted.
 
-The scheduled workflow prints only aggregate outbox counts. Any unresolved or
-failed delivery makes the run fail with
-`notification_unresolved=<count>` so the production Actions history remains
-an operational alert. Never put the worker secret, recipient identifiers or
-notification bodies into workflow output.
+The smoke workflow prints only aggregate queue and outbox counts. Endpoint,
+authentication, database or unresolved-notification failures make it fail; the
+manager health RPC separately reports stale heartbeats and stalled generation.
+Never put the worker secret, recipient identifiers or notification bodies into
+workflow output. The complete rotation, incident and verification procedure is in
+[`BACKGROUND_WORKER_OPERATIONS.md`](BACKGROUND_WORKER_OPERATIONS.md).
 
 ## Existing paid Supabase project
 

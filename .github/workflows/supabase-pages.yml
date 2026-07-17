@@ -244,6 +244,12 @@ jobs:
           --project-ref "$SUPABASE_PROJECT_REF"
           --no-verify-jwt
 
+      - name: Configure native Supabase background worker cron
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
+        run: python scripts/configure_supabase_background_cron.py
+
       - name: Deploy authenticated account access function
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

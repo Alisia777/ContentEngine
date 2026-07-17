@@ -54,7 +54,8 @@ def test_generation_worker_only_retrieves_existing_runway_tasks() -> None:
     source = _text(WORKER)
 
     assert '.in("status", ["submitted", "processing"])' in source
-    assert 'body: {\n        action: "status",' in source
+    generation_target = source.split('kind: "generation",', 1)[1].split("})),", 1)[0]
+    assert 'action: "status",' in generation_target
     assert "creator-generate" in source
     assert "image_to_video" not in source
     assert '"action": "start"' not in source
@@ -180,22 +181,19 @@ def test_deployment_syncs_worker_secret_and_deploys_only_worker_without_jwt() ->
         assert "--no-verify-jwt" not in step["run"]
 
 
-def test_scheduled_dispatch_is_non_overlapping_secret_scoped_and_safe() -> None:
+def test_health_watchdog_is_non_overlapping_secret_scoped_and_provider_free() -> None:
     text = _text(SCHEDULE)
     workflow = yaml.safe_load(text)
     dispatch = workflow["jobs"]["dispatch"]
     triggers = workflow.get("on") or workflow.get(True)
 
-    assert 'cron: "*/5 * * * *"' in text
+    assert 'cron: "17 * * * *"' in text
     assert workflow["permissions"] == {}
     assert workflow["concurrency"] == {
-        "group": "production-background-content-worker",
+        "group": "production-background-content-worker-watchdog",
         "cancel-in-progress": False,
     }
-    smoke_input = triggers["workflow_dispatch"]["inputs"]["smoke_only"]
-    assert smoke_input["type"] == "boolean"
-    assert smoke_input["default"] is True
-    assert smoke_input["required"] is True
+    assert "inputs" not in (triggers["workflow_dispatch"] or {})
     assert dispatch["environment"] == "production"
     assert dispatch["timeout-minutes"] == 8
     assert "SUPABASE_SERVICE_ROLE_KEY" not in text
@@ -208,9 +206,9 @@ def test_scheduled_dispatch_is_non_overlapping_secret_scoped_and_safe() -> None:
         '$CONTENTENGINE_WORKER_SECRET"'
     ) in text
     assert "creator-background-worker" in text
-    assert '"generation_limit":4' in text
-    assert '"research_limit":1' in text
-    assert '"review_limit":1' in text
+    assert '"generation_limit":4' not in text
+    assert '"research_limit":1' not in text
+    assert '"review_limit":1' not in text
     assert '"generation_limit":0' in text
     assert '"research_limit":0' in text
     assert '"review_limit":0' in text

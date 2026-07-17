@@ -55,7 +55,7 @@ const REASON_COPY = Object.freeze({
   internal_error: "Внутренний статус требует проверки руководителем",
 });
 
-export function managerDashboardMarkup(payload = {}) {
+export function managerDashboardMarkup(payload = {}, operationalState = {}) {
   const summary = payload?.summary && typeof payload.summary === "object" ? payload.summary : {};
   const members = Array.isArray(payload?.members) ? payload.members : [];
   const pendingInvites = Array.isArray(payload?.pending_invites) ? payload.pending_invites : [];
@@ -75,6 +75,7 @@ export function managerDashboardMarkup(payload = {}) {
           <button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Обновить</button>
         </div>
       </header>
+      ${managerOperationalHealthMarkup(operationalState)}
       <div class="manager-stage-grid" aria-label="Количество участников на каждом этапе">
         ${stages.map((stage) => managerStageCard(stage, summary[stage])).join("")}
       </div>
@@ -86,6 +87,90 @@ export function managerDashboardMarkup(payload = {}) {
       ${members.length ? memberQueueMarkup(members) : `
         <div class="manager-empty"><span aria-hidden="true">◎</span><strong>Участников пока нет</strong><p>После приглашения и создания членства человек появится здесь.</p></div>
       `}
+    </section>
+  `;
+}
+
+export function managerOperationalHealthMarkup(state = {}) {
+  const data = state?.data && typeof state.data === "object" ? state.data : {};
+  const scheduler = data?.scheduler && typeof data.scheduler === "object" ? data.scheduler : {};
+  const worker = data?.worker && typeof data.worker === "object" ? data.worker : {};
+  const generation = data?.generation && typeof data.generation === "object" ? data.generation : {};
+  const hasData = Boolean(state?.data && typeof state.data === "object");
+  const loading = ["idle", "loading", "refreshing"].includes(String(state?.status || "idle"));
+  const stalled = Math.max(0, Number(generation.stalled) || 0);
+  const due = Math.max(0, Number(generation.due) || 0);
+  const active = Math.max(0, Number(generation.active) || 0);
+  const schedulerReady = scheduler.ready === true;
+  const workerReady = worker.ready === true && worker.heartbeat_fresh === true;
+  let tone = "neutral";
+  let title = "Проверяем фоновую работу";
+  let detail = "Сверяем расписание, последний сигнал обработчика и очередь генераций.";
+
+  if (hasData) {
+    if (!schedulerReady || !workerReady || stalled > 0) {
+      tone = "danger";
+      title = "Требуется внимание руководителя";
+      detail = !schedulerReady
+        ? "Фоновое расписание не подтвердило готовность. Откройте журнал развёртывания перед новыми платными запусками."
+        : !workerReady
+          ? "Обработчик давно не подтверждал работу. Уже отправленные Runway-задачи не запускайте повторно — сначала обновите состояние."
+          : `${formatNumber(stalled)} генераций превысили безопасное время ожидания. Проверьте их статус без нового платного запуска.`;
+    } else if (state.status === "error") {
+      tone = "warning";
+      title = "Показываем последнее подтверждённое состояние";
+      detail = "Новое состояние не загрузилось за безопасное время. Данные ниже сохранены с предыдущей проверки.";
+    } else if (state.status === "refreshing") {
+      tone = "neutral";
+      title = "Обновляем подтверждение";
+      detail = "Последнее состояние остаётся на экране, пока сервер выполняет новую безопасную проверку.";
+    } else if (due > 0 || active > 0) {
+      tone = "warning";
+      title = "Фоновая обработка идёт";
+      detail = due > 0
+        ? `${formatNumber(due)} задач готовы к очередной проверке провайдера.`
+        : "Обработчик работает; часть задач ещё находится в очереди.";
+    } else {
+      tone = "success";
+      title = "Фоновая работа в норме";
+      detail = "Расписание и обработчик отвечают, зависших генераций нет.";
+    }
+  } else if (state?.status === "error") {
+    tone = "warning";
+    title = "Состояние пока не получено";
+    detail = "Командная сводка доступна, но технический индикатор не ответил. Повторите безопасную проверку.";
+  }
+
+  const statusLabel = loading
+    ? "Проверка"
+    : tone === "success"
+      ? "Работает"
+      : tone === "danger"
+        ? "Внимание"
+        : "Наблюдаем";
+  const heartbeat = hasData && worker.heartbeat_at
+    ? formatDateTime(worker.heartbeat_at)
+    : "нет свежего сигнала";
+
+  return `
+    <section class="manager-operations manager-operations-${tone}" aria-labelledby="manager-operations-title" aria-busy="${loading ? "true" : "false"}">
+      <span class="sr-only" role="status" aria-live="polite">Фоновая работа: ${escapeHtml(statusLabel)}</span>
+      <div class="manager-operations-copy">
+        <span class="manager-operations-indicator" aria-hidden="true"></span>
+        <div>
+          <p class="eyebrow">Эксплуатация</p>
+          <h3 id="manager-operations-title">${escapeHtml(title)}</h3>
+          <p>${escapeHtml(detail)}</p>
+        </div>
+      </div>
+      <div class="manager-operations-metrics" aria-label="Показатели фоновой обработки">
+        <span><small>Статус</small><strong>${escapeHtml(statusLabel)}</strong></span>
+        <span><small>Последний сигнал</small><strong>${escapeHtml(heartbeat)}</strong></span>
+        <span><small>Активно</small><strong>${formatNumber(active)}</strong></span>
+        <span><small>К проверке</small><strong>${formatNumber(due)}</strong></span>
+        <span><small>Зависло</small><strong>${formatNumber(stalled)}</strong></span>
+      </div>
+      <button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard" ${loading ? "disabled" : ""}>Обновить состояние</button>
     </section>
   `;
 }

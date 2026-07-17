@@ -1,25 +1,19 @@
-name: Dispatch background content work
+name: Watch background content health
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
-    inputs:
-      smoke_only:
-        description: Check authentication, leases, outbox, and health without provider work
-        required: true
-        default: true
-        type: boolean
 
 permissions: {}
 
 concurrency:
-  group: production-background-content-worker
+  group: production-background-content-worker-watchdog
   cancel-in-progress: false
 
 jobs:
   dispatch:
-    name: Continue durable provider work
+    name: Verify worker endpoint and outbox
     runs-on: ubuntu-latest
     timeout-minutes: 8
     environment: production
@@ -46,17 +40,13 @@ jobs:
             exit 1
           fi
 
-      - name: Dispatch bounded background batch
+      - name: Run provider-free worker and outbox smoke
         shell: bash
         env:
           CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
-          SMOKE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.smoke_only || false }}
         run: |
           echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
-          payload='{"generation_limit":4,"research_limit":1,"review_limit":1}'
-          if [ "${SMOKE_ONLY:-false}" = "true" ]; then
-            payload='{"generation_limit":0,"research_limit":0,"review_limit":0}'
-          fi
+          payload='{"generation_limit":0,"research_limit":0,"review_limit":0}'
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
           status="$(

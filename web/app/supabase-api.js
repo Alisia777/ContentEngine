@@ -28,6 +28,7 @@ export const RPC = Object.freeze({
   captureEvent: "creator_capture_event",
   inviteAttempts: "creator_invite_delivery_attempts",
   managerDashboard: "creator_manager_dashboard",
+  operationalHealth: "creator_operational_health",
   myWork: "creator_my_work",
   notifications: "creator_notifications",
   markNotificationsRead: "creator_mark_notifications_read",
@@ -314,6 +315,10 @@ export class CreatorApi {
 
   managerDashboard() {
     return this.call(RPC.managerDashboard, this.withOrganization({}));
+  }
+
+  operationalHealth() {
+    return this.call(RPC.operationalHealth, this.withOrganization({}));
   }
 
   inspectAccess(email) {

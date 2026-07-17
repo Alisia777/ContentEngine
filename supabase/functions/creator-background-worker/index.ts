@@ -12,6 +12,7 @@ const DEFAULT_RESEARCH_LIMIT = 1;
 const DEFAULT_REVIEW_LIMIT = 1;
 const LEASE_RECONCILE_LIMIT = 50;
 const NOTIFICATION_OUTBOX_LIMIT = 12;
+const WORKER_LEASE_SECONDS = 210;
 const DISPATCH_TIMEOUT_MS = 135_000;
 const RESPONSE_BODY_LIMIT = 65_536;
 const UUID_PATTERN =
@@ -62,6 +63,7 @@ type Database = {
           mode: string;
           provider: string;
           requested_by: string;
+          provider_next_poll_at: string | null;
           updated_at: string;
         };
         Insert: Record<string, never>;
@@ -134,9 +136,25 @@ type DispatchOutcome = {
   ok: boolean;
   terminal: boolean;
   status: string | null;
+  errorCode: string | null;
   organizationId: string;
   recipientId: string;
   entityId: string;
+};
+
+type WorkerRunLease = {
+  id: string;
+  leaseToken: string;
+};
+
+type WorkerBeginResult = {
+  acquired: boolean;
+  run: WorkerRunLease | null;
+};
+
+type PollRecordSummary = {
+  recorded: number;
+  failed: number;
 };
 
 type NotificationOutboxItem = {
@@ -340,6 +358,19 @@ function dispatchStatus(value: unknown): string | null {
     : null;
 }
 
+function dispatchErrorCode(value: unknown, httpStatus: number): string {
+  if (
+    isRecord(value) && typeof value.code === "string" &&
+    /^[a-z][a-z0-9_]{2,99}$/u.test(value.code)
+  ) {
+    return value.code;
+  }
+  if (httpStatus >= 400 && httpStatus <= 599) {
+    return `dispatch_http_${httpStatus}`;
+  }
+  return "dispatch_response_invalid";
+}
+
 function isTerminal(kind: DispatchKind, status: string | null): boolean {
   if (status === null) return false;
   return kind === "generation"
@@ -376,15 +407,6 @@ async function dispatch(
       DISPATCH_TIMEOUT_MS,
     );
     const bytes = await readBoundedBody(response.body, RESPONSE_BODY_LIMIT);
-    if (!response.ok) {
-      return {
-        kind: target.kind,
-        ok: false,
-        terminal: false,
-        status: null,
-        ...identity,
-      };
-    }
     let value: unknown;
     try {
       value = JSON.parse(
@@ -396,6 +418,19 @@ async function dispatch(
         ok: false,
         terminal: false,
         status: null,
+        errorCode: response.ok
+          ? "dispatch_response_invalid"
+          : `dispatch_http_${response.status}`,
+        ...identity,
+      };
+    }
+    if (!response.ok) {
+      return {
+        kind: target.kind,
+        ok: false,
+        terminal: false,
+        status: null,
+        errorCode: dispatchErrorCode(value, response.status),
         ...identity,
       };
     }
@@ -405,6 +440,9 @@ async function dispatch(
       ok: status !== null,
       terminal: isTerminal(target.kind, status),
       status,
+      errorCode: status === null
+        ? dispatchErrorCode(value, response.status)
+        : null,
       ...identity,
     };
   } catch {
@@ -413,6 +451,7 @@ async function dispatch(
       ok: false,
       terminal: false,
       status: null,
+      errorCode: "dispatch_network_error",
       ...identity,
     };
   }
@@ -508,6 +547,150 @@ function readNotificationHealth(
     unresolved !== pending + delivering + deadLetter
   ) return null;
   return { unresolved, pending, delivering, deadLetter, due };
+}
+
+function readWorkerBegin(value: unknown): WorkerBeginResult | null {
+  if (
+    !isRecord(value) || value.ok !== true || typeof value.acquired !== "boolean"
+  ) {
+    return null;
+  }
+  if (!value.acquired) return { acquired: false, run: null };
+  if (
+    !isRecord(value.run) || !isUuid(value.run.id) ||
+    !isUuid(value.run.lease_token)
+  ) return null;
+  return {
+    acquired: true,
+    run: { id: value.run.id, leaseToken: value.run.lease_token },
+  };
+}
+
+async function beginBackgroundWorker(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+): Promise<WorkerBeginResult | null> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_begin_background_worker",
+      {
+        p_payload: {
+          trigger_source: "edge",
+          lease_seconds: WORKER_LEASE_SECONDS,
+        },
+      },
+    );
+    return error === null ? readWorkerBegin(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function heartbeatBackgroundWorker(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  run: WorkerRunLease,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_heartbeat_background_worker",
+      {
+        p_payload: {
+          run_id: run.id,
+          lease_token: run.leaseToken,
+          lease_seconds: WORKER_LEASE_SECONDS,
+        },
+      },
+    );
+    return error === null && isRecord(data) && data.ok === true &&
+      isRecord(data.run) && data.run.id === run.id;
+  } catch {
+    return false;
+  }
+}
+
+async function finishBackgroundWorker(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  run: WorkerRunLease,
+  status: "completed" | "failed",
+  summary: Record<string, Json>,
+  errorCode?: string,
+): Promise<boolean> {
+  const payload: Record<string, Json> = {
+    run_id: run.id,
+    lease_token: run.leaseToken,
+    status,
+    summary,
+  };
+  if (status === "failed") {
+    const candidate = errorCode ?? "";
+    payload.error_code = /^[a-z][a-z0-9_]{2,99}$/u.test(candidate)
+      ? candidate
+      : "background_batch_incomplete";
+  }
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_finish_background_worker",
+      { p_payload: payload },
+    );
+    return error === null && isRecord(data) && data.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function recordGenerationPollOutcomes(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  run: WorkerRunLease,
+  outcomes: DispatchOutcome[],
+): Promise<PollRecordSummary> {
+  let recorded = 0;
+  let failed = 0;
+  for (const outcome of outcomes) {
+    if (outcome.kind !== "generation") continue;
+    const state = outcome.ok
+      ? outcome.terminal ? "success_terminal" : "success_pending"
+      : "failed";
+    const payload: Record<string, Json> = {
+      run_id: run.id,
+      lease_token: run.leaseToken,
+      job_id: outcome.entityId,
+      outcome: state,
+    };
+    if (state === "failed") {
+      payload.error_code = outcome.errorCode ??
+        "generation_poll_dispatch_failed";
+    }
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_record_generation_poll_outcome",
+        { p_payload: payload },
+      );
+      if (error === null && isRecord(data) && data.ok === true) recorded += 1;
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { recorded, failed };
 }
 
 async function reconcileExpiredLeases(
@@ -693,185 +876,295 @@ const creatorBackgroundWorker = withSupabase<Database>({
     return json({ ok: false, code: "worker_configuration_error" }, 503);
   }
 
-  const reconciliation = await reconcileExpiredLeases(supabaseAdmin);
-  if (reconciliation === null) {
+  const begun = await beginBackgroundWorker(supabaseAdmin);
+  if (begun === null) {
+    return json({ ok: false, code: "worker_lease_unavailable" }, 503);
+  }
+  if (!begun.acquired || begun.run === null) {
     return json({
-      ok: false,
-      code: "lease_reconciliation_failed",
-    }, 503);
+      ok: true,
+      code: "worker_already_running",
+      selected: { generation: 0, research: 0, review: 0 },
+      completed: { generation: 0, research: 0, review: 0 },
+      pending: { generation: 0, research: 0, review: 0 },
+      failed: { generation: 0, research: 0, review: 0 },
+      notification: {
+        claimed: 0,
+        delivered: 0,
+        failed: 0,
+        unresolved: 0,
+        pending: 0,
+        delivering: 0,
+        deadLetter: 0,
+        due: 0,
+        ok: true,
+      },
+    });
   }
+  const workerRun = begun.run;
 
-  const generationQuery = supabaseAdmin
-    .schema("content_factory")
-    .from("generation_jobs")
-    .select(
-      "id, organization_id, requested_by, status, mode, provider, updated_at",
-    )
-    .eq("mode", "real")
-    .eq("provider", "runway")
-    .in("status", ["submitted", "processing"])
-    .order("updated_at", { ascending: true })
-    .limit(payload.generation_limit);
-  const researchQuery = supabaseAdmin
-    .schema("content_factory")
-    .from("product_research_runs")
-    .select("id, organization_id, created_by, status, created_at")
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(payload.research_limit);
-  const reviewCandidateLimit = Math.min(
-    MAX_LIMIT_PER_QUEUE * 3,
-    Math.max(payload.review_limit * 3, payload.review_limit),
-  );
-  const reviewQuery = supabaseAdmin
-    .schema("content_factory")
-    .from("content_review_runs")
-    .select(
-      "id, organization_id, requested_by, media_object_id, status, created_at",
-    )
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(reviewCandidateLimit);
+  try {
+    const reconciliation = await reconcileExpiredLeases(supabaseAdmin);
+    if (reconciliation === null) {
+      await finishBackgroundWorker(
+        supabaseAdmin,
+        workerRun,
+        "failed",
+        { stage: "lease_reconciliation" },
+        "lease_reconciliation_failed",
+      );
+      return json({
+        ok: false,
+        code: "lease_reconciliation_failed",
+      }, 503);
+    }
 
-  const [generationResult, researchResult, reviewResult] = await Promise.all([
-    generationQuery,
-    researchQuery,
-    reviewQuery,
-  ]);
-  if (
-    generationResult.error || researchResult.error || reviewResult.error ||
-    !Array.isArray(generationResult.data) ||
-    !Array.isArray(researchResult.data) ||
-    !Array.isArray(reviewResult.data)
-  ) {
-    return json({ ok: false, code: "queue_read_failed" }, 503);
-  }
-
-  const generationRows = generationResult.data.filter((row) =>
-    isQueueRow(row, true) && isUuid(row.requested_by)
-  ).map((row) => ({
-    ...row,
-    recipient_id: row.requested_by,
-  }));
-  const researchRows = researchResult.data.filter((row) =>
-    isQueueRow(row, true) && isUuid(row.created_by)
-  ).map((row) => ({
-    ...row,
-    recipient_id: row.created_by,
-  }));
-  const reviewRows = reviewResult.data.filter((row) =>
-    isQueueRow(row, true) && isUuid(row.media_object_id) &&
-    isUuid(row.requested_by)
-  ).map((row) => ({
-    ...row,
-    recipient_id: row.requested_by,
-  }));
-
-  let mediaRows: MediaRow[] = [];
-  const mediaIds = reviewRows.map((row) => row.media_object_id as string);
-  if (mediaIds.length > 0 && payload.review_limit > 0) {
-    const mediaResult = await supabaseAdmin
+    const generationQuery = supabaseAdmin
       .schema("content_factory")
-      .from("media_objects")
-      .select("id, mime_type, status")
-      .in("id", mediaIds);
-    if (mediaResult.error || !Array.isArray(mediaResult.data)) {
+      .from("generation_jobs")
+      .select(
+        "id, organization_id, requested_by, status, mode, provider, provider_next_poll_at, updated_at",
+      )
+      .eq("mode", "real")
+      .eq("provider", "runway")
+      .in("status", ["submitted", "processing"])
+      .lte("provider_next_poll_at", new Date().toISOString())
+      .order("provider_next_poll_at", { ascending: true })
+      .order("updated_at", { ascending: true })
+      .limit(payload.generation_limit);
+    const researchQuery = supabaseAdmin
+      .schema("content_factory")
+      .from("product_research_runs")
+      .select("id, organization_id, created_by, status, created_at")
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(payload.research_limit);
+    const reviewCandidateLimit = Math.min(
+      MAX_LIMIT_PER_QUEUE * 3,
+      Math.max(payload.review_limit * 3, payload.review_limit),
+    );
+    const reviewQuery = supabaseAdmin
+      .schema("content_factory")
+      .from("content_review_runs")
+      .select(
+        "id, organization_id, requested_by, media_object_id, status, created_at",
+      )
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(reviewCandidateLimit);
+
+    const [generationResult, researchResult, reviewResult] = await Promise.all([
+      generationQuery,
+      researchQuery,
+      reviewQuery,
+    ]);
+    if (
+      generationResult.error || researchResult.error || reviewResult.error ||
+      !Array.isArray(generationResult.data) ||
+      !Array.isArray(researchResult.data) ||
+      !Array.isArray(reviewResult.data)
+    ) {
+      await finishBackgroundWorker(
+        supabaseAdmin,
+        workerRun,
+        "failed",
+        { stage: "queue_read" },
+        "queue_read_failed",
+      );
       return json({ ok: false, code: "queue_read_failed" }, 503);
     }
-    mediaRows = mediaResult.data.filter(isMediaRow);
-  }
-  const mediaById = new Map(mediaRows.map((row) => [row.id, row]));
-  const autonomousReviews = reviewRows.filter((row) => {
-    const media = mediaById.get(row.media_object_id as string);
-    return media?.status === "ready" && IMAGE_MIME_TYPES.has(media.mime_type);
-  }).slice(0, payload.review_limit);
-  const skippedVideoReviews = reviewRows.filter((row) => {
-    const media = mediaById.get(row.media_object_id as string);
-    return media?.status === "ready" && media.mime_type === "video/mp4";
-  }).length;
 
-  const targets: DispatchTarget[] = [
-    ...generationRows.map((row): DispatchTarget => ({
-      kind: "generation",
-      functionName: "creator-generate",
-      body: {
-        action: "status",
-        organization_id: row.organization_id as string,
-        job_id: row.id,
+    const generationRows = generationResult.data.filter((row) =>
+      isQueueRow(row, true) && isUuid(row.requested_by)
+    ).map((row) => ({
+      ...row,
+      recipient_id: row.requested_by,
+    }));
+    const researchRows = researchResult.data.filter((row) =>
+      isQueueRow(row, true) && isUuid(row.created_by)
+    ).map((row) => ({
+      ...row,
+      recipient_id: row.created_by,
+    }));
+    const reviewRows = reviewResult.data.filter((row) =>
+      isQueueRow(row, true) && isUuid(row.media_object_id) &&
+      isUuid(row.requested_by)
+    ).map((row) => ({
+      ...row,
+      recipient_id: row.requested_by,
+    }));
+
+    let mediaRows: MediaRow[] = [];
+    const mediaIds = reviewRows.map((row) => row.media_object_id as string);
+    if (mediaIds.length > 0 && payload.review_limit > 0) {
+      const mediaResult = await supabaseAdmin
+        .schema("content_factory")
+        .from("media_objects")
+        .select("id, mime_type, status")
+        .in("id", mediaIds);
+      if (mediaResult.error || !Array.isArray(mediaResult.data)) {
+        await finishBackgroundWorker(
+          supabaseAdmin,
+          workerRun,
+          "failed",
+          { stage: "media_queue_read" },
+          "queue_read_failed",
+        );
+        return json({ ok: false, code: "queue_read_failed" }, 503);
+      }
+      mediaRows = mediaResult.data.filter(isMediaRow);
+    }
+    const mediaById = new Map(mediaRows.map((row) => [row.id, row]));
+    const autonomousReviews = reviewRows.filter((row) => {
+      const media = mediaById.get(row.media_object_id as string);
+      return media?.status === "ready" && IMAGE_MIME_TYPES.has(media.mime_type);
+    }).slice(0, payload.review_limit);
+    const skippedVideoReviews = reviewRows.filter((row) => {
+      const media = mediaById.get(row.media_object_id as string);
+      return media?.status === "ready" && media.mime_type === "video/mp4";
+    }).length;
+
+    const targets: DispatchTarget[] = [
+      ...generationRows.map((row): DispatchTarget => ({
+        kind: "generation",
+        functionName: "creator-generate",
+        body: {
+          action: "status",
+          organization_id: row.organization_id as string,
+          job_id: row.id,
+        },
+        organizationId: row.organization_id as string,
+        recipientId: row.recipient_id as string,
+        entityId: row.id,
+      })),
+      ...researchRows.map((row): DispatchTarget => ({
+        kind: "research",
+        functionName: "creator-product-research",
+        body: { action: "analyze", research_id: row.id },
+        organizationId: row.organization_id as string,
+        recipientId: row.recipient_id as string,
+        entityId: row.id,
+      })),
+      ...autonomousReviews.map((row): DispatchTarget => ({
+        kind: "review",
+        functionName: "creator-content-review",
+        body: { action: "analyze", review_id: row.id, frames: [] },
+        organizationId: row.organization_id as string,
+        recipientId: row.recipient_id as string,
+        entityId: row.id,
+      })),
+    ];
+
+    if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
+      await finishBackgroundWorker(
+        supabaseAdmin,
+        workerRun,
+        "failed",
+        { stage: "before_dispatch" },
+        "worker_heartbeat_failed",
+      );
+      return json({ ok: false, code: "worker_heartbeat_failed" }, 503);
+    }
+    const outcomes = await Promise.all(
+      targets.map((target) => dispatch(target, origin, serviceKey, secret)),
+    );
+    const pollRecords = await recordGenerationPollOutcomes(
+      supabaseAdmin,
+      workerRun,
+      outcomes,
+    );
+    const kinds: DispatchKind[] = ["generation", "research", "review"];
+    const selected = Object.fromEntries(
+      kinds.map((kind) => [
+        kind,
+        targets.filter((target) => target.kind === kind).length,
+      ]),
+    ) as Record<DispatchKind, number>;
+    const completed = Object.fromEntries(
+      kinds.map((kind) => [
+        kind,
+        outcomes.filter((outcome) => outcome.kind === kind && outcome.terminal)
+          .length,
+      ]),
+    ) as Record<DispatchKind, number>;
+    const failed = Object.fromEntries(
+      kinds.map((kind) => [
+        kind,
+        outcomes.filter((outcome) => outcome.kind === kind && !outcome.ok)
+          .length,
+      ]),
+    ) as Record<DispatchKind, number>;
+    const pending = Object.fromEntries(
+      kinds.map((kind) => [
+        kind,
+        outcomes.filter((outcome) =>
+          outcome.kind === kind && outcome.ok && !outcome.terminal
+        ).length,
+      ]),
+    ) as Record<DispatchKind, number>;
+    const summary: Record<string, Json> = {
+      selected,
+      completed,
+      pending,
+      failed,
+      generation_poll_records: pollRecords,
+      skipped_video_reviews: skippedVideoReviews,
+      expired_leases: {
+        research: reconciliation.research,
+        review: reconciliation.review,
       },
-      organizationId: row.organization_id as string,
-      recipientId: row.recipient_id as string,
-      entityId: row.id,
-    })),
-    ...researchRows.map((row): DispatchTarget => ({
-      kind: "research",
-      functionName: "creator-product-research",
-      body: { action: "analyze", research_id: row.id },
-      organizationId: row.organization_id as string,
-      recipientId: row.recipient_id as string,
-      entityId: row.id,
-    })),
-    ...autonomousReviews.map((row): DispatchTarget => ({
-      kind: "review",
-      functionName: "creator-content-review",
-      body: { action: "analyze", review_id: row.id, frames: [] },
-      organizationId: row.organization_id as string,
-      recipientId: row.recipient_id as string,
-      entityId: row.id,
-    })),
-  ];
-
-  const outcomes = await Promise.all(
-    targets.map((target) => dispatch(target, origin, serviceKey, secret)),
-  );
-  const kinds: DispatchKind[] = ["generation", "research", "review"];
-  const selected = Object.fromEntries(
-    kinds.map((kind) => [
-      kind,
-      targets.filter((target) => target.kind === kind).length,
-    ]),
-  ) as Record<DispatchKind, number>;
-  const completed = Object.fromEntries(
-    kinds.map((kind) => [
-      kind,
-      outcomes.filter((outcome) => outcome.kind === kind && outcome.terminal)
-        .length,
-    ]),
-  ) as Record<DispatchKind, number>;
-  const failed = Object.fromEntries(
-    kinds.map((kind) => [
-      kind,
-      outcomes.filter((outcome) => outcome.kind === kind && !outcome.ok).length,
-    ]),
-  ) as Record<DispatchKind, number>;
-  const pending = Object.fromEntries(
-    kinds.map((kind) => [
-      kind,
-      outcomes.filter((outcome) =>
-        outcome.kind === kind && outcome.ok && !outcome.terminal
-      ).length,
-    ]),
-  ) as Record<DispatchKind, number>;
-  const summary: Record<string, Json> = {
-    selected,
-    completed,
-    pending,
-    failed,
-    skipped_video_reviews: skippedVideoReviews,
-    expired_leases: {
-      research: reconciliation.research,
-      review: reconciliation.review,
-    },
-  };
-  const notification = await deliverNotificationOutbox(supabaseAdmin);
-  const hasFailure = Object.values(failed).some((count) => count > 0) ||
-    !notification.ok;
-  return json({
-    ok: !hasFailure,
-    code: hasFailure ? "background_batch_incomplete" : undefined,
-    ...summary,
-    notification,
-  }, hasFailure ? 502 : 200);
+    };
+    if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
+      await finishBackgroundWorker(
+        supabaseAdmin,
+        workerRun,
+        "failed",
+        summary,
+        "worker_heartbeat_failed",
+      );
+      return json(
+        { ok: false, code: "worker_heartbeat_failed", ...summary },
+        503,
+      );
+    }
+    const notification = await deliverNotificationOutbox(supabaseAdmin);
+    const hasFailure = Object.values(failed).some((count) => count > 0) ||
+      pollRecords.failed > 0 || !notification.ok;
+    const fullSummary: Record<string, Json> = { ...summary, notification };
+    const finished = await finishBackgroundWorker(
+      supabaseAdmin,
+      workerRun,
+      hasFailure ? "failed" : "completed",
+      fullSummary,
+      hasFailure ? "background_batch_incomplete" : undefined,
+    );
+    if (!finished) {
+      return json({
+        ok: false,
+        code: "worker_finish_failed",
+        ...summary,
+        notification,
+      }, 503);
+    }
+    return json({
+      ok: !hasFailure,
+      code: hasFailure ? "background_batch_incomplete" : undefined,
+      ...summary,
+      notification,
+    }, hasFailure ? 502 : 200);
+  } catch {
+    await finishBackgroundWorker(
+      supabaseAdmin,
+      workerRun,
+      "failed",
+      { stage: "unhandled" },
+      "background_worker_unhandled_error",
+    );
+    return json({
+      ok: false,
+      code: "background_worker_unhandled_error",
+    }, 503);
+  }
 });
 
 export default {

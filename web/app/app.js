@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260717.1";
+import { CreatorApi } from "./supabase-api.js?v=20260717.2";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -15,7 +15,10 @@ import {
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
 } from "./account-launch-view.js?v=20260716.2";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260717.1";
+import {
+  managerDashboardMarkup,
+  managerOperationalHealthMarkup,
+} from "./manager-dashboard-view.js?v=20260717.2";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -632,6 +635,7 @@ const state = {
   accountVisualStates: new Map(),
   teamInviteResult: null,
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
+  operationalHealth: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   accessCenter: {
     status: "idle",
     email: "",
@@ -877,6 +881,10 @@ function bindGlobalEvents() {
       });
     }
   });
+  window.setInterval(
+    refreshManagerDashboardIfStale,
+    MANAGER_DASHBOARD_MAX_AGE_MS,
+  );
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
     state.workspaceDeepLinkFocusKey = "";
@@ -885,9 +893,11 @@ function bindGlobalEvents() {
     if (state.route.path !== "/workspace/review") stopContentReviewPolling();
     if (
       state.route.path === "/workspace/team"
-      && state.managerDashboard.status === "ready"
-      && Date.now() - state.managerDashboard.updatedAt > MANAGER_DASHBOARD_MAX_AGE_MS
-    ) state.managerDashboard.status = "idle";
+      && managerDashboardIsStale()
+    ) {
+      state.managerDashboard.status = "idle";
+      state.operationalHealth.status = "idle";
+    }
     state.routeTransition = true;
     if (
       state.route.path === "/workspace/home"
@@ -905,6 +915,7 @@ function bindGlobalEvents() {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
+      refreshManagerDashboardIfStale();
       scheduleRealGenerationPolling(250);
       scheduleContentReviewPolling(250);
     } else {
@@ -923,6 +934,27 @@ function bindGlobalEvents() {
   document.addEventListener("drop", handleDrop);
   document.addEventListener("dragend", handleDragEnd);
   document.addEventListener("keydown", handleKeyDown);
+}
+
+function managerDashboardIsStale() {
+  const oldestConfirmedAt = Math.min(
+    Number(state.managerDashboard.updatedAt) || 0,
+    Number(state.operationalHealth.updatedAt) || 0,
+  );
+  return oldestConfirmedAt === 0
+    || Date.now() - oldestConfirmedAt > MANAGER_DASHBOARD_MAX_AGE_MS;
+}
+
+function refreshManagerDashboardIfStale() {
+  if (
+    document.visibilityState !== "visible"
+    || state.route.path !== "/workspace/team"
+    || !canManageTeam()
+    || !managerDashboardIsStale()
+    || ["loading", "refreshing"].includes(state.managerDashboard.status)
+    || ["loading", "refreshing"].includes(state.operationalHealth.status)
+  ) return;
+  void loadManagerDashboard({ silent: true });
 }
 
 async function handleAuthStateChange(event, session) {
@@ -1083,6 +1115,11 @@ async function loadBootstrap() {
       state.managerDashboard.data = null;
       state.managerDashboard.error = null;
       state.managerDashboard.updatedAt = 0;
+      state.operationalHealth.requestId += 1;
+      state.operationalHealth.status = "idle";
+      state.operationalHealth.data = null;
+      state.operationalHealth.error = null;
+      state.operationalHealth.updatedAt = 0;
       state.accessCenter.requestId += 1;
       state.accessCenter.status = "idle";
       state.accessCenter.email = "";
@@ -4155,26 +4192,75 @@ async function reloadSavedWorkViews() {
 
 async function loadManagerDashboard({ silent = false } = {}) {
   const target = state.managerDashboard;
-  if (!canManageTeam() || ["loading", "refreshing"].includes(target.status)) return;
+  const health = state.operationalHealth;
+  if (
+    !canManageTeam()
+    || ["loading", "refreshing"].includes(target.status)
+    || ["loading", "refreshing"].includes(health.status)
+  ) return;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   const requestId = target.requestId + 1;
+  const healthRequestId = health.requestId + 1;
   target.requestId = requestId;
   target.status = target.data ? "refreshing" : "loading";
   target.error = null;
+  health.requestId = healthRequestId;
+  health.status = health.data ? "refreshing" : "loading";
+  health.error = null;
   if (!silent && state.route.path === "/workspace/team") render();
-  try {
-    const raw = await state.api.managerDashboard();
-    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
-    target.data = raw?.data ?? raw ?? {};
-    target.status = "ready";
-    target.updatedAt = Date.now();
-  } catch (error) {
-    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
-    target.error = error;
-    target.status = "error";
-  }
-  if (state.route.path === "/workspace/team") render();
+  const renderCurrentTeam = () => {
+    if (state.route.path === "/workspace/team") render();
+  };
+  const dashboardRequest = withUiTimeout(
+    state.api.managerDashboard(),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "manager_dashboard_timeout",
+  ).then((raw) => {
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      target.data = raw?.data ?? raw ?? {};
+      target.status = "ready";
+      target.updatedAt = Date.now();
+      renderCurrentTeam();
+    }).catch((error) => {
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      target.error = error;
+      target.status = "error";
+      renderCurrentTeam();
+    });
+  const healthRequest = withUiTimeout(
+    state.api.operationalHealth(),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "operational_health_timeout",
+  ).then((raw) => {
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || healthRequestId !== health.requestId
+      ) return;
+      health.data = raw?.data ?? raw ?? {};
+      health.status = "ready";
+      health.updatedAt = Date.now();
+      renderCurrentTeam();
+    }).catch((error) => {
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || healthRequestId !== health.requestId
+      ) return;
+      health.error = error;
+      health.status = "error";
+      renderCurrentTeam();
+    });
+  await Promise.allSettled([dashboardRequest, healthRequest]);
 }
 
 async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
@@ -6193,9 +6279,9 @@ function managerDashboardSectionMarkup() {
     return `<section class="manager-funnel manager-dashboard-loading" role="status"><div class="loading-line" aria-hidden="true"><span></span></div><strong>Собираем, где команда остановилась…</strong><p class="muted">Письмо, вход, обучение, генерация, публикация и выплата проверяются одним отчётом.</p></section>`;
   }
   if (dashboard.status === "error" && !dashboard.data) {
-    return `<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button></section>`;
+    return `<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button>${managerOperationalHealthMarkup(state.operationalHealth)}</section>`;
   }
-  return `${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {})}`;
+  return `${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)}`;
 }
 
 function teamMembersTable(members) {
@@ -6725,7 +6811,10 @@ async function handleClick(event) {
   }
 
   if (action === "refresh-manager-dashboard") {
-    if (["loading", "refreshing"].includes(state.managerDashboard.status)) {
+    if (
+      ["loading", "refreshing"].includes(state.managerDashboard.status)
+      || ["loading", "refreshing"].includes(state.operationalHealth.status)
+    ) {
       toast("Сводка уже обновляется.", "info");
       return;
     }
@@ -9009,6 +9098,11 @@ function clearAuthenticatedState() {
   state.managerDashboard.data = null;
   state.managerDashboard.error = null;
   state.managerDashboard.updatedAt = 0;
+  state.operationalHealth.requestId += 1;
+  state.operationalHealth.status = "idle";
+  state.operationalHealth.data = null;
+  state.operationalHealth.error = null;
+  state.operationalHealth.updatedAt = 0;
   state.accessCenter.requestId += 1;
   state.accessCenter.status = "idle";
   state.accessCenter.email = "";
