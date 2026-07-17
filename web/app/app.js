@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260716.4";
+import { CreatorApi } from "./supabase-api.js?v=20260717.1";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -15,7 +15,13 @@ import {
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
 } from "./account-launch-view.js?v=20260716.2";
-import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260716.2";
+import { managerDashboardMarkup } from "./manager-dashboard-view.js?v=20260717.1";
+import {
+  accessCenterMarkup,
+  ensureAccessCenterStyles,
+  normalizeAccessCenterEmail,
+  normalizeAccessCenterResult,
+} from "./access-center-view.js?v=20260717.1";
 import {
   normalizeProductResearch,
   productResearchInputMarkup,
@@ -585,6 +591,8 @@ const FIRST_SHIFT_FULL_EVENT_TYPES = Object.freeze({
   [FIRST_SHIFT_FULL_ACTIONS.restart]: "restart",
 });
 
+ensureAccessCenterStyles();
+
 const state = {
   supabase: null,
   api: null,
@@ -624,6 +632,14 @@ const state = {
   accountVisualStates: new Map(),
   teamInviteResult: null,
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
+  accessCenter: {
+    status: "idle",
+    email: "",
+    result: null,
+    error: "",
+    notice: "",
+    requestId: 0,
+  },
   managerRecoveryCooldowns: new Map(),
   managerInviteCooldowns: new Map(),
   productResearch: {
@@ -1067,6 +1083,12 @@ async function loadBootstrap() {
       state.managerDashboard.data = null;
       state.managerDashboard.error = null;
       state.managerDashboard.updatedAt = 0;
+      state.accessCenter.requestId += 1;
+      state.accessCenter.status = "idle";
+      state.accessCenter.email = "";
+      state.accessCenter.result = null;
+      state.accessCenter.error = "";
+      state.accessCenter.notice = "";
       for (const section of Object.values(state.sections)) {
         section.status = "idle";
         section.data = null;
@@ -6155,6 +6177,7 @@ function renderTeamSection(sectionState) {
           ${state.teamInviteResult ? teamInviteResultMarkup(state.teamInviteResult) : emptyState("◎", "Приглашений ещё не было", "После запуска здесь появится принятый сервисом статус по каждому адресу.")}
         </section>
       </div>
+      ${accessCenterMarkup(state.accessCenter)}
       <section class="card" style="margin-top:22px">
         <div class="card-header"><div><p class="eyebrow">Доступ и результат</p><h2>Участники команды</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="team">Обновить</button></div>
         ${sectionBody(sectionState, members.length ? teamMembersTable(members) : emptyState("◎", "В команде пока никого нет", "Отправьте приглашения выше — новые участники появятся после первого входа."))}
@@ -6710,6 +6733,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-manager-access") {
+    await openManagerAccessCenter(String(control.dataset.email || ""));
+    return;
+  }
+
+  if (action === "reset-manager-access") {
+    resetManagerAccessCenter();
+    return;
+  }
+
   if (action === "retry-manager-invite") {
     await retryManagerInvite(String(control.dataset.email || ""), control);
     return;
@@ -6730,27 +6763,7 @@ async function handleClick(event) {
       toast(`Повтор для этого адреса временно закрыт. Подождите ${cooldownSeconds} сек. и сначала проверьте самое свежее письмо.`, "info");
       return;
     }
-    control.disabled = true;
-    const originalLabel = control.textContent;
-    control.textContent = "Отправляем…";
-    try {
-      const { error } = await withUiTimeout(
-        state.supabase.auth.resetPasswordForEmail(email, { redirectTo: authRedirectUrl("recovery") }),
-        AUTH_REQUEST_TIMEOUT_MS,
-        "recovery_request_timeout",
-      );
-      if (error) throw error;
-      toast(`Запрос восстановления для ${email} принят почтовым сервисом. Доставка письма ещё не подтверждена.`, "success");
-    } catch (error) {
-      toast(String(error?.message || "") === "recovery_request_timeout"
-        ? "Сервис не ответил за 15 секунд. Не отправляйте повтор сразу: сначала попросите участника проверить самое свежее письмо и «Спам»."
-        : authErrorMessage(error), "error");
-    } finally {
-      if (control.isConnected) {
-        control.disabled = false;
-        control.textContent = originalLabel;
-      }
-    }
+    await openManagerAccessCenter(email);
     return;
   }
 
@@ -7012,6 +7025,7 @@ async function handleSubmit(event) {
   else if (form.id === "media-upload-form") await submitMedia(form);
   else if (form.id === "feedback-form") await submitFeedback(form);
   else if (form.id === "team-invite-form") await submitTeamInvites(form);
+  else if (form.id === "manager-access-form") await submitManagerAccess(form);
   else if (form.classList.contains("placement-form")) await submitPlacement(form);
   else if (form.classList.contains("payout-reject-form")) await submitPayoutReject(form);
   else if (form.classList.contains("payout-paid-form")) await submitPayoutPaid(form);
@@ -8098,9 +8112,181 @@ async function submitTeamInvites(form) {
   }
 }
 
+async function submitManagerAccess(form) {
+  const email = normalizeAccessCenterEmail(new FormData(form).get("email"));
+  if (!isManagerAccessEmail(email)) {
+    toast("Укажите точный рабочий email участника.", "error");
+    form.elements.email?.focus();
+    return;
+  }
+  await runManagerAccessFlow(email);
+}
+
+async function openManagerAccessCenter(email) {
+  const normalizedEmail = normalizeAccessCenterEmail(email);
+  if (!isManagerAccessEmail(normalizedEmail)) {
+    toast("Не удалось определить точный рабочий email участника.", "error");
+    return;
+  }
+  if (["checking", "repairing"].includes(state.accessCenter.status)) {
+    toast("Проверка другого адреса будет доступна после завершения текущей.", "info");
+    return;
+  }
+  state.accessCenter.email = normalizedEmail;
+  state.accessCenter.result = null;
+  state.accessCenter.error = "";
+  state.accessCenter.notice = "";
+  if (state.route.path === "/workspace/team") {
+    renderWorkspace("team");
+    window.queueMicrotask(() => {
+      const center = document.querySelector("[data-access-center]");
+      if (center) scrollElementIntoView(center);
+    });
+  }
+  await runManagerAccessFlow(normalizedEmail);
+}
+
+function resetManagerAccessCenter() {
+  state.accessCenter.requestId += 1;
+  state.accessCenter.status = "idle";
+  state.accessCenter.email = "";
+  state.accessCenter.result = null;
+  state.accessCenter.error = "";
+  state.accessCenter.notice = "";
+  if (state.route.path === "/workspace/team") {
+    renderWorkspace("team");
+    window.queueMicrotask(() => document.querySelector("#manager-access-email")?.focus());
+  }
+}
+
+async function runManagerAccessFlow(email) {
+  const normalizedEmail = normalizeAccessCenterEmail(email);
+  if (!canManageTeam() || !hasWorkspaceAccess()) {
+    toast("Проверять и восстанавливать доступ может только сертифицированный руководитель.", "error");
+    return;
+  }
+  if (!isManagerAccessEmail(normalizedEmail)) {
+    toast("Укажите точный рабочий email участника.", "error");
+    return;
+  }
+  if (["checking", "repairing"].includes(state.accessCenter.status)) {
+    toast("Проверка доступа уже выполняется.", "info");
+    return;
+  }
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = state.accessCenter.requestId + 1;
+  state.accessCenter.requestId = requestId;
+  state.accessCenter.status = "checking";
+  state.accessCenter.email = normalizedEmail;
+  state.accessCenter.result = null;
+  state.accessCenter.error = "";
+  state.accessCenter.notice = "";
+  if (state.route.path === "/workspace/team") renderWorkspace("team");
+
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestId === state.accessCenter.requestId
+  );
+
+  try {
+    const inspected = await withUiTimeout(
+      state.api.inspectAccess(normalizedEmail),
+      INVITE_REQUEST_TIMEOUT_MS,
+      "access_center_timeout",
+    );
+    if (!requestIsCurrent()) return;
+    const inspectedRecord = normalizeAccessCenterResult(inspected, normalizedEmail);
+    state.accessCenter.result = inspected;
+    if (inspectedRecord.repairBlocked) {
+      state.accessCenter.status = "ready";
+      state.accessCenter.notice = "Автоматическая отправка остановлена: почтовый статус требует ручной проверки.";
+      if (state.route.path === "/workspace/team") renderWorkspace("team");
+      toast(managerAccessBlockedMessage(inspectedRecord.delivery.status), "error");
+      return;
+    }
+
+    state.accessCenter.status = "repairing";
+    state.accessCenter.notice = "Состояние проверено. Сервер выбирает допустимый способ восстановления.";
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+
+    const repaired = await withUiTimeout(
+      state.api.repairAccess(normalizedEmail),
+      INVITE_REQUEST_TIMEOUT_MS,
+      "access_center_timeout",
+    );
+    if (!requestIsCurrent()) return;
+    const repairedRecord = normalizeAccessCenterResult(repaired, normalizedEmail);
+    state.accessCenter.result = repaired;
+    state.accessCenter.status = "ready";
+    state.accessCenter.notice = managerAccessOutcomeMessage(repairedRecord);
+
+    await refreshManagerDataAfterAccessRepair();
+    if (!requestIsCurrent()) return;
+    toast(
+      managerAccessOutcomeMessage(repairedRecord),
+      ["already_ready", "recovery_requested", "invite_requested", "membership_connected_recovery_requested"].includes(repairedRecord.outcome)
+        ? "success"
+        : "info",
+    );
+  } catch (error) {
+    if (!requestIsCurrent()) return;
+    state.accessCenter.status = "error";
+    state.accessCenter.error = String(error?.message || "") === "access_center_timeout"
+      ? "Сервис доступа не ответил за 25 секунд. Не отправляйте повтор: сначала обновите сводку."
+      : actionErrorMessage(error);
+    state.accessCenter.notice = "";
+  } finally {
+    if (requestIsCurrent() && state.route.path === "/workspace/team") renderWorkspace("team");
+  }
+}
+
+async function refreshManagerDataAfterAccessRepair() {
+  state.sections.team.status = "idle";
+  state.managerDashboard.status = "idle";
+  await Promise.allSettled([
+    loadSection("team", { silent: true }),
+    loadManagerDashboard({ silent: true }),
+  ]);
+}
+
+function managerAccessOutcomeMessage(record) {
+  return {
+    already_ready: "Доступ уже готов. Новое письмо не отправлялось.",
+    pending_delivery: "Предыдущее письмо ещё обрабатывается. Повтор не запущен.",
+    recovery_requested: "Запрос восстановления принят. Доставка письма пока не подтверждена.",
+    invite_requested: "Новое приглашение принято. Доставка письма пока не подтверждена.",
+    membership_connected_recovery_requested: "Аккаунт подключён к команде, запрос восстановления принят.",
+    invite_pending_verification: "Приглашение принято, итог доставки ещё проверяется.",
+    cooldown: "Защитный интервал ещё действует. Проверьте самое свежее письмо.",
+    provider_outcome_pending: "Почтовый сервис мог принять письмо, но ответ не успел вернуться. Повтор временно закрыт, пока сервер проверяет результат.",
+    manual_review: "Автоматическое восстановление остановлено для ручной проверки.",
+    invite_failed: "Приглашение не подтверждено. Проверьте новый статус перед повтором.",
+  }[record?.outcome] || "Состояние доступа обновлено. Проверьте данные карточки.";
+}
+
+function managerAccessBlockedMessage(deliveryStatus) {
+  return {
+    bounced: "Письмо возвращено почтовым сервером. Автоматический повтор отключён.",
+    complained: "Получатель пожаловался на письмо. Автоматический повтор отключён.",
+    failed: "Почтовый провайдер завершил попытку ошибкой. Нужна ручная проверка причины.",
+    suppressed: "Новое письмо не отправлялось: сервер подавил дубль или частый повтор.",
+  }[deliveryStatus] || "Почтовый статус требует ручной проверки. Автоматический повтор отключён.";
+}
+
+function isManagerAccessEmail(email) {
+  return Boolean(
+    email
+    && email.length <= 320
+    && /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u.test(email),
+  );
+}
+
 async function retryManagerInvite(email, control) {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  if (!canManageTeam() || !hasWorkspaceAccess() || !/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u.test(normalizedEmail)) {
+  const normalizedEmail = normalizeAccessCenterEmail(email);
+  if (!canManageTeam() || !hasWorkspaceAccess() || !isManagerAccessEmail(normalizedEmail)) {
     toast("Не удалось подготовить безопасный повтор для этого адреса.", "error");
     return;
   }
@@ -8109,35 +8295,8 @@ async function retryManagerInvite(email, control) {
     toast(`Повтор для этого адреса временно закрыт ещё на ${cooldownSeconds} сек. Сначала обновите журнал приглашений.`, "info");
     return;
   }
-  control.disabled = true;
-  const originalLabel = control.textContent;
-  control.textContent = "Проверяем и повторяем…";
-  try {
-    const { data, error } = await withUiTimeout(
-      state.supabase.functions.invoke("creator-invite", { body: { emails: [normalizedEmail] } }),
-      INVITE_REQUEST_TIMEOUT_MS,
-      "invite_request_timeout",
-    );
-    if (error) throw await normalizeInviteFunctionError(error);
-    if (!data || !Array.isArray(data.results)) throw new Error("Supabase не вернул результат приглашения.");
-    state.teamInviteResult = data;
-    persistTeamInviteResult(data);
-    state.sections.team.status = "idle";
-    state.managerDashboard.status = "idle";
-    toast("Повтор выполнен только для одного адреса. Проверьте новый статус и попросите участника использовать самое свежее письмо.", "success");
-    render();
-  } catch (error) {
-    if (String(error?.message || "") === "invite_request_timeout") {
-      toast("Сервис не ответил за 25 секунд. Не повторяйте адрес снова: сначала нажмите «Обновить» и проверьте журнал попыток.", "info");
-    } else {
-      toast(actionErrorMessage(error), "error");
-    }
-  } finally {
-    if (control.isConnected) {
-      control.disabled = false;
-      control.textContent = originalLabel;
-    }
-  }
+  if (control?.isConnected) control.disabled = true;
+  await openManagerAccessCenter(normalizedEmail);
 }
 
 async function normalizeInviteFunctionError(error) {
@@ -8850,6 +9009,12 @@ function clearAuthenticatedState() {
   state.managerDashboard.data = null;
   state.managerDashboard.error = null;
   state.managerDashboard.updatedAt = 0;
+  state.accessCenter.requestId += 1;
+  state.accessCenter.status = "idle";
+  state.accessCenter.email = "";
+  state.accessCenter.result = null;
+  state.accessCenter.error = "";
+  state.accessCenter.notice = "";
   state.managerRecoveryCooldowns.clear();
   state.managerInviteCooldowns.clear();
   state.productResearch.requestId += 1;

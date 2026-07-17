@@ -232,4 +232,6 @@ def test_ci_formats_lints_and_type_checks_background_worker() -> None:
     assert "deno fmt --check supabase/functions/_shared/internal-worker-auth.ts" in ci
     assert "deno lint supabase/functions/_shared/internal-worker-auth.ts" in ci
     assert "deno check supabase/functions/_shared/internal-worker-auth.ts" in ci
-    assert 'worker_config.get("verify_jwt") is not False' in ci
+    assert '"creator-background-worker",' in ci
+    assert '"auth-email-webhook",' in ci
+    assert 'function_config.get("verify_jwt") is not False' in ci

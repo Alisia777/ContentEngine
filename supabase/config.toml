@@ -95,5 +95,11 @@ verify_jwt = true
 [functions.creator-background-worker]
 verify_jwt = false
 
+[functions.creator-access]
+verify_jwt = true
+
+[functions.auth-email-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = false

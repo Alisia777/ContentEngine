@@ -357,6 +357,7 @@ Add these values to the protected GitHub `production` environment:
 | `SMTP_USER` | secret | Provider SMTP user |
 | `SMTP_PASS` | secret | Provider SMTP password or token |
 | `SMTP_SENDER_NAME` | variable | Human-readable sender name |
+| `RESEND_WEBHOOK_SECRET` | secret | Optional Resend/Svix signing secret for delivery events |
 
 Dispatch the workflow from `main` and enter the exact domain after `@`, the
 provider's DKIM selector, its exact SPF `include:` token, the DKIM record type,
@@ -370,10 +371,29 @@ prints them.
 
 A successful configuration means Supabase handed future Auth mail to the
 chosen provider. It does **not** prove inbox delivery. Verify one invite and one
-recovery message in the provider delivery log and the recipient mailbox. To
-show `delivered`, `deferred`, `bounced` and `complained` inside the portal, the
-next provider-specific step is a signed delivery webhook; until that webhook is
-configured the honest UI status remains `accepted_unconfirmed`.
+recovery message in the provider delivery log and the recipient mailbox.
+
+The deployed portal includes the unauthenticated but signature-protected
+`auth-email-webhook` Edge Function. For Resend, configure this HTTPS target:
+
+```text
+https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/auth-email-webhook
+```
+
+Subscribe it to sent/delivered/delayed/failed/suppressed/bounced/complained
+events and store the
+provider signing secret as `RESEND_WEBHOOK_SECRET` in the protected GitHub
+`production` environment. The ordinary production deployment synchronizes that
+secret into Supabase without printing it. When the secret is absent the endpoint
+fails closed and the honest UI status remains `accepted_unconfirmed`.
+
+SMTP handoff does not guarantee that the provider will expose an application
+correlation ID. The event journal therefore distinguishes exact, ambiguous and
+unmatched correlation. Ambiguous events are retained for diagnostics but never
+silently upgrade a particular user's message to `delivered`.
+
+Use [AUTH_ACCESS_OPERATIONS.md](AUTH_ACCESS_OPERATIONS.md) for the complete
+cutover, webhook and canary procedure.
 
 ## Local/reference profile
 

@@ -47,6 +47,7 @@ export const RPC = Object.freeze({
 const REAL_GENERATION_FUNCTION = "creator-generate";
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
+const ACCESS_FUNCTION = "creator-access";
 const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
     duration_seconds: 5,
@@ -313,6 +314,82 @@ export class CreatorApi {
 
   managerDashboard() {
     return this.call(RPC.managerDashboard, this.withOrganization({}));
+  }
+
+  inspectAccess(email) {
+    return this.invokeAccess("inspect", email);
+  }
+
+  repairAccess(email, requestId = "") {
+    return this.invokeAccess("repair", email, { requestId });
+  }
+
+  async invokeAccess(action, email, { requestId = "" } = {}) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    const normalizedEmail = normalizeAccessEmail(email);
+    if (!["inspect", "repair"].includes(normalizedAction)) {
+      throw new CreatorApiError("Не удалось определить безопасное действие с доступом.", {
+        code: "access_action_invalid",
+      });
+    }
+    if (!normalizedEmail) {
+      throw new CreatorApiError("Укажите точный рабочий email участника.", {
+        code: "access_email_invalid",
+      });
+    }
+
+    const payload = { action: normalizedAction, email: normalizedEmail };
+    if (normalizedAction === "repair") {
+      const normalizedRequestId = String(requestId || "").trim() || crypto.randomUUID();
+      if (!isUuid(normalizedRequestId)) {
+        throw new CreatorApiError("Не удалось подготовить безопасный номер восстановления.", {
+          code: "access_request_id_invalid",
+        });
+      }
+      payload.request_id = normalizedRequestId;
+    }
+
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      throw new CreatorApiError("Сессия завершилась. Войдите снова перед проверкой доступа.", {
+        code: "auth_session_required",
+      });
+    }
+
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(ACCESS_FUNCTION, {
+        body: payload,
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }));
+    } catch {
+      throw new CreatorApiError("Сервис доступа временно не ответил. Обновите сводку и повторите позже.", {
+        code: "access_request_failed",
+      });
+    }
+    if (error) throw await accessFunctionError(error);
+
+    const source = data?.data && typeof data.data === "object" && !Array.isArray(data.data)
+      ? data.data
+      : data;
+    if (
+      !source
+      || typeof source !== "object"
+      || Array.isArray(source)
+      || source.ok !== true
+      || String(source.action || "") !== normalizedAction
+      || normalizeAccessEmail(source.email) !== normalizedEmail
+      || !source.access
+      || typeof source.access !== "object"
+      || Array.isArray(source.access)
+    ) {
+      throw new CreatorApiError("Сервис доступа вернул неполный ответ. Новое письмо не отправляйте.", {
+        code: "access_response_invalid",
+      });
+    }
+    return source;
   }
 
   myWork(options = {}) {
@@ -1298,6 +1375,75 @@ function normalizeStringArray(value) {
       .map((item) => String(item || "").trim().toLowerCase())
       .filter(Boolean),
   )];
+}
+
+function normalizeAccessEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  if (
+    !email
+    || email.length > 320
+    || !/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u.test(email)
+  ) return "";
+  return email;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+    String(value || ""),
+  );
+}
+
+async function accessFunctionError(error) {
+  let code = String(error?.code || "access_request_failed");
+  let retryAfterSeconds = 0;
+  const response = error?.context;
+  if (response && typeof response.clone === "function") {
+    try {
+      const body = await response.clone().json();
+      if (body && typeof body === "object" && !Array.isArray(body)) {
+        const candidate = String(body.code || body.error?.code || "");
+        if (/^[a-z0-9_]{3,96}$/u.test(candidate)) code = candidate;
+        const retryCandidate = Number(body.retry_after_seconds || body.error?.retry_after_seconds);
+        if (Number.isInteger(retryCandidate) && retryCandidate > 0 && retryCandidate <= 86_400) {
+          retryAfterSeconds = retryCandidate;
+        }
+      }
+    } catch {
+      // Do not expose raw provider, Auth, or delivery responses to the browser.
+    }
+  }
+  return new CreatorApiError(safeAccessMessage(code, retryAfterSeconds), {
+    code,
+    details: retryAfterSeconds ? { retry_after_seconds: retryAfterSeconds } : null,
+  });
+}
+
+function safeAccessMessage(code, retryAfterSeconds = 0) {
+  const retry = retryAfterSeconds
+    ? ` Повторите проверку примерно через ${retryAfterSeconds} сек.`
+    : "";
+  const messages = {
+    access_action_invalid: "Не удалось определить безопасное действие с доступом.",
+    access_email_invalid: "Укажите точный рабочий email участника.",
+    access_request_id_invalid: "Не удалось подготовить безопасный номер восстановления.",
+    authentication_required: "Сессия завершилась. Войдите снова перед проверкой доступа.",
+    auth_session_required: "Сессия завершилась. Войдите снова перед проверкой доступа.",
+    authorization_required: "Проверять доступ может только руководитель команды.",
+    role_not_allowed: "Проверять доступ может только руководитель команды.",
+    email_rate_limited: `Почтовый сервис временно ограничил повтор.${retry}`,
+    manual_review_required: "Автоматическое восстановление остановлено. Проверьте адрес и состояние участника вручную.",
+    access_status_unavailable: "Состояние доступа временно не удалось проверить. Новое письмо не отправляйте.",
+    access_journal_unavailable: "Журнал писем временно недоступен. Новое письмо не отправляйте.",
+    access_journal_finalize_failed: "Действие принято, но журнал не подтвердил итог. Обновите сводку перед повтором.",
+    auth_runtime_not_configured: "Сервис восстановления требует настройки руководителем системы.",
+    recovery_provider_unavailable: "Почтовый сервис восстановления временно недоступен.",
+    recovery_provider_failed: "Почтовый сервис не подтвердил восстановление. Проверьте статус перед повтором.",
+    recovery_provider_outcome_unknown: "Итог восстановления не подтверждён. Не запускайте повтор до обновления статуса.",
+    invite_provider_outcome_unknown: "Итог приглашения не подтверждён. Не запускайте повтор до обновления статуса.",
+    access_request_failed: "Сервис доступа временно не ответил. Обновите сводку и повторите позже.",
+    access_response_invalid: "Сервис доступа вернул неполный ответ. Новое письмо не отправляйте.",
+  };
+  return messages[code] || "Не удалось безопасно проверить доступ. Обновите сводку и повторите позже.";
 }
 
 async function creatorFunctionError(error) {

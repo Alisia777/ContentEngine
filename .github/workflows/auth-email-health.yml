@@ -1,0 +1,72 @@
+name: Monitor Auth email DNS
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-auth-email-health
+  cancel-in-progress: false
+
+jobs:
+  dns:
+    name: Verify SPF, DKIM and DMARC drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    env:
+      SENDING_DOMAIN: ${{ vars.AUTH_EMAIL_SENDING_DOMAIN }}
+      DKIM_SELECTOR: ${{ vars.AUTH_EMAIL_DKIM_SELECTOR }}
+      EXPECTED_SPF_INCLUDE: ${{ vars.AUTH_EMAIL_EXPECTED_SPF_INCLUDE }}
+      DKIM_RECORD_TYPE: ${{ vars.AUTH_EMAIL_DKIM_RECORD_TYPE }}
+      EXPECTED_DKIM_VALUE: ${{ vars.AUTH_EMAIL_EXPECTED_DKIM_VALUE }}
+    steps:
+      - name: Check out reviewed repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Detect whether production Auth email is configured
+        id: configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for value in \
+            "$SENDING_DOMAIN" \
+            "$DKIM_SELECTOR" \
+            "$EXPECTED_SPF_INCLUDE" \
+            "$DKIM_RECORD_TYPE" \
+            "$EXPECTED_DKIM_VALUE"
+          do
+            if [ -z "$value" ]; then
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auth email DNS monitor is waiting for production variables."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify public SPF, DKIM and DMARC records
+        if: steps.configured.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate_auth_dns.py \
+            --domain "$SENDING_DOMAIN" \
+            --selector "$DKIM_SELECTOR" \
+            --expected-spf-include "$EXPECTED_SPF_INCLUDE" \
+            --dkim-record-type "$DKIM_RECORD_TYPE" \
+            --expected-dkim-value "$EXPECTED_DKIM_VALUE"

@@ -45,11 +45,24 @@ def test_required_password_change_is_server_marked_and_workspace_gated() -> None
 
 def test_reset_and_invite_have_soft_timeouts_and_honest_delivery_copy() -> None:
     app = _text("web/app/app.js")
+    api = _text("web/app/supabase-api.js")
 
     assert "AUTH_REQUEST_TIMEOUT_MS = 15_000" in app
     assert "INVITE_REQUEST_TIMEOUT_MS = 25_000" in app
     assert "RESET_RESEND_COOLDOWN_MS = 60_000" in app
-    assert "resetPasswordForEmail" in app and "withUiTimeout(" in app
+    public_reset = app.split("async function submitReset", 1)[1].split(
+        "async function submitPassword",
+        1,
+    )[0]
+    manager_recovery = app.split('if (action === "send-manager-recovery")', 1)[1].split(
+        'if (action === "copy-manager-reminder")',
+        1,
+    )[0]
+    assert "resetPasswordForEmail" in public_reset and "withUiTimeout(" in public_reset
+    assert "resetPasswordForEmail" not in manager_recovery
+    assert 'const ACCESS_FUNCTION = "creator-access"' in api
+    assert "state.api.inspectAccess(normalizedEmail)" in app
+    assert "state.api.repairAccess(normalizedEmail)" in app
     assert "function startResetResendCountdown()" in app
     assert "Это ещё не подтверждение доставки письма" in app
     assert "Доставка писем ещё не подтверждена" in app

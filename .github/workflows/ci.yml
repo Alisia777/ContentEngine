@@ -105,6 +105,7 @@ jobs:
               "creator-generate",
               "creator-product-research",
               "creator-content-review",
+              "creator-access",
           ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
@@ -118,17 +119,24 @@ jobs:
                   raise SystemExit(
                       f"{function_name} must set verify_jwt = true"
                   )
-          worker_name = "creator-background-worker"
-          worker_entrypoint = (
-              Path("supabase/functions") / worker_name / "index.ts"
-          )
-          if not worker_entrypoint.is_file():
-              raise SystemExit(f"Missing {worker_name} Edge Function entrypoint")
-          worker_config = config.get("functions", {}).get(worker_name, {})
-          if worker_config.get("verify_jwt") is not False:
-              raise SystemExit(
-                  f"{worker_name} must set verify_jwt = false"
+          for function_name in (
+              "creator-background-worker",
+              "auth-email-webhook",
+          ):
+              entrypoint = (
+                  Path("supabase/functions") / function_name / "index.ts"
               )
+              if not entrypoint.is_file():
+                  raise SystemExit(
+                      f"Missing {function_name} Edge Function entrypoint"
+                  )
+              function_config = config.get("functions", {}).get(
+                  function_name, {}
+              )
+              if function_config.get("verify_jwt") is not False:
+                  raise SystemExit(
+                      f"{function_name} must set verify_jwt = false"
+                  )
           PY
 
       - name: Check function formatting
@@ -139,6 +147,8 @@ jobs:
           deno fmt --check supabase/functions/creator-product-research
           deno fmt --check supabase/functions/creator-content-review
           deno fmt --check supabase/functions/creator-background-worker
+          deno fmt --check supabase/functions/creator-access
+          deno fmt --check supabase/functions/auth-email-webhook
           deno fmt --check supabase/functions/_shared/internal-worker-auth.ts
 
       - name: Lint function
@@ -149,6 +159,8 @@ jobs:
           deno lint supabase/functions/creator-product-research/index.ts
           deno lint supabase/functions/creator-content-review/index.ts
           deno lint supabase/functions/creator-background-worker/index.ts
+          deno lint supabase/functions/creator-access/index.ts
+          deno lint supabase/functions/auth-email-webhook/index.ts
           deno lint supabase/functions/_shared/internal-worker-auth.ts
 
       - name: Type-check function
@@ -159,6 +171,8 @@ jobs:
           deno check supabase/functions/creator-product-research/index.ts
           deno check supabase/functions/creator-content-review/index.ts
           deno check supabase/functions/creator-background-worker/index.ts
+          deno check supabase/functions/creator-access/index.ts
+          deno check supabase/functions/auth-email-webhook/index.ts
           deno check supabase/functions/_shared/internal-worker-auth.ts
 
   reference-postgres-migration:

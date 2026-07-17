@@ -1,0 +1,209 @@
+.access-center {
+  position: relative;
+  margin-top: 22px;
+  padding: clamp(20px, 3vw, 32px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--portal-primary, #173f36) 16%, transparent);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--portal-accent, #caa75c) 22%, transparent), transparent 34%),
+    var(--portal-surface, #fff);
+  box-shadow: 0 22px 60px color-mix(in srgb, var(--portal-primary, #173f36) 10%, transparent);
+  color: var(--portal-ink, #173d35);
+}
+
+.access-center::after {
+  position: absolute;
+  right: -70px;
+  bottom: -90px;
+  width: 230px;
+  height: 230px;
+  border: 1px solid color-mix(in srgb, var(--portal-accent, #caa75c) 26%, transparent);
+  border-radius: 48% 52% 60% 40%;
+  content: "";
+  pointer-events: none;
+  transform: rotate(18deg);
+}
+
+.access-center-head,
+.access-center-record-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.access-center-head h2,
+.access-center-record-head h3 {
+  margin: 0;
+  color: var(--portal-ink, #173d35);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.08;
+}
+
+.access-center-head h2 { font-size: clamp(1.55rem, 2.8vw, 2.25rem); }
+.access-center-record-head h3 { font-size: clamp(1.2rem, 2vw, 1.55rem); }
+.access-center-head p:not(.eyebrow) { max-width: 780px; margin: 10px 0 0; color: var(--portal-ink-soft, #65736f); }
+
+.access-center-safety,
+.access-center-state {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--portal-primary, #173f36) 14%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--portal-primary, #173f36) 7%, var(--portal-surface, #fff));
+  color: var(--portal-primary, #173f36);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.access-center-form {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 8px 14px;
+  align-items: end;
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--portal-primary, #173f36) 12%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--portal-surface, #fff) 88%, var(--portal-primary, #173f36) 4%);
+}
+
+.access-center-form .field { margin: 0; }
+.access-center-help { grid-column: 1; margin: 0; color: var(--portal-ink-soft, #6c7b77); font-size: 0.78rem; }
+.access-center-submit { grid-column: 2; grid-row: 1 / span 2; min-width: 250px; }
+.access-center-reset { grid-column: 1 / -1; justify-self: start; }
+
+.access-center-live {
+  position: relative;
+  z-index: 1;
+  min-height: 1.3em;
+  margin-top: 10px;
+  color: var(--portal-ink-soft, #62736e);
+  font-size: 0.82rem;
+}
+
+.access-center-alert {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.access-center-alert-info {
+  border: 1px solid color-mix(in srgb, #39758f 22%, transparent);
+  background: var(--portal-info-bg, color-mix(in srgb, #dceef5 70%, var(--portal-surface, #fff)));
+  color: var(--portal-info-ink, #285c72);
+}
+
+.access-center-alert-danger {
+  border: 1px solid color-mix(in srgb, #a43d35 24%, transparent);
+  background: var(--portal-danger-bg, color-mix(in srgb, #ffe5e2 76%, var(--portal-surface, #fff)));
+  color: var(--portal-danger-ink, #8e302a);
+}
+
+.access-center-record {
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--portal-primary, #173f36) 12%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--portal-surface, #fff) 94%, var(--portal-primary, #173f36) 2%);
+}
+
+.access-center-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.access-center-facts > div {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--portal-primary, #173f36) 10%, transparent);
+  border-radius: 14px;
+  background: var(--portal-surface, #fff);
+}
+
+.access-center-facts dt {
+  color: var(--portal-ink-soft, #6c7b77);
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.access-center-facts dd {
+  margin: 7px 0 4px;
+  overflow-wrap: anywhere;
+  color: var(--portal-ink, #173d35);
+  font-weight: 800;
+}
+
+.access-center-facts small { color: var(--portal-ink-soft, #6c7b77); line-height: 1.4; }
+.access-center-delivery-success { border-color: color-mix(in srgb, #2e805d 30%, transparent) !important; }
+.access-center-delivery-warning { border-color: color-mix(in srgb, #a87517 30%, transparent) !important; }
+.access-center-delivery-danger { border-color: color-mix(in srgb, #a43d35 34%, transparent) !important; }
+.access-center-delivery-info { border-color: color-mix(in srgb, #39758f 28%, transparent) !important; }
+
+.access-center-empty {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px dashed color-mix(in srgb, var(--portal-primary, #173f36) 20%, transparent);
+  border-radius: 16px;
+  color: var(--portal-ink-soft, #62736e);
+}
+
+.access-center-empty > span {
+  display: grid;
+  flex: 0 0 38px;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--portal-primary, #173f36);
+  color: var(--portal-accent-contrast, #f7e6ba);
+  font-weight: 800;
+}
+
+.access-center-empty p { margin: 4px 0 0; }
+
+@media (max-width: 900px) {
+  .access-center-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 680px) {
+  .access-center { padding: 17px; border-radius: 19px; }
+  .access-center-head,
+  .access-center-record-head { display: grid; }
+  .access-center-safety,
+  .access-center-state { justify-self: start; }
+  .access-center-form { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .access-center-help,
+  .access-center-submit,
+  .access-center-reset { grid-column: 1; grid-row: auto; width: 100%; min-width: 0; }
+  .access-center-facts { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .access-center,
+  .access-center * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -132,6 +132,27 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF" \
             CONTENTENGINE_WORKER_SECRET="$CONTENTENGINE_WORKER_SECRET"
 
+      - name: Synchronize optional signed email webhook secret
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
+        run: |
+          if [ -z "${RESEND_WEBHOOK_SECRET:-}" ]; then
+            echo "RESEND_WEBHOOK_SECRET is not configured; removing any previously synchronized webhook secret."
+            supabase secrets unset RESEND_WEBHOOK_SECRET \
+              --project-ref "$SUPABASE_PROJECT_REF"
+            exit 0
+          fi
+          echo "::add-mask::$RESEND_WEBHOOK_SECRET"
+          if [ "${#RESEND_WEBHOOK_SECRET}" -lt 24 ]; then
+            echo "RESEND_WEBHOOK_SECRET must contain at least 24 characters" >&2
+            exit 1
+          fi
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            RESEND_WEBHOOK_SECRET="$RESEND_WEBHOOK_SECRET"
+
       - name: Require reviewed authentication modes for creator Edge Functions
         shell: bash
         run: |
@@ -148,6 +169,7 @@ jobs:
               "creator-generate",
               "creator-product-research",
               "creator-content-review",
+              "creator-access",
           ):
               entrypoint = Path("supabase/functions") / function_name / "index.ts"
               if not entrypoint.is_file():
@@ -161,17 +183,24 @@ jobs:
                   raise SystemExit(
                       f"{function_name} must set verify_jwt = true"
                   )
-          worker_name = "creator-background-worker"
-          worker_entrypoint = (
-              Path("supabase/functions") / worker_name / "index.ts"
-          )
-          if not worker_entrypoint.is_file():
-              raise SystemExit(f"Missing {worker_name} Edge Function entrypoint")
-          worker_config = config.get("functions", {}).get(worker_name, {})
-          if worker_config.get("verify_jwt") is not False:
-              raise SystemExit(
-                  f"{worker_name} must set verify_jwt = false"
+          for function_name in (
+              "creator-background-worker",
+              "auth-email-webhook",
+          ):
+              entrypoint = (
+                  Path("supabase/functions") / function_name / "index.ts"
               )
+              if not entrypoint.is_file():
+                  raise SystemExit(
+                      f"Missing {function_name} Edge Function entrypoint"
+                  )
+              function_config = config.get("functions", {}).get(
+                  function_name, {}
+              )
+              if function_config.get("verify_jwt") is not False:
+                  raise SystemExit(
+                      f"{function_name} must set verify_jwt = false"
+                  )
           PY
 
       - name: Deploy authenticated creator invitation function
@@ -204,6 +233,21 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: >-
           supabase functions deploy creator-background-worker
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --no-verify-jwt
+
+      - name: Deploy authenticated account access function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          supabase functions deploy creator-access
+          --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy signed email delivery webhook
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          supabase functions deploy auth-email-webhook
           --project-ref "$SUPABASE_PROJECT_REF"
           --no-verify-jwt
 

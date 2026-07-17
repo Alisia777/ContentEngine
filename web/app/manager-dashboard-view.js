@@ -120,7 +120,7 @@ function pendingInviteMarkup(invites) {
             <article class="manager-invite-row">
               <div><strong>${escapeHtml(invite.email || "—")}</strong><small>${escapeHtml(status)}</small></div>
               <time datetime="${escapeHtml(invite.requested_at || "")}">${escapeHtml(formatDateTime(invite.requested_at))}</time>
-              ${canRetry ? `<button class="btn btn-secondary btn-small" type="button" data-action="retry-manager-invite" data-email="${escapeHtml(invite.email || "")}">Повторить этот адрес</button>` : ""}
+              ${canRetry ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-manager-access" data-email="${escapeHtml(invite.email || "")}">Проверить и восстановить доступ</button>` : ""}
             </article>
           `;
         }).join("")}
@@ -158,7 +158,7 @@ function memberQueueMarkup(members) {
 function safeActionMarkup(member) {
   const action = String(member.safe_action || "none");
   if (action === "recovery") {
-    return `<button class="btn btn-secondary btn-small" type="button" data-action="send-manager-recovery" data-email="${escapeHtml(member.email || "")}">Отправить новую ссылку</button>`;
+    return `<button class="btn btn-secondary btn-small" type="button" data-action="open-manager-access" data-email="${escapeHtml(member.email || "")}">Проверить и восстановить доступ</button>`;
   }
   if (action === "learn" || action === "exam") {
     const stage = action === "exam" ? "экзамен" : "обучение";

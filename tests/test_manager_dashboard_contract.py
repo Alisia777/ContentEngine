@@ -86,10 +86,13 @@ def test_generation_action_is_status_check_not_a_new_paid_start():
     assert "submit" not in generation_action.lower()
 
 
-def test_invite_retry_is_scoped_to_one_email():
-    assert 'data-action="retry-manager-invite"' in VIEW
+def test_access_repair_is_scoped_to_one_exact_email_and_server_verified():
+    assert 'data-action="open-manager-access"' in VIEW
     assert 'data-email="${escapeHtml(invite.email || "")}"' in VIEW
-    assert "Повторить этот адрес" in VIEW
+    assert 'data-email="${escapeHtml(member.email || "")}"' in VIEW
+    assert "Проверить и восстановить доступ" in VIEW
+    assert 'data-action="retry-manager-invite"' not in VIEW
+    assert 'data-action="send-manager-recovery"' not in VIEW
 
 
 def test_password_change_detection_matches_current_and_legacy_auth_contracts():
