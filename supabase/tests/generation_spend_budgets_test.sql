@@ -691,38 +691,6 @@ update content_factory.generation_jobs
 set status = 'starting',
     output = output || jsonb_build_object('starting_at', now())
 where id = 'c1000000-0000-4000-8000-000000000003';
-select lives_ok(
-  $$update content_factory.generation_jobs
-    set output = output || jsonb_build_object(
-      'reconciliation_required', true,
-      'reconciliation_incident_id',
-        'a1300000-0000-4000-8000-000000000001',
-      'reconciliation_reason_code', 'provider_create_timeout',
-      'reconciliation_required_at', now()
-    )
-    where id = 'c1000000-0000-4000-8000-000000000003'$$,
-  'an ambiguous provider create outcome freezes rather than releases the reserve'
-);
-select is(
-  (
-    select string_agg(event_type, ',' order by id)
-    from content_factory.generation_spend_ledger
-    where generation_job_id =
-      'c1000000-0000-4000-8000-000000000003'
-  ),
-  'reserved,frozen',
-  'the ambiguous reservation remains visible and frozen for reconciliation'
-);
-
-set local role authenticated;
-select is(
-  public.creator_generation_spend_overview(jsonb_build_object(
-    'organization_id', 'a1000000-0000-4000-8000-000000000001'
-  )) ->> 'blocker_code',
-  'real_generation_reconciliation_required',
-  'the spend snapshot exposes the organization-wide reconciliation freeze'
-);
-reset role;
 
 select throws_ok(
   $$update content_factory.generation_spend_ledger
@@ -919,6 +887,42 @@ select throws_ok(
   'generation_budget_policy_changed',
   'the platform circuit breaker uses optimistic versioning'
 );
+
+-- Keep the unresolved-incident scenario last. The reconciliation freeze is
+-- organization-wide by design, so marking it earlier would prevent the later
+-- monthly-limit and global-stop fixtures from creating their paid jobs.
+select lives_ok(
+  $$update content_factory.generation_jobs
+    set output = output || jsonb_build_object(
+      'reconciliation_required', true,
+      'reconciliation_incident_id',
+        'a1300000-0000-4000-8000-000000000001',
+      'reconciliation_reason_code', 'provider_create_timeout',
+      'reconciliation_required_at', now()
+    )
+    where id = 'c1000000-0000-4000-8000-000000000003'$$,
+  'an ambiguous provider create outcome freezes rather than releases the reserve'
+);
+select is(
+  (
+    select string_agg(event_type, ',' order by id)
+    from content_factory.generation_spend_ledger
+    where generation_job_id =
+      'c1000000-0000-4000-8000-000000000003'
+  ),
+  'reserved,frozen',
+  'the ambiguous reservation remains visible and frozen for reconciliation'
+);
+
+set local role authenticated;
+select is(
+  public.creator_generation_spend_overview(jsonb_build_object(
+    'organization_id', 'a1000000-0000-4000-8000-000000000001'
+  )) ->> 'blocker_code',
+  'real_generation_reconciliation_required',
+  'the spend snapshot exposes the organization-wide reconciliation freeze'
+);
+reset role;
 
 select * from finish();
 rollback;

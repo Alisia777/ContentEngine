@@ -455,12 +455,19 @@ insert into content_factory.generation_spend_policies (
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
   currency, timezone, version, reason, updated_by
 )
-values (
-  '97100000-0000-4000-8000-000000000001', true,
-  2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
-  'Reconciliation pgTAP fixture policy.',
-  '97000000-0000-4000-8000-000000000001'
-);
+values
+  (
+    '97100000-0000-4000-8000-000000000001', true,
+    2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+    'Reconciliation pgTAP fixture policy.',
+    '97000000-0000-4000-8000-000000000001'
+  ),
+  (
+    '97100000-0000-4000-8000-000000000002', true,
+    2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+    'Other organization reconciliation pgTAP fixture policy.',
+    '97000000-0000-4000-8000-000000000001'
+  );
 
 do $training_gate_fixture$
 declare
