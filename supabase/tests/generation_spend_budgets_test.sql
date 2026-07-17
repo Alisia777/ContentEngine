@@ -734,10 +734,11 @@ values (
   public.creator_update_generation_campaign_spend_policy(jsonb_build_object(
     'organization_id', 'a1000000-0000-4000-8000-000000000001',
     'campaign_id', (
-      select id
-      from content_factory.generation_campaigns
-      where organization_id = 'a1000000-0000-4000-8000-000000000001'
-        and kind = 'default'
+      select (campaign ->> 'id')::uuid
+      from spend_test_context context,
+        lateral jsonb_array_elements(context.payload -> 'campaigns') campaign
+      where context.name = 'policy_v6'
+        and campaign ->> 'kind' = 'default'
     ),
     'paid_generation_enabled', true,
     'daily_limit_minor', 100,
