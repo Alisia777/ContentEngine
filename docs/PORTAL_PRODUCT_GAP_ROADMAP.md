@@ -34,12 +34,12 @@ Done when:
 
 Current state:
 
-- the organization and global Runway limits are deployed;
-- the repository release now includes first-class organization-scoped
+- the global, organization, and campaign Runway limits are deployed;
+- production now includes first-class organization-scoped
   campaigns, immutable paid-job attribution, manager budget controls, and
   atomic organization/campaign guards;
-- the new migration still has to pass the real PostgreSQL pgTAP gate and the
-  production deployment before this item can be called operationally closed.
+- the migration passed the real PostgreSQL lint/pgTAP gate and production
+  deployment; live Pages and RPC-boundary smoke checks also passed.
 
 Done when:
 
@@ -197,13 +197,12 @@ metrics, while retaining the human decision and its reason.
 
 ## Recommended execution order
 
-1. Ship campaign budgets through pgTAP and production deployment.
-2. Make queued video review recoverable and dead-letter stale runs.
-3. Select and configure the production mail provider, DNS, exact message-ID
+1. Make queued video review recoverable and dead-letter stale runs.
+2. Select and configure the production mail provider, DNS, exact message-ID
    correlation, webhook, mandatory readiness gate, and canaries.
-4. Require quota-reserving Storage upload intents and sweep existing orphans.
-5. Build the unified provider-cost ledger and OpenAI budget guards.
-6. Add independent health alerts and run the first restore drill.
-7. Add official connector canaries, or explicitly label metrics as manual.
-8. Run the 100k performance programme and split/bundle the SPA by route.
-9. Complete real training videos, deeper QA, and the recommendation feedback loop.
+3. Require quota-reserving Storage upload intents and sweep existing orphans.
+4. Build the unified provider-cost ledger and OpenAI budget guards.
+5. Add independent health alerts and run the first restore drill.
+6. Add official connector canaries, or explicitly label metrics as manual.
+7. Run the 100k performance programme and split/bundle the SPA by route.
+8. Complete real training videos, deeper QA, and the recommendation feedback loop.
