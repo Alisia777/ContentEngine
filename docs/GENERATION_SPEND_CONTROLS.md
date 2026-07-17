@@ -182,5 +182,6 @@ interrupt status polling or storage of a task that was already submitted.
 These migrations implement platform, organization and campaign Runway
 budgets. The ledger still records guarded SKU estimates rather than reconciled
 provider invoices. Unified Runway/OpenAI invoice import and reconciliation is
-separate follow-up work; no UI should describe committed estimates as settled
-provider invoices.
+separate follow-up work. Campaign budgets and unified Runway/OpenAI invoice reconciliation
+remain distinct controls; no UI should describe committed estimates as settled provider
+invoices.

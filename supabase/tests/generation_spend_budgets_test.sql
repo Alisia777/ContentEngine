@@ -630,8 +630,8 @@ values ('job_3', pg_temp.create_budget_job(3));
 select throws_ok(
   $$select pg_temp.create_budget_job(4)$$,
   '54000',
-  'generation_daily_budget_exceeded',
-  'atomic reservation rejects a job that would exceed the daily money limit'
+  'generation_campaign_daily_budget_exceeded',
+  'atomic reservation rejects a job that would exceed the default campaign daily money limit'
 );
 select is(
   (
