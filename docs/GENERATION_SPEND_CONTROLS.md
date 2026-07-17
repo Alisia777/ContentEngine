@@ -3,7 +3,9 @@
 The production database treats every real Runway request as a monetary
 operation. Job-count quotas remain useful for load control, but they are not a
 money limit. Migration `202607170002_generation_spend_budgets.sql` adds the
-authoritative money gate.
+authoritative organization money gate; follow-on migration
+`202607170003_generation_campaign_budgets.sql` adds mandatory campaign
+attribution and campaign-level limits without rewriting the ledger.
 
 ## Safety model
 
@@ -13,6 +15,12 @@ authoritative money gate.
 - Every organization needs an explicit policy with an enabled flag, daily,
   monthly and per-request limits, currency `USD`, IANA timezone, version and
   change reason.
+- Every paid batch and job is bound to one organization campaign. Existing
+  organizations receive one `default` campaign; owners/admins can create named
+  campaigns for products or projects. Mock jobs remain campaign-optional.
+- A paid reservation must fit both the organization policy and the selected
+  campaign policy. Both decisions use the same organization advisory lock, so
+  concurrent requests cannot spend the same remaining capacity.
 - Organizations that existed when the migration was applied receive the
   conservative rollout policy: `$25/day`, `$100/month`, `$5/request`.
 - An organization created later has no policy and is fail-closed. An owner or
@@ -91,7 +99,28 @@ active owner/admin/producer/operator members. Its stable response contract is:
       "committed_minor": 0,
       "remaining_minor": 10000
     }
-  }
+  },
+  "campaigns": [
+    {
+      "id": "uuid",
+      "name": "Основная кампания",
+      "kind": "default",
+      "status": "active",
+      "enabled": true,
+      "blocker_code": null,
+      "policy": {
+        "paid_generation_enabled": true,
+        "daily_limit_minor": 2500,
+        "monthly_limit_minor": 10000,
+        "per_request_limit_minor": 500,
+        "version": 1
+      },
+      "usage": {
+        "day": { "reserved_minor": 0, "committed_minor": 0, "remaining_minor": 2500 },
+        "month": { "reserved_minor": 0, "committed_minor": 0, "remaining_minor": 10000 }
+      }
+    }
+  ]
 }
 ```
 
@@ -99,6 +128,18 @@ active owner/admin/producer/operator members. Its stable response contract is:
 policy fields, `expected_version` and `idempotency_key`. Exact retries return
 the stored response; reused keys with different data fail. Stale versions raise
 `generation_budget_policy_changed`.
+
+`creator_create_generation_campaign` and
+`creator_update_generation_campaign_spend_policy` are owner/admin-only,
+idempotent mutations. Campaign policies cannot exceed the current
+organization limits. Policy updates use `expected_version`; stale writes fail
+with `generation_campaign_budget_policy_changed`.
+
+The browser requires an explicit `campaign_id` for every real Runway start,
+and the Edge Function validates it as a UUID before forwarding the request to
+`creator_start_real_generation`. The database remains the authority: it binds
+the batch and job, rejects inactive/paused campaigns, and rechecks capacity on
+both reservation and `queued -> starting`.
 
 Stable paid-generation blocker codes are:
 
@@ -109,6 +150,14 @@ Stable paid-generation blocker codes are:
 - `generation_per_request_budget_exceeded`
 - `generation_budget_reservation_invalid`
 - `generation_budget_policy_changed`
+- `paid_generation_campaign_required`
+- `paid_generation_campaign_not_active`
+- `paid_generation_campaign_policy_missing`
+- `paid_generation_campaign_paused`
+- `generation_campaign_daily_budget_exceeded`
+- `generation_campaign_monthly_budget_exceeded`
+- `generation_campaign_per_request_budget_exceeded`
+- `generation_campaign_budget_policy_changed`
 - `real_generation_reconciliation_required`
 
 ## Platform emergency stop
@@ -130,6 +179,8 @@ interrupt status polling or storage of a task that was already submitted.
 
 ## Current boundary
 
-This migration implements platform and organization Runway budgets. Campaign
-budgets and unified Runway/OpenAI invoice reconciliation remain separate
-follow-up work; no UI should imply that those two controls already exist.
+These migrations implement platform, organization and campaign Runway
+budgets. The ledger still records guarded SKU estimates rather than reconciled
+provider invoices. Unified Runway/OpenAI invoice import and reconciliation is
+separate follow-up work; no UI should describe committed estimates as settled
+provider invoices.

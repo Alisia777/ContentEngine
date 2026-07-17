@@ -69,6 +69,14 @@ const BUDGET_ERROR_CODES: ReadonlySet<string> = new Set([
   "generation_per_request_budget_exceeded",
   "generation_budget_reservation_invalid",
   "generation_budget_policy_changed",
+  "paid_generation_campaign_required",
+  "paid_generation_campaign_not_active",
+  "paid_generation_campaign_policy_missing",
+  "paid_generation_campaign_paused",
+  "generation_campaign_per_request_budget_exceeded",
+  "generation_campaign_daily_budget_exceeded",
+  "generation_campaign_monthly_budget_exceeded",
+  "generation_campaign_budget_policy_changed",
 ]);
 
 type BudgetErrorCode =
@@ -78,7 +86,15 @@ type BudgetErrorCode =
   | "generation_monthly_budget_exceeded"
   | "generation_per_request_budget_exceeded"
   | "generation_budget_reservation_invalid"
-  | "generation_budget_policy_changed";
+  | "generation_budget_policy_changed"
+  | "paid_generation_campaign_required"
+  | "paid_generation_campaign_not_active"
+  | "paid_generation_campaign_policy_missing"
+  | "paid_generation_campaign_paused"
+  | "generation_campaign_per_request_budget_exceeded"
+  | "generation_campaign_daily_budget_exceeded"
+  | "generation_campaign_monthly_budget_exceeded"
+  | "generation_campaign_budget_policy_changed";
 
 type ClaimErrorCode =
   | BudgetErrorCode
@@ -135,6 +151,7 @@ type ContentEngineDatabase = {
           id: string;
           organization_id: string;
           batch_id: string;
+          campaign_id: string;
           status: string;
           mode: string;
           provider: string;
@@ -143,6 +160,16 @@ type ContentEngineDatabase = {
           estimated_cost_minor: number;
           actual_cost_minor: number | null;
           updated_at: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      generation_campaigns: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
@@ -157,6 +184,7 @@ type ContentEngineDatabase = {
 type CommonStartPayload = {
   action: "start";
   organization_id: string;
+  campaign_id: string;
   idempotency_key: string;
   sku: string;
   product_name: string;
@@ -228,6 +256,8 @@ type ReconciliationContext = {
 type StartJob = {
   id: string;
   batchId: string;
+  campaignId: string;
+  campaignName: string;
   status: string;
   provider: "runway";
   model: "gen4_turbo" | "seedance2_fast";
@@ -244,6 +274,8 @@ type StartJob = {
 type StatusJob = {
   id: string;
   batchId: string;
+  campaignId: string;
+  campaignName: string;
   status: string;
   provider: "runway";
   providerTaskId: string | null;
@@ -270,6 +302,8 @@ type StatusJob = {
 type SafeJob = {
   id: string;
   batch_id: string;
+  campaign_id: string;
+  campaign_name: string;
   status: string;
   provider: "runway";
   provider_task_id: string | null;
@@ -338,7 +372,11 @@ function readClaimErrorCode(value: unknown): ClaimErrorCode | null {
 
 function budgetErrorHttpStatus(code: BudgetErrorCode): 403 | 409 {
   return code === "paid_generation_paused" ||
-      code === "paid_generation_policy_missing"
+      code === "paid_generation_policy_missing" ||
+      code === "paid_generation_campaign_required" ||
+      code === "paid_generation_campaign_not_active" ||
+      code === "paid_generation_campaign_policy_missing" ||
+      code === "paid_generation_campaign_paused"
     ? 403
     : 409;
 }
@@ -405,6 +443,7 @@ function readStartPayload(value: unknown): StartPayload | null {
   const required = new Set([
     "action",
     "organization_id",
+    "campaign_id",
     "idempotency_key",
     "sku",
     "product_name",
@@ -458,6 +497,7 @@ function readStartPayload(value: unknown): StartPayload | null {
   if (
     value.action !== "start" ||
     !isUuid(value.organization_id) ||
+    !isUuid(value.campaign_id) ||
     typeof value.idempotency_key !== "string" ||
     !IDEMPOTENCY_PATTERN.test(value.idempotency_key) ||
     !isBoundedText(value.sku, 1, 120) ||
@@ -595,10 +635,15 @@ function readStartJob(value: unknown): StartJob | null {
   const batch = value.batch;
   const job = value.job;
   if (value.ok !== true || !isRecord(batch) || !isRecord(job)) return null;
-  if (!isUuid(batch.id) || typeof batch.status !== "string") return null;
+  if (
+    !isUuid(batch.id) || typeof batch.status !== "string" ||
+    !isUuid(batch.campaign_id)
+  ) return null;
   const sku = readRunwaySku(job);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) || job.batch_id !== batch.id ||
+    !isUuid(job.campaign_id) || !isBoundedText(job.campaign_name, 2, 160) ||
+    job.campaign_id !== batch.campaign_id ||
     typeof job.status !== "string" || !JOB_STATUSES.has(job.status) ||
     job.provider !== "runway" || sku === null ||
     !isBoundedText(job.prompt_text, 1, 1_200) ||
@@ -612,6 +657,8 @@ function readStartJob(value: unknown): StartJob | null {
   return {
     id: job.id,
     batchId: job.batch_id,
+    campaignId: job.campaign_id,
+    campaignName: job.campaign_name,
     status: job.status,
     provider: "runway",
     model: sku.model,
@@ -643,6 +690,7 @@ function readStatusJob(value: unknown): StatusJob | null {
   const sku = readRunwaySku(job);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) ||
+    !isUuid(job.campaign_id) || !isBoundedText(job.campaign_name, 2, 160) ||
     typeof job.status !== "string" || !JOB_STATUSES.has(job.status) ||
     job.provider !== "runway" || sku === null ||
     (providerTaskId !== null && !isValidTaskId(providerTaskId)) ||
@@ -681,6 +729,8 @@ function readStatusJob(value: unknown): StatusJob | null {
   return {
     id: job.id,
     batchId: job.batch_id,
+    campaignId: job.campaign_id,
+    campaignName: job.campaign_name,
     status: job.status,
     provider: "runway",
     providerTaskId,
@@ -726,6 +776,8 @@ function readInternalStatusRow(value: unknown): StatusJob | null {
     job: {
       id: value.id,
       batch_id: value.batch_id,
+      campaign_id: value.campaign_id,
+      campaign_name: value.campaign_name,
       status: value.status,
       provider: value.provider,
       provider_task_id: nullableString(output, "provider_task_id"),
@@ -798,6 +850,8 @@ function safeJob(job: StatusJob): SafeJob {
   return {
     id: job.id,
     batch_id: job.batchId,
+    campaign_id: job.campaignId,
+    campaign_name: job.campaignName,
     status: job.status,
     provider: job.provider,
     provider_task_id: job.providerTaskId,
@@ -1088,14 +1142,31 @@ async function handleCreatorGenerate(
           .schema("content_factory")
           .from("generation_jobs")
           .select(
-            "id, organization_id, batch_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
+            "id, organization_id, batch_id, campaign_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
           )
           .eq("organization_id", organizationId)
           .eq("id", jobId)
           .eq("mode", "real")
           .eq("provider", "runway")
           .maybeSingle();
-        return error || data === null ? null : readInternalStatusRow(data);
+        if (error || !isRecord(data) || !isUuid(data.campaign_id)) return null;
+        const { data: campaignData, error: campaignError } = await supabaseAdmin
+          .schema("content_factory")
+          .from("generation_campaigns")
+          .select("id, name")
+          .eq("organization_id", organizationId)
+          .eq("id", data.campaign_id)
+          .maybeSingle();
+        if (
+          campaignError || !isRecord(campaignData) ||
+          !isBoundedText(campaignData.name, 2, 160)
+        ) {
+          return null;
+        }
+        return readInternalStatusRow({
+          ...data,
+          campaign_name: campaignData.name,
+        });
       } catch {
         return null;
       }
@@ -1775,7 +1846,10 @@ async function handleCreatorGenerate(
     );
   }
   const startJob = readStartJob(startData);
-  if (startJob === null) {
+  if (
+    startJob === null ||
+    startJob.campaignId !== startPayload.campaign_id
+  ) {
     return json(request, { ok: false, code: "generation_rejected" }, 403);
   }
   const startRecord = startData as Record<string, unknown>;
@@ -1783,6 +1857,8 @@ async function handleCreatorGenerate(
   const batch = {
     id: startBatch.id as string,
     status: startBatch.status as string,
+    campaign_id: startJob.campaignId,
+    campaign_name: startJob.campaignName,
   };
   const current = await readCurrentStatus(
     startPayload.organization_id,
@@ -1790,6 +1866,8 @@ async function handleCreatorGenerate(
   );
   if (
     current === null || current.batchId !== startJob.batchId ||
+    current.campaignId !== startJob.campaignId ||
+    current.campaignName !== startJob.campaignName ||
     current.outputObjectName !== startJob.outputObjectName
   ) {
     return json(

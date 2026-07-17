@@ -6,6 +6,14 @@ const BLOCKER_MESSAGES = Object.freeze({
   generation_per_request_budget_exceeded: "Цена этого запуска превышает лимит одной генерации.",
   generation_budget_reservation_invalid: "Сервер не подтвердил резерв денег для запуска.",
   generation_budget_policy_changed: "Лимиты изменились. Обновите остаток перед новым запуском.",
+  paid_generation_campaign_required: "Выберите кампанию, из бюджета которой будет оплачен ролик.",
+  paid_generation_campaign_not_active: "Выбранная кампания не активна. Выберите другую или обратитесь к руководителю.",
+  paid_generation_campaign_policy_missing: "Для выбранной кампании ещё не настроен денежный лимит.",
+  paid_generation_campaign_paused: "Платные запуски в этой кампании приостановлены.",
+  generation_campaign_per_request_budget_exceeded: "Цена ролика превышает разовый лимит выбранной кампании.",
+  generation_campaign_daily_budget_exceeded: "Дневной бюджет выбранной кампании исчерпан.",
+  generation_campaign_monthly_budget_exceeded: "Месячный бюджет выбранной кампании исчерпан.",
+  generation_campaign_budget_policy_changed: "Лимит кампании изменился. Обновите остаток и повторите запуск.",
   generation_spend_platform_control_missing: "Общий защитный рубильник платной генерации не настроен.",
   generation_spend_platform_disabled: "Платная генерация остановлена общим защитным рубильником.",
   generation_spend_policy_missing: "Для команды ещё не настроен безопасный денежный лимит.",
@@ -66,7 +74,7 @@ export function normalizeGenerationSpendOverview(value = {}) {
   };
 }
 
-export function generationSpendAllowsMinor(value, requestMinor) {
+export function generationSpendAllowsMinor(value, requestMinor, campaignId = "") {
   const overview = isNormalizedOverview(value) ? value : normalizeGenerationSpendOverview(value);
   const amount = minorValue(requestMinor);
   if (!overview.policy.present) return false;
@@ -78,7 +86,18 @@ export function generationSpendAllowsMinor(value, requestMinor) {
     overview.month.remainingMinor,
   ];
   if (limits.some((item) => item === null)) return false;
-  return limits.every((limit) => limit >= amount);
+  if (!limits.every((limit) => limit >= amount)) return false;
+  if (!overview.campaigns.length) return false;
+  const normalizedCampaignId = safeText(campaignId);
+  const campaign = overview.campaigns.find((item) => item.id === normalizedCampaignId);
+  if (!campaign || !campaign.enabled || campaign.blockerCode) return false;
+  const campaignLimits = [
+    campaign.policy.perRequestLimitMinor,
+    campaign.day.remainingMinor,
+    campaign.month.remainingMinor,
+  ];
+  if (campaignLimits.some((item) => item === null)) return false;
+  return campaignLimits.every((limit) => limit >= amount);
 }
 
 export function managerGenerationSpendMarkup(state = {}, { canEdit = false } = {}) {
@@ -146,7 +165,11 @@ export function managerGenerationSpendMarkup(state = {}, { canEdit = false } = {
         <div class="manager-spend-limit"><small>Один запуск</small><strong>${formatUsd(overview.policy.perRequestLimitMinor)}</strong><span>максимальный резерв</span></div>
       </div>
       ${controls}
-      ${campaignSpendMarkup(overview.campaigns)}
+      ${campaignSpendMarkup(overview, {
+        canEdit,
+        saving,
+        disabled: !trusted || loading || staleError,
+      })}
       <footer class="manager-spend-foot">
         <span>Версия правил: ${formatInteger(overview.policy.version)}</span>
         <span>${overview.policy.updatedAt ? `Обновлено ${escapeHtml(formatDateTime(overview.policy.updatedAt))}` : "Правила ещё не изменялись"}</span>
@@ -156,7 +179,7 @@ export function managerGenerationSpendMarkup(state = {}, { canEdit = false } = {
   `;
 }
 
-export function generationSpendSnapshotMarkup(state = {}, { requestMinor = null } = {}) {
+export function generationSpendSnapshotMarkup(state = {}, { requestMinor = null, campaignId = "" } = {}) {
   const hasData = Boolean(state?.data && typeof state.data === "object");
   const loading = ["idle", "loading", "refreshing"].includes(String(state?.status || "idle"));
   if (!hasData) {
@@ -171,11 +194,20 @@ export function generationSpendSnapshotMarkup(state = {}, { requestMinor = null 
 
   const overview = normalizeGenerationSpendOverview(state.data);
   const stale = state?.status === "error";
-  const allowed = !stale && generationSpendAllowsMinor(overview, requestMinor);
+  const allowed = !stale && generationSpendAllowsMinor(overview, requestMinor, campaignId);
+  const selectedCampaign = overview.campaigns.find((campaign) => campaign.id === safeText(campaignId));
+  const campaignMessage = !safeText(campaignId)
+    ? "Для платного запуска нужна активная кампания с отдельным бюджетом."
+    : !selectedCampaign
+      ? "Выбранная кампания больше недоступна. Обновите сводку и выберите другую."
+      : selectedCampaign.blockerCode
+        ? spendBlockerMessage(selectedCampaign.blockerCode)
+        : "";
   const title = allowed ? "Денежный лимит подтверждён" : "Платный запуск сейчас недоступен";
   const message = stale
     ? "Не удалось подтвердить свежий остаток. Обновите сводку; до этого сервер не разрешит платный запрос."
     : overview.blockerMessage
+    || campaignMessage
     || (allowed
       ? "Сумма будет сначала зарезервирована, а затем предварительно учтена после приёма запроса провайдером."
       : "Для выбранной цены не хватает дневного, месячного или разового остатка. Тестовый режим остаётся доступен.");
@@ -240,15 +272,74 @@ function spendPeriodMarkup(label, period, limitMinor) {
   `;
 }
 
-function campaignSpendMarkup(campaigns) {
-  if (!campaigns.length) return "";
+function campaignSpendMarkup(overview, { canEdit = false, saving = false, disabled = false } = {}) {
+  const campaigns = overview.campaigns;
+  if (!campaigns.length && !canEdit) return "";
+  const campaignControlsDisabled = disabled || !overview.policy.present;
+  const createForm = canEdit
+    ? generationCampaignCreateForm(overview, { saving, disabled: campaignControlsDisabled })
+    : "";
   return `
     <section class="manager-spend-campaigns" aria-labelledby="manager-spend-campaigns-title">
-      <div><p class="eyebrow">Кампании</p><h4 id="manager-spend-campaigns-title">Отдельные лимиты</h4></div>
-      <div class="table-wrap"><table class="data-table"><thead><tr><th>Кампания</th><th>Статус</th><th>Учтено</th><th>Резерв</th><th>Остаток</th></tr></thead><tbody>
-        ${campaigns.map((item) => `<tr><td><strong>${escapeHtml(item.name || item.productName || "Кампания")}</strong>${item.sku ? `<br /><small>${escapeHtml(item.sku)}</small>` : ""}</td><td>${item.enabled ? "Работает" : "Пауза"}</td><td>${formatUsd(item.committedMinor)}</td><td>${formatUsd(item.reservedMinor)}</td><td>${formatUsd(item.remainingMinor)}</td></tr>`).join("")}
-      </tbody></table></div>
+      <div><p class="eyebrow">Кампании</p><h4 id="manager-spend-campaigns-title">Отдельные лимиты</h4><p class="manager-spend-campaign-copy">Каждый платный ролик списывается из выбранной кампании. Лимит кампании не может быть выше общего лимита команды.</p></div>
+      ${campaigns.length ? `
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>Кампания</th><th>Статус</th><th>Учтено</th><th>Резерв</th><th>Остаток</th></tr></thead><tbody>
+          ${campaigns.map((item) => `<tr><td><strong>${escapeHtml(item.name || item.productName || "Кампания")}</strong>${item.kind === "default" ? `<br /><small>Основная для команды</small>` : ""}</td><td>${item.enabled ? "Работает" : "Пауза"}</td><td>${formatUsd(item.committedMinor)}</td><td>${formatUsd(item.reservedMinor)}</td><td>${formatUsd(item.remainingMinor)}</td></tr>`).join("")}
+        </tbody></table></div>
+      ` : `<p class="manager-spend-message manager-spend-message-error" role="alert">Активных кампаний пока нет. До создания кампании платные запуски закрыты.</p>`}
+      ${canEdit && !overview.policy.present ? `<p class="manager-spend-message" role="status">Сначала сохраните общий бюджет команды. После этого можно создавать и настраивать кампании.</p>` : ""}
+      ${canEdit && campaigns.length ? `<div class="manager-spend-campaign-editors">${campaigns.map((campaign) => generationCampaignPolicyForm(campaign, { saving, disabled: campaignControlsDisabled })).join("")}</div>` : ""}
+      ${createForm}
     </section>
+  `;
+}
+
+function generationCampaignPolicyForm(campaign, { saving = false, disabled = false } = {}) {
+  const enabled = campaign.policy.paidGenerationEnabled && campaign.status === "active";
+  return `
+    <details class="manager-spend-campaign-editor">
+      <summary><span><strong>${escapeHtml(campaign.name || "Кампания")}</strong><small>${enabled ? "Платные запуски включены" : "Платные запуски на паузе"}</small></span><span>${formatUsd(campaign.month.remainingMinor)} на месяц</span></summary>
+      <form class="manager-spend-form generation-campaign-policy-form" data-campaign-id="${escapeHtml(campaign.id)}" novalidate>
+        <input type="hidden" name="expected_version" value="${escapeHtml(String(campaign.policy.version))}" />
+        <fieldset ${saving || disabled ? "disabled" : ""}>
+          <legend>Бюджет кампании «${escapeHtml(campaign.name || "Кампания")}»</legend>
+          <div class="manager-spend-form-grid">
+            ${moneyField("daily_limit_usd", "На день, $", campaign.policy.dailyLimitMinor)}
+            ${moneyField("monthly_limit_usd", "На месяц, $", campaign.policy.monthlyLimitMinor)}
+            ${moneyField("per_request_limit_usd", "На один запуск, $", campaign.policy.perRequestLimitMinor)}
+          </div>
+          <label class="field manager-spend-reason"><span>Причина изменения *</span><textarea name="reason" required minlength="8" maxlength="500" placeholder="Например: бюджет роликов товара на эту неделю"></textarea></label>
+          <div class="manager-spend-actions">
+            <button class="btn btn-small" type="submit" name="campaign_policy_action" value="save">Сохранить бюджет</button>
+            ${enabled
+              ? `<button class="btn btn-danger btn-small" type="submit" name="campaign_policy_action" value="pause">Поставить кампанию на паузу</button>`
+              : `<button class="btn btn-small" type="submit" name="campaign_policy_action" value="resume">Включить кампанию</button>`}
+          </div>
+        </fieldset>
+      </form>
+    </details>
+  `;
+}
+
+function generationCampaignCreateForm(overview, { saving = false, disabled = false } = {}) {
+  return `
+    <details class="manager-spend-campaign-create" open>
+      <summary><strong>+ Создать кампанию для нового товара или проекта</strong></summary>
+      <form id="generation-campaign-create-form" class="manager-spend-form" novalidate>
+        <fieldset ${saving || disabled ? "disabled" : ""}>
+          <legend>Новая кампания</legend>
+          <label class="field"><span>Название *</span><input name="name" required minlength="2" maxlength="160" autocomplete="off" placeholder="Например: Кровавый пилинг · июль" /></label>
+          <div class="manager-spend-form-grid">
+            ${moneyField("daily_limit_usd", "На день, $", overview.policy.dailyLimitMinor)}
+            ${moneyField("monthly_limit_usd", "На месяц, $", overview.policy.monthlyLimitMinor)}
+            ${moneyField("per_request_limit_usd", "На один запуск, $", overview.policy.perRequestLimitMinor)}
+          </div>
+          <label class="field manager-spend-reason"><span>Основание бюджета *</span><textarea name="reason" required minlength="8" maxlength="500" placeholder="Например: согласован тест трёх роликов товара"></textarea></label>
+          <label class="option"><input type="checkbox" name="paid_generation_enabled" value="true" checked /><span><strong>Сразу разрешить платные запуски</strong><br /><small>Кампания появится в обязательном списке при создании ролика.</small></span></label>
+          <div class="manager-spend-actions"><button class="btn btn-small" type="submit">Создать кампанию</button></div>
+        </fieldset>
+      </form>
+    </details>
   `;
 }
 
@@ -265,12 +356,29 @@ function normalizePeriod(value) {
 function normalizeCampaign(value) {
   const source = objectValue(value);
   if (!source) return null;
+  const policySource = objectValue(source.policy) || {};
+  const usageSource = objectValue(source.usage) || {};
+  const hasExplicitEnabled = Object.prototype.hasOwnProperty.call(source, "enabled");
   return {
     id: safeText(source.id || source.campaign_id),
     name: safeText(source.name || source.campaign_name),
     productName: safeText(source.product_name),
     sku: safeText(source.sku),
-    enabled: source.enabled === true || source.status === "active",
+    kind: safeText(source.kind),
+    status: safeText(source.status),
+    enabled: hasExplicitEnabled ? source.enabled === true : source.status === "active",
+    blockerCode: safeCode(source.blocker_code),
+    policy: {
+      paidGenerationEnabled: policySource.paid_generation_enabled === true,
+      dailyLimitMinor: minorValue(policySource.daily_limit_minor),
+      monthlyLimitMinor: minorValue(policySource.monthly_limit_minor),
+      perRequestLimitMinor: minorValue(policySource.per_request_limit_minor),
+      version: nonNegativeInteger(policySource.version),
+      reason: safeText(policySource.reason),
+      updatedAt: safeText(policySource.updated_at),
+    },
+    day: normalizePeriod(objectValue(usageSource.day) || {}),
+    month: normalizePeriod(objectValue(usageSource.month) || {}),
     committedMinor: minorValue(source.committed_minor ?? source.settled_minor) ?? 0,
     reservedMinor: minorValue(source.reserved_minor) ?? 0,
     remainingMinor: minorValue(source.remaining_minor),

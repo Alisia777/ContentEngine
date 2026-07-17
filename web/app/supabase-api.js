@@ -31,6 +31,8 @@ export const RPC = Object.freeze({
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
   updateGenerationSpendPolicy: "creator_update_generation_spend_policy",
+  createGenerationCampaign: "creator_create_generation_campaign",
+  updateGenerationCampaignSpendPolicy: "creator_update_generation_campaign_spend_policy",
   myWork: "creator_my_work",
   notifications: "creator_notifications",
   markNotificationsRead: "creator_mark_notifications_read",
@@ -366,6 +368,67 @@ export class CreatorApi {
       timezone,
       reason,
       expected_version: expectedVersion,
+    });
+  }
+
+  createGenerationCampaign(campaign = {}) {
+    const name = String(campaign.name || "").trim();
+    const dailyLimitMinor = normalizeSpendLimit(campaign.daily_limit_minor, "дневной");
+    const monthlyLimitMinor = normalizeSpendLimit(campaign.monthly_limit_minor, "месячный");
+    const perRequestLimitMinor = normalizeSpendLimit(campaign.per_request_limit_minor, "разовый");
+    const reason = String(campaign.reason || "").trim();
+    if (name.length < 2 || name.length > 160 || /[\u0000-\u001f\u007f]/u.test(name)) {
+      throw new CreatorApiError("Название кампании должно содержать от 2 до 160 символов.", {
+        code: "generation_campaign_name_invalid",
+      });
+    }
+    validateCampaignPolicyInput({
+      dailyLimitMinor,
+      monthlyLimitMinor,
+      perRequestLimitMinor,
+      reason,
+    });
+    return this.mutate(RPC.createGenerationCampaign, {
+      name,
+      paid_generation_enabled: campaign.paid_generation_enabled === true,
+      daily_limit_minor: dailyLimitMinor,
+      monthly_limit_minor: monthlyLimitMinor,
+      per_request_limit_minor: perRequestLimitMinor,
+      reason,
+    });
+  }
+
+  updateGenerationCampaignSpendPolicy(campaignId, policy = {}) {
+    const normalizedCampaignId = String(campaignId || "").trim();
+    const dailyLimitMinor = normalizeSpendLimit(policy.daily_limit_minor, "дневной");
+    const monthlyLimitMinor = normalizeSpendLimit(policy.monthly_limit_minor, "месячный");
+    const perRequestLimitMinor = normalizeSpendLimit(policy.per_request_limit_minor, "разовый");
+    const reason = String(policy.reason || "").trim();
+    const expectedVersion = Number(policy.expected_version);
+    if (!isUuid(normalizedCampaignId)) {
+      throw new CreatorApiError("Выберите кампанию из свежего списка.", {
+        code: "paid_generation_campaign_required",
+      });
+    }
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CreatorApiError("Лимит кампании устарел. Обновите сводку.", {
+        code: "generation_campaign_budget_policy_changed",
+      });
+    }
+    validateCampaignPolicyInput({
+      dailyLimitMinor,
+      monthlyLimitMinor,
+      perRequestLimitMinor,
+      reason,
+    });
+    return this.mutate(RPC.updateGenerationCampaignSpendPolicy, {
+      campaign_id: normalizedCampaignId,
+      paid_generation_enabled: policy.paid_generation_enabled === true,
+      daily_limit_minor: dailyLimitMinor,
+      monthly_limit_minor: monthlyLimitMinor,
+      per_request_limit_minor: perRequestLimitMinor,
+      expected_version: expectedVersion,
+      reason,
     });
   }
 
@@ -1032,6 +1095,12 @@ export class CreatorApi {
         code: "real_generation_exactly_one_media_required",
       });
     }
+    const campaignId = String(batch?.campaign_id || "").trim();
+    if (!isUuid(campaignId)) {
+      throw new CreatorApiError("Выберите активную кампанию из свежей денежной сводки.", {
+        code: "paid_generation_campaign_required",
+      });
+    }
     const model = String(batch?.model || "gen4_turbo");
     const sku = REAL_GENERATION_SKUS[model];
     if (!sku) {
@@ -1056,6 +1125,7 @@ export class CreatorApi {
 
     return this.invokeRealGeneration("start", {
       ...batch,
+      campaign_id: campaignId,
       count: 1,
       media_ids: [String(batch.media_ids[0])],
       mode: "real",
@@ -1440,6 +1510,24 @@ function normalizeSpendLimit(value, label) {
   return number;
 }
 
+function validateCampaignPolicyInput({
+  dailyLimitMinor,
+  monthlyLimitMinor,
+  perRequestLimitMinor,
+  reason,
+}) {
+  if (perRequestLimitMinor > dailyLimitMinor || dailyLimitMinor > monthlyLimitMinor) {
+    throw new CreatorApiError("Лимит одного запуска должен быть не больше дневного, а дневной — месячного.", {
+      code: "generation_campaign_policy_values_invalid",
+    });
+  }
+  if (reason.length < 8 || reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason)) {
+    throw new CreatorApiError("Укажите причину изменения бюджета кампании длиной от 8 до 500 символов.", {
+      code: "generation_budget_reason_invalid",
+    });
+  }
+}
+
 function normalizeAccessEmail(value) {
   const email = String(value || "").trim().toLowerCase();
   if (
@@ -1616,6 +1704,20 @@ function toFriendlyMessage(error) {
     generation_budget_limits_invalid: "Лимит одного запуска должен быть не больше дневного, а дневной — не больше месячного.",
     generation_budget_reason_invalid: "Укажите проверяемую причину изменения денежного лимита.",
     generation_budget_timezone_invalid: "Не удалось определить часовой пояс денежного лимита.",
+    paid_generation_campaign_required: "Выберите активную кампанию для платного запуска.",
+    paid_generation_campaign_not_active: "Выбранная кампания не активна.",
+    paid_generation_campaign_policy_missing: "Для кампании ещё не настроен денежный лимит.",
+    paid_generation_campaign_paused: "Платные запуски в этой кампании приостановлены.",
+    generation_campaign_per_request_budget_exceeded: "Цена ролика превышает разовый лимит кампании.",
+    generation_campaign_daily_budget_exceeded: "Дневной бюджет кампании исчерпан.",
+    generation_campaign_monthly_budget_exceeded: "Месячный бюджет кампании исчерпан.",
+    generation_campaign_budget_policy_changed: "Лимит кампании изменился. Обновите сводку и повторите запуск.",
+    generation_campaign_name_invalid: "Укажите понятное название кампании длиной от 2 до 160 символов.",
+    generation_campaign_payload_invalid: "Форма новой кампании устарела. Обновите страницу и повторите.",
+    generation_campaign_policy_payload_invalid: "Форма бюджета кампании устарела. Обновите страницу и повторите.",
+    generation_campaign_policy_values_invalid: "Лимиты кампании должны быть положительными, согласованными между собой и не выше лимитов команды.",
+    generation_campaign_not_found: "Кампания больше недоступна. Обновите денежную сводку.",
+    generation_campaign_quota_exceeded: "В команде уже создано слишком много кампаний. Завершите или архивируйте старые.",
     generation_spend_platform_control_missing: "Общий защитный рубильник платной генерации не настроен.",
     generation_spend_platform_disabled: "Платная генерация остановлена общим защитным рубильником. Тестовый режим доступен.",
     generation_spend_policy_missing: "Для команды ещё не настроен безопасный денежный лимит.",

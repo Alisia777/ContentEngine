@@ -284,6 +284,8 @@ def test_browser_uses_narrow_scoped_rpc_contract_and_stable_idempotency() -> Non
         "creator_create_feedback",
         "creator_register_media",
         "creator_capture_event",
+        "creator_create_generation_campaign",
+        "creator_update_generation_campaign_spend_policy",
     )
     for function_name in expected:
         assert f'"{function_name}"' in adapter
@@ -308,8 +310,10 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 37
+    assert len(set(rpc_names)) == 39
     assert "creator_operational_health" in rpc_names
+    assert "creator_create_generation_campaign" in rpc_names
+    assert "creator_update_generation_campaign_spend_policy" in rpc_names
     for function_name in set(rpc_names):
         assert re.search(
             rf"function\s+public\.{re.escape(function_name)}\s*"
@@ -439,7 +443,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260717.3' in index
+    assert './app.js?v=20260717.4' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

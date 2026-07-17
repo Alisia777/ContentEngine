@@ -68,12 +68,14 @@ select is(
         'creator_save_training_progress', 'creator_saved_work_views',
         'creator_account_access_status',
         'creator_generation_spend_overview',
-        'creator_update_generation_spend_policy'
+        'creator_update_generation_spend_policy',
+        'creator_create_generation_campaign',
+        'creator_update_generation_campaign_spend_policy'
       ])
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  41,
+  43,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 

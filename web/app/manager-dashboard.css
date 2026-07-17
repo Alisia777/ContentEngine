@@ -195,6 +195,31 @@
 .manager-spend-foot .btn { margin-left: auto; }
 .manager-spend-campaigns { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line, #dfe4df); }
 .manager-spend-campaigns .eyebrow { margin-bottom: 3px; }
+.manager-spend-campaign-copy { max-width: 760px; margin: 7px 0 0; color: var(--ink-soft, #52615d); font-size: 0.78rem; line-height: 1.45; }
+.manager-spend-campaign-editors { display: grid; gap: 10px; }
+.manager-spend-campaign-editor,
+.manager-spend-campaign-create {
+  overflow: clip;
+  border: 1px solid color-mix(in srgb, var(--line, #dfe4df) 86%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface-raised, #fff) 91%, var(--forest-pale, #edf4f1));
+}
+.manager-spend-campaign-editor > summary,
+.manager-spend-campaign-create > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 15px;
+  cursor: pointer;
+  color: var(--ink, #172421);
+  font-size: 0.8rem;
+}
+.manager-spend-campaign-editor > summary span:first-child { display: grid; gap: 2px; }
+.manager-spend-campaign-editor > summary small { color: var(--ink-soft, #52615d); font-weight: 600; }
+.manager-spend-campaign-editor .manager-spend-form,
+.manager-spend-campaign-create .manager-spend-form { margin: 0 15px 15px; }
+.manager-spend-campaign-create { border-color: color-mix(in srgb, var(--gold, #caa75c) 48%, var(--line, #dfe4df)); }
 
 .generation-spend-snapshot {
   margin-top: 14px;

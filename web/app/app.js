@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260717.3";
+import { CreatorApi } from "./supabase-api.js?v=20260717.4";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -24,7 +24,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260717.1";
+} from "./generation-spend-view.js?v=20260717.2";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -1580,8 +1580,8 @@ function renderResetRequest(message = "") {
   app.innerHTML = authLayout(`
     <section class="auth-card" aria-labelledby="reset-title">
       <p class="eyebrow">Восстановление доступа</p>
-      <h2 id="reset-title">Задайте новый пароль</h2>
-      <p class="lead">Мы отправим безопасную ссылку на рабочую почту.</p>
+      <h2 id="reset-title">Получите ссылку для нового пароля</h2>
+      <p class="lead">Укажите рабочую почту. Новый пароль вы зададите после перехода по безопасной ссылке из письма.</p>
       ${message ? alertMarkup(message, "success") : ""}
       ${receiptMarkup}
       <form id="reset-form" class="form-stack" novalidate>
@@ -1589,7 +1589,7 @@ function renderResetRequest(message = "") {
           <span>Рабочая почта</span>
           <input name="email" type="email" autocomplete="email" inputmode="email" required placeholder="name@company.ru" value="${escapeHtml(receipt?.email || "")}" />
         </label>
-        <button id="reset-submit" class="btn btn-block" type="submit" data-resend-at="${resendAt}" ${coolingDown ? "disabled" : ""}>${coolingDown ? "Повторить через 60 с" : receipt ? "Отправить ещё раз" : "Отправить ссылку"}</button>
+        <button id="reset-submit" class="btn btn-block" type="submit" data-resend-at="${resendAt}" ${coolingDown ? "disabled" : ""}>${coolingDown ? "Повторить через 60 с" : receipt ? "Отправить ещё раз" : "Получить ссылку"}</button>
       </form>
       <div class="auth-actions"><a class="text-link" href="#/login">Вернуться ко входу</a></div>
       <p class="auth-footer">Сотрудник поддержки никогда не попросит прислать пароль или содержимое ссылки.</p>
@@ -4744,13 +4744,20 @@ function isRealGenerationMode(mode) {
   return realGenerationSku(mode) !== null;
 }
 
-function realGenerationSpendAllowed(mode) {
+function activeGenerationCampaigns() {
+  if (!state.generationSpend.data || state.generationSpend.status !== "ready") return [];
+  return normalizeGenerationSpendOverview(state.generationSpend.data).campaigns
+    .filter((campaign) => campaign.id && campaign.enabled && !campaign.blockerCode);
+}
+
+function realGenerationSpendAllowed(mode, campaignId = "") {
   const sku = realGenerationSku(mode);
   if (!sku) return true;
   if (!state.generationSpend.data || state.generationSpend.status !== "ready") return false;
   return generationSpendAllowsMinor(
     normalizeGenerationSpendOverview(state.generationSpend.data),
     sku.estimatedMinor,
+    campaignId,
   );
 }
 
@@ -4763,20 +4770,32 @@ function renderGenerationSection(sectionState) {
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
+  const generationCampaigns = activeGenerationCampaigns();
+  const seedanceCampaign = generationCampaigns.find((campaign) =>
+    realGenerationSpendAllowed(REAL_SEEDANCE_MODE, campaign.id)
+  );
+  const gen4Campaign = generationCampaigns.find((campaign) =>
+    realGenerationSpendAllowed(REAL_GEN4_MODE, campaign.id)
+  );
+  const seedanceSpendAllowed = Boolean(seedanceCampaign);
+  const gen4SpendAllowed = Boolean(gen4Campaign);
   const defaultMode = MOCK_GENERATION_ENABLED
     ? "mock"
-    : realGenerationSpendAllowed(REAL_SEEDANCE_MODE)
+    : seedanceSpendAllowed
       ? REAL_SEEDANCE_MODE
-      : realGenerationSpendAllowed(REAL_GEN4_MODE)
+      : gen4SpendAllowed
         ? REAL_GEN4_MODE
         : REAL_SEEDANCE_MODE;
+  const defaultCampaignId = defaultMode === REAL_SEEDANCE_MODE
+    ? seedanceCampaign?.id || ""
+    : defaultMode === REAL_GEN4_MODE
+      ? gen4Campaign?.id || ""
+      : seedanceCampaign?.id || gen4Campaign?.id || generationCampaigns[0]?.id || "";
   const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
   if (state.generationSpend.status === "idle") {
     window.queueMicrotask(() => loadGenerationSpendOverview({ silent: true }));
   }
-  const seedanceSpendAllowed = realGenerationSpendAllowed(REAL_SEEDANCE_MODE);
-  const gen4SpendAllowed = realGenerationSpendAllowed(REAL_GEN4_MODE);
   const canManageAliases = ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
@@ -4803,7 +4822,10 @@ function renderGenerationSection(sectionState) {
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
           <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с озвучкой.</p>
-          ${generationSpendSnapshotMarkup(state.generationSpend, { requestMinor: Math.min(REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor, REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].estimatedMinor) })}
+          ${generationSpendSnapshotMarkup(state.generationSpend, {
+            requestMinor: Math.min(REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor, REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].estimatedMinor),
+            campaignId: defaultCampaignId,
+          })}
           ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
@@ -4817,6 +4839,15 @@ function renderGenerationSection(sectionState) {
                   <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}${gen4SpendAllowed ? "" : " · лимит"}</option>
                 ` : ""}
               </select>
+            </label>
+            <label class="field" id="generation-campaign-field" ${defaultIsReal ? "" : "hidden"}>
+              <span>Кампания и её бюджет *</span>
+              <select name="campaign_id" ${defaultIsReal ? "required" : "disabled"}>
+                ${generationCampaigns.length
+                  ? generationCampaigns.map((campaign) => `<option value="${escapeHtml(campaign.id)}" ${campaign.id === defaultCampaignId ? "selected" : ""}>${escapeHtml(campaign.name || "Кампания")} · доступно $${((campaign.remainingMinor || 0) / 100).toFixed(2)}</option>`).join("")
+                  : `<option value="">Нет активной кампании</option>`}
+              </select>
+              <small class="field-hint">Сумма будет атомарно зарезервирована и в лимите команды, и в лимите этой кампании.</small>
             </label>
             <div id="real-generation-confirmation" ${defaultIsReal ? "" : "hidden"}>
               <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Один ролик — около $${defaultRealSku.estimatedUsd} (${defaultRealSku.estimatedCredits} кредитов). Окончательная стоимость зависит от тарифа сервиса.</span></div>
@@ -4891,7 +4922,7 @@ function renderGenerationSection(sectionState) {
                 </div>
               </fieldset>
             ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или упаковки в разделе <a href="#/workspace/media">«Материалы»</a>. Без исходника запуск недоступен.</span></div>`}
-            <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight && (!defaultIsReal || realGenerationSpendAllowed(defaultMode))) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
+            <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight && (!defaultIsReal || realGenerationSpendAllowed(defaultMode, defaultCampaignId))) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
           </form>
           ${canRepeatRealGeneration(state.lastRealGenerationJobId) ? `
             <div class="generation-repeat-panel" role="status">
@@ -5488,6 +5519,7 @@ function formatGenerationUsd(minor) {
 function realGenerationDraftFromPayload(payload, mode) {
   return {
     generation_mode: mode,
+    campaign_id: payload.campaign_id,
     sku: payload.sku,
     product_name: payload.product_name,
     count: "1",
@@ -5513,7 +5545,7 @@ function restoreRealGenerationDraft(jobId) {
     if (field) field.value = String(value ?? "");
   };
   setValue("generation_mode", draft.generation_mode);
-  syncGenerationModeForm(form);
+  setValue("campaign_id", draft.campaign_id);
   for (const name of ["sku", "product_name", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
     setValue(name, draft[name]);
   }
@@ -7250,9 +7282,122 @@ async function handleSubmit(event) {
   else if (form.id === "team-invite-form") await submitTeamInvites(form);
   else if (form.id === "manager-access-form") await submitManagerAccess(form);
   else if (form.id === "generation-spend-policy-form") await submitGenerationSpendPolicy(form, event.submitter);
+  else if (form.id === "generation-campaign-create-form") await submitGenerationCampaignCreate(form);
+  else if (form.classList.contains("generation-campaign-policy-form")) await submitGenerationCampaignPolicy(form, event.submitter);
   else if (form.classList.contains("placement-form")) await submitPlacement(form);
   else if (form.classList.contains("payout-reject-form")) await submitPayoutReject(form);
   else if (form.classList.contains("payout-paid-form")) await submitPayoutPaid(form);
+}
+
+function campaignPolicyPayload(values, enabled) {
+  return {
+    paid_generation_enabled: enabled,
+    daily_limit_minor: usdInputToMinor(values.get("daily_limit_usd")),
+    monthly_limit_minor: usdInputToMinor(values.get("monthly_limit_usd")),
+    per_request_limit_minor: usdInputToMinor(values.get("per_request_limit_usd")),
+    reason: String(values.get("reason") || "").trim(),
+  };
+}
+
+function validateCampaignPolicyPayload(payload) {
+  if ([payload.daily_limit_minor, payload.monthly_limit_minor, payload.per_request_limit_minor].some((value) => value === null)) {
+    toast("Укажите каждый лимит кампании в долларах и центах, минимум $0.01.", "error");
+    return false;
+  }
+  if (payload.per_request_limit_minor > payload.daily_limit_minor || payload.daily_limit_minor > payload.monthly_limit_minor) {
+    toast("Лимит одного запуска должен быть не больше дневного, а дневной — не больше месячного.", "error");
+    return false;
+  }
+  return true;
+}
+
+function acceptGenerationSpendMutation(raw) {
+  const source = raw?.data ?? raw ?? {};
+  state.generationSpend.data = source?.overview ?? source;
+  state.generationSpend.status = "ready";
+  state.generationSpend.updatedAt = Date.now();
+}
+
+async function submitGenerationCampaignCreate(form) {
+  if (!canManageGenerationSpendPolicy()) {
+    toast("Создавать кампании может только владелец или администратор команды.", "error");
+    return;
+  }
+  const values = new FormData(form);
+  const payload = {
+    name: String(values.get("name") || "").trim(),
+    ...campaignPolicyPayload(values, values.get("paid_generation_enabled") === "true"),
+  };
+  if (!validateCampaignPolicyPayload(payload)) return;
+  state.generationSpend.requestId += 1;
+  state.generationSpend.saving = true;
+  state.generationSpend.notice = "";
+  state.generationSpend.error = null;
+  setFormBusy(form, true, "Создаём…");
+  try {
+    const raw = await state.api.createGenerationCampaign(payload);
+    acceptGenerationSpendMutation(raw);
+    state.generationSpend.notice = `Кампания «${payload.name}» создана и готова к выбору в платном запуске.`;
+    toast(state.generationSpend.notice, "success");
+  } catch (error) {
+    state.generationSpend.error = actionErrorMessage(error);
+    toast(state.generationSpend.error, "error");
+  } finally {
+    state.generationSpend.saving = false;
+    if (form.isConnected) setFormBusy(form, false);
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+  }
+}
+
+async function submitGenerationCampaignPolicy(form, submitter) {
+  if (!canManageGenerationSpendPolicy()) {
+    toast("Изменять бюджет кампании может только владелец или администратор команды.", "error");
+    return;
+  }
+  const action = String(submitter?.value || "save");
+  if (!["save", "pause", "resume"].includes(action)) {
+    toast("Не удалось определить действие с бюджетом кампании.", "error");
+    return;
+  }
+  const values = new FormData(form);
+  const campaign = normalizeGenerationSpendOverview(state.generationSpend.data || {}).campaigns
+    .find((item) => item.id === String(form.dataset.campaignId || ""));
+  const enabled = action === "pause"
+    ? false
+    : action === "resume"
+      ? true
+      : campaign?.policy?.paidGenerationEnabled === true;
+  const payload = {
+    ...campaignPolicyPayload(values, enabled),
+    expected_version: Number(values.get("expected_version")),
+  };
+  if (!validateCampaignPolicyPayload(payload)) return;
+  state.generationSpend.requestId += 1;
+  state.generationSpend.saving = true;
+  state.generationSpend.notice = "";
+  state.generationSpend.error = null;
+  setFormBusy(form, true, action === "pause" ? "Ставим на паузу…" : "Сохраняем…");
+  try {
+    const raw = await state.api.updateGenerationCampaignSpendPolicy(form.dataset.campaignId, payload);
+    acceptGenerationSpendMutation(raw);
+    state.generationSpend.notice = action === "pause"
+      ? "Кампания поставлена на паузу. Новые платные ролики из её бюджета не запустятся."
+      : action === "resume"
+        ? "Кампания включена и снова доступна для платных запусков."
+        : "Бюджет кампании сохранён.";
+    toast(state.generationSpend.notice, "success");
+  } catch (error) {
+    state.generationSpend.error = actionErrorMessage(error);
+    if ([error?.code, error?.serverCode].some((code) => String(code || "") === "generation_campaign_budget_policy_changed")) {
+      await loadGenerationSpendOverview({ silent: true, force: true });
+      state.generationSpend.error = "Бюджет кампании уже изменился в другой вкладке. Показана свежая версия — проверьте её и повторите действие.";
+    }
+    toast(state.generationSpend.error, "error");
+  } finally {
+    state.generationSpend.saving = false;
+    if (form.isConnected) setFormBusy(form, false);
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+  }
 }
 
 async function submitGenerationSpendPolicy(form, submitter) {
@@ -7417,7 +7562,7 @@ function handleChange(event) {
   }
 
   const generationForm = event.target.closest("#mock-batch-form");
-  if (generationForm && event.target.name === "generation_mode") {
+  if (generationForm && ["generation_mode", "campaign_id"].includes(event.target.name)) {
     syncGenerationModeForm(generationForm);
   }
 
@@ -7543,6 +7688,8 @@ function syncGenerationModeForm(form) {
   const brief = form.elements.brief;
   const format = form.elements.format;
   const confirmation = form.querySelector("#real-generation-confirmation");
+  const campaignField = form.querySelector("#generation-campaign-field");
+  const campaignSelect = form.elements.campaign_id;
   const confirmationInput = form.elements.real_spend_confirmation;
   const submit = form.querySelector("#generation-submit");
   const countHint = form.querySelector("#generation-count-hint");
@@ -7551,7 +7698,7 @@ function syncGenerationModeForm(form) {
   const note = form.querySelector("#real-generation-note");
   const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
   const briefHint = form.querySelector("#generation-brief-hint");
-  const spendAllowed = !real || realGenerationSpendAllowed(mode);
+  const spendAllowed = !real || realGenerationSpendAllowed(mode, campaignSelect?.value || "");
 
   if (count) {
     if (real) {
@@ -7573,6 +7720,11 @@ function syncGenerationModeForm(form) {
     if (sku?.format) format.value = sku.format;
   }
   if (confirmation) confirmation.hidden = !real;
+  if (campaignField) campaignField.hidden = !real;
+  if (campaignSelect) {
+    campaignSelect.disabled = !real;
+    campaignSelect.required = real;
+  }
   if (confirmationInput) {
     confirmationInput.required = real;
     if (!real) {
@@ -7616,6 +7768,7 @@ function syncGenerationModeForm(form) {
     const wrapper = document.createElement("div");
     wrapper.innerHTML = generationSpendSnapshotMarkup(state.generationSpend, {
       requestMinor: sku?.estimatedMinor ?? REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
+      campaignId: campaignSelect?.value || "",
     }).trim();
     if (wrapper.firstElementChild) spendSnapshot.replaceWith(wrapper.firstElementChild);
   }
@@ -7981,7 +8134,12 @@ async function submitRealGeneration(form, values, mode) {
     toast("Выберите точный платный режим генерации.", "error");
     return;
   }
-  if (!realGenerationSpendAllowed(mode)) {
+  const campaignId = String(values.get("campaign_id") || "").trim();
+  if (!campaignId) {
+    toast("Выберите активную кампанию из свежей денежной сводки.", "error");
+    return;
+  }
+  if (!realGenerationSpendAllowed(mode, campaignId)) {
     const overview = normalizeGenerationSpendOverview(state.generationSpend.data || {});
     toast(overview.blockerMessage || "Для выбранной цены не хватает утверждённого денежного остатка. Тестовый режим остаётся доступен.", "error");
     await loadGenerationSpendOverview({ silent: true, force: true });
@@ -8013,6 +8171,7 @@ async function submitRealGeneration(form, values, mode) {
   }
 
   const payload = {
+    campaign_id: campaignId,
     sku: String(values.get("sku") || "").trim(),
     product_name: String(values.get("product_name") || "").trim(),
     count: 1,
@@ -9861,7 +10020,7 @@ function startResetResendCountdown() {
     const remaining = Math.max(0, Number(button.dataset.resendAt || 0) - Date.now());
     if (remaining <= 0) {
       button.disabled = false;
-      button.textContent = state.resetReceipt ? "Отправить ещё раз" : "Отправить ссылку";
+      button.textContent = state.resetReceipt ? "Отправить ещё раз" : "Получить ссылку";
       window.clearInterval(state.resetCountdownTimer);
       state.resetCountdownTimer = null;
       return;

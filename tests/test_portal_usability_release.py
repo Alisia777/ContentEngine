@@ -263,6 +263,15 @@ def test_login_error_keeps_safe_email_context_and_moves_focus_to_password() -> N
     assert "min-height: 46px" in _between(STYLES, ".auth-access-guide summary", ".auth-access-guide summary::-webkit-details-marker")
 
 
+def test_password_reset_copy_describes_the_actual_two_step_flow() -> None:
+    reset = _between(APP, "function renderResetRequest", "function renderAuthLinkError")
+
+    assert "Получите ссылку для нового пароля" in reset
+    assert "Новый пароль вы зададите после перехода" in reset
+    assert "Получить ссылку" in reset
+    assert "<h2 id=\"reset-title\">Задайте новый пароль</h2>" not in reset
+
+
 def test_workspace_rerender_preserves_control_identity_selection_and_focus() -> None:
     workspace = _between(APP, "function renderWorkspace", "function workspaceInitialLoadingMarkup")
 

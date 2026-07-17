@@ -151,7 +151,7 @@ def test_spend_snapshot_fails_closed_for_policy_blocker_and_escapes_campaign_cop
 
 
 def test_live_generation_form_is_fail_closed_but_keeps_mock_available() -> None:
-    assert 'from "./generation-spend-view.js?v=20260717.1"' in APP
+    assert 'from "./generation-spend-view.js?v=20260717.2"' in APP
     assert "generationSpend: {" in APP
     assert "async function loadGenerationSpendOverview" in APP
     assert "state.api.generationSpendOverview()" in APP
@@ -188,6 +188,6 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
         "@media (max-width: 720px)",
     ):
         assert marker in CSS
-    assert './manager-dashboard.css?v=20260717.3' in INDEX
-    assert './app.js?v=20260717.3' in INDEX
-    assert './supabase-api.js?v=20260717.3' in APP
+    assert './manager-dashboard.css?v=20260717.4' in INDEX
+    assert './app.js?v=20260717.4' in INDEX
+    assert './supabase-api.js?v=20260717.4' in APP
