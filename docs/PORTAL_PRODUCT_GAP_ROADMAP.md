@@ -208,12 +208,11 @@ metrics, while retaining the human decision and its reason.
 
 ## Recommended execution order
 
-1. Make queued video review recoverable and dead-letter stale runs.
-2. Select and configure the production mail provider, DNS, exact message-ID
+1. Select and configure the production mail provider, DNS, exact message-ID
    correlation, webhook, mandatory readiness gate, and canaries.
-3. Require quota-reserving Storage upload intents and sweep existing orphans.
-4. Build the unified provider-cost ledger and OpenAI budget guards.
-5. Add independent health alerts and run the first restore drill.
-6. Add official connector canaries, or explicitly label metrics as manual.
-7. Run the 100k performance programme and split/bundle the SPA by route.
-8. Complete real training videos, deeper QA, and the recommendation feedback loop.
+2. Require quota-reserving Storage upload intents and sweep existing orphans.
+3. Build the unified provider-cost ledger and OpenAI budget guards.
+4. Add independent health alerts and run the first restore drill.
+5. Add official connector canaries, or explicitly label metrics as manual.
+6. Run the 100k performance programme and split/bundle the SPA by route.
+7. Complete real training videos, deeper QA, and the recommendation feedback loop.
