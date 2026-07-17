@@ -795,6 +795,8 @@ as $$
 declare
   user_id uuid;
   organization_id uuid;
+  actor_role text;
+  manager_scope boolean;
   evidence_id_value uuid;
   evidence_row content_factory.content_review_evidence_sets%rowtype;
   media_id_value uuid;
@@ -823,6 +825,21 @@ begin
   end if;
   user_id := content_factory_private.current_profile_id();
   organization_id := content_factory_private.resolve_organization(p_payload);
+  actor_role := content_factory_private.membership_role(
+    organization_id,
+    true,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );
+  manager_scope := actor_role = any(
+    array['owner', 'admin', 'producer', 'reviewer']
+  );
+  if p_payload ? 'media_id' and p_payload ? 'media_object_id'
+     and p_payload ->> 'media_id' is distinct from
+       p_payload ->> 'media_object_id' then
+    raise exception using
+      errcode = '22023',
+      message = 'content_review_media_id_conflict';
+  end if;
   if p_payload ? 'media_id' then
     media_id_value := content_factory_private.require_uuid(p_payload, 'media_id');
   else
@@ -832,8 +849,20 @@ begin
   end if;
   select media.* into media_row
   from content_factory.media_objects media
+  left join content_factory.creator_tasks task
+    on task.organization_id = media.organization_id
+   and task.id = media.task_id
   where media.organization_id = organization_id
-    and media.id = media_id_value;
+    and media.id = media_id_value
+    and media.status = 'ready'
+    and media.mime_type in (
+      'image/jpeg', 'image/png', 'image/webp', 'video/mp4'
+    )
+    and (
+      manager_scope
+      or media.owner_id = user_id
+      or task.assignee_id = user_id
+    );
   if media_row.id is null then
     raise exception using
       errcode = '42501',
@@ -2041,7 +2070,7 @@ begin
         message = 'content_review_provider_request_id_conflict';
     end if;
     if attempt_row.status = 'completed'
-       and review_row.completion_hash is distinct from
+       and attempt_row.completion_hash is distinct from
              payload_completion_hash_value then
       raise exception using
         errcode = '23505',
@@ -2091,7 +2120,10 @@ begin
       provider_request_id = coalesce(
         provider_request_id_value, attempt.provider_request_id
       ),
-      completion_hash = review_row.completion_hash,
+      -- Journal the exact completion request for replay fencing.  The review
+      -- hash can intentionally differ when validation normalizes the request
+      -- into a terminal failure (for example, source bytes changed mid-run).
+      completion_hash = payload_completion_hash_value,
       error_code = case
         when outcome_unknown_value then 'provider_outcome_unknown'
         when review_row.status = 'failed' then review_row.error_code

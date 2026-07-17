@@ -114,6 +114,64 @@ values (
   'a1000000-0000-4000-8000-000000000001',
   'owner', 'active'
 );
+
+with inserted_course_attempts as (
+  insert into content_factory.training_attempts (
+    organization_id, profile_id, module_code, status, score,
+    correct_count, answered_count, question_count, passed, answers,
+    request_hash, idempotency_key
+  )
+  select
+    'a1100000-0000-4000-8000-000000000001'::uuid,
+    'a1000000-0000-4000-8000-000000000001'::uuid,
+    module.code, 'completed', 1,
+    jsonb_array_length(module.content #> '{knowledge_check,questions}'),
+    jsonb_array_length(module.content #> '{knowledge_check,questions}'),
+    jsonb_array_length(module.content #> '{knowledge_check,questions}'),
+    true, '{}'::jsonb,
+    encode(
+      extensions.digest('durable-review-course:' || module.code, 'sha256'),
+      'hex'
+    ),
+    'course-check:durable-review:' || module.code
+  from content_factory.training_modules module
+  where module.module_type = 'course'
+    and module.is_active
+  returning id, organization_id, profile_id, module_code
+)
+insert into content_factory.training_certifications (
+  organization_id, profile_id, module_code, attempt_id, status
+)
+select
+  attempt.organization_id, attempt.profile_id, attempt.module_code,
+  attempt.id, 'passed'
+from inserted_course_attempts attempt;
+
+with inserted_final_attempt as (
+  insert into content_factory.training_attempts (
+    organization_id, profile_id, module_code, status, score,
+    correct_count, answered_count, question_count, passed, answers,
+    request_hash, idempotency_key
+  ) values (
+    'a1100000-0000-4000-8000-000000000001',
+    'a1000000-0000-4000-8000-000000000001',
+    'operator_final_exam', 'completed', 1,
+    12, 12, 12, true, '{}'::jsonb,
+    encode(
+      extensions.digest('durable-review-final-exam', 'sha256'), 'hex'
+    ),
+    'durable-review-final-exam'
+  )
+  returning id, organization_id, profile_id, module_code
+)
+insert into content_factory.training_certifications (
+  organization_id, profile_id, module_code, attempt_id, status
+)
+select
+  attempt.organization_id, attempt.profile_id, attempt.module_code,
+  attempt.id, 'passed'
+from inserted_final_attempt attempt;
+
 insert into content_factory.media_objects (
   id, organization_id, owner_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
