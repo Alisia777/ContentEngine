@@ -71,6 +71,10 @@ const REAL_GENERATION_SKUS = Object.freeze({
   }),
 });
 
+export function mediaKindRequiresProduct(kind) {
+  return ["product_photo", "packshot"].includes(String(kind || "").trim());
+}
+
 export class CreatorApiError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -1441,7 +1445,30 @@ export class CreatorApi {
   }
 
   registerMedia(media) {
-    return this.mutate(RPC.registerMedia, media);
+    const kind = String(media?.kind || "").trim();
+    const payload = { ...media, kind };
+    if (mediaKindRequiresProduct(kind)) {
+      const sku = String(media?.sku || "").trim();
+      const productName = String(media?.product_name || "").trim();
+      if (!sku || sku.length > 120) {
+        throw new CreatorApiError(
+          "Укажите точный артикул товара длиной до 120 символов.",
+          { code: "media_sku_required" },
+        );
+      }
+      if (productName.length < 2 || productName.length > 180) {
+        throw new CreatorApiError(
+          "Укажите точное название товара длиной от 2 до 180 символов.",
+          { code: "media_product_name_required" },
+        );
+      }
+      payload.sku = sku;
+      payload.product_name = productName;
+    } else {
+      delete payload.sku;
+      delete payload.product_name;
+    }
+    return this.mutate(RPC.registerMedia, payload);
   }
 
   captureEvent(event) {

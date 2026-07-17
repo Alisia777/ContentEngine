@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260717.6";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260717.7";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -106,6 +106,7 @@ const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZ
 const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
 const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
 const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+const AUTH_LINK_TIMEOUT_MESSAGE = "The auth service timed out. Retry this same link.";
 const HOME_SECTION_TIMEOUT_MS = 8_000;
 const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
@@ -837,6 +838,24 @@ function clearStoredPkceVerifier() {
   }
 }
 
+async function waitForAuthLinkResult(operation) {
+  let timerId;
+  timerId = window.setTimeout(() => {
+    const timeout = new Error(AUTH_LINK_TIMEOUT_MESSAGE);
+    timeout.code = "auth_link_timeout";
+    timeout.authLinkTransient = true;
+    handleAuthLinkFailure(timeout);
+    render();
+  }, AUTH_REQUEST_TIMEOUT_MS);
+  try {
+    const result = await operation;
+    if (state.authLinkError?.code === "auth_link_timeout") state.authLinkError = null;
+    return result;
+  } finally {
+    window.clearTimeout(timerId);
+  }
+}
+
 async function initialize() {
   bindGlobalEvents();
 
@@ -861,17 +880,25 @@ async function initialize() {
 
   let authLink = null;
   try {
-    authLink = await consumeAuthLink();
+    authLink = await waitForAuthLinkResult(consumeAuthLink());
   } catch (error) {
-    state.authLinkError = normalizeAuthLinkError(error);
-    clearAuthLinkUrl("/auth-link-error");
+    handleAuthLinkFailure(error);
+    render();
+    return;
   }
   if (authLink?.purpose) {
     state.authPurpose = authLink.purpose;
     state.forcePassword = ["invite", "recovery"].includes(authLink.purpose);
   }
 
-  const { data, error } = await state.supabase.auth.getSession();
+  const sessionResult = authLink?.accepted
+    ? { data: { session: authLink.session }, error: null }
+    : await withUiTimeout(
+      state.supabase.auth.getSession(),
+      AUTH_REQUEST_TIMEOUT_MS,
+      "Сервер входа не ответил за 15 секунд. Проверьте соединение и повторите.",
+    );
+  const { data, error } = sessionResult;
   if (error) throw error;
   state.session = data.session;
   state.user = data.session?.user || null;
@@ -1004,6 +1031,25 @@ async function handleAuthStateChange(event, session) {
   }
 }
 
+async function requireAuthLinkSession(operation, purpose) {
+  try {
+    const result = await operation;
+    if (result?.error) throw result.error;
+    const session = result?.data?.session || null;
+    if (!session) {
+      const failure = new Error("Auth link response did not contain a session");
+      failure.code = "auth_link_session_missing";
+      failure.authLinkTransient = true;
+      throw failure;
+    }
+    return session;
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error("Auth link request failed");
+    failure.authPurpose = purpose;
+    throw failure;
+  }
+}
+
 async function consumeAuthLink() {
   const query = new URLSearchParams(window.location.search);
   const rawHash = window.location.hash && !window.location.hash.startsWith("#/")
@@ -1025,37 +1071,29 @@ async function consumeAuthLink() {
   const accessToken = fragment.get("access_token");
   const refreshToken = fragment.get("refresh_token");
   if (code && !purpose) purpose = "invite";
-  let accepted = false;
+  let session = null;
 
   if (tokenHash && purpose) {
-    const { error } = await state.supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: purpose,
-    });
-    if (error) {
-      error.authPurpose = purpose;
-      throw error;
-    }
-    accepted = true;
+    session = await requireAuthLinkSession(
+      state.supabase.auth.verifyOtp({ token_hash: tokenHash, type: purpose }),
+      purpose,
+    );
   } else if (code) {
-    const { error } = await state.supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      error.authPurpose = purpose;
-      throw error;
-    }
-    accepted = true;
+    session = await requireAuthLinkSession(
+      state.supabase.auth.exchangeCodeForSession(code),
+      purpose,
+    );
   } else if (accessToken && refreshToken) {
-    const { error } = await state.supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-    if (error) {
-      error.authPurpose = purpose;
-      throw error;
-    }
-    accepted = true;
+    session = await requireAuthLinkSession(
+      state.supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      }),
+      purpose,
+    );
   }
 
+  const accepted = Boolean(session);
   if (accepted) {
     clearStoredPkceVerifier();
     const next = new URL(window.location.href);
@@ -1065,20 +1103,48 @@ async function consumeAuthLink() {
     state.route = parseRoute();
   }
 
-  return { accepted, purpose };
+  return { accepted, purpose, session };
 }
 
 function normalizeAuthLinkError(error) {
   const raw = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+  const status = Number(error?.status || error?.statusCode || error?.context?.status || 0);
   const purpose = ["invite", "recovery"].includes(error?.authPurpose)
     ? error.authPurpose
     : raw.includes("invite") ? "invite" : "recovery";
-  const expired = raw.includes("expired") || raw.includes("invalid") || raw.includes("otp");
+  const transient = error?.authLinkTransient === true
+    || code === "auth_link_timeout"
+    || code === "auth_link_session_missing"
+    || [408, 429].includes(status)
+    || status >= 500
+    || error?.name === "TypeError"
+    || /failed to fetch|network|timed? out|timeout|temporar(?:y|ily)|service unavailable|bad gateway|gateway timeout/u.test(raw);
+  const definitiveCodes = new Set([
+    "otp_expired",
+    "token_expired",
+    "invalid_token",
+    "invalid_grant",
+    "flow_state_expired",
+    "flow_state_not_found",
+    "bad_code_verifier",
+  ]);
+  const definitiveMessage = /(?:email\s+)?link.{0,40}(?:expired|invalid|already\s+(?:used|consumed))|token.{0,40}(?:expired|invalid|already\s+(?:used|consumed))/u.test(raw);
+  const definitive = !transient && (definitiveCodes.has(code) || definitiveMessage);
   return {
     purpose,
-    code: String(error?.code || (expired ? "auth_link_expired" : "auth_link_failed")),
-    expired,
+    code: code || (definitive ? "auth_link_expired" : "auth_link_failed"),
+    expired: definitive,
+    definitive,
+    transient: !definitive,
   };
+}
+
+function handleAuthLinkFailure(error) {
+  const failure = normalizeAuthLinkError(error);
+  state.authLinkError = failure;
+  if (failure.definitive) clearAuthLinkUrl("/auth-link-error");
+  return failure;
 }
 
 function clearAuthLinkUrl(route = "/auth-link-error") {
@@ -1448,7 +1514,7 @@ function render() {
   const path = state.route.path;
   const accountLaunchSlug = accountLaunchSlugFromPath(path);
 
-  if (path === "/auth-link-error" && state.authLinkError) {
+  if (state.authLinkError) {
     renderAuthLinkError();
     return;
   }
@@ -1604,8 +1670,24 @@ function renderResetRequest(message = "") {
 }
 
 function renderAuthLinkError() {
-  const failure = state.authLinkError || { purpose: "recovery", expired: true };
+  const failure = state.authLinkError || { purpose: "recovery", definitive: true };
   const recovery = failure.purpose !== "invite";
+  if (!failure.definitive) {
+    app.innerHTML = authLayout(`
+      <section class="auth-card" aria-labelledby="auth-link-error-title">
+        <p class="eyebrow">Временная ошибка связи</p>
+        <h2 id="auth-link-error-title">Ссылка сохранена — повторите её</h2>
+        <p class="lead">Сервис входа временно не ответил. Мы не удаляли одноразовый токен из адресной строки и не считаем ссылку испорченной.</p>
+        ${alertMarkup("Нажмите кнопку один раз и дождитесь ответа. Не запрашивайте новое письмо, пока эта ссылка не получила окончательный результат.", "warning")}
+        <div class="form-stack">
+          <button class="btn btn-block" type="button" data-action="retry-auth-link">Повторить эту же ссылку</button>
+        </div>
+        <p class="auth-footer">Адрес ссылки останется без изменений; секретное содержимое на экран не выводится.</p>
+      </section>
+    `);
+    focusFirst("[data-action='retry-auth-link']");
+    return;
+  }
   app.innerHTML = authLayout(`
     <section class="auth-card" aria-labelledby="auth-link-error-title">
       <p class="eyebrow">Ссылка больше не действует</p>
@@ -3523,7 +3605,10 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     });
     if (snapshot.dirty) form.dataset.dirty = "true";
     if (form.id === "mock-batch-form") syncGenerationModeForm(form);
-    if (form.id === "media-upload-form") showSelectedFile(form.elements.file?.files?.[0]);
+    if (form.id === "media-upload-form") {
+      showSelectedFile(form.elements.file?.files?.[0]);
+      syncMediaProductFields(form);
+    }
     if (snapshot.busy) setFormBusy(form, true, snapshot.busyLabel || "Подождите…");
   });
 }
@@ -6513,7 +6598,25 @@ function renderMediaSection(sectionState) {
               <small class="muted">Фото JPG, PNG, WEBP или видео MP4</small>
               <strong id="selected-file-name" style="margin-top:8px"></strong>
             </div>
-            <label class="field"><span>Тип материала</span><select name="kind"><option value="product_photo">Фото товара</option><option value="packshot">Фото упаковки без фона</option><option value="creator_reference">Пример желаемого кадра</option><option value="source_video">Исходное видео</option></select></label>
+            <label class="field"><span>Тип материала</span><select name="kind" required><option value="product_photo">Фото товара</option><option value="packshot">Фото упаковки без фона</option><option value="creator_reference">Пример желаемого кадра</option><option value="source_video">Исходное видео</option></select></label>
+            <div class="form-stack" data-media-product-fields>
+              <div>
+                <p class="eyebrow">Привязка к товару</p>
+                <p class="muted tiny" id="media-product-fields-hint">Для фото товара и упаковки укажите точный артикул и название. Они создадут или обновят карточку товара команды.</p>
+              </div>
+              <div class="form-grid-2" aria-describedby="media-product-fields-hint">
+                <label class="field">
+                  <span>Артикул товара *</span>
+                  <input name="sku" required maxlength="120" autocomplete="off" placeholder="Например: WB-12345678" />
+                  <small class="field-hint">Скопируйте артикул из карточки товара.</small>
+                </label>
+                <label class="field">
+                  <span>Название товара *</span>
+                  <input name="product_name" required minlength="2" maxlength="180" autocomplete="off" placeholder="Точное название и вариант" />
+                  <small class="field-hint">Укажите название длиной от 2 до 180 символов.</small>
+                </label>
+              </div>
+            </div>
             <label class="acknowledgement"><input name="rights_confirmed" type="checkbox" required /><span>У команды есть право использовать этот материал.</span></label>
             <button class="btn btn-block" type="submit">Загрузить в защищённую папку</button>
           </form>
@@ -7127,6 +7230,11 @@ async function handleClick(event) {
 
   if (action === "toggle-mobile-nav") {
     setMobileNavOpen(!state.mobileNavOpen, state.mobileNavOpen);
+    return;
+  }
+
+  if (action === "retry-auth-link") {
+    window.location.reload();
     return;
   }
 
@@ -7751,6 +7859,11 @@ function handleChange(event) {
     showSelectedFile(event.target.files?.[0]);
   }
 
+  const mediaForm = event.target.closest("#media-upload-form");
+  if (mediaForm && event.target.name === "kind") {
+    syncMediaProductFields(mediaForm);
+  }
+
   const generationForm = event.target.closest("#mock-batch-form");
   if (generationForm && ["generation_mode", "campaign_id"].includes(event.target.name)) {
     syncGenerationModeForm(generationForm);
@@ -7879,6 +7992,19 @@ function handleDragEnd() {
 function showSelectedFile(file) {
   const target = document.querySelector("#selected-file-name");
   if (target) target.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : "";
+}
+
+function syncMediaProductFields(form) {
+  const required = mediaKindRequiresProduct(form.elements.kind?.value);
+  const fields = form.querySelector("[data-media-product-fields]");
+  if (fields) fields.hidden = !required;
+  for (const name of ["sku", "product_name"]) {
+    const input = form.elements[name];
+    if (!input) continue;
+    input.disabled = !required;
+    input.required = required;
+    if (!required) input.setCustomValidity("");
+  }
 }
 
 function syncGenerationModeForm(form) {
@@ -9623,6 +9749,25 @@ async function submitMedia(form) {
     return;
   }
 
+  const kind = String(values.get("kind") || "product_photo").trim();
+  const productIdentity = {};
+  if (mediaKindRequiresProduct(kind)) {
+    const sku = String(values.get("sku") || "").trim();
+    const productName = String(values.get("product_name") || "").trim();
+    if (!sku || sku.length > 120) {
+      toast("Укажите точный артикул товара длиной до 120 символов.", "error");
+      form.elements.sku?.focus();
+      return;
+    }
+    if (productName.length < 2 || productName.length > 180) {
+      toast("Укажите точное название товара длиной от 2 до 180 символов.", "error");
+      form.elements.product_name?.focus();
+      return;
+    }
+    productIdentity.sku = sku;
+    productIdentity.product_name = productName;
+  }
+
   setFormBusy(form, true, "Проверяем файл и загружаем…");
   let objectKey = "";
   try {
@@ -9637,24 +9782,27 @@ async function submitMedia(form) {
         mime_type: file.type,
         size_bytes: file.size,
         sha256,
-        kind: String(values.get("kind") || "product_photo"),
+        kind,
+        ...productIdentity,
         rights_confirmed: values.get("rights_confirmed") === "on",
       });
     } catch (registrationError) {
       await state.api.removePrivateObject(objectKey).catch(() => {});
       throw registrationError;
     }
-    await track("media_uploaded", { kind: String(values.get("kind")), mime_type: file.type, size_bytes: file.size });
+    await track("media_uploaded", { kind, mime_type: file.type, size_bytes: file.size });
     delete form.dataset.dirty;
     form.reset();
     showSelectedFile(null);
+    syncMediaProductFields(form);
     state.sections.media.status = "idle";
     state.sections.generation.status = "idle";
     toast("Файл сохранён в защищённой папке.", "success");
     render();
   } catch (error) {
-    setFormBusy(form, false);
-      toast(actionErrorMessage(error), "error");
+    toast(actionErrorMessage(error), "error");
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
   }
 }
 

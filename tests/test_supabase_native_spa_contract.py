@@ -445,7 +445,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260717.7' in index
+    assert './app.js?v=20260717.8' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

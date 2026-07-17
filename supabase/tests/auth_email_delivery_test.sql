@@ -120,7 +120,7 @@ begin
 end;
 $fixture$;
 
-select plan(106);
+select plan(116);
 
 select ok(
   to_regclass('content_factory.auth_email_attempts') is not null,
@@ -636,6 +636,8 @@ select
     'status', 'accepted',
     'reason_code', 'recovery_request_accepted',
     'delivery_status', 'accepted_unconfirmed',
+    'provider', 'resend',
+    'provider_message_id', 'msg-recovery-0001',
     'membership_provisioned', false
   ))
 from auth_email_results reserve
@@ -717,6 +719,205 @@ select throws_ok(
   'attempt evidence cannot be deleted'
 );
 
+insert into content_factory.auth_email_attempts (
+  organization_id,
+  request_id,
+  email,
+  purpose,
+  status,
+  reason_code,
+  delivery_status,
+  requested_by,
+  requested_at,
+  finalized_at
+)
+values (
+  '88100000-0000-4000-8000-000000000001',
+  '88200000-0000-4000-8000-000000000013',
+  'window.only@example.test',
+  'recovery',
+  'accepted',
+  'recovery_request_accepted',
+  'accepted_unconfirmed',
+  '88000000-0000-4000-8000-000000000001',
+  now() - interval '61 minutes',
+  now() - interval '61 minutes'
+);
+
+insert into auth_email_results (key, payload)
+values (
+  'single_window_event',
+  public.system_ingest_auth_email_delivery_event(jsonb_build_object(
+    'provider', 'resend',
+    'provider_event_id', 'evt-window-only-0001',
+    'provider_message_id', 'msg-window-only-0001',
+    'event_type', 'email.delivered',
+    'delivery_status', 'delivered',
+    'recipient', 'window.only@example.test',
+    'event_created_at', now()
+  ))
+);
+
+select is(
+  (select payload from auth_email_results where key = 'single_window_event')
+    ->> 'correlation_status',
+  'ambiguous',
+  'a unique recipient window is triage evidence rather than exact identity'
+);
+
+select ok(
+  (select payload from auth_email_results where key = 'single_window_event')
+    -> 'attempt_id' = 'null'::jsonb,
+  'recipient-window evidence is not attached to an arbitrary attempt'
+);
+
+select ok(
+  not ((select payload from auth_email_results where key = 'single_window_event')
+    ->> 'delivery_projected')::boolean,
+  'recipient-window evidence never projects provider delivery'
+);
+
+select is(
+  (
+    select attempt.delivery_status
+    from content_factory.auth_email_attempts attempt
+    where attempt.request_id = '88200000-0000-4000-8000-000000000013'
+  ),
+  'accepted_unconfirmed',
+  'untrusted recipient-window delivery leaves the attempt unchanged'
+);
+
+select is(
+  public.creator_account_access_status(jsonb_build_object(
+    'organization_id', '88100000-0000-4000-8000-000000000001',
+    'email', 'window.only@example.test'
+  )) ->> 'recommended_action',
+  'manual_review',
+  'stale ambiguous delivery requires review instead of an automatic resend'
+);
+
+insert into content_factory.auth_email_attempts (
+  organization_id,
+  request_id,
+  email,
+  purpose,
+  status,
+  reason_code,
+  delivery_status,
+  provider,
+  provider_message_id,
+  requested_by,
+  requested_at,
+  finalized_at
+)
+values (
+  '88100000-0000-4000-8000-000000000001',
+  '88200000-0000-4000-8000-000000000014',
+  'bound.recipient@example.test',
+  'recovery',
+  'accepted',
+  'recovery_request_accepted',
+  'accepted_unconfirmed',
+  'resend',
+  'msg-recipient-bound-0001',
+  '88000000-0000-4000-8000-000000000001',
+  now(),
+  now()
+);
+
+insert into auth_email_results (key, payload)
+values (
+  'recipient_mismatch_event',
+  public.system_ingest_auth_email_delivery_event(jsonb_build_object(
+    'provider', 'resend',
+    'provider_event_id', 'evt-recipient-mismatch-0001',
+    'provider_message_id', 'msg-recipient-bound-0001',
+    'event_type', 'email.bounced',
+    'delivery_status', 'bounced',
+    'recipient', 'different.recipient@example.test',
+    'event_created_at', now()
+  ))
+);
+
+select is(
+  (select payload from auth_email_results where key = 'recipient_mismatch_event')
+    ->> 'correlation_status',
+  'unmatched',
+  'provider message id cannot override a mismatched normalized recipient'
+);
+
+select is(
+  (
+    select attempt.delivery_status
+    from content_factory.auth_email_attempts attempt
+    where attempt.request_id = '88200000-0000-4000-8000-000000000014'
+  ),
+  'accepted_unconfirmed',
+  'recipient mismatch never changes the pre-bound attempt'
+);
+
+insert into content_factory.invite_delivery_attempts (
+  organization_id,
+  request_id,
+  email,
+  status,
+  reason_code,
+  delivery_status,
+  membership_provisioned,
+  requested_by,
+  requested_at
+)
+values (
+  '88100000-0000-4000-8000-000000000001',
+  '88200000-0000-4000-8000-000000000015',
+  'not.requested@example.test',
+  'already_exists',
+  'auth_user_already_exists',
+  'not_requested',
+  false,
+  '88000000-0000-4000-8000-000000000001',
+  now()
+);
+
+insert into auth_email_results (key, payload)
+values (
+  'not_requested_event',
+  public.system_ingest_auth_email_delivery_event(jsonb_build_object(
+    'provider', 'resend',
+    'provider_event_id', 'evt-not-requested-0001',
+    'provider_message_id', 'msg-not-requested-0001',
+    'event_type', 'email.delivered',
+    'delivery_status', 'delivered',
+    'recipient', 'not.requested@example.test',
+    'event_created_at', now()
+  ))
+);
+
+select is(
+  (select payload from auth_email_results where key = 'not_requested_event')
+    ->> 'correlation_status',
+  'unmatched',
+  'an invite that was not requested is never a delivery candidate'
+);
+
+select is(
+  (
+    select attempt.delivery_status
+    from content_factory.auth_email_attempts attempt
+    where attempt.request_id = '88200000-0000-4000-8000-000000000015'
+  ),
+  'unknown',
+  'not-requested mirror remains honest after an unrelated provider event'
+);
+
+select is(
+  public.creator_account_access_status(jsonb_build_object(
+    'organization_id', '88100000-0000-4000-8000-000000000001',
+    'email', 'not.requested@example.test'
+  )) ->> 'recommended_action',
+  'invite',
+  'not-requested evidence does not create a false delivery cooldown'
+);
 insert into auth_email_results (key, payload)
 values (
   'sent_event',
@@ -734,8 +935,8 @@ values (
 select is(
   (select payload from auth_email_results where key = 'sent_event')
     ->> 'correlation_basis',
-  'unique_recipient_window',
-  'first provider sent event binds by the disclosed unique recipient window'
+  'provider_message_id',
+  'pre-bound provider message id correlates the first provider event exactly'
 );
 
 insert into auth_email_results (key, payload)
@@ -1123,6 +1324,8 @@ insert into content_factory.auth_email_attempts (
   status,
   reason_code,
   delivery_status,
+  provider,
+  provider_message_id,
   requested_by,
   requested_at,
   finalized_at
@@ -1135,6 +1338,8 @@ values (
   'accepted',
   'invite_request_accepted',
   'accepted_unconfirmed',
+  'resend',
+  'msg-provider-terminal-0001',
   '88000000-0000-4000-8000-000000000001',
   now(),
   now()

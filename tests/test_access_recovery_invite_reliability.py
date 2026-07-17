@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import shutil
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,19 +13,185 @@ def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_invalid_auth_link_is_sanitized_and_has_recovery_specific_cta() -> None:
+def test_invalid_auth_link_is_sanitized_only_after_a_definitive_result() -> None:
     app = _text("web/app/app.js")
 
-    assert 'state.authLinkError = normalizeAuthLinkError(error)' in app
-    assert 'clearAuthLinkUrl("/auth-link-error")' in app
-    assert 'path === "/auth-link-error"' in app
+    assert "function waitForAuthLinkResult(operation)" in app
+    assert "function handleAuthLinkFailure(error)" in app
+    assert 'state.authLinkError = failure' in app
+    assert 'if (failure.definitive) clearAuthLinkUrl("/auth-link-error")' in app
+    assert "if (state.authLinkError)" in app
     assert "function renderAuthLinkError()" in app
+    assert 'data-action="retry-auth-link"' in app
     assert 'data-action="request-new-auth-link"' in app
+    assert "Повторить эту же ссылку" in app
     assert "Запросить новую ссылку" in app
-    assert "Нужно новое приглашение" in app
     assert 'next.search = ""' in app
     assert "Токен удалён из адресной строки" in app
+    assert "не удаляли одноразовый токен" in app
 
+
+def _run_node(source: str) -> dict:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for executable Auth-link contracts"
+    result = subprocess.run(
+        [node, "--input-type=module", "-"],
+        input=source,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    return json.loads(result.stdout)
+
+def _app_function_block(start: str, end: str) -> str:
+    app = _text("web/app/app.js")
+    return app[app.index(start):app.index(end, app.index(start))]
+
+
+def test_auth_link_classifier_and_url_handling_are_executable_and_fail_closed() -> None:
+    functions = _app_function_block(
+        "function normalizeAuthLinkError",
+        "function requiresPasswordChange",
+    )
+    result = _run_node(
+        functions
+        + r'''
+let current;
+let replaceCalls;
+let state;
+let window;
+function parseRoute() { return { path: window.location.hash.slice(1) || "/" }; }
+function run(error, href) {
+  current = new URL(href);
+  replaceCalls = 0;
+  state = { authLinkError: null, route: null };
+  window = {
+    get location() { return current; },
+    history: {
+      replaceState: (_state, _title, next) => {
+        replaceCalls += 1;
+        current = new URL(next);
+      },
+    },
+  };
+  const before = current.href;
+  const failure = handleAuthLinkFailure(error);
+  return {
+    failure,
+    before,
+    after: current.href,
+    replaceCalls,
+    search: current.search,
+    hash: current.hash,
+  };
+}
+const failedFetch = new TypeError("Failed to fetch");
+failedFetch.authPurpose = "recovery";
+const cases = {
+  otpExpired: run({ code: "otp_expired", status: 400, message: "Email link expired", authPurpose: "recovery" }, "https://example.test/?token_hash=secret&type=recovery"),
+  badVerifier: run({ code: "bad_code_verifier", status: 400, message: "Verifier rejected", authPurpose: "invite" }, "https://example.test/?code=secret&type=invite"),
+  network: run(failedFetch, "https://example.test/?token_hash=secret&type=recovery"),
+  rateLimit: run({ code: "rate_limit", status: 429, message: "Too many requests" }, "https://example.test/?code=secret&type=invite"),
+  invalid503: run({ code: "upstream", status: 503, message: "invalid response from upstream" }, "https://example.test/#access_token=secret&refresh_token=refresh&type=recovery"),
+  unknown400: run({ code: "unexpected", status: 400, message: "Unexpected response" }, "https://example.test/?token_hash=secret&type=recovery"),
+  missingSession: run({ code: "auth_link_session_missing", authLinkTransient: true, message: "missing" }, "https://example.test/?token_hash=secret&type=recovery"),
+};
+process.stdout.write(JSON.stringify(cases));
+'''
+    )
+
+    for key in ("otpExpired", "badVerifier"):
+        assert result[key]["failure"]["definitive"] is True
+        assert result[key]["replaceCalls"] == 1
+        assert result[key]["search"] == ""
+        assert result[key]["hash"] == "#/auth-link-error"
+    for key in ("network", "rateLimit", "invalid503", "unknown400", "missingSession"):
+        assert result[key]["failure"]["definitive"] is False
+        assert result[key]["failure"]["transient"] is True
+        assert result[key]["replaceCalls"] == 0
+        assert result[key]["after"] == result[key]["before"]
+
+
+def test_all_supported_auth_link_shapes_return_the_session_before_url_cleanup() -> None:
+    functions = _app_function_block(
+        "async function requireAuthLinkSession",
+        "function normalizeAuthLinkError",
+    )
+    result = _run_node(
+        functions
+        + r'''
+async function run(href, method) {
+  let current = new URL(href);
+  let replaceCalls = 0;
+  let clearCalls = 0;
+  const session = { marker: method };
+  globalThis.window = {
+    get location() { return current; },
+    history: {
+      replaceState: (_state, _title, next) => {
+        replaceCalls += 1;
+        current = new URL(next);
+      },
+    },
+  };
+  globalThis.state = {
+    route: null,
+    supabase: { auth: {
+      verifyOtp: async () => ({ data: { session }, error: null }),
+      exchangeCodeForSession: async () => ({ data: { session }, error: null }),
+      setSession: async () => ({ data: { session }, error: null }),
+      getSession: async () => { throw new Error("accepted link must not call getSession"); },
+    } },
+  };
+  globalThis.clearStoredPkceVerifier = () => { clearCalls += 1; };
+  globalThis.parseRoute = () => ({ path: current.hash.slice(1) });
+  const value = await consumeAuthLink();
+  return { marker: value.session?.marker, accepted: value.accepted, replaceCalls, clearCalls, href: current.href };
+}
+async function missing() {
+  let current = new URL("https://example.test/?token_hash=secret&type=recovery");
+  let replaceCalls = 0;
+  globalThis.window = {
+    get location() { return current; },
+    history: { replaceState: () => { replaceCalls += 1; } },
+  };
+  globalThis.state = { route: null, supabase: { auth: {
+    verifyOtp: async () => ({ data: { session: null }, error: null }),
+  } } };
+  globalThis.clearStoredPkceVerifier = () => {};
+  globalThis.parseRoute = () => ({ path: "/" });
+  try {
+    await consumeAuthLink();
+    return { code: "none", replaceCalls };
+  } catch (error) {
+    return { code: error.code, replaceCalls, href: current.href };
+  }
+}
+const output = {
+  tokenHash: await run("https://example.test/?token_hash=secret&type=recovery", "verifyOtp"),
+  code: await run("https://example.test/?code=secret&type=invite", "exchangeCodeForSession"),
+  tokens: await run("https://example.test/#access_token=secret&refresh_token=refresh&type=recovery", "setSession"),
+  missing: await missing(),
+};
+process.stdout.write(JSON.stringify(output));
+'''
+    )
+
+    for key, marker in (
+        ("tokenHash", "verifyOtp"),
+        ("code", "exchangeCodeForSession"),
+        ("tokens", "setSession"),
+    ):
+        assert result[key]["accepted"] is True
+        assert result[key]["marker"] == marker
+        assert result[key]["replaceCalls"] == 1
+        assert result[key]["clearCalls"] == 1
+    assert result["missing"]["code"] == "auth_link_session_missing"
+    assert result["missing"]["replaceCalls"] == 0
+    assert "token_hash=secret" in result["missing"]["href"]
 
 def test_required_password_change_is_server_marked_and_workspace_gated() -> None:
     app = _text("web/app/app.js")
