@@ -61,6 +61,33 @@ const FAILURE_CODES = new Set([
   "output_upload_failed",
   "internal_error",
 ]);
+const BUDGET_ERROR_CODES: ReadonlySet<string> = new Set([
+  "paid_generation_paused",
+  "paid_generation_policy_missing",
+  "generation_daily_budget_exceeded",
+  "generation_monthly_budget_exceeded",
+  "generation_per_request_budget_exceeded",
+  "generation_budget_reservation_invalid",
+  "generation_budget_policy_changed",
+]);
+
+type BudgetErrorCode =
+  | "paid_generation_paused"
+  | "paid_generation_policy_missing"
+  | "generation_daily_budget_exceeded"
+  | "generation_monthly_budget_exceeded"
+  | "generation_per_request_budget_exceeded"
+  | "generation_budget_reservation_invalid"
+  | "generation_budget_policy_changed";
+
+type ClaimErrorCode =
+  | BudgetErrorCode
+  | "real_generation_reconciliation_required";
+
+type ClaimResult =
+  | { outcome: "claimed"; claimed: boolean }
+  | { outcome: "budget_rejected"; code: ClaimErrorCode }
+  | { outcome: "unavailable" };
 
 type Json =
   | string
@@ -291,6 +318,29 @@ function json(request: Request, body: unknown, status = 200): Response {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readBudgetErrorCode(value: unknown): BudgetErrorCode | null {
+  if (!isRecord(value) || typeof value.message !== "string") return null;
+  return BUDGET_ERROR_CODES.has(value.message)
+    ? value.message as BudgetErrorCode
+    : null;
+}
+
+function readClaimErrorCode(value: unknown): ClaimErrorCode | null {
+  const budgetCode = readBudgetErrorCode(value);
+  if (budgetCode !== null) return budgetCode;
+  return isRecord(value) &&
+      value.message === "real_generation_reconciliation_required"
+    ? "real_generation_reconciliation_required"
+    : null;
+}
+
+function budgetErrorHttpStatus(code: BudgetErrorCode): 403 | 409 {
+  return code === "paid_generation_paused" ||
+      code === "paid_generation_policy_missing"
+    ? 403
+    : 409;
 }
 
 function hasOnlyKeys(
@@ -1078,6 +1128,30 @@ async function handleCreatorGenerate(
     }
   };
 
+  const claimSystemJob = async (jobId: string): Promise<ClaimResult> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_update_real_generation",
+        { p_payload: { job_id: jobId, status: "starting" } },
+      );
+      if (error !== null) {
+        const claimCode = readClaimErrorCode(error);
+        return claimCode === null
+          ? { outcome: "unavailable" }
+          : { outcome: "budget_rejected", code: claimCode };
+      }
+      if (
+        !isRecord(data) || data.ok !== true ||
+        typeof data.claimed !== "boolean"
+      ) {
+        return { outcome: "unavailable" };
+      }
+      return { outcome: "claimed", claimed: data.claimed };
+    } catch {
+      return { outcome: "unavailable" };
+    }
+  };
+
   const markReconciliationRequired = async (
     jobId: string,
     reasonCode:
@@ -1684,14 +1758,20 @@ async function handleCreatorGenerate(
     { p_payload: rpcPayload(startPayload) },
   );
   if (startError) {
-    const code =
-      startError.message === "real_generation_reconciliation_required"
+    const budgetCode = readBudgetErrorCode(startError);
+    const code = budgetCode ??
+      (startError.message === "real_generation_reconciliation_required"
         ? "real_generation_reconciliation_required"
-        : "generation_rejected";
+        : "generation_rejected");
+    const status = budgetCode !== null
+      ? budgetErrorHttpStatus(budgetCode)
+      : code === "generation_rejected"
+      ? 403
+      : 409;
     return json(
       request,
       { ok: false, code },
-      code === "generation_rejected" ? 403 : 409,
+      status,
     );
   }
   const startJob = readStartJob(startData);
@@ -1727,21 +1807,27 @@ async function handleCreatorGenerate(
     return await handleStatus(statusRequest, current, batch);
   }
 
-  const claimValue = await updateSystemJob({
-    job_id: current.id,
-    status: "starting",
-  });
-  if (
-    !isRecord(claimValue) || claimValue.ok !== true ||
-    typeof claimValue.claimed !== "boolean"
-  ) {
+  // This service-role RPC is the final paid-provider gate. The database
+  // atomically validates the active reservation, organization kill switch,
+  // policy version, and current spend limits while claiming queued -> starting.
+  const claim = await claimSystemJob(current.id);
+  if (claim.outcome === "budget_rejected") {
+    return json(
+      request,
+      { ok: false, code: claim.code },
+      claim.code === "real_generation_reconciliation_required"
+        ? 409
+        : budgetErrorHttpStatus(claim.code),
+    );
+  }
+  if (claim.outcome !== "claimed") {
     return json(
       request,
       { ok: false, code: "generation_unavailable" },
       503,
     );
   }
-  if (!claimValue.claimed) {
+  if (!claim.claimed) {
     return await respondWithCurrent(
       startPayload.organization_id,
       startJob.id,

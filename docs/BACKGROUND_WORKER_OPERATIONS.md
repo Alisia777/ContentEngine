@@ -59,6 +59,9 @@ work twice.
 - A submitted Runway task is polled according to its database-owned
   `next_poll_at`. Transient GET failures update poll diagnostics and backoff;
   they do not issue another paid POST.
+- Pausing the platform or organization spend policy blocks new paid provider
+  POSTs. It must not stop polling a Runway task that already has a provider
+  task ID; doing so would hide an existing charge rather than prevent one.
 - A job that exceeds the configured polling deadline is marked stalled and
   produces one deduplicated operator notification. A human checks Runway and
   completes the existing reconciliation flow.

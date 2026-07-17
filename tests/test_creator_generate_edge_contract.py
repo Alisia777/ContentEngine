@@ -55,7 +55,7 @@ def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> 
         '"creator_real_generation_status"',
         '"system_update_real_generation"',
         'status: "starting"',
-        'claimValue.claimed',
+        'claim.claimed',
         'current.status !== "queued"',
     ):
         assert marker in source
@@ -66,6 +66,43 @@ def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> 
     assert claim < provider_call < submitted
     assert "cron" not in source.casefold()
     assert "schedule" not in source.casefold()
+
+
+def test_paid_provider_post_is_guarded_by_sanitized_database_budget_claim() -> None:
+    source = _source()
+
+    for code in (
+        "paid_generation_paused",
+        "paid_generation_policy_missing",
+        "generation_daily_budget_exceeded",
+        "generation_monthly_budget_exceeded",
+        "generation_per_request_budget_exceeded",
+        "generation_budget_reservation_invalid",
+        "generation_budget_policy_changed",
+    ):
+        assert f'"{code}"' in source
+
+    sanitizer = source[source.index("function readBudgetErrorCode") : source.index(
+        "function budgetErrorHttpStatus"
+    )]
+    assert "BUDGET_ERROR_CODES.has(value.message)" in sanitizer
+    assert "includes(" not in sanitizer
+    claim_sanitizer = source[
+        source.index("function readClaimErrorCode") : source.index(
+            "function budgetErrorHttpStatus"
+        )
+    ]
+    assert 'value.message === "real_generation_reconciliation_required"' in claim_sanitizer
+
+    start = source.index("const claim = await claimSystemJob(current.id)")
+    provider_post = source.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`', start)
+    claim_guard = source[start:provider_post]
+    assert 'claim.outcome === "budget_rejected"' in claim_guard
+    assert 'claim.outcome !== "claimed"' in claim_guard
+    assert "if (!claim.claimed)" in claim_guard
+    assert "budgetErrorHttpStatus(claim.code)" in claim_guard
+    assert 'claim.code === "real_generation_reconciliation_required"' in claim_guard
+    assert "? 409" in claim_guard
 
 
 def test_provider_task_transitions_preserve_task_id_and_processing_order() -> None:

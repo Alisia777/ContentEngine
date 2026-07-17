@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260717.2";
+import { CreatorApi } from "./supabase-api.js?v=20260717.3";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -19,6 +19,12 @@ import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
 } from "./manager-dashboard-view.js?v=20260717.2";
+import {
+  generationSpendAllowsMinor,
+  generationSpendSnapshotMarkup,
+  managerGenerationSpendMarkup,
+  normalizeGenerationSpendOverview,
+} from "./generation-spend-view.js?v=20260717.1";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -135,6 +141,7 @@ const REAL_GENERATION_SKUS = Object.freeze({
     audio: false,
     format: null,
     estimatedCredits: 25,
+    estimatedMinor: 25,
     estimatedUsd: "0.25",
     confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25",
     label: "Анимация товара · 5 секунд · без голоса · ≈ $0.25",
@@ -145,6 +152,7 @@ const REAL_GENERATION_SKUS = Object.freeze({
     audio: true,
     format: "9:16",
     estimatedCredits: 232,
+    estimatedMinor: 232,
     estimatedUsd: "2.32",
     confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
     label: "Блогер + голос · 8 секунд · ≈ $2.32",
@@ -636,6 +644,15 @@ const state = {
   teamInviteResult: null,
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   operationalHealth: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
+  generationSpend: {
+    status: "idle",
+    data: null,
+    error: null,
+    notice: "",
+    requestId: 0,
+    updatedAt: 0,
+    saving: false,
+  },
   accessCenter: {
     status: "idle",
     email: "",
@@ -897,6 +914,7 @@ function bindGlobalEvents() {
     ) {
       state.managerDashboard.status = "idle";
       state.operationalHealth.status = "idle";
+      state.generationSpend.status = "idle";
     }
     state.routeTransition = true;
     if (
@@ -940,6 +958,7 @@ function managerDashboardIsStale() {
   const oldestConfirmedAt = Math.min(
     Number(state.managerDashboard.updatedAt) || 0,
     Number(state.operationalHealth.updatedAt) || 0,
+    Number(state.generationSpend.updatedAt) || 0,
   );
   return oldestConfirmedAt === 0
     || Date.now() - oldestConfirmedAt > MANAGER_DASHBOARD_MAX_AGE_MS;
@@ -953,6 +972,7 @@ function refreshManagerDashboardIfStale() {
     || !managerDashboardIsStale()
     || ["loading", "refreshing"].includes(state.managerDashboard.status)
     || ["loading", "refreshing"].includes(state.operationalHealth.status)
+    || ["loading", "refreshing"].includes(state.generationSpend.status)
   ) return;
   void loadManagerDashboard({ silent: true });
 }
@@ -1120,6 +1140,13 @@ async function loadBootstrap() {
       state.operationalHealth.data = null;
       state.operationalHealth.error = null;
       state.operationalHealth.updatedAt = 0;
+      state.generationSpend.requestId += 1;
+      state.generationSpend.status = "idle";
+      state.generationSpend.data = null;
+      state.generationSpend.error = null;
+      state.generationSpend.notice = "";
+      state.generationSpend.updatedAt = 0;
+      state.generationSpend.saving = false;
       state.accessCenter.requestId += 1;
       state.accessCenter.status = "idle";
       state.accessCenter.email = "";
@@ -3583,6 +3610,10 @@ function canManageTeam() {
   return ["owner", "admin"].includes(state.bootstrap?.membership?.role);
 }
 
+function canManageGenerationSpendPolicy() {
+  return ["owner", "admin"].includes(state.bootstrap?.membership?.role);
+}
+
 function canManageProductResearch() {
   return ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
 }
@@ -4193,10 +4224,12 @@ async function reloadSavedWorkViews() {
 async function loadManagerDashboard({ silent = false } = {}) {
   const target = state.managerDashboard;
   const health = state.operationalHealth;
+  const spend = state.generationSpend;
   if (
     !canManageTeam()
     || ["loading", "refreshing"].includes(target.status)
     || ["loading", "refreshing"].includes(health.status)
+    || ["loading", "refreshing"].includes(spend.status)
   ) return;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
@@ -4260,7 +4293,56 @@ async function loadManagerDashboard({ silent = false } = {}) {
       health.status = "error";
       renderCurrentTeam();
     });
-  await Promise.allSettled([dashboardRequest, healthRequest]);
+  const spendRequest = loadGenerationSpendOverview({ silent: true, force: true });
+  await Promise.allSettled([dashboardRequest, healthRequest, spendRequest]);
+}
+
+async function loadGenerationSpendOverview({ silent = false, force = false } = {}) {
+  const target = state.generationSpend;
+  if (
+    !hasWorkspaceAccess()
+    || (!force && ["loading", "refreshing"].includes(target.status))
+  ) return target.data;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data ? "refreshing" : "loading";
+  target.error = null;
+  if (!silent && ["/workspace/team", "/workspace/generation"].includes(state.route.path)) render();
+  try {
+    const raw = await withUiTimeout(
+      state.api.generationSpendOverview(),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "generation_spend_overview_timeout",
+    );
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestId !== target.requestId
+    ) return target.data;
+    target.data = raw?.data ?? raw ?? {};
+    target.status = "ready";
+    target.error = null;
+    target.updatedAt = Date.now();
+    return target.data;
+  } catch (error) {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestId !== target.requestId
+    ) return target.data;
+    target.error = error;
+    target.status = "error";
+    return target.data;
+  } finally {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && requestId === target.requestId
+      && ["/workspace/team", "/workspace/generation"].includes(state.route.path)
+    ) render();
+  }
 }
 
 async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
@@ -4662,6 +4744,16 @@ function isRealGenerationMode(mode) {
   return realGenerationSku(mode) !== null;
 }
 
+function realGenerationSpendAllowed(mode) {
+  const sku = realGenerationSku(mode);
+  if (!sku) return true;
+  if (!state.generationSpend.data || state.generationSpend.status !== "ready") return false;
+  return generationSpendAllowsMinor(
+    normalizeGenerationSpendOverview(state.generationSpend.data),
+    sku.estimatedMinor,
+  );
+}
+
 function renderGenerationSection(sectionState) {
   const data = sectionState.data || {};
   const batches = listFrom(data, "batches");
@@ -4671,9 +4763,20 @@ function renderGenerationSection(sectionState) {
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
-  const defaultMode = MOCK_GENERATION_ENABLED ? "mock" : REAL_SEEDANCE_MODE;
+  const defaultMode = MOCK_GENERATION_ENABLED
+    ? "mock"
+    : realGenerationSpendAllowed(REAL_SEEDANCE_MODE)
+      ? REAL_SEEDANCE_MODE
+      : realGenerationSpendAllowed(REAL_GEN4_MODE)
+        ? REAL_GEN4_MODE
+        : REAL_SEEDANCE_MODE;
   const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
+  if (state.generationSpend.status === "idle") {
+    window.queueMicrotask(() => loadGenerationSpendOverview({ silent: true }));
+  }
+  const seedanceSpendAllowed = realGenerationSpendAllowed(REAL_SEEDANCE_MODE);
+  const gen4SpendAllowed = realGenerationSpendAllowed(REAL_GEN4_MODE);
   const canManageAliases = ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
@@ -4691,15 +4794,16 @@ function renderGenerationSection(sectionState) {
       ${pageHeader(
         "Создание видео",
         "Создайте тестовые варианты без списаний или один готовый ролик по фотографии выбранного товара.",
-        REAL_GENERATION_ENABLED
+        REAL_GENERATION_ENABLED && (seedanceSpendAllowed || gen4SpendAllowed)
           ? `<span class="badge badge-info">ТЕСТОВЫЙ + ПЛАТНЫЙ</span>`
-          : `<span class="badge badge-mock">ТЕСТОВЫЙ · 0 ₽</span>`,
+          : `<span class="badge badge-mock">ТЕСТОВЫЙ · БЕЗ СПИСАНИЙ</span>`,
       )}
       <div class="split-grid">
         <section class="card card-pad">
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
           <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с озвучкой.</p>
+          ${generationSpendSnapshotMarkup(state.generationSpend, { requestMinor: Math.min(REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor, REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].estimatedMinor) })}
           ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
@@ -4709,8 +4813,8 @@ function renderGenerationSection(sectionState) {
               <select id="generation-mode" name="generation_mode" required>
                 ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Тестовые варианты · без списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
-                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}</option>
-                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}</option>
+                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""} ${seedanceSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}${seedanceSpendAllowed ? "" : " · лимит"}</option>
+                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}${gen4SpendAllowed ? "" : " · лимит"}</option>
                 ` : ""}
               </select>
             </label>
@@ -4787,7 +4891,7 @@ function renderGenerationSection(sectionState) {
                 </div>
               </fieldset>
             ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или упаковки в разделе <a href="#/workspace/media">«Материалы»</a>. Без исходника запуск недоступен.</span></div>`}
-            <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
+            <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight && (!defaultIsReal || realGenerationSpendAllowed(defaultMode))) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
           </form>
           ${canRepeatRealGeneration(state.lastRealGenerationJobId) ? `
             <div class="generation-repeat-panel" role="status">
@@ -5119,8 +5223,19 @@ function generationActionsMarkup(details) {
 
 function generationCostMarkup(details) {
   const estimated = details.estimatedMinor === null ? "—" : formatGenerationUsd(details.estimatedMinor);
-  const actual = details.actualMinor === null ? "уточняется" : formatGenerationUsd(details.actualMinor);
-  return `<div class="generation-cost"><span><small>Оценка</small><strong>${estimated}</strong></span><span><small>Фактически</small><strong>${actual}</strong></span></div>`;
+  const terminalWithoutCharge = ["failed", "cancelled"].includes(details.status) && details.actualMinor === 0;
+  const providerAccepted = ["submitted", "processing", "running", "saving", "uploading", "succeeded", "completed"].includes(details.status);
+  const provisional = terminalWithoutCharge
+    ? formatGenerationUsd(0)
+    : providerAccepted && details.actualMinor !== null
+      ? formatGenerationUsd(details.actualMinor)
+      : estimated;
+  const provisionalLabel = terminalWithoutCharge
+    ? "Резерв освобождён"
+    : providerAccepted
+      ? "Учтено предварительно"
+      : "Зарезервировано";
+  return `<div class="generation-cost"><span><small>Оценка запуска</small><strong>${estimated}</strong></span><span><small>${provisionalLabel}</small><strong>${provisional}</strong></span><em>Не является итоговым счётом провайдера</em></div>`;
 }
 
 function realGenerationJobsFromBatches(batches = listFrom(state.sections.generation.data || {}, "batches")) {
@@ -5260,6 +5375,12 @@ function applyRealGenerationResult(jobId, result, options = {}) {
     previous?.job?.reconciliation_required,
   );
   const nextReconciliationRequired = normalizeBoolean(job.reconciliation_required);
+  if (
+    previousStatus !== nextStatus
+    && ["queued", "submitted", "failed", "cancelled", "succeeded", "completed"].includes(nextStatus)
+  ) {
+    void loadGenerationSpendOverview({ silent: true, force: true });
+  }
   if (options.source === "auto" && previousStatus && previousStatus !== nextStatus) {
     if (["succeeded", "completed"].includes(nextStatus)) {
       toast("Платный ролик готов. Он доступен в очереди для просмотра и скачивания.", "success");
@@ -6275,13 +6396,14 @@ function renderTeamSection(sectionState) {
 
 function managerDashboardSectionMarkup() {
   const dashboard = state.managerDashboard;
+  const spendMarkup = managerGenerationSpendMarkup(state.generationSpend, { canEdit: canManageGenerationSpendPolicy() });
   if (["idle", "loading"].includes(dashboard.status) && !dashboard.data) {
-    return `<section class="manager-funnel manager-dashboard-loading" role="status"><div class="loading-line" aria-hidden="true"><span></span></div><strong>Собираем, где команда остановилась…</strong><p class="muted">Письмо, вход, обучение, генерация, публикация и выплата проверяются одним отчётом.</p></section>`;
+    return `${spendMarkup}<section class="manager-funnel manager-dashboard-loading" role="status"><div class="loading-line" aria-hidden="true"><span></span></div><strong>Собираем, где команда остановилась…</strong><p class="muted">Письмо, вход, обучение, генерация, публикация и выплата проверяются одним отчётом.</p></section>`;
   }
   if (dashboard.status === "error" && !dashboard.data) {
-    return `<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button>${managerOperationalHealthMarkup(state.operationalHealth)}</section>`;
+    return `${spendMarkup}<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button>${managerOperationalHealthMarkup(state.operationalHealth)}</section>`;
   }
-  return `${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)}`;
+  return `${spendMarkup}${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)}`;
 }
 
 function teamMembersTable(members) {
@@ -6814,11 +6936,23 @@ async function handleClick(event) {
     if (
       ["loading", "refreshing"].includes(state.managerDashboard.status)
       || ["loading", "refreshing"].includes(state.operationalHealth.status)
+      || ["loading", "refreshing"].includes(state.generationSpend.status)
     ) {
       toast("Сводка уже обновляется.", "info");
       return;
     }
     await loadManagerDashboard();
+    return;
+  }
+
+  if (action === "refresh-generation-spend") {
+    if (["loading", "refreshing"].includes(state.generationSpend.status)) {
+      toast("Денежный остаток уже проверяется.", "info");
+      return;
+    }
+    state.generationSpend.notice = "";
+    state.generationSpend.error = null;
+    await loadGenerationSpendOverview();
     return;
   }
 
@@ -7115,9 +7249,94 @@ async function handleSubmit(event) {
   else if (form.id === "feedback-form") await submitFeedback(form);
   else if (form.id === "team-invite-form") await submitTeamInvites(form);
   else if (form.id === "manager-access-form") await submitManagerAccess(form);
+  else if (form.id === "generation-spend-policy-form") await submitGenerationSpendPolicy(form, event.submitter);
   else if (form.classList.contains("placement-form")) await submitPlacement(form);
   else if (form.classList.contains("payout-reject-form")) await submitPayoutReject(form);
   else if (form.classList.contains("payout-paid-form")) await submitPayoutPaid(form);
+}
+
+async function submitGenerationSpendPolicy(form, submitter) {
+  if (!canManageGenerationSpendPolicy()) {
+    toast("Изменить денежные лимиты может только владелец или администратор команды.", "error");
+    return;
+  }
+  const action = String(submitter?.value || "save");
+  if (!["save", "pause", "resume"].includes(action)) {
+    toast("Не удалось определить действие с денежным лимитом.", "error");
+    return;
+  }
+  const values = new FormData(form);
+  const current = normalizeGenerationSpendOverview(state.generationSpend.data || {});
+  const enabled = action === "pause"
+    ? false
+    : action === "resume"
+      ? true
+      : current.policy.paidGenerationEnabled;
+  const payload = {
+    paid_generation_enabled: enabled,
+    daily_limit_minor: usdInputToMinor(values.get("daily_limit_usd")),
+    monthly_limit_minor: usdInputToMinor(values.get("monthly_limit_usd")),
+    per_request_limit_minor: usdInputToMinor(values.get("per_request_limit_usd")),
+    timezone: String(values.get("timezone") || current.policy.timezone || "Europe/Moscow"),
+    reason: String(values.get("reason") || "").trim(),
+    expected_version: Number(values.get("expected_version")),
+  };
+  if ([payload.daily_limit_minor, payload.monthly_limit_minor, payload.per_request_limit_minor].some((value) => value === null)) {
+    toast("Укажите каждый лимит в долларах и центах, минимум $0.01.", "error");
+    return;
+  }
+  if (
+    payload.per_request_limit_minor > payload.daily_limit_minor
+    || payload.daily_limit_minor > payload.monthly_limit_minor
+  ) {
+    toast("Лимит одного запуска должен быть не больше дневного, а дневной — не больше месячного.", "error");
+    return;
+  }
+
+  // Invalidate any overview request that started before this mutation. Its
+  // stale response must never overwrite the newly saved policy or pause.
+  state.generationSpend.requestId += 1;
+  state.generationSpend.saving = true;
+  state.generationSpend.notice = "";
+  state.generationSpend.error = null;
+  setFormBusy(form, true, action === "pause" ? "Останавливаем…" : "Сохраняем…");
+  try {
+    const raw = await state.api.updateGenerationSpendPolicy(payload);
+    state.generationSpend.data = raw?.data ?? raw ?? state.generationSpend.data;
+    state.generationSpend.status = "ready";
+    state.generationSpend.updatedAt = Date.now();
+    state.generationSpend.notice = action === "pause"
+      ? "Платные запуски остановлены. Уже отправленные задачи продолжат безопасную обработку."
+      : action === "resume"
+        ? "Платные запуски включены с новыми лимитами."
+        : "Денежные лимиты сохранены.";
+    toast(state.generationSpend.notice, "success");
+  } catch (error) {
+    state.generationSpend.error = actionErrorMessage(error);
+    if (
+      [error?.code, error?.serverCode].some((code) =>
+        ["generation_budget_policy_changed", "generation_spend_policy_version_conflict"].includes(
+          String(code || ""),
+        )
+      )
+    ) {
+      await loadGenerationSpendOverview({ silent: true, force: true });
+      state.generationSpend.error = "Лимиты уже изменились в другой вкладке. Показана свежая версия — проверьте её и повторите действие.";
+    }
+    toast(state.generationSpend.error, "error");
+  } finally {
+    state.generationSpend.saving = false;
+    if (form.isConnected) setFormBusy(form, false);
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+  }
+}
+
+function usdInputToMinor(value) {
+  const normalized = String(value ?? "").trim();
+  if (!/^\d{1,7}(?:\.\d{1,2})?$/u.test(normalized)) return null;
+  const number = Number(normalized);
+  const minor = Math.round(number * 100);
+  return Number.isSafeInteger(minor) && minor >= 1 && minor <= 100_000_000 ? minor : null;
 }
 
 async function submitMyWorkFilters(form) {
@@ -7332,6 +7551,7 @@ function syncGenerationModeForm(form) {
   const note = form.querySelector("#real-generation-note");
   const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
   const briefHint = form.querySelector("#generation-brief-hint");
+  const spendAllowed = !real || realGenerationSpendAllowed(mode);
 
   if (count) {
     if (real) {
@@ -7391,11 +7611,23 @@ function syncGenerationModeForm(form) {
       ? "Перед оплатой вставьте сценарий именно выбранного товара и проверьте дословную реплику."
       : "Для платного режима опишите один ролик без неподтверждённых обещаний.";
   }
+  const spendSnapshot = form.closest(".card")?.querySelector(".generation-spend-snapshot");
+  if (spendSnapshot) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = generationSpendSnapshotMarkup(state.generationSpend, {
+      requestMinor: sku?.estimatedMinor ?? REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
+    }).trim();
+    if (wrapper.firstElementChild) spendSnapshot.replaceWith(wrapper.firstElementChild);
+  }
   if (submit) {
-    submit.disabled = submit.disabled || state.realGenerationStartInFlight;
+    submit.disabled = state.realGenerationStartInFlight
+      || !form.querySelector('input[name="media_id"]')
+      || !spendAllowed;
     submit.textContent = state.realGenerationStartInFlight
       ? "Проверяем платный запуск — не повторяйте"
-      : (real ? `Создать одно платное видео · около $${sku.estimatedUsd}` : "Создать тестовые варианты");
+      : real && !spendAllowed
+        ? "Платный запуск остановлен лимитом"
+        : (real ? `Создать одно платное видео · около $${sku.estimatedUsd}` : "Создать тестовые варианты");
   }
 }
 
@@ -7747,6 +7979,13 @@ async function submitRealGeneration(form, values, mode) {
   const generationSku = realGenerationSku(mode);
   if (!generationSku) {
     toast("Выберите точный платный режим генерации.", "error");
+    return;
+  }
+  if (!realGenerationSpendAllowed(mode)) {
+    const overview = normalizeGenerationSpendOverview(state.generationSpend.data || {});
+    toast(overview.blockerMessage || "Для выбранной цены не хватает утверждённого денежного остатка. Тестовый режим остаётся доступен.", "error");
+    await loadGenerationSpendOverview({ silent: true, force: true });
+    if (state.route.path === "/workspace/generation") renderWorkspace("generation");
     return;
   }
   const mediaIds = values.getAll("media_id").map(String);
@@ -9103,6 +9342,13 @@ function clearAuthenticatedState() {
   state.operationalHealth.data = null;
   state.operationalHealth.error = null;
   state.operationalHealth.updatedAt = 0;
+  state.generationSpend.requestId += 1;
+  state.generationSpend.status = "idle";
+  state.generationSpend.data = null;
+  state.generationSpend.error = null;
+  state.generationSpend.notice = "";
+  state.generationSpend.updatedAt = 0;
+  state.generationSpend.saving = false;
   state.accessCenter.requestId += 1;
   state.accessCenter.status = "idle";
   state.accessCenter.email = "";

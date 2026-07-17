@@ -25,6 +25,7 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
         "catalog.js",
         "supabase-api.js",
         "app.js",
+        "generation-spend-view.js",
     }
     assert expected <= {path.name for path in APP.iterdir() if path.is_file()}
 
@@ -307,7 +308,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 35
+    assert len(set(rpc_names)) == 37
     assert "creator_operational_health" in rpc_names
     for function_name in set(rpc_names):
         assert re.search(
@@ -438,7 +439,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260717.2' in index
+    assert './app.js?v=20260717.3' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

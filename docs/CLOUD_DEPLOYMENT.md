@@ -40,6 +40,10 @@ The Supabase-native portal supports both free mock tasks and explicitly
 confirmed paid provider operations. Paid video generation and paid product
 research remain behind authenticated Edge Functions, role/certification gates,
 idempotent database commands, quotas, and a human confirmation in the portal.
+Runway video generation additionally requires an authoritative database money
+reservation, active platform and organization switches, and per-request,
+calendar-day, and calendar-month USD limits. The complete lifecycle is in
+[`GENERATION_SPEND_CONTROLS.md`](GENERATION_SPEND_CONTROLS.md).
 Provider keys are server-only Supabase secrets and never enter the Pages
 artifact. Product research produces source-backed editable drafts and a
 heuristic creative-potential score; it does not promise views or sales and does
@@ -81,6 +85,8 @@ creator_complete_module
 creator_submit_exam
 creator_workspace_section
 creator_create_mock_batch
+creator_generation_spend_overview
+creator_update_generation_spend_policy
 creator_confirm_placement
 creator_record_metric
 creator_set_wb_alias
@@ -304,7 +310,12 @@ hosted project:
 - after certification, Generation, Placement, Statistics, Payouts, Tasks and
   What to add load through the RPC boundary;
 - a mock batch of 50 is accepted and 51 is rejected;
-- `mode=real` and `allow_real_spend=true` are rejected by PostgreSQL;
+- mock generation creates no monetary ledger event;
+- a real Runway job is rejected before the provider POST when its spend policy
+  is missing, paused, or over the current per-request/day/month limit; stale
+  policy-edit versions are rejected separately by optimistic versioning;
+- a definitive pre-submission failure releases its reservation, while an
+  ambiguous provider-create outcome keeps the amount frozen for reconciliation;
 - a creator can access only their private media prefix;
 - an owner/admin can inspect the team scope but another organization cannot;
 - placement, metric, payout and feedback events remain organization-scoped and

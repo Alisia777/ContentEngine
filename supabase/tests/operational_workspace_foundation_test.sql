@@ -322,6 +322,18 @@ values
     'owner', 'active'
   );
 
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+)
+values (
+  '96100000-0000-4000-8000-000000000001', true,
+  2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+  'Operational workspace pgTAP fixture policy.',
+  '96000000-0000-4000-8000-000000000001'
+);
+
 select pg_temp.grant_operational_workspace_gate(
   '96100000-0000-4000-8000-000000000001',
   '96000000-0000-4000-8000-000000000001',

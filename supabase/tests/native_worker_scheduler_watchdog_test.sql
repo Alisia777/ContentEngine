@@ -695,6 +695,25 @@ values (
   'active'
 );
 
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+)
+values
+  (
+    'a8100000-0000-4000-8000-000000000001', true,
+    2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+    'Native worker pgTAP fixture policy.',
+    'a8000000-0000-4000-8000-000000000001'
+  ),
+  (
+    'a8100000-0000-4000-8000-000000000002', true,
+    2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+    'Other native worker pgTAP fixture policy.',
+    'a8000000-0000-4000-8000-000000000004'
+  );
+
 select lives_ok(
   $$select pg_temp.grant_native_worker_training_gate(
     'a8100000-0000-4000-8000-000000000001',

@@ -227,6 +227,18 @@ values
   ('80000000-0000-4000-8000-000000000001', '81555555-5555-4555-8555-555555555555', 'viewer', 'active'),
   ('80000000-0000-4000-8000-000000000001', '81666666-6666-4666-8666-666666666666', 'operator', 'active');
 
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+)
+values (
+  '80000000-0000-4000-8000-000000000001', true,
+  2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+  'Paid Runway pgTAP fixture policy.',
+  '81111111-1111-4111-8111-111111111111'
+);
+
 with inserted_attempts as (
   insert into content_factory.training_attempts (
     organization_id, profile_id, module_code, status, score,

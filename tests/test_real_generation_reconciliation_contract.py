@@ -155,7 +155,9 @@ def test_unresolved_incident_authoritatively_freezes_new_paid_jobs() -> None:
         in edge_start_error
     )
     assert '"real_generation_reconciliation_required"' in edge_start_error
-    assert "code === \"generation_rejected\" ? 403 : 409" in edge_start_error
+    assert "const budgetCode = readBudgetErrorCode(startError)" in edge_start_error
+    assert "budgetErrorHttpStatus(budgetCode)" in edge_start_error
+    assert 'code === "generation_rejected"' in edge_start_error
 
     for token in (
         "real_generation_reconciliation_required",

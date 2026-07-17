@@ -29,6 +29,8 @@ export const RPC = Object.freeze({
   inviteAttempts: "creator_invite_delivery_attempts",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
+  generationSpendOverview: "creator_generation_spend_overview",
+  updateGenerationSpendPolicy: "creator_update_generation_spend_policy",
   myWork: "creator_my_work",
   notifications: "creator_notifications",
   markNotificationsRead: "creator_mark_notifications_read",
@@ -319,6 +321,52 @@ export class CreatorApi {
 
   operationalHealth() {
     return this.call(RPC.operationalHealth, this.withOrganization({}));
+  }
+
+  generationSpendOverview() {
+    return this.call(RPC.generationSpendOverview, this.withOrganization({}));
+  }
+
+  updateGenerationSpendPolicy(policy = {}) {
+    const dailyLimitMinor = normalizeSpendLimit(policy.daily_limit_minor, "дневной");
+    const monthlyLimitMinor = normalizeSpendLimit(policy.monthly_limit_minor, "месячный");
+    const perRequestLimitMinor = normalizeSpendLimit(policy.per_request_limit_minor, "разовый");
+    const enabled = policy.paid_generation_enabled === true;
+    const expectedVersion = Number(policy.expected_version);
+    const timezone = String(policy.timezone || "Europe/Moscow").trim();
+    const reason = String(policy.reason || "").trim();
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0) {
+      throw new CreatorApiError("Сводка лимитов устарела. Обновите остаток и повторите изменение.", {
+        code: "generation_budget_policy_changed",
+      });
+    }
+    if (!/^[A-Za-z0-9_+./-]{1,80}$/u.test(timezone)) {
+      throw new CreatorApiError("Не удалось определить часовой пояс денежного лимита.", {
+        code: "generation_budget_timezone_invalid",
+      });
+    }
+    if (reason.length < 10 || reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason)) {
+      throw new CreatorApiError("Укажите причину изменения бюджета длиной от 10 до 500 символов.", {
+        code: "generation_budget_reason_invalid",
+      });
+    }
+    if (
+      enabled
+      && (perRequestLimitMinor > dailyLimitMinor || dailyLimitMinor > monthlyLimitMinor)
+    ) {
+      throw new CreatorApiError("Лимит одного запуска должен быть не больше дневного, а дневной — не больше месячного.", {
+        code: "generation_budget_limits_invalid",
+      });
+    }
+    return this.mutate(RPC.updateGenerationSpendPolicy, {
+      paid_generation_enabled: enabled,
+      daily_limit_minor: dailyLimitMinor,
+      monthly_limit_minor: monthlyLimitMinor,
+      per_request_limit_minor: perRequestLimitMinor,
+      timezone,
+      reason,
+      expected_version: expectedVersion,
+    });
   }
 
   inspectAccess(email) {
@@ -1382,6 +1430,16 @@ function normalizeStringArray(value) {
   )];
 }
 
+function normalizeSpendLimit(value, label) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 1 || number > 100_000_000) {
+    throw new CreatorApiError(`Укажите ${label} лимит от $0.01 до $1 000 000.`, {
+      code: "generation_budget_limits_invalid",
+    });
+  }
+  return number;
+}
+
 function normalizeAccessEmail(value) {
   const email = String(value || "").trim().toLowerCase();
   if (
@@ -1548,6 +1606,29 @@ function toFriendlyMessage(error) {
     real_generation_organization_daily_quota_exceeded: "Командный дневной лимит платных запусков исчерпан. Обратитесь к руководителю.",
     real_generation_assignee_concurrency_exceeded: "У выбранного исполнителя уже создаётся платный ролик. Дождитесь его завершения — повторная оплата не требуется.",
     real_generation_organization_concurrency_exceeded: "Командная очередь платных роликов заполнена. Дождитесь завершения текущих задач.",
+    paid_generation_paused: "Платная генерация приостановлена руководителем. Тестовый режим остаётся доступен.",
+    paid_generation_policy_missing: "Для команды ещё не настроен безопасный денежный лимит платной генерации.",
+    generation_daily_budget_exceeded: "Дневной бюджет платной генерации исчерпан. Тестовый режим остаётся доступен.",
+    generation_monthly_budget_exceeded: "Месячный бюджет платной генерации исчерпан. Обратитесь к руководителю.",
+    generation_per_request_budget_exceeded: "Цена запуска превышает утверждённый разовый лимит.",
+    generation_budget_reservation_invalid: "Сервер не подтвердил резерв денег. Платный запрос провайдеру не отправлен.",
+    generation_budget_policy_changed: "Лимиты изменились. Обновите остаток перед новым платным запуском.",
+    generation_budget_limits_invalid: "Лимит одного запуска должен быть не больше дневного, а дневной — не больше месячного.",
+    generation_budget_reason_invalid: "Укажите проверяемую причину изменения денежного лимита.",
+    generation_budget_timezone_invalid: "Не удалось определить часовой пояс денежного лимита.",
+    generation_spend_platform_control_missing: "Общий защитный рубильник платной генерации не настроен.",
+    generation_spend_platform_disabled: "Платная генерация остановлена общим защитным рубильником. Тестовый режим доступен.",
+    generation_spend_policy_missing: "Для команды ещё не настроен безопасный денежный лимит.",
+    generation_spend_organization_disabled: "Платная генерация приостановлена руководителем. Тестовый режим доступен.",
+    generation_spend_daily_limit_exceeded: "Дневной бюджет платной генерации исчерпан.",
+    generation_spend_monthly_limit_exceeded: "Месячный бюджет платной генерации исчерпан.",
+    generation_spend_per_request_limit_exceeded: "Цена запуска превышает утверждённый разовый лимит.",
+    generation_spend_reservation_missing: "Сервер не подтвердил денежный резерв. Запрос провайдеру не отправлен.",
+    generation_spend_reservation_not_active: "Денежный резерв запуска уже закрыт. Обновите очередь.",
+    generation_spend_reservation_frozen: "Денежный резерв заморожен до ручной сверки запуска.",
+    generation_spend_policy_version_conflict: "Лимиты уже изменились в другой вкладке. Обновите остаток.",
+    generation_spend_policy_values_invalid: "Проверьте денежные лимиты, часовой пояс и причину изменения.",
+    generation_spend_active_reservations_exist: "Часовой пояс нельзя изменить, пока есть активные денежные резервы.",
     seedance_approved_product_media_required: "Для восьмисекундного ролика выберите подтверждённое точное фото этого товара.",
     generation_job_id_invalid: "Не удалось определить платную задачу. Обновите раздел.",
     generation_reconciliation_incident_invalid: "Не удалось определить инцидент платного запуска. Обновите раздел.",

@@ -28,6 +28,8 @@ EXPECTED_CREATOR_RPCS = (
     "creator_create_workspace_folder",
     "creator_update_workspace_folder",
     "creator_move_workspace_items",
+    "creator_generation_spend_overview",
+    "creator_update_generation_spend_policy",
 )
 ACTION_PINS = {
     "actions/checkout": "df4cb1c069e1874edd31b4311f1884172cec0e10",

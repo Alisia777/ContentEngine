@@ -125,11 +125,12 @@ def test_dashboard_and_health_fail_independently_and_refresh_together() -> None:
     assert "const healthRequest" in loader
     assert "state.api.managerDashboard()" in loader
     assert "state.api.operationalHealth()" in loader
-    assert loader.count("WORKSPACE_REQUEST_TIMEOUT_MS") == 2
+    assert loader.count("WORKSPACE_REQUEST_TIMEOUT_MS") == 3
     assert '"manager_dashboard_timeout"' in loader
     assert '"operational_health_timeout"' in loader
     assert 'health.status = "error"' in loader
     assert 'target.status = "error"' in loader
+    assert "loadGenerationSpendOverview({ silent: true, force: true })" in loader
     assert "managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)" in APP
     assert "managerOperationalHealthMarkup(state.operationalHealth)" in APP
 
@@ -155,7 +156,7 @@ def test_operational_card_is_responsive_theme_aware_and_cache_busted() -> None:
         "@media (max-width: 720px)",
     ):
         assert marker in CSS
-    assert './manager-dashboard.css?v=20260717.2' in INDEX
-    assert './app.js?v=20260717.2' in INDEX
-    assert './supabase-api.js?v=20260717.2' in APP
+    assert './manager-dashboard.css?v=20260717.3' in INDEX
+    assert './app.js?v=20260717.3' in INDEX
+    assert './supabase-api.js?v=20260717.3' in APP
     assert 'from "./manager-dashboard-view.js?v=20260717.2"' in APP
