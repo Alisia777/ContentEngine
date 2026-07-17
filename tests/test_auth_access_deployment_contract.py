@@ -80,6 +80,10 @@ def test_optional_webhook_secret_is_masked_and_never_required_for_deploy() -> No
     assert "--output json" in step["run"]
     assert 'value.get("name") == "RESEND_WEBHOOK_SECRET"' in step["run"]
     assert "supabase secrets unset RESEND_WEBHOOK_SECRET" in step["run"]
+    assert "python scripts/validate_resend_webhook_secret.py" in step["run"]
+    assert step["run"].index(
+        "python scripts/validate_resend_webhook_secret.py"
+    ) < step["run"].index("supabase secrets set")
     assert 'RESEND_WEBHOOK_SECRET="$RESEND_WEBHOOK_SECRET"' in step["run"]
     assert "echo $RESEND_WEBHOOK_SECRET" not in step["run"]
 

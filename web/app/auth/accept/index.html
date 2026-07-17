@@ -4,15 +4,34 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
-    <title>Активация приглашения</title>
+    <title>Безопасный переход в портал</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f1e9; color: #183a35; font: 16px/1.55 Arial, sans-serif; }
+      main { width: min(520px, calc(100% - 40px)); box-sizing: border-box; padding: 34px; border: 1px solid #d9d4c7; border-radius: 20px; background: #fff; box-shadow: 0 18px 55px rgba(24, 58, 53, .12); }
+      h1 { margin: 8px 0 12px; font: 700 32px/1.15 Georgia, serif; }
+      p { color: #5f706c; }
+      a { display: inline-block; margin-top: 12px; border-radius: 10px; padding: 13px 20px; background: #183a35; color: #fff; font-weight: 700; text-decoration: none; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <small>ALTEA · Контент ИИ Завод</small>
+      <h1>Подтвердите переход</h1>
+      <p>Нажмите кнопку сами, чтобы открыть одноразовую ссылку в портале. Автоматический переход отключён: так почтовый сканер не использует ссылку раньше вас.</p>
+      <a id="auth-continue" data-auth-continue href="../../" hidden>Продолжить в портал</a>
+      <p id="auth-status" role="status">Проверяем целостность ссылки…</p>
+      <noscript><p>Для безопасного перехода включите JavaScript и обновите страницу.</p></noscript>
+    </main>
     <script>
       const target = new URL("../../", window.location.href);
       target.search = window.location.search;
       target.hash = window.location.hash;
-      window.location.replace(target.href);
+      const link = document.querySelector("[data-auth-continue]");
+      const status = document.getElementById("auth-status");
+      link.href = target.href;
+      link.hidden = false;
+      status.textContent = "Ссылка готова. Используйте только самое свежее письмо.";
     </script>
-  </head>
-  <body>
-    <p><a href="../../">Перейти к активации учётной записи</a></p>
   </body>
 </html>

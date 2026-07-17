@@ -109,8 +109,8 @@ jobs:
             --dkim-record-type "$DKIM_RECORD_TYPE" \
             --expected-dkim-value "$EXPECTED_DKIM_VALUE"
 
-      - name: Validate configuration without transmitting secrets
+      - name: Validate SMTP and versioned Auth templates without transmitting secrets
         run: python scripts/configure_supabase_auth_smtp.py --dry-run
 
-      - name: Configure Supabase Auth custom SMTP
+      - name: Configure and read back Supabase Auth SMTP and templates
         run: python scripts/configure_supabase_auth_smtp.py

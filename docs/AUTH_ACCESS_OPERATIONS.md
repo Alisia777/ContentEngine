@@ -80,6 +80,11 @@ In the GitHub `production` environment configure:
 - variable `SMTP_SENDER_NAME`;
 - for Resend delivery events, `RESEND_WEBHOOK_SECRET`.
 
+`RESEND_WEBHOOK_SECRET` must be the original Svix value supplied by Resend: a
+`whsec_` prefix followed by valid base64 key material. The production deploy
+validates the same length and decoded-key bounds as the Edge Function before it
+stores the secret. A merely long placeholder is rejected.
+
 For daily DNS drift monitoring, also add these non-secret environment
 variables:
 
@@ -100,7 +105,19 @@ inputs, issue comments or logs.
 
 Run the protected workflow **Configure production Auth SMTP** from `main`.
 Provide only the public DNS expectations requested by the workflow. It checks
-SPF, DKIM and DMARC before applying the Auth configuration.
+SPF, DKIM and DMARC before applying the Auth configuration. The workflow also
+loads the committed `v1` invite and recovery templates from
+`supabase/templates/`. Both templates use the `/auth/accept` token-hash bridge;
+do not replace them with a direct `ConfirmationURL` link in the dashboard. The
+bridge requires an explicit human click before the browser exchanges the token;
+it must never automatically redirect on page load. Disable provider click/link
+tracking so the provider does not rewrite the one-time URL.
+
+The configuration is not considered successful on PATCH alone. The script
+performs a separate Management API GET and fails unless custom SMTP, secure
+email change, sender coordinates, subjects and both complete template bodies
+match the reviewed values. SMTP credentials and Management API response bodies
+are never printed.
 
 After completion, run the normal production deploy once so the optional signed
 webhook secret is synchronized to the Edge runtime.
@@ -141,7 +158,8 @@ Use two controlled mailboxes, not a 50-person batch.
 2. Confirm the portal first shows `accepted_unconfirmed`.
 3. Confirm the provider log and mailbox receive the message.
 4. Confirm the portal advances to `delivered`.
-5. Complete the first login and password change.
+5. Confirm the bridge waits for a human click, then complete the first login and
+   password change.
 6. Use **Проверить и восстановить доступ** for the second mailbox.
 7. Confirm recovery delivery and successful password update.
 8. Send a provider test delayed/bounce event and confirm the portal shows the
@@ -164,6 +182,16 @@ larger batches.
 - expired link: use the single access-repair action; only the newest email
   should be used.
 
+## Known self-service boundary
+
+The unauthenticated **Forgot password** form deliberately reports only that
+Supabase accepted the request. Its browser call does not own a durable receipt
+and therefore cannot safely expose provider delivery events. Confirmed delivery
+is currently visible in the authenticated manager access center. Adding a
+public recovery receipt requires a separate opaque receipt token, a
+service-role-only status projection and anti-enumeration/rate-limit controls;
+do not simulate this by exposing the organization-scoped access RPC.
+
 ## Required release evidence
 
 Before claiming production email is ready, retain:
@@ -171,6 +199,7 @@ Before claiming production email is ready, retain:
 - green CI including pgTAP and both Edge Function checks;
 - successful production deployment;
 - public SPF/DKIM/DMARC verification;
+- successful SMTP/template GET readback;
 - one delivered invitation;
 - one delivered recovery;
 - one replay-safe webhook test;

@@ -153,10 +153,7 @@ jobs:
             exit 0
           fi
           echo "::add-mask::$RESEND_WEBHOOK_SECRET"
-          if [ "${#RESEND_WEBHOOK_SECRET}" -lt 24 ]; then
-            echo "RESEND_WEBHOOK_SECRET must contain at least 24 characters" >&2
-            exit 1
-          fi
+          python scripts/validate_resend_webhook_secret.py
           supabase secrets set \
             --project-ref "$SUPABASE_PROJECT_REF" \
             RESEND_WEBHOOK_SECRET="$RESEND_WEBHOOK_SECRET"

@@ -343,17 +343,23 @@ a `trainee` and must independently complete all four modules plus the
 12-scenario final exam; a bulk invite never grants operator access. Creating an
 Auth user outside this path does not create a membership.
 
-Configure the Supabase **Invite user** email template to return the one-time
-token to the public application, where it is exchanged server-side by Auth:
+The protected SMTP workflow installs the committed, versioned **Invite user**
+and **Reset password** templates. They return the one-time token to the public
+application, where it is exchanged by Auth:
 
 ```text
 <PUBLIC_APP_URL>/auth/accept#token_hash={{ .TokenHash }}&type=invite
 ```
 
-Replace `<PUBLIC_APP_URL>` with the canonical HTTPS application origin. Do not
-put access tokens, service-role keys, or database credentials into the template.
-The default fragment redirect is insufficient because GitHub Pages must first
-serve the committed `/auth/accept` bridge without discarding the token hash.
+The templates use Supabase's configured `SiteURL`; do not edit a production
+copy by hand or put access tokens, service-role keys, or database credentials
+into it. The default fragment redirect is insufficient because GitHub Pages
+must first serve the committed `/auth/accept` bridge without discarding the
+token hash. Configuration fails if either reviewed template marker or bridge
+link is missing. The bridge shows a human-confirmation button instead of
+automatically consuming the token on page load, reducing failures caused by
+mail security prefetch. Provider click/link tracking must also be disabled so
+the one-time URL is not rewritten.
 
 Do not promise external invitation delivery until custom SMTP is configured.
 Supabase's built-in sender is for exploration only: it sends only to addresses
@@ -380,7 +386,7 @@ Add these values to the protected GitHub `production` environment:
 | `SMTP_USER` | secret | Provider SMTP user |
 | `SMTP_PASS` | secret | Provider SMTP password or token |
 | `SMTP_SENDER_NAME` | variable | Human-readable sender name |
-| `RESEND_WEBHOOK_SECRET` | secret | Optional Resend/Svix signing secret for delivery events |
+| `RESEND_WEBHOOK_SECRET` | secret | Resend/Svix `whsec_...` signing secret required for confirmed delivery events |
 
 Dispatch the workflow from `main` and enter the exact domain after `@`, the
 provider's DKIM selector, its exact SPF `include:` token, the DKIM record type,
@@ -388,9 +394,11 @@ and the exact DKIM CNAME target or complete TXT value. The workflow rejects
 multiple SPF/DMARC records, an SPF record that does not authorize the reviewed
 provider, a revoked/empty DKIM key, and any DKIM value that differs from the
 provider instructions. Only after those checks does it validate the protected
-SMTP values and patch the official Supabase Auth configuration through the
-Management API. It never accepts SMTP credentials as workflow inputs and never
-prints them.
+SMTP values and committed `v1` invite/recovery templates, patch the official
+Supabase Auth configuration, and perform a separate Management API GET. Missing
+or drifted SMTP flags, sender coordinates, subjects or template bodies fail the
+workflow. It never accepts SMTP credentials as workflow inputs and never prints
+them or a Management API response body.
 
 A successful configuration means Supabase handed future Auth mail to the
 chosen provider. It does **not** prove inbox delivery. Verify one invite and one
@@ -407,8 +415,10 @@ Subscribe it to sent/delivered/delayed/failed/suppressed/bounced/complained
 events and store the
 provider signing secret as `RESEND_WEBHOOK_SECRET` in the protected GitHub
 `production` environment. The ordinary production deployment synchronizes that
-secret into Supabase without printing it. When the secret is absent the endpoint
-fails closed and the honest UI status remains `accepted_unconfirmed`.
+secret into Supabase without printing it. Before synchronization the deploy
+requires the exact `whsec_` format and validates its base64 signing-key length
+against the Edge contract. When the secret is absent the endpoint fails closed
+and the honest UI status remains `accepted_unconfirmed`.
 
 SMTP handoff does not guarantee that the provider will expose an application
 correlation ID. The event journal therefore distinguishes exact, ambiguous and

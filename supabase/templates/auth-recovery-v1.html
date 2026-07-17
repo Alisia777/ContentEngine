@@ -1,0 +1,23 @@
+<!-- contentengine-auth-template:v1:recovery -->
+<!doctype html>
+<html lang="ru">
+  <body style="margin:0;background:#f4f1e9;color:#183a35;font-family:Arial,sans-serif">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f1e9;padding:24px">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #d9d4c7;border-radius:18px;padding:32px">
+            <tr><td style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8c6b2a">ALTEA · Контент ИИ Завод</td></tr>
+            <tr><td><h1 style="margin:16px 0 12px;font-size:30px;line-height:1.15;color:#183a35">Восстановление доступа</h1></td></tr>
+            <tr><td><p style="margin:0 0 22px;line-height:1.6;color:#51635f">Для вашей рабочей почты запросили новый пароль. Перейдите по кнопке ниже и задайте его в защищённом портале.</p></td></tr>
+            <tr>
+              <td>
+                <a href="{{ .SiteURL }}auth/accept#token_hash={{ .TokenHash }}&amp;type=recovery" style="display:inline-block;border-radius:10px;background:#183a35;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 20px">Задать новый пароль</a>
+              </td>
+            </tr>
+            <tr><td><p style="margin:24px 0 0;font-size:13px;line-height:1.55;color:#6c7b77">Ссылка одноразовая. Используйте только самое свежее письмо. Если вы не запрашивали восстановление, ничего не нажимайте.</p></td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
