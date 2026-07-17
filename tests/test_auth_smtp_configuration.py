@@ -168,6 +168,35 @@ def test_smtp_configuration_requires_a_separate_management_get_readback(
     ]
 
 
+def test_smtp_check_only_reads_configuration_without_patching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module()
+    settings = module.SmtpSettings.from_environment(_valid_environment())
+    calls = []
+
+    def fake_urlopen(http_request, timeout: int):
+        assert timeout == 9
+        calls.append(http_request)
+        return _FakeResponse(_public_readback(settings.management_payload()))
+
+    monkeypatch.setattr(module.request, "urlopen", fake_urlopen)
+    module.check_smtp(
+        settings,
+        management_api_base_url="https://management.example",
+        timeout_seconds=9,
+    )
+
+    assert [call.get_method() for call in calls] == ["GET"]
+    assert calls[0].data is None
+
+
+def test_smtp_cli_modes_are_mutually_exclusive() -> None:
+    module = _module()
+    with pytest.raises(SystemExit):
+        module.parse_args(["--dry-run", "--check-only"])
+
+
 @pytest.mark.parametrize(
     ("field", "bad_value"),
     [

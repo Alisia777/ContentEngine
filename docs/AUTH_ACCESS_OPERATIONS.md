@@ -85,7 +85,8 @@ In the GitHub `production` environment configure:
 validates the same length and decoded-key bounds as the Edge Function before it
 stores the secret. A merely long placeholder is rejected.
 
-For daily DNS drift monitoring, also add these non-secret environment
+For daily Auth email configuration monitoring, also add these non-secret
+environment
 variables:
 
 - `AUTH_EMAIL_SENDING_DOMAIN`;
@@ -94,9 +95,20 @@ variables:
 - `AUTH_EMAIL_DKIM_RECORD_TYPE`;
 - `AUTH_EMAIL_EXPECTED_DKIM_VALUE`.
 
-The scheduled **Monitor Auth email DNS** workflow stays a harmless no-op until
-all five values exist. Once configured, any SPF, DKIM or DMARC drift fails the
-daily run instead of remaining invisible until the next invitation problem.
+The scheduled **Monitor Auth email configuration** workflow fails closed while any
+required SMTP, webhook or DNS value is absent. Once configured, it validates
+the Resend/Svix signing secret, public SPF/DKIM/DMARC records, and a GET-only
+Supabase Management API readback of Auth SMTP plus both reviewed templates.
+The health check never patches Auth configuration and never sends an email.
+The ordinary portal deployment remains independent, so a red mail-readiness
+check reports the missing production capability without taking the portal
+offline.
+
+A green configuration check is not an inbox-delivery canary: Supabase does not
+return the SMTP password in Management API readback, and the check cannot prove
+provider authentication, webhook registration, or recipient delivery. Keep
+mail readiness red at the operational level until the provider log and mailbox
+confirm one invite and one recovery canary.
 
 Never add these values to `web/app/config.js`, repository variables, workflow
 inputs, issue comments or logs.

@@ -165,6 +165,26 @@ def configure_smtp(
     _verify_management_readback(readback, expected_payload)
 
 
+def check_smtp(
+    settings: SmtpSettings,
+    *,
+    management_api_base_url: str = "https://api.supabase.com",
+    timeout_seconds: int = 30,
+) -> None:
+    """Verify the persisted Auth SMTP/template configuration without changing it."""
+    endpoint = (
+        f"{management_api_base_url.rstrip('/')}/v1/projects/"
+        f"{settings.project_ref}/config/auth"
+    )
+    readback = _management_request(
+        settings,
+        endpoint=endpoint,
+        method="GET",
+        timeout_seconds=timeout_seconds,
+    )
+    _verify_management_readback(readback, settings.management_payload())
+
+
 def auth_template_payload() -> dict[str, str]:
     templates = {
         purpose: _read_auth_template(purpose)
@@ -306,10 +326,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Configure production Supabase Auth custom SMTP",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate protected environment variables without sending them",
+    )
+    mode.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Read and verify the persisted configuration without changing it",
     )
     return parser.parse_args(argv)
 
@@ -321,6 +347,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             settings.management_payload()
             print("Supabase Auth SMTP settings validated; no request was made.")
+            return 0
+        if args.check_only:
+            check_smtp(settings)
+            print(
+                "Supabase Auth readable SMTP fields and reviewed templates match. "
+                "Credential validity still requires a provider canary."
+            )
             return 0
         configure_smtp(settings)
     except SmtpConfigurationError as exc:

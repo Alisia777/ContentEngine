@@ -404,6 +404,20 @@ A successful configuration means Supabase handed future Auth mail to the
 chosen provider. It does **not** prove inbox delivery. Verify one invite and one
 recovery message in the provider delivery log and the recipient mailbox.
 
+The daily **Monitor Auth email configuration** workflow is intentionally strict:
+it stays red until every protected SMTP/webhook setting and every public DNS
+expectation is present. It then validates the webhook signing key, checks
+SPF/DKIM/DMARC, and performs a GET-only readback of the persisted Supabase Auth
+SMTP and versioned templates. This check neither changes Auth configuration nor
+sends mail; it exposes missing or drifted production email capability instead
+of reporting a false green state.
+
+This is a configuration-drift check, not proof of SMTP authentication or inbox
+delivery: the Management API does not return the stored SMTP password, and the
+workflow does not send a message. Production email is operationally ready only
+after the provider log and recipient mailbox confirm one invite and one
+recovery canary, and signed delivery events appear in the portal journal.
+
 The deployed portal includes the unauthenticated but signature-protected
 `auth-email-webhook` Edge Function. For Resend, configure this HTTPS target:
 

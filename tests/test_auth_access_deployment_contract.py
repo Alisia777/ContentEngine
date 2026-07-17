@@ -88,14 +88,34 @@ def test_optional_webhook_secret_is_masked_and_never_required_for_deploy() -> No
     assert "echo $RESEND_WEBHOOK_SECRET" not in step["run"]
 
 
-def test_auth_email_dns_drift_monitor_is_daily_and_safe_before_configuration() -> None:
+def test_auth_email_readiness_is_daily_and_fails_closed_when_unconfigured() -> None:
     assert DNS_HEALTH[True]["schedule"][0]["cron"] == "17 4 * * *"
-    job = DNS_HEALTH["jobs"]["dns"]
+    job = DNS_HEALTH["jobs"]["readiness"]
     assert job["environment"] == "production"
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    assert job["env"]["EXPECTED_SUPABASE_PROJECT_REF"] == (
+        "iyckwryrucqrxwlowxow"
+    )
+    checkout = next(
+        step
+        for step in job["steps"]
+        if str(step.get("name", "")).startswith("Check out")
+    )
+    assert checkout["with"]["ref"] == "main"
+    assert checkout["with"]["persist-credentials"] is False
     source = (ROOT / ".github" / "workflows" / "auth-email-health.yml").read_text(
         encoding="utf-8"
     )
     for variable in (
+        "SUPABASE_PROJECT_REF",
+        "SUPABASE_ACCESS_TOKEN",
+        "SMTP_ADMIN_EMAIL",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USER",
+        "SMTP_PASS",
+        "SMTP_SENDER_NAME",
+        "RESEND_WEBHOOK_SECRET",
         "AUTH_EMAIL_SENDING_DOMAIN",
         "AUTH_EMAIL_DKIM_SELECTOR",
         "AUTH_EMAIL_EXPECTED_SPF_INCLUDE",
@@ -103,5 +123,20 @@ def test_auth_email_dns_drift_monitor_is_daily_and_safe_before_configuration() -
         "AUTH_EMAIL_EXPECTED_DKIM_VALUE",
     ):
         assert variable in source
-    assert "configured=false" in source
+    assert "configured=false" not in source
+    assert "Production Auth email is not ready" in source
+    assert "exit 1" in source
+    assert (
+        'if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]'
+        in source
+    )
+    assert "::add-mask::" not in source
+    assert "scripts/validate_resend_webhook_secret.py" in source
     assert "scripts/validate_auth_dns.py" in source
+    assert "scripts/configure_supabase_auth_smtp.py --check-only" in source
+    assert source.index("scripts/validate_resend_webhook_secret.py") < source.index(
+        "scripts/validate_auth_dns.py"
+    )
+    assert source.index("scripts/validate_auth_dns.py") < source.index(
+        "scripts/configure_supabase_auth_smtp.py --check-only"
+    )

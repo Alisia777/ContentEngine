@@ -1,4 +1,4 @@
-name: Monitor Auth email DNS
+name: Monitor Auth email configuration
 
 on:
   schedule:
@@ -13,21 +13,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dns:
-    name: Verify SPF, DKIM and DMARC drift
+  readiness:
+    name: Verify Auth mail configuration and DNS drift
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     environment: production
     env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SMTP_ADMIN_EMAIL: ${{ secrets.SMTP_ADMIN_EMAIL }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_SENDER_NAME: ${{ vars.SMTP_SENDER_NAME }}
+      RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
       SENDING_DOMAIN: ${{ vars.AUTH_EMAIL_SENDING_DOMAIN }}
       DKIM_SELECTOR: ${{ vars.AUTH_EMAIL_DKIM_SELECTOR }}
       EXPECTED_SPF_INCLUDE: ${{ vars.AUTH_EMAIL_EXPECTED_SPF_INCLUDE }}
       DKIM_RECORD_TYPE: ${{ vars.AUTH_EMAIL_DKIM_RECORD_TYPE }}
       EXPECTED_DKIM_VALUE: ${{ vars.AUTH_EMAIL_EXPECTED_DKIM_VALUE }}
+      EXPECTED_SUPABASE_PROJECT_REF: iyckwryrucqrxwlowxow
     steps:
       - name: Check out reviewed repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          ref: main
           persist-credentials: false
 
       - name: Set up Python
@@ -35,32 +47,60 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Detect whether production Auth email is configured
-        id: configured
+      - name: Require production Auth email readiness configuration
         shell: bash
         run: |
           set -euo pipefail
-          missing=0
-          for value in \
-            "$SENDING_DOMAIN" \
-            "$DKIM_SELECTOR" \
-            "$EXPECTED_SPF_INCLUDE" \
-            "$DKIM_RECORD_TYPE" \
-            "$EXPECTED_DKIM_VALUE"
-          do
+          missing=()
+          require_value() {
+            local name="$1"
+            local value="$2"
             if [ -z "$value" ]; then
-              missing=1
+              missing+=("$name")
             fi
-          done
-          if [ "$missing" -eq 1 ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Auth email DNS monitor is waiting for production variables."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
+          }
+          require_value SUPABASE_PROJECT_REF "$SUPABASE_PROJECT_REF"
+          require_value SUPABASE_ACCESS_TOKEN "$SUPABASE_ACCESS_TOKEN"
+          require_value SMTP_ADMIN_EMAIL "$SMTP_ADMIN_EMAIL"
+          require_value SMTP_HOST "$SMTP_HOST"
+          require_value SMTP_PORT "$SMTP_PORT"
+          require_value SMTP_USER "$SMTP_USER"
+          require_value SMTP_PASS "$SMTP_PASS"
+          require_value SMTP_SENDER_NAME "$SMTP_SENDER_NAME"
+          require_value RESEND_WEBHOOK_SECRET "$RESEND_WEBHOOK_SECRET"
+          require_value AUTH_EMAIL_SENDING_DOMAIN "$SENDING_DOMAIN"
+          require_value AUTH_EMAIL_DKIM_SELECTOR "$DKIM_SELECTOR"
+          require_value AUTH_EMAIL_EXPECTED_SPF_INCLUDE "$EXPECTED_SPF_INCLUDE"
+          require_value AUTH_EMAIL_DKIM_RECORD_TYPE "$DKIM_RECORD_TYPE"
+          require_value AUTH_EMAIL_EXPECTED_DKIM_VALUE "$EXPECTED_DKIM_VALUE"
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Production Auth email is not ready; missing protected settings: %s\n' \
+              "$(IFS=', '; echo "${missing[*]}")"
+            exit 1
           fi
 
+          if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
+            echo "::error::SUPABASE_PROJECT_REF does not match the reviewed production project."
+            exit 1
+          fi
+
+          sender_domain="${SMTP_ADMIN_EMAIL##*@}"
+          sender_domain="${sender_domain,,}"
+          expected_domain="${SENDING_DOMAIN%.}"
+          expected_domain="${expected_domain,,}"
+          if [ "$sender_domain" != "$expected_domain" ]; then
+            echo "::error::SMTP_ADMIN_EMAIL must use AUTH_EMAIL_SENDING_DOMAIN."
+            exit 1
+          fi
+
+      - name: Validate signed delivery webhook secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate_resend_webhook_secret.py
+
       - name: Verify public SPF, DKIM and DMARC records
-        if: steps.configured.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -70,3 +110,9 @@ jobs:
             --expected-spf-include "$EXPECTED_SPF_INCLUDE" \
             --dkim-record-type "$DKIM_RECORD_TYPE" \
             --expected-dkim-value "$EXPECTED_DKIM_VALUE"
+
+      - name: Verify Supabase Auth SMTP and templates readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/configure_supabase_auth_smtp.py --check-only
