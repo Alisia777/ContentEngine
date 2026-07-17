@@ -10,19 +10,18 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODERATIONS_URL = "https://api.openai.com/v1/moderations";
 const STORAGE_BUCKET = "contentengine-private";
 const RULESET_VERSION = "ru-content-compliance-2026-07-16.1";
-const MAX_BODY_BYTES = 3_145_728;
+const MAX_BODY_BYTES = 4_096;
 const MAX_PROVIDER_JSON_BYTES = 1_572_864;
 const OPENAI_TIMEOUT_MS = 110_000;
 const SIGNED_IMAGE_TTL_SECONDS = 900;
-const MIN_VIDEO_FRAMES = 3;
-const MAX_FRAMES = 6;
+const MIN_VIDEO_FRAMES = 4;
+const MAX_VIDEO_FRAMES = 5;
 const MAX_FRAME_BYTES = 524_288;
 const MAX_TOTAL_FRAME_BYTES = 2_359_296;
 const MAX_OUTPUT_TOKENS = 10_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const DATA_IMAGE_PATTERN =
-  /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/u;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const RUN_STATUSES = new Set([
   "queued",
   "processing",
@@ -99,6 +98,14 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_begin_content_review_provider_dispatch: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_release_content_review_attempt: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_complete_content_review: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -125,7 +132,25 @@ type ContentEngineDatabase = {
 type AnalyzePayload = {
   action: "analyze";
   review_id: string;
-  frames: string[];
+};
+
+type ReviewAttempt = {
+  id: string;
+  leaseToken: string;
+  attemptNo: number;
+  providerIdempotencyKey: string;
+};
+
+type ReviewEvidenceFrame = {
+  objectName: string;
+  sha256: string;
+  sizeBytes: number;
+  timecodeSeconds: number;
+};
+
+type ReviewEvidence = {
+  manifestHash: string;
+  frames: ReviewEvidenceFrame[];
 };
 
 type ReviewMedia = {
@@ -141,6 +166,7 @@ type ReviewMedia = {
 
 type ReviewRun = {
   id: string;
+  organizationId: string;
   status: "queued" | "processing" | "completed" | "failed" | "cancelled";
   requestedBy: string;
   input: Record<string, Json>;
@@ -222,47 +248,15 @@ function hasOnlyKeys(
   return Object.keys(value).every((key) => allowed.has(key));
 }
 
-function decodedBase64Bytes(encoded: string): number {
-  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
-  return Math.floor(encoded.length * 3 / 4) - padding;
-}
-
-function readFrame(value: unknown): string | null {
-  if (typeof value !== "string" || value.length > 700_000) return null;
-  const match = DATA_IMAGE_PATTERN.exec(value);
-  if (match === null) return null;
-  const bytes = decodedBase64Bytes(match[2]);
-  if (bytes < 128 || bytes > MAX_FRAME_BYTES) return null;
-  try {
-    atob(match[2].slice(0, Math.min(match[2].length, 4_096)));
-  } catch {
-    return null;
-  }
-  return value;
-}
-
 function readRequestPayload(value: unknown): AnalyzePayload | null {
   if (!isRecord(value)) return null;
   if (
-    !hasOnlyKeys(value, new Set(["action", "review_id", "frames"])) ||
-    value.action !== "analyze" || !isUuid(value.review_id) ||
-    !Array.isArray(value.frames) || value.frames.length > MAX_FRAMES
+    !hasOnlyKeys(value, new Set(["action", "review_id"])) ||
+    value.action !== "analyze" || !isUuid(value.review_id)
   ) return null;
-  const frames: string[] = [];
-  let totalBytes = 0;
-  for (const candidate of value.frames) {
-    const frame = readFrame(candidate);
-    if (frame === null) return null;
-    const match = DATA_IMAGE_PATTERN.exec(frame);
-    if (match === null) return null;
-    totalBytes += decodedBase64Bytes(match[2]);
-    if (totalBytes > MAX_TOTAL_FRAME_BYTES) return null;
-    frames.push(frame);
-  }
   return {
     action: "analyze",
     review_id: value.review_id,
-    frames,
   };
 }
 
@@ -311,7 +305,8 @@ function readRun(value: unknown): ReviewRun | null {
     ? null
     : readJsonRecord(value.parent_result);
   if (
-    !isUuid(value.id) || !isUuid(value.requested_by) ||
+    !isUuid(value.id) || !isUuid(value.organization_id) ||
+    !isUuid(value.requested_by) ||
     typeof value.status !== "string" || !RUN_STATUSES.has(value.status) ||
     media === null || input === null ||
     (value.parent_result !== null && value.parent_result !== undefined &&
@@ -319,6 +314,7 @@ function readRun(value: unknown): ReviewRun | null {
   ) return null;
   return {
     id: value.id,
+    organizationId: value.organization_id,
     status: value.status as ReviewRun["status"],
     requestedBy: value.requested_by,
     input,
@@ -327,15 +323,94 @@ function readRun(value: unknown): ReviewRun | null {
   };
 }
 
+function readAttempt(value: unknown): ReviewAttempt | null {
+  if (
+    !isRecord(value) || !isUuid(value.id) || !isUuid(value.lease_token) ||
+    !Number.isSafeInteger(value.attempt_no) || Number(value.attempt_no) < 1 ||
+    Number(value.attempt_no) > 1_000 ||
+    !isBoundedText(value.provider_idempotency_key, 8, 180)
+  ) return null;
+  return {
+    id: value.id,
+    leaseToken: value.lease_token,
+    attemptNo: Number(value.attempt_no),
+    providerIdempotencyKey: value.provider_idempotency_key,
+  };
+}
+
+function readEvidenceFrame(value: unknown): ReviewEvidenceFrame | null {
+  if (
+    !isRecord(value) || !isBoundedText(value.object_name, 10, 1_000) ||
+    value.object_name.startsWith("/") || value.object_name.includes("\\") ||
+    value.object_name.split("/").some((part) =>
+      part === "" || part === "." || part === ".."
+    ) ||
+    typeof value.sha256 !== "string" || !SHA256_PATTERN.test(value.sha256) ||
+    !Number.isSafeInteger(value.size_bytes) || Number(value.size_bytes) < 128 ||
+    Number(value.size_bytes) > MAX_FRAME_BYTES ||
+    typeof value.timecode_seconds !== "number" ||
+    !Number.isFinite(value.timecode_seconds) || value.timecode_seconds < 0 ||
+    value.timecode_seconds > 3_600
+  ) return null;
+  return {
+    objectName: value.object_name,
+    sha256: value.sha256,
+    sizeBytes: Number(value.size_bytes),
+    timecodeSeconds: Number(value.timecode_seconds),
+  };
+}
+
+function readEvidence(value: unknown): ReviewEvidence | null {
+  if (
+    !isRecord(value) || typeof value.manifest_hash !== "string" ||
+    !SHA256_PATTERN.test(value.manifest_hash) || !Array.isArray(value.frames) ||
+    value.frames.length < MIN_VIDEO_FRAMES ||
+    value.frames.length > MAX_VIDEO_FRAMES
+  ) return null;
+  const frames: ReviewEvidenceFrame[] = [];
+  const objectNames = new Set<string>();
+  let totalBytes = 0;
+  let lastTimecode = -1;
+  for (const candidate of value.frames) {
+    const frame = readEvidenceFrame(candidate);
+    if (
+      frame === null || objectNames.has(frame.objectName) ||
+      frame.timecodeSeconds <= lastTimecode
+    ) return null;
+    totalBytes += frame.sizeBytes;
+    if (totalBytes > MAX_TOTAL_FRAME_BYTES) return null;
+    objectNames.add(frame.objectName);
+    lastTimecode = frame.timecodeSeconds;
+    frames.push(frame);
+  }
+  return { manifestHash: value.manifest_hash, frames };
+}
+
 function readClaimEnvelope(
   value: unknown,
-): { claimed: boolean; run: ReviewRun } | null {
+): {
+  claimed: boolean;
+  run: ReviewRun;
+  attempt: ReviewAttempt | null;
+  evidence: ReviewEvidence | null;
+} | null {
   if (
     !isRecord(value) || value.ok !== true ||
     typeof value.claimed !== "boolean"
   ) return null;
   const run = readRun(value.run);
-  return run === null ? null : { claimed: value.claimed, run };
+  const attempt = value.attempt === null || value.attempt === undefined
+    ? null
+    : readAttempt(value.attempt);
+  const evidence = value.evidence === null || value.evidence === undefined
+    ? null
+    : readEvidence(value.evidence);
+  if (run === null || (value.claimed === true && attempt === null)) return null;
+  if (
+    run.media.mimeType === "video/mp4" && value.claimed === true &&
+    evidence === null
+  ) return null;
+  return { claimed: value.claimed, run, attempt, evidence };
 }
 
 async function readBoundedStream(
@@ -421,6 +496,47 @@ function validateSignedStorageUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) =>
+    value.toString(16).padStart(2, "0")
+  ).join("");
+}
+
+function isJpeg(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 &&
+    bytes[2] === 0xff && bytes[bytes.length - 2] === 0xff &&
+    bytes[bytes.length - 1] === 0xd9;
+}
+
+function jpegDataUrl(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    chunks.push(
+      String.fromCharCode(...bytes.subarray(offset, offset + 32_768)),
+    );
+  }
+  return `data:image/jpeg;base64,${btoa(chunks.join(""))}`;
+}
+
+function providerRequestId(
+  response: Response,
+  providerValue?: unknown,
+): string | null {
+  const candidates = [
+    response.headers.get("x-request-id"),
+    isRecord(providerValue) ? providerValue.id : null,
+  ];
+  for (const candidate of candidates) {
+    if (
+      typeof candidate === "string" && candidate.length >= 3 &&
+      candidate.length <= 240 &&
+      /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(candidate)
+    ) return candidate;
+  }
+  return null;
 }
 
 function strictObject(properties: Record<string, Json>): Json {
@@ -1622,23 +1738,70 @@ async function handleCreatorContentReview(
     }
     return false;
   };
-  const fail = async (code: string, message: string): Promise<Response> => {
-    const safeCode = PROVIDER_FAILURE_CODES.has(code) ? code : "internal_error";
-    const stored = await complete({
-      review_id: payload.review_id,
-      status: "failed",
-      error_code: safeCode,
-      error_message: message.slice(0, 2_000),
-    });
-    if (stored) {
-      const current = await readCurrentStatus();
-      if (current !== null) return json(request, current.data);
+  const release = async (
+    attempt: ReviewAttempt,
+    code: string,
+    message: string,
+  ): Promise<boolean> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_release_content_review_attempt",
+        {
+          p_payload: {
+            review_id: payload.review_id,
+            attempt_id: attempt.id,
+            lease_token: attempt.leaseToken,
+            error_code: code,
+            error_message: message.slice(0, 2_000),
+            retryable: true,
+          },
+        },
+      );
+      return error === null && isRecord(data) && data.ok === true;
+    } catch {
+      return false;
     }
-    return json(
-      request,
-      { ok: false, code: "content_review_unavailable" },
-      503,
-    );
+  };
+  const beginProviderDispatch = async (
+    attempt: ReviewAttempt,
+  ): Promise<"acquired" | "already_started" | "failed"> => {
+    for (let rpcAttempt = 0; rpcAttempt < 2; rpcAttempt += 1) {
+      try {
+        const { data, error } = await supabaseAdmin.rpc(
+          "system_begin_content_review_provider_dispatch",
+          {
+            p_payload: {
+              review_id: payload.review_id,
+              attempt_id: attempt.id,
+              lease_token: attempt.leaseToken,
+            },
+          },
+        );
+        if (
+          error === null && isRecord(data) && data.ok === true &&
+          data.provider_dispatch_started === true
+        ) {
+          return data.idempotent === true ? "already_started" : "acquired";
+        }
+      } catch {
+        // The marker RPC is idempotent for this attempt and lease.
+      }
+    }
+    return "failed";
+  };
+  const refreshedResponse = async (): Promise<Response> => {
+    const current = await readCurrentStatus();
+    return current === null
+      ? json(
+        request,
+        { ok: false, code: "content_review_unavailable" },
+        503,
+      )
+      : json(
+        request,
+        current.data,
+        current.status === "processing" ? 202 : 200,
+      );
   };
 
   const authorized = await readCurrentStatus();
@@ -1657,7 +1820,49 @@ async function handleCreatorContentReview(
     );
   }
 
-  let claim: { claimed: boolean; run: ReviewRun } | null = null;
+  let activeAttempt: ReviewAttempt | null = null;
+  let providerDispatchStarted = false;
+  let activeProviderRequestId: string | null = null;
+  const fail = async (code: string, message: string): Promise<Response> => {
+    if (activeAttempt === null) {
+      return json(
+        request,
+        { ok: false, code: "content_review_unavailable" },
+        503,
+      );
+    }
+    if (!providerDispatchStarted) {
+      if (!(await release(activeAttempt, code, message))) {
+        return json(
+          request,
+          { ok: false, code: "content_review_unavailable" },
+          503,
+        );
+      }
+      return await refreshedResponse();
+    }
+    const completionPayload: Record<string, Json> = {
+      review_id: payload.review_id,
+      attempt_id: activeAttempt.id,
+      lease_token: activeAttempt.leaseToken,
+      status: "failed",
+      error_code: PROVIDER_FAILURE_CODES.has(code) ? code : "internal_error",
+      error_message: message.slice(0, 2_000),
+    };
+    if (activeProviderRequestId !== null) {
+      completionPayload.provider_request_id = activeProviderRequestId;
+    }
+    if (!(await complete(completionPayload))) {
+      return json(
+        request,
+        { ok: false, code: "content_review_unavailable" },
+        503,
+      );
+    }
+    return await refreshedResponse();
+  };
+
+  let claim: ReturnType<typeof readClaimEnvelope> = null;
   try {
     const { data, error } = await supabaseAdmin.rpc(
       "system_claim_content_review",
@@ -1668,10 +1873,7 @@ async function handleCreatorContentReview(
     claim = null;
   }
   if (claim === null || claim.run.id !== payload.review_id) {
-    return await fail(
-      "input_validation_failed",
-      "Не удалось безопасно проверить файл и параметры проверки.",
-    );
+    return await refreshedResponse();
   }
   if (!claim.claimed) {
     const current = await readCurrentStatus();
@@ -1687,7 +1889,16 @@ async function handleCreatorContentReview(
         current.status === "processing" ? 202 : 200,
       );
   }
-  if (claim.run.status !== "processing") {
+  if (claim.attempt === null) {
+    return json(
+      request,
+      { ok: false, code: "content_review_unavailable" },
+      503,
+    );
+  }
+  const attempt = claim.attempt;
+  activeAttempt = attempt;
+  if (claim.run.status !== "queued" && claim.run.status !== "processing") {
     return await fail(
       "internal_error",
       "Не удалось зафиксировать запуск проверки.",
@@ -1695,7 +1906,9 @@ async function handleCreatorContentReview(
   }
   if (
     claim.run.media.mimeType === "video/mp4" &&
-    payload.frames.length < MIN_VIDEO_FRAMES
+    (claim.evidence === null ||
+      claim.evidence.frames.length < MIN_VIDEO_FRAMES ||
+      claim.evidence.frames.length > MAX_VIDEO_FRAMES)
   ) {
     return await fail(
       "input_validation_failed",
@@ -1747,7 +1960,61 @@ async function handleCreatorContentReview(
       );
     }
   } else {
-    imageUrls.push(...payload.frames);
+    const evidence = claim.evidence;
+    if (evidence === null) {
+      return await fail(
+        "input_validation_failed",
+        "Сохранённый набор контрольных кадров недоступен.",
+      );
+    }
+    let actualTotalBytes = 0;
+    for (const frame of evidence.frames) {
+      if (!frame.objectName.startsWith(`${claim.run.organizationId}/`)) {
+        return await fail(
+          "input_validation_failed",
+          "Контрольный кадр не принадлежит рабочему пространству проверки.",
+        );
+      }
+      try {
+        const { data: frameBlob, error: downloadError } = await supabaseAdmin
+          .storage.from(STORAGE_BUCKET).download(frame.objectName);
+        const normalizedMime = frameBlob?.type.toLowerCase().trim() ?? "";
+        if (
+          downloadError || frameBlob === null ||
+          normalizedMime !== "image/jpeg" ||
+          frameBlob.size !== frame.sizeBytes ||
+          frameBlob.size < 128 || frameBlob.size > MAX_FRAME_BYTES
+        ) {
+          return await fail(
+            "image_access_failed",
+            "Один из сохранённых контрольных кадров недоступен или изменён.",
+          );
+        }
+        actualTotalBytes += frameBlob.size;
+        if (actualTotalBytes > MAX_TOTAL_FRAME_BYTES) {
+          return await fail(
+            "input_validation_failed",
+            "Общий размер контрольных кадров превышает безопасный предел.",
+          );
+        }
+        const frameBytes = new Uint8Array(await frameBlob.arrayBuffer());
+        if (
+          frameBytes.byteLength !== frame.sizeBytes || !isJpeg(frameBytes) ||
+          (await sha256Hex(frameBytes)) !== frame.sha256
+        ) {
+          return await fail(
+            "input_validation_failed",
+            "Контрольный кадр повреждён или не совпадает с зафиксированным хешем.",
+          );
+        }
+        imageUrls.push(jpegDataUrl(frameBytes));
+      } catch {
+        return await fail(
+          "image_access_failed",
+          "Не удалось проверить сохранённый контрольный кадр.",
+        );
+      }
+    }
   }
   if (!imageUrls.length) {
     return await fail(
@@ -1757,6 +2024,33 @@ async function handleCreatorContentReview(
   }
 
   const model = openAiModel();
+  let providerBody: string;
+  let moderationBody: string;
+  try {
+    providerBody = JSON.stringify(openAiRequestBody(claim.run, imageUrls));
+    moderationBody = JSON.stringify(
+      moderationRequestBody(claim.run, imageUrls),
+    );
+  } catch {
+    return await fail(
+      "input_validation_failed",
+      "Не удалось безопасно подготовить запрос проверки.",
+    );
+  }
+  const dispatchState = await beginProviderDispatch(attempt);
+  if (dispatchState === "failed") {
+    return await fail(
+      "internal_error",
+      "Не удалось зафиксировать отправку запроса провайдеру.",
+    );
+  }
+  if (dispatchState === "already_started") {
+    // Another browser/worker invocation owns the irreversible provider POST.
+    // Observers must never repeat it, even though the provider idempotency key
+    // is also present as a final line of defence.
+    return await refreshedResponse();
+  }
+  providerDispatchStarted = true;
   const providerPromise = fetchWithTimeout(
     OPENAI_RESPONSES_URL,
     {
@@ -1765,10 +2059,10 @@ async function handleCreatorContentReview(
       headers: {
         authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
-        "idempotency-key": `content-review:${claim.run.id}`,
-        "X-Client-Request-Id": claim.run.id,
+        "idempotency-key": attempt.providerIdempotencyKey,
+        "X-Client-Request-Id": attempt.id,
       },
-      body: JSON.stringify(openAiRequestBody(claim.run, imageUrls)),
+      body: providerBody,
     },
     OPENAI_TIMEOUT_MS,
   );
@@ -1781,7 +2075,7 @@ async function handleCreatorContentReview(
         authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(moderationRequestBody(claim.run, imageUrls)),
+      body: moderationBody,
     },
     OPENAI_TIMEOUT_MS,
   );
@@ -1802,6 +2096,7 @@ async function handleCreatorContentReview(
     );
   }
   const providerResponse = providerSettled.value;
+  activeProviderRequestId = providerRequestId(providerResponse);
   if (moderationSettled.status === "fulfilled") {
     const moderationResponse = moderationSettled.value;
     if (moderationResponse.ok) {
@@ -1840,6 +2135,10 @@ async function handleCreatorContentReview(
       "Сервис проверки вернул неполный результат.",
     );
   }
+  activeProviderRequestId = providerRequestId(
+    providerResponse,
+    providerValue,
+  );
   const outputText = extractOutputText(providerValue);
   if (outputText === null) {
     return await fail(
@@ -1871,6 +2170,8 @@ async function handleCreatorContentReview(
   );
   const completionPayload: Record<string, Json> = {
     review_id: claim.run.id,
+    attempt_id: attempt.id,
+    lease_token: attempt.leaseToken,
     status: "completed",
     result,
     moderation,
@@ -1878,6 +2179,9 @@ async function handleCreatorContentReview(
     model_provider: "openai",
     model_version: model,
   };
+  if (activeProviderRequestId !== null) {
+    completionPayload.provider_request_id = activeProviderRequestId;
+  }
   if (!(await complete(completionPayload))) {
     return json(
       request,

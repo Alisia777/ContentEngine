@@ -44,6 +44,8 @@ export const RPC = Object.freeze({
   saveCreativeBriefDraft: "creator_save_creative_brief_draft",
   approveCreativeBrief: "creator_approve_creative_brief",
   contentReviewCatalog: "creator_content_review_catalog",
+  prepareContentReviewEvidence: "creator_prepare_content_review_evidence",
+  commitContentReviewEvidence: "creator_commit_content_review_evidence",
   startContentReview: "creator_start_content_review",
   contentReviewStatus: "creator_content_review_status",
   decideContentReview: "creator_decide_content_review",
@@ -851,7 +853,124 @@ export class CreatorApi {
     }));
   }
 
-  async startContentReview(input, { frames = [], onRunCreated } = {}) {
+  async prepareContentReviewEvidence({ mediaId, frameCount }) {
+    const normalizedMediaId = String(mediaId || "").trim();
+    const normalizedFrameCount = Number(frameCount);
+    if (!isUuid(normalizedMediaId)) {
+      throw new CreatorApiError("Не удалось определить видео для сохранения кадров.", {
+        code: "content_review_media_required",
+      });
+    }
+    if (!Number.isInteger(normalizedFrameCount) || normalizedFrameCount < 4 || normalizedFrameCount > 5) {
+      throw new CreatorApiError("Для MP4 нужно подготовить от четырёх до пяти кадров.", {
+        code: "content_review_frames_invalid",
+      });
+    }
+    const response = await this.mutate(RPC.prepareContentReviewEvidence, {
+      media_id: normalizedMediaId,
+      frame_count: normalizedFrameCount,
+    });
+    const source = response?.data && typeof response.data === "object" && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    const evidenceId = String(source?.evidence_id || source?.evidence?.id || "").trim();
+    const objectNames = Array.isArray(source?.frame_object_names)
+      ? source.frame_object_names.map((value) => String(value || "").trim())
+      : [];
+    const expiresAt = String(source?.expires_at || source?.evidence?.expires_at || "").trim();
+    if (
+      !isUuid(evidenceId)
+      || objectNames.length !== normalizedFrameCount
+      || new Set(objectNames).size !== objectNames.length
+      || !Number.isFinite(Date.parse(expiresAt))
+      || Date.parse(expiresAt) <= Date.now()
+    ) {
+      throw new CreatorApiError("Сервер не подготовил защищённые места для всех кадров.", {
+        code: "content_review_evidence_prepare_invalid",
+      });
+    }
+    objectNames.forEach((objectName) => this.assertPrivateObjectKey(objectName));
+    return {
+      evidenceId,
+      frameObjectNames: objectNames,
+      expiresAt,
+    };
+  }
+
+  async commitContentReviewEvidence({ evidenceId, frames, technicalMetrics, idempotencyKey = "" }) {
+    const normalizedEvidenceId = String(evidenceId || "").trim();
+    const normalizedIdempotencyKey = String(idempotencyKey || "").trim().toLowerCase();
+    if (
+      !isUuid(normalizedEvidenceId)
+      || !Array.isArray(frames)
+      || frames.length < 4
+      || frames.length > 5
+      || !technicalMetrics
+      || typeof technicalMetrics !== "object"
+      || Array.isArray(technicalMetrics)
+      || String(technicalMetrics.source_type || "").toLowerCase() !== "video"
+      || (normalizedIdempotencyKey && !isUuid(normalizedIdempotencyKey))
+    ) {
+      throw new CreatorApiError("Не удалось подтвердить полный набор контрольных кадров.", {
+        code: "content_review_evidence_commit_invalid",
+      });
+    }
+    const normalizedFrames = frames.map((frame) => {
+      const objectName = String(frame?.object_name || "").trim();
+      const sha256 = String(frame?.sha256 || "").trim().toLowerCase();
+      const sizeBytes = Number(frame?.size_bytes);
+      const timecodeSeconds = Number(frame?.timecode_seconds);
+      this.assertPrivateObjectKey(objectName);
+      if (
+        !/^[0-9a-f]{64}$/u.test(sha256)
+        || !Number.isInteger(sizeBytes)
+        || sizeBytes < 128
+        || sizeBytes > 250_000
+        || !Number.isFinite(timecodeSeconds)
+        || timecodeSeconds < 0
+        || timecodeSeconds > 3_600
+      ) {
+        throw new CreatorApiError("Один из контрольных кадров имеет неверные параметры.", {
+          code: "content_review_evidence_frame_invalid",
+        });
+      }
+      return {
+        object_name: objectName,
+        sha256,
+        size_bytes: sizeBytes,
+        timecode_seconds: Math.round(timecodeSeconds * 1_000) / 1_000,
+      };
+    });
+    if (new Set(normalizedFrames.map((frame) => frame.object_name)).size !== normalizedFrames.length) {
+      throw new CreatorApiError("Контрольные кадры должны иметь разные защищённые имена.", {
+        code: "content_review_evidence_frame_invalid",
+      });
+    }
+    const commitPayload = {
+      evidence_id: normalizedEvidenceId,
+      frames: normalizedFrames,
+      technical_metrics: technicalMetrics,
+    };
+    const response = normalizedIdempotencyKey
+      ? await this.call(RPC.commitContentReviewEvidence, {
+          ...this.withOrganization(commitPayload),
+          idempotency_key: normalizedIdempotencyKey,
+        })
+      : await this.mutate(RPC.commitContentReviewEvidence, commitPayload);
+    const source = response?.data && typeof response.data === "object" && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    const returnedEvidenceId = String(source?.evidence_id || source?.evidence?.id || normalizedEvidenceId).trim();
+    const status = String(source?.status || source?.evidence?.status || "").trim().toLowerCase();
+    if (returnedEvidenceId !== normalizedEvidenceId || status !== "ready") {
+      throw new CreatorApiError("Сервер не подтвердил сохранение контрольных кадров.", {
+        code: "content_review_evidence_commit_invalid",
+      });
+    }
+    return { ...source, evidence_id: normalizedEvidenceId, status: "ready" };
+  }
+
+  async startContentReview(input, { onRunCreated } = {}) {
     const mediaId = String(input?.media_id || "").trim();
     const platform = String(input?.platform || "").trim().toLowerCase();
     const contentKind = String(input?.content_kind || "").trim().toLowerCase();
@@ -893,10 +1012,18 @@ export class CreatorApi {
         code: "content_review_metrics_required",
       });
     }
-    const safeFrames = normalizeContentReviewFrames(
-      frames,
-      String(technicalMetrics.source_type || "").toLowerCase(),
-    );
+    const sourceType = String(technicalMetrics.source_type || "").toLowerCase();
+    const evidenceId = String(input?.evidence_id || "").trim();
+    if (sourceType === "video" && !isUuid(evidenceId)) {
+      throw new CreatorApiError("Сначала сохраните контрольные кадры MP4.", {
+        code: "content_review_evidence_required",
+      });
+    }
+    if (evidenceId && !isUuid(evidenceId)) {
+      throw new CreatorApiError("Сохранённый набор кадров имеет неверный номер.", {
+        code: "content_review_evidence_invalid",
+      });
+    }
 
     const payload = {
       media_id: mediaId,
@@ -909,6 +1036,7 @@ export class CreatorApi {
       advertiser_name: String(input?.advertiser_name || "").trim(),
       erid: String(input?.erid || "").trim(),
       technical_metrics: technicalMetrics,
+      ...(evidenceId ? { evidence_id: evidenceId } : {}),
       rights_confirmed: input?.rights_confirmed === true,
       claims_verified: input?.claims_verified === true,
       ad_label_confirmed: input?.ad_label_confirmed === true,
@@ -940,17 +1068,17 @@ export class CreatorApi {
       }
     }
 
-    let accepted;
-    try {
-      accepted = await this.invokeContentReview({
-        action: "analyze",
-        review_id: reviewId,
-        frames: safeFrames,
-      });
-    } catch (error) {
-      error.job = { id: reviewId, status: String(run?.status || "queued") };
-      throw error;
-    }
+    const accepted = {
+      ok: true,
+      status: "background_queued",
+    };
+    // This dispatch is only a latency optimization. The durable worker owns
+    // completion, so the user never waits for an Edge/provider round trip and
+    // closing the tab cannot invalidate the queued run.
+    void this.invokeContentReview({
+      action: "analyze",
+      review_id: reviewId,
+    }).catch(() => {});
     return {
       ...source,
       run: { ...run, id: reviewId },
@@ -1380,6 +1508,18 @@ export class CreatorApi {
     }
   }
 
+  async removePrivateObjects(objectKeys) {
+    const keys = [...new Set((objectKeys || []).map((value) => String(value || "").trim()).filter(Boolean))];
+    if (!keys.length) return;
+    keys.forEach((objectKey) => this.assertPrivateObjectKey(objectKey));
+    const { error } = await this.supabase.storage
+      .from(this.storageBucket)
+      .remove(keys);
+    if (error) {
+      throw new CreatorApiError(toFriendlyMessage(error), error);
+    }
+  }
+
   async signedPrivateObjectUrls(objectKeys, expiresIn = 600) {
     const keys = [...new Set((objectKeys || []).map(String).filter(Boolean))];
     if (!keys.length) return new Map();
@@ -1420,30 +1560,6 @@ export class CreatorApi {
       });
     }
   }
-}
-
-function normalizeContentReviewFrames(frames, sourceType = "") {
-  const expectedCount = sourceType === "video"
-    ? Array.isArray(frames) && frames.length >= 4 && frames.length <= 5
-    : sourceType === "image"
-      ? Array.isArray(frames) && frames.length === 1
-      : Array.isArray(frames) && frames.length >= 1 && frames.length <= 5;
-  if (!expectedCount) {
-    throw new CreatorApiError("Проверке нужен один кадр изображения или от четырёх до пяти кадров видео.", {
-      code: "content_review_frames_invalid",
-    });
-  }
-  const normalized = frames.map((value) => String(value || ""));
-  const framePattern = /^data:image\/jpeg;base64,[a-z0-9+/=]+$/iu;
-  if (
-    normalized.some((value) => value.length < 100 || value.length > 330_000 || !framePattern.test(value))
-    || normalized.reduce((total, value) => total + value.length, 0) > 1_650_000
-  ) {
-    throw new CreatorApiError("Кадры имеют небезопасный формат или слишком большой размер.", {
-      code: "content_review_frames_invalid",
-    });
-  }
-  return normalized;
 }
 
 function normalizeContentReviewCodes(values) {
@@ -1563,6 +1679,7 @@ async function accessFunctionError(error) {
       // Do not expose raw provider, Auth, or delivery responses to the browser.
     }
   }
+
   return new CreatorApiError(safeAccessMessage(code, retryAfterSeconds), {
     code,
     details: retryAfterSeconds ? { retry_after_seconds: retryAfterSeconds } : null,
@@ -1766,6 +1883,38 @@ function toFriendlyMessage(error) {
     content_review_text_too_large: "Сократите подпись и сценарий до 6000 символов каждый.",
     content_review_metrics_required: "Браузер не смог подготовить технические параметры файла.",
     content_review_frames_invalid: "Не удалось подготовить безопасную выборку кадров.",
+    content_review_evidence_required: "Сначала сохраните контрольные кадры MP4 в защищённой папке.",
+    content_review_evidence_invalid: "Сохранённый набор кадров недоступен или устарел. Подготовьте его заново.",
+    content_review_evidence_prepare_invalid: "Сервер не подготовил защищённые места для кадров. Повторите запуск.",
+    content_review_evidence_commit_invalid: "Сервер не подтвердил сохранение всех кадров. Повторите запуск.",
+    content_review_evidence_frame_invalid: "Один из контрольных кадров повреждён или имеет неверные параметры.",
+    content_review_video_evidence_required: "Для MP4 сначала сохраните контрольные кадры в защищённой папке.",
+    content_review_video_evidence_not_ready: "Контрольные кадры MP4 ещё не подтверждены. Безопасно повторите подтверждение.",
+    content_review_evidence_prepare_payload_invalid: "Не удалось подготовить безопасный запрос для кадров.",
+    content_review_evidence_frame_count_invalid: "Для MP4 нужно подготовить от четырёх до пяти кадров.",
+    content_review_evidence_media_not_accessible: "Видео недоступно вашей роли или уже изменилось. Обновите материалы.",
+    content_review_evidence_media_type_invalid: "Для этого evidence выбран неподдерживаемый тип исходного файла.",
+    content_review_evidence_active_limit: "Для этого видео уже сохраняется набор кадров. Подождите и повторите запуск.",
+    content_review_evidence_daily_limit: "Дневной лимит подготовки кадров исчерпан. Обратитесь к руководителю.",
+    content_review_evidence_commit_payload_invalid: "Сервер отклонил неполный запрос подтверждения кадров.",
+    content_review_evidence_manifest_invalid: "Список сохранённых кадров имеет неверный формат.",
+    content_review_evidence_not_accessible: "Сохранённый evidence недоступен этому аккаунту.",
+    content_review_evidence_source_stale: "Исходное видео изменилось после подготовки кадров. Запустите проверку заново.",
+    content_review_evidence_object_path_invalid: "Сервер вернул неверный защищённый путь кадра.",
+    content_review_evidence_storage_object_invalid: "Один из кадров не найден в защищённой папке.",
+    content_review_evidence_storage_metadata_invalid: "Защищённое хранилище не подтвердило тип или размер кадра.",
+    content_review_evidence_storage_metadata_mismatch: "Параметры загруженного кадра не совпали с подтверждением.",
+    content_review_evidence_total_size_exceeded: "Контрольные кадры слишком велики. Подготовьте их заново.",
+    content_review_evidence_storage_object_count_mismatch: "Не все контрольные кадры были загружены.",
+    content_review_evidence_manifest_conflict: "Evidence уже подтверждён с другим составом кадров.",
+    content_review_evidence_metrics_mismatch: "Технические параметры видео изменились после подтверждения кадров. Используйте восстановленный черновик или начните новую проверку.",
+    content_review_evidence_commit_conflict: "Подтверждение evidence изменилось в другой вкладке. Обновите раздел перед повтором.",
+    content_review_evidence_not_preparing: "Evidence уже закрыт для изменений. Подготовьте новый набор.",
+    content_review_evidence_expired: "Время подготовки кадров истекло. Запустите проверку заново.",
+    content_review_run_evidence_bind_invalid: "Не удалось безопасно связать проверку с сохранёнными кадрами.",
+    content_review_evidence_already_consumed: "Этот evidence уже использован другой проверкой.",
+    content_review_evidence_bind_conflict: "Evidence уже связан с другой проверкой.",
+    content_review_video_evidence_invalid: "Сохранённые кадры видео неполны или устарели. Запустите новую проверку.",
     content_review_run_missing: "Сервер не вернул номер проверки. Обновите раздел и повторите.",
     content_review_id_invalid: "Не удалось определить проверку. Обновите раздел.",
     content_review_request_failed: "Сервис проверки временно недоступен. Запуск сохранён — проверьте его статус позже.",

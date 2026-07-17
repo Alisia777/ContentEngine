@@ -210,7 +210,7 @@ export function contentReviewWorkspaceMarkup({
     : normalized.runs.find((item) => contentReviewStatusKind(item.status) === "active")
       || normalized.runs[0]
       || null;
-  const busy = ["preparing", "starting", "processing", "refreshing", "deciding"].includes(phase)
+  const busy = ["preparing", "saving_evidence", "queueing", "starting", "processing", "refreshing", "deciding"].includes(phase)
     || contentReviewStatusKind(selected?.status) === "active";
   return `
     <section class="content-review-hero" aria-labelledby="content-review-hero-title">
@@ -301,10 +301,69 @@ export async function captureContentReviewEvidence(media, { onProgress } = {}) {
   return captureImageEvidence(source, onProgress);
 }
 
+export async function buildContentReviewFrameFiles(evidence) {
+  const frames = Array.isArray(evidence?.frames) ? evidence.frames : [];
+  const metrics = evidence?.technical_metrics;
+  const sourceType = String(metrics?.source_type || "").toLowerCase();
+  const expectedCount = sourceType === "video"
+    ? frames.length >= 4 && frames.length <= 5
+    : sourceType === "image"
+      ? frames.length === 1
+      : false;
+  if (!expectedCount) {
+    throw userError("Не удалось подготовить полный набор контрольных кадров.");
+  }
+  const sampledAt = Array.isArray(metrics?.sampled_at_seconds)
+    ? metrics.sampled_at_seconds
+    : [];
+  const files = [];
+  for (let index = 0; index < frames.length; index += 1) {
+    const blob = jpegDataUriToBlob(frames[index]);
+    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    const sha256 = Array.from(
+      new Uint8Array(digest),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const timecode = Number(sampledAt[index] ?? 0);
+    files.push({
+      blob,
+      sha256,
+      sizeBytes: blob.size,
+      timecodeSeconds: Number.isFinite(timecode) && timecode >= 0
+        ? round(timecode, 3)
+        : 0,
+    });
+  }
+  return files;
+}
+
+function jpegDataUriToBlob(value) {
+  const encoded = String(value || "");
+  const match = /^data:image\/jpeg;base64,([a-z0-9+/=]+)$/iu.exec(encoded);
+  if (!match || encoded.length < 100 || encoded.length > MAX_FRAME_CHARACTERS) {
+    throw userError("Контрольный кадр имеет небезопасный формат или слишком большой размер.");
+  }
+  let binary;
+  try {
+    binary = atob(match[1]);
+  } catch {
+    throw userError("Контрольный кадр повреждён. Подготовьте выборку ещё раз.");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  const blob = new Blob([bytes], { type: "image/jpeg" });
+  if (blob.size < 128 || blob.size > 250_000) {
+    throw userError("Контрольный кадр имеет недопустимый размер.");
+  }
+  return blob;
+}
+
 function reviewFormMarkup(media, busy) {
   const supported = media.filter((item) => item.supported);
   return `
-    <form id="content-review-form" class="card content-review-form" novalidate>
+    <form id="content-review-form" class="card content-review-form" novalidate aria-busy="${busy ? "true" : "false"}">
       <div class="content-review-form__header">
         <span class="content-review-step">01</span>
         <div><p class="eyebrow">Новая проверка</p><h2>Что собираемся публиковать?</h2><p>Заполните только факты. Если рекламный статус неизвестен, так и укажите — портал остановит публикацию до решения.</p></div>
@@ -360,7 +419,7 @@ function reviewFormMarkup(media, busy) {
         </div>
       </fieldset>
       <div class="content-review-submit">
-        <div><strong>Что будет отправлено</strong><p>Текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 и его звук в ИИ-сервис не отправляются.</p></div>
+        <div><strong>Что будет отправлено</strong><p>Текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 и его звук в ИИ-сервис не отправляются.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
         <button class="btn" type="submit" ${supported.length && !busy ? "" : "disabled"}>${busy ? "Проверка уже выполняется…" : "Проверить качество и риски"}</button>
       </div>
     </form>
@@ -369,10 +428,13 @@ function reviewFormMarkup(media, busy) {
 
 function reviewCurrentMarkup(run, { phase, canDecide }) {
   if (phase === "preparing") {
-    return progressMarkup("Готовим безопасную выборку кадров", "Считываем формат, длительность и 4–5 точек видео. Сам MP4 никуда не отправляется.", 1);
+    return progressMarkup("Готовим контрольные кадры", "Считываем формат, длительность и 4–5 точек видео. Сам MP4 никуда не отправляется.", 1);
   }
-  if (phase === "starting") {
-    return progressMarkup("Фиксируем вводные", "Создаём неизменяемую запись проверки и передаём только сжатые кадры.", 2);
+  if (phase === "saving_evidence") {
+    return progressMarkup("Сохраняем evidence", "Кадры загружаются в защищённую папку и фиксируются до запуска проверки.", 2);
+  }
+  if (phase === "queueing" || phase === "starting") {
+    return progressMarkup("Ставим в фоновую очередь", "Evidence уже сохранён. Создаём неизменяемую проверку, которую сервер продолжит без открытой вкладки.", 3);
   }
   if (phase === "refreshing") {
     return progressMarkup(
@@ -393,7 +455,10 @@ function reviewCurrentMarkup(run, { phase, canDecide }) {
   }
   const kind = contentReviewStatusKind(run.status);
   if (kind === "active" || phase === "processing") {
-    return progressMarkup("Проверяем содержание", "Отдельно оцениваем качество, обещания, права, рекламные реквизиты и правила площадки.", 3, run);
+    const durableCopy = run.media?.isVideo
+      ? "Evidence сохранён. Можно закрыть вкладку: сервер продолжит проверку содержания и сообщит о результате."
+      : "Точный исходник сохранён. Можно закрыть вкладку: сервер продолжит проверку и сообщит о результате.";
+    return progressMarkup("Проверка в фоновой очереди", durableCopy, 3, run);
   }
   if (kind === "failed") {
     return `

@@ -68,7 +68,7 @@ def test_generation_worker_only_retrieves_existing_runway_tasks() -> None:
     assert "[INTERNAL_WORKER_SECRET_HEADER]: secret" in source
 
 
-def test_worker_dispatches_durable_research_and_image_review_queues() -> None:
+def test_worker_dispatches_due_durable_research_and_review_queues() -> None:
     source = _text(WORKER)
 
     assert '.from("product_research_runs")' in source
@@ -77,13 +77,20 @@ def test_worker_dispatches_durable_research_and_image_review_queues() -> None:
     assert "creator-product-research" in source
     assert "creator-content-review" in source
     assert 'body: { action: "analyze", research_id: row.id }' in source
-    assert (
-        'body: { action: "analyze", review_id: row.id, frames: [] }'
-        in source
-    )
+    assert 'body: { action: "analyze", review_id: row.id }' in source
     assert "IMAGE_MIME_TYPES.has(media.mime_type)" in source
     assert 'media.mime_type === "video/mp4"' in source
-    assert "skipped_video_reviews" in source
+    assert "isUuid(row.evidence_set_id)" in source
+    assert "evidence_set_id, next_attempt_at" in source
+    assert '.lte("next_attempt_at", queueNow)' in source
+    assert "next_attempt_at.is.null" not in source
+    assert 'if (!media) return false;' in source
+    assert 'media?.status !== "ready"' not in source
+    assert "Math.max(payload.review_limit * 3, MAX_LIMIT_PER_QUEUE)" in source
+    assert "mediaIds.length > 0 && payload.review_limit > 0" not in source
+    assert "review_queue_health" in source
+    assert "legacy_missing_evidence" in source
+    assert "skipped_video_reviews" not in source
 
 
 def test_existing_edges_keep_user_auth_and_add_isolated_worker_auth() -> None:
@@ -215,6 +222,9 @@ def test_health_watchdog_is_non_overlapping_secret_scoped_and_provider_free() ->
     assert '--data "$payload"' in text
     assert "payload.get(\"ok\") is not True" in text
     assert '"expired_leases": payload.get("expired_leases", {})' in text
+    assert 'review_queue_health = payload.get("review_queue_health")' in text
+    assert '"review_queue_health": review_queue_health' in text
+    assert "skipped_video_reviews" not in text
     assert 'notification_unresolved={unresolved}' in text
     assert 'notification_failed={delivery_failed}' in text
     assert 'notification.get("unresolved", 0) != 0' in text

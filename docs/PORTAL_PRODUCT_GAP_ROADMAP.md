@@ -54,11 +54,19 @@ Done when:
 
 Current state:
 
-- the browser creates a durable content-review run before extracting and
-  submitting MP4 evidence;
-- if the tab closes between those operations, the run can remain queued;
-- the native background worker handles image evidence but intentionally skips
-  queued video evidence, while the active-run constraint prevents a clean retry.
+- the repository now persists four or five immutable private JPEG frames,
+  hashes, timecodes and technical metrics before an MP4 review enters the
+  queue;
+- an ambiguous evidence commit is recoverable from the local draft with the
+  exact same manifest and idempotency key, without re-uploading frames;
+- the native worker handles both image and evidence-backed MP4 runs after the
+  browser closes;
+- attempt leases, a pre-provider dispatch marker, bounded retry and fenced
+  completion prevent a second provider POST after dispatch;
+- manager health exposes queue age, retry wait, dead letters and
+  outcome-unknown incidents;
+- runtime pgTAP, production deployment and a provider-free live smoke are still
+  required before this slice is called deployed.
 
 Done when:
 

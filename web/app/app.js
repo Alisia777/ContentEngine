@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi } from "./supabase-api.js?v=20260717.4";
+import { CreatorApi } from "./supabase-api.js?v=20260717.6";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -18,7 +18,7 @@ import {
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260717.2";
+} from "./manager-dashboard-view.js?v=20260717.3";
 import {
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
@@ -40,6 +40,7 @@ import {
   readProductResearchBrief,
 } from "./product-research-view.js?v=20260716.2";
 import {
+  buildContentReviewFrameFiles,
   captureContentReviewEvidence,
   contentReviewHasBlockers,
   contentReviewRequiredRiskCodes,
@@ -50,7 +51,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260716.3";
+} from "./content-review-view.js?v=20260717.1";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -123,6 +124,8 @@ const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2;
+const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
 const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "owner",
@@ -680,6 +683,7 @@ const state = {
     pollTimer: null,
     requestId: 0,
     pendingMediaId: "",
+    durableEvidence: null,
   },
   workspaceBoard: {
     selectedFolderId: "all",
@@ -5597,6 +5601,187 @@ function canDecideContentReview() {
   return ["owner", "admin", "producer", "reviewer"].includes(state.bootstrap?.membership?.role);
 }
 
+function contentReviewDraftStorageKey() {
+  const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
+  return `contentengine.content-review-draft.v${CONTENT_REVIEW_DRAFT_STORAGE_VERSION}:${organizationId}:${userId}`;
+}
+
+function persistContentReviewDraft(form, { durableEvidence = state.contentReview.durableEvidence } = {}) {
+  const key = contentReviewDraftStorageKey();
+  if (!key || !(form instanceof HTMLFormElement)) return false;
+  const input = readContentReviewForm(form);
+  const evidence = usableContentReviewEvidence(durableEvidence, {
+    mediaId: input.media_id,
+  });
+  state.contentReview.durableEvidence = evidence;
+  try {
+    window.localStorage.setItem(key, JSON.stringify({
+      version: CONTENT_REVIEW_DRAFT_STORAGE_VERSION,
+      updatedAt: new Date().toISOString(),
+      input,
+      evidence,
+    }));
+    const status = form.querySelector("[data-content-review-draft-status]");
+    if (status) status.textContent = evidence?.status === "commit_pending"
+      ? "Кадры уже загружены; подтверждение evidence безопасно повторится без новой загрузки."
+      : evidence
+        ? "Черновик и сохранённый evidence готовы к фоновому запуску."
+        : "Черновик сохранён в этом браузере.";
+    return true;
+  } catch {
+    const status = form.querySelector("[data-content-review-draft-status]");
+    if (status) status.textContent = "Браузер запретил локальное сохранение. Не закрывайте форму до запуска.";
+    return false;
+  }
+}
+
+function restoreContentReviewDraft() {
+  const form = document.querySelector("#content-review-form");
+  const key = contentReviewDraftStorageKey();
+  if (!(form instanceof HTMLFormElement) || !key) return;
+  let draft;
+  try {
+    draft = JSON.parse(window.localStorage.getItem(key) || "null");
+  } catch {
+    draft = null;
+  }
+  const updatedAt = Date.parse(String(draft?.updatedAt || ""));
+  if (
+    !draft
+    || draft.version !== CONTENT_REVIEW_DRAFT_STORAGE_VERSION
+    || !draft.input
+    || typeof draft.input !== "object"
+    || Array.isArray(draft.input)
+    || !Number.isFinite(updatedAt)
+    || Date.now() - updatedAt > CONTENT_REVIEW_DRAFT_MAX_AGE_MS
+  ) {
+    if (draft) clearContentReviewDraft();
+    return;
+  }
+  const textFields = [
+    "platform", "content_kind", "product_category", "caption_text",
+    "script_text", "advertiser_name", "erid", "people_present",
+  ];
+  for (const name of textFields) {
+    const control = form.elements.namedItem(name);
+    if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) {
+      control.value = String(draft.input[name] ?? "");
+    }
+  }
+  const mediaControl = Array.from(form.querySelectorAll('input[name="media_id"]'))
+    .find((control) => String(control.value || "") === String(draft.input.media_id || ""));
+  if (mediaControl instanceof HTMLInputElement) mediaControl.checked = true;
+  const booleanFields = [
+    "rights_confirmed", "claims_verified", "ad_label_confirmed", "ord_confirmed",
+    "audience_over_10000", "rkn_registered", "person_consent_confirmed",
+    "external_ai_processing_confirmed", "ai_generated", "ai_disclosure_confirmed",
+    "captions_confirmed", "mandatory_warning_confirmed",
+  ];
+  for (const name of booleanFields) {
+    const control = form.elements.namedItem(name);
+    if (control instanceof HTMLInputElement) control.checked = draft.input[name] === true;
+  }
+  state.contentReview.durableEvidence = usableContentReviewEvidence(draft.evidence, {
+    mediaId: String(draft.input.media_id || ""),
+  });
+  syncContentReviewFormVisibility(form);
+  form.dataset.dirty = "true";
+  const status = form.querySelector("[data-content-review-draft-status]");
+  if (status) status.textContent = state.contentReview.durableEvidence?.status === "commit_pending"
+    ? "Черновик восстановлен; подтвердим уже загруженные кадры без повторной загрузки."
+    : state.contentReview.durableEvidence
+      ? "Черновик восстановлен; сохранённый evidence будет использован повторно."
+      : "Черновик восстановлен из этого браузера.";
+}
+
+function clearContentReviewDraft() {
+  const key = contentReviewDraftStorageKey();
+  if (key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // A completed server-side start must not fail because local storage is unavailable.
+    }
+  }
+  state.contentReview.durableEvidence = null;
+}
+
+function usableContentReviewEvidence(value, { mediaId = "", mediaSha256 = "" } = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const evidenceId = String(value.evidenceId || value.evidence_id || "").trim().toLowerCase();
+  const storedMediaId = String(value.mediaId || value.media_id || "").trim().toLowerCase();
+  const storedSha256 = String(value.mediaSha256 || value.media_sha256 || "").trim().toLowerCase();
+  const expiresAt = String(value.expiresAt || value.expires_at || "").trim();
+  const technicalMetrics = value.technicalMetrics || value.technical_metrics;
+  const status = String(value.status || "ready").trim().toLowerCase();
+  if (
+    !contentReviewUuid(evidenceId)
+    || !contentReviewUuid(storedMediaId)
+    || storedMediaId !== String(mediaId || storedMediaId).trim().toLowerCase()
+    || (mediaSha256 && storedSha256 !== String(mediaSha256).trim().toLowerCase())
+    || !/^[0-9a-f]{64}$/u.test(storedSha256)
+    || !Number.isFinite(Date.parse(expiresAt))
+    || Date.parse(expiresAt) <= Date.now() + 30_000
+    || !technicalMetrics
+    || typeof technicalMetrics !== "object"
+    || Array.isArray(technicalMetrics)
+    || String(technicalMetrics.source_type || "").toLowerCase() !== "video"
+    || !["ready", "commit_pending"].includes(status)
+  ) return null;
+  const normalized = {
+    status,
+    evidenceId,
+    mediaId: storedMediaId,
+    mediaSha256: storedSha256,
+    expiresAt,
+    technicalMetrics,
+  };
+  if (status === "ready") return normalized;
+
+  const commitIdempotencyKey = String(
+    value.commitIdempotencyKey || value.commit_idempotency_key || "",
+  ).trim().toLowerCase();
+  const frames = Array.isArray(value.frames) ? value.frames : [];
+  const normalizedFrames = frames.map((frame) => ({
+    object_name: String(frame?.object_name || "").trim(),
+    sha256: String(frame?.sha256 || "").trim().toLowerCase(),
+    size_bytes: Number(frame?.size_bytes),
+    timecode_seconds: Math.round(Number(frame?.timecode_seconds) * 1_000) / 1_000,
+  }));
+  const storagePrefix = `${String(state.bootstrap?.organization?.id || "").trim().toLowerCase()}/${String(state.user?.id || "").trim().toLowerCase()}/review-evidence/${evidenceId}/`;
+  if (
+    !contentReviewUuid(commitIdempotencyKey)
+    || normalizedFrames.length < 4
+    || normalizedFrames.length > 5
+    || Number(technicalMetrics.frame_count) !== normalizedFrames.length
+    || new Set(normalizedFrames.map((frame) => frame.object_name)).size !== normalizedFrames.length
+    || normalizedFrames.some((frame, index) => (
+      frame.object_name !== `${storagePrefix}frame-${String(index + 1).padStart(2, "0")}.jpg`
+      || !/^[0-9a-f]{64}$/u.test(frame.sha256)
+      || !Number.isInteger(frame.size_bytes)
+      || frame.size_bytes < 128
+      || frame.size_bytes > 250_000
+      || !Number.isFinite(frame.timecode_seconds)
+      || frame.timecode_seconds < 0
+      || frame.timecode_seconds > 3_600
+      || (index > 0 && frame.timecode_seconds <= normalizedFrames[index - 1].timecode_seconds)
+    ))
+  ) return null;
+  return {
+    ...normalized,
+    commitIdempotencyKey,
+    frames: normalizedFrames,
+  };
+}
+
+function contentReviewUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+    String(value || ""),
+  );
+}
+
 function renderContentReviewSection(sectionState) {
   const catalog = normalizeContentReviewCatalog(sectionState.data || {});
   const routeReviewId = safeWorkspaceRouteEntityId("review");
@@ -5622,6 +5807,7 @@ function renderContentReviewSection(sectionState) {
   }
   window.queueMicrotask(() => {
     bindContentReviewDecisionMedia();
+    restoreContentReviewDraft();
     selectPendingContentReviewMedia();
   });
   return `
@@ -5649,7 +5835,11 @@ function selectPendingContentReviewMedia() {
   const target = controls.find((control) => String(control.value || "") === mediaId);
   if (!target) return;
   target.checked = true;
+  if (String(state.contentReview.durableEvidence?.mediaId || "") !== mediaId) {
+    state.contentReview.durableEvidence = null;
+  }
   target.form?.setAttribute("data-dirty", "true");
+  persistContentReviewDraft(target.form);
   state.contentReview.pendingMediaId = "";
   target.closest(".content-review-media-option")?.scrollIntoView({ block: "center", behavior: "smooth" });
   target.focus({ preventScroll: true });
@@ -5781,7 +5971,7 @@ function scheduleContentReviewPolling(delay = CONTENT_REVIEW_POLL_INTERVAL_MS) {
     || document.visibilityState !== "visible"
     || !record?.id
     || contentReviewStatusKind(record.status) !== "active"
-    || ["preparing", "starting", "refreshing", "deciding"].includes(state.contentReview.phase)
+    || ["preparing", "saving_evidence", "queueing", "starting", "refreshing", "deciding"].includes(state.contentReview.phase)
   ) return;
   state.contentReview.pollTimer = window.setTimeout(() => {
     state.contentReview.pollTimer = null;
@@ -5792,7 +5982,7 @@ function scheduleContentReviewPolling(delay = CONTENT_REVIEW_POLL_INTERVAL_MS) {
 async function pollContentReviewStatus({ silent = false, refreshMedia = false } = {}) {
   const review = state.contentReview;
   const reviewId = String(review.record?.id || "");
-  if (!reviewId || ["preparing", "starting", "deciding"].includes(review.phase)) return;
+  if (!reviewId || ["preparing", "saving_evidence", "queueing", "starting", "deciding"].includes(review.phase)) return;
   const requestId = review.requestId + 1;
   review.requestId = requestId;
   if (!silent) {
@@ -7567,7 +7757,16 @@ function handleChange(event) {
   }
 
   const contentReviewForm = event.target.closest("#content-review-form");
-  if (contentReviewForm) syncContentReviewFormVisibility(contentReviewForm);
+  if (contentReviewForm) {
+    if (
+      event.target.name === "media_id"
+      && String(state.contentReview.durableEvidence?.mediaId || "") !== String(event.target.value || "")
+    ) {
+      state.contentReview.durableEvidence = null;
+    }
+    syncContentReviewFormVisibility(contentReviewForm);
+    persistContentReviewDraft(contentReviewForm);
+  }
 }
 
 function submitAccountAdvertisingCheck(form) {
@@ -7587,7 +7786,10 @@ function submitAccountAdvertisingCheck(form) {
 
 function handleFormActivity(event) {
   const form = event.target.closest?.("#workspace-content form");
-  if (form) form.dataset.dirty = "true";
+  if (form) {
+    form.dataset.dirty = "true";
+    if (form.id === "content-review-form") persistContentReviewDraft(form);
+  }
 }
 
 function clearWorkspaceDropTargets() {
@@ -9064,9 +9266,98 @@ function splitResearchLines(value) {
   return String(value || "").split(/\r?\n/u).map((item) => item.trim()).filter(Boolean);
 }
 
+async function persistContentReviewVideoEvidence(media, capturedEvidence, form) {
+  const existing = usableContentReviewEvidence(state.contentReview.durableEvidence, {
+    mediaId: media.id,
+    mediaSha256: media.sha256,
+  });
+  if (existing?.status === "ready") return existing;
+  const promoteReady = (pending) => {
+    const ready = {
+      status: "ready",
+      evidenceId: pending.evidenceId,
+      mediaId: pending.mediaId,
+      mediaSha256: pending.mediaSha256,
+      expiresAt: pending.expiresAt,
+      technicalMetrics: pending.technicalMetrics,
+    };
+    state.contentReview.durableEvidence = ready;
+    persistContentReviewDraft(form, { durableEvidence: ready });
+    return ready;
+  };
+  if (existing?.status === "commit_pending") {
+    await state.api.commitContentReviewEvidence({
+      evidenceId: existing.evidenceId,
+      technicalMetrics: existing.technicalMetrics,
+      frames: existing.frames,
+      idempotencyKey: existing.commitIdempotencyKey,
+    });
+    return promoteReady(existing);
+  }
+
+  const frameFiles = await buildContentReviewFrameFiles(capturedEvidence);
+  const prepared = await state.api.prepareContentReviewEvidence({
+    mediaId: media.id,
+    frameCount: frameFiles.length,
+  });
+  const pendingDraft = {
+    status: "commit_pending",
+    evidenceId: prepared.evidenceId,
+    mediaId: media.id,
+    mediaSha256: media.sha256,
+    expiresAt: prepared.expiresAt,
+    technicalMetrics: capturedEvidence.technical_metrics,
+    commitIdempotencyKey: crypto.randomUUID(),
+    frames: frameFiles.map((frame, index) => ({
+      object_name: prepared.frameObjectNames[index],
+      sha256: frame.sha256,
+      size_bytes: frame.sizeBytes,
+      timecode_seconds: Math.round(frame.timecodeSeconds * 1_000) / 1_000,
+    })),
+  };
+  const pending = usableContentReviewEvidence(pendingDraft, {
+    mediaId: media.id,
+    mediaSha256: media.sha256,
+  });
+  if (!pending) {
+    throw new Error("Не удалось создать безопасный recovery-черновик для подтверждения кадров.");
+  }
+  const uploadedObjectNames = [];
+  let commitStarted = false;
+  try {
+    for (let index = 0; index < frameFiles.length; index += 1) {
+      const objectName = prepared.frameObjectNames[index];
+      await state.api.uploadPrivateObject(objectName, frameFiles[index].blob);
+      uploadedObjectNames.push(objectName);
+    }
+    state.contentReview.durableEvidence = pending;
+    if (!persistContentReviewDraft(form, { durableEvidence: pending })) {
+      throw new Error("Браузер не сохранил recovery-черновик. Кадры не будут подтверждены до безопасного локального сохранения.");
+    }
+    commitStarted = true;
+    await state.api.commitContentReviewEvidence({
+      evidenceId: pending.evidenceId,
+      technicalMetrics: pending.technicalMetrics,
+      frames: pending.frames,
+      idempotencyKey: pending.commitIdempotencyKey,
+    });
+  } catch (error) {
+    // Once commit has started its response may be lost after a successful
+    // transaction. Only definitely-uncommitted partial uploads are removed;
+    // committed/ambiguous evidence is left for server reconciliation/sweeping.
+    if (!commitStarted && uploadedObjectNames.length) {
+      await state.api.removePrivateObjects(uploadedObjectNames).catch(() => {});
+      state.contentReview.durableEvidence = null;
+      persistContentReviewDraft(form, { durableEvidence: null });
+    }
+    throw error;
+  }
+  return promoteReady(pending);
+}
+
 async function submitContentReview(form) {
   const review = state.contentReview;
-  if (["preparing", "starting", "processing", "deciding"].includes(review.phase)) {
+  if (["preparing", "saving_evidence", "queueing", "starting", "processing", "deciding"].includes(review.phase)) {
     toast("Текущая проверка ещё не завершена. Дождитесь результата или откройте её статус.", "info");
     return;
   }
@@ -9107,6 +9398,7 @@ async function submitContentReview(form) {
   if (input.content_kind === "advertising" && (!input.advertiser_name || !input.erid)) {
     toast("У рекламы не заполнены рекламодатель или ERID. Проверка продолжится, но публикация, скорее всего, будет заблокирована.", "info");
   }
+  persistContentReviewDraft(form);
   const completedRuns = catalog.runs.filter((item) => contentReviewStatusKind(item.status) === "ready");
   const previousSameMedia = completedRuns.find((item) => item.mediaId === media.id);
   const previousSameProduct = media.productId
@@ -9123,15 +9415,46 @@ async function submitContentReview(form) {
     : "Это первая сопоставимая проверка: история изменений начнёт собираться с этой версии.";
   renderWorkspace("review");
   let evidence;
+  let durableEvidence = usableContentReviewEvidence(review.durableEvidence, {
+    mediaId: media.id,
+    mediaSha256: media.sha256,
+  });
   try {
-    evidence = await captureContentReviewEvidence(media);
+    evidence = durableEvidence
+      ? { frames: [], technical_metrics: durableEvidence.technicalMetrics }
+      : await captureContentReviewEvidence(media);
   } catch (error) {
     review.phase = "idle";
     review.error = actionErrorMessage(error);
     renderWorkspace("review");
     return;
   }
-  review.phase = "starting";
+  if (media.isVideo && durableEvidence?.status !== "ready") {
+    review.phase = "saving_evidence";
+    renderWorkspace("review");
+    try {
+      durableEvidence = await persistContentReviewVideoEvidence(media, evidence, form);
+      review.durableEvidence = durableEvidence;
+      persistContentReviewDraft(form, { durableEvidence });
+    } catch (error) {
+      review.phase = "idle";
+      review.error = actionErrorMessage(error);
+      const pendingEvidence = usableContentReviewEvidence(review.durableEvidence, {
+        mediaId: media.id,
+        mediaSha256: media.sha256,
+      });
+      if (pendingEvidence?.status === "commit_pending") {
+        review.notice = "Кадры уже загружены. Следующая попытка повторит только подтверждение тем же ключом — повторной загрузки не будет.";
+      }
+      renderWorkspace("review");
+      return;
+    }
+  }
+  review.phase = "queueing";
+  review.error = "";
+  review.notice = media.isVideo
+    ? "Контрольные кадры сохранены. Теперь сервер ставит проверку в фоновую очередь."
+    : review.notice;
   renderWorkspace("review");
   try {
     const raw = await state.api.startContentReview(
@@ -9139,9 +9462,9 @@ async function submitContentReview(form) {
         ...input,
         parent_review_id: previous?.id || null,
         technical_metrics: evidence.technical_metrics,
+        ...(durableEvidence ? { evidence_id: durableEvidence.evidenceId } : {}),
       },
       {
-        frames: evidence.frames,
         onRunCreated: (run) => {
           review.record = normalizeContentReviewRun({ run }, {
             id: run?.id,
@@ -9165,36 +9488,32 @@ async function submitContentReview(form) {
     });
     upsertContentReviewRun(review.record);
     review.phase = contentReviewStatusKind(review.record.status) === "ready" ? "idle" : "processing";
+    const durableSourceLabel = media.isVideo ? "Evidence сохранён" : "Исходник сохранён";
     review.notice = previous
-      ? `Проверка создана и связана с ${comparisonScope}. Не запускайте её повторно — статус обновится автоматически.`
-      : "Проверка создана. Не запускайте её повторно — статус обновится автоматически.";
+      ? `Проверка создана и связана с ${comparisonScope}. ${durableSourceLabel}: вкладку можно закрыть, сервер продолжит работу.`
+      : `Проверка поставлена в фоновую очередь. ${durableSourceLabel}: вкладку можно закрыть, сервер продолжит работу.`;
     form.removeAttribute("data-dirty");
+    clearContentReviewDraft();
     await track("content_review_started", {
       review_id: review.record.id,
       media_id: media.id,
       platform: input.platform,
       content_kind: input.content_kind,
-      frame_count: evidence.frames.length,
+      frame_count: Number(evidence.technical_metrics?.frame_count || evidence.frames?.length || 0),
+      evidence_id: durableEvidence?.evidenceId || null,
+      evidence_persisted: Boolean(durableEvidence),
       raw_video_sent: false,
       comparison_scope: previousSameMedia ? "same_media" : previousSameProduct ? "same_product" : "none",
     });
   } catch (error) {
-    const recoverable = error?.job?.id
-      ? normalizeContentReviewRun({ run: error.job }, {
-          mediaId: media.id,
-          media,
-          input: {
-            mediaId: media.id,
-            platform: input.platform,
-            contentKind: input.content_kind,
-            productCategory: input.product_category,
-          },
-        })
-      : null;
-    review.record = recoverable;
-    review.phase = recoverable ? "processing" : "idle";
+    review.record = null;
+    review.phase = "idle";
     review.error = actionErrorMessage(error);
-    if (recoverable) upsertContentReviewRun(recoverable);
+    if (durableEvidence) {
+      review.notice = "Evidence уже сохранён и не удалён. Повторите запуск: кадры загружать заново не потребуется.";
+      review.durableEvidence = durableEvidence;
+      persistContentReviewDraft(form, { durableEvidence });
+    }
   }
   if (state.route.path === "/workspace/review") renderWorkspace("review");
   scheduleContentReviewPolling(800);
@@ -9528,6 +9847,7 @@ function clearAuthenticatedState() {
   state.contentReview.error = "";
   state.contentReview.notice = "";
   state.contentReview.pendingMediaId = "";
+  state.contentReview.durableEvidence = null;
   state.workspaceBoard.selectedFolderId = "all";
   state.workspaceBoard.selectedItemKey = "";
   state.workspaceBoard.query = "";

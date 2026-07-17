@@ -36,6 +36,8 @@ type QueueRow = {
   organization_id?: string;
   media_object_id?: string;
   recipient_id?: string;
+  evidence_set_id?: string | null;
+  next_attempt_at?: string | null;
 };
 
 type MediaRow = {
@@ -90,6 +92,8 @@ type Database = {
           requested_by: string;
           status: string;
           created_at: string;
+          evidence_set_id: string | null;
+          next_attempt_at: string | null;
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
@@ -919,6 +923,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       }, 503);
     }
 
+    const queueNow = new Date().toISOString();
     const generationQuery = supabaseAdmin
       .schema("content_factory")
       .from("generation_jobs")
@@ -928,7 +933,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .eq("mode", "real")
       .eq("provider", "runway")
       .in("status", ["submitted", "processing"])
-      .lte("provider_next_poll_at", new Date().toISOString())
+      .lte("provider_next_poll_at", queueNow)
       .order("provider_next_poll_at", { ascending: true })
       .order("updated_at", { ascending: true })
       .limit(payload.generation_limit);
@@ -941,15 +946,19 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .limit(payload.research_limit);
     const reviewCandidateLimit = Math.min(
       MAX_LIMIT_PER_QUEUE * 3,
-      Math.max(payload.review_limit * 3, payload.review_limit),
+      Math.max(payload.review_limit * 3, MAX_LIMIT_PER_QUEUE),
     );
     const reviewQuery = supabaseAdmin
       .schema("content_factory")
       .from("content_review_runs")
       .select(
-        "id, organization_id, requested_by, media_object_id, status, created_at",
+        "id, organization_id, requested_by, media_object_id, status, created_at, evidence_set_id, next_attempt_at",
       )
       .eq("status", "queued")
+      // A null due time means an attempt already owns the row. Re-dispatching
+      // it only creates observers and can starve genuinely due reviews.
+      .lte("next_attempt_at", queueNow)
+      .order("next_attempt_at", { ascending: true, nullsFirst: true })
       .order("created_at", { ascending: true })
       .limit(reviewCandidateLimit);
 
@@ -996,7 +1005,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
 
     let mediaRows: MediaRow[] = [];
     const mediaIds = reviewRows.map((row) => row.media_object_id as string);
-    if (mediaIds.length > 0 && payload.review_limit > 0) {
+    if (mediaIds.length > 0) {
       const mediaResult = await supabaseAdmin
         .schema("content_factory")
         .from("media_objects")
@@ -1015,14 +1024,25 @@ const creatorBackgroundWorker = withSupabase<Database>({
       mediaRows = mediaResult.data.filter(isMediaRow);
     }
     const mediaById = new Map(mediaRows.map((row) => [row.id, row]));
-    const autonomousReviews = reviewRows.filter((row) => {
+    const eligibleReviews = reviewRows.filter((row) => {
       const media = mediaById.get(row.media_object_id as string);
-      return media?.status === "ready" && IMAGE_MIME_TYPES.has(media.mime_type);
-    }).slice(0, payload.review_limit);
-    const skippedVideoReviews = reviewRows.filter((row) => {
+      if (!media) return false;
+      // Still dispatch supported media that became stale/unready after queueing:
+      // the claim RPC terminal-cancels it before any provider marker. Dropping
+      // those oldest rows here could starve every valid review behind them.
+      if (IMAGE_MIME_TYPES.has(media.mime_type)) return true;
+      return media.mime_type === "video/mp4" && isUuid(row.evidence_set_id);
+    });
+    const autonomousReviews = eligibleReviews.slice(0, payload.review_limit);
+    const legacyMissingEvidence = reviewRows.filter((row) => {
       const media = mediaById.get(row.media_object_id as string);
-      return media?.status === "ready" && media.mime_type === "video/mp4";
+      return media?.status === "ready" && media.mime_type === "video/mp4" &&
+        !isUuid(row.evidence_set_id);
     }).length;
+    const unsupportedOrUnready = Math.max(
+      0,
+      reviewRows.length - eligibleReviews.length - legacyMissingEvidence,
+    );
 
     const targets: DispatchTarget[] = [
       ...generationRows.map((row): DispatchTarget => ({
@@ -1048,7 +1068,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       ...autonomousReviews.map((row): DispatchTarget => ({
         kind: "review",
         functionName: "creator-content-review",
-        body: { action: "analyze", review_id: row.id, frames: [] },
+        body: { action: "analyze", review_id: row.id },
         organizationId: row.organization_id as string,
         recipientId: row.recipient_id as string,
         entityId: row.id,
@@ -1108,7 +1128,13 @@ const creatorBackgroundWorker = withSupabase<Database>({
       pending,
       failed,
       generation_poll_records: pollRecords,
-      skipped_video_reviews: skippedVideoReviews,
+      review_queue_health: {
+        due_candidates: reviewRows.length,
+        eligible: eligibleReviews.length,
+        selected: autonomousReviews.length,
+        legacy_missing_evidence: legacyMissingEvidence,
+        unready_or_unsupported: unsupportedOrUnready,
+      },
       expired_leases: {
         research: reconciliation.research,
         review: reconciliation.review,

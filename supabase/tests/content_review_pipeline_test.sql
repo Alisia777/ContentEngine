@@ -228,6 +228,77 @@ begin
 end;
 $review_result_fixture$;
 
+-- Adapt the original pipeline scenarios to the durable worker handshake.  The
+-- assertions in this file are about review validation and media invariants;
+-- the dedicated durability suite below tests the raw claim/begin/complete RPCs.
+create or replace function pg_temp.claim_content_review(p_payload jsonb)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $durable_claim_fixture$
+declare
+  result_value jsonb;
+begin
+  execute 'select public.system_claim_content_review($1)'
+    into result_value using p_payload;
+  if coalesce((result_value ->> 'claimed')::boolean, false)
+     and result_value #>> '{attempt,id}' is not null then
+    perform public.system_begin_content_review_provider_dispatch(
+      jsonb_build_object(
+        'review_id', result_value #>> '{run,id}',
+        'attempt_id', result_value #>> '{attempt,id}',
+        'lease_token', result_value #>> '{attempt,lease_token}'
+      )
+    );
+    result_value := jsonb_set(
+      result_value, '{run,status}', '"processing"'::jsonb
+    );
+    result_value := jsonb_set(
+      result_value, '{attempt,status}', '"dispatching"'::jsonb
+    );
+  end if;
+  return result_value;
+end;
+$durable_claim_fixture$;
+
+create or replace function pg_temp.complete_content_review(p_payload jsonb)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $durable_complete_fixture$
+declare
+  review_id_value uuid;
+  attempt_row content_factory.content_review_attempts%rowtype;
+  fenced_payload_value jsonb := p_payload;
+  result_value jsonb;
+begin
+  begin
+    review_id_value := (p_payload ->> 'review_id')::uuid;
+  exception when others then
+    execute 'select public.system_complete_content_review($1)'
+      into result_value using p_payload;
+    return result_value;
+  end;
+
+  select attempt.* into attempt_row
+  from content_factory.content_review_attempts attempt
+  where attempt.review_id = review_id_value
+    and attempt.status in ('dispatching', 'completed', 'outcome_unknown')
+  order by attempt.attempt_no desc
+  limit 1;
+  if attempt_row.id is not null then
+    fenced_payload_value := fenced_payload_value || jsonb_build_object(
+      'attempt_id', attempt_row.id,
+      'lease_token', attempt_row.lease_token,
+      'provider_request_id', 'pgtap-' || attempt_row.id::text
+    );
+  end if;
+  execute 'select public.system_complete_content_review($1)'
+    into result_value using fenced_payload_value;
+  return result_value;
+end;
+$durable_complete_fixture$;
+
 select no_plan();
 
 select has_table(
@@ -453,7 +524,7 @@ values
     '95200000-0000-4000-8000-000000000001',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/owner.mp4',
-    'video/mp4', 4096, repeat('a', 64), 'ready',
+    'image/webp', 4096, repeat('a', 64), 'ready',
     '{"kind":"source_video","rights_confirmed":true}'::jsonb,
     'content-review-media-owner'
   ),
@@ -464,7 +535,7 @@ values
     '95200000-0000-4000-8000-000000000001',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000003/review/operator.mp4',
-    'video/mp4', 4096, repeat('b', 64), 'ready',
+    'image/webp', 4096, repeat('b', 64), 'ready',
     '{"kind":"source_video","rights_confirmed":true}'::jsonb,
     'content-review-media-operator'
   ),
@@ -643,6 +714,37 @@ values (
   ),
   'content-review-generated-media'
 );
+
+insert into content_factory.content_review_evidence_sets (
+  id, organization_id, media_object_id, created_by, status,
+  source_mime_type, source_sha256_snapshot, object_prefix,
+  expected_frame_count, frame_count, total_size_bytes, manifest_hash,
+  technical_metrics, idempotency_key, expires_at, ready_at
+)
+values (
+  '95700000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000001',
+  '95300000-0000-4000-8000-000000000005',
+  '95000000-0000-4000-8000-000000000003',
+  'ready', 'video/mp4', repeat('5', 64),
+  '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000003/review-evidence/95700000-0000-4000-8000-000000000001',
+  4, 4, 2048, repeat('e', 64),
+  '{"duration_seconds":5,"width":720,"height":1280,"frame_source":"browser_advisory"}'::jsonb,
+  'content-review-generated-evidence', now() + interval '30 minutes', now()
+);
+
+insert into content_factory.content_review_evidence_frames (
+  organization_id, evidence_set_id, ordinal, bucket_id, object_name,
+  mime_type, size_bytes, sha256, timecode_seconds
+)
+select
+  '95100000-0000-4000-8000-000000000001'::uuid,
+  '95700000-0000-4000-8000-000000000001'::uuid,
+  item, 'contentengine-private',
+  '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000003/review-evidence/95700000-0000-4000-8000-000000000001/frame-'
+    || lpad(item::text, 2, '0') || '.jpg',
+  'image/jpeg', 512, repeat(item::text, 64), (item - 1)::numeric
+from generate_series(1, 4) item;
 
 do $$
 begin
@@ -853,7 +955,7 @@ end;
 $$;
 
 create temporary table blocked_claim on commit drop as
-select public.system_claim_content_review(jsonb_build_object(
+select pg_temp.claim_content_review(jsonb_build_object(
   'review_id',
   (select blocked_review_id from content_review_test_context)
 )) as value;
@@ -874,7 +976,7 @@ select is(
 );
 select ok(
   not (
-    public.system_claim_content_review(jsonb_build_object(
+    pg_temp.claim_content_review(jsonb_build_object(
       'review_id',
       (select blocked_review_id from content_review_test_context)
     )) ->> 'claimed'
@@ -883,7 +985,7 @@ select ok(
 );
 
 select throws_ok(
-  $$select public.system_complete_content_review(jsonb_build_object(
+  $$select pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (
       select blocked_review_id from content_review_test_context
     ),
@@ -918,7 +1020,7 @@ set blocked_completion = jsonb_build_object(
 );
 
 select is(
-  public.system_complete_content_review(
+  pg_temp.complete_content_review(
     (select blocked_completion from content_review_test_context)
   ) ->> 'status',
   'completed',
@@ -926,7 +1028,7 @@ select is(
 );
 select ok(
   (
-    public.system_complete_content_review(
+    pg_temp.complete_content_review(
       (select blocked_completion from content_review_test_context)
     ) ->> 'idempotent'
   )::boolean,
@@ -1065,7 +1167,7 @@ set pass_review_id = (pass_start ->> 'review_id')::uuid;
 
 do $$
 begin
-  perform public.system_claim_content_review(jsonb_build_object(
+  perform pg_temp.claim_content_review(jsonb_build_object(
     'review_id',
     (select pass_review_id from content_review_test_context)
   ));
@@ -1073,7 +1175,7 @@ end;
 $$;
 
 select throws_ok(
-  $$select public.system_complete_content_review(jsonb_build_object(
+  $$select pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (
       select pass_review_id from content_review_test_context
     ),
@@ -1094,7 +1196,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.system_complete_content_review(jsonb_build_object(
+  $$select pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (
       select pass_review_id from content_review_test_context
     ),
@@ -1115,7 +1217,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.system_complete_content_review(jsonb_build_object(
+  $$select pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (
       select pass_review_id from content_review_test_context
     ),
@@ -1136,7 +1238,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.system_complete_content_review(jsonb_build_object(
+  $$select pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (
       select pass_review_id from content_review_test_context
     ),
@@ -1181,7 +1283,7 @@ select lives_ok(
 
 do $$
 begin
-  perform public.system_complete_content_review(jsonb_build_object(
+  perform pg_temp.complete_content_review(jsonb_build_object(
     'review_id',
     (select pass_review_id from content_review_test_context),
     'status', 'completed',
@@ -1324,7 +1426,7 @@ select public.creator_start_content_review(jsonb_build_object(
 
 select ok(
   (
-    public.system_claim_content_review(jsonb_build_object(
+    pg_temp.claim_content_review(jsonb_build_object(
       'review_id', (select value ->> 'review_id' from stale_sha_completion)
     )) ->> 'claimed'
   )::boolean,
@@ -1336,7 +1438,7 @@ set sha256 = repeat('8', 64)
 where id = '95300000-0000-4000-8000-000000000003';
 
 select is(
-  public.system_complete_content_review(jsonb_build_object(
+  pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (select value ->> 'review_id' from stale_sha_completion),
     'status', 'completed',
     'result', pg_temp.review_result('pass'),
@@ -1361,7 +1463,7 @@ select is(
 
 select ok(
   (
-    public.system_complete_content_review(jsonb_build_object(
+    pg_temp.complete_content_review(jsonb_build_object(
       'review_id', (select value ->> 'review_id' from stale_sha_completion),
       'status', 'completed',
       'result', pg_temp.review_result('pass'),
@@ -1390,7 +1492,7 @@ select public.creator_start_content_review(jsonb_build_object(
 
 select ok(
   (
-    public.system_claim_content_review(jsonb_build_object(
+    pg_temp.claim_content_review(jsonb_build_object(
       'review_id', (select value ->> 'review_id' from stale_status_completion)
     )) ->> 'claimed'
   )::boolean,
@@ -1402,7 +1504,7 @@ set status = 'archived'
 where id = '95300000-0000-4000-8000-000000000003';
 
 select is(
-  public.system_complete_content_review(jsonb_build_object(
+  pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (select value ->> 'review_id' from stale_status_completion),
     'status', 'failed',
     'error_code', 'provider_failed',
@@ -1424,7 +1526,7 @@ select is(
 
 select ok(
   (
-    public.system_complete_content_review(jsonb_build_object(
+    pg_temp.complete_content_review(jsonb_build_object(
       'review_id', (
         select value ->> 'review_id' from stale_status_completion
       ),
@@ -1454,11 +1556,11 @@ set stale_review_id = (stale_start ->> 'review_id')::uuid;
 
 do $$
 begin
-  perform public.system_claim_content_review(jsonb_build_object(
+  perform pg_temp.claim_content_review(jsonb_build_object(
     'review_id',
     (select stale_review_id from content_review_test_context)
   ));
-  perform public.system_complete_content_review(jsonb_build_object(
+  perform pg_temp.complete_content_review(jsonb_build_object(
     'review_id',
     (select stale_review_id from content_review_test_context),
     'status', 'completed',
@@ -1536,6 +1638,7 @@ select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
   'idempotency_key', 'content-review-generated-0001',
   'media_id', '95300000-0000-4000-8000-000000000005',
+  'evidence_id', '95700000-0000-4000-8000-000000000001',
   'platform', 'youtube',
   'product_category', 'cosmetics',
   'content_kind', 'informational',
@@ -1608,10 +1711,10 @@ select is(
 
 do $$
 begin
-  perform public.system_claim_content_review(jsonb_build_object(
+  perform pg_temp.claim_content_review(jsonb_build_object(
     'review_id', (select review_id from generated_review_context)
   ));
-  perform public.system_complete_content_review(jsonb_build_object(
+  perform pg_temp.complete_content_review(jsonb_build_object(
     'review_id', (select review_id from generated_review_context),
     'status', 'completed',
     'result', pg_temp.review_result('human_review'),
@@ -1840,7 +1943,7 @@ select jsonb_build_object(
 ) as value;
 
 select is(
-  public.system_complete_content_review(
+  pg_temp.complete_content_review(
     (select value from expired_completion_payload)
   ) ->> 'status',
   'failed',
@@ -1862,7 +1965,7 @@ select is(
 );
 select ok(
   (
-    public.system_complete_content_review(
+    pg_temp.complete_content_review(
       (select value from expired_completion_payload)
     ) ->> 'idempotent'
   )::boolean,
@@ -1897,27 +2000,30 @@ select is(
   public.creator_content_review_status(jsonb_build_object(
     'review_id', '95400000-0000-4000-8000-000000000002'
   )) -> 'run' ->> 'status',
-  'cancelled',
-  'abandoned browser-dispatch queue expires safely'
+  'queued',
+  'status polling never mutates a server-owned queue'
 );
 select is(
   (select error_code
    from content_factory.content_review_runs
    where id = '95400000-0000-4000-8000-000000000002'),
-  'queued_dispatch_expired',
-  'expired queue records an explicit retry-safe reason'
+  null::text,
+  'read-only polling records no synthetic browser timeout'
 );
-select is(
-  public.creator_start_content_review(jsonb_build_object(
+-- Legacy marker retained as an explicit regression boundary:
+-- queued_dispatch_expired must never be written by status polling again.
+select throws_ok(
+  $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'idempotency_key', 'content-review-after-abandoned-queue',
     'media_id', '95300000-0000-4000-8000-000000000004',
     'platform', 'vk',
     'product_category', 'cosmetics',
     'content_kind', 'informational'
-  )) ->> 'status',
-  'queued',
-  'the exact media can be reviewed again after dispatch expiry'
+  ))$$,
+  '55000',
+  'content_review_already_active',
+  'a competing start cannot cancel a server-owned queue'
 );
 
 create temporary table stale_before_claim on commit drop as
@@ -1936,7 +2042,7 @@ where id = '95300000-0000-4000-8000-000000000003';
 
 select ok(
   not (
-    public.system_claim_content_review(jsonb_build_object(
+    pg_temp.claim_content_review(jsonb_build_object(
       'review_id', (select value ->> 'review_id' from stale_before_claim)
     )) ->> 'claimed'
   )::boolean,
@@ -2072,7 +2178,7 @@ select is(
   'a repeat review automatically links its previous completed result'
 );
 select is(
-  public.system_claim_content_review(jsonb_build_object(
+  pg_temp.claim_content_review(jsonb_build_object(
     'review_id', (select value ->> 'review_id' from parent_start)
   )) -> 'run' -> 'parent_result' ->> 'overall_score',
   '38',

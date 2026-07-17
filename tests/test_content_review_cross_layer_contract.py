@@ -10,6 +10,12 @@ MIGRATION = (
     / "migrations"
     / "202607160003_content_review_pipeline.sql"
 )
+DURABLE_MIGRATION = (
+    ROOT
+    / "supabase"
+    / "migrations"
+    / "202607170004_durable_video_content_review.sql"
+)
 PGTAP = ROOT / "supabase" / "tests" / "content_review_pipeline_test.sql"
 
 RULESET_VERSION = "ru-content-compliance-2026-07-16.1"
@@ -22,6 +28,7 @@ def _read(path: Path) -> str:
 def test_content_review_ruleset_and_rpc_names_are_identical_across_layers() -> None:
     edge = _read(EDGE)
     migration = _read(MIGRATION)
+    durable_migration = _read(DURABLE_MIGRATION)
     adapter = _read(APP / "supabase-api.js")
     pgtap = _read(PGTAP)
 
@@ -39,8 +46,15 @@ def test_content_review_ruleset_and_rpc_names_are_identical_across_layers() -> N
         "system_claim_content_review",
         "system_complete_content_review",
     ):
-        assert rpc_name in migration
+        assert rpc_name in migration or rpc_name in durable_migration
         assert rpc_name in pgtap
+    for rpc_name in (
+        "creator_prepare_content_review_evidence",
+        "creator_commit_content_review_evidence",
+        "system_begin_content_review_provider_dispatch",
+        "system_release_content_review_attempt",
+    ):
+        assert rpc_name in durable_migration
     for rpc_name in (
         "creator_content_review_catalog",
         "creator_start_content_review",
@@ -51,9 +65,16 @@ def test_content_review_ruleset_and_rpc_names_are_identical_across_layers() -> N
     for rpc_name in (
         "creator_content_review_status",
         "system_claim_content_review",
+        "system_begin_content_review_provider_dispatch",
+        "system_release_content_review_attempt",
         "system_complete_content_review",
     ):
         assert rpc_name in edge
+    for rpc_name in (
+        "creator_prepare_content_review_evidence",
+        "creator_commit_content_review_evidence",
+    ):
+        assert rpc_name in adapter
 
 
 def test_catalog_request_and_response_use_the_server_contract() -> None:
@@ -127,7 +148,8 @@ def test_start_and_decision_payloads_have_one_canonical_shape() -> None:
     assert 'action: "analyze"' in adapter
     assert 'action: "analyze"' in edge
     assert "review_id" in edge
-    assert "frames" in edge
+    assert 'new Set(["action", "review_id"])' in edge
+    assert 'new Set(["action", "review_id", "frames"])' not in edge
 
     for field in (
         "review_id",
@@ -139,6 +161,49 @@ def test_start_and_decision_payloads_have_one_canonical_shape() -> None:
     ):
         assert field in adapter
         assert field in migration
+
+
+def test_video_review_is_durable_and_paid_dispatch_is_fenced() -> None:
+    migration = _read(DURABLE_MIGRATION)
+    edge = _read(EDGE)
+    worker = _read(
+        ROOT
+        / "supabase"
+        / "functions"
+        / "creator-background-worker"
+        / "index.ts"
+    )
+
+    for marker in (
+        "content_review_evidence_sets",
+        "content_review_evidence_frames",
+        "content_review_attempts",
+        "provider_dispatch_started_at",
+        "provider_outcome_unknown",
+        "content_review_attempts_one_active_uq",
+        "content_review_runs_retry_due_idx",
+        "system_begin_content_review_provider_dispatch",
+        "system_release_content_review_attempt",
+    ):
+        assert marker in migration
+
+    assert 'MAX_BODY_BYTES = 4_096' in edge
+    assert 'body: { action: "analyze", review_id: row.id }' in worker
+    assert 'frames: []' not in worker
+    assert "attempt.providerIdempotencyKey" in edge
+    assert "providerDispatchStarted = true" in edge
+    assert "system_begin_content_review_provider_dispatch" in edge
+    assert "system_release_content_review_attempt" in edge
+    assert "frameBlob.size !== frame.sizeBytes" in edge
+    assert "await sha256Hex(frameBytes)" in edge
+    assert "isJpeg(frameBytes)" in edge
+    assert "DATA_IMAGE_PATTERN" not in edge
+    assert "technicalMetrics: capturedEvidence.technical_metrics" in _read(
+        APP / "app.js"
+    )
+    assert "technical_metrics: technicalMetrics" in _read(
+        APP / "supabase-api.js"
+    )
 
 
 def test_quality_and_compliance_are_independent_and_video_is_human_gated() -> None:

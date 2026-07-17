@@ -96,11 +96,22 @@ export function managerOperationalHealthMarkup(state = {}) {
   const scheduler = data?.scheduler && typeof data.scheduler === "object" ? data.scheduler : {};
   const worker = data?.worker && typeof data.worker === "object" ? data.worker : {};
   const generation = data?.generation && typeof data.generation === "object" ? data.generation : {};
+  const contentReview = data?.content_review && typeof data.content_review === "object" ? data.content_review : {};
   const hasData = Boolean(state?.data && typeof state.data === "object");
+  const hasContentReviewData = Boolean(data?.content_review && typeof data.content_review === "object");
   const loading = ["idle", "loading", "refreshing"].includes(String(state?.status || "idle"));
   const stalled = Math.max(0, Number(generation.stalled) || 0);
   const due = Math.max(0, Number(generation.due) || 0);
   const active = Math.max(0, Number(generation.active) || 0);
+  const reviewQueued = Math.max(0, Number(contentReview.queued) || 0);
+  const reviewProcessing = Math.max(0, Number(contentReview.processing) || 0);
+  const reviewDue = Math.max(0, Number(contentReview.due) || 0);
+  const reviewRetryWait = Math.max(0, Number(contentReview.retry_wait) || 0);
+  const reviewDeadLetter = Math.max(0, Number(contentReview.dead_letter) || 0);
+  const reviewOutcomeUnknown = Math.max(0, Number(contentReview.outcome_unknown) || 0);
+  const reviewOldestAge = Math.max(0, Number(contentReview.oldest_queued_age_seconds) || 0);
+  const reviewCritical = reviewDeadLetter > 0 || reviewOutcomeUnknown > 0;
+  const reviewDelayed = reviewQueued > 0 && reviewOldestAge >= 15 * 60;
   const schedulerReady = scheduler.ready === true;
   const workerReady = worker.ready === true && worker.heartbeat_fresh === true;
   let tone = "neutral";
@@ -108,14 +119,18 @@ export function managerOperationalHealthMarkup(state = {}) {
   let detail = "Сверяем расписание, последний сигнал обработчика и очередь генераций.";
 
   if (hasData) {
-    if (!schedulerReady || !workerReady || stalled > 0) {
+    if (!schedulerReady || !workerReady || stalled > 0 || reviewCritical) {
       tone = "danger";
       title = "Требуется внимание руководителя";
       detail = !schedulerReady
         ? "Фоновое расписание не подтвердило готовность. Откройте журнал развёртывания перед новыми платными запусками."
         : !workerReady
           ? "Обработчик давно не подтверждал работу. Уже отправленные Runway-задачи не запускайте повторно — сначала обновите состояние."
-          : `${formatNumber(stalled)} генераций превысили безопасное время ожидания. Проверьте их статус без нового платного запуска.`;
+          : stalled > 0
+            ? `${formatNumber(stalled)} генераций превысили безопасное время ожидания. Проверьте их статус без нового платного запуска.`
+            : reviewOutcomeUnknown > 0
+              ? `${formatNumber(reviewOutcomeUnknown)} проверок контента имеют неизвестный исход. Не запускайте их повторно вслепую — нужна ручная сверка.`
+              : `${formatNumber(reviewDeadLetter)} проверок контента исчерпали безопасные попытки. Откройте очередь и разберите причину вручную.`;
     } else if (state.status === "error") {
       tone = "warning";
       title = "Показываем последнее подтверждённое состояние";
@@ -124,10 +139,14 @@ export function managerOperationalHealthMarkup(state = {}) {
       tone = "neutral";
       title = "Обновляем подтверждение";
       detail = "Последнее состояние остаётся на экране, пока сервер выполняет новую безопасную проверку.";
-    } else if (due > 0 || active > 0) {
+    } else if (due > 0 || active > 0 || reviewDue > 0 || reviewProcessing > 0 || reviewDelayed) {
       tone = "warning";
       title = "Фоновая обработка идёт";
-      detail = due > 0
+      detail = reviewDelayed
+        ? `Старейшая проверка контента ждёт ${formatQueueAge(reviewOldestAge)}. Обновите состояние и проверьте обработчик.`
+        : reviewDue > 0
+          ? `${formatNumber(reviewDue)} проверок контента готовы к обработке сервером.`
+          : due > 0
         ? `${formatNumber(due)} задач готовы к очередной проверке провайдера.`
         : "Обработчик работает; часть задач ещё находится в очереди.";
     } else {
@@ -151,6 +170,25 @@ export function managerOperationalHealthMarkup(state = {}) {
   const heartbeat = hasData && worker.heartbeat_at
     ? formatDateTime(worker.heartbeat_at)
     : "нет свежего сигнала";
+  const reviewTone = !hasContentReviewData
+    ? "neutral"
+    : reviewCritical
+      ? "danger"
+      : reviewDelayed || reviewDue > 0 || reviewRetryWait > 0 || reviewProcessing > 0
+        ? "warning"
+        : "success";
+  const reviewSummary = !hasContentReviewData
+    ? "Сводка появится после следующего ответа сервера."
+    : reviewOutcomeUnknown > 0
+      ? "Есть проверки с неизвестным исходом — требуется ручная сверка без слепого повтора."
+      : reviewDeadLetter > 0
+        ? "Есть проверки, исчерпавшие безопасные попытки обработки."
+        : reviewDelayed
+          ? "Очередь движется медленнее ожидаемого; проверьте свежесть обработчика."
+          : reviewQueued > 0 || reviewProcessing > 0
+            ? "Проверки сохранены и продолжаются в фоне, даже если автор закрыл вкладку."
+            : "Активных и проблемных проверок контента нет.";
+  const reviewMetric = (value) => hasContentReviewData ? formatNumber(value) : "—";
 
   return `
     <section class="manager-operations manager-operations-${tone}" aria-labelledby="manager-operations-title" aria-busy="${loading ? "true" : "false"}">
@@ -171,6 +209,25 @@ export function managerOperationalHealthMarkup(state = {}) {
         <span><small>Зависло</small><strong>${formatNumber(stalled)}</strong></span>
       </div>
       <button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard" ${loading ? "disabled" : ""}>Обновить состояние</button>
+      <section class="manager-review-queue manager-review-queue-${reviewTone}" aria-labelledby="manager-review-queue-title">
+        <div class="manager-review-queue-head">
+          <div>
+            <p class="eyebrow">Проверка контента</p>
+            <h4 id="manager-review-queue-title">Очередь AI-аудита</h4>
+          </div>
+          <p>${escapeHtml(reviewSummary)}</p>
+        </div>
+        <div class="manager-review-queue-metrics" aria-label="Состояние очереди проверки контента">
+          <span><small>В очереди</small><strong>${reviewMetric(reviewQueued)}</strong></span>
+          <span><small>В обработке</small><strong>${reviewMetric(reviewProcessing)}</strong></span>
+          <span class="${reviewDue > 0 ? "manager-review-metric-warning" : ""}"><small>Готово сейчас</small><strong>${reviewMetric(reviewDue)}</strong></span>
+          <span class="${reviewRetryWait > 0 ? "manager-review-metric-warning" : ""}"><small>Ожидает повтора</small><strong>${reviewMetric(reviewRetryWait)}</strong></span>
+          <span class="${reviewDeadLetter > 0 ? "manager-review-metric-danger" : ""}"><small>Исчерпаны попытки</small><strong>${reviewMetric(reviewDeadLetter)}</strong></span>
+          <span class="${reviewOutcomeUnknown > 0 ? "manager-review-metric-danger" : ""}"><small>Исход неизвестен</small><strong>${reviewMetric(reviewOutcomeUnknown)}</strong></span>
+          <span class="${reviewDelayed ? "manager-review-metric-warning" : ""}"><small>Старейшая в очереди</small><strong>${hasContentReviewData ? escapeHtml(formatQueueAge(reviewOldestAge)) : "—"}</strong></span>
+        </div>
+        ${hasContentReviewData ? `<p class="manager-review-queue-note">«Исчерпаны попытки» и «Исход неизвестен» — накопленные за всё время инциденты. Они не исчезают сами, пока в системе нет подтверждённого закрытия менеджером.</p>` : ""}
+      </section>
     </section>
   `;
 }
@@ -290,6 +347,20 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatQueueAge(rawSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(rawSeconds) || 0));
+  if (seconds < 60) return seconds > 0 ? "меньше минуты" : "нет ожидания";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} мин`;
+  if (seconds < 86400) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return minutes ? `${hours} ч ${minutes} мин` : `${hours} ч`;
+  }
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  return hours ? `${days} д ${hours} ч` : `${days} д`;
 }
 
 function escapeHtml(value) {

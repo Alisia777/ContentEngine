@@ -78,15 +78,16 @@ jobs:
           notification = payload.get("notification")
           if not isinstance(notification, dict):
               notification = {}
+          review_queue_health = payload.get("review_queue_health")
+          if not isinstance(review_queue_health, dict):
+              review_queue_health = {}
           visible = {
               "selected": payload.get("selected", {}),
               "completed": payload.get("completed", {}),
               "pending": payload.get("pending", {}),
               "failed": payload.get("failed", {}),
               "expired_leases": payload.get("expired_leases", {}),
-              "skipped_video_reviews": payload.get(
-                  "skipped_video_reviews", 0
-              ),
+              "review_queue_health": review_queue_health,
               "notification": notification,
           }
           print(

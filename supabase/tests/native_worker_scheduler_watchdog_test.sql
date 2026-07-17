@@ -762,6 +762,158 @@ values
     'a8000000-0000-4000-8000-000000000004'
   );
 
+insert into content_factory.media_objects (
+  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  mime_type, size_bytes, sha256, status, metadata, idempotency_key
+)
+values
+  (
+    'a8600000-0000-4000-8000-000000000001',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8000000-0000-4000-8000-000000000001',
+    'a8200000-0000-4000-8000-000000000001',
+    'contentengine-private',
+    'a8100000-0000-4000-8000-000000000001/a8000000-0000-4000-8000-000000000001/health/review.webp',
+    'image/webp', 4096, repeat('a', 64), 'ready',
+    '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
+    'native-health-review-media-primary'
+  ),
+  (
+    'a8600000-0000-4000-8000-000000000002',
+    'a8100000-0000-4000-8000-000000000002',
+    'a8000000-0000-4000-8000-000000000004',
+    'a8200000-0000-4000-8000-000000000002',
+    'contentengine-private',
+    'a8100000-0000-4000-8000-000000000002/a8000000-0000-4000-8000-000000000004/health/review.webp',
+    'image/webp', 4096, repeat('b', 64), 'ready',
+    '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
+    'native-health-review-media-other'
+  ),
+  (
+    'a8600000-0000-4000-8000-000000000003',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8000000-0000-4000-8000-000000000001',
+    'a8200000-0000-4000-8000-000000000001',
+    'contentengine-private',
+    'a8100000-0000-4000-8000-000000000001/a8000000-0000-4000-8000-000000000001/health/retry.webp',
+    'image/webp', 4096, repeat('a', 64), 'ready',
+    '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
+    'native-health-review-media-retry'
+  ),
+  (
+    'a8600000-0000-4000-8000-000000000004',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8000000-0000-4000-8000-000000000001',
+    'a8200000-0000-4000-8000-000000000001',
+    'contentengine-private',
+    'a8100000-0000-4000-8000-000000000001/a8000000-0000-4000-8000-000000000001/health/processing.webp',
+    'image/webp', 4096, repeat('a', 64), 'ready',
+    '{"kind":"creator_reference","rights_confirmed":true}'::jsonb,
+    'native-health-review-media-processing'
+  );
+
+insert into content_factory.content_review_runs (
+  id, organization_id, media_object_id, requested_by, status,
+  media_sha256_snapshot, input, ruleset_version, request_hash,
+  idempotency_key, attempt_count, next_attempt_at,
+  started_at, lease_expires_at, finished_at,
+  error_code, error_message, completion_hash, dead_lettered_at, created_at
+)
+values
+  (
+    'a8610000-0000-4000-8000-000000000001',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8600000-0000-4000-8000-000000000001',
+    'a8000000-0000-4000-8000-000000000001',
+    'queued', repeat('a', 64), '{}'::jsonb, 'native-health-rules',
+    repeat('1', 64), 'native-health-review-due', 0,
+    now() - interval '1 minute', null, null, null,
+    null, null, null, null, now() - interval '20 minutes'
+  ),
+  (
+    'a8610000-0000-4000-8000-000000000002',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8600000-0000-4000-8000-000000000003',
+    'a8000000-0000-4000-8000-000000000001',
+    'queued', repeat('a', 64), '{}'::jsonb, 'native-health-rules',
+    repeat('2', 64), 'native-health-review-retry', 1,
+    now() + interval '5 minutes', null, null, null,
+    null, null, null, null, now() - interval '5 minutes'
+  ),
+  (
+    'a8610000-0000-4000-8000-000000000003',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8600000-0000-4000-8000-000000000004',
+    'a8000000-0000-4000-8000-000000000001',
+    'processing', repeat('a', 64), '{}'::jsonb, 'native-health-rules',
+    repeat('3', 64), 'native-health-review-processing', 1,
+    null, now() - interval '2 minutes', now() + interval '8 minutes', null,
+    null, null, null, null, now() - interval '2 minutes'
+  ),
+  (
+    'a8610000-0000-4000-8000-000000000004',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8600000-0000-4000-8000-000000000001',
+    'a8000000-0000-4000-8000-000000000001',
+    'failed', repeat('a', 64), '{}'::jsonb, 'native-health-rules',
+    repeat('4', 64), 'native-health-review-dead', 3,
+    null, null, null, now() - interval '2 minutes',
+    'content_review_dispatch_dead_letter', 'Safe attempts exhausted.',
+    repeat('4', 64), now() - interval '2 minutes',
+    now() - interval '10 minutes'
+  ),
+  (
+    'a8610000-0000-4000-8000-000000000005',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8600000-0000-4000-8000-000000000001',
+    'a8000000-0000-4000-8000-000000000001',
+    'failed', repeat('a', 64), '{}'::jsonb, 'native-health-rules',
+    repeat('5', 64), 'native-health-review-unknown', 1,
+    null, null, null, now() - interval '1 minute',
+    'provider_outcome_unknown', 'Provider outcome needs reconciliation.',
+    repeat('5', 64), now() - interval '1 minute',
+    now() - interval '8 minutes'
+  ),
+  (
+    'a8610000-0000-4000-8000-000000000006',
+    'a8100000-0000-4000-8000-000000000002',
+    'a8600000-0000-4000-8000-000000000002',
+    'a8000000-0000-4000-8000-000000000004',
+    'queued', repeat('b', 64), '{}'::jsonb, 'native-health-rules',
+    repeat('6', 64), 'native-health-review-other', 0,
+    now() - interval '1 minute', null, null, null,
+    null, null, null, null, now() - interval '30 minutes'
+  );
+
+insert into content_factory.content_review_attempts (
+  id, organization_id, review_id, attempt_no, status,
+  lease_expires_at, provider_idempotency_key,
+  provider_dispatch_started_at, error_code, error_message, finished_at
+)
+values
+  (
+    'a8620000-0000-4000-8000-000000000001',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8610000-0000-4000-8000-000000000002',
+    1, 'retry_wait', null, 'native-health-review:retry', null,
+    'content_review_claim_lease_expired', 'Retry remains safe.', now()
+  ),
+  (
+    'a8620000-0000-4000-8000-000000000002',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8610000-0000-4000-8000-000000000004',
+    3, 'dead_letter', null, 'native-health-review:dead', null,
+    'content_review_claim_lease_expired', 'Safe attempts exhausted.', now()
+  ),
+  (
+    'a8620000-0000-4000-8000-000000000003',
+    'a8100000-0000-4000-8000-000000000001',
+    'a8610000-0000-4000-8000-000000000005',
+    1, 'outcome_unknown', null, 'native-health-review:unknown',
+    now() - interval '1 minute', 'provider_outcome_unknown',
+    'Provider outcome needs reconciliation.', now()
+  );
+
 select lives_ok(
   $$select pg_temp.create_processing_real_job(
     'a8300000-0000-4000-8000-000000000001',
@@ -1338,6 +1490,81 @@ select is(
   '0',
   'organization health excludes the stalled job belonging to another tenant'
 );
+select ok(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) ?& array['scheduler', 'worker', 'generation', 'content_review'],
+  'content-review health extends rather than replaces the existing response'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,queued}',
+  '2',
+  'organization health reports only current queued content reviews'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,processing}',
+  '1',
+  'organization health reports processing content reviews'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,due}',
+  '1',
+  'only queued reviews whose next attempt is due are counted as due'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,retry_wait}',
+  '1',
+  'the latest retry-wait attempt is represented once per queued review'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,dead_letter}',
+  '1',
+  'dead-letter content reviews are visible to the organization manager'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,outcome_unknown}',
+  '1',
+  'outcome-unknown content reviews are visible without leaking provider data'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000001'
+  )) #>> '{content_review,terminal_scope}',
+  'all_time',
+  'terminal content-review counters disclose their cumulative scope'
+);
+select cmp_ok(
+  (
+    public.creator_operational_health(jsonb_build_object(
+      'organization_id', 'a8100000-0000-4000-8000-000000000001'
+    )) #>> '{content_review,oldest_queued_age_seconds}'
+  )::bigint,
+  '>=',
+  1200::bigint,
+  'oldest queue age uses the oldest currently queued review'
+);
+select cmp_ok(
+  (
+    public.creator_operational_health(jsonb_build_object(
+      'organization_id', 'a8100000-0000-4000-8000-000000000001'
+    )) #>> '{content_review,oldest_queued_age_seconds}'
+  )::bigint,
+  '<',
+  1500::bigint,
+  'terminal reviews do not inflate the oldest queued age'
+);
 
 select set_config(
   'request.jwt.claim.sub',
@@ -1363,6 +1590,20 @@ select is(
   )) #>> '{generation,stalled}',
   '1',
   'the other owner sees the stalled job inside that organization only'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000002'
+  )) #>> '{content_review,queued}',
+  '1',
+  'the other owner sees only the queued review in that organization'
+);
+select is(
+  public.creator_operational_health(jsonb_build_object(
+    'organization_id', 'a8100000-0000-4000-8000-000000000002'
+  )) #>> '{content_review,outcome_unknown}',
+  '0',
+  'terminal review incidents never cross the organization boundary'
 );
 
 select set_config(

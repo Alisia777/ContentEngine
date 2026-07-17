@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260716.3' in APP
+    assert './content-review-view.js?v=20260717.1' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260717.4' in INDEX
+    assert './app.js?v=20260717.7' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -84,7 +84,7 @@ def test_review_form_covers_context_rights_advertising_and_disclosures() -> None
     assert "[data-review-rkn]" in VIEW
 
 
-def test_browser_sends_bounded_frames_and_metrics_but_never_raw_video() -> None:
+def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video() -> None:
     for marker in (
         "MAX_FRAME_CHARACTERS = 330_000",
         "MAX_TOTAL_FRAME_CHARACTERS = 1_650_000",
@@ -99,11 +99,17 @@ def test_browser_sends_bounded_frames_and_metrics_but_never_raw_video() -> None:
         'canvas.toDataURL("image/jpeg", quality)',
     ):
         assert marker in VIEW
-    assert "frames.length >= 4 && frames.length <= 5" in API
-    assert "frames.length === 1" in API
-    assert 'action: "analyze"' in API
-    assert "review_id: reviewId" in API
-    assert "frames: safeFrames" in API
+    assert "buildContentReviewFrameFiles" in VIEW
+    assert "jpegDataUriToBlob" in VIEW
+    assert 'crypto.subtle.digest("SHA-256"' in VIEW
+    assert "normalizedFrameCount < 4 || normalizedFrameCount > 5" in API
+    assert 'prepareContentReviewEvidence: "creator_prepare_content_review_evidence"' in API
+    assert 'commitContentReviewEvidence: "creator_commit_content_review_evidence"' in API
+    start = API[API.index("async startContentReview(") : API.index("contentReviewStatus(")]
+    assert 'action: "analyze"' in start
+    assert "review_id: reviewId" in start
+    assert "frames:" not in start
+    assert "evidence_id: evidenceId" in start
     assert "raw_video_sent: false" in APP
     assert "0.2," in VIEW
     assert "1," in VIEW
@@ -111,7 +117,187 @@ def test_browser_sends_bounded_frames_and_metrics_but_never_raw_video() -> None:
     assert "differences.filter((value) => value < 0.015).length / differences.length" in VIEW
     assert "Исходный MP4 и его звук в ИИ-сервис не отправляются" in VIEW
     assert "fetch(media.url" not in VIEW
-    assert "arrayBuffer()" not in VIEW
+    assert 'new Blob([bytes], { type: "image/jpeg" })' in VIEW
+
+
+def test_durable_video_review_orders_upload_commit_and_run_fail_closed() -> None:
+    flow = APP[
+        APP.index("async function persistContentReviewVideoEvidence") :
+        APP.index("async function submitContentReview(")
+    ]
+    assert flow.index("buildContentReviewFrameFiles") < flow.index("prepareContentReviewEvidence")
+    assert flow.index("prepareContentReviewEvidence") < flow.index("uploadPrivateObject")
+    assert flow.index("uploadPrivateObject") < flow.index("commitStarted = true")
+    commit_started_at = flow.index("commitStarted = true")
+    assert commit_started_at < flow.index("commitContentReviewEvidence", commit_started_at)
+    assert "if (!commitStarted && uploadedObjectNames.length)" in flow
+    assert "removePrivateObjects(uploadedObjectNames)" in flow
+    assert "committed/ambiguous evidence is left for server reconciliation/sweeping" in flow
+
+    submit = APP[
+        APP.index("async function submitContentReview(") :
+        APP.index("async function submitContentReviewDecision(")
+    ]
+    assert "evidence_id: durableEvidence.evidenceId" in submit
+    assert "frames: evidence.frames" not in submit
+    assert "clearContentReviewDraft();" in submit
+    assert "вкладку можно закрыть" in submit
+
+
+def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reupload() -> None:
+    flow = APP[
+        APP.index("async function persistContentReviewVideoEvidence") :
+        APP.index("async function submitContentReview(")
+    ]
+    retry_branch = flow[
+        flow.index('if (existing?.status === "commit_pending")') :
+        flow.index("const frameFiles = await buildContentReviewFrameFiles")
+    ]
+    assert "uploadPrivateObject" not in retry_branch
+    assert "frames: existing.frames" in retry_branch
+    assert "technicalMetrics: existing.technicalMetrics" in retry_branch
+    assert "idempotencyKey: existing.commitIdempotencyKey" in retry_branch
+    assert retry_branch.index("await state.api.commitContentReviewEvidence") < retry_branch.index("return promoteReady(existing)")
+
+    assert 'status: "commit_pending"' in flow
+    assert "commitIdempotencyKey: crypto.randomUUID()" in flow
+    assert "frames: frameFiles.map" in flow
+    assert flow.index("persistContentReviewDraft(form, { durableEvidence: pending })") < flow.index("commitStarted = true")
+    assert "idempotencyKey: pending.commitIdempotencyKey" in flow
+    assert 'status: "ready"' in flow
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2" in APP
+    assert "upsert: false" in API
+
+
+def test_content_review_draft_and_progress_are_recoverable_and_accessible() -> None:
+    for marker in (
+        "contentReviewDraftStorageKey",
+        "persistContentReviewDraft",
+        "restoreContentReviewDraft",
+        "clearContentReviewDraft",
+        "CONTENT_REVIEW_DRAFT_MAX_AGE_MS",
+        "state.contentReview.durableEvidence",
+    ):
+        assert marker in APP
+    assert "organizationId}:${userId}" in APP
+    assert 'data-content-review-draft-status role="status" aria-live="polite"' in VIEW
+    assert 'aria-busy="${busy ? "true" : "false"}"' in VIEW
+    assert 'phase === "saving_evidence"' in VIEW
+    assert 'phase === "queueing"' in VIEW
+    assert "Сохраняем evidence" in VIEW
+    assert "Проверка в фоновой очереди" in VIEW
+    assert "Можно закрыть вкладку" in VIEW
+
+
+def test_frame_materialization_produces_exact_jpeg_blobs_hashes_and_timecodes() -> None:
+    module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
+    script = f"""
+import {{ buildContentReviewFrameFiles }} from {json.dumps(module_url)};
+const bytes = new Uint8Array(160).fill(127);
+const encoded = btoa(String.fromCharCode(...bytes));
+const frames = Array.from({{ length: 4 }}, () => `data:image/jpeg;base64,${{encoded}}`);
+const files = await buildContentReviewFrameFiles({{
+  frames,
+  technical_metrics: {{
+    source_type: "video",
+    sampled_at_seconds: [0.2, 1, 2, 7.125]
+  }}
+}});
+if (files.length !== 4) throw new Error("frame count");
+for (const file of files) {{
+  if (!(file.blob instanceof Blob) || file.blob.type !== "image/jpeg") throw new Error("blob");
+  if (!/^[0-9a-f]{{64}}$/.test(file.sha256)) throw new Error("sha256");
+  if (file.sizeBytes !== 160) throw new Error("size");
+}}
+if (files[3].timecodeSeconds !== 7.125) throw new Error("timecode");
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_api_uses_evidence_rpcs_and_edge_dispatch_is_non_blocking() -> None:
+    module_url = (APP_DIR / "supabase-api.js").resolve().as_uri()
+    script = f"""
+globalThis.window = {{
+  sessionStorage: {{ getItem: () => null, setItem: () => {{}} }}
+}};
+const {{ CreatorApi }} = await import({json.dumps(module_url)});
+const organizationId = "11111111-1111-4111-8111-111111111111";
+const userId = "22222222-2222-4222-8222-222222222222";
+const mediaId = "33333333-3333-4333-8333-333333333333";
+const evidenceId = "44444444-4444-4444-8444-444444444444";
+const reviewId = "55555555-5555-4555-8555-555555555555";
+const commitKey = "66666666-6666-4666-8666-666666666666";
+const prefix = `${{organizationId}}/${{userId}}/`;
+const objectNames = Array.from({{ length: 4 }}, (_, index) => `${{prefix}}review-evidence/${{evidenceId}}/${{index}}.jpg`);
+const calls = [];
+const rpc = async (name, {{ p_payload }}) => {{
+  calls.push([name, p_payload]);
+  if (name === "creator_prepare_content_review_evidence") return {{ data: {{
+    evidence_id: evidenceId,
+    frame_object_names: objectNames,
+    expires_at: new Date(Date.now() + 600000).toISOString()
+  }}, error: null }};
+  if (name === "creator_commit_content_review_evidence") return {{ data: {{ evidence_id: evidenceId, status: "ready" }}, error: null }};
+  if (name === "creator_start_content_review") return {{ data: {{ review_id: reviewId, status: "queued" }}, error: null }};
+  throw new Error(name);
+}};
+const invoked = [];
+const api = new CreatorApi({{
+  schema: () => ({{ rpc }}),
+  auth: {{ getSession: async () => ({{ data: {{ session: {{ access_token: "token" }} }}, error: null }}) }},
+  functions: {{ invoke: async (_name, options) => {{ invoked.push(options.body); return {{ data: null, error: {{ code: "functions_http_error" }} }}; }} }},
+  storage: {{ from: () => ({{ upload: async () => ({{ data: {{}}, error: null }}), remove: async () => ({{ error: null }}) }}) }}
+}}, {{ RPC_SCHEMA: "public", STORAGE_BUCKET: "contentengine-private" }});
+api.commitBootstrapContext({{
+  organization: {{ id: organizationId }},
+  storage: {{ bucket: "contentengine-private", path_prefix: prefix }}
+}});
+const prepared = await api.prepareContentReviewEvidence({{ mediaId, frameCount: 4 }});
+if (prepared.evidenceId !== evidenceId || prepared.frameObjectNames.length !== 4) throw new Error("prepare");
+await api.commitContentReviewEvidence({{
+  evidenceId,
+  technicalMetrics: {{ source_type: "video", frame_count: 4 }},
+  idempotencyKey: commitKey,
+  frames: objectNames.map((object_name, index) => ({{
+    object_name, sha256: "a".repeat(64), size_bytes: 160, timecode_seconds: index
+  }}))
+}});
+const started = await api.startContentReview({{
+  media_id: mediaId,
+  platform: "youtube",
+  content_kind: "informational",
+  product_category: "other",
+  people_present: "no",
+  technical_metrics: {{ source_type: "video", frame_count: 4 }},
+  evidence_id: evidenceId
+}});
+await new Promise((resolve) => setTimeout(resolve, 0));
+if (started.run.id !== reviewId) throw new Error("run lost");
+if (started.analysis_request.status !== "background_queued") throw new Error("dispatch not queued");
+if (invoked.length !== 1 || Object.keys(invoked[0]).sort().join(",") !== "action,review_id") throw new Error(JSON.stringify(invoked));
+const startPayload = calls.find(([name]) => name === "creator_start_content_review")[1];
+if (startPayload.evidence_id !== evidenceId || "frames" in startPayload) throw new Error("start payload");
+const commitPayload = calls.find(([name]) => name === "creator_commit_content_review_evidence")[1];
+if (commitPayload.technical_metrics?.source_type !== "video") throw new Error("evidence metrics");
+if (commitPayload.idempotency_key !== commitKey) throw new Error("evidence commit key");
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_quality_compliance_and_recommendations_are_independent_and_escaped() -> None:
