@@ -65,8 +65,11 @@ Current state:
   completion prevent a second provider POST after dispatch;
 - manager health exposes queue age, retry wait, dead letters and
   outcome-unknown incidents;
-- runtime pgTAP, production deployment and a provider-free live smoke are still
-  required before this slice is called deployed.
+- the full CI suite, runtime pgTAP and production deployment completed on
+  2026-07-17 ([CI 29591046590](https://github.com/Alisia777/ContentEngine/actions/runs/29591046590),
+  [deploy 29591279320](https://github.com/Alisia777/ContentEngine/actions/runs/29591279320));
+- a provider-free live smoke confirmed the new Pages assets and a `401` from
+  the unauthenticated content-review endpoint.  No paid provider call was made.
 
 Done when:
 
