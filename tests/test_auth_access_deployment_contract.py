@@ -76,6 +76,9 @@ def test_optional_webhook_secret_is_masked_and_never_required_for_deploy() -> No
     )
     assert 'echo "::add-mask::$RESEND_WEBHOOK_SECRET"' in step["run"]
     assert 'if [ -z "${RESEND_WEBHOOK_SECRET:-}" ]' in step["run"]
+    assert "supabase secrets list" in step["run"]
+    assert "--output json" in step["run"]
+    assert 'value.get("name") == "RESEND_WEBHOOK_SECRET"' in step["run"]
     assert "supabase secrets unset RESEND_WEBHOOK_SECRET" in step["run"]
     assert 'RESEND_WEBHOOK_SECRET="$RESEND_WEBHOOK_SECRET"' in step["run"]
     assert "echo $RESEND_WEBHOOK_SECRET" not in step["run"]

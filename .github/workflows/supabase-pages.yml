@@ -139,9 +139,17 @@ jobs:
           RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
         run: |
           if [ -z "${RESEND_WEBHOOK_SECRET:-}" ]; then
-            echo "RESEND_WEBHOOK_SECRET is not configured; removing any previously synchronized webhook secret."
-            supabase secrets unset RESEND_WEBHOOK_SECRET \
-              --project-ref "$SUPABASE_PROJECT_REF"
+            if supabase secrets list \
+              --project-ref "$SUPABASE_PROJECT_REF" \
+              --output json \
+              | python -c 'import json, sys; values = json.load(sys.stdin); raise SystemExit(0 if any(isinstance(value, dict) and value.get("name") == "RESEND_WEBHOOK_SECRET" for value in values) else 1)'
+            then
+              echo "RESEND_WEBHOOK_SECRET is not configured; removing the previously synchronized webhook secret."
+              supabase secrets unset RESEND_WEBHOOK_SECRET \
+                --project-ref "$SUPABASE_PROJECT_REF"
+            else
+              echo "RESEND_WEBHOOK_SECRET is not configured and no synchronized webhook secret exists."
+            fi
             exit 0
           fi
           echo "::add-mask::$RESEND_WEBHOOK_SECRET"
