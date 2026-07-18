@@ -397,7 +397,10 @@ select ok(
 select ok(
   (
     select response ?& array['ok', 'batches', '_meta']
-      and jsonb_object_length(response) = 3
+      and (
+        select count(*) = 3
+        from jsonb_object_keys(response)
+      )
     from generation_archive_first
   ),
   'archive response has only the documented top-level keys'
