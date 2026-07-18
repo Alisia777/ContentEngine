@@ -311,6 +311,8 @@ def test_server_completion_requires_the_configured_practice_receipts() -> None:
     assert "knowledge_remediation" in sql
     assert "freeze checklist identity" in sql
     assert "duplicate checklist ids" in sql
+    assert "when strpos(" in sql
+    assert "then coalesce(question.value ->> 'id', '')" in sql
     assert "course_practice_required:" in SUPABASE_API
     assert "training_progress_sync_required:" in SUPABASE_API
 

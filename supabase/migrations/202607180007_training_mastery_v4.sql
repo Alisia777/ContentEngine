@@ -620,8 +620,14 @@ begin
           else '[]'::jsonb
         end
       ) question(value)
-      where 'course_check_' || module.code || '_' ||
-        coalesce(question.value ->> 'id', '') = expected.question_code
+      where case
+        when strpos(
+          coalesce(question.value ->> 'id', ''),
+          'course_check_' || module.code || '_'
+        ) = 1 then coalesce(question.value ->> 'id', '')
+        else 'course_check_' || module.code || '_' ||
+          coalesce(question.value ->> 'id', '')
+      end = expected.question_code
     );
 
   if invalid_remediation_target_count <> 0 then
