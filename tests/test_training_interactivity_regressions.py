@@ -282,6 +282,15 @@ def test_practice_catalog_has_audience_metadata_and_one_unambiguous_answer() -> 
     assert "creator_complete_module" not in lowered
 
 
+def test_practice_migration_updates_training_modules_by_primary_code() -> None:
+    lowered = PRACTICE_MIGRATION.lower()
+
+    assert "module.id" not in lowered
+    assert "select\n    module.code," in lowered
+    assert "group by module.code" in lowered
+    assert "where module.code = patched.code" in lowered
+
+
 def test_mode_decision_and_completion_controllers_form_one_coherent_state_machine() -> None:
     payload = _run_javascript(
         r"""

@@ -288,7 +288,7 @@ with practice_catalog(
 ),
 patched_modules as (
   select
-    module.id,
+    module.code,
     jsonb_agg(
       case
         when catalog.walkthrough_id is null then walkthrough.item
@@ -317,7 +317,7 @@ patched_modules as (
       'publishing_funnel',
       'security_wb'
     ])
-  group by module.id
+  group by module.code
 )
 update content_factory.training_modules module
 set
@@ -329,7 +329,7 @@ set
   ),
   updated_at = now()
 from patched_modules patched
-where module.id = patched.id
+where module.code = patched.code
   and patched.patched_count > 0;
 
 do $training_walkthrough_practice_contract$
