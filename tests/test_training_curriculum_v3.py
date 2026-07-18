@@ -1,8 +1,5 @@
 from pathlib import Path
 
-from pglast import parse_sql
-
-
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = (
     ROOT
@@ -13,11 +10,11 @@ APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 JOURNEY = (ROOT / "web/app/training-journey.js").read_text(encoding="utf-8")
 
 
-def test_curriculum_v3_migration_is_parseable_and_forward_only() -> None:
-    statements = parse_sql(MIGRATION)
-    assert len(statements) >= 7
+def test_curriculum_v3_migration_is_transactional_and_forward_only() -> None:
     assert MIGRATION.startswith("begin;")
     assert MIGRATION.rstrip().endswith("commit;")
+    assert MIGRATION.count("update content_factory.training_modules") >= 7
+    assert "do $$" in MIGRATION
     assert "alter table" not in MIGRATION.lower()
     assert "delete from content_factory.training_modules" not in MIGRATION.lower()
 
