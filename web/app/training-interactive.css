@@ -271,6 +271,33 @@
   background: var(--ti-gold-pale);
 }
 
+.training-walkthrough__meta .training-walkthrough__audience-badge {
+  border: 1px solid color-mix(in srgb, var(--ti-forest) 22%, var(--ti-line));
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.training-walkthrough.is-audience-recommended {
+  border-color: color-mix(in srgb, var(--ti-gold) 52%, var(--ti-line));
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--ti-gold) 12%, transparent);
+}
+
+.training-walkthrough.is-audience-recommended .training-walkthrough__audience-badge {
+  color: var(--ti-gold-deep);
+  border-color: color-mix(in srgb, var(--ti-gold) 54%, var(--ti-line));
+  background: var(--ti-gold-pale);
+}
+
+.training-walkthrough.is-mastery-required .training-walkthrough__audience-badge {
+  color: var(--ti-on-primary);
+  border-color: var(--ti-forest);
+  background: var(--ti-forest);
+}
+
+.training-walkthrough.is-audience-reference .training-walkthrough__audience-badge {
+  color: var(--ti-ink-soft);
+  background: var(--ti-paper);
+}
+
 .training-walkthrough.is-training-complete {
   border-color: rgba(24, 108, 79, 0.38);
   box-shadow: 0 14px 34px rgba(24, 108, 79, 0.12);
@@ -774,7 +801,7 @@
 }
 
 @media (min-width: 720px) {
-  .course-learning-flow ol { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .course-learning-flow ol { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   .training-interactive__audience {
     grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.2fr);
@@ -845,7 +872,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .training-walkthrough__progress-track > span,
-  .training-interactive__course-progress [role="progressbar"] > span {
+  .training-interactive__course-progress [role="progressbar"] > span,
+  .training-walkthrough__audience-badge {
     transition: none;
   }
 }
@@ -859,5 +887,9 @@
   .training-interactive__audience,
   .course-learning-flow {
     border: 1px solid CanvasText;
+  }
+
+  .training-walkthrough.is-audience-recommended {
+    border: 2px solid Highlight;
   }
 }

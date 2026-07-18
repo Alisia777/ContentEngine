@@ -150,7 +150,7 @@ def test_training_has_modes_timeline_decision_practice_and_explicit_completion()
     assert "&lt;script&gt;unsafe()&lt;/script&gt;" in markup
 
 
-def test_audience_filter_is_persistent_accessible_and_separate_from_certification() -> None:
+def test_global_learning_track_highlights_practice_without_a_second_role_picker() -> None:
     for export in ("setTrainingAudience", "trainingAudienceStorageKey"):
         assert f"export function {export}(" in MODULE
 
@@ -222,16 +222,11 @@ def test_audience_filter_is_persistent_accessible_and_separate_from_certificatio
     assert payload["missingKey"] is None
 
     markup = payload["markup"]
-    for audience in ("all", "self", "ai", "publish", "review"):
-        assert f'data-training-audience-value="{audience}"' in markup
-    assert markup.count('data-action="training-audience-select"') == 5
+    assert 'data-action="training-audience-select"' not in markup
+    assert 'data-training-audience-value=' not in markup
     assert markup.count('data-training-audience="') == 5
-    assert 'data-training-audience-result' in markup
-    assert "Снимаю сам" in markup
-    assert "Генерирую с ИИ" in markup
-    assert "Публикую" in markup
-    assert "Показать всё" in markup
-    assert "сертификац" in markup.casefold() or "обязательн" in markup.casefold()
+    assert markup.count('data-training-audience-badge') == 5
+    assert "автоматически" in markup.casefold()
 
     audience_controller = MODULE[
         MODULE.index("export function setTrainingAudience(") :
@@ -247,16 +242,13 @@ def test_audience_filter_is_persistent_accessible_and_separate_from_certificatio
         assert forbidden not in audience_controller
 
     render_course = _function_source("renderCourse")
-    persist_audience = _function_source("persistTrainingAudience")
     restore_audience = _function_source("restoreTrainingAudience")
     click_handler = _function_source("handleClick")
     assert "restoreTrainingAudience(course.code)" in render_course
-    assert "window.localStorage.setItem" in persist_audience
-    assert "window.localStorage.getItem" in restore_audience
-    assert "setTrainingAudience(courseRoot, saved)" in restore_audience
-    assert "training-audience-select" in click_handler
-    assert "persistTrainingAudience(" in click_handler
-    assert "completeModule(" not in persist_audience
+    assert "restoreLearningTrack()" in restore_audience
+    assert "localStorage" not in restore_audience
+    assert "training-audience-select" not in click_handler
+    assert "persistTrainingAudience(" not in click_handler
     assert "completeModule(" not in restore_audience
 
 

@@ -249,10 +249,10 @@ def test_achievement_sound_is_explicit_and_motion_has_accessible_fallback() -> N
 
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
-    assert './training-journey.css?v=20260718.2' in INDEX
-    assert './app.js?v=20260718.5' in INDEX
-    assert 'from "./training-journey.js?v=20260718.2"' in APP
-    assert 'from "./training-interactive.js?v=20260718.3"' in APP
+    assert './training-journey.css?v=20260718.3' in INDEX
+    assert './app.js?v=20260718.6' in INDEX
+    assert 'from "./training-journey.js?v=20260718.3"' in APP
+    assert 'from "./training-interactive.js?v=20260718.4"' in APP
 
 
 def test_missing_quiz_answers_move_focus_to_the_problem() -> None:

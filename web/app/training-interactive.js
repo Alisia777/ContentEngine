@@ -80,6 +80,16 @@ function normalizeTranscriptItem(item, index) {
   };
 }
 
+function normalizeChecklistItem(item, index, walkthroughId) {
+  const source = item && typeof item === "object" ? item : { text: item };
+  const text = cleanText(source.text || source.label || source.title, "", 300);
+  if (!text) return null;
+  return {
+    id: cleanId(source.id, `${walkthroughId}_check_${index + 1}`),
+    text,
+  };
+}
+
 function normalizePractice(raw, walkthroughIndex) {
   if (!raw || typeof raw !== "object") return null;
   const options = (Array.isArray(raw.options) ? raw.options : [])
@@ -106,7 +116,7 @@ function normalizePractice(raw, walkthroughIndex) {
     options,
     successMessage: cleanText(
       raw.success_message ?? raw.successMessage,
-      "Решение верное. Теперь подтвердите самопроверку и завершите разбор.",
+      "Решение верное. Завершите кадры и самопроверку — тренер навыка покажет следующий обязательный шаг.",
       600,
     ),
   };
@@ -129,6 +139,7 @@ function normalizeAudience(raw, walkthroughId) {
 
 function normalizeWalkthrough(item, index) {
   if (!item || typeof item !== "object") return null;
+  const id = cleanId(item.id, `walkthrough_${index + 1}`);
   const frames = (Array.isArray(item.frames) ? item.frames : [])
     .slice(0, MAX_FRAMES)
     .map(normalizeFrame)
@@ -143,17 +154,26 @@ function normalizeWalkthrough(item, index) {
     time: frame.time,
     text: `${frame.title}. ${frame.body}`,
   }));
+  const checklistIds = new Map();
   const checklist = (Array.isArray(item.checklist) ? item.checklist : [])
     .slice(0, MAX_CHECKLIST_ITEMS)
-    .map((entry) => cleanText(entry, "", 300))
-    .filter(Boolean);
+    .map((entry, checklistIndex) => normalizeChecklistItem(entry, checklistIndex, id))
+    .filter(Boolean)
+    .map((entry, checklistIndex) => {
+      const occurrence = checklistIds.get(entry.id) || 0;
+      checklistIds.set(entry.id, occurrence + 1);
+      if (!occurrence) return entry;
+      return {
+        ...entry,
+        id: cleanId(`${entry.id}_${occurrence + 1}`, `${id}_check_${checklistIndex + 1}`),
+      };
+    });
   const practice = normalizePractice(item.practice, index);
-  const fallbackDeliverable = checklist.at(-1)
+  const fallbackDeliverable = checklist.at(-1)?.text
     || frames.at(-1)?.cue
     || frames.at(-1)?.title
     || "Понятный следующий шаг без риска для рабочей задачи.";
 
-  const id = cleanId(item.id, `walkthrough_${index + 1}`);
   return {
     id,
     eyebrow: cleanText(item.eyebrow, "Интерактивный видеоразбор", 100),
@@ -207,9 +227,8 @@ export function trainingInteractiveMarkup(courseCode, walkthroughs) {
           <p class="training-interactive__eyebrow">Практика перед рабочим действием</p>
           <h2 id="${escapeHtml(headingId)}">Интерактивные видеоразборы</h2>
         </div>
-        <p>Запускайте разбор вручную, двигайтесь по кадрам и отметьте итоговую самопроверку. Это учебная репетиция без рабочих действий и списаний.</p>
+        <p>Запускайте разбор вручную, двигайтесь по кадрам и отметьте итоговую самопроверку. Практики выбранной роли выделяются автоматически; остальные остаются доступны для повторения.</p>
       </header>
-      ${audiencePickerMarkup()}
       <div class="training-interactive__course-progress">
         <div>
           <span>Практика курса</span>
@@ -254,6 +273,7 @@ function walkthroughMarkup(courseCode, walkthrough, index) {
           <p>${escapeHtml(walkthrough.summary)}</p>
         </div>
         <div class="training-walkthrough__meta">
+          <span class="training-walkthrough__audience-badge" data-training-audience-badge>Практика курса</span>
           <span class="training-walkthrough__status" data-training-status role="status" aria-live="polite">Начните разбор</span>
           <span>${escapeHtml(formatDuration(walkthrough.durationSeconds))}</span>
           ${walkthrough.reviewedAt ? `<span>Проверено ${escapeHtml(walkthrough.reviewedAt)}</span>` : ""}
@@ -297,26 +317,6 @@ function walkthroughMarkup(courseCode, walkthrough, index) {
       ${practiceMarkup(courseCode, walkthrough)}
       ${checklistMarkup(courseCode, walkthrough)}
     </article>
-  `;
-}
-
-function audiencePickerMarkup() {
-  return `
-    <section class="training-interactive__audience" aria-labelledby="training-audience-title">
-      <div>
-        <p class="training-interactive__eyebrow">Кому нужен этот материал</p>
-        <h3 id="training-audience-title">Выберите свою задачу</h3>
-        <p>Покажем сначала самые полезные разборы. Фильтр не отменяет обязательные уроки, мини-тест и сертификацию.</p>
-      </div>
-      <div class="training-interactive__audience-buttons" role="group" aria-label="Учебный трек">
-        <button type="button" data-action="training-audience-select" data-training-audience-value="all" aria-pressed="true">Показать всё</button>
-        <button type="button" data-action="training-audience-select" data-training-audience-value="self" aria-pressed="false">Снимаю сам</button>
-        <button type="button" data-action="training-audience-select" data-training-audience-value="ai" aria-pressed="false">Генерирую с ИИ</button>
-        <button type="button" data-action="training-audience-select" data-training-audience-value="publish" aria-pressed="false">Публикую в соцсетях</button>
-        <button type="button" data-action="training-audience-select" data-training-audience-value="review" aria-pressed="false">Проверяю ролики</button>
-      </div>
-      <p class="training-interactive__audience-result" data-training-audience-result role="status" aria-live="polite">Показаны все практические разборы курса.</p>
-    </section>
   `;
 }
 
@@ -389,9 +389,9 @@ function checklistMarkup(courseCode, walkthrough) {
   return `
     <fieldset class="training-walkthrough__checklist">
       <legend>Самопроверка после разбора</legend>
-      ${walkthrough.checklist.map((item, index) => {
-        const id = `training-check-${courseCode}-${walkthrough.id}-${index + 1}`;
-        return `<label for="${escapeHtml(id)}"><input id="${escapeHtml(id)}" type="checkbox" data-training-check="${index}" /><span>${escapeHtml(item)}</span></label>`;
+      ${walkthrough.checklist.map((item) => {
+        const id = `training-check-${courseCode}-${walkthrough.id}-${item.id}`;
+        return `<label for="${escapeHtml(id)}"><input id="${escapeHtml(id)}" type="checkbox" data-training-check="${escapeHtml(item.id)}" /><span>${escapeHtml(item.text)}</span></label>`;
       }).join("")}
     </fieldset>
   `;
@@ -583,16 +583,26 @@ export function syncTrainingCourseProgress(root) {
     || (root?.matches?.("[data-training-interactive-course]") ? root : null);
   if (!course) return { completed: 0, total: 0, percent: 0 };
   const walkthroughs = Array.from(course.querySelectorAll?.("[data-training-walkthrough]") || []);
-  const completed = walkthroughs.filter((item) => item.dataset?.trainingComplete === "true").length;
-  const total = walkthroughs.length;
+  const audience = String(course.dataset?.trainingAudienceSelected || "all");
+  const recommended = audience === "all"
+    ? walkthroughs
+    : walkthroughs.filter((item) => (
+      item.dataset?.trainingMasteryRequired === "true"
+      || String(item.dataset?.trainingAudience || "").split(/\s+/u).includes(audience)
+    ));
+  const completed = recommended.filter((item) => item.dataset?.trainingComplete === "true").length;
+  const total = recommended.length;
+  const completedOverall = walkthroughs.filter((item) => item.dataset?.trainingComplete === "true").length;
   const percent = total ? Math.round((completed / total) * 100) : 0;
   const label = course.querySelector?.("[data-training-course-progress-label]");
-  if (label) label.textContent = `${completed} из ${total} завершено`;
+  if (label) label.textContent = audience === "all"
+    ? `${completedOverall} из ${walkthroughs.length} завершено`
+    : `${completed} из ${total} в вашем акценте · ${completedOverall} из ${walkthroughs.length} всего`;
   const progress = course.querySelector?.("[data-training-course-progress]");
   progress?.setAttribute?.("aria-valuenow", String(percent));
   const fill = course.querySelector?.("[data-training-course-progress-fill]");
   if (fill?.style) fill.style.width = `${percent}%`;
-  return { completed, total, percent };
+  return { completed, total, percent, completedOverall, totalOverall: walkthroughs.length };
 }
 
 export function setTrainingAudience(root, audience) {
@@ -606,13 +616,22 @@ export function setTrainingAudience(root, audience) {
     button.setAttribute?.("aria-pressed", button.dataset?.trainingAudienceValue === normalized ? "true" : "false");
   });
   const walkthroughs = Array.from(course.querySelectorAll?.("[data-training-walkthrough]") || []);
-  let visible = 0;
+  let recommended = 0;
   walkthroughs.forEach((walkthrough) => {
     const audiences = String(walkthrough.dataset?.trainingAudience || "").split(/\s+/u).filter(Boolean);
-    const show = normalized === "all" || audiences.includes(normalized);
-    walkthrough.hidden = !show;
-    walkthrough.setAttribute?.("aria-hidden", show ? "false" : "true");
-    if (show) visible += 1;
+    const roleMatches = normalized === "all" || audiences.includes(normalized);
+    const masteryRequired = walkthrough.dataset?.trainingMasteryRequired === "true";
+    const matches = roleMatches || masteryRequired;
+    walkthrough.hidden = false;
+    walkthrough.setAttribute?.("aria-hidden", "false");
+    walkthrough.classList?.toggle?.("is-audience-recommended", matches);
+    walkthrough.classList?.toggle?.("is-audience-reference", !matches);
+    walkthrough.classList?.toggle?.("is-mastery-required", masteryRequired);
+    const badge = walkthrough.querySelector?.("[data-training-audience-badge]");
+    if (badge) badge.textContent = masteryRequired
+      ? "Обязательная лаборатория курса"
+      : matches ? "Ваш практический акцент" : "Дополнительная практика";
+    if (matches) recommended += 1;
   });
   const labels = {
     all: "все практические разборы курса",
@@ -622,7 +641,10 @@ export function setTrainingAudience(root, audience) {
     review: "разборы для проверки качества и рисков",
   };
   const result = course.querySelector?.("[data-training-audience-result]");
-  if (result) result.textContent = `Показаны ${labels[normalized]}: ${visible} из ${walkthroughs.length}. Обязательность курса не изменилась.`;
+  if (result) result.textContent = normalized === "all"
+    ? `Показаны ${labels[normalized]}: ${walkthroughs.length}.`
+    : `Выделены ${labels[normalized]}: ${recommended} из ${walkthroughs.length}. Остальные разборы доступны как дополнительная практика.`;
+  syncTrainingCourseProgress(course);
   return normalized;
 }
 

@@ -2,6 +2,13 @@ const TRACK_STORAGE_PREFIX = "contentengine.learning-track.v1";
 const LESSON_STORAGE_PREFIX = "contentengine.lesson-journey.v2";
 const ACHIEVEMENT_STORAGE_PREFIX = "contentengine.course-achievement.v1";
 
+const DEFAULT_MASTERY_WEIGHTS = Object.freeze({
+  lessons: 35,
+  practice: 30,
+  test: 25,
+  confirmation: 10,
+});
+
 export const LEARNING_TRACKS = Object.freeze({
   all: Object.freeze({
     id: "all",
@@ -236,6 +243,97 @@ export function lessonJourneyPercent(journey, lessonsOrTotal) {
   const total = lessonCatalog(lessonsOrTotal).length;
   if (!total) return 0;
   return Math.round((normalizeLessonJourney(journey, lessonsOrTotal).understood.length / total) * 100);
+}
+
+function uniqueStrings(values) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  )];
+}
+
+export function normalizeCourseMastery(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const rawWeights = source.xp && typeof source.xp === "object" ? source.xp : {};
+  const weights = Object.fromEntries(
+    Object.entries(DEFAULT_MASTERY_WEIGHTS).map(([key, fallback]) => {
+      const value = Number(rawWeights[key]);
+      return [key, Number.isFinite(value) && value >= 0 ? Math.min(100, value) : fallback];
+    }),
+  );
+  if (Object.values(weights).every((value) => value === 0)) {
+    Object.assign(weights, DEFAULT_MASTERY_WEIGHTS);
+  }
+  return {
+    requiredWalkthroughIds: uniqueStrings(source.required_walkthrough_ids),
+    lessonRequirement: source.lesson_requirement === "all" ? "all" : "recommended",
+    weights,
+  };
+}
+
+export function courseMasterySnapshot({
+  requiredLessonIds = [],
+  understoodLessonIds = [],
+  requiredWalkthroughIds = [],
+  completedWalkthroughIds = [],
+  testPassed = false,
+  confirmationCount = 0,
+  confirmedCount = 0,
+  weights = DEFAULT_MASTERY_WEIGHTS,
+} = {}) {
+  const lessons = uniqueStrings(requiredLessonIds);
+  const understood = new Set(uniqueStrings(understoodLessonIds));
+  const walkthroughs = uniqueStrings(requiredWalkthroughIds);
+  const completedWalkthroughs = new Set(uniqueStrings(completedWalkthroughIds));
+  const lessonDone = lessons.filter((id) => understood.has(id)).length;
+  const practiceDone = walkthroughs.filter((id) => completedWalkthroughs.has(id)).length;
+  const confirmations = Math.max(0, Math.trunc(Number(confirmationCount) || 0));
+  const confirmed = Math.max(0, Math.min(confirmations, Math.trunc(Number(confirmedCount) || 0)));
+  const lessonRatio = lessons.length ? lessonDone / lessons.length : 1;
+  const practiceRatio = walkthroughs.length ? practiceDone / walkthroughs.length : 1;
+  const confirmationRatio = confirmations ? confirmed / confirmations : 1;
+  const safeWeights = { ...DEFAULT_MASTERY_WEIGHTS, ...(weights || {}) };
+  const totalWeight = Object.values(safeWeights).reduce(
+    (total, value) => total + Math.max(0, Number(value) || 0),
+    0,
+  ) || 100;
+  const earnedWeight = (
+    lessonRatio * Math.max(0, Number(safeWeights.lessons) || 0)
+    + practiceRatio * Math.max(0, Number(safeWeights.practice) || 0)
+    + (testPassed === true ? 1 : 0) * Math.max(0, Number(safeWeights.test) || 0)
+    + confirmationRatio * Math.max(0, Number(safeWeights.confirmation) || 0)
+  );
+  const tasks = {
+    lessons: {
+      complete: lessonDone === lessons.length,
+      done: lessonDone,
+      total: lessons.length,
+    },
+    practice: {
+      complete: practiceDone === walkthroughs.length,
+      done: practiceDone,
+      total: walkthroughs.length,
+    },
+    test: {
+      complete: testPassed === true,
+      done: testPassed === true ? 1 : 0,
+      total: 1,
+    },
+    confirmation: {
+      complete: confirmed === confirmations,
+      done: confirmed,
+      total: confirmations,
+    },
+  };
+  const nextStep = ["lessons", "practice", "test", "confirmation"]
+    .find((key) => !tasks[key].complete) || "done";
+  return {
+    xp: Math.max(0, Math.min(100, Math.round((earnedWeight / totalWeight) * 100))),
+    ready: nextStep === "done",
+    nextStep,
+    tasks,
+  };
 }
 
 export function courseAchievement(courseCode) {

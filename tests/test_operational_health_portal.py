@@ -157,6 +157,6 @@ def test_operational_card_is_responsive_theme_aware_and_cache_busted() -> None:
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260718.5' in INDEX
-    assert './supabase-api.js?v=20260718.1' in APP
+    assert './app.js?v=20260718.6' in INDEX
+    assert './supabase-api.js?v=20260718.2' in APP
     assert 'from "./manager-dashboard-view.js?v=20260718.1"' in APP

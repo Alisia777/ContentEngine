@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260718.1";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260718.2";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -88,25 +88,26 @@ import {
   setTrainingWalkthroughStep,
   stopTrainingWalkthrough,
   syncTrainingWalkthroughStatus,
-  trainingAudienceStorageKey,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260718.3";
+} from "./training-interactive.js?v=20260718.4";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
   achievementStorageKey,
   courseAchievement,
+  courseMasterySnapshot,
   learningTrackStorageKey,
   lessonJourneyPercent,
   lessonJourneyStorageKey,
+  normalizeCourseMastery,
   normalizeLearningTrack,
   normalizeLessonJourney,
   playTrainingFanfare,
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260718.2";
+} from "./training-journey.js?v=20260718.3";
 import {
   myWorkRequestOptions,
   myWorkWorkspaceMarkup,
@@ -165,6 +166,12 @@ const COURSE_AUDIENCE_COPY = Object.freeze({
   video_quality: "Съёмка и ИИ · проверка всем",
   publishing_funnel: "Публикаторам · остальным как рабочая база",
   security_wb: "Всем ролям · товар и деньги",
+});
+const COURSE_MASTERY_FALLBACKS = Object.freeze({
+  factory_basics: Object.freeze({ required_walkthrough_ids: ["first_login_route"] }),
+  security_wb: Object.freeze({ required_walkthrough_ids: ["substitute_article_match", "payout_status_route"] }),
+  video_quality: Object.freeze({ required_walkthrough_ids: ["eight_second_quality"] }),
+  publishing_funnel: Object.freeze({ required_walkthrough_ids: ["advertising_stop_decision"] }),
 });
 const COURSE_KNOWLEDGE_PRESENTATION = Object.freeze({
   factory_basics: Object.freeze({
@@ -881,6 +888,7 @@ const state = {
     loadRequests: new Map(),
     saveTimers: new Map(),
     saveQueues: new Map(),
+    completionInFlight: new Set(),
   },
   generationArchive: {
     filters: normalizeGenerationFilters(),
@@ -1721,6 +1729,123 @@ function courseLessonPlayerMarkup(course, journey) {
   `;
 }
 
+function courseRequiredLessonIds(course) {
+  const lessons = Array.isArray(course?.lessons) ? course.lessons : [];
+  if (course?.mastery?.lessonRequirement === "all") return lessons.map((lesson) => lesson.id);
+  return lessons.filter((lesson) => lesson.trackRecommended).map((lesson) => lesson.id);
+}
+
+function courseMasteryState(course) {
+  const journey = restoreLessonJourney(course);
+  const serverCompleted = state.bootstrap?.training?.completedModules?.includes(course.code) === true;
+  const requiredLessonIds = courseRequiredLessonIds(course);
+  const requiredWalkthroughIds = course.mastery?.requiredWalkthroughIds || [];
+  const completedWalkthroughIds = serverCompleted
+    ? requiredWalkthroughIds
+    : Array.from(document.querySelectorAll(
+      `[data-training-course="${CSS.escape(course.code)}"][data-training-complete="true"]`,
+    )).map((root) => String(root.dataset.trainingWalkthrough || "")).filter(Boolean);
+  const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
+  return courseMasterySnapshot({
+    requiredLessonIds,
+    understoodLessonIds: serverCompleted ? requiredLessonIds : journey.understoodLessonIds,
+    requiredWalkthroughIds,
+    completedWalkthroughIds,
+    testPassed: state.courseCheckResults[course.code]?.passed === true
+      || serverCompleted,
+    confirmationCount: confirmations.length,
+    confirmedCount: confirmations.filter((input) => input.checked).length,
+    weights: course.mastery?.weights,
+  });
+}
+
+function masteryTaskCopy(key, task) {
+  const labels = {
+    lessons: ["Изучите основной маршрут", "уроков отмечено понятными"],
+    practice: ["Завершите обязательную лабораторию", "практик подтверждено"],
+    test: ["Докажите знание на мини-тесте", "серверная проверка"],
+    confirmation: ["Подтвердите готовность", "пунктов самопроверки"],
+  };
+  const [title, suffix] = labels[key];
+  const status = task.total
+    ? `${task.done} из ${task.total} ${suffix}`
+    : "дополнительный шаг не требуется";
+  return { title, status };
+}
+
+function courseMasteryCoachMarkup(course) {
+  const tasks = ["lessons", "practice", "test", "confirmation"];
+  return `
+    <section class="card course-mastery-coach" data-course-mastery-coach data-course-code="${escapeHtml(course.code)}" aria-labelledby="course-mastery-title">
+      <header class="course-mastery-coach__header">
+        <div><p class="eyebrow">Тренер навыка · учебные XP</p><h2 id="course-mastery-title">Не просто прочитайте — подтвердите действие</h2><p>Блок считается освоенным после маршрута, лаборатории, мини-теста и финальной самопроверки.</p></div>
+        <div class="course-mastery-coach__score" aria-label="Текущий учебный опыт"><strong data-course-mastery-xp>0</strong><span>из 100 XP</span></div>
+      </header>
+      <div class="course-mastery-coach__bar" role="progressbar" aria-label="Освоение навыка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-course-mastery-progress><span data-course-mastery-progress-fill style="--mastery-progress:0%"></span></div>
+      <ol class="course-mastery-coach__tasks">
+        ${tasks.map((key, index) => {
+          const copy = masteryTaskCopy(key, { done: 0, total: key === "test" ? 1 : 0 });
+          return `<li data-course-mastery-task="${key}"><span aria-hidden="true">${index + 1}</span><div><strong>${escapeHtml(copy.title)}</strong><small data-course-mastery-status>${escapeHtml(copy.status)}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="training-mastery-next" data-mastery-step="${key}">Перейти <span aria-hidden="true">→</span></button></li>`;
+        }).join("")}
+      </ol>
+      <p class="course-mastery-coach__note"><span aria-hidden="true">◎</span> XP показывают только учебный прогресс: они не являются деньгами, рейтингом сотрудника или допуском к работе.</p>
+    </section>
+  `;
+}
+
+function syncCourseMasteryPanel(course = null) {
+  const courseCode = String(course?.code || document.querySelector("[data-course-lesson-player]")?.dataset.courseCode || "");
+  const activeCourse = course || learningCourses().find((item) => item.code === courseCode);
+  if (!activeCourse) return null;
+  const snapshot = courseMasteryState(activeCourse);
+  const root = document.querySelector("[data-course-mastery-coach]");
+  if (root) {
+    root.dataset.masteryReady = snapshot.ready ? "true" : "false";
+    const score = root.querySelector("[data-course-mastery-xp]");
+    const progress = root.querySelector("[data-course-mastery-progress]");
+    const fill = root.querySelector("[data-course-mastery-progress-fill]");
+    if (score) score.textContent = String(snapshot.xp);
+    progress?.setAttribute("aria-valuenow", String(snapshot.xp));
+    if (fill) fill.style.setProperty("--mastery-progress", `${snapshot.xp}%`);
+    root.querySelectorAll("[data-course-mastery-task]").forEach((item) => {
+      const key = item.dataset.courseMasteryTask;
+      const task = snapshot.tasks[key];
+      if (!task) return;
+      const copy = masteryTaskCopy(key, task);
+      item.classList.toggle("is-complete", task.complete);
+      item.classList.toggle("is-next", snapshot.nextStep === key);
+      const status = item.querySelector("[data-course-mastery-status]");
+      if (status) status.textContent = task.complete ? `Готово · ${copy.status}` : copy.status;
+      const button = item.querySelector('[data-action="training-mastery-next"]');
+      if (button) {
+        button.disabled = task.complete;
+        button.innerHTML = task.complete
+          ? '<span aria-hidden="true">✓</span> Готово'
+          : 'Перейти <span aria-hidden="true">→</span>';
+      }
+    });
+  }
+  const button = document.querySelector('[data-action="complete-course"]');
+  const completionInFlight = state.trainingProgress.completionInFlight.has(activeCourse.code);
+  if (button) {
+    button.disabled = !snapshot.ready || completionInFlight;
+    button.setAttribute("aria-busy", completionInFlight ? "true" : "false");
+  }
+  const reason = document.querySelector("[data-course-completion-reason]");
+  if (reason) {
+    const copy = {
+      lessons: "Сначала отметьте понятными все уроки вашего маршрута.",
+      practice: "Сначала завершите обязательную лабораторию и дождитесь сохранения прогресса.",
+      test: "Сначала пройдите мини-тест блока.",
+      confirmation: "Подтвердите все пункты финальной самопроверки.",
+      done: "Все четыре шага готовы — блок можно завершить.",
+    };
+    reason.textContent = copy[snapshot.nextStep];
+    reason.dataset.status = snapshot.ready ? "ready" : "pending";
+  }
+  return snapshot;
+}
+
 function syncCourseLessonJourney(course, journey, { focus = false, scroll = false } = {}) {
   const lessons = Array.from(document.querySelectorAll("[data-course-lesson]"));
   if (!lessons.length) return normalizeLessonJourney(journey, []);
@@ -1777,6 +1902,7 @@ function syncCourseLessonJourney(course, journey, { focus = false, scroll = fals
     lesson_state: understood.has(normalized.activeIndex) ? "understood" : "current",
     learning_track: restoreLearningTrack(),
   });
+  syncCourseMasteryPanel(course);
   return normalized;
 }
 
@@ -1868,6 +1994,27 @@ function learningCourses() {
             questions: knowledgeQuestions,
           }
         : null;
+      const mastery = normalizeCourseMastery(
+        meta.mastery && typeof meta.mastery === "object"
+          ? meta.mastery
+          : COURSE_MASTERY_FALLBACKS[module.code],
+      );
+      const knownLessonIds = new Set(lessonPath.allLessons.map((lesson) => lesson.id));
+      const knowledgeRemediation = Object.fromEntries(
+        Object.entries(
+          meta.knowledge_remediation && typeof meta.knowledge_remediation === "object"
+            ? meta.knowledge_remediation
+            : {},
+        )
+          .map(([questionCode, item]) => {
+            const source = item && typeof item === "object" ? item : {};
+            return [String(questionCode), {
+              lessonId: String(source.lesson_id || source.lessonId || ""),
+              tip: String(source.tip || "Повторите связанный урок и попробуйте снова.").slice(0, 500),
+            }];
+          })
+          .filter(([questionCode, item]) => questionCode && knownLessonIds.has(item.lessonId)),
+      );
       return {
         code: module.code,
         title: module.title,
@@ -1888,6 +2035,8 @@ function learningCourses() {
         glossary,
         completionChecklist,
         knowledgeCheck,
+        knowledgeRemediation,
+        mastery,
         interactiveWalkthroughs: normalizeInteractiveWalkthroughs(content.interactive_walkthroughs),
         lessonGroups: lessonPath.groups,
         allLessonCount: lessonPath.allLessons.length,
@@ -2320,6 +2469,34 @@ function renderMembershipLocked() {
   `;
 }
 
+function trainingAchievementShelfMarkup(courses, completedModules) {
+  const completed = completedModules instanceof Set ? completedModules : new Set(completedModules || []);
+  const unlocked = courses.filter((course) => completed.has(course.code)).length;
+  return `
+    <section class="card training-achievement-shelf" aria-labelledby="training-achievement-shelf-title">
+      <header class="training-achievement-shelf__header">
+        <div><p class="eyebrow">Коллекция навыков</p><h2 id="training-achievement-shelf-title">Ваши подтверждённые ачивки</h2><p>Значок открывается только после серверного подтверждения курса. Локальные отметки и XP сами по себе его не выдают.</p></div>
+        <span class="training-achievement-shelf__count">${unlocked} из ${courses.length}</span>
+      </header>
+      <ol class="training-achievement-shelf__grid">
+        ${courses.map((course) => {
+          const achievement = course.achievement?.name || course.achievement?.title
+            ? course.achievement
+            : courseAchievement(course.code);
+          const isUnlocked = completed.has(course.code);
+          return `
+            <li class="${isUnlocked ? "is-unlocked" : "is-locked"}">
+              <span class="training-achievement-shelf__badge" aria-hidden="true">${isUnlocked ? escapeHtml(achievement.icon || "✦") : "◇"}</span>
+              <div><strong>${escapeHtml(achievement.name || achievement.title || courseAchievement(course.code).name)}</strong><small>${isUnlocked ? "Подтверждено сервером" : "Откроется после курса"}</small></div>
+              <a href="#/learn/${encodeURIComponent(course.code)}" aria-label="${isUnlocked ? "Повторить" : "Открыть"} курс «${escapeHtml(course.title)}»">${isUnlocked ? "Повторить" : "Открыть"} <span aria-hidden="true">→</span></a>
+            </li>
+          `;
+        }).join("")}
+      </ol>
+    </section>
+  `;
+}
+
 function renderLearningHome() {
   const completed = new Set(state.bootstrap.training.completedModules);
   const firstShift = ensureFirstShiftState();
@@ -2430,6 +2607,8 @@ function renderLearningHome() {
       </section>
 
       ${learningTrackPickerMarkup()}
+
+      ${trainingAchievementShelfMarkup(courses, completed)}
 
       ${learningSafetyGateMarkup()}
 
@@ -2603,13 +2782,15 @@ function renderCourse(code) {
         </div>
       </header>
       <section class="course-learning-flow" aria-labelledby="course-learning-flow-title">
-        <div><p class="eyebrow">Как пройти блок</p><h2 id="course-learning-flow-title">Три понятных этапа</h2></div>
+        <div><p class="eyebrow">Как пройти блок</p><h2 id="course-learning-flow-title">Четыре проверяемых шага</h2></div>
         <ol>
           <li><span>1</span><div><strong>Изучите уроки</strong><small>Пройдите материал сверху вниз и сверьтесь с примерами.</small></div></li>
           <li><span>2</span><div><strong>Закрепите на практике</strong><small>Разберите кадры, решите короткую ситуацию и отметьте самопроверку.</small></div></li>
           <li><span>3</span><div><strong>Пройдите мини-тест</strong><small>Мини-тест и сертификацию проверяет защищённый сервер.</small></div></li>
+          <li><span>4</span><div><strong>Подтвердите готовность</strong><small>Сверьте финальный чек-лист — портал сохранит результат и выдаст ачивку.</small></div></li>
         </ol>
       </section>
+      ${courseMasteryCoachMarkup(course)}
       <div class="course-layout">
         <div>
           ${courseLessonPlayerMarkup(course, lessonJourney)}
@@ -2648,6 +2829,7 @@ function renderCourse(code) {
               `).join("")}
             </div>
             <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить блок</button>
+            <p class="course-completion-reason" data-course-completion-reason role="status">Сначала завершите маршрут, лабораторию и мини-тест.</p>
           `}
           <a class="btn btn-secondary btn-block course-back-link" href="#/learn">К списку курсов</a>
         </aside>
@@ -2658,6 +2840,7 @@ function renderCourse(code) {
   syncCourseLessonJourney(course, lessonJourney);
   restoreTrainingWalkthroughState(course.code);
   restoreTrainingAudience(course.code);
+  syncCourseMasteryPanel(course);
   void restoreServerTrainingWalkthroughState(course.code);
   track("course_opened", { module_code: course.code });
 }
@@ -2680,6 +2863,9 @@ function persistTrainingWalkthroughState(root, { syncServer = true } = {}) {
   const payload = {
     step: Math.max(0, Number(root.dataset.trainingStep) || 0),
     checks: Array.from(root.querySelectorAll("[data-training-check]")).map((input) => input.checked === true),
+    checkIds: Array.from(root.querySelectorAll("[data-training-check]:checked"))
+      .map((input) => String(input.dataset.trainingCheck || ""))
+      .filter(Boolean),
     mode: String(root.dataset.trainingMode || "watch"),
     practiceOption: String(root.querySelector("[data-training-practice-option]:checked")?.value || ""),
   };
@@ -2694,6 +2880,7 @@ function persistTrainingWalkthroughState(root, { syncServer = true } = {}) {
     // Server synchronization below remains the durable path.
   }
   if (syncServer) scheduleServerTrainingWalkthroughProgress(root);
+  syncCourseMasteryPanel();
 }
 
 function restoreTrainingWalkthroughState(courseCode) {
@@ -2716,9 +2903,12 @@ function restoreTrainingWalkthroughState(courseCode) {
     try {
       saved = saved && typeof saved === "object" ? saved : {};
       setTrainingWalkthroughStep(root, Math.max(0, Number(saved.step) || 0));
+      const checkIds = new Set(Array.isArray(saved.checkIds) ? saved.checkIds.map(String) : []);
       const checks = Array.isArray(saved.checks) ? saved.checks : [];
       root.querySelectorAll("[data-training-check]").forEach((input, index) => {
-        input.checked = checks[index] === true;
+        input.checked = checkIds.size
+          ? checkIds.has(String(input.dataset.trainingCheck || ""))
+          : checks[index] === true;
       });
       if (saved.practiceOption) evaluateTrainingPractice(root, String(saved.practiceOption));
       setTrainingWalkthroughMode(root, saved.mode);
@@ -2731,31 +2921,17 @@ function restoreTrainingWalkthroughState(courseCode) {
   });
 }
 
-function trainingAudienceStateKey(courseCode) {
-  return trainingAudienceStorageKey(state.user?.id, courseCode);
-}
-
-function persistTrainingAudience(courseCode, audience) {
-  const key = trainingAudienceStateKey(courseCode);
-  if (!key) return;
-  try {
-    window.localStorage.setItem(key, String(audience || "all"));
-  } catch {
-    // The filter remains usable in memory when browser storage is unavailable.
-  }
-}
-
 function restoreTrainingAudience(courseCode) {
   const courseRoot = document.querySelector(`[data-training-interactive-course="${CSS.escape(courseCode)}"]`);
   if (!courseRoot) return;
-  const key = trainingAudienceStateKey(courseCode);
-  let saved = restoreLearningTrack();
-  try {
-    saved = key ? window.localStorage.getItem(key) || saved : saved;
-  } catch {
-    saved = restoreLearningTrack();
-  }
-  setTrainingAudience(courseRoot, saved);
+  const course = learningCourses().find((item) => item.code === courseCode);
+  const required = new Set(course?.mastery?.requiredWalkthroughIds || []);
+  courseRoot.querySelectorAll("[data-training-walkthrough]").forEach((walkthrough) => {
+    walkthrough.dataset.trainingMasteryRequired = required.has(
+      String(walkthrough.dataset.trainingWalkthrough || ""),
+    ) ? "true" : "false";
+  });
+  setTrainingAudience(courseRoot, restoreLearningTrack());
 }
 
 function trainingProgressKey(moduleCode, walkthroughId) {
@@ -2875,6 +3051,7 @@ function applyServerTrainingProgress(progress) {
     if (video.readyState >= 1) restorePosition();
     else video.addEventListener("loadedmetadata", restorePosition, { once: true });
   }
+  syncCourseMasteryPanel();
 }
 
 function serverTrainingProgressPayload(root) {
@@ -3076,6 +3253,40 @@ function scheduleServerTrainingWalkthroughProgress(root, delayMs = 650) {
   queue.root = root;
   queue.latestPayload = mergeTrainingProgressPayload(queue.latestPayload, payload);
   if (!queue.inFlight) scheduleTrainingProgressQueueDrain(key, delayMs);
+}
+
+function waitForCompletedTrainingProgress(key, timeoutMs = 12_000) {
+  const deadline = Date.now() + Math.max(1_000, Number(timeoutMs) || 12_000);
+  return new Promise((resolve, reject) => {
+    const inspect = () => {
+      if (state.trainingProgress.items.get(key)?.completed === true) {
+        resolve(true);
+        return;
+      }
+      const queue = state.trainingProgress.saveQueues.get(key);
+      if (!queue || !trainingProgressQueueIsCurrent(queue) || Date.now() >= deadline) {
+        const error = new Error("training_progress_sync_required");
+        error.code = "training_progress_sync_required";
+        reject(error);
+        return;
+      }
+      window.setTimeout(inspect, 80);
+    };
+    inspect();
+  });
+}
+
+async function flushRequiredTrainingProgress(course) {
+  const required = new Set(course?.mastery?.requiredWalkthroughIds || []);
+  const roots = Array.from(document.querySelectorAll(
+    `[data-training-course="${CSS.escape(String(course?.code || ""))}"]`,
+  )).filter((root) => required.has(String(root.dataset.trainingWalkthrough || "")));
+  for (const root of roots) {
+    persistTrainingWalkthroughState(root);
+    const key = trainingProgressKey(root.dataset.trainingCourse, root.dataset.trainingWalkthrough);
+    await drainTrainingProgressSaveQueue(key);
+    await waitForCompletedTrainingProgress(key);
+  }
 }
 
 function stopTrainingWalkthroughSession(root) {
@@ -7822,11 +8033,41 @@ async function handleClick(event) {
 
   if (action === "select-learning-track") {
     const selected = persistLearningTrack(control.dataset.learningTrack);
-    learningCourses().forEach((course) => persistTrainingAudience(course.code, selected));
     renderLearningHome();
     window.queueMicrotask(() => document.querySelector(`[data-learning-track="${CSS.escape(selected)}"]`)?.focus({ preventScroll: true }));
     track("training_track_selected", { learning_track: selected });
     toast(`Учебный акцент: ${LEARNING_TRACKS[selected].shortLabel}.`, "success");
+    return;
+  }
+
+  if (action === "training-mastery-next") {
+    const courseCode = String(document.querySelector("[data-course-lesson-player]")?.dataset.courseCode || "");
+    const course = learningCourses().find((item) => item.code === courseCode);
+    if (!course) return;
+    const snapshot = syncCourseMasteryPanel(course);
+    const step = String(control.dataset.masteryStep || snapshot?.nextStep || "lessons");
+    if (step === "lessons") {
+      const journey = restoreLessonJourney(course);
+      const understood = new Set(journey.understoodLessonIds);
+      const required = new Set(courseRequiredLessonIds(course));
+      const index = course.lessons.findIndex((lesson) => required.has(lesson.id) && !understood.has(lesson.id));
+      if (index >= 0) syncCourseLessonJourney(course, reduceLessonJourney(journey, { type: "open", index }, course.lessons), { focus: true, scroll: true });
+    } else if (step === "practice") {
+      const required = new Set(course.mastery.requiredWalkthroughIds);
+      const root = Array.from(document.querySelectorAll(`[data-training-course="${CSS.escape(course.code)}"]`))
+        .find((item) => required.has(String(item.dataset.trainingWalkthrough || "")) && item.dataset.trainingComplete !== "true");
+      scrollElementIntoView(root, "center");
+      root?.querySelector('[data-action="training-walkthrough-play"]')?.focus({ preventScroll: true });
+    } else if (step === "test") {
+      const target = document.querySelector("#course-check");
+      scrollElementIntoView(target, "start");
+      target?.focus({ preventScroll: true });
+    } else if (step === "confirmation") {
+      const target = document.querySelector(".course-completion-card");
+      scrollElementIntoView(target, "center");
+      target?.querySelector("[data-course-ack]:not(:checked)")?.focus({ preventScroll: true });
+    }
+    track("training_mastery_step_opened", { module_code: course.code, mastery_step: step });
     return;
   }
 
@@ -7968,14 +8209,6 @@ async function handleClick(event) {
 
   if (action === "training-walkthrough-play") {
     await toggleTrainingWalkthrough(trainingWalkthroughRoot(control));
-    return;
-  }
-
-  if (action === "training-audience-select") {
-    const courseRoot = control.closest("[data-training-interactive-course]");
-    const audience = setTrainingAudience(courseRoot, control.dataset.trainingAudienceValue);
-    persistTrainingAudience(courseRoot?.dataset.trainingInteractiveCourse, audience);
-    courseRoot?.querySelectorAll('[data-training-walkthrough][hidden]').forEach((root) => stopTrainingWalkthroughSession(root));
     return;
   }
 
@@ -8399,7 +8632,21 @@ async function handleClick(event) {
 
   if (action === "complete-course") {
     const moduleCode = control.dataset.moduleCode;
+    if (state.trainingProgress.completionInFlight.has(moduleCode)) return;
     const wasCompleted = state.bootstrap.training.completedModules.includes(moduleCode);
+    const course = learningCourses().find((item) => item.code === moduleCode);
+    const mastery = course ? syncCourseMasteryPanel(course) : null;
+    if (!mastery?.ready) {
+      const messages = {
+        lessons: "Сначала отметьте понятными уроки вашего маршрута.",
+        practice: "Сначала завершите обязательную учебную лабораторию.",
+        test: "Сначала пройдите мини-тест этого блока.",
+        confirmation: "Подтвердите все пункты финальной самопроверки.",
+      };
+      toast(messages[mastery?.nextStep] || "Завершите все четыре шага освоения навыка.", "error");
+      document.querySelector(`[data-course-mastery-task="${CSS.escape(mastery?.nextStep || "lessons")}"] [data-action="training-mastery-next"]`)?.click();
+      return;
+    }
     if (state.courseCheckResults[moduleCode]?.passed !== true) {
       toast("Сначала пройдите мини-тест этого блока.", "error");
       scrollElementIntoView(document.querySelector("#course-check-form"));
@@ -8410,8 +8657,10 @@ async function handleClick(event) {
       toast("Подтвердите все пункты самопроверки.", "error");
       return;
     }
-    control.disabled = true;
+    state.trainingProgress.completionInFlight.add(moduleCode);
+    syncCourseMasteryPanel(course);
     try {
+      await flushRequiredTrainingProgress(course);
       await state.api.completeModule(moduleCode);
       await track("course_completed", { module_code: moduleCode });
       await loadBootstrap();
@@ -8435,8 +8684,10 @@ async function handleClick(event) {
         });
       }
     } catch (error) {
-      control.disabled = false;
       toast(actionErrorMessage(error), "error");
+    } finally {
+      state.trainingProgress.completionInFlight.delete(moduleCode);
+      if (control.isConnected) syncCourseMasteryPanel(course);
     }
     return;
   }
@@ -9337,10 +9588,20 @@ async function submitCourseKnowledgeCheck(form) {
     const questionCount = Math.max(1, Number(source.question_count ?? source.questionCount ?? check.questions.length));
     const requiredCorrect = Math.max(1, Number(source.required_correct ?? source.requiredCorrect ?? check.passScore));
     const reviewTopics = (Array.isArray(source.review_topics) ? source.review_topics : [])
-      .map((topic) => ({
-        questionCode: String(topic?.question_code || topic?.questionCode || ""),
-        prompt: String(topic?.prompt || "Повторите отмеченную тему."),
-      }));
+      .map((topic) => {
+        const questionCode = String(topic?.question_code || topic?.questionCode || "");
+        const remediation = course.knowledgeRemediation?.[questionCode] || null;
+        const lessonIndex = remediation
+          ? course.lessons.findIndex((lesson) => lesson.id === remediation.lessonId)
+          : -1;
+        return {
+          questionCode,
+          prompt: String(topic?.prompt || "Повторите отмеченную тему."),
+          tip: String(remediation?.tip || ""),
+          lessonIndex,
+          lessonTitle: lessonIndex >= 0 ? course.lessons[lessonIndex].title : "",
+        };
+      });
     const reviewCodes = new Set(reviewTopics.map((topic) => topic.questionCode).filter(Boolean));
 
     for (const question of check.questions) {
@@ -9359,6 +9620,13 @@ async function submitCourseKnowledgeCheck(form) {
       total: questionCount,
       status: passed ? "passed" : "retry_required",
     };
+    const nextMasteryStep = passed ? courseMasteryState(course).nextStep : "test";
+    const nextInstruction = {
+      lessons: "Теперь вернитесь к незавершённым урокам — тренер навыка покажет первый из них.",
+      practice: "Теперь завершите обязательную лабораторию и дождитесь серверного подтверждения.",
+      confirmation: "Теперь подтвердите финальный чек-лист готовности.",
+      done: "Все четыре шага готовы — блок можно завершить.",
+    }[nextMasteryStep] || "Тренер навыка покажет следующий обязательный шаг.";
     const result = form.querySelector("#course-check-result");
     if (result) {
       const feedback = String(source.feedback || (passed
@@ -9366,8 +9634,8 @@ async function submitCourseKnowledgeCheck(form) {
         : "Повторите отмеченные темы и попробуйте ещё раз."));
       result.className = `knowledge-check-result ${passed ? "passed" : "failed"}`;
       result.innerHTML = passed
-        ? `<strong>Готово: ${correctCount} из ${questionCount}.</strong><span>${escapeHtml(feedback)} Теперь подтвердите чек-лист и завершите блок.</span>`
-        : `<strong>${correctCount} из ${questionCount}. Нужно ${requiredCorrect}.</strong><span>${escapeHtml(feedback)}</span>${reviewTopics.length ? `<ul>${reviewTopics.map((topic) => `<li>${escapeHtml(topic.prompt)}</li>`).join("")}</ul>` : ""}`;
+        ? `<strong>Готово: ${correctCount} из ${questionCount}.</strong><span>${escapeHtml(feedback)} ${escapeHtml(nextInstruction)}</span>`
+        : `<strong>${correctCount} из ${questionCount}. Нужно ${requiredCorrect}.</strong><span>${escapeHtml(feedback)}</span>${reviewTopics.length ? `<ul>${reviewTopics.map((topic) => `<li><span>${escapeHtml(topic.tip || topic.prompt)}</span>${topic.lessonIndex >= 0 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${topic.lessonIndex}">Повторить «${escapeHtml(topic.lessonTitle)}» <span aria-hidden="true">→</span></button>` : ""}</li>`).join("")}</ul>` : ""}`;
     }
     const gate = document.querySelector("[data-course-check-gate]");
     if (gate) {
@@ -9395,11 +9663,7 @@ async function submitCourseKnowledgeCheck(form) {
 }
 
 function syncCourseCompletionButton() {
-  const button = document.querySelector('[data-action="complete-course"]');
-  if (!button) return;
-  const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
-  const passed = state.courseCheckResults[String(button.dataset.moduleCode || "")]?.passed === true;
-  button.disabled = !passed || !confirmations.length || confirmations.some((checkbox) => !checkbox.checked);
+  syncCourseMasteryPanel();
 }
 
 async function submitExam(form) {
@@ -11058,6 +11322,7 @@ function clearAuthenticatedState() {
   state.trainingProgress.loadRequests.clear();
   state.trainingProgress.saveTimers.clear();
   state.trainingProgress.saveQueues.clear();
+  state.trainingProgress.completionInFlight.clear();
   state.teamInviteResult = null;
   state.managerDashboard.requestId += 1;
   state.managerDashboard.status = "idle";
