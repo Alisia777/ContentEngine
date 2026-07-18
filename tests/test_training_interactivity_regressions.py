@@ -216,15 +216,15 @@ def test_audience_filter_is_persistent_accessible_and_separate_from_certificatio
     assert payload["legacyAudiences"] == [
         ["self"],
         ["publish"],
-        ["self", "ai", "publish"],
+        ["self", "ai", "publish", "review"],
     ]
     assert payload["key"] == "contentengine.training-audience.v1:user%201:factory%2Fbasics"
     assert payload["missingKey"] is None
 
     markup = payload["markup"]
-    for audience in ("all", "self", "ai", "publish"):
+    for audience in ("all", "self", "ai", "publish", "review"):
         assert f'data-training-audience-value="{audience}"' in markup
-    assert markup.count('data-action="training-audience-select"') == 4
+    assert markup.count('data-action="training-audience-select"') == 5
     assert markup.count('data-training-audience="') == 5
     assert 'data-training-audience-result' in markup
     assert "Снимаю сам" in markup

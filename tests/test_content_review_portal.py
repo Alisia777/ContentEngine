@@ -25,7 +25,7 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
     assert './content-review-view.js?v=20260717.1' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260718.3' in INDEX
+    assert './app.js?v=20260718.5' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")

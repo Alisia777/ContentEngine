@@ -5,16 +5,16 @@ const MAX_CHECKLIST_ITEMS = 8;
 const MAX_PRACTICE_OPTIONS = 6;
 const STORAGE_PREFIX = "contentengine.training-walkthrough.v1";
 const AUDIENCE_STORAGE_PREFIX = "contentengine.training-audience.v1";
-const TRAINING_AUDIENCES = new Set(["self", "ai", "publish"]);
+const TRAINING_AUDIENCES = new Set(["self", "ai", "publish", "review"]);
 const DEFAULT_AUDIENCE_BY_WALKTHROUGH = Object.freeze({
-  first_login_route: ["self", "ai", "publish"],
+  first_login_route: ["self", "ai", "publish", "review"],
   material_to_review: ["ai"],
   phone_shooting_916: ["self"],
-  eight_second_quality: ["self", "ai"],
+  eight_second_quality: ["self", "ai", "review"],
   publish_to_assigned_network: ["publish"],
-  advertising_stop_decision: ["publish"],
-  substitute_article_match: ["self", "ai", "publish"],
-  payout_status_route: ["self", "ai", "publish"],
+  advertising_stop_decision: ["self", "ai", "publish", "review"],
+  substitute_article_match: ["self", "ai", "publish", "review"],
+  payout_status_route: ["self", "ai", "publish", "review"],
 });
 
 function deepFreeze(value) {
@@ -117,14 +117,14 @@ function normalizeAudience(raw, walkthroughId) {
   const aliases = { creator: "self", publisher: "publish" };
   const expanded = values.flatMap((value) => {
     const normalized = String(value || "").trim().toLowerCase();
-    if (normalized === "all") return ["self", "ai", "publish"];
+    if (normalized === "all") return ["self", "ai", "publish", "review"];
     return [aliases[normalized] || normalized];
   });
   const normalized = [...new Set(expanded)]
     .filter((value) => TRAINING_AUDIENCES.has(value));
   return normalized.length
     ? normalized
-    : [...(DEFAULT_AUDIENCE_BY_WALKTHROUGH[walkthroughId] || ["self", "ai", "publish"])];
+    : [...(DEFAULT_AUDIENCE_BY_WALKTHROUGH[walkthroughId] || ["self", "ai", "publish", "review"])];
 }
 
 function normalizeWalkthrough(item, index) {
@@ -290,7 +290,7 @@ function walkthroughMarkup(courseCode, walkthrough, index) {
         <div class="training-walkthrough__actions">
           <button type="button" data-action="training-walkthrough-previous" disabled><span aria-hidden="true">←</span> Назад</button>
           <button type="button" data-action="training-walkthrough-next">Следующий кадр <span aria-hidden="true">→</span></button>
-          <button type="button" data-action="training-walkthrough-reset">Начать заново</button>
+          <button type="button" data-action="training-walkthrough-reset">Повторить разбор</button>
         </div>
         ${transcriptMarkup(walkthrough)}
       </div>
@@ -313,6 +313,7 @@ function audiencePickerMarkup() {
         <button type="button" data-action="training-audience-select" data-training-audience-value="self" aria-pressed="false">Снимаю сам</button>
         <button type="button" data-action="training-audience-select" data-training-audience-value="ai" aria-pressed="false">Генерирую с ИИ</button>
         <button type="button" data-action="training-audience-select" data-training-audience-value="publish" aria-pressed="false">Публикую в соцсетях</button>
+        <button type="button" data-action="training-audience-select" data-training-audience-value="review" aria-pressed="false">Проверяю ролики</button>
       </div>
       <p class="training-interactive__audience-result" data-training-audience-result role="status" aria-live="polite">Показаны все практические разборы курса.</p>
     </section>
@@ -454,6 +455,37 @@ export function setTrainingWalkthroughStep(root, index) {
   return currentIndex;
 }
 
+export function resetTrainingWalkthroughState(root) {
+  const walkthrough = walkthroughRoot(root);
+  if (!walkthrough) return { step: -1, complete: false };
+  stopTrainingWalkthrough(walkthrough);
+  Array.from(walkthrough.querySelectorAll?.("[data-training-check]") || []).forEach((input) => {
+    input.checked = false;
+  });
+  Array.from(walkthrough.querySelectorAll?.("[data-training-practice-option]") || []).forEach((input) => {
+    input.checked = false;
+    input.setAttribute?.("aria-invalid", "false");
+  });
+  const practice = walkthrough.querySelector?.("[data-training-practice]");
+  if (practice) {
+    if (practice.dataset) practice.dataset.trainingPracticeComplete = "false";
+    practice.setAttribute?.("aria-invalid", "false");
+    const feedback = practice.querySelector?.("[data-training-practice-feedback]");
+    if (feedback) {
+      feedback.textContent = "Выберите один вариант — объяснение появится сразу.";
+      if (feedback.dataset) delete feedback.dataset.trainingFeedbackStatus;
+    }
+  }
+  if (walkthrough.dataset) {
+    walkthrough.dataset.trainingPracticeComplete = "false";
+    walkthrough.dataset.trainingComplete = "false";
+  }
+  setTrainingWalkthroughMode(walkthrough, "watch");
+  const step = setTrainingWalkthroughStep(walkthrough, 0);
+  const status = syncTrainingWalkthroughStatus(walkthrough);
+  return { step, complete: status.complete };
+}
+
 export function setTrainingWalkthroughMode(root, mode) {
   const walkthrough = walkthroughRoot(root);
   if (!walkthrough) return "watch";
@@ -587,6 +619,7 @@ export function setTrainingAudience(root, audience) {
     self: "разборы для самостоятельной съёмки",
     ai: "разборы для генерации с ИИ",
     publish: "разборы для публикации в соцсетях",
+    review: "разборы для проверки качества и рисков",
   };
   const result = course.querySelector?.("[data-training-audience-result]");
   if (result) result.textContent = `Показаны ${labels[normalized]}: ${visible} из ${walkthroughs.length}. Обязательность курса не изменилась.`;

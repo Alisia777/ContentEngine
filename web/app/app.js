@@ -83,6 +83,7 @@ import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
   setTrainingAudience,
+  resetTrainingWalkthroughState,
   setTrainingWalkthroughMode,
   setTrainingWalkthroughStep,
   stopTrainingWalkthrough,
@@ -90,7 +91,22 @@ import {
   trainingAudienceStorageKey,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260718.1";
+} from "./training-interactive.js?v=20260718.3";
+import {
+  LEARNING_TRACKS,
+  achievementMarkup,
+  achievementStorageKey,
+  courseAchievement,
+  learningTrackStorageKey,
+  lessonJourneyPercent,
+  lessonJourneyStorageKey,
+  normalizeLearningTrack,
+  normalizeLessonJourney,
+  playTrainingFanfare,
+  reduceLessonJourney,
+  roleAwareLessonPath,
+  shouldCelebrateCourse,
+} from "./training-journey.js?v=20260718.2";
 import {
   myWorkRequestOptions,
   myWorkWorkspaceMarkup,
@@ -144,6 +160,12 @@ const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "operator",
 ]);
 const TRAINING_WALKTHROUGH_STEP_INTERVAL_MS = 4_500;
+const COURSE_AUDIENCE_COPY = Object.freeze({
+  factory_basics: "Всем ролям · общий старт",
+  video_quality: "Съёмка и ИИ · проверка всем",
+  publishing_funnel: "Публикаторам · остальным как рабочая база",
+  security_wb: "Всем ролям · товар и деньги",
+});
 const COURSE_KNOWLEDGE_PRESENTATION = Object.freeze({
   factory_basics: Object.freeze({
     audienceLabel: "Всем участникам",
@@ -1573,22 +1595,241 @@ function prerequisitesComplete() {
   return REQUIRED_MODULE_CODES.every((code) => completed.has(code));
 }
 
+function learningPreferenceStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function restoreLearningTrack() {
+  const key = learningTrackStorageKey(state.user?.id);
+  const storage = learningPreferenceStorage();
+  return normalizeLearningTrack(key && storage ? safeStorageGet(storage, key) : "all");
+}
+
+function persistLearningTrack(track) {
+  const normalized = normalizeLearningTrack(track);
+  const key = learningTrackStorageKey(state.user?.id);
+  const storage = learningPreferenceStorage();
+  if (key && storage) safeStorageSet(storage, key, normalized);
+  return normalized;
+}
+
+function learningTrackPickerMarkup(selectedTrack = restoreLearningTrack()) {
+  const normalized = normalizeLearningTrack(selectedTrack);
+  const track = LEARNING_TRACKS[normalized];
+  return `
+    <section class="card learning-track-picker" data-learning-track-picker aria-labelledby="learning-track-title">
+      <div class="learning-track-picker__head">
+        <div>
+          <p class="eyebrow">Сначала определите свою задачу</p>
+          <h2 id="learning-track-title">Кем вы будете в этой смене?</h2>
+        </div>
+        <p>Выбор расставит акценты в примерах и тренажёрах. Четыре обязательных блока, тесты и итоговый экзамен остаются общими для всех.</p>
+      </div>
+      <div class="learning-track-picker__choices" role="group" aria-label="Моя учебная задача">
+        ${Object.values(LEARNING_TRACKS).map((option) => `
+          <button type="button" data-action="select-learning-track" data-learning-track="${escapeHtml(option.id)}" aria-pressed="${option.id === normalized ? "true" : "false"}">${escapeHtml(option.shortLabel)}</button>
+        `).join("")}
+      </div>
+      <div class="learning-track-picker__result" data-learning-track-result role="status" aria-live="polite">
+        <span class="learning-track-picker__number" aria-hidden="true">01</span>
+        <div>
+          <p class="eyebrow">Ваш учебный акцент</p>
+          <h3 data-learning-track-title>${escapeHtml(track.title)}</h3>
+          <p data-learning-track-description>${escapeHtml(track.description)}</p>
+          <span class="learning-track-picker__focus" data-learning-track-focus>${escapeHtml(track.focus)}</span>
+        </div>
+        <a class="btn btn-secondary" data-learning-track-optional href="${escapeHtml(track.optionalHref)}">${escapeHtml(track.optionalTitle)} <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  `;
+}
+
+function learningSafetyGateMarkup() {
+  const signals = [
+    {
+      title: "Товар или артикул не совпадает",
+      body: "Не используйте похожий товар и не меняйте код самостоятельно. Остановите задачу и запросите точные материалы.",
+    },
+    {
+      title: "Права, доступ или обещания о товаре неясны",
+      body: "Не передавайте пароль, не берите материалы из поиска и не добавляйте обещания, которых нет в одобренном задании.",
+    },
+    {
+      title: "Рекламный статус публикации не подтверждён",
+      body: "Не пытайтесь убрать признаки рекламы словами «личное мнение». Получите датированное решение ответственного до размещения.",
+    },
+  ];
+  return `
+    <section class="card learning-safety-gate" aria-labelledby="learning-safety-gate-title">
+      <div class="learning-safety-gate__intro">
+        <span aria-hidden="true">!</span>
+        <div><p class="eyebrow">Стоп-правило до любого действия</p><h2 id="learning-safety-gate-title">Не угадывайте — остановитесь и уточните</h2><p>Откройте сигнал, чтобы увидеть безопасный следующий шаг. Эти правила действуют до съёмки, генерации и публикации.</p></div>
+      </div>
+      <div class="learning-safety-gate__signals">
+        ${signals.map((signal, index) => `<details><summary><span>${index + 1}</span>${escapeHtml(signal.title)}</summary><p>${escapeHtml(signal.body)}</p></details>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function restoreLessonJourney(course) {
+  const lessons = Array.isArray(course?.lessons) ? course.lessons : [];
+  const key = lessonJourneyStorageKey(state.user?.id, course?.code, course?.version);
+  if (!key) return normalizeLessonJourney(null, lessons);
+  const storage = learningPreferenceStorage();
+  if (!storage) return normalizeLessonJourney(null, lessons);
+  let raw = null;
+  try {
+    raw = JSON.parse(safeStorageGet(storage, key) || "null");
+  } catch {
+    safeStorageRemove(storage, key);
+  }
+  return normalizeLessonJourney(raw, lessons);
+}
+
+function persistLessonJourney(course, journey) {
+  const lessons = Array.isArray(course?.lessons) ? course.lessons : [];
+  const normalized = normalizeLessonJourney(journey, lessons);
+  const key = lessonJourneyStorageKey(state.user?.id, course?.code, course?.version);
+  const storage = learningPreferenceStorage();
+  if (key && storage) safeStorageSet(storage, key, JSON.stringify({
+    activeLessonId: normalized.activeLessonId,
+    understoodLessonIds: normalized.understoodLessonIds,
+  }));
+  return normalized;
+}
+
+function courseLessonPlayerMarkup(course, journey) {
+  const total = course.lessons.length;
+  const normalized = normalizeLessonJourney(journey, course.lessons);
+  const percent = lessonJourneyPercent(normalized, course.lessons);
+  return `
+    <section class="card course-lesson-player" data-course-lesson-player data-course-code="${escapeHtml(course.code)}" aria-labelledby="course-lesson-player-title">
+      <div class="course-lesson-player__copy">
+        <p class="eyebrow">Ваше место в блоке</p>
+        <strong id="course-lesson-player-title" data-course-lesson-current>Урок ${normalized.activeIndex + 1} из ${total}</strong>
+      </div>
+      <span class="course-lesson-player__count" data-course-lesson-count>${normalized.understood.length} из ${total} отмечено понятным</span>
+      <div class="course-lesson-player__bar" role="progressbar" aria-label="Личный прогресс по урокам блока" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" data-course-lesson-progress>
+        <span style="--lesson-progress:${percent}%" data-course-lesson-progress-fill></span>
+      </div>
+    </section>
+  `;
+}
+
+function syncCourseLessonJourney(course, journey, { focus = false, scroll = false } = {}) {
+  const lessons = Array.from(document.querySelectorAll("[data-course-lesson]"));
+  if (!lessons.length) return normalizeLessonJourney(journey, []);
+  const normalized = persistLessonJourney(course, journey);
+  const understood = new Set(normalized.understood);
+  lessons.forEach((lesson, index) => {
+    const active = index === normalized.activeIndex;
+    const complete = understood.has(index);
+    lesson.classList.toggle("is-active", active);
+    lesson.classList.toggle("is-understood", complete);
+    lesson.dataset.lessonState = complete ? "understood" : active ? "current" : "not-started";
+    const details = lesson.querySelector("[data-course-lesson-details]");
+    const toggle = lesson.querySelector('[data-action="training-lesson-toggle"]');
+    if (details) details.hidden = !active;
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", active ? "true" : "false");
+      toggle.setAttribute("aria-label", `${active ? "Свернуть" : "Открыть"} урок «${lesson.querySelector("h2")?.textContent || index + 1}»`);
+    }
+    const mark = lesson.querySelector('[data-action="training-lesson-understood"]');
+    if (mark) {
+      mark.setAttribute("aria-pressed", complete ? "true" : "false");
+      mark.innerHTML = complete
+        ? '<span aria-hidden="true">✓</span> Урок понятен'
+        : index < lessons.length - 1
+          ? 'Понятно — следующий урок <span aria-hidden="true">→</span>'
+          : '<span aria-hidden="true">✓</span> Урок понятен';
+    }
+  });
+  document.querySelectorAll("[data-course-roadmap-lesson]").forEach((item) => {
+    const index = Number(item.dataset.courseRoadmapLesson);
+    item.classList.toggle("is-understood", understood.has(index));
+    const button = item.querySelector("button");
+    if (button) {
+      button.setAttribute("aria-current", index === normalized.activeIndex ? "step" : "false");
+      const marker = button.querySelector("span");
+      if (marker) marker.textContent = understood.has(index) ? "✓" : String(index + 1);
+    }
+  });
+  const percent = lessonJourneyPercent(normalized, course.lessons);
+  const current = document.querySelector("[data-course-lesson-current]");
+  const count = document.querySelector("[data-course-lesson-count]");
+  const progress = document.querySelector("[data-course-lesson-progress]");
+  const fill = document.querySelector("[data-course-lesson-progress-fill]");
+  if (current) current.textContent = `Урок ${normalized.activeIndex + 1} из ${lessons.length}`;
+  if (count) count.textContent = `${understood.size} из ${lessons.length} отмечено понятным`;
+  progress?.setAttribute("aria-valuenow", String(percent));
+  if (fill) fill.style.setProperty("--lesson-progress", `${percent}%`);
+  const activeLesson = lessons[normalized.activeIndex];
+  if (scroll) scrollElementIntoView(activeLesson);
+  if (focus) activeLesson?.querySelector('[data-action="training-lesson-toggle"]')?.focus({ preventScroll: true });
+  track("training_lesson_viewed", {
+    module_code: course.code,
+    lesson_index: normalized.activeIndex + 1,
+    lesson_state: understood.has(normalized.activeIndex) ? "understood" : "current",
+    learning_track: restoreLearningTrack(),
+  });
+  return normalized;
+}
+
+function closeTrainingAchievement({ restoreFocus = true } = {}) {
+  const root = document.querySelector("[data-training-achievement]");
+  if (!root) return;
+  const returnFocus = root.__returnFocus;
+  root.remove();
+  document.body.classList.remove("training-achievement-open");
+  if (restoreFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+}
+
+function showTrainingAchievement(courseCode, returnFocus = document.activeElement) {
+  closeTrainingAchievement({ restoreFocus: false });
+  const achievement = learningCourses().find((course) => course.code === courseCode)?.achievement;
+  document.body.insertAdjacentHTML("beforeend", achievementMarkup(courseCode, achievement));
+  const root = document.querySelector("[data-training-achievement]");
+  if (!root) return;
+  root.__returnFocus = returnFocus;
+  document.body.classList.add("training-achievement-open");
+  root.querySelector('[data-action="close-training-achievement"]')?.focus({ preventScroll: true });
+}
+
 function learningCourses() {
   const modules = state.bootstrap?.training?.modules || [];
+  const selectedTrack = restoreLearningTrack();
   const serverCourses = modules
     .filter((module) => module.type === "course")
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
     .map((module) => {
       const content = module.content && typeof module.content === "object" ? module.content : {};
-      const lessons = Array.isArray(content.lessons) ? content.lessons : [];
       const meta = content.meta && typeof content.meta === "object" ? content.meta : content;
-      const durationMinutes = Math.max(
-        1,
-        Math.min(120, Number(meta.duration_minutes) || Math.max(5, lessons.length * 3)),
+      const lessonPath = roleAwareLessonPath(
+        module.code,
+        content.lessons,
+        meta.lesson_groups,
+        selectedTrack,
       );
+      const fullDurationMinutes = Math.max(
+        1,
+        Math.min(120, Number(meta.duration_minutes) || Math.max(5, lessonPath.allLessons.length * 3)),
+      );
+      const durationMinutes = fullDurationMinutes;
       const completionChecklist = Array.isArray(meta.completion_checklist)
         ? meta.completion_checklist.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
         : [];
+      const glossary = (Array.isArray(meta.glossary) ? meta.glossary : [])
+        .slice(0, 24)
+        .map((item) => ({
+          term: String(item?.term || "").trim().slice(0, 120),
+          definition: String(item?.definition || "").trim().slice(0, 600),
+        }))
+        .filter((item) => item.term && item.definition);
       const rawKnowledgeCheck = meta.knowledge_check && typeof meta.knowledge_check === "object"
         ? meta.knowledge_check
         : {};
@@ -1606,12 +1847,14 @@ function learningCourses() {
       const knowledgeCheck = knowledgeQuestions.length
         ? {
             title: String(rawKnowledgeCheck.title || "Проверка блока"),
-            audienceLabel: String(
-              rawKnowledgeCheck.audience_label
-              || rawKnowledgeCheck.audienceLabel
-              || COURSE_KNOWLEDGE_PRESENTATION[module.code]?.audienceLabel
-              || "Всем участникам",
-            ).slice(0, 180),
+            audienceLabel: selectedTrack === "all"
+              ? String(
+                  rawKnowledgeCheck.audience_label
+                  || rawKnowledgeCheck.audienceLabel
+                  || COURSE_KNOWLEDGE_PRESENTATION[module.code]?.audienceLabel
+                  || "Всем участникам",
+                ).slice(0, 180)
+              : `Ваш трек: ${LEARNING_TRACKS[selectedTrack].shortLabel}`,
             roleHint: String(
               rawKnowledgeCheck.role_hint
               || rawKnowledgeCheck.roleHint
@@ -1631,13 +1874,25 @@ function learningCourses() {
         summary: module.description || "Обязательный модуль обучения.",
         duration: `${durationMinutes} мин`,
         durationMinutes,
+        fullDurationMinutes,
+        version: Math.max(1, Number(meta.version) || 1),
         blockLabel: String(meta.block_label || "Блок обучения"),
         outcome: String(meta.outcome || module.description || "Понимание рабочего процесса."),
         level: String(meta.level || "Практический курс"),
+        audience: selectedTrack === "all"
+          ? String(meta.audience_label || COURSE_AUDIENCE_COPY[module.code] || "Всем участникам")
+          : `Ваш трек · ${LEARNING_TRACKS[selectedTrack].shortLabel}`,
+        achievement: meta.achievement && typeof meta.achievement === "object"
+          ? meta.achievement
+          : courseAchievement(module.code),
+        glossary,
         completionChecklist,
         knowledgeCheck,
         interactiveWalkthroughs: normalizeInteractiveWalkthroughs(content.interactive_walkthroughs),
-        lessons,
+        lessonGroups: lessonPath.groups,
+        allLessonCount: lessonPath.allLessons.length,
+        recommendedLessonCount: lessonPath.recommendedLessonIds.length,
+        lessons: lessonPath.lessons,
       };
     });
   return serverCourses;
@@ -1749,6 +2004,7 @@ async function mountAccountVisualLesson(visualRoot, slug) {
 }
 
 function render() {
+  closeTrainingAchievement({ restoreFocus: false });
   stopAllTrainingWalkthroughs();
   destroyAccountVisualController();
   const path = state.route.path;
@@ -2173,6 +2429,10 @@ function renderLearningHome() {
         ${primaryActionMarkup}
       </section>
 
+      ${learningTrackPickerMarkup()}
+
+      ${learningSafetyGateMarkup()}
+
       <section id="work-map" class="card work-map-section" aria-labelledby="work-map-title">
         <div class="section-heading">
           <div>
@@ -2283,7 +2543,7 @@ function courseCardMarkup(course, index, complete, current = false) {
         <div class="course-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</div>
         <span class="badge ${complete ? "badge-success" : current ? "badge-info" : ""}">${complete ? "Пройден" : current ? "Начните здесь" : escapeHtml(course.level)}</span>
       </div>
-      <div class="course-card-meta"><span>${course.duration}</span><span>${course.lessons.length} уроков</span></div>
+      <div class="course-card-meta"><span>${course.duration}</span><span>${course.recommendedLessonCount < course.allLessonCount ? `${course.recommendedLessonCount} в вашем маршруте · ${course.allLessonCount} всего` : `${course.allLessonCount} уроков`}</span><span>${escapeHtml(course.audience)}</span></div>
       <p class="course-block-label">${escapeHtml(course.blockLabel)}</p>
       <h2>${escapeHtml(course.title)}</h2>
       <p>${escapeHtml(course.summary)}</p>
@@ -2312,6 +2572,8 @@ function renderCourse(code) {
   const courseIndex = Math.max(0, courses.findIndex((item) => item.code === course.code));
   const complete = state.bootstrap.training.completedModules.includes(course.code);
   const checkPassed = complete || state.courseCheckResults[course.code]?.passed === true;
+  const lessonJourney = restoreLessonJourney(course);
+  const selectedTrack = LEARNING_TRACKS[restoreLearningTrack()];
   const completionChecklist = course.completionChecklist.length
     ? course.completionChecklist
     : [
@@ -2328,9 +2590,10 @@ function renderCourse(code) {
           <p>${escapeHtml(course.summary)}</p>
           <div class="course-hero-meta">
             <span>${escapeHtml(course.duration)}</span>
-            <span>${course.lessons.length} практических уроков</span>
-            <span>${escapeHtml(course.level)}</span>
+            <span>${course.recommendedLessonCount < course.allLessonCount ? `${course.recommendedLessonCount} основных · ${course.allLessonCount} всего` : `${course.allLessonCount} практических уроков`}</span>
+            <span>${escapeHtml(course.audience)}</span>
           </div>
+          <p class="course-track-note"><strong>Ваш акцент:</strong> ${escapeHtml(selectedTrack.shortLabel)} · ${escapeHtml(selectedTrack.focus)} <a href="#/learn">Изменить задачу</a></p>
         </div>
         <div class="course-hero-outcome">
           <span class="course-hero-icon" aria-hidden="true">${String(courseIndex + 1).padStart(2, "0")}</span>
@@ -2349,24 +2612,27 @@ function renderCourse(code) {
       </section>
       <div class="course-layout">
         <div>
+          ${courseLessonPlayerMarkup(course, lessonJourney)}
           <nav class="card course-roadmap" aria-label="Содержание курса">
-            <div><p class="eyebrow">Содержание</p><strong>Двигайтесь сверху вниз</strong></div>
+            <div><p class="eyebrow">Содержание</p><strong>Открывайте по одному уроку</strong></div>
             <ol>
-              ${course.lessons.map((lesson, index) => `<li><button type="button" data-action="scroll-to" data-target="${escapeHtml(lessonAnchorId(lesson, index))}"><span>${index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
+              ${course.lessons.map((lesson, index) => `${lesson.groupStart ? `<li class="course-roadmap-group"><span>${escapeHtml(lesson.groupTitle)}</span></li>` : ""}<li data-course-roadmap-lesson="${index}" class="${lessonJourney.understood.includes(index) ? "is-understood" : ""} ${lesson.trackRecommended ? "is-track-recommended" : "is-track-reference"}"><button type="button" data-action="training-lesson-open" data-lesson-index="${index}" aria-current="${lessonJourney.activeIndex === index ? "step" : "false"}"><span>${lessonJourney.understood.includes(index) ? "✓" : index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
               <li><button type="button" data-action="scroll-to" data-target="course-check"><span>✓</span>Мини-тест блока</button></li>
             </ol>
           </nav>
           <div class="lesson-stack">
-            ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index, course.lessons.length)).join("")}
+            ${course.lessons.map((lesson, index) => `${lesson.groupStart ? `<header class="lesson-group-heading"><span>${String(course.lessonGroups.findIndex((group) => group.id === lesson.groupId) + 1).padStart(2, "0")}</span><div><p class="eyebrow">Этап маршрута</p><h2>${escapeHtml(lesson.groupTitle)}</h2></div></header>` : ""}${lessonMarkup(lesson, index, course.lessons, lessonJourney)}`).join("")}
           </div>
           ${courseVisualExamplesMarkup(course.code)}
           ${trainingInteractiveMarkup(course.code, course.interactiveWalkthroughs)}
+          ${courseGlossaryMarkup(course.glossary)}
           ${courseKnowledgeCheckMarkup(course, checkPassed)}
         </div>
         <aside class="card sticky-card course-completion-card">
           <div class="completion-ring" style="--completion:${complete ? 100 : 0}" aria-hidden="true"><span>${complete ? "✓" : course.lessons.length}</span></div>
           <p class="eyebrow">Завершение курса</p>
           <h2>Проверьте себя</h2>
+          <div class="course-achievement-preview"><span aria-hidden="true">${escapeHtml(course.achievement.icon || courseAchievement(course.code).icon)}</span><div><small>Ачивка после подтверждения</small><strong>${escapeHtml(course.achievement.name || course.achievement.title || courseAchievement(course.code).name)}</strong></div></div>
           <p class="muted tiny">Сначала пройдите мини-тест блока, затем подтвердите чек-лист. Завершение сохранится в рабочем профиле.</p>
           ${complete ? alertMarkup("Курс уже пройден. Материал можно повторять без ограничений.", "success") : `
             <div class="course-check-gate ${checkPassed ? "passed" : ""}" data-course-check-gate>
@@ -2389,6 +2655,7 @@ function renderCourse(code) {
     </div>
   `;
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
+  syncCourseLessonJourney(course, lessonJourney);
   restoreTrainingWalkthroughState(course.code);
   restoreTrainingAudience(course.code);
   void restoreServerTrainingWalkthroughState(course.code);
@@ -2407,7 +2674,7 @@ function trainingWalkthroughStateKey(root) {
   );
 }
 
-function persistTrainingWalkthroughState(root) {
+function persistTrainingWalkthroughState(root, { syncServer = true } = {}) {
   const key = trainingWalkthroughStateKey(root);
   if (!key || !root) return;
   const payload = {
@@ -2426,7 +2693,7 @@ function persistTrainingWalkthroughState(root) {
   } catch {
     // Server synchronization below remains the durable path.
   }
-  scheduleServerTrainingWalkthroughProgress(root);
+  if (syncServer) scheduleServerTrainingWalkthroughProgress(root);
 }
 
 function restoreTrainingWalkthroughState(courseCode) {
@@ -2482,11 +2749,11 @@ function restoreTrainingAudience(courseCode) {
   const courseRoot = document.querySelector(`[data-training-interactive-course="${CSS.escape(courseCode)}"]`);
   if (!courseRoot) return;
   const key = trainingAudienceStateKey(courseCode);
-  let saved = "all";
+  let saved = restoreLearningTrack();
   try {
-    saved = key ? window.localStorage.getItem(key) || "all" : "all";
+    saved = key ? window.localStorage.getItem(key) || saved : saved;
   } catch {
-    saved = "all";
+    saved = restoreLearningTrack();
   }
   setTrainingAudience(courseRoot, saved);
 }
@@ -3171,24 +3438,69 @@ function lessonAnchorId(lesson, index = 0) {
   return `lesson-${lessonCode || index + 1}`;
 }
 
-function lessonMarkup(lesson, index, total) {
+function lessonAudienceLabel(lesson) {
+  const audiences = Array.isArray(lesson?.audiences) ? lesson.audiences.map(String) : [];
+  if (!audiences.length || audiences.includes("all")) return "Всем ролям";
+  const labels = { self: "Снимаю сам", ai: "Создаю с ИИ", publish: "Публикую" };
+  return audiences.map((audience) => labels[audience]).filter(Boolean).join(" · ") || "Справочный урок";
+}
+
+function lessonRouteLabel(lesson) {
+  if (restoreLearningTrack() === "all") return "Общий маршрут";
+  return lesson?.trackRecommended ? "Ваш маршрут" : "К общему мини-тесту";
+}
+
+function lessonMarkup(lesson, index, lessons, journey = {}) {
+  const total = lessons.length;
+  const normalized = normalizeLessonJourney(journey, lessons);
+  const active = normalized.activeIndex === index;
+  const understood = normalized.understood.includes(index);
+  const anchorId = lessonAnchorId(lesson, index);
+  const titleId = `${anchorId}-title`;
+  const detailsId = `${anchorId}-details`;
   return `
-    <article id="${escapeHtml(lessonAnchorId(lesson, index))}" class="card lesson-card" tabindex="-1">
-      <div class="lesson-step-rail" aria-hidden="true"><span>${String(index + 1).padStart(2, "0")}</span><i></i><small>${String(total).padStart(2, "0")}</small></div>
+    <article id="${escapeHtml(anchorId)}" class="card lesson-card ${active ? "is-active" : ""} ${understood ? "is-understood" : ""} ${lesson.trackRecommended ? "is-track-recommended" : "is-track-reference"}" data-course-lesson data-lesson-id="${escapeHtml(lesson.id)}" data-lesson-index="${index}" data-lesson-state="${understood ? "understood" : active ? "current" : "not-started"}" aria-labelledby="${escapeHtml(titleId)}">
+      <div class="lesson-step-rail" aria-hidden="true"><span>${String(index + 1).padStart(2, "0")}</span><i></i>${understood ? "<em>✓</em>" : `<small>${String(total).padStart(2, "0")}</small>`}</div>
       <div class="lesson-content">
         <header class="lesson-heading">
-          <div class="lesson-kicker"><p class="eyebrow">Практический шаг ${index + 1}</p>${lesson.reviewed_at ? `<span>Проверено ${escapeHtml(formatDate(lesson.reviewed_at))}</span>` : ""}</div>
-          <h2>${escapeHtml(lesson.title)}</h2>
-          <p>${escapeHtml(lesson.body)}</p>
+          <div class="lesson-heading__top">
+            <div>
+              <div class="lesson-kicker"><p class="eyebrow">Практический шаг ${index + 1}</p><span class="lesson-route-badge">${escapeHtml(lessonRouteLabel(lesson))}</span><span>Кому: ${escapeHtml(lessonAudienceLabel(lesson))}</span>${lesson.reviewed_at ? `<span>Проверено ${escapeHtml(formatDate(lesson.reviewed_at))}</span>` : ""}</div>
+              <h2 id="${escapeHtml(titleId)}">${escapeHtml(lesson.title)}</h2>
+            </div>
+            <button class="lesson-toggle" type="button" data-action="training-lesson-toggle" data-lesson-index="${index}" aria-expanded="${active ? "true" : "false"}" aria-controls="${escapeHtml(detailsId)}" aria-label="${active ? "Свернуть" : "Открыть"} урок «${escapeHtml(lesson.title)}»"><span aria-hidden="true">⌄</span></button>
+          </div>
+          <p class="lesson-heading__summary">${escapeHtml(lesson.body)}</p>
         </header>
-        ${lesson.takeaway ? `<div class="lesson-takeaway"><span>Главное</span><strong>${escapeHtml(lesson.takeaway)}</strong></div>` : ""}
-        ${lessonVisualMarkup(lesson.visual)}
-        ${Array.isArray(lesson.bullets) && lesson.bullets.length ? `<ul class="lesson-bullets">${lesson.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
-        ${lessonChecklistMarkup(lesson.checklist)}
-        ${lessonPracticeMarkup(lesson.practice)}
-        ${lesson.callout ? alertMarkup(lesson.callout, "warning") : ""}
+        <div id="${escapeHtml(detailsId)}" class="lesson-details" data-course-lesson-details ${active ? "" : "hidden"}>
+          ${lesson.takeaway ? `<div class="lesson-takeaway"><span>Главное</span><strong>${escapeHtml(lesson.takeaway)}</strong></div>` : ""}
+          ${lessonVisualMarkup(lesson.visual)}
+          ${Array.isArray(lesson.bullets) && lesson.bullets.length ? `<ul class="lesson-bullets">${lesson.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+          ${lessonChecklistMarkup(lesson.checklist)}
+          ${lessonPracticeMarkup(lesson.practice)}
+          ${lesson.callout ? alertMarkup(lesson.callout, "warning") : ""}
+          <footer class="lesson-actions">
+            <div class="lesson-actions__nav">
+              ${index > 0 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${index - 1}"><span aria-hidden="true">←</span> Предыдущий</button>` : ""}
+              ${index < total - 1 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${index + 1}">Следующий <span aria-hidden="true">→</span></button>` : `<button class="btn btn-secondary btn-small" type="button" data-action="scroll-to" data-target="course-check">К мини-тесту <span aria-hidden="true">↓</span></button>`}
+            </div>
+            <button class="btn btn-small lesson-understood" type="button" data-action="training-lesson-understood" data-lesson-index="${index}" aria-pressed="${understood ? "true" : "false"}">${understood ? '<span aria-hidden="true">✓</span> Урок понятен' : index < total - 1 ? 'Понятно — следующий урок <span aria-hidden="true">→</span>' : '<span aria-hidden="true">✓</span> Урок понятен'}</button>
+          </footer>
+        </div>
       </div>
     </article>
+  `;
+}
+
+function courseGlossaryMarkup(glossary) {
+  if (!Array.isArray(glossary) || !glossary.length) return "";
+  return `
+    <details class="card course-glossary">
+      <summary><span aria-hidden="true">Aa</span><div><p class="eyebrow">Словарь новичка</p><strong>Открыть ${glossary.length} ${glossary.length === 1 ? "термин" : glossary.length < 5 ? "термина" : "терминов"} простыми словами</strong></div></summary>
+      <dl>
+        ${glossary.map((item) => `<div><dt>${escapeHtml(item.term)}</dt><dd>${escapeHtml(item.definition)}</dd></div>`).join("")}
+      </dl>
+    </details>
   `;
 }
 
@@ -4265,6 +4577,26 @@ function setMobileNavOpen(open, restoreFocus = false) {
 }
 
 function handleKeyDown(event) {
+  const achievement = document.querySelector("[data-training-achievement]");
+  if (achievement && event.key === "Escape") {
+    event.preventDefault();
+    closeTrainingAchievement();
+    return;
+  }
+  if (achievement && event.key === "Tab") {
+    const focusable = Array.from(achievement.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'));
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+    return;
+  }
   const trainingTimelineControl = event.target.closest?.('[data-training-timeline] [data-action="training-walkthrough-jump"]');
   if (trainingTimelineControl && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
     const root = trainingWalkthroughRoot(trainingTimelineControl);
@@ -7488,6 +7820,69 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "select-learning-track") {
+    const selected = persistLearningTrack(control.dataset.learningTrack);
+    learningCourses().forEach((course) => persistTrainingAudience(course.code, selected));
+    renderLearningHome();
+    window.queueMicrotask(() => document.querySelector(`[data-learning-track="${CSS.escape(selected)}"]`)?.focus({ preventScroll: true }));
+    track("training_track_selected", { learning_track: selected });
+    toast(`Учебный акцент: ${LEARNING_TRACKS[selected].shortLabel}.`, "success");
+    return;
+  }
+
+  if (["training-lesson-open", "training-lesson-toggle", "training-lesson-understood"].includes(action)) {
+    const courseCode = String(document.querySelector("[data-course-lesson-player]")?.dataset.courseCode || "");
+    const lessons = Array.from(document.querySelectorAll("[data-course-lesson]"));
+    const course = learningCourses().find((item) => item.code === courseCode);
+    if (!course || !lessons.length) return;
+    const index = Math.max(0, Math.min(lessons.length - 1, Number(control.dataset.lessonIndex) || 0));
+    const current = restoreLessonJourney(course);
+    if (action === "training-lesson-toggle" && current.activeIndex === index && control.getAttribute("aria-expanded") === "true") {
+      const lesson = lessons[index];
+      lesson.querySelector("[data-course-lesson-details]")?.setAttribute("hidden", "");
+      control.setAttribute("aria-expanded", "false");
+      control.setAttribute("aria-label", `Открыть урок «${lesson.querySelector("h2")?.textContent || index + 1}»`);
+      return;
+    }
+    const wasUnderstood = current.understood.includes(index);
+    const next = action === "training-lesson-understood"
+        ? reduceLessonJourney(current, {
+          type: wasUnderstood ? "reopen" : "understand",
+          index,
+          moveNext: !wasUnderstood,
+        }, course.lessons)
+      : reduceLessonJourney(current, { type: "open", index }, course.lessons);
+    syncCourseLessonJourney(course, next, {
+      focus: true,
+      scroll: action !== "training-lesson-toggle",
+    });
+    if (action === "training-lesson-understood") {
+      track(wasUnderstood ? "training_lesson_reopened" : "training_lesson_completed", {
+        module_code: courseCode,
+        lesson_index: index + 1,
+        learning_track: restoreLearningTrack(),
+      });
+      if (!wasUnderstood) toast("Урок отмечен понятным. Прогресс сохранён на этом устройстве.", "success");
+    }
+    return;
+  }
+
+  if (action === "close-training-achievement") {
+    closeTrainingAchievement();
+    return;
+  }
+
+  if (action === "play-training-fanfare") {
+    const played = playTrainingFanfare();
+    if (played) {
+      control.disabled = true;
+      control.innerHTML = '<span aria-hidden="true">✓</span> Фанфары сыграли';
+    } else {
+      toast("В этом браузере звук недоступен, но ачивка уже сохранена.", "info");
+    }
+    return;
+  }
+
   if (action === "toggle-work-notifications") {
     event.preventDefault();
     if (!state.myWork.notificationsOpen && state.mobileNavOpen) setMobileNavOpen(false);
@@ -7603,14 +7998,21 @@ async function handleClick(event) {
     return;
   }
 
-  if (["training-walkthrough-previous", "training-walkthrough-next", "training-walkthrough-reset"].includes(action)) {
+  if (action === "training-walkthrough-reset") {
+    const root = trainingWalkthroughRoot(control);
+    resetTrainingWalkthroughState(root);
+    persistTrainingWalkthroughState(root, { syncServer: false });
+    root?.querySelector('[data-action="training-walkthrough-play"]')?.focus({ preventScroll: true });
+    toast("Повтор начат локально. Уже полученный зачёт сохраняется в рабочем профиле.", "info");
+    return;
+  }
+
+  if (["training-walkthrough-previous", "training-walkthrough-next"].includes(action)) {
     const root = trainingWalkthroughRoot(control);
     const current = Math.max(0, Number(root?.dataset?.trainingStep) || 0);
     const next = action === "training-walkthrough-previous"
       ? current - 1
-      : action === "training-walkthrough-next"
-        ? current + 1
-        : 0;
+      : current + 1;
     setTrainingWalkthroughStepAndPersist(root, next);
     return;
   }
@@ -7929,10 +8331,26 @@ async function handleClick(event) {
 
   if (action === "scroll-to") {
     const targetId = String(control.dataset.target || "");
-    const target = targetId ? document.getElementById(targetId) : null;
+    let target = targetId ? document.getElementById(targetId) : null;
+    if (target?.matches?.("[data-course-lesson]")) {
+      const courseCode = String(document.querySelector("[data-course-lesson-player]")?.dataset.courseCode || "");
+      const lessons = Array.from(document.querySelectorAll("[data-course-lesson]"));
+      const course = learningCourses().find((item) => item.code === courseCode);
+      const lessonIndex = lessons.indexOf(target);
+      if (course && lessonIndex >= 0) {
+        syncCourseLessonJourney(
+          course,
+          reduceLessonJourney(restoreLessonJourney(course), { type: "open", index: lessonIndex }, course.lessons),
+          { focus: false, scroll: false },
+        );
+        target = lessons[lessonIndex];
+      }
+    }
     if (target) {
       scrollElementIntoView(target);
-      if (target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
+      if (target.matches?.("[data-course-lesson]")) {
+        target.querySelector('[data-action="training-lesson-toggle"]')?.focus({ preventScroll: true });
+      } else if (target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
     }
     return;
   }
@@ -7981,6 +8399,7 @@ async function handleClick(event) {
 
   if (action === "complete-course") {
     const moduleCode = control.dataset.moduleCode;
+    const wasCompleted = state.bootstrap.training.completedModules.includes(moduleCode);
     if (state.courseCheckResults[moduleCode]?.passed !== true) {
       toast("Сначала пройдите мини-тест этого блока.", "error");
       scrollElementIntoView(document.querySelector("#course-check-form"));
@@ -7996,8 +8415,25 @@ async function handleClick(event) {
       await state.api.completeModule(moduleCode);
       await track("course_completed", { module_code: moduleCode });
       await loadBootstrap();
+      const serverCompleted = state.bootstrap.training.completedModules.includes(moduleCode);
+      const celebrationKey = achievementStorageKey(state.user?.id, moduleCode);
+      const celebrationStorage = learningPreferenceStorage();
+      const alreadyCelebrated = celebrationKey && celebrationStorage
+        ? safeStorageGet(celebrationStorage, celebrationKey) === "shown"
+        : false;
+      const celebrate = shouldCelebrateCourse({ wasCompleted, serverCompleted, alreadyCelebrated });
+      if (!serverCompleted) throw new Error("Сервер не подтвердил завершение блока. Обновите страницу и проверьте результат.");
+      if (celebrate && celebrationKey && celebrationStorage) safeStorageSet(celebrationStorage, celebrationKey, "shown");
       toast("Курс завершён и сохранён.", "success");
       navigate("/learn", true);
+      if (celebrate) {
+        window.queueMicrotask(() => {
+          const returnFocus = document.querySelector(`a[href="#/learn/${CSS.escape(moduleCode)}"]`)
+            || document.querySelector("#main-content");
+          showTrainingAchievement(moduleCode, returnFocus);
+          track("training_achievement_unlocked", { module_code: moduleCode });
+        });
+      }
     } catch (error) {
       control.disabled = false;
       toast(actionErrorMessage(error), "error");
@@ -8416,6 +8852,12 @@ function handleChange(event) {
     syncCourseCompletionButton();
   }
 
+  const knowledgeQuestion = event.target.closest?.("[data-check-question]");
+  if (knowledgeQuestion) {
+    knowledgeQuestion.setAttribute("aria-invalid", "false");
+    knowledgeQuestion.classList.remove("incorrect");
+  }
+
   if (event.target.matches("[data-training-check]")) {
     const root = trainingWalkthroughRoot(event.target);
     syncTrainingWalkthroughStatus(root);
@@ -8431,6 +8873,8 @@ function handleChange(event) {
   }
 
   if (event.target.closest("#exam-form")) {
+    const examCard = event.target.closest("[data-exam-question]");
+    examCard?.setAttribute("aria-invalid", "false");
     const questions = finalExamQuestions();
     const answered = questions.filter((question) =>
       document.querySelector(`input[name="${CSS.escape(`answer_${question.code}`)}"]:checked`),
@@ -8872,6 +9316,12 @@ async function submitCourseKnowledgeCheck(form) {
     const inputName = `check_${courseCode}_${question.id}`;
     const selected = form.querySelector(`input[name="${CSS.escape(inputName)}"]:checked`);
     if (!selected) {
+      const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
+      fieldset?.classList.add("incorrect");
+      fieldset?.setAttribute("aria-invalid", "true");
+      fieldset?.setAttribute("tabindex", "-1");
+      scrollElementIntoView(fieldset, "center");
+      fieldset?.focus({ preventScroll: true });
       toast("Ответьте на все вопросы мини-теста.", "error");
       return;
     }
@@ -8896,8 +9346,11 @@ async function submitCourseKnowledgeCheck(form) {
     for (const question of check.questions) {
       const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
       fieldset?.classList.remove("correct", "incorrect");
-      if (reviewCodes.has(question.id)) fieldset?.classList.add("incorrect");
-      else if (passed) fieldset?.classList.add("correct");
+      fieldset?.setAttribute("aria-invalid", reviewCodes.has(question.id) ? "true" : "false");
+      if (reviewCodes.has(question.id)) {
+        fieldset?.classList.add("incorrect");
+        fieldset?.setAttribute("tabindex", "-1");
+      } else if (passed) fieldset?.classList.add("correct");
     }
 
     state.courseCheckResults[courseCode] = {
@@ -8928,6 +9381,11 @@ async function submitCourseKnowledgeCheck(form) {
       score: correctCount,
       question_count: questionCount,
     });
+    if (!passed) {
+      const firstIncorrect = form.querySelector('.knowledge-question[aria-invalid="true"]');
+      scrollElementIntoView(firstIncorrect, "center");
+      firstIncorrect?.focus({ preventScroll: true });
+    }
     toast(passed ? "Мини-тест пройден." : "Есть ошибки — посмотрите отмеченные темы и повторите.", passed ? "success" : "info");
   } catch (error) {
       toast(actionErrorMessage(error), "error");
@@ -8952,7 +9410,11 @@ async function submitExam(form) {
       ...form.querySelectorAll(`input[name="${CSS.escape(`answer_${question.code}`)}"]:checked`),
     ];
     if (!selected.length) {
-      scrollElementIntoView(selectedQuestionCard(question.code), "center");
+      const card = selectedQuestionCard(question.code);
+      card?.setAttribute("aria-invalid", "true");
+      card?.setAttribute("tabindex", "-1");
+      scrollElementIntoView(card, "center");
+      card?.focus({ preventScroll: true });
       toast("Ответьте на все 12 вопросов.", "error");
       return;
     }
