@@ -741,6 +741,8 @@ select throws_ok(
   'an owner cannot inspect another organization health scope'
 );
 
+reset role;
+
 select is(
   (
     select count(*)

@@ -304,7 +304,7 @@ def test_generation_archive_has_clear_busy_live_empty_retry_and_table_semantics(
     table = _between(APP, "function generationTable", "function renderTasksSection")
 
     for hook in (
-        'aria-busy="${archive.loadingMore ? "true" : "false"}"',
+        'aria-busy="${archive.loading || archive.loadingMore ? "true" : "false"}"',
         'id="generation-archive-submit"',
         'id="generation-archive-summary"',
         'tabindex="-1"',
@@ -317,7 +317,7 @@ def test_generation_archive_has_clear_busy_live_empty_retry_and_table_semantics(
         "generation-mobile-hint",
     ):
         assert hook in archive
-    assert "Поиск работает по загруженной части архива" in archive
+    assert "Период, статус и поиск применяются на сервере ко всему архиву" in archive
     assert "Повторить загрузку истории" in archive
     assert 'disabled' in archive and "archive.loadingMore" in archive
     assert '<caption class="sr-only">Архив запусков генерации видео</caption>' in table
@@ -327,8 +327,9 @@ def test_generation_archive_has_clear_busy_live_empty_retry_and_table_semantics(
     reset_filters = _between(APP, 'if (action === "reset-generation-filters")', 'if (action === "show-more-generation")')
     assert 'form.removeAttribute("data-dirty")' in submit_filters
     assert 'removeAttribute("data-dirty")' in reset_filters
+    assert "await reloadGenerationArchive()" in submit_filters
+    assert "await reloadGenerationArchive()" in reset_filters
     assert "focusGenerationArchiveSummary()" in submit_filters
-    assert "focusGenerationArchiveSummary()" in reset_filters
 
 
 def test_dark_component_overrides_keep_controls_and_status_icons_readable() -> None:

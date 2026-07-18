@@ -394,13 +394,12 @@ select ok(
   (select response -> 'ok' = 'true'::jsonb from generation_archive_first),
   'archive response reports success'
 );
-select is(
+select ok(
   (
-    select array_agg(key order by key)
-    from generation_archive_first,
-      lateral jsonb_object_keys(response) key
+    select response ?& array['ok', 'batches', '_meta']
+      and jsonb_object_length(response) = 3
+    from generation_archive_first
   ),
-  array['_meta', 'batches', 'ok']::text[],
   'archive response has only the documented top-level keys'
 );
 select is(
