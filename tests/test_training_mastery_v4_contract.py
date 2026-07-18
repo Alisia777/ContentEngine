@@ -16,6 +16,9 @@ INTERACTIVE = (ROOT / "web/app/training-interactive.js").read_text(
     encoding="utf-8"
 )
 SUPABASE_API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+CREATOR_FACTORY_TEST = (ROOT / "supabase/tests/creator_factory_test.sql").read_text(
+    encoding="utf-8"
+)
 
 
 def _run_module(source: str, module_name: str, body: str) -> dict:
@@ -315,6 +318,17 @@ def test_server_completion_requires_the_configured_practice_receipts() -> None:
     assert "then coalesce(question.value ->> 'id', '')" in sql
     assert "course_practice_required:" in SUPABASE_API
     assert "training_progress_sync_required:" in SUPABASE_API
+
+    fixture_source = CREATOR_FACTORY_TEST.lower()
+    practice_fixture = fixture_source.index(
+        "perform public.creator_save_training_progress"
+    )
+    completion_fixture = fixture_source.index(
+        "perform public.creator_complete_module",
+        practice_fixture,
+    )
+    assert practice_fixture < completion_fixture
+    assert "module_row.required_walkthrough_ids" in fixture_source
 
     for course_code in (
         "factory_basics",

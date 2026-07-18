@@ -225,6 +225,7 @@ declare
   context_row creator_test_context%rowtype;
   module_row record;
   exact_answers jsonb;
+  walkthrough_id text;
 begin
   select * into context_row from creator_test_context;
 
@@ -233,7 +234,14 @@ begin
       module.code,
       jsonb_array_length(
         module.content #> '{knowledge_check,questions}'
-      ) as question_count
+      ) as question_count,
+      case
+        when jsonb_typeof(
+          module.content #> '{mastery,required_walkthrough_ids}'
+        ) = 'array'
+          then module.content #> '{mastery,required_walkthrough_ids}'
+        else '[]'::jsonb
+      end as required_walkthrough_ids
     from content_factory.training_modules module
     where module.module_type = 'course'
       and module.is_active
@@ -259,6 +267,7 @@ begin
       ) = 1;
 
     if module_row.question_count < 1
+       or jsonb_array_length(module_row.required_walkthrough_ids) < 1
        or (select count(*) from pg_catalog.jsonb_object_keys(exact_answers))
          <> module_row.question_count then
       raise exception using
@@ -272,6 +281,20 @@ begin
       'answers', exact_answers,
       'idempotency_key', 'pgtap-course-check-' || module_row.code
     ));
+
+    for walkthrough_id in
+      select value
+      from jsonb_array_elements_text(module_row.required_walkthrough_ids)
+    loop
+      perform public.creator_save_training_progress(jsonb_build_object(
+        'organization_id', context_row.organization_id,
+        'module_code', module_row.code,
+        'walkthrough_id', walkthrough_id,
+        'completed', true,
+        'idempotency_key',
+          'pgtap-practice-' || module_row.code || '-' || walkthrough_id
+      ));
+    end loop;
 
     perform public.creator_complete_module(jsonb_build_object(
       'organization_id', context_row.organization_id,
