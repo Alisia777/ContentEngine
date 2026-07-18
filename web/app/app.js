@@ -80,12 +80,17 @@ import {
   workspaceBoardMarkup,
 } from "./workspace-board-view.js?v=20260716.2";
 import {
+  evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
+  setTrainingAudience,
+  setTrainingWalkthroughMode,
   setTrainingWalkthroughStep,
   stopTrainingWalkthrough,
+  syncTrainingWalkthroughStatus,
+  trainingAudienceStorageKey,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260716.3";
+} from "./training-interactive.js?v=20260718.1";
 import {
   myWorkRequestOptions,
   myWorkWorkspaceMarkup,
@@ -139,6 +144,134 @@ const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "operator",
 ]);
 const TRAINING_WALKTHROUGH_STEP_INTERVAL_MS = 4_500;
+const COURSE_KNOWLEDGE_PRESENTATION = Object.freeze({
+  factory_basics: Object.freeze({
+    audienceLabel: "Всем участникам",
+    roleHint: "Представьте, что вы впервые открыли портал: выберите один безопасный следующий шаг.",
+  }),
+  video_quality: Object.freeze({
+    audienceLabel: "Тем, кто снимает сам или генерирует с ИИ",
+    roleHint: "Оценивайте только один готовый ролик: точность товара, качество кадра и возможность передать его на проверку.",
+  }),
+  publishing_funnel: Object.freeze({
+    audienceLabel: "Тем, кто публикует в соцсетях",
+    roleHint: "Считайте, что файл уже одобрен: решите, можно ли публиковать и что нужно вернуть в портал.",
+  }),
+  security_wb: Object.freeze({
+    audienceLabel: "Всем участникам",
+    roleHint: "Если артикул, сумма или статус не совпадают, выбирайте остановку и проверку у руководителя.",
+  }),
+});
+const FINAL_EXAM_PRESENTATION = Object.freeze({
+  exam_sku_mismatch: Object.freeze({
+    prompt: "Фото товара не совпадают с артикулом в задаче. Что делать?",
+    options: Object.freeze({
+      "Использовать похожие фото и отметить это после публикации": "Продолжить с похожими фото",
+      "Переименовать SKU B в отчёте": "Переименовать другой артикул",
+      "Остановить задачу и запросить точные материалы SKU A": "Остановить и запросить точные материалы",
+      "Сделать один тестовый ролик без проверки": "Сделать тестовый ролик без проверки",
+    }),
+  }),
+  exam_provider_wrong_pack: Object.freeze({
+    prompt: "Генерация завершилась, но упаковка в ролике неверная. Что делать?",
+    options: Object.freeze({
+      "Одобрить, потому что API завершился успешно": "Одобрить из-за успешного статуса API",
+      "Опубликовать с предупреждением в описании": "Опубликовать с предупреждением",
+      "Отклонить конкретный файл и вернуть на пересоздание": "Отклонить файл и пересоздать",
+      "Скрыть неверные кадры обложкой": "Скрыть ошибку обложкой",
+    }),
+  }),
+  exam_qa_requirements: Object.freeze({
+    prompt: "Что проверить перед одобрением ролика? Выберите все нужные действия.",
+    options: Object.freeze({
+      "Посмотреть MP4 полностью": "Посмотреть ролик полностью",
+      "Сверить товар и упаковку с точными исходниками": "Сверить товар и упаковку",
+      "Проверить обещания, текст и CTA": "Проверить обещания, текст и призыв",
+      "Дождаться 1000 просмотров": "Дождаться 1000 просмотров",
+    }),
+  }),
+  exam_missing_destination: Object.freeze({
+    prompt: "Ролик готов, но аккаунт для публикации не назначен. Что делать?",
+    options: Object.freeze({
+      "Выбрать любой доступный аккаунт": "Выбрать любой аккаунт",
+      "Передать ролик коллеге без фиксации": "Передать коллеге без записи в портале",
+      "Остановиться и запросить назначение площадки": "Остановиться и запросить назначение",
+      "Опубликовать в личном аккаунте": "Опубликовать в личном аккаунте",
+    }),
+  }),
+  exam_publication_evidence: Object.freeze({
+    prompt: "Что сохранить после публикации? Выберите нужные данные.",
+    options: Object.freeze({
+      "Публичный final URL поста": "Публичную ссылку на пост",
+      "Tracking link из назначенной задачи": "Трекинговую ссылку из задачи",
+      "Пароль от социальной сети": "Пароль от соцсети",
+      "OAuth access token": "OAuth-токен",
+    }),
+  }),
+  exam_metrics_source: Object.freeze({
+    prompt: "Коннектор метрик не работает. Как корректно сохранить цифры вручную?",
+    options: Object.freeze({
+      "Ввести накопительный ручной или CSV-снимок с явной маркировкой источника и времени": "Загрузить ручной или CSV-снимок с источником и временем",
+      "Назвать приблизительные цифры результатом API": "Назвать приблизительные цифры данными API",
+      "Передать пароль аналитику для скрейпинга кабинета": "Передать пароль аналитику",
+      "Скопировать цифры конкурента": "Скопировать цифры конкурента",
+    }),
+  }),
+  exam_secret_request: Object.freeze({
+    prompt: "Коллега просит OAuth-токен в комментарии. Что делать?",
+    options: Object.freeze({
+      "Вставить токен и удалить комментарий позже": "Отправить токен и удалить позже",
+      "Отправить токен личным сообщением": "Отправить токен лично",
+      "Не передавать секрет, остановить действие и сообщить владельцу безопасного контура": "Не передавать секрет и сообщить владельцу",
+      "Сохранить токен в названии файла": "Записать токен в имя файла",
+    }),
+  }),
+  exam_real_spend_disabled: Object.freeze({
+    prompt: "Платная генерация не разрешена владельцем. Что делать?",
+    options: Object.freeze({
+      "Запустить один ролик — это не считается расходом": "Запустить один ролик без разрешения",
+      "Остаться в mock/dry-run и запросить отдельное разрешение владельца на spend gate": "Остаться в тестовом режиме и запросить разрешение",
+      "Разделить запуск на несколько маленьких задач": "Разделить запуск на мелкие задачи",
+      "Подставить личный API key": "Использовать личный API-ключ",
+    }),
+  }),
+  exam_wb_alias_history: Object.freeze({
+    prompt: "У товара появился новый артикул, а метрики есть по старому и новому. Что делать?",
+    options: Object.freeze({
+      "Переписать старые записи на новый артикул без истории": "Заменить старый артикул без истории",
+      "Создать датированную alias-связь обоих артикулов с каноническим товаром": "Связать оба артикула с товаром и сохранить дату",
+      "Создать случайный новый SKU": "Создать случайный SKU",
+      "Сложить метрики с любым товаром того же бренда": "Объединить с похожим товаром бренда",
+    }),
+  }),
+  exam_payout_separation: Object.freeze({
+    prompt: "Креатор добавил ссылку на публикацию. Когда выплата подтверждена?",
+    options: Object.freeze({
+      "Сразу после отметки самого креатора": "Сразу после отметки креатора",
+      "После проверки доказательства и решения уполномоченного owner/admin": "После проверки и решения руководителя",
+      "После любого комментария в чате": "После комментария в чате",
+      "До публикации, если ролик выглядит хорошо": "До публикации, если ролик хороший",
+    }),
+  }),
+  exam_platform_claims: Object.freeze({
+    prompt: "Когда публикацию нужно остановить? Выберите все подходящие ситуации.",
+    options: Object.freeze({
+      "Нет подтверждённых прав на исходник": "Нет прав на исходник",
+      "В ролике есть неподтверждённое медицинское обещание": "Есть неподтверждённое медицинское обещание",
+      "Фактический товар отличается от задания": "Товар отличается от задания",
+      "В календаре свободно другое время": "В календаре есть другое время",
+    }),
+  }),
+  exam_idempotent_retry: Object.freeze({
+    prompt: "После сетевой ошибки неизвестно, создалась ли партия. Как повторить запрос без дублей?",
+    options: Object.freeze({
+      "Создать новый idempotency key и повторить несколько раз": "Создать новый ключ и повторить несколько раз",
+      "Повторить тот же запрос с тем же idempotency key и проверить сохранённый результат": "Повторить с тем же ключом и проверить результат",
+      "Удалить все задачи команды": "Удалить все задачи",
+      "Увеличить количество роликов": "Увеличить количество роликов",
+    }),
+  }),
+});
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_GENERATION_SKUS = Object.freeze({
@@ -1473,6 +1606,18 @@ function learningCourses() {
       const knowledgeCheck = knowledgeQuestions.length
         ? {
             title: String(rawKnowledgeCheck.title || "Проверка блока"),
+            audienceLabel: String(
+              rawKnowledgeCheck.audience_label
+              || rawKnowledgeCheck.audienceLabel
+              || COURSE_KNOWLEDGE_PRESENTATION[module.code]?.audienceLabel
+              || "Всем участникам",
+            ).slice(0, 180),
+            roleHint: String(
+              rawKnowledgeCheck.role_hint
+              || rawKnowledgeCheck.roleHint
+              || COURSE_KNOWLEDGE_PRESENTATION[module.code]?.roleHint
+              || "Выберите один безопасный следующий шаг в контексте рабочей задачи.",
+            ).slice(0, 500),
             passScore: Math.max(
               1,
               Math.min(knowledgeQuestions.length, Number(rawKnowledgeCheck.pass_score) || knowledgeQuestions.length),
@@ -1503,14 +1648,22 @@ function finalExamQuestions() {
   const serverQuestions = questions
     .slice()
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
-    .map((question) => ({
-      code: question.code,
-      type: question.type || "single_choice",
-      text: question.prompt,
-      options: (Array.isArray(question.options) ? question.options : [])
-        .map(normalizeExamOption)
-        .filter((option) => option.value && option.label),
-    }));
+    .map((question) => {
+      const code = String(question.code || "");
+      const presentation = FINAL_EXAM_PRESENTATION[code];
+      return {
+        code,
+        type: question.type || "single_choice",
+        text: String(presentation?.prompt || question.prompt || ""),
+        options: (Array.isArray(question.options) ? question.options : [])
+          .map(normalizeExamOption)
+          .filter((option) => option.value && option.label)
+          .map((option) => ({
+            value: option.value,
+            label: String(presentation?.options?.[option.value] || option.label),
+          })),
+      };
+    });
   return serverQuestions;
 }
 
@@ -2032,28 +2185,6 @@ function renderLearningHome() {
         <div class="work-map-rule"><span aria-hidden="true">◎</span><p><strong>Главное правило:</strong> точный артикул товара, исходный файл и итоговая ссылка должны оставаться связаны от загрузки до результата.</p></div>
       </section>
 
-      <section class="card first-shift-invite" aria-labelledby="first-shift-invite-title">
-        <div class="first-shift-invite-mark" aria-hidden="true"><span>${FIRST_SHIFT_FULL_SCENARIO.steps.length}</span><small>решений</small></div>
-        <div>
-          <p class="eyebrow">Полная безопасная репетиция · ${FIRST_SHIFT_FULL_SCENARIO.durationMinutes} минут</p>
-          <h2 id="first-shift-invite-title">Пройдите полный путь от задачи до выплаты</h2>
-          <p>Проверьте основной и подменный артикулы, сумму, исходники, съёмку или генерацию, качество, публикацию, метрики и фактическую выплату.</p>
-          <p class="first-shift-invite-note"><span aria-hidden="true">◎</span> Тренажёр не создаёт задач, не списывает деньги и не влияет на допуск.</p>
-        </div>
-        <a class="btn" href="#/learn/first-shift">${firstShift.completed ? "Посмотреть результат" : firstShift.checked.length || firstShift.stepIndex > 0 ? "Продолжить смену" : "Начать тренировку"} <span aria-hidden="true">→</span></a>
-      </section>
-
-      <section class="card first-shift-invite account-launch-invite" aria-labelledby="account-launch-invite-title">
-        <div class="first-shift-invite-mark" aria-hidden="true"><span>3</span><small>сети</small></div>
-        <div>
-          <p class="eyebrow">Instagram · YouTube · VK</p>
-          <h2 id="account-launch-invite-title">Запустите новый аккаунт с нуля</h2>
-          <p>Регистрация, защита входа, оформление, безопасный прогрев и чек-лист первой публикации — отдельно для каждой площадки.</p>
-          <p class="first-shift-invite-note"><span aria-hidden="true">!</span> Без выдуманных лимитов и советов по обходу рекламной маркировки.</p>
-        </div>
-        <a class="btn" href="#${ACCOUNT_LAUNCH_PATH}">Открыть центр запуска <span aria-hidden="true">→</span></a>
-      </section>
-
       <div class="learning-section-heading">
         <div>
           <p class="eyebrow">Маршрут обучения</p>
@@ -2078,6 +2209,36 @@ function renderLearningHome() {
         ${catalogReady && prerequisitesComplete()
           ? `<a class="btn" href="#/learn/exam">${examPassed ? "Посмотреть результат" : "Начать экзамен"} <span aria-hidden="true">→</span></a>`
           : `<span class="btn btn-secondary" aria-disabled="true">Сначала завершите курсы</span>`}
+      </section>
+
+      <div class="learning-section-heading learning-section-heading--optional">
+        <div>
+          <p class="eyebrow">Дополнительная практика · необязательно для допуска</p>
+          <h2>Закрепите весь маршрут без рабочих действий</h2>
+        </div>
+        <span>Можно пройти в любое время</span>
+      </div>
+
+      <section class="card first-shift-invite" aria-labelledby="first-shift-invite-title">
+        <div class="first-shift-invite-mark" aria-hidden="true"><span>${FIRST_SHIFT_FULL_SCENARIO.steps.length}</span><small>решений</small></div>
+        <div>
+          <p class="eyebrow">Необязательно · безопасная репетиция · ${FIRST_SHIFT_FULL_SCENARIO.durationMinutes} минут</p>
+          <h2 id="first-shift-invite-title">Пройдите полный путь от задачи до выплаты</h2>
+          <p>Проверьте основной и подменный артикулы, сумму, исходники, съёмку или генерацию, качество, публикацию, метрики и фактическую выплату.</p>
+          <p class="first-shift-invite-note"><span aria-hidden="true">◎</span> Тренажёр не создаёт задач, не списывает деньги и не влияет на допуск.</p>
+        </div>
+        <a class="btn" href="#/learn/first-shift">${firstShift.completed ? "Посмотреть результат" : firstShift.checked.length || firstShift.stepIndex > 0 ? "Продолжить смену" : "Начать тренировку"} <span aria-hidden="true">→</span></a>
+      </section>
+
+      <section class="card first-shift-invite account-launch-invite" aria-labelledby="account-launch-invite-title">
+        <div class="first-shift-invite-mark" aria-hidden="true"><span>3</span><small>сети</small></div>
+        <div>
+          <p class="eyebrow">Необязательно · Instagram · YouTube · VK</p>
+          <h2 id="account-launch-invite-title">Запустите новый аккаунт с нуля</h2>
+          <p>Регистрация, защита входа, оформление, безопасный прогрев и чек-лист первой публикации — отдельно для каждой площадки.</p>
+          <p class="first-shift-invite-note"><span aria-hidden="true">!</span> Без выдуманных лимитов и советов по обходу рекламной маркировки.</p>
+        </div>
+        <a class="btn" href="#${ACCOUNT_LAUNCH_PATH}">Открыть центр запуска <span aria-hidden="true">→</span></a>
       </section>
     </div>
   `;
@@ -2178,8 +2339,14 @@ function renderCourse(code) {
           <span class="badge ${complete ? "badge-success" : ""}">${complete ? "Курс пройден" : "Обязательный курс"}</span>
         </div>
       </header>
-      ${courseVisualExamplesMarkup(course.code)}
-      ${trainingInteractiveMarkup(course.code, course.interactiveWalkthroughs)}
+      <section class="course-learning-flow" aria-labelledby="course-learning-flow-title">
+        <div><p class="eyebrow">Как пройти блок</p><h2 id="course-learning-flow-title">Три понятных этапа</h2></div>
+        <ol>
+          <li><span>1</span><div><strong>Изучите уроки</strong><small>Пройдите материал сверху вниз и сверьтесь с примерами.</small></div></li>
+          <li><span>2</span><div><strong>Закрепите на практике</strong><small>Разберите кадры, решите короткую ситуацию и отметьте самопроверку.</small></div></li>
+          <li><span>3</span><div><strong>Пройдите мини-тест</strong><small>Мини-тест и сертификацию проверяет защищённый сервер.</small></div></li>
+        </ol>
+      </section>
       <div class="course-layout">
         <div>
           <nav class="card course-roadmap" aria-label="Содержание курса">
@@ -2192,6 +2359,8 @@ function renderCourse(code) {
           <div class="lesson-stack">
             ${course.lessons.map((lesson, index) => lessonMarkup(lesson, index, course.lessons.length)).join("")}
           </div>
+          ${courseVisualExamplesMarkup(course.code)}
+          ${trainingInteractiveMarkup(course.code, course.interactiveWalkthroughs)}
           ${courseKnowledgeCheckMarkup(course, checkPassed)}
         </div>
         <aside class="card sticky-card course-completion-card">
@@ -2221,6 +2390,7 @@ function renderCourse(code) {
   `;
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
   restoreTrainingWalkthroughState(course.code);
+  restoreTrainingAudience(course.code);
   void restoreServerTrainingWalkthroughState(course.code);
   track("course_opened", { module_code: course.code });
 }
@@ -2243,7 +2413,14 @@ function persistTrainingWalkthroughState(root) {
   const payload = {
     step: Math.max(0, Number(root.dataset.trainingStep) || 0),
     checks: Array.from(root.querySelectorAll("[data-training-check]")).map((input) => input.checked === true),
+    mode: String(root.dataset.trainingMode || "watch"),
+    practiceOption: String(root.querySelector("[data-training-practice-option]:checked")?.value || ""),
   };
+  try {
+    window.localStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // Session storage and server synchronization remain available.
+  }
   try {
     window.sessionStorage.setItem(key, JSON.stringify(payload));
   } catch {
@@ -2256,17 +2433,62 @@ function restoreTrainingWalkthroughState(courseCode) {
   document.querySelectorAll(`[data-training-course="${CSS.escape(courseCode)}"]`).forEach((root) => {
     const key = trainingWalkthroughStateKey(root);
     if (!key) return;
+    let saved = null;
     try {
-      const saved = JSON.parse(window.sessionStorage.getItem(key) || "{}");
+      saved = JSON.parse(window.localStorage.getItem(key) || "null");
+    } catch {
+      saved = null;
+    }
+    if (!saved || typeof saved !== "object") {
+      try {
+        saved = JSON.parse(window.sessionStorage.getItem(key) || "null");
+      } catch {
+        saved = null;
+      }
+    }
+    try {
+      saved = saved && typeof saved === "object" ? saved : {};
       setTrainingWalkthroughStep(root, Math.max(0, Number(saved.step) || 0));
       const checks = Array.isArray(saved.checks) ? saved.checks : [];
       root.querySelectorAll("[data-training-check]").forEach((input, index) => {
         input.checked = checks[index] === true;
       });
+      if (saved.practiceOption) evaluateTrainingPractice(root, String(saved.practiceOption));
+      setTrainingWalkthroughMode(root, saved.mode);
+      syncTrainingWalkthroughStatus(root);
     } catch {
       setTrainingWalkthroughStep(root, 0);
+      setTrainingWalkthroughMode(root, "watch");
+      syncTrainingWalkthroughStatus(root);
     }
   });
+}
+
+function trainingAudienceStateKey(courseCode) {
+  return trainingAudienceStorageKey(state.user?.id, courseCode);
+}
+
+function persistTrainingAudience(courseCode, audience) {
+  const key = trainingAudienceStateKey(courseCode);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, String(audience || "all"));
+  } catch {
+    // The filter remains usable in memory when browser storage is unavailable.
+  }
+}
+
+function restoreTrainingAudience(courseCode) {
+  const courseRoot = document.querySelector(`[data-training-interactive-course="${CSS.escape(courseCode)}"]`);
+  if (!courseRoot) return;
+  const key = trainingAudienceStateKey(courseCode);
+  let saved = "all";
+  try {
+    saved = key ? window.localStorage.getItem(key) || "all" : "all";
+  } catch {
+    saved = "all";
+  }
+  setTrainingAudience(courseRoot, saved);
 }
 
 function trainingProgressKey(moduleCode, walkthroughId) {
@@ -2352,9 +2574,28 @@ function applyServerTrainingProgress(progress) {
   const serverIndex = currentIndex >= 0 ? currentIndex : Math.max(0, completedIndex);
   setTrainingWalkthroughStep(
     root,
-    Math.max(localIndex, serverIndex),
+    progress.completed === true
+      ? Math.max(0, frames.length - 1)
+      : Math.max(localIndex, serverIndex),
   );
   root.dataset.trainingProgressVersion = String(progress.version);
+  if (progress.completed === true) {
+    root.querySelectorAll("[data-training-check]").forEach((input) => {
+      input.checked = true;
+    });
+    root.dataset.trainingPracticeComplete = "true";
+    const practice = root.querySelector("[data-training-practice]");
+    if (practice) {
+      practice.dataset.trainingPracticeComplete = "true";
+      practice.setAttribute("aria-invalid", "false");
+      const feedback = practice.querySelector("[data-training-practice-feedback]");
+      if (feedback) {
+        feedback.textContent = "Эта практика уже была завершена и восстановлена из рабочего профиля.";
+        feedback.dataset.trainingFeedbackStatus = "success";
+      }
+    }
+    syncTrainingWalkthroughStatus(root);
+  }
   const video = root.querySelector("[data-training-video]");
   if (video && progress.positionSeconds > 0) {
     const restorePosition = () => {
@@ -2384,9 +2625,7 @@ function serverTrainingProgressPayload(root) {
     .slice(0, currentIndex + 1)
     .map((frame) => String(frame.dataset.trainingFrameId || ""))
     .filter(Boolean);
-  const checks = Array.from(root.querySelectorAll("[data-training-check]"));
-  const completed = currentIndex === frames.length - 1
-    && (!checks.length || checks.every((input) => input.checked === true));
+  const completed = syncTrainingWalkthroughStatus(root).complete;
   const video = root.querySelector("[data-training-video]");
   const durationSeconds = Math.max(1, Number(root.dataset.trainingDurationSeconds) || 1);
   const positionSeconds = Number.isFinite(Number(video?.currentTime)) && Number(video?.currentTime) > 0
@@ -2967,6 +3206,10 @@ function courseKnowledgeCheckMarkup(course, passed) {
       <div class="knowledge-check-head">
         <div><p class="eyebrow">Мини-тест блока</p><h2 id="course-check-title">${escapeHtml(check.title)}</h2></div>
         <span>${questionCount} ${questionLabel} · нужно ${check.passScore}</span>
+      </div>
+      <div class="knowledge-check-audience">
+        <span>Кому: ${escapeHtml(check.audienceLabel)}</span>
+        <p>${escapeHtml(check.roleHint)}</p>
       </div>
       <p class="muted">Ошибаться можно: после проверки вы увидите объяснение и сможете ответить ещё раз.</p>
       <form id="course-check-form" data-course-code="${escapeHtml(course.code)}" novalidate>
@@ -4022,6 +4265,23 @@ function setMobileNavOpen(open, restoreFocus = false) {
 }
 
 function handleKeyDown(event) {
+  const trainingTimelineControl = event.target.closest?.('[data-training-timeline] [data-action="training-walkthrough-jump"]');
+  if (trainingTimelineControl && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    const root = trainingWalkthroughRoot(trainingTimelineControl);
+    const total = Math.max(1, Number(root?.dataset.trainingStepCount) || 1);
+    const current = Math.max(0, Number(root?.dataset.trainingStep) || 0);
+    const next = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? total - 1
+        : event.key === "ArrowLeft"
+          ? current - 1
+          : current + 1;
+    event.preventDefault();
+    const selected = setTrainingWalkthroughStepAndPersist(root, next);
+    root?.querySelector(`[data-training-step-target="${selected}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   if (event.key === "Escape" && state.mobileNavOpen) {
     event.preventDefault();
     setMobileNavOpen(false, true);
@@ -7316,6 +7576,33 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "training-audience-select") {
+    const courseRoot = control.closest("[data-training-interactive-course]");
+    const audience = setTrainingAudience(courseRoot, control.dataset.trainingAudienceValue);
+    persistTrainingAudience(courseRoot?.dataset.trainingInteractiveCourse, audience);
+    courseRoot?.querySelectorAll('[data-training-walkthrough][hidden]').forEach((root) => stopTrainingWalkthroughSession(root));
+    return;
+  }
+
+  if (action === "training-mode-select") {
+    const root = trainingWalkthroughRoot(control);
+    stopTrainingWalkthroughSession(root);
+    const mode = setTrainingWalkthroughMode(root, control.dataset.trainingModeValue);
+    persistTrainingWalkthroughState(root);
+    if (mode === "practice") {
+      root?.querySelector("[data-training-practice-option]")?.focus?.({ preventScroll: true });
+    }
+    return;
+  }
+
+  if (action === "training-walkthrough-jump") {
+    setTrainingWalkthroughStepAndPersist(
+      trainingWalkthroughRoot(control),
+      Number(control.dataset.trainingStepTarget) || 0,
+    );
+    return;
+  }
+
   if (["training-walkthrough-previous", "training-walkthrough-next", "training-walkthrough-reset"].includes(action)) {
     const root = trainingWalkthroughRoot(control);
     const current = Math.max(0, Number(root?.dataset?.trainingStep) || 0);
@@ -8130,7 +8417,17 @@ function handleChange(event) {
   }
 
   if (event.target.matches("[data-training-check]")) {
-    persistTrainingWalkthroughState(trainingWalkthroughRoot(event.target));
+    const root = trainingWalkthroughRoot(event.target);
+    syncTrainingWalkthroughStatus(root);
+    persistTrainingWalkthroughState(root);
+    syncCourseCompletionButton();
+  }
+
+  if (event.target.matches("[data-training-practice-option]")) {
+    const root = trainingWalkthroughRoot(event.target);
+    evaluateTrainingPractice(root, event.target.value);
+    persistTrainingWalkthroughState(root);
+    syncCourseCompletionButton();
   }
 
   if (event.target.closest("#exam-form")) {

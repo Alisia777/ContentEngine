@@ -228,5 +228,5 @@ def test_review_health_layout_is_responsive_theme_aware_and_cache_busted() -> No
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260718.2' in INDEX
+    assert './app.js?v=20260718.3' in INDEX
     assert 'from "./manager-dashboard-view.js?v=20260718.1"' in APP
