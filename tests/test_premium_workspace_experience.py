@@ -227,6 +227,7 @@ def test_empty_states_can_explain_waiting_and_offer_one_action() -> None:
 
 def test_error_states_never_render_raw_service_messages() -> None:
     section_body = _between(APP, "function sectionBody", "function emptyState")
+    diagnostic = _between(APP, "function startupDiagnosticCode", "function renderFatal")
     fatal = _between(APP, "function renderFatal", "function parseRoute")
 
     assert "console.error(sectionState.error)" in section_body
@@ -234,6 +235,14 @@ def test_error_states_never_render_raw_service_messages() -> None:
     assert "sectionState.error.message" not in APP
     assert "error?.message" not in fatal
     assert "error.message" not in fatal
+    assert "diagnosticDetail" not in fatal
+    assert "Техническая деталь для поддержки" not in fatal
+    assert "startupDiagnosticCode(error)" in fatal
+    assert 'return "startup_timeout"' in diagnostic
+    assert 'return "auth_client_load_failed"' in diagnostic
+    assert 'return "auth_link_failed"' in diagnostic
+    assert 'return "startup_error"' in diagnostic
+    assert "Код диагностики" in fatal
     assert "Обновите страницу" in fatal
 
 

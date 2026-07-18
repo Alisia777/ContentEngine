@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -40,15 +40,31 @@ def workspace_home_for_role(role: str | None) -> str:
 def safe_workspace_next(value: str | None, *, role: str | None = None) -> str:
     fallback = workspace_home_for_role(role)
     candidate = str(value or "").strip()
+    if not candidate or len(candidate) > 1000:
+        return fallback
+    decoded = candidate
+    try:
+        # Decode repeatedly so double-encoded authority/backslash tricks cannot
+        # become an external URL after this validation step.
+        for _ in range(3):
+            next_decoded = unquote(decoded, errors="strict")
+            if next_decoded == decoded:
+                break
+            decoded = next_decoded
+        parsed = urlsplit(decoded)
+    except (UnicodeDecodeError, ValueError):
+        return fallback
     if (
-        not candidate.startswith("/")
-        or candidate.startswith("//")
-        or candidate.startswith("/onboarding")
-        or "\r" in candidate
-        or "\n" in candidate
+        not decoded.startswith("/")
+        or decoded.startswith("//")
+        or decoded.startswith("/onboarding")
+        or parsed.scheme
+        or parsed.netloc
+        or "\\" in decoded
+        or any(ord(character) < 32 or ord(character) == 127 for character in decoded)
     ):
         return fallback
-    return candidate[:1000]
+    return candidate
 
 
 def onboarding_complete(db: Session, *, user_profile_id: int) -> bool:

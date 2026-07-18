@@ -297,6 +297,9 @@ def test_browser_telemetry_tracks_page_and_declared_clicks_without_sensitive_dom
     assert "[data-track-event]" in source
     assert "sessionStorage" in source
     assert "/api/product-events" in source
+    assert "crypto.randomUUID" in source
+    assert "crypto.getRandomValues" in source
+    assert "Math.random" not in source
     for forbidden in [
         "document.cookie",
         "localStorage",

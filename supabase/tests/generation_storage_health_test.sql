@@ -285,6 +285,12 @@ select ok(
   position(
     'array[''owner'', ''admin'']'
     in pg_get_functiondef(
+      'content_factory_private.creator_operational_health_storage_v1(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'creator_operational_health_storage_v1(p_payload)'
+    in pg_get_functiondef(
       'public.creator_operational_health(jsonb)'::regprocedure
     )
   ) > 0,
@@ -294,16 +300,34 @@ select ok(
   position(
     'media.organization_id = organization_id_value'
     in pg_get_functiondef(
-      'public.creator_operational_health(jsonb)'::regprocedure
+      'content_factory_private.creator_operational_health_storage_v1(jsonb)'::regprocedure
     )
   ) > 0
   and position(
     'job.organization_id = organization_id_value'
     in pg_get_functiondef(
+      'content_factory_private.creator_operational_health_storage_v1(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'evidence.organization_id = organization_id_value'
+    in pg_get_functiondef(
+      'public.creator_operational_health(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'reservation.organization_id = organization_id_value'
+    in pg_get_functiondef(
+      'public.creator_operational_health(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'cleanup.organization_id = organization_id_value'
+    in pg_get_functiondef(
       'public.creator_operational_health(jsonb)'::regprocedure
     )
   ) > 0,
-  'generation and registered storage aggregates are tenant scoped'
+  'generation, registered storage, evidence, reservations and cleanup are tenant scoped'
 );
 
 insert into auth.users (
@@ -667,8 +691,8 @@ select is(
   public.creator_operational_health(jsonb_build_object(
     'organization_id', 'b8100000-0000-4000-8000-000000000001'
   )) #>> '{storage,remaining_bytes}',
-  '107374176400',
-  'remaining storage is derived without mutating registered media'
+  '107216890000',
+  'remaining storage subtracts media and three active generation reservations'
 );
 select is(
   (
@@ -676,8 +700,8 @@ select is(
       'organization_id', 'b8100000-0000-4000-8000-000000000001'
     )) #>> '{storage,utilization_percent}'
   )::numeric,
-  0.00::numeric,
-  'storage utilization is a bounded two-decimal percentage'
+  0.15::numeric,
+  'combined media and reservation utilization is a bounded two-decimal percentage'
 );
 
 select set_config(

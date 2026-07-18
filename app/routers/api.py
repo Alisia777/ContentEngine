@@ -120,6 +120,13 @@ from app.launch_operations import (
     QualityGateService,
 )
 from app.launch_operations.errors import LaunchOperationsError
+from app.legacy_file_boundary import (
+    LegacyFileBoundaryError,
+    bombar_matrix_fixture,
+    factory_matrix_fixture,
+    factory_performance_fixture,
+    legacy_reports_directory,
+)
 from app.metrics_intake import (
     AttributionService,
     CSVImporter,
@@ -2878,14 +2885,14 @@ def get_factory_os_health(db: Session = Depends(get_db)):
 def run_factory_prompt_only_launch(payload: FactoryPromptOnlyLaunchRequest, db: Session = Depends(get_db)):
     try:
         return FactoryLaunchWorkflow(db).run_prompt_only_launch(
-            payload.matrix_path,
+            factory_matrix_fixture(payload.matrix_path),
             payload.campaign_name,
             payload.target_videos,
             payload.target_destinations,
             brand=payload.brand,
-            performance_csv_path=payload.performance_csv_path,
+            performance_csv_path=factory_performance_fixture(payload.performance_csv_path),
         ).model_dump(mode="json")
-    except FactoryOSError as exc:
+    except (FactoryOSError, LegacyFileBoundaryError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -2908,13 +2915,16 @@ def get_factory_runbook(campaign_id: int, db: Session = Depends(get_db)):
 @router.post("/bombar-production-dry-run")
 def run_bombar_production_dry_run(payload: BombarProductionDryRunRequest, db: Session = Depends(get_db)):
     try:
-        return BombarProductionDryRunService(db, reports_dir=payload.reports_dir).run(
-            payload.matrix_path,
+        return BombarProductionDryRunService(
+            db,
+            reports_dir=legacy_reports_directory(payload.reports_dir),
+        ).run(
+            bombar_matrix_fixture(payload.matrix_path),
             target_videos=payload.target_videos,
             target_destinations=payload.target_destinations,
             campaign_name=payload.campaign_name,
         ).model_dump(mode="json")
-    except BombarProductionError as exc:
+    except (BombarProductionError, LegacyFileBoundaryError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

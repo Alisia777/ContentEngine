@@ -5,6 +5,7 @@ import mimetypes
 import re
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
@@ -133,7 +134,7 @@ class ProductAssetStorage:
     ) -> models.ProductAsset:
         product = self._product(product_id)
         kit = self._latest_or_create_kit(product.id)
-        descriptor = self.registry.describe(url)
+        descriptor = self.registry.describe(self.remote_asset_url(url))
         asset = models.ProductAsset(
             product_id=product.id,
             asset_kit_id=kit.id,
@@ -260,6 +261,23 @@ class ProductAssetStorage:
             required for required in ["packshot", "label_closeup", "lifestyle"] if required not in asset_types
         ]
         kit.primary_reference_asset_id = next((asset.id for asset in assets if asset.is_primary_reference), None)
+
+    @staticmethod
+    def remote_asset_url(url: str) -> str:
+        value = str(url or "").strip()
+        try:
+            parsed = urlsplit(value)
+            parsed.port
+        except (TypeError, ValueError) as exc:
+            raise AssetKitDataError("Product asset URL is invalid.") from exc
+        if (
+            parsed.scheme.casefold() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise AssetKitDataError("Product asset URL must be an HTTP(S) URL without credentials.")
+        return value
 
     @staticmethod
     def safe_filename(filename: str) -> str:

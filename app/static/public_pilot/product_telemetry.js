@@ -22,7 +22,14 @@
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return prefix + ":" + window.crypto.randomUUID();
     }
-    const randomPart = Math.random().toString(36).slice(2);
+    if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
+      return null;
+    }
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    const randomPart = Array.from(bytes, function (byte) {
+      return byte.toString(16).padStart(2, "0");
+    }).join("");
     return prefix + ":" + Date.now().toString(36) + ":" + randomPart;
   }
 
@@ -33,10 +40,14 @@
         return { id: existing, isNew: false };
       }
       const created = randomId("session");
+      if (!created) {
+        return { id: null, isNew: false };
+      }
       window.sessionStorage.setItem(sessionStorageKey, created);
       return { id: created, isNew: true };
     } catch (_error) {
-      return { id: randomId("session"), isNew: true };
+      const created = randomId("session");
+      return { id: created, isNew: Boolean(created) };
     }
   }
 
@@ -62,7 +73,8 @@
   }
 
   function send(eventName, context) {
-    if (eventName !== "session_started" && !clientEventNames.has(eventName)) {
+    const idempotencyKey = randomId("event");
+    if (!session.id || !idempotencyKey || (eventName !== "session_started" && !clientEventNames.has(eventName))) {
       return;
     }
     const body = Object.assign(
@@ -72,7 +84,7 @@
         occurred_at: new Date().toISOString(),
         source: "web",
         session_id: session.id,
-        idempotency_key: randomId("event"),
+        idempotency_key: idempotencyKey,
         properties: { path: window.location.pathname },
       },
       context || {}

@@ -2,8 +2,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import re
 import secrets
+from urllib.parse import unquote, urlsplit
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -97,14 +98,16 @@ from app.factory_os.errors import FactoryOSError
 from app.intelligence.csv_imports import import_csv_text
 from app.intelligence.errors import IntelligenceError
 from app.intelligence.generation_runner import GeneratorRunService
-from app.intelligence.insight_builder import CreativeIntelligenceBuilder
-from app.intelligence.prompt_builder import PromptPackBuilder
 from app.intelligence.safety import provider_key_status
-from app.intelligence.script_brief_builder import ScriptBriefBuilder
-from app.intelligence.script_generator import GeneratorScriptService
-from app.intelligence.video_generator import GeneratorVideoService
 from app.launch_operations import LaunchReadinessService, LaunchReportService
 from app.launch_operations.errors import LaunchOperationsError
+from app.legacy_file_boundary import (
+    LegacyFileBoundaryError,
+    bombar_matrix_fixture,
+    factory_matrix_fixture,
+    factory_performance_fixture,
+    legacy_reports_directory,
+)
 from app.metrics_intake import (
     AttributionService,
     CSVImporter,
@@ -155,7 +158,28 @@ TRACKING_VISITOR_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 
 
 def redirect(path: str) -> RedirectResponse:
-    return RedirectResponse(path, status_code=303)
+    candidate = str(path or "").strip()
+    decoded = candidate
+    try:
+        for _ in range(3):
+            next_decoded = unquote(decoded, errors="strict")
+            if next_decoded == decoded:
+                break
+            decoded = next_decoded
+        parsed = urlsplit(decoded)
+    except (UnicodeDecodeError, ValueError):
+        candidate = "/"
+    else:
+        if (
+            not decoded.startswith("/")
+            or decoded.startswith("//")
+            or parsed.scheme
+            or parsed.netloc
+            or "\\" in decoded
+            or any(ord(character) < 32 or ord(character) == 127 for character in decoded)
+        ):
+            candidate = "/"
+    return RedirectResponse(candidate, status_code=303)
 
 
 @router.get("/r/{slug}")
@@ -2395,12 +2419,18 @@ def bombar_production_dry_run_submit(
     reports_dir: str = Form("reports"),
     db: Session = Depends(get_db),
 ):
-    result = BombarProductionDryRunService(db, reports_dir=reports_dir).run(
-        matrix_path,
-        target_videos=target_videos,
-        target_destinations=target_destinations,
-        campaign_name=campaign_name,
-    )
+    try:
+        result = BombarProductionDryRunService(
+            db,
+            reports_dir=legacy_reports_directory(reports_dir),
+        ).run(
+            bombar_matrix_fixture(matrix_path),
+            target_videos=target_videos,
+            target_destinations=target_destinations,
+            campaign_name=campaign_name,
+        )
+    except LegacyFileBoundaryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return redirect(f"/bombar-production-dry-run?campaign_id={result.campaign_id}")
 
 
@@ -3477,14 +3507,17 @@ def factory_os_prompt_only_launch(
     performance_csv_path: str = Form("sample_data/campaign_performance.csv"),
     db: Session = Depends(get_db),
 ):
-    result = FactoryLaunchWorkflow(db).run_prompt_only_launch(
-        matrix_path,
-        campaign_name,
-        target_videos,
-        target_destinations,
-        brand=brand,
-        performance_csv_path=performance_csv_path or None,
-    )
+    try:
+        result = FactoryLaunchWorkflow(db).run_prompt_only_launch(
+            factory_matrix_fixture(matrix_path),
+            campaign_name,
+            target_videos,
+            target_destinations,
+            brand=brand,
+            performance_csv_path=factory_performance_fixture(performance_csv_path),
+        )
+    except LegacyFileBoundaryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return redirect(f"/factory-os?campaign_id={result.campaign_id}")
 
 

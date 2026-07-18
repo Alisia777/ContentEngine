@@ -82,8 +82,10 @@ class PublishingDestinationService:
                     notes=row.get("notes") or None,
                 )
                 created.append(destination)
-            except (PublishingError, ValueError) as exc:
-                errors.append({"row": index, "error": str(exc), "data": dict(row)})
+            except PublishingError:
+                errors.append({"row": index, "error": "Destination row contains unsupported settings."})
+            except ValueError:
+                errors.append({"row": index, "error": "Destination row contains invalid numeric limits."})
         return {
             "created_count": len(created),
             "error_count": len(errors),

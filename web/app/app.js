@@ -10183,22 +10183,25 @@ function renderSetup(problems) {
   `;
 }
 
+function startupDiagnosticCode(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  const name = String(error?.name || "").trim().toLowerCase();
+  if (["ui_timeout", "auth_link_timeout"].includes(code) || name === "aborterror") {
+    return "startup_timeout";
+  }
+  if (
+    ["typeerror", "networkerror"].includes(name)
+    || ["err_module_not_found", "module_not_found", "import_failed"].includes(code)
+  ) {
+    return "auth_client_load_failed";
+  }
+  if (code.startsWith("auth_link_")) return "auth_link_failed";
+  return "startup_error";
+}
+
 function renderFatal(error) {
   console.error("Portal startup failed", error);
-  const message = String(error?.message || "").toLowerCase();
-  const diagnosticCode = /dynamically imported module|protected client|failed to fetch|load failed/.test(message)
-    ? "auth_client_load_failed"
-    : /timed out|timeout|не ответил/.test(message)
-      ? "startup_timeout"
-      : String(error?.code || error?.name || "startup_error")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]+/g, "_")
-        .slice(0, 64) || "startup_error";
-  const diagnosticDetail = String(error?.message || "")
-    .replace(/[\r\n\t]+/g, " ")
-    .trim()
-    .slice(0, 180);
+  const diagnosticCode = startupDiagnosticCode(error);
   app.innerHTML = `
     <main id="main-content" class="error-page" tabindex="-1">
       <div class="boot-mark" aria-hidden="true">!</div>
@@ -10206,7 +10209,6 @@ function renderFatal(error) {
       <h1>Интерфейс не загрузился</h1>
       <p class="muted">Обновите страницу. Если ошибка повторится, сообщите руководителю команды.</p>
       <p class="tiny muted">Код диагностики: <code>${escapeHtml(diagnosticCode)}</code></p>
-      ${diagnosticDetail ? `<details class="tiny muted"><summary>Техническая деталь для поддержки</summary><code>${escapeHtml(diagnosticDetail)}</code></details>` : ""}
       <button class="btn" type="button" data-action="reload-page">Обновить страницу</button>
     </main>
   `;
@@ -10708,7 +10710,11 @@ function setFormBusy(form, busy, label = "Подождите…") {
 function withUiTimeout(operation, timeoutMs, message) {
   let timerId;
   const timeout = new Promise((_, reject) => {
-    timerId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    timerId = window.setTimeout(() => {
+      const failure = new Error(message);
+      failure.code = "ui_timeout";
+      reject(failure);
+    }, timeoutMs);
   });
   return Promise.race([operation, timeout]).finally(() => window.clearTimeout(timerId));
 }

@@ -120,6 +120,10 @@ def test_creator_workspace_default_is_generation_but_management_keeps_control_ro
     assert workspace_home_for_role("admin") == "/control-room"
     assert safe_workspace_next(None, role="producer") == generation
     assert safe_workspace_next("https://attacker.test", role="producer") == generation
+    assert safe_workspace_next("/\\attacker.test", role="producer") == generation
+    assert safe_workspace_next("/%5c%5cattacker.test", role="producer") == generation
+    assert safe_workspace_next("/%255c%255cattacker.test", role="producer") == generation
+    assert safe_workspace_next("/%2f%2fattacker.test", role="producer") == generation
     assert safe_workspace_next("/control-room", role="producer") == "/control-room"
 
 

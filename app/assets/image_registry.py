@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
-from pathlib import Path
+from pathlib import PurePath, PurePosixPath
 from urllib.parse import urlparse, urlunparse
 
 from app.assets.types import ProductAssetDescriptor
@@ -16,18 +16,18 @@ class ImageRegistry:
         source = self._source(raw_reference)
         sanitized = self._sanitize(source)
         parsed = urlparse(sanitized)
-        is_url = parsed.scheme in {"http", "https"}
-        path = Path(parsed.path if is_url else sanitized)
+        is_url = parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+        path = PurePosixPath(parsed.path) if is_url else PurePath(sanitized)
         extension = path.suffix.lower() or None
         filename = path.name or None
         mime_type = mimetypes.guess_type(filename or sanitized)[0]
-        exists = bool(is_url or path.exists())
+        exists = bool(is_url)
         warnings = []
         width, height = (None, None)
-        if not is_url and path.exists():
-            width, height = self._local_dimensions(path)
-            if width is None or height is None:
-                warnings.append("Local image dimensions unavailable; no computer vision inspection was performed.")
+        if not is_url and sanitized:
+            warnings.append(
+                "Local image references are metadata-only; upload the file before using it for generation."
+            )
         if source != sanitized:
             warnings.append("Private URL query parameters were stripped from stored asset reference.")
         return ProductAssetDescriptor(
@@ -76,13 +76,3 @@ class ImageRegistry:
         if query_keys.intersection(SECRET_QUERY_KEYS):
             return urlunparse(parsed._replace(query="", fragment=""))
         return urlunparse(parsed._replace(fragment=""))
-
-    @staticmethod
-    def _local_dimensions(path: Path) -> tuple[int | None, int | None]:
-        try:
-            from PIL import Image
-
-            with Image.open(path) as image:
-                return image.size
-        except Exception:
-            return None, None

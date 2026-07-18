@@ -483,7 +483,11 @@ class TeamService:
         email = str(value or "").strip().lower()
         if (
             len(email) > 254
-            or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}", email)
+            or not re.fullmatch(
+                r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]++@"
+                r"(?:[A-Za-z0-9-]++\.)++[A-Za-z]{2,63}+",
+                email,
+            )
             or ".." in email
         ):
             raise TeamValidationError("A valid email address is required.")

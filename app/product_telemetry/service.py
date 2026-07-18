@@ -70,7 +70,11 @@ MAX_PROPERTY_KEY_LENGTH = 64
 MAX_PROPERTY_STRING_LENGTH = 500
 
 _SAFE_CORRELATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])")
+# Possessive quantifiers make each label linear-time even for adversarial runs
+# of dots or plus signs. Python 3.12 is the supported production runtime.
+_EMAIL = re.compile(
+    r"(?<![\w.+-])[\w.+-]++@(?:[\w-]++\.)++[A-Za-z]{2,63}+(?![\w.-])"
+)
 _BEARER = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", flags=re.IGNORECASE)
 _LONG_OPAQUE_VALUE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{80,}(?![A-Za-z0-9_-])")
 _SENSITIVE_KEY_TOKENS = frozenset(
