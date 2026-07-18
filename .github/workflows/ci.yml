@@ -34,7 +34,7 @@ jobs:
       QVF_ALLOW_REAL_SPEND: "false"
     steps:
       - name: Check out repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Deno
         uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
@@ -204,7 +204,7 @@ jobs:
       QVF_AUTH_REQUIRED: "false"
     steps:
       - name: Check out repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
