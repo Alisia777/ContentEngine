@@ -97,12 +97,20 @@ export function managerOperationalHealthMarkup(state = {}) {
   const worker = data?.worker && typeof data.worker === "object" ? data.worker : {};
   const generation = data?.generation && typeof data.generation === "object" ? data.generation : {};
   const contentReview = data?.content_review && typeof data.content_review === "object" ? data.content_review : {};
+  const storage = data?.storage && typeof data.storage === "object" ? data.storage : {};
   const hasData = Boolean(state?.data && typeof state.data === "object");
   const hasContentReviewData = Boolean(data?.content_review && typeof data.content_review === "object");
+  const hasStorageData = Boolean(data?.storage && typeof data.storage === "object");
   const loading = ["idle", "loading", "refreshing"].includes(String(state?.status || "idle"));
   const stalled = Math.max(0, Number(generation.stalled) || 0);
   const due = Math.max(0, Number(generation.due) || 0);
   const active = Math.max(0, Number(generation.active) || 0);
+  const generationQueued = Math.max(0, Number(generation.queued) || 0);
+  const generationStarting = Math.max(0, Number(generation.starting) || 0);
+  const generationOldestQueued = Math.max(0, Number(generation.oldest_queued_age_seconds) || 0);
+  const generationOldestStarting = Math.max(0, Number(generation.oldest_starting_age_seconds) || 0);
+  const generationPreDispatchDelayed = generationOldestQueued >= 15 * 60
+    || generationOldestStarting >= 10 * 60;
   const reviewQueued = Math.max(0, Number(contentReview.queued) || 0);
   const reviewProcessing = Math.max(0, Number(contentReview.processing) || 0);
   const reviewDue = Math.max(0, Number(contentReview.due) || 0);
@@ -114,18 +122,26 @@ export function managerOperationalHealthMarkup(state = {}) {
   const reviewDelayed = reviewQueued > 0 && reviewOldestAge >= 15 * 60;
   const schedulerReady = scheduler.ready === true;
   const workerReady = worker.ready === true && worker.heartbeat_fresh === true;
+  const storageRegisteredCount = Math.max(0, Number(storage.registered_count) || 0);
+  const storageRegisteredBytes = Math.max(0, Number(storage.registered_bytes) || 0);
+  const storageQuotaBytes = Math.max(0, Number(storage.quota_bytes) || 0);
+  const storageRemainingBytes = Math.max(0, Number(storage.remaining_bytes) || 0);
+  const storageUtilization = Math.max(0, Math.min(100, Number(storage.utilization_percent) || 0));
+  const storageNearLimit = hasStorageData && storageQuotaBytes > 0 && storageUtilization >= 85;
   let tone = "neutral";
   let title = "Проверяем фоновую работу";
   let detail = "Сверяем расписание, последний сигнал обработчика и очередь генераций.";
 
   if (hasData) {
-    if (!schedulerReady || !workerReady || stalled > 0 || reviewCritical) {
+    if (!schedulerReady || !workerReady || stalled > 0 || reviewCritical || generationPreDispatchDelayed) {
       tone = "danger";
       title = "Требуется внимание руководителя";
       detail = !schedulerReady
         ? "Фоновое расписание не подтвердило готовность. Откройте журнал развёртывания перед новыми платными запусками."
         : !workerReady
           ? "Обработчик давно не подтверждал работу. Уже отправленные Runway-задачи не запускайте повторно — сначала обновите состояние."
+          : generationPreDispatchDelayed
+            ? `${formatNumber(generationQueued)} запусков ждут старта и ${formatNumber(generationStarting)} находятся в сверке запуска. Не повторяйте платный POST — проверьте очередь вручную.`
           : stalled > 0
             ? `${formatNumber(stalled)} генераций превысили безопасное время ожидания. Проверьте их статус без нового платного запуска.`
             : reviewOutcomeUnknown > 0
@@ -139,10 +155,12 @@ export function managerOperationalHealthMarkup(state = {}) {
       tone = "neutral";
       title = "Обновляем подтверждение";
       detail = "Последнее состояние остаётся на экране, пока сервер выполняет новую безопасную проверку.";
-    } else if (due > 0 || active > 0 || reviewDue > 0 || reviewProcessing > 0 || reviewDelayed) {
+    } else if (due > 0 || active > 0 || generationQueued > 0 || generationStarting > 0 || reviewDue > 0 || reviewProcessing > 0 || reviewDelayed || storageNearLimit) {
       tone = "warning";
       title = "Фоновая обработка идёт";
-      detail = reviewDelayed
+      detail = storageNearLimit
+        ? `Хранилище заполнено на ${formatNumber(storageUtilization)}%. Освободите место до массовой загрузки новых исходников.`
+        : reviewDelayed
         ? `Старейшая проверка контента ждёт ${formatQueueAge(reviewOldestAge)}. Обновите состояние и проверьте обработчик.`
         : reviewDue > 0
           ? `${formatNumber(reviewDue)} проверок контента готовы к обработке сервером.`
@@ -205,8 +223,11 @@ export function managerOperationalHealthMarkup(state = {}) {
         <span><small>Статус</small><strong>${escapeHtml(statusLabel)}</strong></span>
         <span><small>Последний сигнал</small><strong>${escapeHtml(heartbeat)}</strong></span>
         <span><small>Активно</small><strong>${formatNumber(active)}</strong></span>
+        <span class="${generationQueued > 0 ? "manager-review-metric-warning" : ""}"><small>Ждёт запуска</small><strong>${formatNumber(generationQueued)}</strong></span>
+        <span class="${generationStarting > 0 ? "manager-review-metric-warning" : ""}"><small>Сверка запуска</small><strong>${formatNumber(generationStarting)}</strong></span>
         <span><small>К проверке</small><strong>${formatNumber(due)}</strong></span>
         <span><small>Зависло</small><strong>${formatNumber(stalled)}</strong></span>
+        <span class="${generationPreDispatchDelayed ? "manager-review-metric-danger" : ""}"><small>Старейшая до отправки</small><strong>${escapeHtml(formatQueueAge(Math.max(generationOldestQueued, generationOldestStarting)))}</strong></span>
       </div>
       <button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard" ${loading ? "disabled" : ""}>Обновить состояние</button>
       <section class="manager-review-queue manager-review-queue-${reviewTone}" aria-labelledby="manager-review-queue-title">
@@ -227,6 +248,27 @@ export function managerOperationalHealthMarkup(state = {}) {
           <span class="${reviewDelayed ? "manager-review-metric-warning" : ""}"><small>Старейшая в очереди</small><strong>${hasContentReviewData ? escapeHtml(formatQueueAge(reviewOldestAge)) : "—"}</strong></span>
         </div>
         ${hasContentReviewData ? `<p class="manager-review-queue-note">«Исчерпаны попытки» и «Исход неизвестен» — накопленные за всё время инциденты. Они не исчезают сами, пока в системе нет подтверждённого закрытия менеджером.</p>` : ""}
+      </section>
+      <section class="manager-review-queue manager-review-queue-${storageNearLimit ? "warning" : hasStorageData ? "success" : "neutral"}" aria-labelledby="manager-storage-health-title">
+        <div class="manager-review-queue-head">
+          <div>
+            <p class="eyebrow">Хранилище видео</p>
+            <h4 id="manager-storage-health-title">Заполнение и безопасный остаток</h4>
+          </div>
+          <p>${hasStorageData
+            ? storageNearLimit
+              ? "Места осталось мало. Новые массовые загрузки могут упереться в квоту."
+              : "Зарегистрированные материалы находятся в пределах серверной квоты."
+            : "Сводка появится после следующего ответа сервера."}</p>
+        </div>
+        <div class="manager-review-queue-metrics" aria-label="Использование защищённого хранилища">
+          <span><small>Объектов</small><strong>${hasStorageData ? formatNumber(storageRegisteredCount) : "—"}</strong></span>
+          <span><small>Занято</small><strong>${hasStorageData ? escapeHtml(formatBytes(storageRegisteredBytes)) : "—"}</strong></span>
+          <span><small>Лимит</small><strong>${hasStorageData ? escapeHtml(formatBytes(storageQuotaBytes)) : "—"}</strong></span>
+          <span class="${storageNearLimit ? "manager-review-metric-warning" : ""}"><small>Свободно</small><strong>${hasStorageData ? escapeHtml(formatBytes(storageRemainingBytes)) : "—"}</strong></span>
+          <span class="${storageNearLimit ? "manager-review-metric-warning" : ""}"><small>Заполнено</small><strong>${hasStorageData ? `${formatNumber(storageUtilization)}%` : "—"}</strong></span>
+        </div>
+        <p class="manager-review-queue-note">Показатель наблюдательный: портал не удаляет файлы автоматически и не повторяет платную генерацию для освобождения места.</p>
       </section>
     </section>
   `;
@@ -361,6 +403,19 @@ function formatQueueAge(rawSeconds) {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   return hours ? `${days} д ${hours} ч` : `${days} д`;
+}
+
+function formatBytes(rawBytes) {
+  const bytes = Math.max(0, Number(rawBytes) || 0);
+  if (bytes < 1024) return `${formatNumber(bytes)} Б`;
+  const units = ["КБ", "МБ", "ГБ", "ТБ"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: value >= 10 ? 1 : 2 }).format(value)} ${units[unitIndex]}`;
 }
 
 function escapeHtml(value) {

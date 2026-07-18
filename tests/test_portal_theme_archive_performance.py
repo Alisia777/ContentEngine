@@ -395,6 +395,115 @@ def test_workspace_api_scopes_pagination_and_rejects_bad_options_before_rpc() ->
     ]
 
 
+def test_generation_archive_filters_and_cursor_are_server_scoped() -> None:
+    result = _run_module_javascript(
+        API,
+        """
+        const calls = [];
+        const rpcClient = {
+          rpc: async (functionName, args) => {
+            calls.push({ functionName, args });
+            return { data: { ok: true, batches: [], _meta: { has_more: false } }, error: null };
+          },
+        };
+        const api = new subject.CreatorApi({ schema: () => rpcClient }, {
+          RPC_SCHEMA: "public",
+          STORAGE_BUCKET: "creator-private",
+        });
+        api.organizationId = "organization-1";
+        await api.generationArchive({
+          period: "12w",
+          status: "issue",
+          query: " WB-159068498 ",
+          page_size: 50,
+          cursor: { at: "2026-07-15T10:00:00Z", id: "batch-1" },
+        });
+
+        const errorCode = (options) => {
+          try {
+            api.generationArchive(options);
+            return null;
+          } catch (error) {
+            return error.code;
+          }
+        };
+        const beforeInvalid = calls.length;
+        const invalid = {
+          period: errorCode({ period: "year" }),
+          status: errorCode({ status: "unknown" }),
+          query: errorCode({ query: "x".repeat(121) }),
+          page: errorCode({ page_size: 101 }),
+          cursor: errorCode({ cursor: { at: "now", id: "id", extra: true } }),
+        };
+        return { calls, beforeInvalid, afterInvalid: calls.length, invalid };
+        """,
+    )
+
+    assert result["beforeInvalid"] == result["afterInvalid"] == 1
+    assert result["invalid"] == {
+        "period": "generation_archive_period_invalid",
+        "status": "generation_archive_status_invalid",
+        "query": "generation_archive_query_invalid",
+        "page": "generation_archive_page_size_invalid",
+        "cursor": "generation_archive_cursor_invalid",
+    }
+    assert result["calls"] == [
+        {
+            "functionName": "creator_generation_archive",
+            "args": {
+                "p_payload": {
+                    "period": "12w",
+                    "status": "issue",
+                    "query": "WB-159068498",
+                    "page_size": 50,
+                    "cursor": {
+                        "at": "2026-07-15T10:00:00Z",
+                        "id": "batch-1",
+                    },
+                    "organization_id": "organization-1",
+                }
+            },
+        }
+    ]
+
+
+def test_generation_archive_reload_is_server_filtered_and_grouped_by_week() -> None:
+    initial_load = _between(
+        APP,
+        "async function loadSection(section, options = {})",
+        "async function loadGenerationSpendOverview",
+    )
+    reload_block = _between(
+        APP,
+        "async function reloadGenerationArchive()",
+        "async function loadMoreGenerationArchive()",
+    )
+    load_more_block = _between(
+        APP,
+        "async function loadMoreGenerationArchive()",
+        "function generationTable(items)",
+    )
+    table_block = _between(APP, "function generationTable(items)", "function generationBatchDetails(item)")
+
+    assert initial_load.index("const generationArchiveRequest") < initial_load.index(
+        "let raw = await withUiTimeout("
+    )
+    assert 'status: "fulfilled"' in initial_load
+    assert 'status: "rejected"' in initial_load
+    assert "state.api.generationArchive" in reload_block
+    assert "period: filters.period" in reload_block
+    assert "status: filters.status" in reload_block
+    assert "query: filters.query" in reload_block
+    assert "meta.next_cursor" in reload_block
+    assert "meta.has_more !== true" in reload_block
+    assert "archive.serverLoaded" in load_more_block
+    assert "state.api.generationArchive" in load_more_block
+    assert "mergeGenerationPages" in load_more_block
+    assert 'class="generation-week-heading"' in table_block
+    assert "generationWeekLabel(items[index - 1]?.created_at)" in table_block
+    assert "Период, статус и поиск применяются на сервере ко всему архиву" in APP
+
+
 def test_theme_archive_motion_and_brand_asset_hooks_are_wired_into_the_spa() -> None:
     assert re.search(r'from "\./portal-experience\.js\?v=\d+\.\d+";', APP)
     for hook in (

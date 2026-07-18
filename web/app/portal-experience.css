@@ -655,6 +655,20 @@ html[data-portal-theme] :is(.btn-secondary, input, select, textarea) {
   font-size: 0.76rem;
 }
 
+.generation-week-heading th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 14px;
+  border-block: 1px solid color-mix(in srgb, var(--portal-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--portal-surface) 92%, var(--portal-accent) 8%);
+  color: var(--portal-ink);
+  font: 700 0.76rem/1.2 var(--portal-font-sans, Inter, sans-serif);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
 .generation-archive-actions {
   display: flex;
   min-height: 44px;

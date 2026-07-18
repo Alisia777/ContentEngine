@@ -172,7 +172,48 @@ def test_manager_handles_legacy_health_response_without_false_zeroes() -> None:
     html = result["html"]
     assert "manager-review-queue-neutral" in html
     assert "Сводка появится после следующего ответа сервера." in html
-    assert html.count("<strong>—</strong>") == 7
+    assert html.count("<strong>—</strong>") == 12
+
+
+def test_manager_surfaces_pre_dispatch_delay_and_storage_capacity_without_retry() -> None:
+    result = _run_view(
+        """
+        const html = subject.managerOperationalHealthMarkup({
+          status: "ready",
+          data: {
+            scheduler: { ready: true },
+            worker: { ready: true, heartbeat_fresh: true },
+            generation: {
+              active: 0,
+              due: 0,
+              stalled: 0,
+              queued: 8,
+              starting: 2,
+              oldest_queued_age_seconds: 1800,
+              oldest_starting_age_seconds: 700,
+            },
+            storage: {
+              registered_count: 1250,
+              registered_bytes: 96636764160,
+              quota_bytes: 107374182400,
+              remaining_bytes: 10737418240,
+              utilization_percent: 90,
+            },
+          },
+        });
+        return { html };
+        """
+    )
+    html = result["html"]
+    assert "manager-operations-danger" in html
+    assert "Ждёт запуска" in html
+    assert "Сверка запуска" in html
+    assert "Старейшая до отправки" in html
+    assert "Хранилище видео" in html
+    assert "Заполнено" in html
+    assert "90%" in html
+    assert "не удаляет файлы автоматически" in html
+    assert "не повторяет платную генерацию" in html
 
 
 def test_review_health_layout_is_responsive_theme_aware_and_cache_busted() -> None:
@@ -187,5 +228,5 @@ def test_review_health_layout_is_responsive_theme_aware_and_cache_busted() -> No
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260717.9' in INDEX
-    assert 'from "./manager-dashboard-view.js?v=20260717.3"' in APP
+    assert './app.js?v=20260718.1' in INDEX
+    assert 'from "./manager-dashboard-view.js?v=20260718.1"' in APP

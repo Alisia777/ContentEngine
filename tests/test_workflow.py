@@ -2811,6 +2811,7 @@ def test_product_strategy_cli_builds_spec_and_offer():
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     assert spec_result.returncode == 0
     assert "Product Strategy Spec ID:" in spec_result.stdout
@@ -2830,6 +2831,7 @@ def test_product_strategy_cli_builds_spec_and_offer():
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
 
     assert offer_result.returncode == 0
@@ -8630,6 +8632,7 @@ def test_engine_audit_cli_writes_report(tmp_path):
         check=False,
         capture_output=True,
         text=True,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr

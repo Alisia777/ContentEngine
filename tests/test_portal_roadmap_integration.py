@@ -38,7 +38,7 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
         r"managerDashboard\(\)\s*\{\s*return this\.call\(RPC\.managerDashboard, this\.withOrganization\(\{\}\)\);\s*\}",
         API,
     )
-    assert 'from "./manager-dashboard-view.js?v=20260717.3"' in APP
+    assert 'from "./manager-dashboard-view.js?v=20260718.1"' in APP
     assert 'from "./access-center-view.js?v=20260717.1"' in APP
     assert "state.api.managerDashboard()" in APP
     assert "managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)" in APP
@@ -64,6 +64,6 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
 def test_release_entry_assets_use_current_cache_versions() -> None:
     assert './styles.css?v=20260716.4' in INDEX
     assert './config.js?v=20260716.2' in INDEX
-    assert './app.js?v=20260717.9' in INDEX
-    assert './supabase-api.js?v=20260717.9' in APP
+    assert './app.js?v=20260718.1' in INDEX
+    assert './supabase-api.js?v=20260718.1' in APP
     assert './catalog.js?v=20260716.3' in APP

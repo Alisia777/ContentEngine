@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260717.9";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260718.1";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -18,7 +18,7 @@ import {
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260717.3";
+} from "./manager-dashboard-view.js?v=20260718.1";
 import {
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
@@ -73,7 +73,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260716.2";
+} from "./portal-experience.js?v=20260718.1";
 import {
   normalizeWorkspaceBoard,
   workspaceBoardItemByKey,
@@ -725,10 +725,13 @@ const state = {
   },
   generationArchive: {
     filters: normalizeGenerationFilters(),
+    loading: false,
     loadingMore: false,
     exhausted: false,
     error: "",
     requestId: 0,
+    nextCursor: null,
+    serverLoaded: false,
   },
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   sections: Object.fromEntries(
@@ -4011,6 +4014,24 @@ async function loadSection(section, options = {}) {
           section,
           section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
         );
+    const initialGenerationFilters = section === "generation"
+      ? normalizeGenerationFilters(state.generationArchive.filters)
+      : null;
+    const generationArchiveRequest = initialGenerationFilters
+      ? withUiTimeout(
+        state.api.generationArchive({
+          period: initialGenerationFilters.period,
+          status: initialGenerationFilters.status,
+          query: initialGenerationFilters.query,
+          page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+        }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "generation_archive_timeout",
+      ).then(
+        (value) => ({ status: "fulfilled", value }),
+        (reason) => ({ status: "rejected", reason }),
+      )
+      : null;
     let raw = await withUiTimeout(
       sectionRequest,
       WORKSPACE_REQUEST_TIMEOUT_MS,
@@ -4066,6 +4087,24 @@ async function loadSection(section, options = {}) {
     }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     let data = raw?.data ?? raw ?? {};
+    let generationArchiveResult = null;
+    if (section === "generation") {
+      const archiveOutcome = await generationArchiveRequest;
+      if (archiveOutcome?.status === "fulfilled") {
+        const archiveRaw = archiveOutcome.value;
+        if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+        generationArchiveResult = archiveRaw?.data ?? archiveRaw ?? {};
+        data = {
+          ...data,
+          batches: listFrom(generationArchiveResult, "batches"),
+          generation_archive_meta: generationArchiveResult?._meta || {},
+        };
+        state.generationArchive.error = "";
+      } else {
+        console.warn("Server generation archive unavailable", archiveOutcome?.reason);
+        state.generationArchive.error = "Серверный архив временно недоступен. Показана первая локальная страница.";
+      }
+    }
     if (section === "team") {
       try {
         const persisted = await withUiTimeout(
@@ -4098,10 +4137,17 @@ async function loadSection(section, options = {}) {
     }
     if (section === "generation") {
       const loadedBatches = listFrom(data, "batches");
+      const archiveMeta = data?.generation_archive_meta && typeof data.generation_archive_meta === "object"
+        ? data.generation_archive_meta
+        : {};
       state.generationArchive.requestId += 1;
+      state.generationArchive.loading = false;
       state.generationArchive.loadingMore = false;
-      state.generationArchive.error = "";
-      state.generationArchive.exhausted = loadedBatches.length < GENERATION_ARCHIVE_PAGE_SIZE;
+      state.generationArchive.serverLoaded = Boolean(generationArchiveResult);
+      state.generationArchive.nextCursor = generationArchiveResult ? archiveMeta.next_cursor || null : null;
+      state.generationArchive.exhausted = generationArchiveResult
+        ? archiveMeta.has_more !== true
+        : loadedBatches.length < GENERATION_ARCHIVE_PAGE_SIZE;
     }
     if (section === "review") {
       const catalog = normalizeContentReviewCatalog(data);
@@ -5042,9 +5088,12 @@ function renderGenerationSection(sectionState) {
 
         <section class="card">
           <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Видео по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных роликов каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-          ${sectionBody(sectionState, batches.length
-            ? generationArchiveMarkup(batches, filteredBatches, visibleBatches, archiveFilters)
-            : emptyState("✦", "Запусков пока нет", "Настройте первый ролик в форме — его статус появится здесь.", { target: "mock-batch-form", label: "Настроить первый ролик" }))}
+          ${sectionBody(sectionState, generationArchiveMarkup(
+            batches,
+            filteredBatches,
+            visibleBatches,
+            archiveFilters,
+          ))}
         </section>
       </div>
       ${(canManageAliases || aliases.length) ? `
@@ -5076,7 +5125,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
   const hasMoreVisible = visibleBatches.length < filteredBatches.length && filters.visible < GENERATION_VISIBLE_CAP;
   const archive = state.generationArchive;
   return `
-    <div class="generation-archive" aria-busy="${archive.loadingMore ? "true" : "false"}">
+    <div class="generation-archive" aria-busy="${archive.loading || archive.loadingMore ? "true" : "false"}">
       <form id="generation-archive-filter-form" class="generation-archive-toolbar" novalidate>
         <label class="field">
           <span>Период</span>
@@ -5084,7 +5133,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
             <option value="week" ${filters.period === "week" ? "selected" : ""}>Эта неделя</option>
             <option value="4w" ${filters.period === "4w" ? "selected" : ""}>Последние 4 недели</option>
             <option value="12w" ${filters.period === "12w" ? "selected" : ""}>Последние 12 недель</option>
-            <option value="all" ${filters.period === "all" ? "selected" : ""}>Всё загруженное</option>
+            <option value="all" ${filters.period === "all" ? "selected" : ""}>Вся история</option>
           </select>
         </label>
         <label class="field">
@@ -5093,34 +5142,34 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
             <option value="all" ${filters.status === "all" ? "selected" : ""}>Все статусы</option>
             <option value="active" ${filters.status === "active" ? "selected" : ""}>Сейчас создаются</option>
             <option value="ready" ${filters.status === "ready" ? "selected" : ""}>Готовые</option>
-            <option value="issue" ${filters.status === "issue" ? "selected" : ""}>С ошибкой</option>
+            <option value="issue" ${filters.status === "issue" ? "selected" : ""}>Ошибки и отменённые</option>
           </select>
         </label>
         <label class="field generation-archive-search">
           <span>Товар или запуск</span>
           <input name="query" maxlength="120" value="${escapeHtml(filters.query)}" placeholder="Артикул, название или ID" autocomplete="off" />
         </label>
-        <button id="generation-archive-submit" class="btn btn-small" type="submit">Показать</button>
+        <button id="generation-archive-submit" class="btn btn-small" type="submit" ${archive.loading ? "disabled" : ""}>${archive.loading ? "Ищем…" : "Показать"}</button>
       </form>
       <div id="generation-archive-summary" class="generation-archive-summary" tabindex="-1" aria-live="polite" aria-atomic="true">
-        <span>Найдено <strong>${formatNumber(filteredBatches.length)}</strong> из ${formatNumber(batches.length)} загруженных</span>
+        <span>${archive.serverLoaded ? "Сервер нашёл" : "Найдено локально"} <strong>${formatNumber(filteredBatches.length)}</strong> на загруженных страницах</span>
         <span>На экране: ${formatNumber(visibleBatches.length)}</span>
       </div>
       ${archive.error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(archive.error)}</span></div>` : ""}
       ${visibleBatches.length
         ? generationTable(visibleBatches)
-        : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>Среди ${formatNumber(batches.length)} загруженных запусков ничего нет</h3><p>Измените фильтр или загрузите более старую историю.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
+        : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>${archive.serverLoaded ? "Во всём архиве ничего не найдено" : `Среди ${formatNumber(batches.length)} загруженных запусков ничего нет`}</h3><p>Измените период, статус или поисковый запрос.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
       <div class="generation-archive-actions">
         ${hasMoreVisible ? `<button class="btn btn-secondary btn-small" type="button" data-action="show-more-generation">Показать ещё ${GENERATION_VISIBLE_STEP}</button>` : ""}
         ${filteredBatches.length > visibleBatches.length && filters.visible >= GENERATION_VISIBLE_CAP ? `<span class="muted tiny">Уточните период или поиск, чтобы не выводить больше ${GENERATION_VISIBLE_CAP} строк сразу</span>` : ""}
-        ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : archive.error ? "Повторить загрузку истории" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история</span>`}
+        ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loading || archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : archive.error ? "Повторить загрузку истории" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история по выбранным фильтрам</span>`}
       </div>
-      <p class="generation-archive-note">Поиск работает по загруженной части архива. Для старых роликов нажмите «Загрузить ещё». <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
+      <p class="generation-archive-note">Период, статус и поиск применяются на сервере ко всему архиву. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов. <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
     </div>
   `;
 }
 
-function submitGenerationArchiveFilters(form) {
+async function submitGenerationArchiveFilters(form) {
   form.removeAttribute("data-dirty");
   const values = new FormData(form);
   state.generationArchive.filters = normalizeGenerationFilters({
@@ -5130,8 +5179,7 @@ function submitGenerationArchiveFilters(form) {
     visible: GENERATION_VISIBLE_STEP,
   });
   state.generationArchive.error = "";
-  renderWorkspace("generation");
-  focusGenerationArchiveSummary();
+  await reloadGenerationArchive();
 }
 
 function focusGenerationArchiveSummary() {
@@ -5140,12 +5188,67 @@ function focusGenerationArchiveSummary() {
   });
 }
 
+async function reloadGenerationArchive() {
+  const archive = state.generationArchive;
+  const target = state.sections.generation;
+  if (archive.loading || archive.loadingMore || !target?.data) return;
+  const filters = normalizeGenerationFilters(archive.filters);
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = archive.requestId + 1;
+  archive.requestId = requestId;
+  archive.loading = true;
+  archive.error = "";
+  archive.nextCursor = null;
+  archive.exhausted = false;
+  renderWorkspace("generation");
+  try {
+    const raw = await withUiTimeout(
+      state.api.generationArchive({
+        period: filters.period,
+        status: filters.status,
+        query: filters.query,
+        page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+      }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "generation_archive_timeout",
+    );
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== archive.requestId) return;
+    const data = raw?.data ?? raw ?? {};
+    const batches = listFrom(data, "batches");
+    const meta = data?._meta && typeof data._meta === "object" ? data._meta : {};
+    target.data = {
+      ...target.data,
+      batches,
+      generation_archive_meta: meta,
+    };
+    target.status = "ready";
+    archive.serverLoaded = true;
+    archive.nextCursor = meta.next_cursor || null;
+    archive.exhausted = meta.has_more !== true;
+  } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== archive.requestId) return;
+    archive.serverLoaded = false;
+    archive.nextCursor = null;
+    archive.exhausted = true;
+    archive.error = `${actionErrorMessage(error)} Показана только ранее загруженная страница; повторите поиск после восстановления связи.`;
+  } finally {
+    if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id && requestId === archive.requestId) {
+      archive.loading = false;
+      if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+      focusGenerationArchiveSummary();
+    }
+  }
+}
+
 async function loadMoreGenerationArchive() {
   const archive = state.generationArchive;
   const target = state.sections.generation;
-  if (archive.loadingMore || archive.exhausted || !target?.data) return;
+  if (archive.loading || archive.loadingMore || archive.exhausted || !target?.data) return;
   const currentBatches = listFrom(target.data, "batches");
-  const cursor = generationArchiveCursor(currentBatches);
+  const cursor = archive.serverLoaded
+    ? archive.nextCursor
+    : generationArchiveCursor(currentBatches)?.generation_batches || null;
   if (!cursor) {
     archive.exhausted = true;
     renderWorkspace("generation");
@@ -5159,26 +5262,45 @@ async function loadMoreGenerationArchive() {
   archive.error = "";
   renderWorkspace("generation");
   try {
+    const filters = normalizeGenerationFilters(archive.filters);
     const raw = await withUiTimeout(
-      state.api.workspaceSection("generation", {
-        page_size: GENERATION_ARCHIVE_PAGE_SIZE,
-        cursor,
-      }),
+      archive.serverLoaded
+        ? state.api.generationArchive({
+          period: filters.period,
+          status: filters.status,
+          query: filters.query,
+          page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+          cursor,
+        })
+        : state.api.workspaceSection("generation", {
+          page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+          cursor: { generation_batches: cursor },
+        }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
-      "workspace_section_timeout",
+      "generation_archive_timeout",
     );
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== archive.requestId) return;
     const incomingData = raw?.data ?? raw ?? {};
     const incomingBatches = listFrom(incomingData, "batches");
     const mergedBatches = mergeGenerationPages(currentBatches, incomingBatches);
+    const meta = incomingData?._meta && typeof incomingData._meta === "object"
+      ? incomingData._meta
+      : {};
     target.data = {
       ...target.data,
       batches: mergedBatches,
-      _meta: incomingData?._meta || target.data?._meta,
+      generation_archive_meta: archive.serverLoaded
+        ? meta
+        : target.data?.generation_archive_meta,
     };
     target.status = "ready";
-    archive.exhausted = incomingBatches.length < GENERATION_ARCHIVE_PAGE_SIZE
-      || mergedBatches.length === currentBatches.length;
+    if (archive.serverLoaded) {
+      archive.nextCursor = meta.next_cursor || null;
+      archive.exhausted = meta.has_more !== true;
+    } else {
+      archive.exhausted = incomingBatches.length < GENERATION_ARCHIVE_PAGE_SIZE
+        || mergedBatches.length === currentBatches.length;
+    }
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== archive.requestId) return;
     archive.error = actionErrorMessage(error);
@@ -5195,10 +5317,17 @@ function generationTable(items) {
     <div class="table-wrap"><table class="data-table generation-table">
       <caption class="sr-only">Архив запусков генерации видео</caption>
       <thead><tr><th scope="col">Запуск</th><th scope="col">Код товара</th><th scope="col">Этап</th><th scope="col">Стоимость</th><th scope="col">Создан</th></tr></thead>
-      <tbody>${items.map((item) => {
+      <tbody>${items.map((item, index) => {
+        const weekLabel = generationWeekLabel(item.created_at);
+        const previousWeekLabel = index > 0
+          ? generationWeekLabel(items[index - 1]?.created_at)
+          : "";
+        const weekHeading = index === 0 || weekLabel !== previousWeekLabel
+          ? `<tr class="generation-week-heading"><th colspan="5" scope="rowgroup">Неделя ${escapeHtml(weekLabel)}</th></tr>`
+          : "";
         const details = generationBatchDetails(item);
         if (!details.real) {
-          return `
+          return `${weekHeading}
             <tr>
               <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Тестовые варианты · без списаний</small></td>
               <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
@@ -5223,7 +5352,7 @@ function generationTable(items) {
         const preview = previewUrl
           ? `<div class="generation-result-preview"><video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video><small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
           : "";
-        return `
+        return `${weekHeading}
           <tr data-generation-job-id="${escapeHtml(details.jobId)}" tabindex="-1">
             <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}</small></td>
             <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
@@ -7223,8 +7352,7 @@ async function handleClick(event) {
       visible: GENERATION_VISIBLE_STEP,
     });
     state.generationArchive.error = "";
-    renderWorkspace("generation");
-    focusGenerationArchiveSummary();
+    await reloadGenerationArchive();
     return;
   }
 
@@ -7458,9 +7586,12 @@ async function handleClick(event) {
     if (state.sections[section]) {
       if (section === "generation") {
         state.generationArchive.requestId += 1;
+        state.generationArchive.loading = false;
         state.generationArchive.loadingMore = false;
         state.generationArchive.exhausted = false;
         state.generationArchive.error = "";
+        state.generationArchive.nextCursor = null;
+        state.generationArchive.serverLoaded = false;
       }
       state.sections[section].requestId += 1;
       state.sections[section].status = "idle";
@@ -7585,7 +7716,7 @@ async function handleSubmit(event) {
   else if (form.id === "workspace-board-filter-form") await submitWorkspaceBoardFilters(form);
   else if (form.id === "my-work-filter-form") await submitMyWorkFilters(form);
   else if (form.id === "save-my-work-view-form") await submitSavedMyWorkView(form);
-  else if (form.id === "generation-archive-filter-form") submitGenerationArchiveFilters(form);
+  else if (form.id === "generation-archive-filter-form") await submitGenerationArchiveFilters(form);
   else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
   else if (form.id === "content-review-form") await submitContentReview(form);
@@ -10079,9 +10210,12 @@ function clearAuthenticatedState() {
   document.body.classList.remove("notification-center-open");
   state.generationArchive.requestId += 1;
   state.generationArchive.filters = normalizeGenerationFilters();
+  state.generationArchive.loading = false;
   state.generationArchive.loadingMore = false;
   state.generationArchive.exhausted = false;
   state.generationArchive.error = "";
+  state.generationArchive.nextCursor = null;
+  state.generationArchive.serverLoaded = false;
   state.home.status = "idle";
   state.home.data = null;
   state.home.error = null;

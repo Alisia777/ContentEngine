@@ -38,7 +38,8 @@ def test_ci_runs_six_deterministic_python_shards_with_isolated_paths() -> None:
 
     test_step = next(step for step in job["steps"] if step["name"] == "Run test suite")
     assert test_step["run"] == (
-        "python -m pytest -q -p scripts.pytest_shard_plugin"
+        "python -m pytest -q -p scripts.pytest_shard_plugin "
+        "--durations=25 --durations-min=1.0"
     )
 
 

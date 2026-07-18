@@ -48,7 +48,8 @@ select is(
       and procedure.proname = any(array[
         'creator_bootstrap', 'creator_complete_module',
         'creator_submit_course_check', 'creator_submit_exam',
-        'creator_workspace_section', 'creator_create_mock_batch',
+        'creator_workspace_section', 'creator_generation_archive',
+        'creator_create_mock_batch',
         'creator_confirm_placement', 'creator_record_metric',
         'creator_set_wb_alias', 'creator_decide_payout',
         'creator_transition_task', 'creator_create_feedback',
@@ -77,7 +78,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  45,
+  46,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -90,7 +91,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  45,
+  46,
   'authenticated can execute all creator RPCs'
 );
 

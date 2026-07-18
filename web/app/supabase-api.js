@@ -13,6 +13,7 @@ export const RPC = Object.freeze({
   submitCourseCheck: "creator_submit_course_check",
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
+  generationArchive: "creator_generation_archive",
   workspaceBrowser: "creator_workspace_browser",
   createWorkspaceFolder: "creator_create_workspace_folder",
   updateWorkspaceFolder: "creator_update_workspace_folder",
@@ -189,6 +190,61 @@ export class CreatorApi {
       payload.cursor = options.cursor;
     }
     return this.call(RPC.workspaceSection, this.withOrganization(payload));
+  }
+
+  generationArchive(options = {}) {
+    const periods = new Set(["week", "4w", "12w", "all"]);
+    const statuses = new Set(["all", "active", "ready", "issue"]);
+    const period = String(options.period || "4w").trim().toLowerCase();
+    const status = String(options.status || "all").trim().toLowerCase();
+    const query = String(options.query || "").trim();
+    const pageSize = options.page_size === undefined ? 50 : Number(options.page_size);
+    if (!periods.has(period)) {
+      throw new CreatorApiError("Выберите доступный период архива.", {
+        code: "generation_archive_period_invalid",
+      });
+    }
+    if (!statuses.has(status)) {
+      throw new CreatorApiError("Выберите доступную группу статусов.", {
+        code: "generation_archive_status_invalid",
+      });
+    }
+    if (query.length > 120 || /[\u0000-\u001f\u007f]/u.test(query)) {
+      throw new CreatorApiError("Сократите поиск до 120 символов.", {
+        code: "generation_archive_query_invalid",
+      });
+    }
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new CreatorApiError("Можно загрузить от 1 до 100 запусков за один запрос.", {
+        code: "generation_archive_page_size_invalid",
+      });
+    }
+    const payload = {
+      period,
+      status,
+      page_size: pageSize,
+    };
+    if (query) payload.query = query;
+    if (options.cursor !== undefined && options.cursor !== null) {
+      const cursor = options.cursor;
+      if (
+        !cursor
+        || typeof cursor !== "object"
+        || Array.isArray(cursor)
+        || Object.keys(cursor).some((key) => !["at", "id"].includes(key))
+        || !String(cursor.at || "").trim()
+        || !String(cursor.id || "").trim()
+      ) {
+        throw new CreatorApiError("Курсор архива имеет неверный формат.", {
+          code: "generation_archive_cursor_invalid",
+        });
+      }
+      payload.cursor = {
+        at: String(cursor.at).trim(),
+        id: String(cursor.id).trim(),
+      };
+    }
+    return this.call(RPC.generationArchive, this.withOrganization(payload));
   }
 
   workspaceBrowser(options = {}) {

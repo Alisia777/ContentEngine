@@ -52,7 +52,7 @@ jobs:
         run: python -m compileall -q app scripts
 
       - name: Run test suite
-        run: python -m pytest -q -p scripts.pytest_shard_plugin
+        run: python -m pytest -q -p scripts.pytest_shard_plugin --durations=25 --durations-min=1.0
 
   supabase-migrations:
     name: Validate Supabase migrations and RPC contract
