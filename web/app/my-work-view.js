@@ -279,7 +279,7 @@ export function notificationCenterMarkup(raw, { open = false, loading = false, e
   return `
     <div class="notification-layer ${open ? "open" : ""}" data-notification-layer ${open ? "" : "hidden"}>
       <button class="notification-backdrop" type="button" data-action="toggle-work-notifications" aria-label="Закрыть уведомления"></button>
-      <aside class="notification-drawer" role="dialog" aria-modal="true" aria-labelledby="notification-center-title">
+      <aside class="notification-drawer" role="dialog" aria-modal="true" aria-labelledby="notification-center-title" tabindex="-1">
         <header>
           <div><p class="eyebrow">Центр событий</p><h2 id="notification-center-title">Уведомления</h2></div>
           <button class="notification-close" type="button" data-action="toggle-work-notifications" aria-label="Закрыть">×</button>

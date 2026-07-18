@@ -97,7 +97,10 @@ def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() ->
     assert "email" not in inputs
     assert "display_name" not in inputs
     assert "distinct_from" not in inputs
-    assert "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}" not in source
+    assert "${{ secrets.SUPABASE_MEMBER_GUEST_TEMP_PASSWORD }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}" in source
+    assert "${{ secrets.SUPABASE_MEMBER_PAVLENKO_TEMP_PASSWORD }}" in source
     assert "${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}" in source
     assert "${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}" in source
     assert "${{ secrets.SUPABASE_MEMBER_PAVLENKO_EMAIL }}" in source
@@ -121,13 +124,22 @@ def test_member_provisioning_is_manual_main_only_and_uses_protected_secrets() ->
     assert preview["if"] == "inputs.mode == 'preview'"
     assert apply["if"] == "inputs.mode == 'apply'"
     assert "SUPABASE_MEMBER_TEMP_PASSWORD" not in preview["env"]
-    assert apply["env"]["SUPABASE_MEMBER_TEMP_PASSWORD"] == (
-        "${{ secrets.SUPABASE_MEMBER_TEMP_PASSWORD }}"
+    assert "SUPABASE_MEMBER_TEMP_PASSWORD" not in apply["env"]
+    assert apply["env"]["GUEST_TEMP_PASSWORD"] == (
+        "${{ secrets.SUPABASE_MEMBER_GUEST_TEMP_PASSWORD }}"
     )
+    assert apply["env"]["KLIMOV_TEMP_PASSWORD"] == (
+        "${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}"
+    )
+    assert apply["env"]["PAVLENKO_TEMP_PASSWORD"] == (
+        "${{ secrets.SUPABASE_MEMBER_PAVLENKO_TEMP_PASSWORD }}"
+    )
+    assert '--account-slot="$ACCOUNT_SLOT"' in source
+    assert '--password-dispatch-id="$MEMBER_PASSWORD_DISPATCH_ID"' in source
     assert "type: choice" in source
     assert "- viewer" in source and "- trainee" in source
     assert "actions/upload-artifact" not in source
-    assert "--password" not in source
+    assert "--password=" not in source
 
 
 def test_production_workflow_migrates_before_publishing_pages() -> None:

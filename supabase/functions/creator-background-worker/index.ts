@@ -12,6 +12,7 @@ const DEFAULT_RESEARCH_LIMIT = 1;
 const DEFAULT_REVIEW_LIMIT = 1;
 const LEASE_RECONCILE_LIMIT = 50;
 const NOTIFICATION_OUTBOX_LIMIT = 12;
+const STORAGE_CLEANUP_LIMIT = 6;
 const WORKER_LEASE_SECONDS = 210;
 const DISPATCH_TIMEOUT_MS = 135_000;
 const RESPONSE_BODY_LIMIT = 65_536;
@@ -34,10 +35,35 @@ type Json =
 type QueueRow = {
   id: string;
   organization_id?: string;
+  status?: string;
   media_object_id?: string;
   recipient_id?: string;
   evidence_set_id?: string | null;
   next_attempt_at?: string | null;
+};
+
+type StartingWatchdogSummary = {
+  selected: number;
+  marked: number;
+  failed: number;
+};
+
+type StorageCleanupRow = {
+  id: string;
+  organization_id: string;
+  generation_job_id: string;
+  bucket_id: string;
+  object_name: string;
+  status: string;
+  attempt_count: number;
+};
+
+type StorageCleanupSummary = {
+  selected: number;
+  completed: number;
+  retried: number;
+  deadLetter: number;
+  failed: number;
 };
 
 type MediaRow = {
@@ -70,6 +96,28 @@ type Database = {
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
+        Relationships: [];
+      };
+      generation_storage_cleanup_queue: {
+        Row: StorageCleanupRow & {
+          next_attempt_at: string;
+          lease_token: string | null;
+          processing_started_at: string | null;
+          last_error_code: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Record<string, never>;
+        Update: {
+          status?: string;
+          attempt_count?: number;
+          next_attempt_at?: string;
+          lease_token?: string | null;
+          processing_started_at?: string | null;
+          last_error_code?: string | null;
+          completed_at?: string | null;
+        };
         Relationships: [];
       };
       product_research_runs: {
@@ -215,6 +263,31 @@ function isMediaRow(value: unknown): value is MediaRow {
   return isRecord(value) && isUuid(value.id) &&
     typeof value.mime_type === "string" &&
     typeof value.status === "string";
+}
+
+function isStorageCleanupRow(value: unknown): value is StorageCleanupRow {
+  return isRecord(value) && isUuid(value.id) &&
+    isUuid(value.organization_id) && isUuid(value.generation_job_id) &&
+    value.bucket_id === "contentengine-private" &&
+    typeof value.object_name === "string" &&
+    value.object_name.startsWith(`${value.organization_id}/`) &&
+    value.object_name.includes("/generated/") &&
+    value.object_name.endsWith(`/${value.generation_job_id}.mp4`) &&
+    !value.object_name.split("/").includes("..") &&
+    value.status === "pending" && Number.isSafeInteger(value.attempt_count) &&
+    Number(value.attempt_count) >= 0 && Number(value.attempt_count) <= 5;
+}
+
+function isMissingStorageObjectError(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const status = value.statusCode ?? value.status;
+  if (status === 404 || status === "404") return true;
+  const code = typeof value.code === "string" ? value.code.toLowerCase() : "";
+  const message = typeof value.message === "string"
+    ? value.message.toLowerCase()
+    : "";
+  return code === "not_found" || code === "notfound" ||
+    message.includes("not found") || message.includes("does not exist");
 }
 
 function boundedInteger(
@@ -697,6 +770,40 @@ async function recordGenerationPollOutcomes(
   return { recorded, failed };
 }
 
+async function reconcileStaleStartingJobs(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  rows: QueueRow[],
+): Promise<StartingWatchdogSummary> {
+  let marked = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_mark_real_generation_reconciliation_required",
+        {
+          p_payload: {
+            job_id: row.id,
+            reason_code: "provider_create_state_stale",
+          },
+        },
+      );
+      if (error !== null || !isRecord(data) || data.ok !== true) {
+        failed += 1;
+      } else if (data.marked === true) {
+        marked += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+  }
+  return { selected: rows.length, marked, failed };
+}
+
 async function reconcileExpiredLeases(
   supabaseAdmin: {
     rpc: (
@@ -880,6 +987,166 @@ const creatorBackgroundWorker = withSupabase<Database>({
     return json({ ok: false, code: "worker_configuration_error" }, 503);
   }
 
+  const cleanupGeneratedStorage = async (): Promise<StorageCleanupSummary> => {
+    const summary: StorageCleanupSummary = {
+      selected: 0,
+      completed: 0,
+      retried: 0,
+      deadLetter: 0,
+      failed: 0,
+    };
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const staleBeforeIso = new Date(now.getTime() - 15 * 60_000).toISOString();
+
+    // A killed Edge invocation must not strand a cleanup row forever. The
+    // global worker lease serializes healthy runs; the row lease makes this
+    // recovery safe even if two invocations briefly overlap.
+    try {
+      const { error } = await supabaseAdmin
+        .schema("content_factory")
+        .from("generation_storage_cleanup_queue")
+        .update({
+          status: "pending",
+          next_attempt_at: nowIso,
+          lease_token: null,
+          processing_started_at: null,
+          last_error_code: "cleanup_lease_expired",
+          completed_at: null,
+        })
+        .eq("status", "processing")
+        .lt("processing_started_at", staleBeforeIso);
+      if (error !== null) summary.failed += 1;
+    } catch {
+      summary.failed += 1;
+    }
+
+    let rows: StorageCleanupRow[] | null = null;
+    try {
+      const { data, error } = await supabaseAdmin
+        .schema("content_factory")
+        .from("generation_storage_cleanup_queue")
+        .select(
+          "id, organization_id, generation_job_id, bucket_id, object_name, status, attempt_count",
+        )
+        .eq("status", "pending")
+        .lte("next_attempt_at", nowIso)
+        .order("next_attempt_at", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(STORAGE_CLEANUP_LIMIT);
+      if (error === null && Array.isArray(data)) {
+        rows = data.filter(isStorageCleanupRow);
+        if (rows.length !== data.length) summary.failed += 1;
+      }
+    } catch {
+      rows = null;
+    }
+    if (rows === null) {
+      summary.failed += 1;
+      return summary;
+    }
+    summary.selected = rows.length;
+
+    for (const row of rows) {
+      const leaseToken = crypto.randomUUID();
+      // Five is a saturation counter, not a terminal retry budget. Cleanup is
+      // idempotent, so a missing object or a completion-write loss must remain
+      // recoverable indefinitely while the capacity reservation stays active.
+      const attemptCount = Math.min(5, row.attempt_count + 1);
+      let claimed = false;
+      try {
+        const { data, error } = await supabaseAdmin
+          .schema("content_factory")
+          .from("generation_storage_cleanup_queue")
+          .update({
+            status: "processing",
+            attempt_count: attemptCount,
+            lease_token: leaseToken,
+            processing_started_at: nowIso,
+            last_error_code: null,
+            completed_at: null,
+          })
+          .eq("id", row.id)
+          .eq("status", "pending")
+          .eq("attempt_count", row.attempt_count)
+          .select("id")
+          .maybeSingle();
+        claimed = error === null && isRecord(data) && data.id === row.id;
+      } catch {
+        claimed = false;
+      }
+      if (!claimed) {
+        summary.failed += 1;
+        continue;
+      }
+
+      let removed = false;
+      try {
+        const { error } = await supabaseAdmin.storage
+          .from(row.bucket_id)
+          .remove([row.object_name]);
+        removed = error === null || isMissingStorageObjectError(error);
+      } catch (error) {
+        removed = isMissingStorageObjectError(error);
+      }
+
+      if (removed) {
+        let completed = false;
+        try {
+          const { data, error } = await supabaseAdmin
+            .schema("content_factory")
+            .from("generation_storage_cleanup_queue")
+            .update({
+              status: "completed",
+              lease_token: null,
+              processing_started_at: null,
+              completed_at: new Date().toISOString(),
+              last_error_code: null,
+            })
+            .eq("id", row.id)
+            .eq("status", "processing")
+            .eq("lease_token", leaseToken)
+            .select("id")
+            .maybeSingle();
+          completed = error === null && isRecord(data) && data.id === row.id;
+        } catch {
+          completed = false;
+        }
+        if (completed) summary.completed += 1;
+        else summary.failed += 1;
+        continue;
+      }
+
+      const delaySeconds = Math.min(3_600, 60 * (2 ** (attemptCount - 1)));
+      let rescheduled = false;
+      try {
+        const { data, error } = await supabaseAdmin
+          .schema("content_factory")
+          .from("generation_storage_cleanup_queue")
+          .update({
+            status: "pending",
+            next_attempt_at: new Date(Date.now() + delaySeconds * 1_000)
+              .toISOString(),
+            lease_token: null,
+            processing_started_at: null,
+            completed_at: null,
+            last_error_code: "storage_cleanup_failed",
+          })
+          .eq("id", row.id)
+          .eq("status", "processing")
+          .eq("lease_token", leaseToken)
+          .select("id")
+          .maybeSingle();
+        rescheduled = error === null && isRecord(data) && data.id === row.id;
+      } catch {
+        rescheduled = false;
+      }
+      if (!rescheduled) summary.failed += 1;
+      else summary.retried += 1;
+    }
+    return summary;
+  };
+
   const begun = await beginBackgroundWorker(supabaseAdmin);
   if (begun === null) {
     return json({ ok: false, code: "worker_lease_unavailable" }, 503);
@@ -892,6 +1159,13 @@ const creatorBackgroundWorker = withSupabase<Database>({
       completed: { generation: 0, research: 0, review: 0 },
       pending: { generation: 0, research: 0, review: 0 },
       failed: { generation: 0, research: 0, review: 0 },
+      storage_cleanup: {
+        selected: 0,
+        completed: 0,
+        retried: 0,
+        deadLetter: 0,
+        failed: 0,
+      },
       notification: {
         claimed: 0,
         delivered: 0,
@@ -932,7 +1206,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       )
       .eq("mode", "real")
       .eq("provider", "runway")
-      .in("status", ["submitted", "processing"])
+      .in("status", ["starting", "submitted", "processing"])
       .lte("provider_next_poll_at", queueNow)
       .order("provider_next_poll_at", { ascending: true })
       .order("updated_at", { ascending: true })
@@ -983,12 +1257,25 @@ const creatorBackgroundWorker = withSupabase<Database>({
       return json({ ok: false, code: "queue_read_failed" }, 503);
     }
 
-    const generationRows = generationResult.data.filter((row) =>
+    const generationCandidates = generationResult.data.filter((row) =>
       isQueueRow(row, true) && isUuid(row.requested_by)
     ).map((row) => ({
       ...row,
       recipient_id: row.requested_by,
     }));
+    const staleStartingRows = generationCandidates.filter((row) =>
+      row.status === "starting"
+    );
+    const generationRows = generationCandidates.filter((row) =>
+      row.status === "submitted" || row.status === "processing"
+    );
+    // A stale starting row represents an ambiguous provider POST. The durable
+    // watchdog only freezes it for explicit reconciliation; it never calls the
+    // generation Edge Function and therefore cannot issue a duplicate POST.
+    const startingWatchdog = await reconcileStaleStartingJobs(
+      supabaseAdmin,
+      staleStartingRows,
+    );
     const researchRows = researchResult.data.filter((row) =>
       isQueueRow(row, true) && isUuid(row.created_by)
     ).map((row) => ({
@@ -1128,6 +1415,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       pending,
       failed,
       generation_poll_records: pollRecords,
+      starting_watchdog: startingWatchdog,
       review_queue_health: {
         due_candidates: reviewRows.length,
         eligible: eligibleReviews.length,
@@ -1153,9 +1441,12 @@ const creatorBackgroundWorker = withSupabase<Database>({
         503,
       );
     }
+    const storageCleanup = await cleanupGeneratedStorage();
+    summary.storage_cleanup = storageCleanup;
     const notification = await deliverNotificationOutbox(supabaseAdmin);
     const hasFailure = Object.values(failed).some((count) => count > 0) ||
-      pollRecords.failed > 0 || !notification.ok;
+      pollRecords.failed > 0 || startingWatchdog.failed > 0 ||
+      storageCleanup.failed > 0 || !notification.ok;
     const fullSummary: Record<string, Json> = { ...summary, notification };
     const finished = await finishBackgroundWorker(
       supabaseAdmin,

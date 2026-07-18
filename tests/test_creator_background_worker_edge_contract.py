@@ -53,14 +53,19 @@ def test_background_worker_is_named_secret_authenticated_and_bounded() -> None:
 def test_generation_worker_only_retrieves_existing_runway_tasks() -> None:
     source = _text(WORKER)
 
-    assert '.in("status", ["submitted", "processing"])' in source
+    assert '.in("status", ["starting", "submitted", "processing"])' in source
+    assert "reconcileStaleStartingJobs" in source
+    assert 'reason_code: "provider_create_state_stale"' in source
+    assert 'row.status === "submitted" || row.status === "processing"' in source
     generation_target = source.split('kind: "generation",', 1)[1].split("})),", 1)[0]
     assert 'action: "status",' in generation_target
     assert "creator-generate" in source
     assert "image_to_video" not in source
     assert '"action": "start"' not in source
     assert '"action": "reconcile"' not in source
-    assert '"queued", "starting"' not in source
+    # Starting jobs only cross the database reconciliation marker; the rows
+    # mapped to creator-generate remain submitted/processing provider tasks.
+    assert "staleStartingRows" not in generation_target
     assert "SUPABASE_SERVICE_ROLE_KEY" in source
     assert 'authorization: `Bearer ${serviceKey}`' in source
     assert "apikey: serviceKey" in source
@@ -150,6 +155,27 @@ def test_worker_delivers_transactional_outbox_and_surfaces_backlog() -> None:
     assert "console.log" not in source
     assert "console.error" not in source
     assert "error.message" not in source
+
+
+def test_worker_durably_cleans_terminal_generation_objects() -> None:
+    source = _text(WORKER)
+
+    assert "STORAGE_CLEANUP_LIMIT = 6" in source
+    assert '.from("generation_storage_cleanup_queue")' in source
+    assert 'value.status === "pending"' in source
+    assert 'status: "processing"' in source
+    assert '.eq("lease_token", leaseToken)' in source
+    assert '.remove([row.object_name])' in source
+    assert "isMissingStorageObjectError" in source
+    assert 'status: "completed"' in source
+    assert "Math.min(5, row.attempt_count + 1)" in source
+    assert 'status: deadLetter ? "dead_letter" : "pending"' not in source
+    assert "Number(value.attempt_count) <= 5" in source
+    assert "missing object or a completion-write loss" in source
+    assert "2 ** (attemptCount - 1)" in source
+    assert "cleanup_lease_expired" in source
+    assert "storage_cleanup" in source
+    assert "storageCleanup.failed > 0" in source
 
 
 def test_deployment_syncs_worker_secret_and_deploys_only_worker_without_jwt() -> None:

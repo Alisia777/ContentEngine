@@ -137,7 +137,7 @@ begin
 end;
 $course_gate_fixture$;
 
-select plan(37);
+select plan(41);
 
 select ok(
   has_function_privilege(
@@ -272,6 +272,24 @@ begin
 end;
 $$;
 
+select throws_ok(
+  $$
+    select public.creator_start_real_generation(jsonb_build_object(
+      'organization_id', '90000000-0000-4000-8000-000000000001',
+      'idempotency_key', 'seedance-instagram-preflight-0001',
+      'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
+      'count', 1, 'format', '9:16', 'brief', 'A paid Instagram video.',
+      'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
+      'platform', 'instagram', 'destination_ref', 'seedance-test',
+      'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
+      'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
+      'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
+    ))
+  $$,
+  '42501', 'paid_generation_platform_not_supported',
+  'Instagram fails before a paid job or spend reservation can be created'
+);
+
 insert into content_factory.products (
   id, organization_id, sku, title, status, created_by
 )
@@ -315,6 +333,7 @@ values
 create temporary table seedance_test_context (
   success_response jsonb,
   failure_response jsonb,
+  nonrefund_response jsonb,
   gen4_response jsonb
 ) on commit drop;
 
@@ -537,6 +556,20 @@ select ok(
   )) ->> 'claimed')::boolean,
   'duplicate Seedance claim cannot call Runway twice'
 );
+select ok(
+  exists (
+    select 1
+    from content_factory.generation_storage_reservations reservation
+    where reservation.generation_job_id = (
+      select (success_response #>> '{job,id}')::uuid
+      from seedance_test_context
+    )
+      and reservation.status = 'active'
+      and reservation.reserved_object_count = 1
+      and reservation.reserved_size_bytes = 52428800
+  ),
+  'paid Seedance claim reserves output capacity before provider submission'
+);
 select is(
   public.system_update_real_generation(jsonb_build_object(
     'job_id', (select success_response #>> '{job,id}' from seedance_test_context),
@@ -607,6 +640,16 @@ select ok(
       and media.metadata ->> 'duration_seconds' = '8'
       and media.metadata -> 'audio' = 'true'::jsonb
       and media.metadata ->> 'estimated_credits' = '232'
+      and exists (
+        select 1
+        from content_factory.generation_storage_reservations reservation
+        where reservation.generation_job_id = (
+          select (success_response #>> '{job,id}')::uuid
+          from seedance_test_context
+        )
+          and reservation.status = 'consumed'
+          and reservation.actual_size_bytes = 8192
+      )
   ),
   'generated media stores direct Seedance model/audio/credit facts'
 );
@@ -672,7 +715,9 @@ select is(
   public.system_update_real_generation(jsonb_build_object(
     'job_id', (select failure_response #>> '{job,id}' from seedance_test_context),
     'status', 'failed', 'provider_task_id', 'seedance-task-failure-001',
-    'failure_code', 'provider_task_failed'
+    'failure_code', 'provider_task_failed',
+    'provider_failure_code', 'INTERNAL.BAD_OUTPUT.01',
+    'billing_outcome', 'refundable'
   )) #>> '{job,status}',
   'failed',
   'submitted Seedance provider failure reaches sanitized failed state'
@@ -687,12 +732,172 @@ select ok(
     where job.id = (
       select (failure_response #>> '{job,id}')::uuid from seedance_test_context
     )
-      and job.actual_cost_minor = 232
+      and job.actual_cost_minor = 0
       and job.output ->> 'failure_code' = 'provider_task_failed'
+      and job.output ->> 'provider_billing_outcome' = 'refundable'
       and task.status = 'cancelled'
       and task.result ->> 'model' = 'seedance2_fast'
+      and exists (
+        select 1
+        from content_factory.generation_storage_reservations reservation
+        where reservation.generation_job_id = job.id
+          and reservation.status = 'active'
+      )
+      and exists (
+        select 1
+        from content_factory.generation_storage_cleanup_queue cleanup
+        where cleanup.generation_job_id = job.id
+          and cleanup.status = 'pending'
+      )
+      and exists (
+        select 1
+        from content_factory.generation_spend_ledger ledger
+        where ledger.generation_job_id = job.id
+          and ledger.event_type = 'refunded'
+          and ledger.actual_cost_minor = 232
+          and ledger.committed_delta_minor = -232
+      )
   ),
-  'failed Seedance state uses persisted cost and cancels its review task'
+  'refundable Seedance failure appends a compensating refund and cancels review'
+);
+
+do $$
+declare
+  cleanup_id_value uuid;
+  lease_token_value uuid;
+  attempt_index integer;
+begin
+  select cleanup.id into strict cleanup_id_value
+  from content_factory.generation_storage_cleanup_queue cleanup
+  where cleanup.generation_job_id = (
+    select (failure_response #>> '{job,id}')::uuid
+    from seedance_test_context
+  );
+  -- Saturate the retry counter. On the fifth idempotent delete, model a
+  -- worker crash after Storage accepted the delete but before the completion
+  -- row was written.
+  for attempt_index in 1..5 loop
+    lease_token_value := extensions.gen_random_uuid();
+    update content_factory.generation_storage_cleanup_queue
+    set status = 'processing',
+        attempt_count = attempt_count + 1,
+        lease_token = lease_token_value,
+        processing_started_at = now(),
+        last_error_code = null
+    where id = cleanup_id_value;
+    if attempt_index < 5 then
+      update content_factory.generation_storage_cleanup_queue
+      set status = 'pending',
+          lease_token = null,
+          processing_started_at = null,
+          next_attempt_at = now(),
+          last_error_code = 'storage_cleanup_failed'
+      where id = cleanup_id_value;
+    end if;
+  end loop;
+
+  -- Lease reconciliation must re-open the capped row. The next delete sees a
+  -- missing object as success, claims without overflowing the counter, and
+  -- completes the cleanup transaction.
+  update content_factory.generation_storage_cleanup_queue
+  set status = 'pending',
+      lease_token = null,
+      processing_started_at = null,
+      next_attempt_at = now(),
+      last_error_code = 'cleanup_lease_expired'
+  where id = cleanup_id_value;
+  lease_token_value := extensions.gen_random_uuid();
+  update content_factory.generation_storage_cleanup_queue
+  set status = 'processing',
+      attempt_count = attempt_count,
+      lease_token = lease_token_value,
+      processing_started_at = now(),
+      last_error_code = null
+  where id = cleanup_id_value;
+  update content_factory.generation_storage_cleanup_queue
+  set status = 'completed',
+      lease_token = null,
+      processing_started_at = null,
+      completed_at = now(),
+      last_error_code = null
+  where id = cleanup_id_value;
+end;
+$$;
+
+select ok(
+  exists (
+    select 1
+    from content_factory.generation_storage_cleanup_queue cleanup
+    join content_factory.generation_storage_reservations reservation
+      on reservation.organization_id = cleanup.organization_id
+     and reservation.generation_job_id = cleanup.generation_job_id
+    where cleanup.generation_job_id = (
+      select (failure_response #>> '{job,id}')::uuid
+      from seedance_test_context
+    )
+      and cleanup.status = 'completed'
+      and reservation.status = 'released'
+      and reservation.reason_code = 'terminal_storage_cleaned'
+  ),
+  'lost completion is retried at the capped counter and releases capacity'
+);
+
+update seedance_test_context
+set nonrefund_response = public.creator_start_real_generation(jsonb_build_object(
+  'organization_id', '90000000-0000-4000-8000-000000000001',
+  'idempotency_key', 'seedance-nonrefund-0001',
+  'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
+  'count', 1, 'format', '9:16', 'brief', 'A moderated product video.',
+  'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
+  'platform', 'wildberries', 'destination_ref', 'seedance-test',
+  'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
+  'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
+  'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
+));
+
+do $$
+declare
+  job_id_value uuid := (
+    select (nonrefund_response #>> '{job,id}')::uuid
+    from seedance_test_context
+  );
+begin
+  perform public.system_update_real_generation(jsonb_build_object(
+    'job_id', job_id_value, 'status', 'starting'
+  ));
+  perform public.system_update_real_generation(jsonb_build_object(
+    'job_id', job_id_value, 'status', 'submitted',
+    'provider_task_id', 'seedance-task-safety-001'
+  ));
+  perform public.system_update_real_generation(jsonb_build_object(
+    'job_id', job_id_value, 'status', 'failed',
+    'provider_task_id', 'seedance-task-safety-001',
+    'failure_code', 'provider_task_failed',
+    'provider_failure_code', 'SAFETY.INPUT.TEXT',
+    'billing_outcome', 'non_refundable'
+  ));
+end;
+$$;
+
+select ok(
+  exists (
+    select 1
+    from content_factory.generation_jobs job
+    where job.id = (
+      select (nonrefund_response #>> '{job,id}')::uuid
+      from seedance_test_context
+    )
+      and job.status = 'failed'
+      and job.actual_cost_minor = 232
+      and job.output ->> 'provider_billing_outcome' = 'non_refundable'
+      and not exists (
+        select 1
+        from content_factory.generation_spend_ledger ledger
+        where ledger.generation_job_id = job.id
+          and ledger.event_type = 'refunded'
+      )
+  ),
+  'SAFETY.INPUT failure remains committed and never receives a refund entry'
 );
 
 select throws_ok(

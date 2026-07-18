@@ -490,6 +490,15 @@ textarea:focus {
   outline: 0;
 }
 
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: #315e91;
+  box-shadow: 0 0 0 4px rgba(49, 94, 145, 0.2);
+  outline: 3px solid #315e91;
+  outline-offset: 2px;
+}
+
 input[type="checkbox"],
 input[type="radio"] {
   width: 18px;
@@ -6100,12 +6109,21 @@ input[type="radio"] {
 @media (max-width: 820px) {
   body.mobile-nav-open { overflow: hidden; }
   .form-grid-2 { grid-template-columns: 1fr; }
-  .auth-layout { display: block; }
+  .auth-layout {
+    display: flex;
+    min-height: 100svh;
+    flex-direction: column;
+  }
+  .auth-panel {
+    min-height: 100svh;
+    padding: max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+    order: -1;
+  }
+  .auth-card { margin: auto; }
   .auth-story { min-height: auto; padding: 30px 24px 34px; }
   .auth-message { margin: 60px 0 10px; }
   .auth-message h1 { font-size: clamp(2.55rem, 12vw, 4.2rem); }
   .auth-steps { display: none; }
-  .auth-panel { min-height: auto; padding: 28px 18px 54px; }
   .auth-card { box-shadow: var(--shadow-sm); }
   .workspace-shell { display: block; }
   .sidebar { display: none; }

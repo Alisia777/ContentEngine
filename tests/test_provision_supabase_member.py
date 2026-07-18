@@ -9,6 +9,7 @@ import scripts.provision_supabase_member as provision_module
 from scripts.provision_supabase_member import (
     MEMBER_PROVISION_MARKER,
     PASSWORD_CHANGE_REQUIRED_MARKER,
+    PASSWORD_DISPATCH_ID_MARKER,
     MemberProvisionError,
     MemberProvisionPlan,
     MemberState,
@@ -23,6 +24,8 @@ OWNER_ID = "22222222-2222-4222-8222-222222222222"
 MEMBER_ID = "33333333-3333-4333-8333-333333333333"
 MEMBER_EMAIL = "guest@example.com"
 TEMP_PASSWORD = "StrongTemporary42Password"
+PASSWORD_DISPATCH_ID = "test-run:1:guest"
+ACCOUNT_SLOT = "guest"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -31,6 +34,7 @@ class FakeManagement:
         self.state = state
         self.server_key_calls = 0
         self.queries: list[dict[str, object]] = []
+        self.dispatch_status: str | None = None
 
     def execute(self, sql: str, *, read_only: bool = False):
         self.queries.append({"sql": sql, "read_only": read_only})
@@ -65,6 +69,27 @@ class FakeManagement:
                 membership_status="active",
             )
             return [{"result": {"ok": True, "role": role}}]
+        if "insert into content_factory.member_password_dispatches" in sql:
+            if self.dispatch_status not in {None, "reserved"}:
+                return []
+            self.dispatch_status = "reserved"
+            return [{"dispatch_record_id": "44444444-4444-4444-8444-444444444444"}]
+        if "update content_factory.member_password_dispatches" in sql:
+            if "set\n  status = 'completed'" in sql:
+                self.dispatch_status = "completed"
+            elif "set\n  status = 'identity_applied'" in sql:
+                self.dispatch_status = "identity_applied"
+            elif "set\n  status = 'failed'" in sql:
+                self.dispatch_status = "failed"
+            return [{"dispatch_record_id": "44444444-4444-4444-8444-444444444444"}]
+        if "from content_factory.member_password_dispatches" in sql:
+            if self.dispatch_status is None:
+                return []
+            return [{
+                "dispatch_id": PASSWORD_DISPATCH_ID,
+                "account_slot": ACCOUNT_SLOT,
+                "status": self.dispatch_status,
+            }]
         raise AssertionError("unexpected management query")
 
     def get_server_key(self) -> str:
@@ -280,6 +305,8 @@ def test_fresh_member_is_created_confirmed_with_exact_limited_role(role: str) ->
         email=MEMBER_EMAIL,
         display_name="Guest",
         temporary_password=TEMP_PASSWORD,
+        password_dispatch_id=PASSWORD_DISPATCH_ID,
+        account_slot=ACCOUNT_SLOT,
         role=role,
     )
 
@@ -295,10 +322,114 @@ def test_fresh_member_is_created_confirmed_with_exact_limited_role(role: str) ->
             "app_metadata": {
                 MEMBER_PROVISION_MARKER: True,
                 PASSWORD_CHANGE_REQUIRED_MARKER: True,
+                PASSWORD_DISPATCH_ID_MARKER: PASSWORD_DISPATCH_ID,
             },
         }
     ]
     assert management.state.membership_role == role
+    dispatch_sql = "\n".join(
+        str(query["sql"])
+        for query in management.queries
+        if "member_password_dispatches" in str(query["sql"])
+    )
+    assert "insert into content_factory.member_password_dispatches" in dispatch_sql
+    assert "status = 'identity_applied'" in dispatch_sql
+    assert "status = 'completed'" in dispatch_sql
+    assert TEMP_PASSWORD not in dispatch_sql
+    assert MEMBER_EMAIL not in dispatch_sql
+
+
+def test_password_dispatch_reservation_fails_before_auth_mutation() -> None:
+    class RejectDispatchManagement(FakeManagement):
+        def execute(self, sql: str, *, read_only: bool = False):
+            if "insert into content_factory.member_password_dispatches" in sql:
+                self.queries.append({"sql": sql, "read_only": read_only})
+                return []
+            return super().execute(sql, read_only=read_only)
+
+    management = RejectDispatchManagement(MemberState(user_id=None, app_metadata={}))
+    auth = FakeAuth(management)
+
+    with pytest.raises(MemberProvisionError, match="already used or does not match"):
+        provision_member(
+            management_client=management,
+            auth_client_factory=_factory(auth, []),
+            email=MEMBER_EMAIL,
+            display_name="Guest",
+            temporary_password=TEMP_PASSWORD,
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
+            role="viewer",
+        )
+
+    assert auth.calls == []
+
+
+@pytest.mark.parametrize(
+    "retry_password",
+    ["", "AnotherUnusedTemporary77Password"],
+)
+def test_membership_partial_failure_resumes_without_another_password(
+    retry_password: str,
+) -> None:
+    class FlakyMembershipManagement(FakeManagement):
+        def __init__(self) -> None:
+            super().__init__(MemberState(user_id=None, app_metadata={}))
+            self.membership_attempts = 0
+
+        def execute(self, sql: str, *, read_only: bool = False):
+            if "system_provision_limited_member" in sql:
+                self.membership_attempts += 1
+                if self.membership_attempts == 1:
+                    self.queries.append({"sql": sql, "read_only": read_only})
+                    raise RuntimeError("transient membership failure")
+            return super().execute(sql, read_only=read_only)
+
+    management = FlakyMembershipManagement()
+    first_auth = FakeAuth(management)
+
+    with pytest.raises(RuntimeError, match="membership failure"):
+        provision_member(
+            management_client=management,
+            auth_client_factory=_factory(first_auth, []),
+            email=MEMBER_EMAIL,
+            display_name="Guest",
+            temporary_password=TEMP_PASSWORD,
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
+            role="viewer",
+        )
+
+    assert len(first_auth.calls) == 1
+    assert management.dispatch_status == "identity_applied"
+    assert management.state.membership_count == 0
+    key_calls_after_identity = management.server_key_calls
+    insert_count_after_identity = sum(
+        "insert into content_factory.member_password_dispatches" in str(query["sql"])
+        for query in management.queries
+    )
+
+    retry_auth = FakeAuth(management)
+    result = provision_member(
+        management_client=management,
+        auth_client_factory=_factory(retry_auth, []),
+        email=MEMBER_EMAIL,
+        display_name="Guest",
+        temporary_password=retry_password,
+        password_dispatch_id="test-run:2:guest",
+        account_slot=ACCOUNT_SLOT,
+        role="viewer",
+    )
+
+    assert result.identity_status == "existing"
+    assert result.membership_status == "created"
+    assert retry_auth.calls == []
+    assert management.server_key_calls == key_calls_after_identity
+    assert management.dispatch_status == "completed"
+    assert sum(
+        "insert into content_factory.member_password_dispatches" in str(query["sql"])
+        for query in management.queries
+    ) == insert_count_after_identity
 
 
 def test_completed_member_replay_never_resets_password_or_reveals_key() -> None:
@@ -320,6 +451,8 @@ def test_completed_member_replay_never_resets_password_or_reveals_key() -> None:
         email=MEMBER_EMAIL,
         display_name="Guest",
         temporary_password=TEMP_PASSWORD,
+        password_dispatch_id=PASSWORD_DISPATCH_ID,
+        account_slot=ACCOUNT_SLOT,
         role="viewer",
     )
 
@@ -345,6 +478,8 @@ def test_marked_identity_can_resume_after_membership_failure() -> None:
         email=MEMBER_EMAIL,
         display_name="Guest",
         temporary_password=TEMP_PASSWORD,
+        password_dispatch_id=PASSWORD_DISPATCH_ID,
+        account_slot=ACCOUNT_SLOT,
         role="viewer",
     )
 
@@ -371,6 +506,8 @@ def test_explicit_claim_recovers_unsigned_in_membership_free_identity() -> None:
         email=MEMBER_EMAIL,
         display_name="Guest",
         temporary_password=TEMP_PASSWORD,
+        password_dispatch_id=PASSWORD_DISPATCH_ID,
+        account_slot=ACCOUNT_SLOT,
         role="viewer",
         claim_existing=True,
     )
@@ -386,6 +523,7 @@ def test_explicit_claim_recovers_unsigned_in_membership_free_identity() -> None:
             "providers": ["email"],
             MEMBER_PROVISION_MARKER: True,
             PASSWORD_CHANGE_REQUIRED_MARKER: True,
+            PASSWORD_DISPATCH_ID_MARKER: PASSWORD_DISPATCH_ID,
         },
     }]
 
@@ -407,6 +545,8 @@ def test_explicit_reset_recovers_signed_in_membership_free_identity() -> None:
         email=MEMBER_EMAIL,
         display_name="Guest",
         temporary_password=TEMP_PASSWORD,
+        password_dispatch_id=PASSWORD_DISPATCH_ID,
+        account_slot=ACCOUNT_SLOT,
         role="viewer",
         claim_existing=True,
         reset_signed_in=True,
@@ -464,6 +604,8 @@ def test_explicit_claim_still_fails_closed_for_used_identity(
             email=MEMBER_EMAIL,
             display_name="Guest",
             temporary_password=TEMP_PASSWORD,
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
             role="viewer",
             claim_existing=True,
         )
@@ -535,6 +677,8 @@ def test_preexisting_identity_conflicts_fail_closed(
             email=MEMBER_EMAIL,
             display_name="Guest",
             temporary_password=TEMP_PASSWORD,
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
             role="viewer",
         )
 
@@ -547,7 +691,7 @@ def test_preexisting_identity_conflicts_fail_closed(
 
 @pytest.mark.parametrize(
     "password",
-    ["", "shortA1", "alllowercase123456", "ALLUPPERCASE123456", "NoDigitsHereLong"],
+    ["shortA1", "alllowercase123456", "ALLUPPERCASE123456", "NoDigitsHereLong"],
 )
 def test_temporary_password_is_rejected_before_remote_calls(password: str) -> None:
     management = FakeManagement(MemberState(user_id=None, app_metadata={}))
@@ -559,10 +703,32 @@ def test_temporary_password_is_rejected_before_remote_calls(password: str) -> No
             email=MEMBER_EMAIL,
             display_name="Guest",
             temporary_password=password,
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
             role="viewer",
         )
 
     assert management.queries == []
+
+
+def test_empty_password_checks_for_a_resumable_saga_before_failing() -> None:
+    management = FakeManagement(MemberState(user_id=None, app_metadata={}))
+
+    with pytest.raises(MemberProvisionError, match="PASSWORD"):
+        provision_member(
+            management_client=management,
+            auth_client_factory=lambda _key: pytest.fail("must not build auth client"),
+            email=MEMBER_EMAIL,
+            display_name="Guest",
+            temporary_password="",
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
+            role="viewer",
+        )
+
+    assert management.server_key_calls == 0
+    assert len(management.queries) == 2
+    assert all(query["read_only"] is True for query in management.queries)
 
 
 def test_privileged_or_unknown_roles_are_rejected_before_remote_calls() -> None:
@@ -575,6 +741,8 @@ def test_privileged_or_unknown_roles_are_rejected_before_remote_calls() -> None:
             email=MEMBER_EMAIL,
             display_name="Guest",
             temporary_password=TEMP_PASSWORD,
+            password_dispatch_id=PASSWORD_DISPATCH_ID,
+            account_slot=ACCOUNT_SLOT,
             role="owner",
         )
 

@@ -2,15 +2,18 @@
 """Provision one limited Supabase member without exposing a temporary password.
 
 The protected GitHub production environment supplies the Management API token
-and a short-lived temporary password secret. The script creates only a
-confirmed, explicitly limited identity and attaches it to the reviewed
-ContentEngine organization through a dedicated service-role-only RPC.
+and a per-account, single-dispatch temporary password secret. A server-only
+fingerprint journal rejects credential reuse across dispatches. The script
+creates only a confirmed, explicitly limited identity and attaches it to the
+reviewed ContentEngine organization through a dedicated service-role-only RPC.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
+import hmac
 import os
 import re
 from typing import Any, Callable, Protocol
@@ -30,7 +33,9 @@ from scripts.bootstrap_supabase_owner import (
 MEMBER_PROVISION_MARKER = "contentengine_github_member_provisioned"
 PASSWORD_CHANGE_REQUIRED_MARKER = "contentengine_password_change_required"
 PASSWORD_CHANGE_COMPLETED_MARKER = "contentengine_password_change_completed"
+PASSWORD_DISPATCH_ID_MARKER = "contentengine_password_dispatch_id"
 ALLOWED_MEMBER_ROLES = frozenset({"trainee", "viewer"})
+ALLOWED_ACCOUNT_SLOTS = frozenset({"guest", "klimov", "pavlenko"})
 
 
 class MemberProvisionError(RuntimeError):
@@ -71,6 +76,12 @@ class MemberProvisionPlan:
     @property
     def apply_required(self) -> bool:
         return self.identity_action != "keep" or self.membership_action != "keep"
+
+
+@dataclass(frozen=True)
+class PasswordDispatch:
+    dispatch_id: str
+    account_slot: str
 
 
 class ManagementClient(Protocol):
@@ -119,9 +130,161 @@ def _validated_temp_password(value: str) -> str:
         or any(character in password for character in ("\r", "\n", "\x00"))
     ):
         raise MemberProvisionError(
-            "SUPABASE_MEMBER_TEMP_PASSWORD does not meet the required policy"
+            "CONTENTENGINE_MEMBER_DISPATCH_PASSWORD does not meet the required policy"
         )
     return password
+
+
+def _validated_password_dispatch(
+    dispatch_id: str,
+    account_slot: str,
+) -> PasswordDispatch:
+    normalized_dispatch_id = str(dispatch_id or "").strip()
+    normalized_slot = str(account_slot or "").strip().casefold()
+    if (
+        not 8 <= len(normalized_dispatch_id) <= 200
+        or re.fullmatch(r"[A-Za-z0-9._:-]+", normalized_dispatch_id) is None
+    ):
+        raise MemberProvisionError("Member password dispatch id is invalid")
+    if normalized_slot not in ALLOWED_ACCOUNT_SLOTS:
+        raise MemberProvisionError("Member account slot is invalid")
+    return PasswordDispatch(normalized_dispatch_id, normalized_slot)
+
+
+def _keyed_fingerprint(server_key: str, purpose: str, value: str) -> str:
+    return hmac.new(
+        server_key.encode("utf-8"),
+        f"contentengine-{purpose}:v1:{value}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _reserve_password_dispatch(
+    client: ManagementClient,
+    *,
+    dispatch: PasswordDispatch,
+    email: str,
+    password: str,
+    server_key: str,
+) -> None:
+    dispatch_id = _sql_literal(dispatch.dispatch_id)
+    account_slot = _sql_literal(dispatch.account_slot)
+    email_fingerprint = _sql_literal(
+        _keyed_fingerprint(server_key, "member-email", email)
+    )
+    password_fingerprint = _sql_literal(
+        _keyed_fingerprint(server_key, "member-temp-password", password)
+    )
+    payload = client.execute(
+        f"""
+with reserved as (
+  insert into content_factory.member_password_dispatches (
+    dispatch_id,
+    account_slot,
+    email_fingerprint,
+    password_fingerprint,
+    status
+  ) values (
+    {dispatch_id},
+    {account_slot},
+    {email_fingerprint},
+    {password_fingerprint},
+    'reserved'
+  )
+  on conflict (dispatch_id) do update set
+    dispatch_id = excluded.dispatch_id
+  where member_password_dispatches.account_slot = excluded.account_slot
+    and member_password_dispatches.email_fingerprint = excluded.email_fingerprint
+    and member_password_dispatches.password_fingerprint = excluded.password_fingerprint
+    and member_password_dispatches.status = 'reserved'
+  returning id::text as dispatch_record_id
+)
+select dispatch_record_id from reserved
+""".strip()
+    )
+    if len(_rows_from_response(payload)) != 1:
+        raise MemberProvisionError(
+            "Member password dispatch was already used or does not match"
+        )
+
+
+def _transition_password_dispatch(
+    client: ManagementClient,
+    *,
+    dispatch: PasswordDispatch,
+    from_status: str,
+    to_status: str,
+) -> None:
+    allowed = {
+        ("reserved", "identity_applied"),
+        ("reserved", "failed"),
+        ("identity_applied", "completed"),
+    }
+    if (from_status, to_status) not in allowed:
+        raise MemberProvisionError("Member password dispatch status is invalid")
+    identity_applied_at = (
+        "coalesce(identity_applied_at, now())"
+        if to_status in {"identity_applied", "completed"}
+        else "identity_applied_at"
+    )
+    finished_at = "now()" if to_status in {"completed", "failed"} else "null"
+    payload = client.execute(
+        f"""
+update content_factory.member_password_dispatches
+set
+  status = {_sql_literal(to_status)},
+  identity_applied_at = {identity_applied_at},
+  finished_at = {finished_at}
+where dispatch_id = {_sql_literal(dispatch.dispatch_id)}
+  and account_slot = {_sql_literal(dispatch.account_slot)}
+  and status = {_sql_literal(from_status)}
+returning id::text as dispatch_record_id
+""".strip()
+    )
+    if len(_rows_from_response(payload)) != 1:
+        raise MemberProvisionError("Member password dispatch could not transition")
+
+
+def _resume_password_dispatch(
+    client: ManagementClient,
+    *,
+    dispatch: PasswordDispatch,
+) -> PasswordDispatch | None:
+    payload = client.execute(
+        f"""
+select
+  dispatch_id,
+  account_slot,
+  status
+from content_factory.member_password_dispatches
+where dispatch_id = {_sql_literal(dispatch.dispatch_id)}
+  and account_slot = {_sql_literal(dispatch.account_slot)}
+limit 1
+""".strip(),
+        read_only=True,
+    )
+    rows = _rows_from_response(payload)
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise MemberProvisionError("Member password dispatch state is ambiguous")
+    status = str(rows[0].get("status") or "")
+    if status == "reserved":
+        # Auth metadata can contain this dispatch id only after the identity
+        # mutation succeeded.  A reserved row is therefore safe to adopt after
+        # a transient journal-finalization failure.
+        _transition_password_dispatch(
+            client,
+            dispatch=dispatch,
+            from_status="reserved",
+            to_status="identity_applied",
+        )
+        return dispatch
+    if status == "identity_applied":
+        return dispatch
+    if status in {"completed", "failed"}:
+        return None
+    raise MemberProvisionError("Member password dispatch state is invalid")
 
 
 def _validated_member_role(value: str) -> str:
@@ -361,6 +524,8 @@ def provision_member(
     email: str,
     display_name: str,
     temporary_password: str,
+    password_dispatch_id: str,
+    account_slot: str,
     role: str,
     claim_existing: bool = False,
     reset_signed_in: bool = False,
@@ -368,7 +533,12 @@ def provision_member(
 ) -> MemberProvisionResult:
     normalized_email = _validated_email(email)
     validated_display_name = _validated_display_name(display_name)
-    validated_password = _validated_temp_password(temporary_password)
+    if temporary_password:
+        _validated_temp_password(temporary_password)
+    password_dispatch = _validated_password_dispatch(
+        password_dispatch_id,
+        account_slot,
+    )
     normalized_role = _validated_member_role(role)
     _require_distinct_account_email(normalized_email, distinct_from or [])
     authority = read_provisioning_authority(management_client)
@@ -378,24 +548,66 @@ def provision_member(
         organization_id=authority.organization_id,
     )
     identity_status = "existing"
+    saga_dispatch: PasswordDispatch | None = None
 
     auth_client: MemberAuthClient | None = None
+    server_key: str | None = None
+
+    def require_server_key() -> str:
+        nonlocal server_key
+        if server_key is None:
+            server_key = management_client.get_server_key()
+        return server_key
 
     def require_auth_client() -> MemberAuthClient:
         nonlocal auth_client
         if auth_client is None:
-            auth_client = auth_client_factory(management_client.get_server_key())
+            auth_client = auth_client_factory(require_server_key())
         return auth_client
 
-    if state.user_id is None:
-        require_auth_client().create_confirmed_user_with_password(
+    def apply_password_mutation(operation: Callable[[str], None]) -> None:
+        nonlocal saga_dispatch
+        validated_password = _validated_temp_password(temporary_password)
+        _reserve_password_dispatch(
+            management_client,
+            dispatch=password_dispatch,
             email=normalized_email,
-            display_name=validated_display_name,
             password=validated_password,
-            app_metadata={
-                MEMBER_PROVISION_MARKER: True,
-                PASSWORD_CHANGE_REQUIRED_MARKER: True,
-            },
+            server_key=require_server_key(),
+        )
+        try:
+            operation(validated_password)
+        except Exception:
+            try:
+                _transition_password_dispatch(
+                    management_client,
+                    dispatch=password_dispatch,
+                    from_status="reserved",
+                    to_status="failed",
+                )
+            except Exception:
+                pass
+            raise
+        _transition_password_dispatch(
+            management_client,
+            dispatch=password_dispatch,
+            from_status="reserved",
+            to_status="identity_applied",
+        )
+        saga_dispatch = password_dispatch
+
+    if state.user_id is None:
+        apply_password_mutation(
+            lambda password: require_auth_client().create_confirmed_user_with_password(
+                email=normalized_email,
+                display_name=validated_display_name,
+                password=password,
+                app_metadata={
+                    MEMBER_PROVISION_MARKER: True,
+                    PASSWORD_CHANGE_REQUIRED_MARKER: True,
+                    PASSWORD_DISPATCH_ID_MARKER: password_dispatch.dispatch_id,
+                },
+            )
         )
         identity_status = "created"
         state = read_member_state(
@@ -438,13 +650,16 @@ def provision_member(
             )
         metadata[MEMBER_PROVISION_MARKER] = True
         metadata[PASSWORD_CHANGE_REQUIRED_MARKER] = True
+        metadata[PASSWORD_DISPATCH_ID_MARKER] = password_dispatch.dispatch_id
         metadata.pop(PASSWORD_CHANGE_COMPLETED_MARKER, None)
         original_user_id = state.user_id
-        require_auth_client().claim_confirmed_user_with_password(
-            user_id=original_user_id,
-            display_name=validated_display_name,
-            password=validated_password,
-            app_metadata=metadata,
+        apply_password_mutation(
+            lambda password: require_auth_client().claim_confirmed_user_with_password(
+                user_id=original_user_id,
+                display_name=validated_display_name,
+                password=password,
+                app_metadata=metadata,
+            )
         )
         identity_status = "reset" if state.signed_in else "claimed"
         state = read_member_state(
@@ -460,6 +675,32 @@ def provision_member(
         ):
             raise MemberProvisionError("Supabase member identity claim was not verified")
 
+    if saga_dispatch is None:
+        recorded_dispatch_id = str(
+            (state.app_metadata or {}).get(PASSWORD_DISPATCH_ID_MARKER) or ""
+        ).strip()
+        if recorded_dispatch_id:
+            recorded_dispatch = _validated_password_dispatch(
+                recorded_dispatch_id,
+                account_slot,
+            )
+            saga_dispatch = _resume_password_dispatch(
+                management_client,
+                dispatch=recorded_dispatch,
+            )
+
+    def complete_password_saga() -> None:
+        nonlocal saga_dispatch
+        if saga_dispatch is None:
+            return
+        _transition_password_dispatch(
+            management_client,
+            dispatch=saga_dispatch,
+            from_status="identity_applied",
+            to_status="completed",
+        )
+        saga_dispatch = None
+
     if state.membership_role is not None:
         if state.membership_status != "active":
             raise MemberProvisionError(
@@ -469,6 +710,7 @@ def provision_member(
             raise MemberProvisionError(
                 "Pre-existing Supabase member has an unexpected role"
             )
+        complete_password_saga()
         return MemberProvisionResult(
             identity_status=identity_status,
             membership_status="existing",
@@ -495,6 +737,7 @@ def provision_member(
         or state.membership_role != normalized_role
     ):
         raise MemberProvisionError("Supabase member membership was not initialized")
+    complete_password_saga()
     return MemberProvisionResult(
         identity_status=identity_status,
         membership_status="created",
@@ -508,6 +751,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--email", required=True)
     parser.add_argument("--display-name", required=True)
+    parser.add_argument(
+        "--account-slot",
+        choices=sorted(ALLOWED_ACCOUNT_SLOTS),
+        help="Protected account slot for the one-time password journal",
+    )
+    parser.add_argument(
+        "--password-dispatch-id",
+        help="Non-secret unique identifier for this protected apply dispatch",
+    )
     parser.add_argument("--role", choices=sorted(ALLOWED_MEMBER_ROLES), required=True)
     parser.add_argument(
         "--claim-existing",
@@ -538,7 +790,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     temporary_password = ""
     if not args.dry_run:
-        temporary_password = os.environ.get("SUPABASE_MEMBER_TEMP_PASSWORD", "")
+        temporary_password = os.environ.get(
+            "CONTENTENGINE_MEMBER_DISPATCH_PASSWORD",
+            "",
+        )
         if os.environ.get("GITHUB_ACTIONS") == "true" and temporary_password:
             print(f"::add-mask::{temporary_password}", flush=True)
     try:
@@ -560,6 +815,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             result = None
         else:
+            if not args.account_slot or not args.password_dispatch_id:
+                raise MemberProvisionError(
+                    "Apply requires an account slot and password dispatch id"
+                )
             plan = None
             result = provision_member(
                 management_client=management_client,
@@ -571,6 +830,8 @@ def main(argv: list[str] | None = None) -> int:
                 email=args.email,
                 display_name=args.display_name,
                 temporary_password=temporary_password,
+                password_dispatch_id=args.password_dispatch_id,
+                account_slot=args.account_slot,
                 role=args.role,
                 claim_existing=args.claim_existing or args.reset_signed_in,
                 reset_signed_in=args.reset_signed_in,

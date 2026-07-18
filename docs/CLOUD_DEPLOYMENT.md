@@ -280,12 +280,29 @@ organization access through the application contract.
 
 When custom SMTP is not yet available and an explicitly authorized external
 member must be created, use the manual **Provision limited Supabase member**
-workflow. Put a strong one-time value in the production environment secret
-`SUPABASE_MEMBER_TEMP_PASSWORD`, dispatch the workflow from `main` with the
-exact email, display name, and either `viewer` or `trainee`, then delete the
-secret immediately after a successful run. The password is never accepted as
-a workflow input, committed, uploaded as an artifact, or printed to Actions
-logs.
+workflow. Each protected account has a separate production environment secret:
+`SUPABASE_MEMBER_GUEST_TEMP_PASSWORD`,
+`SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD`, or
+`SUPABASE_MEMBER_PAVLENKO_TEMP_PASSWORD`. Before every apply dispatch, replace
+the selected account's value with a new high-entropy one-time password. Never
+copy a value between account slots. After a successful run, deliver it through
+a separate trusted channel and delete that slot's secret. The password is never
+accepted as a workflow input, committed, uploaded as an artifact, or printed to
+Actions logs.
+
+Every apply receives a non-secret dispatch id derived from the GitHub run and
+account slot. Before Auth is changed, the provisioning script reserves keyed
+email/password fingerprints in the force-RLS
+`content_factory.member_password_dispatches` journal. Reusing a credential in
+another dispatch or changing the account attached to a dispatch fails closed;
+the journal contains neither the email nor the password. A failed apply still
+consumes that credential: rotate the selected slot secret before retrying.
+If Auth succeeded but membership provisioning failed, the journal remains in
+`identity_applied`. Re-run the failed job for the same account without creating
+or applying another password; the script adopts the dispatch id from protected
+Auth metadata, completes only the missing membership step, and then marks the
+saga `completed`. The selected password secret may be empty for this recovery
+run, but it is mandatory whenever Auth must create, claim, or reset an identity.
 
 Use `viewer` for a stable guest account and `trainee` for a participant who is
 expected to complete training and become an operator. The workflow calls the

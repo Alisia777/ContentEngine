@@ -969,16 +969,40 @@ function providerFailureForHttp(status: number): string {
   return "provider_request_failed";
 }
 
-function providerTaskFailure(value: unknown): string {
-  if (!isRecord(value) || typeof value.failureCode !== "string") {
-    return "provider_task_failed";
+type ProviderTaskFailure = {
+  failureCode: string;
+  providerFailureCode: string | null;
+  billingOutcome: "refundable" | "non_refundable" | "unknown";
+};
+
+function providerTaskFailure(value: unknown): ProviderTaskFailure {
+  const rawCode = isRecord(value) && typeof value.failureCode === "string"
+    ? value.failureCode.trim().toLocaleUpperCase("en-US")
+    : "";
+  const providerFailureCode = /^[A-Z0-9][A-Z0-9._-]{0,159}$/u.test(rawCode)
+    ? rawCode
+    : null;
+  let failureCode = "provider_task_failed";
+  if (
+    providerFailureCode?.includes("CREDITS") ||
+    providerFailureCode?.includes("PAYMENT")
+  ) {
+    failureCode = "provider_credits_unavailable";
+  } else if (providerFailureCode?.includes("RATE_LIMIT")) {
+    failureCode = "provider_rate_limited";
   }
-  const code = value.failureCode.toLocaleUpperCase("en-US");
-  if (code.includes("CREDITS") || code.includes("PAYMENT")) {
-    return "provider_credits_unavailable";
-  }
-  if (code.includes("RATE_LIMIT")) return "provider_rate_limited";
-  return "provider_task_failed";
+
+  // Runway documents SAFETY.INPUT.* and input-preprocessing safety failures
+  // as non-refundable. Other task failures are refunded; an absent or
+  // malformed provider code remains unknown and is never optimistically
+  // refunded by our ledger.
+  const billingOutcome = providerFailureCode === null
+    ? "unknown"
+    : providerFailureCode.startsWith("SAFETY.INPUT.") ||
+        providerFailureCode === "INPUT_PREPROCESSING.SAFETY.TEXT"
+    ? "non_refundable"
+    : "refundable";
+  return { failureCode, providerFailureCode, billingOutcome };
 }
 
 function isMp4(bytes: Uint8Array): boolean {
@@ -1279,6 +1303,8 @@ async function handleCreatorGenerate(
     jobId: string,
     failureCode: string,
     providerTaskId?: string,
+    providerFailureCode?: string | null,
+    billingOutcome?: "refundable" | "non_refundable" | "unknown",
   ) => {
     const safeCode = FAILURE_CODES.has(failureCode)
       ? failureCode
@@ -1290,6 +1316,10 @@ async function handleCreatorGenerate(
     };
     if (isValidTaskId(providerTaskId)) {
       failurePayload.provider_task_id = providerTaskId;
+      failurePayload.billing_outcome = billingOutcome ?? "unknown";
+      if (providerFailureCode !== null && providerFailureCode !== undefined) {
+        failurePayload.provider_failure_code = providerFailureCode;
+      }
     }
     await updateSystemJob(failurePayload);
   };
@@ -1508,10 +1538,13 @@ async function handleCreatorGenerate(
       providerTask.status === "CANCELED" ||
       providerTask.status === "CANCELLED"
     ) {
+      const failure = providerTaskFailure(providerValue);
       await markFailed(
         current.id,
-        providerTaskFailure(providerValue),
+        failure.failureCode,
         current.providerTaskId,
+        failure.providerFailureCode,
+        failure.billingOutcome,
       );
       return await respondWithCurrent(
         payload.organization_id,

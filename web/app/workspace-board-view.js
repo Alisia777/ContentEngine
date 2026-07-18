@@ -711,6 +711,7 @@ export function workspaceBoardMarkup(board, options = {}) {
     busy: options.busy === true,
     notice: safeText(options.notice, 1_000),
     error: safeText(options.error, 1_000),
+    visibleItemLimit: Math.min(300, Math.max(1, Number(options.visibleItemLimit) || 80)),
   };
   if (options.entityType === "all" || !options.entityType) normalizedOptions.entityType = "all";
   if (
@@ -723,6 +724,7 @@ export function workspaceBoardMarkup(board, options = {}) {
     normalizedOptions.query,
     normalizedOptions.entityType,
   );
+  const visibleItems = items.slice(0, normalizedOptions.visibleItemLimit);
   const selectedItem = workspaceBoardItemByKey(normalizedBoard, normalizedOptions.selectedItemKey);
   const selectedFolderName = normalizedOptions.selectedFolderId === "all"
     ? "Все объекты"
@@ -772,16 +774,23 @@ export function workspaceBoardMarkup(board, options = {}) {
               <p>Открытая папка</p>
               <h2 id="workspace-board-collection-title">${escapeHtml(selectedFolderName)}</h2>
             </div>
-            <small>${items.length} на экране</small>
+            <small>${visibleItems.length}${visibleItems.length < items.length ? ` из ${items.length}` : ""} на экране</small>
           </div>
           ${items.length ? `
             <div class="workspace-board__grid" aria-label="Объекты папки">
-              ${items.map((item) => itemCardMarkup(
+              ${visibleItems.map((item) => itemCardMarkup(
                 item,
                 normalizedOptions.selectedItemKey,
                 normalizedOptions.busy,
               )).join("")}
-            </div>` : `
+            </div>
+            ${visibleItems.length < items.length ? `
+              <div class="workspace-board-pagination">
+                <button class="btn btn-secondary" type="button" data-action="show-more-workspace-items">
+                  Показать следующие ${Math.min(80, items.length - visibleItems.length)}
+                </button>
+                <span class="muted tiny">Число карточек на экране ограничено, чтобы браузер не зависал.</span>
+              </div>` : ""}` : `
             <div class="workspace-board__empty">
               <span aria-hidden="true">◇</span>
               <h3>Здесь пока пусто</h3>

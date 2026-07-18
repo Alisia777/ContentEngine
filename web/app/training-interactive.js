@@ -97,6 +97,7 @@ function normalizeWalkthrough(item, index) {
     reviewedAt: cleanText(item.reviewed_at ?? item.reviewedAt, "", 40),
     videoUrl: safeMediaUrl(item.video_url ?? item.videoUrl),
     posterUrl: safeMediaUrl(item.poster_url ?? item.posterUrl),
+    captionsUrl: safeMediaUrl(item.captions_url ?? item.captionsUrl),
     frames,
     transcript: transcript.length ? transcript : fallbackTranscript,
     checklist,
@@ -151,8 +152,9 @@ function walkthroughMarkup(courseCode, walkthrough, index) {
   const initialPercent = Math.round(100 / walkthrough.frames.length);
   const video = walkthrough.videoUrl
     ? `
-      <video id="${escapeHtml(videoId)}" class="training-walkthrough__video" controls preload="none" playsinline${walkthrough.posterUrl ? ` poster="${escapeHtml(walkthrough.posterUrl)}"` : ""} data-training-video>
+      <video id="${escapeHtml(videoId)}" class="training-walkthrough__video" controls preload="none" playsinline aria-label="Учебное видео: ${escapeHtml(walkthrough.title)}"${walkthrough.posterUrl ? ` poster="${escapeHtml(walkthrough.posterUrl)}"` : ""} data-training-video>
         <source src="${escapeHtml(walkthrough.videoUrl)}" />
+        ${walkthrough.captionsUrl ? `<track kind="captions" src="${escapeHtml(walkthrough.captionsUrl)}" srclang="ru" label="Русские субтитры" default />` : ""}
         Ваш браузер не может воспроизвести учебное видео. Используйте текстовый разбор ниже.
       </video>
     `

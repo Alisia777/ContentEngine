@@ -31,6 +31,149 @@ def test_invalid_auth_link_is_sanitized_only_after_a_definitive_result() -> None
     assert "не удаляли одноразовый токен" in app
 
 
+def test_auth_link_timeout_settles_the_awaited_promise() -> None:
+    function = _app_function_block(
+        "function waitForAuthLinkResult",
+        "async function initialize",
+    )
+    result = _run_node(
+        function
+        + r'''
+globalThis.AUTH_LINK_TIMEOUT_MESSAGE = "deadline";
+globalThis.AUTH_REQUEST_TIMEOUT_MS = 5;
+globalThis.state = { authLinkError: null };
+globalThis.window = { setTimeout, clearTimeout };
+const never = new Promise(() => {});
+const started = Date.now();
+let outcome;
+try {
+  await waitForAuthLinkResult(never);
+  outcome = { resolved: true };
+} catch (error) {
+  outcome = {
+    resolved: false,
+    code: error.code,
+    transient: error.authLinkTransient,
+    elapsed: Date.now() - started,
+  };
+}
+process.stdout.write(JSON.stringify(outcome));
+'''
+    )
+
+    assert result["resolved"] is False
+    assert result["code"] == "auth_link_timeout"
+    assert result["transient"] is True
+    assert result["elapsed"] < 500
+
+
+def test_slow_auth_link_success_is_adopted_after_the_ui_deadline() -> None:
+    functions = _app_function_block(
+        "function waitForAuthLinkResult",
+        "async function initialize",
+    )
+    result = _run_node(
+        functions
+        + r'''
+globalThis.AUTH_LINK_TIMEOUT_MESSAGE = "deadline";
+globalThis.AUTH_REQUEST_TIMEOUT_MS = 5;
+globalThis.state = { authLinkError: null, authLinkContinuationPending: true };
+globalThis.window = { setTimeout, clearTimeout };
+const slowAcceptedLink = new Promise((resolve) => setTimeout(() => resolve({
+  accepted: true,
+  purpose: "recovery",
+  session: { marker: "late-session" },
+}), 25));
+let timeout;
+try {
+  await waitForAuthLinkResult(slowAcceptedLink);
+} catch (error) {
+  timeout = error;
+  state.authLinkError = { code: error.code };
+}
+let continued = null;
+let failed = null;
+await resumeAuthLinkAfterTimeout(
+  timeout,
+  async (authLink) => { continued = authLink; },
+  async (error) => { failed = error?.code || "failed"; },
+);
+process.stdout.write(JSON.stringify({
+  timeoutCode: timeout?.code,
+  continuationAttached: Boolean(timeout?.authLinkContinuation),
+  continued,
+  failed,
+  errorCleared: state.authLinkError === null,
+  continuationPending: state.authLinkContinuationPending,
+}));
+'''
+    )
+
+    assert result["timeoutCode"] == "auth_link_timeout"
+    assert result["continuationAttached"] is True
+    assert result["continued"]["accepted"] is True
+    assert result["continued"]["session"]["marker"] == "late-session"
+    assert result["failed"] is None
+    assert result["errorCleared"] is True
+    assert result["continuationPending"] is False
+
+
+def test_pending_auth_link_continuation_hides_retry_and_blocks_reload() -> None:
+    render_function = _app_function_block(
+        "function renderAuthLinkError",
+        "function renderSetPassword",
+    )
+    retry_function = _app_function_block(
+        "function retryAuthLinkIfIdle",
+        "async function initialize",
+    )
+    result = _run_node(
+        render_function
+        + retry_function
+        + r'''
+let state = {
+  authLinkError: {
+    code: "auth_link_timeout",
+    purpose: "recovery",
+    definitive: false,
+  },
+  authLinkContinuationPending: true,
+};
+const app = { innerHTML: "" };
+let reloadCalls = 0;
+const notices = [];
+const window = { location: { reload: () => { reloadCalls += 1; } } };
+function authLayout(panel) { return panel; }
+function alertMarkup(message, type) { return `<aside data-type="${type}">${message}</aside>`; }
+function focusFirst() {}
+function toast(message, type) { notices.push({ message, type }); }
+
+renderAuthLinkError();
+const pendingMarkup = app.innerHTML;
+const pendingRetryResult = retryAuthLinkIfIdle();
+
+state.authLinkContinuationPending = false;
+const idleRetryResult = retryAuthLinkIfIdle();
+
+process.stdout.write(JSON.stringify({
+  pendingMessageVisible: pendingMarkup.includes("Проверка продолжается"),
+  retryActionVisible: pendingMarkup.includes('data-action="retry-auth-link"'),
+  pendingRetryResult,
+  idleRetryResult,
+  reloadCalls,
+  noticeCount: notices.length,
+}));
+'''
+    )
+
+    assert result["pendingMessageVisible"] is True
+    assert result["retryActionVisible"] is False
+    assert result["pendingRetryResult"] is False
+    assert result["idleRetryResult"] is True
+    assert result["reloadCalls"] == 1
+    assert result["noticeCount"] == 1
+
+
 def _run_node(source: str) -> dict:
     node = shutil.which("node")
     assert node is not None, "Node.js is required for executable Auth-link contracts"

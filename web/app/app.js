@@ -1,4 +1,3 @@
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
 import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260718.1";
 import {
   FINAL_EXAM_CODE,
@@ -99,6 +98,7 @@ import {
 } from "./my-work-view.js?v=20260716.4";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
+const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -109,6 +109,8 @@ const AUTH_REQUEST_TIMEOUT_MS = 15_000;
 const AUTH_LINK_TIMEOUT_MESSAGE = "The auth service timed out. Retry this same link.";
 const HOME_SECTION_TIMEOUT_MS = 8_000;
 const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
+const WORKSPACE_BOARD_VISIBLE_STEP = 80;
+const WORKSPACE_BOARD_MEMORY_CAP = 300;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
 const PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY = "contentengine.public-recovery-receipt.v1";
 const PUBLIC_RECOVERY_PENDING_STATUSES = new Set(["requesting", "outcome_unknown", "provider_outcome_unknown"]);
@@ -621,6 +623,7 @@ const state = {
   authPurpose: null,
   forcePassword: false,
   authLinkError: null,
+  authLinkContinuationPending: false,
   resetReceipt: readStoredPublicRecoveryReceipt(),
   resetCountdownTimer: null,
   route: parseRoute(),
@@ -699,6 +702,7 @@ const state = {
     loadingMore: false,
     hasMore: false,
     nextCursor: null,
+    visibleItemLimit: WORKSPACE_BOARD_VISIBLE_STEP,
   },
   myWork: {
     filters: normalizeMyWorkFilters(),
@@ -743,10 +747,34 @@ const state = {
 applyPortalTheme(state.portalTheme, { persist: false });
 applyNavigationMode(state.navigationMode, { persist: false, rerender: false });
 
-initialize().catch((error) => {
-  console.error(error);
-  renderFatal(error);
-});
+let supabaseSdkPromise = null;
+
+window.CONTENTENGINE_BOOT_WATCHDOG?.moduleLoaded();
+initialize()
+  .then(() => window.CONTENTENGINE_BOOT_WATCHDOG?.ready())
+  .catch((error) => {
+    console.error(error);
+    renderFatal(error);
+    window.CONTENTENGINE_BOOT_WATCHDOG?.failed("startup");
+  });
+
+async function loadSupabaseCreateClient() {
+  if (!supabaseSdkPromise) {
+    supabaseSdkPromise = withUiTimeout(
+      import(SUPABASE_SDK_URL),
+      AUTH_REQUEST_TIMEOUT_MS,
+      "Не удалось загрузить защищённый клиент входа. Проверьте соединение и обновите страницу.",
+    ).catch((error) => {
+      supabaseSdkPromise = null;
+      throw error;
+    });
+  }
+  const sdk = await supabaseSdkPromise;
+  if (typeof sdk?.createClient !== "function") {
+    throw new Error("Supabase browser client is unavailable");
+  }
+  return sdk.createClient;
+}
 
 function createHybridAuthStorage() {
   const verifierStorage = window.localStorage;
@@ -842,22 +870,47 @@ function clearStoredPkceVerifier() {
   }
 }
 
-async function waitForAuthLinkResult(operation) {
+function waitForAuthLinkResult(operation) {
+  const trackedOperation = Promise.resolve(operation);
   let timerId;
-  timerId = window.setTimeout(() => {
-    const timeout = new Error(AUTH_LINK_TIMEOUT_MESSAGE);
-    timeout.code = "auth_link_timeout";
-    timeout.authLinkTransient = true;
-    handleAuthLinkFailure(timeout);
-    render();
-  }, AUTH_REQUEST_TIMEOUT_MS);
+  const timeout = new Promise((_, reject) => {
+    timerId = window.setTimeout(() => {
+      const failure = new Error(AUTH_LINK_TIMEOUT_MESSAGE);
+      failure.code = "auth_link_timeout";
+      failure.authLinkTransient = true;
+      failure.authLinkContinuation = trackedOperation;
+      reject(failure);
+    }, AUTH_REQUEST_TIMEOUT_MS);
+  });
+  return Promise.race([trackedOperation, timeout])
+    .then((result) => {
+      if (state.authLinkError?.code === "auth_link_timeout") state.authLinkError = null;
+      return result;
+    })
+    .finally(() => window.clearTimeout(timerId));
+}
+
+async function resumeAuthLinkAfterTimeout(failure, onSuccess, onFailure) {
+  let authLink;
   try {
-    const result = await operation;
-    if (state.authLinkError?.code === "auth_link_timeout") state.authLinkError = null;
-    return result;
-  } finally {
-    window.clearTimeout(timerId);
+    authLink = await failure?.authLinkContinuation;
+  } catch (lateError) {
+    state.authLinkContinuationPending = false;
+    await onFailure(lateError);
+    return;
   }
+  state.authLinkContinuationPending = false;
+  if (state.authLinkError?.code === "auth_link_timeout") state.authLinkError = null;
+  await onSuccess(authLink);
+}
+
+function retryAuthLinkIfIdle() {
+  if (state.authLinkContinuationPending) {
+    toast("Проверка ссылки ещё продолжается. Не обновляйте страницу — результат появится автоматически.", "info");
+    return false;
+  }
+  window.location.reload();
+  return true;
 }
 
 async function initialize() {
@@ -869,6 +922,7 @@ async function initialize() {
     return;
   }
 
+  const createClient = await loadSupabaseCreateClient();
   state.authStorageKey = `contentengine.creator-workspace.${new URL(CONFIG.SUPABASE_URL).hostname}.auth-session.v1`;
   state.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY, {
     auth: {
@@ -887,10 +941,31 @@ async function initialize() {
   try {
     authLink = await waitForAuthLinkResult(consumeAuthLink());
   } catch (error) {
+    state.authLinkContinuationPending = Boolean(
+      error?.code === "auth_link_timeout" && error.authLinkContinuation,
+    );
     handleAuthLinkFailure(error);
     render();
+    if (error?.code === "auth_link_timeout" && error.authLinkContinuation) {
+      void resumeAuthLinkAfterTimeout(
+        error,
+        completeInitialization,
+        async (lateError) => {
+          handleAuthLinkFailure(lateError);
+          render();
+        },
+      ).catch((lateError) => {
+        console.error(lateError);
+        renderFatal(lateError);
+        window.CONTENTENGINE_BOOT_WATCHDOG?.failed("auth-link-resume");
+      });
+    }
     return;
   }
+  await completeInitialization(authLink);
+}
+
+async function completeInitialization(authLink) {
   if (authLink?.purpose) {
     state.authPurpose = authLink.purpose;
     state.forcePassword = ["invite", "recovery"].includes(authLink.purpose);
@@ -1694,6 +1769,18 @@ function renderResetRequest(message = "") {
 function renderAuthLinkError() {
   const failure = state.authLinkError || { purpose: "recovery", definitive: true };
   const recovery = failure.purpose !== "invite";
+  if (!failure.definitive && state.authLinkContinuationPending) {
+    app.innerHTML = authLayout(`
+      <section class="auth-card" aria-labelledby="auth-link-error-title" aria-live="polite">
+        <p class="eyebrow">Проверка ссылки</p>
+        <h2 id="auth-link-error-title">Проверка продолжается</h2>
+        <p class="lead">Сервис входа отвечает дольше обычного. Одноразовая ссылка уже обрабатывается в фоне, результат появится здесь автоматически.</p>
+        ${alertMarkup("Не обновляйте страницу и не открывайте ссылку повторно: это может прервать вход или потратить одноразовый токен.", "warning")}
+        <p class="auth-footer">Можно оставить вкладку открытой. Кнопка повтора появится только после окончательной временной ошибки.</p>
+      </section>
+    `);
+    return;
+  }
   if (!failure.definitive) {
     app.innerHTML = authLayout(`
       <section class="auth-card" aria-labelledby="auth-link-error-title">
@@ -3221,6 +3308,7 @@ function renderWorkspaceBoardSection(sectionState) {
     busy: state.workspaceBoard.busy || sectionState.status === "refreshing",
     notice: state.workspaceBoard.notice,
     error: state.workspaceBoard.error,
+    visibleItemLimit: state.workspaceBoard.visibleItemLimit,
   });
   const pagination = state.workspaceBoard.hasMore
     ? `
@@ -3320,6 +3408,7 @@ async function submitWorkspaceBoardFilters(form) {
   state.workspaceBoard.error = "";
   state.workspaceBoard.hasMore = false;
   state.workspaceBoard.nextCursor = null;
+  state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
   await loadSection("board");
 }
 
@@ -3434,16 +3523,25 @@ async function loadMoreWorkspaceBoard() {
       );
       if (key) itemMap.set(key, item);
     });
+    const mergedItems = [...itemMap.values()];
+    const cappedItems = mergedItems.slice(0, WORKSPACE_BOARD_MEMORY_CAP);
     state.sections.board.data = {
       ...previous,
       ...next,
       folders: Array.isArray(next.folders) ? next.folders : previous.folders,
-      items: [...itemMap.values()],
+      items: cappedItems,
     };
     const meta = next?._meta && typeof next._meta === "object" ? next._meta : {};
-    state.workspaceBoard.hasMore = meta.has_more === true;
-    state.workspaceBoard.nextCursor = meta.next_cursor || null;
-    state.workspaceBoard.notice = `Загружено объектов: ${itemMap.size}.`;
+    const memoryCapReached = mergedItems.length >= WORKSPACE_BOARD_MEMORY_CAP;
+    state.workspaceBoard.hasMore = !memoryCapReached && meta.has_more === true;
+    state.workspaceBoard.nextCursor = state.workspaceBoard.hasMore ? meta.next_cursor || null : null;
+    state.workspaceBoard.visibleItemLimit = Math.min(
+      WORKSPACE_BOARD_MEMORY_CAP,
+      state.workspaceBoard.visibleItemLimit + WORKSPACE_BOARD_VISIBLE_STEP,
+    );
+    state.workspaceBoard.notice = memoryCapReached
+      ? `Загружены ${WORKSPACE_BOARD_MEMORY_CAP} самых новых объектов. Для более старых используйте папку, тип или поиск.`
+      : `Загружено объектов: ${cappedItems.length}.`;
   } catch (error) {
     if (requestIsCurrent()) state.workspaceBoard.error = actionErrorMessage(error);
   } finally {
@@ -3496,6 +3594,7 @@ function renderWorkspace(section) {
     return;
   }
   app.innerHTML = workspaceScaffold(content, section);
+  refreshNotificationLayer();
   scheduleWorkspaceDeepLinkFocus(section);
 }
 
@@ -3706,6 +3805,9 @@ function refreshNotificationLayer({ focus = false } = {}) {
     });
   }
   document.body.classList.toggle("notification-center-open", state.myWork.notificationsOpen);
+  document.querySelectorAll(".workspace-shell > .sidebar, .workspace-shell > .workspace-main").forEach((region) => {
+    region.toggleAttribute("inert", state.myWork.notificationsOpen);
+  });
   document.querySelectorAll(".workspace-notification-nav").forEach((control) => {
     const wrapper = document.createElement("div");
     wrapper.innerHTML = workspaceNotificationButtonMarkup().trim();
@@ -3953,6 +4055,29 @@ function handleKeyDown(event) {
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+    return;
+  }
+  if (event.key === "Tab" && state.myWork.notificationsOpen) {
+    const drawer = document.querySelector(".notification-drawer");
+    const focusable = Array.from(drawer?.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])
+      .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+    if (!focusable.length) {
+      event.preventDefault();
+      drawer?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!drawer?.contains(document.activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -7105,6 +7230,7 @@ async function handleClick(event) {
 
   if (action === "toggle-work-notifications") {
     event.preventDefault();
+    if (!state.myWork.notificationsOpen && state.mobileNavOpen) setMobileNavOpen(false);
     state.myWork.notificationsOpen = !state.myWork.notificationsOpen;
     refreshNotificationLayer({ focus: state.myWork.notificationsOpen });
     if (
@@ -7223,6 +7349,7 @@ async function handleClick(event) {
     state.workspaceBoard.error = "";
     state.workspaceBoard.hasMore = false;
     state.workspaceBoard.nextCursor = null;
+    state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
     await loadSection("board");
     return;
   }
@@ -7271,7 +7398,17 @@ async function handleClick(event) {
     state.workspaceBoard.error = "";
     state.workspaceBoard.hasMore = false;
     state.workspaceBoard.nextCursor = null;
+    state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
     await loadSection("board");
+    return;
+  }
+
+  if (action === "show-more-workspace-items") {
+    state.workspaceBoard.visibleItemLimit = Math.min(
+      WORKSPACE_BOARD_MEMORY_CAP,
+      state.workspaceBoard.visibleItemLimit + WORKSPACE_BOARD_VISIBLE_STEP,
+    );
+    renderWorkspace("board");
     return;
   }
 
@@ -7381,7 +7518,7 @@ async function handleClick(event) {
   }
 
   if (action === "retry-auth-link") {
-    window.location.reload();
+    retryAuthLinkIfIdle();
     return;
   }
 
@@ -10048,12 +10185,28 @@ function renderSetup(problems) {
 
 function renderFatal(error) {
   console.error("Portal startup failed", error);
+  const message = String(error?.message || "").toLowerCase();
+  const diagnosticCode = /dynamically imported module|protected client|failed to fetch|load failed/.test(message)
+    ? "auth_client_load_failed"
+    : /timed out|timeout|не ответил/.test(message)
+      ? "startup_timeout"
+      : String(error?.code || error?.name || "startup_error")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .slice(0, 64) || "startup_error";
+  const diagnosticDetail = String(error?.message || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .trim()
+    .slice(0, 180);
   app.innerHTML = `
     <main id="main-content" class="error-page" tabindex="-1">
       <div class="boot-mark" aria-hidden="true">!</div>
       <p class="eyebrow">Ошибка запуска</p>
       <h1>Интерфейс не загрузился</h1>
       <p class="muted">Обновите страницу. Если ошибка повторится, сообщите руководителю команды.</p>
+      <p class="tiny muted">Код диагностики: <code>${escapeHtml(diagnosticCode)}</code></p>
+      ${diagnosticDetail ? `<details class="tiny muted"><summary>Техническая деталь для поддержки</summary><code>${escapeHtml(diagnosticDetail)}</code></details>` : ""}
       <button class="btn" type="button" data-action="reload-page">Обновить страницу</button>
     </main>
   `;
@@ -10130,6 +10283,7 @@ function clearAuthenticatedState() {
   state.forcePassword = false;
   state.authPurpose = null;
   state.authLinkError = null;
+  state.authLinkContinuationPending = false;
   state.resetReceipt = readStoredPublicRecoveryReceipt();
   state.resetCountdownTimer = null;
   state.examResult = null;
@@ -10193,6 +10347,7 @@ function clearAuthenticatedState() {
   state.workspaceBoard.loadingMore = false;
   state.workspaceBoard.hasMore = false;
   state.workspaceBoard.nextCursor = null;
+  state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
   state.myWork.filters = normalizeMyWorkFilters();
   state.myWork.selectedViewId = "";
   state.myWork.savedViews = [];

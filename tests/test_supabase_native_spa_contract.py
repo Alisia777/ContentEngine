@@ -25,6 +25,7 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
         "catalog.js",
         "supabase-api.js",
         "app.js",
+        "boot-watchdog.js",
         "generation-spend-view.js",
     }
     assert expected <= {path.name for path in APP.iterdir() if path.is_file()}
@@ -35,6 +36,9 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
     assert "render.com" not in bundle.casefold()
     assert "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm" in bundle
     assert "@supabase/supabase-js@latest" not in bundle
+    assert 'import { createClient } from "https://cdn.jsdelivr.net' not in _text("app.js")
+    assert "import(SUPABASE_SDK_URL)" in _text("app.js")
+    assert '<script src="./boot-watchdog.js?' in _text("index.html")
 
 
 def test_pages_config_contains_only_browser_safe_coordinates_and_generation_flags() -> None:
@@ -446,7 +450,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260718.1' in index
+    assert './app.js?v=20260718.2' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

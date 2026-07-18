@@ -202,6 +202,44 @@ async function hashReceiptToken(token: string): Promise<string> {
   return hex(new Uint8Array(digest));
 }
 
+function clientAddressMaterial(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",", 1)[0]
+    ?.trim();
+  for (
+    const candidate of [
+      request.headers.get("cf-connecting-ip")?.trim(),
+      request.headers.get("x-real-ip")?.trim(),
+      forwarded,
+    ]
+  ) {
+    if (candidate && /^[0-9a-f:.]{3,64}$/iu.test(candidate)) return candidate;
+  }
+  return "unavailable";
+}
+
+async function clientKeyHash(
+  request: Request,
+  serviceRoleKey: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(serviceRoleKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(
+      `contentengine-public-recovery-client:v1:${
+        clientAddressMaterial(request)
+      }`,
+    ),
+  );
+  return hex(new Uint8Array(signature));
+}
+
 async function receiptMaterial(
   requestId: string,
   serviceRoleKey: string,
@@ -334,11 +372,13 @@ const creatorRecovery = withSupabase<ContentEngineDatabase>({
   const requestId = suppliedRequestId.toLocaleLowerCase("en-US");
 
   const receipt = await receiptMaterial(requestId, runtime.serviceRoleKey);
+  const clientHash = await clientKeyHash(request, runtime.serviceRoleKey);
   const { data: reserveData, error: reserveError } = await context.supabaseAdmin
     .rpc("system_reserve_public_recovery_receipt", {
       p_payload: {
         request_id: requestId,
         receipt_hash: receipt.hash,
+        client_key_hash: clientHash,
         email,
       },
     });

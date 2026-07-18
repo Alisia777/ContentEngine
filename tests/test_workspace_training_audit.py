@@ -40,6 +40,7 @@ def test_workspace_release_floor_is_wired_end_to_end() -> None:
         "move-workspace-item",
         "archive-workspace-folder",
         "reset-workspace-filters",
+        "show-more-workspace-items",
     )
     for action in required_actions:
         assert f'data-action="{action}"' in WORKSPACE_VIEW
@@ -68,6 +69,8 @@ def test_workspace_release_floor_is_wired_end_to_end() -> None:
     assert "rawCapabilities.move_items === true" in WORKSPACE_VIEW
     assert "Создавать, переименовывать и архивировать папки может руководитель" in WORKSPACE_VIEW
     assert "workspaceBoardQuerySignature()" in APP
+    assert "WORKSPACE_BOARD_MEMORY_CAP = 300" in APP
+    assert "visibleItemLimit" in WORKSPACE_VIEW
     assert "sectionRequestId === state.sections.board.requestId" in APP
     assert "querySignature === workspaceBoardQuerySignature()" in APP
     assert "OPERATIONAL_WORKSPACE_ROLES.has(role)" in APP
@@ -171,6 +174,8 @@ def test_training_interactive_release_floor_is_present_and_non_blocking() -> Non
     assert "<iframe" not in TRAINING_VIEW
     assert " autoplay" not in TRAINING_VIEW.lower()
     assert 'controls preload="none" playsinline' in TRAINING_VIEW
+    assert 'aria-label="Учебное видео:' in TRAINING_VIEW
+    assert 'kind="captions"' in TRAINING_VIEW
     assert "!web/app/assets/training/*.mp4" in GITIGNORE
     assert (ROOT / "web/app/assets/training/ugc_bloody_peel_8s.mp4").stat().st_size > 1_000_000
     assert (ROOT / "web/app/assets/training/ugc_bombbar_pro_8s.mp4").stat().st_size > 1_000_000
