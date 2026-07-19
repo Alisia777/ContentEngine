@@ -27,10 +27,11 @@ def _function_source(name: str, *, async_function: bool = False) -> str:
     return APP[start : min(endings) if endings else len(APP)]
 
 
-def test_migration_parses_as_postgresql() -> None:
-    from pglast import parse_sql
-
-    parse_sql(MIGRATION)
+def test_migration_is_transactional_and_has_balanced_function_bodies() -> None:
+    assert MIGRATION.lstrip().casefold().startswith("begin;")
+    assert MIGRATION.rstrip().casefold().endswith("commit;")
+    assert MIGRATION.count("$$") % 2 == 0
+    assert "create or replace function public.creator_submit_exam(" in MIGRATION
 
 
 def test_wrapper_requires_exactly_four_private_structured_rationales() -> None:

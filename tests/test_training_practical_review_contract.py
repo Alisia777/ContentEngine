@@ -141,6 +141,14 @@ def test_pre_exam_video_upload_uses_a_separate_private_storage_lane() -> None:
     assert "storage_object.metadata" in LOWER
     assert "storage_metadata_value ->> 'size'" in LOWER
     assert "storage_metadata_value ->> 'mimetype'" in LOWER
+    # PL/pgSQL's IF grammar requires a CASE operand in an OR chain to be
+    # parenthesized.  Without this shape PostgreSQL reports only an opaque
+    # `syntax error at end of input` while compiling the whole RPC.
+    size_guard = LOWER.split("if storage_object_id_value is null", 1)[1].split(
+        "message = 'practical_project_storage_object_invalid'", 1
+    )[0]
+    assert "or (case" in size_guard
+    assert "end)\n       or lower" in size_guard
 
 
 def test_practical_course_gate_pins_all_four_active_passed_certificates() -> None:

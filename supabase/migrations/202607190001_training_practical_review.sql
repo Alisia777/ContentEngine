@@ -665,12 +665,12 @@ begin
     if storage_object_id_value is null
        or jsonb_typeof(storage_metadata_value) <> 'object'
        or coalesce(storage_metadata_value ->> 'size', '') !~ '^[1-9][0-9]{0,11}$'
-       or case
+       or (case
          when coalesce(storage_metadata_value ->> 'size', '')
            ~ '^[1-9][0-9]{0,11}$'
          then (storage_metadata_value ->> 'size')::numeric > 52428800
          else true
-       end
+       end)
        or lower(btrim(coalesce(storage_metadata_value ->> 'mimetype', '')))
           not in ('video/mp4', 'video/webm', 'video/quicktime') then
       raise exception using
