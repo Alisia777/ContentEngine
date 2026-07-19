@@ -1537,7 +1537,7 @@ begin
   ) into function_definition;
   if function_definition is null
      or strpos(function_definition, 'practical_project_approval_required') = 0
-     or strpos(function_definition, 'training_practical_projects') = 0 then
+     or strpos(function_definition, 'training_practical_gate_satisfied') = 0 then
     raise exception 'membership_role is missing the practical approval gate';
   end if;
 

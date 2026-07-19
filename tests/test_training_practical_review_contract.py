@@ -262,6 +262,10 @@ def test_exam_workspace_and_storage_share_the_approval_boundary() -> None:
     assert "membership_role_pre_practical_gate" in LOWER
     assert "storage_access_allowed_pre_practical_gate" in LOWER
     assert "training_practical_gate_satisfied" in LOWER
+    assert (
+        "strpos(function_definition, 'training_practical_gate_satisfied') = 0"
+        in LOWER
+    )
     assert LOWER.count(
         "content_factory_private.training_practical_gate_satisfied("
     ) >= 5
