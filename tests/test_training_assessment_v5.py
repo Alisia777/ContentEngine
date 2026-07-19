@@ -333,6 +333,17 @@ def test_v5_invalidates_old_shallow_attempts_for_new_course_completion() -> None
 
 def test_bootstrap_cannot_reveal_failed_course_score_or_topics() -> None:
     assert "creator_bootstrap_pre_assessment_v5_sanitize" in SQL
+    rename = (
+        "alter function public.creator_bootstrap(jsonb)\n"
+        "  rename to creator_bootstrap_pre_assessment_v5_sanitize;"
+    )
+    move = (
+        "alter function public.creator_bootstrap_pre_assessment_v5_sanitize(jsonb)\n"
+        "  set schema content_factory_private;"
+    )
+    assert rename in SQL
+    assert move in SQL
+    assert SQL.index(rename) < SQL.index(move)
     sanitizer = SQL[
         SQL.index("create or replace function public.creator_bootstrap(") :
         SQL.index("-- The server progress RPC accepts only walkthroughs")

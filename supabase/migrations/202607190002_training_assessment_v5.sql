@@ -1069,9 +1069,9 @@ grant execute on function public.creator_submit_course_check(jsonb)
 -- assembly; this final wrapper strips all grading diagnostics from the public
 -- course-check receipt while preserving pass/fail and completion state.
 alter function public.creator_bootstrap(jsonb)
-  set schema content_factory_private;
-alter function content_factory_private.creator_bootstrap(jsonb)
   rename to creator_bootstrap_pre_assessment_v5_sanitize;
+alter function public.creator_bootstrap_pre_assessment_v5_sanitize(jsonb)
+  set schema content_factory_private;
 
 create or replace function public.creator_bootstrap(
   p_payload jsonb default '{}'::jsonb
