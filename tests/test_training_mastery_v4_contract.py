@@ -187,18 +187,15 @@ def test_course_mastery_coach_drives_and_guards_completion() -> None:
     assert "completionInFlight.delete(moduleCode)" in completion
 
 
-def test_failed_mini_test_has_exact_lesson_remediation() -> None:
+def test_failed_mini_test_does_not_disclose_exact_lesson_or_score() -> None:
     parser = _function_source("learningCourses")
     submit = _function_source("submitCourseKnowledgeCheck")
 
     assert "knowledge_remediation" in parser
-    assert "lessonId" in parser and "tip" in parser
-    assert "course.knowledgeRemediation?.[questionCode]" in submit
-    assert "course.lessons.findIndex" in submit
-    assert 'data-action="training-lesson-open"' in submit
-    assert 'data-lesson-index="${topic.lessonIndex}"' in submit
-    assert "escapeHtml(topic.tip || topic.prompt)" in submit
-    assert "escapeHtml(topic.lessonTitle)" in submit
+    assert "правильные ответы и точный балл не раскрываются" in submit
+    assert "source.review_topics" not in submit
+    assert "source.correct_count" not in submit
+    assert 'data-action="training-lesson-open"' not in submit
 
 
 def test_achievement_shelf_uses_only_server_completed_modules() -> None:

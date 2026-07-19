@@ -217,8 +217,8 @@ def test_submit_result_contains_safe_feedback_but_never_an_answer_key() -> None:
 
 def test_spa_uses_server_grading_and_restores_passed_state_after_refresh() -> None:
     assert 'submitCourseCheck: "creator_submit_course_check"' in ADAPTER
-    assert "submitCourseCheck(moduleCode, answers)" in ADAPTER
-    assert "await state.api.submitCourseCheck(courseCode, answers)" in APP
+    assert "submitCourseCheck(moduleCode, answers, rationales = {})" in ADAPTER
+    assert "await state.api.submitCourseCheck(courseCode, answers, rationales)" in APP
     assert "trainingSource.course_checks" in APP
     assert "state.bootstrap.training.courseChecks.map" in APP
     assert "correctValue" not in APP
@@ -229,7 +229,9 @@ def test_spa_uses_server_grading_and_restores_passed_state_after_refresh() -> No
             "function syncCourseCompletionButton"
         )
     ]
-    assert "source.review_topics" in APP
+    assert "source.review_topics" not in APP
+    assert "source.correct_count" not in APP
+    assert "правильные ответы и точный балл не раскрываются" in APP
 
 
 def test_preserved_exam_does_not_claim_a_locked_workspace_is_ready() -> None:
@@ -241,7 +243,7 @@ def test_preserved_exam_does_not_claim_a_locked_workspace_is_ready() -> None:
 
     assert "const workspaceReady = hasWorkspaceAccess();" in learning_home
     assert (
-        "const rolePending = examPassed && !hasOperationalWorkspaceRole();"
+        "const rolePending = examPassed && practicalApproved && !hasOperationalWorkspaceRole();"
         in learning_home
     )
     assert "const nextHref = rolePending" in learning_home
@@ -387,7 +389,9 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
         encoding="utf-8"
     ).casefold()
     assert "'creator_submit_course_check'" in creator
-    assert creator.count("\n  46,\n") >= 2
+    assert creator.count("\n  48,\n") >= 2
+    assert "'creator_save_practical_project'" in creator
+    assert "'creator_decide_practical_project'" in creator
     assert "perform public.creator_submit_course_check" in creator
     assert "'pgtap-course-check-' || module_row.code" in creator
     assert "answer_key.correct_answers" in creator

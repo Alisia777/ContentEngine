@@ -478,7 +478,7 @@ def test_plain_language_exam_presentation_never_changes_server_answer_values() -
     assert "presentation?.options?.[option.value] || option.label" in final_questions
     assert 'value="${escapeHtml(option.value)}"' in question_markup
     assert "selected.map((input) => input.value)" in submit_exam
-    assert "state.api.submitExam(answers)" in submit_exam
+    assert "state.api.submitExam(answers, rationales)" in submit_exam
 
 
 def test_plain_language_training_copy_has_no_public_answer_key_migration_dependency() -> None:

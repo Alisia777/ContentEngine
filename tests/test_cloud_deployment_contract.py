@@ -177,7 +177,7 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
         index
         for index, step in enumerate(migrate["steps"])
         if step.get("name")
-        == "Apply immutable migrations and private exam grading keys"
+        == "Apply immutable migrations and private grading keys"
     )
     config_push_index = next(
         index
@@ -358,13 +358,14 @@ def test_private_exam_keys_are_step_scoped_and_never_printed() -> None:
         step
         for step in steps
         if step.get("name")
-        == "Apply immutable migrations and private exam grading keys"
+        == "Apply immutable migrations and private grading keys"
     )
 
     assert "SUPABASE_EXAM_KEYS_B64" not in migrate["env"]
     assert provision["env"] == {
         "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
-        "SUPABASE_EXAM_KEYS_B64": "${{ secrets.SUPABASE_EXAM_KEYS_B64 }}"
+        "SUPABASE_EXAM_KEYS_B64": "${{ secrets.SUPABASE_EXAM_KEYS_B64 }}",
+        "SUPABASE_TRAINING_KEYS_B64": "${{ secrets.SUPABASE_TRAINING_KEYS_B64 }}",
     }
     command = provision["run"]
     assert "scripts/deploy_supabase_management_api.py" in command
@@ -378,6 +379,7 @@ def test_private_exam_keys_are_step_scoped_and_never_printed() -> None:
     assert "traceback" not in deployer
     assert "set -x" not in command
     assert "SUPABASE_EXAM_KEYS_B64" not in build.get("env", {})
+    assert "SUPABASE_TRAINING_KEYS_B64" not in build.get("env", {})
 
 
 def test_first_owner_bootstrap_keeps_server_credentials_out_of_pages() -> None:
@@ -609,6 +611,7 @@ def test_cloud_documentation_describes_one_public_browser_workspace() -> None:
     assert "SUPABASE_ACCESS_TOKEN" in guide
     assert "SUPABASE_DB_PASSWORD" not in guide
     assert "SUPABASE_EXAM_KEYS_B64" in guide
+    assert "SUPABASE_TRAINING_KEYS_B64" in guide
     assert "SUPABASE_PUBLISHABLE_KEY" in guide
     assert "Management API" in guide
     assert "contentengine_deploy.schema_migrations" in guide

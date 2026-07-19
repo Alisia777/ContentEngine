@@ -15,9 +15,47 @@ from scripts.deploy_supabase_management_api import (
     EXPECTED_PROJECT_REF,
     ManagementApiClient,
     decode_private_exam_sql,
+    decode_private_training_keys,
     deploy,
     load_migrations,
 )
+
+
+def _private_training_payload() -> dict:
+    course = []
+    for module in (
+        "factory_basics",
+        "video_quality",
+        "publishing_funnel",
+        "security_wb",
+    ):
+        for index in range(6):
+            course.append({
+                "question_code": f"course_check_{module}_case_{index}",
+                "correct_answers": [f"safe_{index}"],
+                "critical_answers": [f"risk_{index}"],
+                "rubric": "Проверяется рабочий риск, доказательство и безопасный следующий шаг.",
+            })
+    platform = []
+    for platform_code in ("instagram", "youtube", "vk"):
+        for step_code in (
+            "account", "warmup", "publication", "review", "link", "result"
+        ):
+            platform.append({
+                "assessment_version": 1,
+                "platform_code": platform_code,
+                "step_code": step_code,
+                "allowed_options": ["safe", "hold", "risk"],
+                "correct_option": "safe",
+                "critical_options": ["risk"],
+            })
+    return {"version": 1, "course": course, "platform": platform}
+
+
+def _encode_private_training(payload: dict) -> str:
+    return base64.b64encode(
+        json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
 
 
 PRIVATE_EXAM_SQL = """begin;
@@ -327,6 +365,40 @@ def test_private_payload_executes_only_validated_upsert_not_supplied_do_block() 
     assert "exam_answer_total <> 12" in validated
     assert "select count(*) into answer_total" not in validated
     assert "where question.module_code = 'operator_final_exam'" in validated
+
+
+def test_private_training_json_renders_only_two_scoped_upserts_and_contract() -> None:
+    validated = decode_private_training_keys(
+        _encode_private_training(_private_training_payload())
+    )
+
+    assert validated.count("insert into content_factory_private.") == 2
+    assert "training_answer_keys" in validated
+    assert "training_platform_answer_keys" in validated
+    assert validated.count("course_check_") == 24
+    assert "private_training_key_contract_failed" in validated
+    assert "auth.users" not in validated
+    assert "delete " not in validated.casefold()
+    assert "drop " not in validated.casefold()
+
+
+def test_private_training_json_rejects_missing_rows_and_unknown_fields() -> None:
+    missing = _private_training_payload()
+    missing["course"] = missing["course"][:-1]
+    with pytest.raises(ConfigurationError, match="24 rows"):
+        decode_private_training_keys(_encode_private_training(missing))
+
+    unknown = _private_training_payload()
+    unknown["platform"][0]["sql"] = "delete from auth.users"
+    with pytest.raises(ConfigurationError, match="invalid shape"):
+        decode_private_training_keys(_encode_private_training(unknown))
+
+
+def test_private_training_json_rejects_incomplete_platform_coverage() -> None:
+    duplicate = _private_training_payload()
+    duplicate["platform"][-1] = dict(duplicate["platform"][0])
+    with pytest.raises(ConfigurationError, match="invalid"):
+        decode_private_training_keys(_encode_private_training(duplicate))
 
 
 def test_private_payload_safely_normalizes_existing_double_commit_envelope() -> None:

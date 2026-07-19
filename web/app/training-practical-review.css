@@ -1,0 +1,310 @@
+.training-practical {
+  position: relative;
+  overflow: hidden;
+  margin: 22px 0;
+  padding: clamp(22px, 4vw, 40px);
+  border-color: color-mix(in srgb, var(--accent, #b88a35) 24%, var(--line));
+  background:
+    radial-gradient(circle at 92% 6%, color-mix(in srgb, var(--accent, #b88a35) 13%, transparent), transparent 25%),
+    var(--surface, #fff);
+}
+
+.training-practical::after {
+  position: absolute;
+  right: -36px;
+  bottom: -54px;
+  width: 180px;
+  height: 180px;
+  border: 1px solid color-mix(in srgb, var(--accent, #b88a35) 22%, transparent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 22px color-mix(in srgb, var(--accent, #b88a35) 5%, transparent);
+  content: "";
+  pointer-events: none;
+}
+
+.training-practical--approved {
+  border-color: color-mix(in srgb, #2e8b68 46%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, #2e8b68 8%, var(--surface)), var(--surface) 55%);
+}
+
+.training-practical--changes {
+  border-color: color-mix(in srgb, #b6604b 48%, var(--line));
+}
+
+.training-practical__header,
+.training-practical-queue .card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.training-practical__header h2,
+.training-practical-queue h2 {
+  max-width: 760px;
+  margin: 4px 0 9px;
+  font: 600 clamp(1.45rem, 2.4vw, 2.2rem)/1.05 Georgia, serif;
+}
+
+.training-practical__header p:not(.eyebrow) {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.training-practical__stamp {
+  display: grid;
+  flex: 0 0 68px;
+  width: 68px;
+  height: 68px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent, #b88a35) 32%, var(--line));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent, #b88a35) 8%, var(--surface));
+  color: var(--accent-strong, #7f5b1b);
+  font: 700 1.45rem/1 Georgia, serif;
+}
+
+.training-practical__review-note,
+.training-practical__waiting,
+.training-practical__evidence {
+  position: relative;
+  z-index: 1;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 91%, var(--accent, #b88a35));
+}
+
+.training-practical__review-note strong,
+.training-practical__evidence span {
+  display: block;
+  color: var(--muted);
+  font-size: .76rem;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.training-practical__review-note p,
+.training-practical__evidence p {
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+
+.training-practical__evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.training-practical__evidence p,
+.training-practical__evidence .inline-actions {
+  grid-column: 1 / -1;
+}
+
+.training-practical__form {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 17px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.training-practical__source,
+.training-practical__checks {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.training-practical__source legend,
+.training-practical__checks legend {
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.training-practical__source {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.training-practical__source legend {
+  grid-column: 1 / -1;
+}
+
+.training-practical__source label,
+.training-practical__checks label {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--accent, #b88a35));
+  cursor: pointer;
+}
+
+.training-practical__source label:has(input:checked),
+.training-practical__checks label:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent, #b88a35) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #b88a35) 8%, transparent);
+}
+
+.training-practical__source input,
+.training-practical__checks input {
+  margin-top: 3px;
+}
+
+.training-practical__source small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.training-practical__waiting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.training-practical__waiting > span {
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--accent, #b88a35) 24%, transparent);
+  border-top-color: var(--accent, #b88a35);
+  border-radius: 50%;
+  animation: practical-spin .9s linear infinite;
+}
+
+.training-practical__waiting p {
+  flex: 1;
+  margin: 0;
+}
+
+.training-practical-queue {
+  margin-top: 22px;
+  overflow: hidden;
+}
+
+.training-practical-queue__actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+@media (max-width: 720px) {
+  .training-practical-queue__actions {
+    align-items: stretch;
+    width: 100%;
+  }
+}
+
+.training-practical-queue__list {
+  display: grid;
+  gap: 16px;
+  padding: 0 22px 22px;
+}
+
+.training-practical-review {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(220px, 1fr) minmax(300px, 1.4fr);
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 97%, var(--accent, #b88a35));
+}
+
+.training-practical-review__identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.training-practical-review__identity > span {
+  display: grid;
+  flex: 0 0 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent, #b88a35);
+  color: #fff;
+  font-weight: 700;
+}
+
+.training-practical-review__identity small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.training-practical-review .training-practical__evidence {
+  margin: 0;
+}
+
+.training-practical-review__form {
+  display: grid;
+  gap: 12px;
+}
+
+.training-practical-review__immutable-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #b7791f 42%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, #f6c453 12%, var(--surface));
+  color: var(--text);
+  font-size: .84rem;
+  line-height: 1.45;
+}
+
+.training-practical-queue__empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 22px 22px;
+  padding: 18px;
+  border: 1px dashed color-mix(in srgb, #2e8b68 42%, var(--line));
+  border-radius: 16px;
+}
+
+.training-practical-queue__empty > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, #2e8b68 12%, var(--surface));
+  color: #2e8b68;
+  font-weight: 800;
+}
+
+.training-practical-queue__empty p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+@keyframes practical-spin { to { transform: rotate(1turn); } }
+
+@media (max-width: 980px) {
+  .training-practical-review { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .training-practical__header { align-items: center; }
+  .training-practical__stamp { flex-basis: 52px; width: 52px; height: 52px; }
+  .training-practical__source,
+  .training-practical__evidence { grid-template-columns: 1fr; }
+  .training-practical__evidence p,
+  .training-practical__evidence .inline-actions { grid-column: auto; }
+  .training-practical__waiting { align-items: flex-start; flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .training-practical__waiting > span { animation: none; }
+}

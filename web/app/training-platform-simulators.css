@@ -1,0 +1,810 @@
+.training-platform-simulators {
+  --tps-ink: var(--ink, #172421);
+  --tps-muted: var(--ink-soft, #5c6965);
+  --tps-primary: var(--portal-primary, #173e37);
+  --tps-primary-deep: var(--portal-primary-deep, #0d2d28);
+  --tps-soft: var(--portal-primary-soft, #eaf3ef);
+  --tps-surface: var(--portal-surface, #fff);
+  --tps-surface-soft: var(--portal-surface-soft, #f6f5ef);
+  --tps-line: var(--portal-line, #dce3df);
+  --tps-gold: var(--portal-accent, #d5b26a);
+  --tps-gold-ink: var(--portal-accent-ink, #795318);
+  --tps-danger: var(--danger, #a34136);
+  --tps-success: var(--success, #24745f);
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 18px;
+  color: var(--tps-ink);
+}
+
+.training-platform-simulators,
+.training-platform-simulators * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.training-platform-simulators [hidden] {
+  display: none !important;
+}
+
+.training-platform-simulators__intro {
+  display: grid;
+  gap: 12px;
+  padding: clamp(20px, 4vw, 34px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tps-primary) 18%, transparent);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--tps-gold) 30%, transparent), transparent 32%),
+    linear-gradient(135deg, var(--tps-surface), var(--tps-surface-soft));
+  box-shadow: var(--shadow-sm, 0 12px 34px rgba(13, 45, 40, 0.08));
+}
+
+.training-platform-simulators__intro > div > p,
+.training-platform-simulator__header > div > p,
+.training-platform-simulator__kicker {
+  margin: 0 0 7px;
+  color: var(--tps-gold-ink);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.training-platform-simulators__intro h2,
+.training-platform-simulator__header h2,
+.training-platform-simulator__lesson h3,
+.training-platform-simulator__receipt h3 {
+  margin: 0;
+  color: var(--tps-ink);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.08;
+}
+
+.training-platform-simulators__intro h2 {
+  max-width: 760px;
+  font-size: clamp(1.9rem, 6vw, 3.7rem);
+}
+
+.training-platform-simulators__intro > p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--tps-muted);
+  line-height: 1.6;
+}
+
+.training-platform-simulators__notice {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 15px 17px;
+  border: 1px solid color-mix(in srgb, var(--tps-gold) 44%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--tps-gold) 12%, var(--tps-surface));
+}
+
+.training-platform-simulators__notice > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--tps-primary);
+  background: var(--tps-surface);
+  font-size: 1.2rem;
+  box-shadow: inset 0 0 0 1px var(--tps-line);
+}
+
+.training-platform-simulators__notice p,
+.training-platform-simulators__legal {
+  margin: 0;
+  color: var(--tps-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.training-platform-simulators__notice strong { color: var(--tps-ink); }
+
+.training-platform-simulators__route {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.training-platform-simulators__route span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 7px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid var(--tps-line);
+  border-radius: 999px;
+  color: var(--tps-ink);
+  background: var(--tps-surface);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.training-platform-simulators__route i {
+  color: var(--tps-gold-ink);
+  font-size: 0.67rem;
+  font-style: normal;
+}
+
+.training-platform-simulators__route b {
+  color: var(--tps-gold-ink);
+  font-weight: 500;
+}
+
+.training-platform-simulators__tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid var(--tps-line);
+  border-radius: 18px;
+  background: var(--tps-surface-soft);
+}
+
+.training-platform-simulators__tabs button {
+  display: grid;
+  min-height: 62px;
+  gap: 3px;
+  place-content: center;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: var(--tps-muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+  transition: transform 160ms ease, color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.training-platform-simulators__tabs button span {
+  font-weight: 850;
+}
+
+.training-platform-simulators__tabs button small {
+  font-size: 0.7rem;
+}
+
+.training-platform-simulators__tabs button[aria-selected="true"] {
+  color: var(--tps-primary-deep);
+  border-color: color-mix(in srgb, var(--tps-primary) 18%, transparent);
+  background: var(--tps-surface);
+  box-shadow: 0 8px 22px rgba(13, 45, 40, 0.1);
+  transform: translateY(-1px);
+}
+
+.training-platform-simulator {
+  --tps-platform: var(--tps-primary);
+  display: grid;
+  gap: 18px;
+  padding: clamp(16px, 3vw, 26px);
+  overflow: hidden;
+  border: 1px solid var(--tps-line);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--tps-platform) 12%, transparent), transparent 30%),
+    var(--tps-surface);
+  box-shadow: var(--shadow-md, 0 18px 48px rgba(13, 45, 40, 0.1));
+}
+
+.training-platform-simulator--coral { --tps-platform: #b84c63; }
+.training-platform-simulator--red { --tps-platform: #b73535; }
+.training-platform-simulator--blue { --tps-platform: #2678c9; }
+
+.training-platform-simulator__header {
+  display: grid;
+  gap: 14px;
+}
+
+.training-platform-simulator__header h2 {
+  font-size: clamp(1.65rem, 5vw, 2.7rem);
+}
+
+.training-platform-simulator__header > div > span {
+  display: block;
+  max-width: 740px;
+  margin-top: 9px;
+  color: var(--tps-muted);
+  line-height: 1.55;
+}
+
+.training-platform-simulator__progress-copy {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  color: var(--tps-muted);
+  font-size: 0.78rem;
+}
+
+.training-platform-simulator__header-status {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.training-platform-simulator__restart {
+  min-height: 42px;
+  padding: 9px 13px;
+  border: 1px solid var(--tps-line);
+  border-radius: 11px;
+  color: var(--tps-primary);
+  background: var(--tps-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 820;
+}
+
+.training-platform-simulator__restart:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.training-platform-simulator__progress-copy strong {
+  color: var(--tps-platform);
+  font-size: 1.15rem;
+}
+
+.training-platform-simulator__progress {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--tps-soft);
+}
+
+.training-platform-simulator__progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--tps-platform), var(--tps-gold));
+  transition: width 220ms ease;
+}
+
+.training-platform-simulator__steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.training-platform-simulator__steps button {
+  position: relative;
+  display: grid;
+  min-height: 70px;
+  gap: 5px;
+  align-content: center;
+  padding: 9px;
+  border: 1px solid var(--tps-line);
+  border-radius: 14px;
+  color: var(--tps-muted);
+  background: var(--tps-surface-soft);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.training-platform-simulator__steps button > span {
+  color: var(--tps-gold-ink);
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.training-platform-simulator__steps button > strong {
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.training-platform-simulator__steps button > i {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: none;
+  color: var(--tps-success);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.training-platform-simulator__steps button[data-simulator-step-complete="true"] > i {
+  display: block;
+}
+
+.training-platform-simulator__steps button[aria-current="step"] {
+  color: var(--tps-surface);
+  border-color: var(--tps-platform);
+  background: var(--tps-platform);
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--tps-platform) 24%, transparent);
+}
+
+.training-platform-simulator__steps button[aria-current="step"] > span {
+  color: color-mix(in srgb, var(--tps-surface) 76%, var(--tps-gold));
+}
+
+.training-platform-simulator__steps button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.training-platform-simulator__step {
+  display: grid;
+  gap: 18px;
+  animation: training-platform-step-in 220ms ease both;
+}
+
+@keyframes training-platform-step-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.training-platform-simulator__lesson,
+.training-platform-simulator__decision {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: clamp(16px, 3vw, 24px);
+  border: 1px solid var(--tps-line);
+  border-radius: 20px;
+  background: var(--tps-surface-soft);
+}
+
+.training-platform-simulator__lesson h3 {
+  font-size: clamp(1.45rem, 4vw, 2rem);
+}
+
+.training-platform-simulator__lesson > p:not(.training-platform-simulator__kicker) {
+  margin: 0;
+  color: var(--tps-muted);
+  line-height: 1.55;
+}
+
+.training-platform-simulator__mock {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tps-platform) 26%, var(--tps-line));
+  border-radius: 17px;
+  background: var(--tps-surface);
+  box-shadow: 0 10px 30px rgba(13, 45, 40, 0.07);
+}
+
+.training-platform-simulator__mock-top {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--tps-line);
+}
+
+.training-platform-simulator__mock-top > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tps-platform);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tps-platform) 12%, transparent);
+}
+
+.training-platform-simulator__mock-top strong {
+  font-size: 0.78rem;
+}
+
+.training-platform-simulator__mock-top em {
+  color: var(--tps-muted);
+  font-size: 0.65rem;
+  font-style: normal;
+}
+
+.training-platform-simulator__mock ul {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 14px;
+  list-style: none;
+}
+
+.training-platform-simulator__mock li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: var(--tps-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.training-platform-simulator__mock li > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--tps-platform);
+  background: color-mix(in srgb, var(--tps-platform) 11%, transparent);
+  font-size: 0.65rem;
+  font-weight: 900;
+}
+
+.training-platform-simulator__decision {
+  border-color: color-mix(in srgb, var(--tps-gold) 38%, var(--tps-line));
+  background: var(--tps-surface);
+}
+
+.training-platform-simulator__decision legend {
+  max-width: 720px;
+  padding: 0;
+  color: var(--tps-ink);
+  font: 650 clamp(1.1rem, 3vw, 1.35rem)/1.3 Georgia, "Times New Roman", serif;
+}
+
+.training-platform-simulator__options {
+  display: grid;
+  gap: 9px;
+}
+
+.training-platform-simulator__reasoning {
+  display: grid;
+  gap: 7px;
+}
+
+.training-platform-simulator__reasoning > span {
+  color: var(--tps-ink);
+  font-size: 0.82rem;
+  font-weight: 820;
+}
+
+.training-platform-simulator__reasoning textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  padding: 12px 13px;
+  border: 1px solid var(--tps-line);
+  border-radius: 13px;
+  color: var(--tps-ink);
+  background: var(--tps-surface);
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.training-platform-simulator__reasoning textarea:focus {
+  border-color: var(--tps-platform);
+}
+
+.training-platform-simulator__reasoning textarea:disabled {
+  resize: none;
+  opacity: 0.74;
+}
+
+.training-platform-simulator__reasoning small,
+.training-platform-simulator__answer-policy {
+  margin: 0;
+  color: var(--tps-muted);
+  font-size: 0.72rem;
+  line-height: 1.42;
+}
+
+.training-platform-simulator__reasoning small b {
+  color: var(--tps-platform);
+}
+
+.training-platform-simulator__answer-policy {
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tps-gold) 9%, transparent);
+}
+
+.training-platform-simulator__option {
+  display: block;
+  cursor: pointer;
+}
+
+.training-platform-simulator__option > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.training-platform-simulator__option > span {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 50px;
+  padding: 12px 13px;
+  border: 1px solid var(--tps-line);
+  border-radius: 13px;
+  color: var(--tps-muted);
+  background: var(--tps-surface-soft);
+  font-size: 0.86rem;
+  line-height: 1.4;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
+}
+
+.training-platform-simulator__option i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid color-mix(in srgb, var(--tps-muted) 46%, transparent);
+  border-radius: 50%;
+  background: var(--tps-surface);
+}
+
+.training-platform-simulator__option > input:checked + span {
+  color: var(--tps-ink);
+  border-color: var(--tps-platform);
+  background: color-mix(in srgb, var(--tps-platform) 8%, var(--tps-surface));
+  transform: translateY(-1px);
+}
+
+.training-platform-simulator__option > input:checked + span i {
+  border: 6px solid var(--tps-platform);
+}
+
+.training-platform-simulator__feedback {
+  min-height: 52px;
+  padding: 13px 15px;
+  border-left: 4px solid var(--tps-line);
+  border-radius: 0 12px 12px 0;
+  color: var(--tps-muted);
+  background: var(--tps-surface-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.training-platform-simulator__feedback[data-feedback-kind="error"] {
+  color: var(--tps-danger);
+  border-left-color: var(--tps-danger);
+  background: color-mix(in srgb, var(--tps-danger) 8%, var(--tps-surface));
+}
+
+.training-platform-simulator__feedback[data-feedback-kind="success"] {
+  color: var(--tps-success);
+  border-left-color: var(--tps-success);
+  background: color-mix(in srgb, var(--tps-success) 8%, var(--tps-surface));
+}
+
+.training-platform-simulator__feedback[data-feedback-kind="info"] {
+  color: var(--tps-gold-ink);
+  border-left-color: var(--tps-gold);
+}
+
+.training-platform-simulator__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.training-platform-simulator__actions button,
+.training-platform-simulator__receipt button {
+  min-height: 46px;
+  padding: 11px 16px;
+  border: 1px solid var(--tps-line);
+  border-radius: 12px;
+  color: var(--tps-ink);
+  background: var(--tps-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.83rem;
+  font-weight: 820;
+}
+
+.training-platform-simulator__actions .training-platform-simulator__primary {
+  color: #fff;
+  border-color: var(--tps-platform);
+  background: var(--tps-platform);
+}
+
+.training-platform-simulator__actions button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+  opacity: 0.48;
+}
+
+.training-platform-simulator__receipt {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto auto;
+  gap: 15px;
+  align-items: center;
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid color-mix(in srgb, var(--tps-gold) 50%, transparent);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 5% 5%, color-mix(in srgb, var(--tps-gold) 34%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--tps-success) 7%, var(--tps-surface)), var(--tps-surface));
+  animation: training-platform-receipt-in 360ms ease both;
+}
+
+.training-platform-simulator__receipt[data-simulator-passed="false"] {
+  border-color: color-mix(in srgb, var(--tps-danger) 46%, transparent);
+  background: color-mix(in srgb, var(--tps-danger) 7%, var(--tps-surface));
+}
+
+.training-platform-simulator__receipt[data-simulator-passed="false"] .training-platform-simulator__receipt-icon {
+  background: var(--tps-danger);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--tps-danger) 11%, transparent);
+}
+
+.training-platform-simulator__receipt[data-simulator-passed="false"] div > p {
+  color: var(--tps-danger);
+}
+
+@keyframes training-platform-receipt-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.training-platform-simulator__receipt-icon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--tps-success);
+  font-size: 1.35rem;
+  font-weight: 900;
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--tps-success) 11%, transparent);
+}
+
+.training-platform-simulator__receipt div > p {
+  margin: 0 0 5px;
+  color: var(--tps-success);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.training-platform-simulator__receipt h3 {
+  font-size: clamp(1.2rem, 3vw, 1.55rem);
+}
+
+.training-platform-simulator__receipt div > span {
+  display: block;
+  margin-top: 7px;
+  color: var(--tps-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.training-platform-simulator__receipt code {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 7px;
+  border-radius: 7px;
+  color: var(--tps-primary);
+  background: var(--tps-soft);
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+
+.training-platform-simulator__receipt dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.training-platform-simulator__receipt dl > div {
+  display: grid;
+  min-width: 92px;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--tps-line);
+  border-radius: 10px;
+  background: var(--tps-surface);
+}
+
+.training-platform-simulator__receipt dt {
+  color: var(--tps-muted);
+  font-size: 0.61rem;
+  text-transform: uppercase;
+}
+
+.training-platform-simulator__receipt dd {
+  margin: 0;
+  color: var(--tps-ink);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.training-platform-simulators__legal {
+  padding: 14px 17px;
+  border-left: 3px solid var(--tps-gold);
+  background: color-mix(in srgb, var(--tps-gold) 7%, transparent);
+}
+
+.training-platform-simulators button:focus-visible,
+.training-platform-simulators input:focus-visible + span,
+.training-platform-simulator__feedback:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--tps-gold) 78%, #fff);
+  outline-offset: 3px;
+}
+
+@media (min-width: 860px) {
+  .training-platform-simulators__intro,
+  .training-platform-simulator__header {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.4fr);
+    align-items: end;
+  }
+
+  .training-platform-simulator__step {
+    grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+    align-items: start;
+  }
+
+  .training-platform-simulator__header-status {
+    justify-items: end;
+  }
+}
+
+@media (max-width: 720px) {
+  .training-platform-simulators__tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .training-platform-simulators__tabs button {
+    grid-template-columns: auto auto;
+    min-height: 48px;
+    gap: 7px;
+    align-items: center;
+  }
+
+  .training-platform-simulator__steps {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+
+  .training-platform-simulator__steps button {
+    flex: 0 0 120px;
+    scroll-snap-align: start;
+  }
+
+  .training-platform-simulator__receipt {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .training-platform-simulator__receipt-icon {
+    width: 46px;
+    height: 46px;
+  }
+
+  .training-platform-simulator__receipt button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .training-platform-simulator__receipt dl {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .training-platform-simulators__route b { display: none; }
+  .training-platform-simulator { border-radius: 20px; }
+  .training-platform-simulator__actions { display: grid; }
+  .training-platform-simulator__actions button { width: 100%; }
+  .training-platform-simulator__mock-top { grid-template-columns: 10px minmax(0, 1fr); }
+  .training-platform-simulator__mock-top em { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .training-platform-simulators *,
+  .training-platform-simulators *::before,
+  .training-platform-simulators *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -73,12 +73,14 @@ select is(
         'creator_create_generation_campaign',
         'creator_update_generation_campaign_spend_policy',
         'creator_prepare_content_review_evidence',
-        'creator_commit_content_review_evidence'
+        'creator_commit_content_review_evidence',
+        'creator_save_practical_project',
+        'creator_decide_practical_project'
       ])
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  46,
+  48,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -91,7 +93,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  46,
+  48,
   'authenticated can execute all creator RPCs'
 );
 
@@ -226,6 +228,7 @@ declare
   module_row record;
   exact_answers jsonb;
   walkthrough_id text;
+  practice_project_id uuid;
 begin
   select * into context_row from creator_test_context;
 
@@ -309,6 +312,31 @@ begin
   join content_factory.training_questions question
     on question.code = answer.question_code
   where question.module_code = 'operator_final_exam';
+
+  practice_project_id := (
+    public.creator_save_practical_project(jsonb_build_object(
+      'organization_id', context_row.organization_id,
+      'action', 'submit',
+      'evidence_kind', 'public_url',
+      'platform', 'youtube',
+      'evidence_url', 'https://example.test/practice/factory-owner',
+      'learner_note', 'Test-only practical project evidence.',
+      'rights_confirmed', true,
+      'self_check_codes', jsonb_build_array(
+        'product_match', 'watched_full', 'claims_safe'
+      ),
+      'idempotency_key', 'pgtap-practical-submit-owner-0001'
+    )) #>> '{practical_project,id}'
+  )::uuid;
+
+  perform public.creator_decide_practical_project(jsonb_build_object(
+    'organization_id', context_row.organization_id,
+    'id', practice_project_id,
+    'decision', 'approve',
+    'review_note', 'Test-only owner bootstrap approval.',
+    'media_watched_confirmed', true,
+    'idempotency_key', 'pgtap-practical-approve-owner-0001'
+  ));
 
   perform public.creator_submit_exam(jsonb_build_object(
     'organization_id', context_row.organization_id,

@@ -5278,22 +5278,34 @@ input[type="radio"] {
 }
 
 .knowledge-question legend {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
   width: 100%;
   padding: 0;
   color: var(--ink);
   font: 600 0.98rem/1.45 Georgia, serif;
+  gap: 9px;
 }
 
-.knowledge-question legend > span {
+.knowledge-question-number {
   display: inline-grid;
   width: 26px;
   height: 26px;
-  margin-right: 9px;
   border-radius: 8px;
   color: #fff;
   background: var(--forest);
   font: 700 0.7rem/1 Inter, sans-serif;
   place-items: center;
+}
+
+.knowledge-question-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.knowledge-question-copy small {
+  color: var(--ink-soft);
+  font: 650 0.72rem/1.45 Inter, sans-serif;
 }
 
 .knowledge-options {
@@ -5488,6 +5500,42 @@ input[type="radio"] {
 
 .data-table tbody tr:hover {
   background: #fbfcfb;
+}
+
+.knowledge-rationale {
+  display: grid;
+  margin-top: 13px;
+  gap: 7px;
+}
+
+.knowledge-rationale > span {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.knowledge-rationale textarea {
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+  border: 1px solid #cad9d3;
+  border-radius: 11px;
+  padding: 11px 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.94);
+  font: 500 0.83rem/1.5 Inter, sans-serif;
+}
+
+.knowledge-rationale textarea:focus {
+  border-color: #4f8a74;
+  outline: 3px solid rgba(79, 138, 116, 0.16);
+}
+
+.knowledge-rationale > small {
+  justify-self: end;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
 }
 
 .generation-table td:nth-child(3) {

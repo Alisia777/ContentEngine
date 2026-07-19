@@ -250,7 +250,7 @@ def test_achievement_sound_is_explicit_and_motion_has_accessible_fallback() -> N
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
     assert './training-journey.css?v=20260718.3' in INDEX
-    assert './app.js?v=20260718.6' in INDEX
+    assert './app.js?v=20260719.1' in INDEX
     assert 'from "./training-journey.js?v=20260718.3"' in APP
     assert 'from "./training-interactive.js?v=20260718.4"' in APP
 
@@ -264,6 +264,7 @@ def test_missing_quiz_answers_move_focus_to_the_problem() -> None:
     )[0]
     assert 'fieldset?.setAttribute("aria-invalid", "true")' in course_check
     assert 'fieldset?.focus({ preventScroll: true })' in course_check
-    assert 'firstIncorrect?.focus({ preventScroll: true })' in course_check
+    assert 'form.elements.namedItem(rationaleName)?.focus({ preventScroll: true })' in course_check
+    assert "правильные ответы и точный балл не раскрываются" in course_check
     assert 'card?.setAttribute("aria-invalid", "true")' in exam
     assert 'card?.focus({ preventScroll: true })' in exam

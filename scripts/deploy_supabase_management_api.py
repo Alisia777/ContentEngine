@@ -28,6 +28,7 @@ HISTORY_TABLE = "schema_migrations"
 DEPLOYMENT_LOCK_NAME = "contentengine_deploy:production"
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_PRIVATE_SQL_BYTES = 1_048_576
+MAX_PRIVATE_TRAINING_KEYS_BYTES = 262_144
 MIGRATION_NAME = re.compile(
     r"^(?P<version>[0-9]{12,20})_[a-z0-9][a-z0-9_]*[.]sql$"
 )
@@ -300,6 +301,241 @@ begin
 end;
 $contentengine_exam_contract$;
 """.strip()
+
+
+PRIVATE_TRAINING_CONTRACT_SQL = """
+do $contentengine_training_key_contract$
+declare
+  course_key_total integer;
+  platform_key_total integer;
+begin
+  select count(*) into course_key_total
+  from content_factory_private.training_answer_keys answer_key
+  join content_factory.training_questions question
+    on question.code = answer_key.question_code
+  where question.module_code in (
+    'factory_basics', 'video_quality', 'publishing_funnel', 'security_wb'
+  )
+    and question.order_index between 901 and 906
+    and not exists (
+      select 1
+      from jsonb_array_elements_text(
+        answer_key.correct_answers || answer_key.critical_answers
+      ) submitted(value)
+      where not exists (
+        select 1
+        from jsonb_array_elements(question.options) option(item)
+        where option.item ->> 'value' = submitted.value
+      )
+    );
+
+  select count(*) into platform_key_total
+  from content_factory_private.training_platform_answer_keys answer_key
+  where answer_key.assessment_version = 1;
+
+  if course_key_total <> 24 or platform_key_total <> 18 then
+    raise exception using
+      errcode = '23514',
+      message = 'private_training_key_contract_failed';
+  end if;
+end;
+$contentengine_training_key_contract$;
+""".strip()
+
+
+PRIVATE_KEY_ID = re.compile(r"^[a-z0-9][a-z0-9_]{1,99}$")
+COURSE_KEY_PREFIXES = (
+    "course_check_factory_basics_",
+    "course_check_video_quality_",
+    "course_check_publishing_funnel_",
+    "course_check_security_wb_",
+)
+PLATFORM_KEY_STEPS = (
+    "account",
+    "warmup",
+    "publication",
+    "review",
+    "link",
+    "result",
+)
+
+
+def _private_jsonb_literal(values: list[str]) -> str:
+    serialized = json.dumps(values, ensure_ascii=False, separators=(",", ":"))
+    return f"{_sql_literal(serialized)}::jsonb"
+
+
+def _private_key_list(
+    value: Any,
+    *,
+    label: str,
+    minimum: int,
+    maximum: int,
+) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or not minimum <= len(value) <= maximum
+        or not all(isinstance(item, str) and PRIVATE_KEY_ID.fullmatch(item) for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ConfigurationError(f"{label} has an invalid shape")
+    return value
+
+
+def decode_private_training_keys(encoded: str) -> str:
+    """Validate private assessment JSON and render data-only upserts."""
+
+    if not encoded or not encoded.strip():
+        raise ConfigurationError("SUPABASE_TRAINING_KEYS_B64 is required")
+    try:
+        raw = base64.b64decode(encoded.strip(), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ConfigurationError(
+            "SUPABASE_TRAINING_KEYS_B64 is not valid base64"
+        ) from exc
+    if not raw or len(raw) > MAX_PRIVATE_TRAINING_KEYS_BYTES:
+        raise ConfigurationError("Private training-key payload has an invalid size")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(
+            "Private training-key payload is not valid JSON"
+        ) from exc
+    if not isinstance(payload, dict) or set(payload) != {"version", "course", "platform"}:
+        raise ConfigurationError("Private training-key payload has an invalid shape")
+    if payload["version"] != 1:
+        raise ConfigurationError("Private training-key payload version is unsupported")
+
+    course_rows = payload["course"]
+    platform_rows = payload["platform"]
+    if not isinstance(course_rows, list) or len(course_rows) != 24:
+        raise ConfigurationError("Private course-key payload must contain 24 rows")
+    if not isinstance(platform_rows, list) or len(platform_rows) != 18:
+        raise ConfigurationError("Private platform-key payload must contain 18 rows")
+
+    course_values: list[str] = []
+    course_codes: set[str] = set()
+    for row in course_rows:
+        if not isinstance(row, dict) or set(row) != {
+            "question_code", "correct_answers", "critical_answers", "rubric"
+        }:
+            raise ConfigurationError("Private course-key row has an invalid shape")
+        code = row["question_code"]
+        rubric = row["rubric"]
+        if (
+            not isinstance(code, str)
+            or not any(code.startswith(prefix) for prefix in COURSE_KEY_PREFIXES)
+            or not PRIVATE_KEY_ID.fullmatch(code)
+            or code in course_codes
+            or not isinstance(rubric, str)
+            or not 20 <= len(rubric.strip()) <= 1200
+            or any(ord(character) < 32 and character not in "\n\t" for character in rubric)
+        ):
+            raise ConfigurationError("Private course-key row is invalid")
+        correct = _private_key_list(
+            row["correct_answers"],
+            label="Private course correct_answers",
+            minimum=1,
+            maximum=5,
+        )
+        critical = _private_key_list(
+            row["critical_answers"],
+            label="Private course critical_answers",
+            minimum=0,
+            maximum=5,
+        )
+        if set(correct).intersection(critical):
+            raise ConfigurationError("Private course key sets overlap")
+        course_codes.add(code)
+        course_values.append(
+            "(" + ", ".join((
+                _sql_literal(code),
+                _private_jsonb_literal(correct),
+                _private_jsonb_literal(critical),
+                _sql_literal(rubric.strip()),
+                "now()",
+            )) + ")"
+        )
+
+    platform_values: list[str] = []
+    platform_keys: set[tuple[str, str]] = set()
+    for row in platform_rows:
+        if not isinstance(row, dict) or set(row) != {
+            "assessment_version", "platform_code", "step_code",
+            "allowed_options", "correct_option", "critical_options",
+        }:
+            raise ConfigurationError("Private platform-key row has an invalid shape")
+        assessment_version = row["assessment_version"]
+        platform_code = row["platform_code"]
+        step_code = row["step_code"]
+        correct_option = row["correct_option"]
+        key = (platform_code, step_code)
+        if (
+            assessment_version != 1
+            or platform_code not in {"instagram", "youtube", "vk"}
+            or step_code not in PLATFORM_KEY_STEPS
+            or key in platform_keys
+            or not isinstance(correct_option, str)
+            or not PRIVATE_KEY_ID.fullmatch(correct_option)
+        ):
+            raise ConfigurationError("Private platform-key row is invalid")
+        allowed = _private_key_list(
+            row["allowed_options"],
+            label="Private platform allowed_options",
+            minimum=3,
+            maximum=4,
+        )
+        critical = _private_key_list(
+            row["critical_options"],
+            label="Private platform critical_options",
+            minimum=0,
+            maximum=3,
+        )
+        if correct_option not in allowed or not set(critical).issubset(allowed):
+            raise ConfigurationError("Private platform options are inconsistent")
+        if correct_option in critical:
+            raise ConfigurationError("Private platform key sets overlap")
+        platform_keys.add(key)
+        platform_values.append(
+            "(" + ", ".join((
+                "1",
+                _sql_literal(platform_code),
+                _sql_literal(step_code),
+                _private_jsonb_literal(allowed),
+                _sql_literal(correct_option),
+                _private_jsonb_literal(critical),
+                "now()",
+            )) + ")"
+        )
+
+    expected_platform_keys = {
+        (platform, step)
+        for platform in ("instagram", "youtube", "vk")
+        for step in PLATFORM_KEY_STEPS
+    }
+    if platform_keys != expected_platform_keys:
+        raise ConfigurationError("Private platform-key coverage is incomplete")
+
+    return "\n".join((
+        "insert into content_factory_private.training_answer_keys (\n"
+        "  question_code, correct_answers, critical_answers, rubric, updated_at\n"
+        ") values\n  " + ",\n  ".join(course_values) + "\n"
+        "on conflict (question_code) do update set\n"
+        "  correct_answers = excluded.correct_answers,\n"
+        "  critical_answers = excluded.critical_answers,\n"
+        "  rubric = excluded.rubric,\n"
+        "  updated_at = now();",
+        "insert into content_factory_private.training_platform_answer_keys (\n"
+        "  assessment_version, platform_code, step_code, allowed_options,\n"
+        "  correct_option, critical_options, updated_at\n"
+        ") values\n  " + ",\n  ".join(platform_values) + "\n"
+        "on conflict (assessment_version, platform_code, step_code) do update set\n"
+        "  allowed_options = excluded.allowed_options,\n"
+        "  correct_option = excluded.correct_option,\n"
+        "  critical_options = excluded.critical_options,\n"
+        "  updated_at = now();",
+        PRIVATE_TRAINING_CONTRACT_SQL,
+    ))
 
 
 def _contains_token_sequence(
@@ -828,12 +1064,18 @@ def main(argv: list[str] | None = None) -> int:
         project_ref = os.environ.get("SUPABASE_PROJECT_REF", "").strip()
         access_token = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
         private_exam_encoded = os.environ.get("SUPABASE_EXAM_KEYS_B64", "")
+        private_training_encoded = os.environ.get(
+            "SUPABASE_TRAINING_KEYS_B64", ""
+        )
         client = ManagementApiClient(
             project_ref=project_ref,
             access_token=access_token,
         )
         migrations = load_migrations(args.migrations_dir)
-        private_exam_sql_body = decode_private_exam_sql(private_exam_encoded)
+        private_exam_sql_body = "\n".join((
+            decode_private_exam_sql(private_exam_encoded),
+            decode_private_training_keys(private_training_encoded),
+        ))
         applied = deploy(
             client=client,
             migrations=migrations,
@@ -851,7 +1093,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Applied {len(applied)} immutable Supabase migration(s).")
     else:
         print("Supabase migrations are already current.")
-    print("Private exam grading data was provisioned without logging its contents.")
+    print("Private grading data was provisioned without logging its contents.")
     return 0
 
 

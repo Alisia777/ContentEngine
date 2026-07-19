@@ -11,6 +11,7 @@ export const RPC = Object.freeze({
   bootstrap: "creator_bootstrap",
   completeModule: "creator_complete_module",
   submitCourseCheck: "creator_submit_course_check",
+  submitPlatformSimulator: "creator_submit_platform_simulator",
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
   generationArchive: "creator_generation_archive",
@@ -39,6 +40,8 @@ export const RPC = Object.freeze({
   markNotificationsRead: "creator_mark_notifications_read",
   trainingProgress: "creator_training_progress",
   saveTrainingProgress: "creator_save_training_progress",
+  savePracticalProject: "creator_save_practical_project",
+  decidePracticalProject: "creator_decide_practical_project",
   savedWorkViews: "creator_saved_work_views",
   startProductResearch: "creator_start_product_research",
   productResearchStatus: "creator_product_research_status",
@@ -156,17 +159,34 @@ export class CreatorApi {
     return this.mutate(RPC.completeModule, { module_code: moduleCode });
   }
 
-  submitCourseCheck(moduleCode, answers) {
+  submitCourseCheck(moduleCode, answers, rationales = {}) {
     return this.mutate(RPC.submitCourseCheck, {
       module_code: moduleCode,
       answers,
+      rationales,
     });
   }
 
-  submitExam(answers) {
+  submitPlatformSimulator({ platformId, assessmentVersion = 1, decisions = {}, rationales = {} }) {
+    const platform = String(platformId || "").trim().toLowerCase();
+    if (!["instagram", "youtube", "vk"].includes(platform)) {
+      throw new CreatorApiError("Выберите Instagram, YouTube или VK.", {
+        code: "platform_simulator_platform_invalid",
+      });
+    }
+    return this.mutate(RPC.submitPlatformSimulator, {
+      platform,
+      assessment_version: Number(assessmentVersion),
+      decisions,
+      rationales,
+    });
+  }
+
+  submitExam(answers, rationales) {
     return this.mutate(RPC.submitExam, {
       module_code: "operator_final_exam",
       answers,
+      rationales,
     });
   }
 
@@ -190,6 +210,14 @@ export class CreatorApi {
       payload.cursor = options.cursor;
     }
     return this.call(RPC.workspaceSection, this.withOrganization(payload));
+  }
+
+  savePracticalProject(payload) {
+    return this.mutate(RPC.savePracticalProject, payload);
+  }
+
+  decidePracticalProject(payload) {
+    return this.mutate(RPC.decidePracticalProject, payload);
   }
 
   generationArchive(options = {}) {
@@ -1665,6 +1693,59 @@ export class CreatorApi {
     );
   }
 
+  async uploadTrainingPracticalObject(bucketId, pathPrefix, objectKey, file) {
+    this.assertTrainingPracticalObjectKey(bucketId, pathPrefix, objectKey, true);
+    const { data, error } = await this.supabase.storage
+      .from(bucketId)
+      .upload(objectKey, file, {
+        cacheControl: "3600",
+        contentType: file.type || "video/mp4",
+        upsert: false,
+      });
+    if (error) throw new CreatorApiError(toFriendlyMessage(error), error);
+    return data;
+  }
+
+  async removeTrainingPracticalObject(bucketId, pathPrefix, objectKey) {
+    this.assertTrainingPracticalObjectKey(bucketId, pathPrefix, objectKey, true);
+    const { error } = await this.supabase.storage.from(bucketId).remove([objectKey]);
+    if (error) throw new CreatorApiError(toFriendlyMessage(error), error);
+  }
+
+  async signedTrainingPracticalObjectUrls(bucketId, objectKeys, expiresIn = 600) {
+    const keys = [...new Set((objectKeys || []).map(String).filter(Boolean))];
+    if (!keys.length) return new Map();
+    keys.forEach((key) => this.assertTrainingPracticalObjectKey(bucketId, "", key, false));
+    const { data, error } = await this.supabase.storage
+      .from(bucketId)
+      .createSignedUrls(keys, Math.min(900, Math.max(60, Number(expiresIn) || 600)));
+    if (error) throw new CreatorApiError(toFriendlyMessage(error), error);
+    return new Map(
+      (data || [])
+        .filter((item) => item?.path && item?.signedUrl && !item?.error)
+        .map((item) => [item.path, item.signedUrl]),
+    );
+  }
+
+  assertTrainingPracticalObjectKey(bucketId, pathPrefix, objectKey, requireOwnPrefix) {
+    const bucket = String(bucketId || "");
+    const prefix = String(pathPrefix || "");
+    const key = String(objectKey || "");
+    const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+    const pattern = new RegExp(`^${uuid}/${uuid}/practical/[0-9a-f-]{20,80}\\.(?:mp4|webm|mov)$`, "iu");
+    if (
+      bucket !== "contentengine-training"
+      || !pattern.test(key)
+      || key.includes("..")
+      || key.includes("\\")
+      || (requireOwnPrefix && (!prefix || !key.startsWith(prefix)))
+    ) {
+      throw new CreatorApiError("Нет доступа к защищённой пробной работе.", {
+        code: "training_practical_storage_denied",
+      });
+    }
+  }
+
   assertPrivateObjectKey(objectKey) {
     const key = String(objectKey || "");
     if (
@@ -2005,14 +2086,20 @@ function toFriendlyMessage(error) {
     final_exam_required: "Рабочий кабинет откроется после итогового экзамена.",
     four_courses_required: "Сначала завершите все четыре обязательных курса.",
     required_courses_incomplete: "Сначала завершите все четыре обязательных курса.",
-    refreshed_courses_required: "Пройдите обновлённые мини-тесты всех четырёх блоков и завершите каждый блок заново.",
+    refreshed_courses_required: "Пройдите обновлённые рабочие аттестации всех четырёх блоков и завершите каждый блок заново.",
     course_not_found: "Учебный модуль больше недоступен. Обновите каталог.",
-    course_knowledge_check_required: "Сначала пройдите мини-тест этого блока на сервере.",
+    course_knowledge_check_required: "Сначала пройдите рабочую аттестацию этого блока на сервере.",
     course_practice_required: "Сначала завершите обязательную практику этого блока.",
     training_progress_sync_required: "Не удалось подтвердить практику на сервере. Проверьте соединение и повторите завершение блока — прогресс на экране сохранён.",
-    course_check_answers_invalid: "Проверьте ответы мини-теста и отправьте их ещё раз.",
-    course_check_catalog_unavailable: "Мини-тест временно недоступен. Обновите страницу.",
-    unknown_course_check_question: "Мини-тест обновился. Обновите страницу и ответьте заново.",
+    course_check_answers_invalid: "Проверьте все решения рабочей аттестации и отправьте их ещё раз.",
+    course_check_catalog_unavailable: "Рабочая аттестация временно недоступна. Обновите страницу.",
+    unknown_course_check_question: "Аттестация обновилась. Обновите страницу и ответьте заново.",
+    course_check_cooldown: "Следующая попытка рабочей аттестации откроется после обязательной паузы.",
+    course_check_daily_attempt_limit: "Лимит попыток рабочей аттестации за 24 часа исчерпан. Повторите материал и вернитесь позже.",
+    practical_project_self_review_not_allowed: "Свою пробную работу принимать нельзя: её должен независимо проверить другой руководитель.",
+    practical_project_private_file_required: "Финальный допуск выдаётся только по защищённому MP4. Верните внешнюю ссылку на доработку и запросите файл.",
+    practical_project_review_pending: "Работа уже отправлена и ожидает решения руководителя.",
+    practical_project_version_conflict: "Работа изменилась в другой вкладке. Обновите очередь перед решением.",
     exam_catalog_unavailable: "Каталог экзамена временно недоступен. Обновите страницу позже.",
     exam_cooldown: "Новая попытка экзамена пока недоступна. Дождитесь времени, указанного на экране.",
     exam_attempt_limit_active: "Лимит попыток за 24 часа исчерпан. Дождитесь времени следующей попытки на экране.",
@@ -2280,6 +2367,10 @@ function toFriendlyMessage(error) {
     task_not_found: "Задача не найдена. Обновите список.",
     task_access_denied: "Эта задача назначена другому участнику.",
     task_transition_not_allowed: "Для текущего статуса это действие недоступно. Обновите список задач.",
+    final_exam_rationales_required: "Письменно разберите четыре ключевых кейса итогового экзамена.",
+    final_exam_rationale_invalid: "Заполните обоснование по схеме «Риск / Проверка / Действие» своими словами.",
+    final_exam_rationales_must_be_unique: "Для каждого ключевого кейса нужно отдельное обоснование.",
+    final_exam_rationales_immutable: "Уже отправленные обоснования этой попытки нельзя изменить. Обновите экзамен.",
     idempotency_key_conflict: "Запрос изменился во время повтора. Обновите раздел и выполните действие ещё раз.",
   };
 

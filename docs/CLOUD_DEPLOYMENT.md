@@ -121,6 +121,7 @@ encrypted secrets in that environment:
 | --- | --- |
 | `SUPABASE_ACCESS_TOKEN` | Revocable Supabase personal access token used only by the production migration/configuration steps |
 | `SUPABASE_EXAM_KEYS_B64` | Base64-encoded, idempotent SQL payload that provisions the private exam grading keys after migrations |
+| `SUPABASE_TRAINING_KEYS_B64` | Base64-encoded, schema-validated JSON bank for private course and platform-simulator grading keys |
 | `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 | `RUNWAYML_API_SECRET` | Server-only provider key synchronized to Supabase for explicitly confirmed paid video generation |
 | `OPENAI_API_KEY` | Server-only provider key synchronized to Supabase for explicitly confirmed product research with web search and image analysis |
@@ -143,12 +144,15 @@ as a Pages variable. The build creates `_site/config.js` at release time and
 fails if the key is not a publishable key or if the artifact contains a server
 secret/local endpoint marker.
 
-Prepare `SUPABASE_EXAM_KEYS_B64` outside the repository and paste it directly
-into the environment-secret form. Do not place the decoded grading SQL in a
-commit, issue, Actions input, screenshot, artifact or chat. The provisioning
-step scopes the secret to one step, decodes and validates it only in process
-memory, withholds all database-command output and blocks the release if
-validation or application fails.
+Prepare `SUPABASE_EXAM_KEYS_B64` and `SUPABASE_TRAINING_KEYS_B64` outside the
+repository and paste them directly into the environment-secret form. Do not
+place decoded grading data in a commit, issue, Actions input, screenshot,
+artifact or chat. The provisioning step scopes both secrets to one step,
+decodes and validates them only in process memory, withholds all
+database-command output and blocks the release if validation or application
+fails. The training secret is data-only JSON: the deployer checks exact row
+counts, identifiers, option sets and full platform coverage before rendering
+the two approved private-table upserts.
 
 Being signed in to the Supabase dashboard does not authorize a GitHub runner.
 The dashboard session is for the human operator; `SUPABASE_ACCESS_TOKEN`

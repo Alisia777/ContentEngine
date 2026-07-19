@@ -109,6 +109,32 @@ import {
   shouldCelebrateCourse,
 } from "./training-journey.js?v=20260718.3";
 import {
+  bindTrainingPlatformSimulators,
+  syncPlatformSimulatorWalkthroughDOM,
+  trainingPlatformSimulatorsMarkup,
+} from "./training-platform-simulators.js?v=20260719.1";
+import {
+  bindTrainingMediaCards,
+  trainingMediaCardsMarkup,
+} from "./training-media-cards.js?v=20260719.1";
+import {
+  normalizeTrainingPracticalProject,
+  normalizeTrainingPracticalReviews,
+  readTrainingPracticalDecision,
+  readTrainingPracticalSubmission,
+  syncTrainingPracticalSource,
+  trainingPracticalGateSnapshot,
+  trainingPracticalProjectMarkup,
+  trainingPracticalReviewQueueMarkup,
+} from "./training-practical-review.js?v=20260719.1";
+
+const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
+  "platform_publish_instagram",
+  "platform_publish_youtube",
+  "platform_publish_vk",
+]);
+let trainingMediaCatalogPromise = null;
+import {
   myWorkRequestOptions,
   myWorkWorkspaceMarkup,
   normalizeMyWork,
@@ -152,6 +178,8 @@ const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
+const FINAL_EXAM_DRAFT_VERSION = 2;
+const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
 const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "owner",
@@ -176,131 +204,138 @@ const COURSE_MASTERY_FALLBACKS = Object.freeze({
 const COURSE_KNOWLEDGE_PRESENTATION = Object.freeze({
   factory_basics: Object.freeze({
     audienceLabel: "Всем участникам",
-    roleHint: "Представьте, что вы впервые открыли портал: выберите один безопасный следующий шаг.",
+    roleHint: "Разберите кейс целиком: учтите роль, состояние задачи и следы в портале, затем выберите точный набор действий и объясните компромисс.",
   }),
   video_quality: Object.freeze({
     audienceLabel: "Тем, кто снимает сам или генерирует с ИИ",
-    roleHint: "Оценивайте только один готовый ролик: точность товара, качество кадра и возможность передать его на проверку.",
+    roleHint: "Сопоставьте технический результат, точность товара и достаточность доказательств; в multi-select отметьте весь необходимый набор, а не первый правдоподобный пункт.",
   }),
   publishing_funnel: Object.freeze({
     audienceLabel: "Тем, кто публикует в соцсетях",
-    roleHint: "Считайте, что файл уже одобрен: решите, можно ли публиковать и что нужно вернуть в портал.",
+    roleHint: "Оцените назначение, права, правила площадки и доказательство результата вместе; выберите точный набор с учётом конфликта дедлайна и прослеживаемости.",
   }),
   security_wb: Object.freeze({
     audienceLabel: "Всем участникам",
-    roleHint: "Если артикул, сумма или статус не совпадают, выбирайте остановку и проверку у руководителя.",
+    roleHint: "Сверьте идентификаторы, статус, полномочия и источник данных; не угадывайте одно универсальное действие — восстановите проверяемую последовательность решения.",
   }),
 });
 const FINAL_EXAM_PRESENTATION = Object.freeze({
   exam_sku_mismatch: Object.freeze({
-    prompt: "Фото товара не совпадают с артикулом в задаче. Что делать?",
+    prompt: "До дедлайна 25 минут. В задаче назначен SKU A, но на фото из рабочей папки виден SKU B; менеджер пока не отвечает. Какой маршрут оставляет проверяемое доказательство и не смешивает товары?",
     options: Object.freeze({
-      "Использовать похожие фото и отметить это после публикации": "Продолжить с похожими фото",
-      "Переименовать SKU B в отчёте": "Переименовать другой артикул",
-      "Остановить задачу и запросить точные материалы SKU A": "Остановить и запросить точные материалы",
-      "Сделать один тестовый ролик без проверки": "Сделать тестовый ролик без проверки",
+      "Использовать похожие фото и отметить это после публикации": "Собрать ролик из доступных фото, а конфликт SKU зафиксировать в отчёте уже после размещения",
+      "Переименовать SKU B в отчёте": "Считать SKU B временным алиасом и переименовать его в итоговом отчёте без отдельного согласования",
+      "Остановить задачу и запросить точные материалы SKU A": "Поставить задачу на паузу, приложить скрин конфликта и запросить точные материалы либо явное переназначение SKU",
+      "Сделать один тестовый ролик без проверки": "Сделать закрытый тестовый ролик на SKU B, не отправляя его на проверку до ответа менеджера",
     }),
   }),
   exam_provider_wrong_pack: Object.freeze({
-    prompt: "Генерация завершилась, но упаковка в ролике неверная. Что делать?",
+    prompt: "Провайдер вернул статус success и списал стоимость, но на 6-й секунде упаковка меняет цвет и логотип. Остальные варианты партии корректны, дедлайн близко. Как обработать именно этот результат?",
     options: Object.freeze({
-      "Одобрить, потому что API завершился успешно": "Одобрить из-за успешного статуса API",
-      "Опубликовать с предупреждением в описании": "Опубликовать с предупреждением",
-      "Отклонить конкретный файл и вернуть на пересоздание": "Отклонить файл и пересоздать",
-      "Скрыть неверные кадры обложкой": "Скрыть ошибку обложкой",
+      "Одобрить, потому что API завершился успешно": "Принять результат по техническому success, сохранив замечание о визуальном отклонении для следующей партии",
+      "Опубликовать с предупреждением в описании": "Разместить текущий файл с уточнением в описании, что цвет упаковки может отличаться",
+      "Отклонить конкретный файл и вернуть на пересоздание": "Отклонить только дефектный файл, приложить таймкод и вернуть его на пересоздание, не ломая корректную часть партии",
+      "Скрыть неверные кадры обложкой": "Выбрать корректную обложку и сократить превью так, чтобы спорный кадр не был первым",
     }),
   }),
   exam_qa_requirements: Object.freeze({
-    prompt: "Что проверить перед одобрением ролика? Выберите все нужные действия.",
+    prompt: "Ролик технически готов, автопроверка не нашла ошибок, а публикационное окно через 40 минут. Какие проверки дают достаточное доказательство ручного QA до одобрения? Выберите все необходимые.",
     options: Object.freeze({
-      "Посмотреть MP4 полностью": "Посмотреть ролик полностью",
-      "Сверить товар и упаковку с точными исходниками": "Сверить товар и упаковку",
-      "Проверить обещания, текст и CTA": "Проверить обещания, текст и призыв",
-      "Дождаться 1000 просмотров": "Дождаться 1000 просмотров",
+      "Посмотреть MP4 полностью": "Просмотреть финальный MP4 от первого до последнего кадра со звуком, а не только превью",
+      "Сверить товар и упаковку с точными исходниками": "Сопоставить упаковку, вариант и артикул с утверждёнными исходниками именно этой задачи",
+      "Проверить обещания, текст и CTA": "Проверить титры, фактические обещания и CTA против брифа и ограничений площадки",
+      "Дождаться 1000 просмотров": "Считать QA завершённым только после пилотной публикации и первых 1000 просмотров",
     }),
   }),
   exam_missing_destination: Object.freeze({
-    prompt: "Ролик готов, но аккаунт для публикации не назначен. Что делать?",
+    prompt: "Файл одобрен, но в задаче пусто поле площадки; в чате называют два разных аккаунта, и между ними возник конфликт назначения. До слота публикации 15 минут. Что фиксировать в портале?",
     options: Object.freeze({
-      "Выбрать любой доступный аккаунт": "Выбрать любой аккаунт",
-      "Передать ролик коллеге без фиксации": "Передать коллеге без записи в портале",
-      "Остановиться и запросить назначение площадки": "Остановиться и запросить назначение",
-      "Опубликовать в личном аккаунте": "Опубликовать в личном аккаунте",
+      "Выбрать любой доступный аккаунт": "Взять свободный командный аккаунт той же площадки и после публикации сообщить, куда ушёл ролик",
+      "Передать ролик коллеге без фиксации": "Передать файл публикатору из чата и оставить выбор аккаунта на его стороне без изменения задачи",
+      "Остановиться и запросить назначение площадки": "Удержать публикацию, отметить блокер назначения и запросить одно подтверждённое направление в самой задаче",
+      "Опубликовать в личном аккаунте": "Не терять слот: выпустить ролик в личном тестовом аккаунте и затем перенести ссылку",
     }),
   }),
   exam_publication_evidence: Object.freeze({
-    prompt: "Что сохранить после публикации? Выберите нужные данные.",
+    prompt: "Публикатор сообщает «готово», но через неделю по ролику будут сверять площадку, задачу и выплату. Какие данные составляют минимальное проверяемое доказательство публикации? Выберите все нужные.",
     options: Object.freeze({
-      "Публичный final URL поста": "Публичную ссылку на пост",
-      "Tracking link из назначенной задачи": "Трекинговую ссылку из задачи",
-      "Пароль от социальной сети": "Пароль от соцсети",
-      "OAuth access token": "OAuth-токен",
+      "Публичный final URL поста": "Сохранить доступный final URL именно опубликованного поста и проверить, что он открывается",
+      "Tracking link из назначенной задачи": "Связать публикацию с tracking link, выданной в назначенной задаче, не создавая новую вручную",
+      "Пароль от социальной сети": "Добавить пароль аккаунта в закрытое поле доказательства, чтобы проверяющий мог войти при споре",
+      "OAuth access token": "Приложить OAuth-токен к доказательству, чтобы коннектор позднее подтвердил принадлежность поста",
     }),
   }),
   exam_metrics_source: Object.freeze({
-    prompt: "Коннектор метрик не работает. Как корректно сохранить цифры вручную?",
+    prompt: "Коннектор метрик не отвечает два часа, а недельный отчёт нужно закрыть сегодня. Как сохранить ручной срез так, чтобы завтра его не приняли за данные API и можно было воспроизвести расчёт?",
     options: Object.freeze({
-      "Ввести накопительный ручной или CSV-снимок с явной маркировкой источника и времени": "Загрузить ручной или CSV-снимок с источником и временем",
-      "Назвать приблизительные цифры результатом API": "Назвать приблизительные цифры данными API",
-      "Передать пароль аналитику для скрейпинга кабинета": "Передать пароль аналитику",
-      "Скопировать цифры конкурента": "Скопировать цифры конкурента",
+      "Ввести накопительный ручной или CSV-снимок с явной маркировкой источника и времени": "Загрузить ручной или CSV-снимок, указав кабинет-источник, время среза и накопительный характер показателей",
+      "Назвать приблизительные цифры результатом API": "Внести оценочные цифры как предварительный результат API и исправить их после восстановления коннектора",
+      "Передать пароль аналитику для скрейпинга кабинета": "Выдать аналитику временный пароль, чтобы он сам выгрузил показатели напрямую из кабинета",
+      "Скопировать цифры конкурента": "Использовать медиану сопоставимых роликов как временный факт и пометить её отраслевым ориентиром",
     }),
   }),
   exam_secret_request: Object.freeze({
-    prompt: "Коллега просит OAuth-токен в комментарии. Что делать?",
+    prompt: "Коллега с ролью публикатора пишет, что интеграция остановилась, и просит OAuth-токен «на пять минут» прямо в комментарии к срочной задаче. Как снять блокер без передачи секрета?",
     options: Object.freeze({
-      "Вставить токен и удалить комментарий позже": "Отправить токен и удалить позже",
-      "Отправить токен личным сообщением": "Отправить токен лично",
-      "Не передавать секрет, остановить действие и сообщить владельцу безопасного контура": "Не передавать секрет и сообщить владельцу",
-      "Сохранить токен в названии файла": "Записать токен в имя файла",
+      "Вставить токен и удалить комментарий позже": "Передать токен в комментарии, удалить сообщение после подключения и зафиксировать время доступа",
+      "Отправить токен личным сообщением": "Передать токен в личном сообщении только этому сотруднику и попросить подтвердить удаление",
+      "Не передавать секрет, остановить действие и сообщить владельцу безопасного контура": "Не раскрывать токен, отметить технический блокер и передать восстановление владельцу защищённой интеграции",
+      "Сохранить токен в названии файла": "Поместить токен в имя закрытого служебного файла и дать коллеге ссылку на него",
     }),
   }),
   exam_real_spend_disabled: Object.freeze({
-    prompt: "Платная генерация не разрешена владельцем. Что делать?",
+    prompt: "Платный провайдер доступен, но spend gate команды выключен. Клиент ждёт пример к созвону через час, прогноз одного запуска — $2.32. Как действовать без скрытого расхода?",
     options: Object.freeze({
-      "Запустить один ролик — это не считается расходом": "Запустить один ролик без разрешения",
-      "Остаться в mock/dry-run и запросить отдельное разрешение владельца на spend gate": "Остаться в тестовом режиме и запросить разрешение",
-      "Разделить запуск на несколько маленьких задач": "Разделить запуск на мелкие задачи",
-      "Подставить личный API key": "Использовать личный API-ключ",
+      "Запустить один ролик — это не считается расходом": "Сделать один минимальный canary: сумма мала, а массовую генерацию оставить выключенной",
+      "Остаться в mock/dry-run и запросить отдельное разрешение владельца на spend gate": "Подготовить dry-run и запросить у владельца явное разрешение на конкретный платный запуск со стоимостью",
+      "Разделить запуск на несколько маленьких задач": "Разбить запрос на несколько коротких задач, каждая из которых останется ниже порога внимания",
+      "Подставить личный API key": "Запустить через личный API-ключ и не учитывать сумму в бюджете команды",
     }),
   }),
   exam_wb_alias_history: Object.freeze({
-    prompt: "У товара появился новый артикул, а метрики есть по старому и новому. Что делать?",
+    prompt: "Карточка товара переехала на новый артикул, но продажи и публикации продолжают приходить по старому. В отчёте уже есть два периода и конфликт названий. Как сохранить непрерывную историю без смешения товаров?",
     options: Object.freeze({
-      "Переписать старые записи на новый артикул без истории": "Заменить старый артикул без истории",
-      "Создать датированную alias-связь обоих артикулов с каноническим товаром": "Связать оба артикула с товаром и сохранить дату",
-      "Создать случайный новый SKU": "Создать случайный SKU",
-      "Сложить метрики с любым товаром того же бренда": "Объединить с похожим товаром бренда",
+      "Переписать старые записи на новый артикул без истории": "Нормализовать прошлые записи на новый артикул, чтобы в отчёте осталась одна строка без периода перехода",
+      "Создать датированную alias-связь обоих артикулов с каноническим товаром": "Привязать оба артикула к одному каноническому товару с датой действия связи и сохранить исходные события",
+      "Создать случайный новый SKU": "Создать внутренний третий SKU для переходного периода и перенести в него обе серии метрик",
+      "Сложить метрики с любым товаром того же бренда": "Объединить показатели в брендовый итог, если названия и категория карточек совпадают",
     }),
   }),
   exam_payout_separation: Object.freeze({
-    prompt: "Креатор добавил ссылку на публикацию. Когда выплата подтверждена?",
+    prompt: "Креатор приложил рабочий URL и отметил публикацию выполненной, но метрики ещё не загрузились, а в реестре выплата остаётся pending. Какое событие является отдельным доказательством права на выплату?",
     options: Object.freeze({
-      "Сразу после отметки самого креатора": "Сразу после отметки креатора",
-      "После проверки доказательства и решения уполномоченного owner/admin": "После проверки и решения руководителя",
-      "После любого комментария в чате": "После комментария в чате",
-      "До публикации, если ролик выглядит хорошо": "До публикации, если ролик хороший",
+      "Сразу после отметки самого креатора": "Самоотметка креатора и доступный URL автоматически переводят начисление в подтверждённое",
+      "После проверки доказательства и решения уполномоченного owner/admin": "Уполномоченный руководитель сверяет доказательство с задачей и отдельно принимает решение по pending-начислению",
+      "После любого комментария в чате": "Комментарий менеджера «принято» в рабочем чате достаточно считать решением по выплате",
+      "До публикации, если ролик выглядит хорошо": "После QA можно предварительно подтвердить выплату, а URL добавить в реестр позднее",
     }),
   }),
   exam_platform_claims: Object.freeze({
-    prompt: "Когда публикацию нужно остановить? Выберите все подходящие ситуации.",
+    prompt: "Публикационный слот через 10 минут. Какие признаки являются блокерами, требующими остановить выпуск до устранения, даже если файл уже одобрен визуально? Выберите все подходящие.",
     options: Object.freeze({
-      "Нет подтверждённых прав на исходник": "Нет прав на исходник",
-      "В ролике есть неподтверждённое медицинское обещание": "Есть неподтверждённое медицинское обещание",
-      "Фактический товар отличается от задания": "Товар отличается от задания",
-      "В календаре свободно другое время": "В календаре есть другое время",
+      "Нет подтверждённых прав на исходник": "Для одного исходника нет подтверждения прав, хотя он уже использовался в прошлой кампании",
+      "В ролике есть неподтверждённое медицинское обещание": "В голосе осталось медицинское обещание, которого нет в согласованных доказательствах продукта",
+      "Фактический товар отличается от задания": "В кадре фактический вариант товара отличается от назначенного в задаче",
+      "В календаре свободно другое время": "Назначенный слот неудобен, но в календаре позже есть свободное окно той же площадки",
     }),
   }),
   exam_idempotent_retry: Object.freeze({
-    prompt: "После сетевой ошибки неизвестно, создалась ли партия. Как повторить запрос без дублей?",
+    prompt: "После отправки партии интерфейс показал timeout. В списке пока пусто, но провайдер мог принять запрос и списать деньги. Как выполнить воспроизводимую проверку и повтор без дублей?",
     options: Object.freeze({
-      "Создать новый idempotency key и повторить несколько раз": "Создать новый ключ и повторить несколько раз",
-      "Повторить тот же запрос с тем же idempotency key и проверить сохранённый результат": "Повторить с тем же ключом и проверить результат",
-      "Удалить все задачи команды": "Удалить все задачи",
-      "Увеличить количество роликов": "Увеличить количество роликов",
+      "Создать новый idempotency key и повторить несколько раз": "Сформировать новый ключ и повторять до появления партии, затем удалить лишние результаты",
+      "Повторить тот же запрос с тем же idempotency key и проверить сохранённый результат": "Повторить неизменённый запрос с прежним idempotency key и сверить возвращённый сохранённый результат",
+      "Удалить все задачи команды": "Очистить незавершённые задачи текущей кампании и создать партию заново с нулевой истории",
+      "Увеличить количество роликов": "Добавить к новой партии количество «пропавших» роликов, а совпадения убрать после ответа провайдера",
     }),
   }),
 });
+const FINAL_EXAM_RATIONALE_PROMPTS = Object.freeze({
+  exam_sku_mismatch: "Обоснуйте остановку или продолжение: какой риск для товара, что именно вы проверите и какое действие зафиксируете в портале?",
+  exam_qa_requirements: "Опишите контроль качества: какой риск нельзя пропустить, каким доказательством вы его проверите и что сделаете по результату?",
+  exam_publication_evidence: "Опишите доказательство публикации: какой риск есть для учёта, что вы сверите и какое действие выполните в портале?",
+  exam_payout_separation: "Разделите публикацию и выплату: какой риск возникает, что подтверждает начисление и кто должен выполнить следующее действие?",
+});
+const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONALE_PROMPTS));
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_GENERATION_SKUS = Object.freeze({
@@ -1183,6 +1218,10 @@ function bindGlobalEvents() {
     refreshManagerDashboardIfStale,
     MANAGER_DASHBOARD_MAX_AGE_MS,
   );
+  window.setInterval(
+    () => { void refreshTrainingPracticalReviews({ silent: true }); },
+    MANAGER_DASHBOARD_MAX_AGE_MS,
+  );
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
     state.workspaceDeepLinkFocusKey = "";
@@ -1215,6 +1254,7 @@ function bindGlobalEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       refreshManagerDashboardIfStale();
+      void refreshTrainingPracticalReviews({ silent: true });
       scheduleRealGenerationPolling(250);
       scheduleContentReviewPolling(250);
     } else {
@@ -1496,7 +1536,11 @@ async function loadBootstrap() {
 
 function normalizeBootstrap(raw) {
   const source = raw?.data && typeof raw.data === "object" ? raw.data : raw || {};
-  const trainingSource = source.learning || source.training || source.onboarding || {};
+  const trainingSource = {
+    ...(source.onboarding && typeof source.onboarding === "object" ? source.onboarding : {}),
+    ...(source.learning && typeof source.learning === "object" ? source.learning : {}),
+    ...(source.training && typeof source.training === "object" ? source.training : {}),
+  };
   const serverModules = Array.isArray(trainingSource.modules) ? trainingSource.modules : [];
   const rawCertifications = trainingSource.certifications || source.certifications || [];
   const certifications = Array.isArray(rawCertifications) ? rawCertifications : [];
@@ -1536,6 +1580,27 @@ function normalizeBootstrap(raw) {
       trainingSource.workspace_access ??
       false,
   );
+  const practicalProject = normalizeTrainingPracticalProject(
+    trainingSource.practical_project || trainingSource.practicalProject || null,
+  );
+  const practicalReviews = normalizeTrainingPracticalReviews(
+    trainingSource.practical_reviews || trainingSource.practicalReviews || [],
+  );
+  const practicalUploadSource = trainingSource.practical_upload || trainingSource.practicalUpload || {};
+  const practicalUpload = {
+    bucketId: String(practicalUploadSource.bucket_id || practicalUploadSource.bucketId || ""),
+    pathPrefix: String(practicalUploadSource.path_prefix || practicalUploadSource.pathPrefix || ""),
+    maxUploadBytes: Math.max(1, Math.min(
+      52_428_800,
+      Number(practicalUploadSource.max_upload_bytes || practicalUploadSource.maxUploadBytes) || 52_428_800,
+    )),
+    acceptedMimeTypes: (Array.isArray(practicalUploadSource.accepted_mime_types)
+      ? practicalUploadSource.accepted_mime_types
+      : Array.isArray(practicalUploadSource.acceptedMimeTypes)
+        ? practicalUploadSource.acceptedMimeTypes
+        : ["video/mp4"]
+    ).map(String).filter((item) => ["video/mp4", "video/webm", "video/quicktime"].includes(item)),
+  };
 
   return {
     accessState: String(source.state || ""),
@@ -1546,6 +1611,9 @@ function normalizeBootstrap(raw) {
       completedModules,
       modules: serverModules,
       courseChecks,
+      practicalProject,
+      practicalReviews,
+      practicalUpload,
       exam: {
         passed: examPassed,
         score: normalizePercent(examSource.score ?? trainingSource.exam_score ?? 0),
@@ -1584,6 +1652,12 @@ function hasOperationalWorkspaceRole() {
   return OPERATIONAL_WORKSPACE_ROLES.has(role);
 }
 
+function practicalProjectApproved() {
+  return normalizeTrainingPracticalProject(
+    state.bootstrap?.training?.practicalProject,
+  ).approved;
+}
+
 function hasWorkspaceAccess() {
   if (
     !state.bootstrap
@@ -1594,6 +1668,7 @@ function hasWorkspaceAccess() {
   const completed = new Set(state.bootstrap.training.completedModules);
   return (
     REQUIRED_MODULE_CODES.every((code) => completed.has(code)) &&
+    practicalProjectApproved() &&
     state.bootstrap.training.exam.passed === true
   );
 }
@@ -1740,11 +1815,17 @@ function courseMasteryState(course) {
   const serverCompleted = state.bootstrap?.training?.completedModules?.includes(course.code) === true;
   const requiredLessonIds = courseRequiredLessonIds(course);
   const requiredWalkthroughIds = course.mastery?.requiredWalkthroughIds || [];
+  const authoritativeWalkthroughIds = requiredWalkthroughIds.filter((walkthroughId) => (
+    state.trainingProgress.items.get(trainingProgressKey(course.code, walkthroughId))?.completed === true
+  ));
   const completedWalkthroughIds = serverCompleted
     ? requiredWalkthroughIds
-    : Array.from(document.querySelectorAll(
-      `[data-training-course="${CSS.escape(course.code)}"][data-training-complete="true"]`,
-    )).map((root) => String(root.dataset.trainingWalkthrough || "")).filter(Boolean);
+    : [...new Set([
+      ...authoritativeWalkthroughIds,
+      ...Array.from(document.querySelectorAll(
+        `[data-training-course="${CSS.escape(course.code)}"][data-training-complete="true"]`,
+      )).map((root) => String(root.dataset.trainingWalkthrough || "")).filter(Boolean),
+    ])];
   const confirmations = Array.from(document.querySelectorAll("[data-course-ack]"));
   return courseMasterySnapshot({
     requiredLessonIds,
@@ -1763,7 +1844,7 @@ function masteryTaskCopy(key, task) {
   const labels = {
     lessons: ["Изучите основной маршрут", "уроков отмечено понятными"],
     practice: ["Завершите обязательную лабораторию", "практик подтверждено"],
-    test: ["Докажите знание на мини-тесте", "серверная проверка"],
+    test: ["Пройдите рабочую аттестацию", "серверная проверка"],
     confirmation: ["Подтвердите готовность", "пунктов самопроверки"],
   };
   const [title, suffix] = labels[key];
@@ -1778,7 +1859,7 @@ function courseMasteryCoachMarkup(course) {
   return `
     <section class="card course-mastery-coach" data-course-mastery-coach data-course-code="${escapeHtml(course.code)}" aria-labelledby="course-mastery-title">
       <header class="course-mastery-coach__header">
-        <div><p class="eyebrow">Тренер навыка · учебные XP</p><h2 id="course-mastery-title">Не просто прочитайте — подтвердите действие</h2><p>Блок считается освоенным после маршрута, лаборатории, мини-теста и финальной самопроверки.</p></div>
+        <div><p class="eyebrow">Тренер навыка · учебные XP</p><h2 id="course-mastery-title">Не просто прочитайте — подтвердите действие</h2><p>Блок считается освоенным после маршрута, лаборатории, рабочей аттестации и финальной самопроверки.</p></div>
         <div class="course-mastery-coach__score" aria-label="Текущий учебный опыт"><strong data-course-mastery-xp>0</strong><span>из 100 XP</span></div>
       </header>
       <div class="course-mastery-coach__bar" role="progressbar" aria-label="Освоение навыка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-course-mastery-progress><span data-course-mastery-progress-fill style="--mastery-progress:0%"></span></div>
@@ -1836,7 +1917,7 @@ function syncCourseMasteryPanel(course = null) {
     const copy = {
       lessons: "Сначала отметьте понятными все уроки вашего маршрута.",
       practice: "Сначала завершите обязательную лабораторию и дождитесь сохранения прогресса.",
-      test: "Сначала пройдите мини-тест блока.",
+      test: "Сначала пройдите рабочую аттестацию блока.",
       confirmation: "Подтвердите все пункты финальной самопроверки.",
       done: "Все четыре шага готовы — блок можно завершить.",
     };
@@ -1960,10 +2041,19 @@ function learningCourses() {
         ? meta.knowledge_check
         : {};
       const knowledgeQuestions = (Array.isArray(rawKnowledgeCheck.questions) ? rawKnowledgeCheck.questions : [])
-        .slice(0, 5)
+        .slice(0, 8)
         .map((question, index) => ({
           id: String(question?.id || `question_${index + 1}`),
+          type: ["single_choice", "multi_select"].includes(String(question?.question_type || question?.type || ""))
+            ? String(question.question_type || question.type)
+            : "single_choice",
           prompt: String(question?.prompt || ""),
+          rationalePrompt: String(
+            question?.rationale_prompt
+            || question?.rationalePrompt
+            || "Объясните, почему выбранный маршрут безопасен и что вы проверите перед следующим действием.",
+          ).slice(0, 500),
+          requiresRationale: question?.requires_rationale !== false,
           options: (Array.isArray(question?.options) ? question.options : [])
             .slice(0, 6)
             .map((option) => ({ value: String(option?.value || ""), label: String(option?.label || "") }))
@@ -2037,7 +2127,8 @@ function learningCourses() {
         knowledgeCheck,
         knowledgeRemediation,
         mastery,
-        interactiveWalkthroughs: normalizeInteractiveWalkthroughs(content.interactive_walkthroughs),
+        interactiveWalkthroughs: normalizeInteractiveWalkthroughs(content.interactive_walkthroughs)
+          .filter((walkthrough) => !DEDICATED_PLATFORM_WALKTHROUGH_IDS.has(walkthrough.id)),
         lessonGroups: lessonPath.groups,
         allLessonCount: lessonPath.allLessons.length,
         recommendedLessonCount: lessonPath.recommendedLessonIds.length,
@@ -2071,6 +2162,106 @@ function finalExamQuestions() {
   return serverQuestions;
 }
 
+function finalExamRequiresRationale(questionCode) {
+  return FINAL_EXAM_RATIONALE_CODES.includes(String(questionCode || ""));
+}
+
+function finalExamRationaleIsValid(value) {
+  const rationale = String(value || "").replace(/\s+/gu, " ").trim();
+  const words = rationale.toLocaleLowerCase("ru-RU").match(/[\p{L}\p{N}]+/gu) || [];
+  const stopWords = new Set(["это", "как", "для", "что", "или", "при", "без", "под", "над", "его", "её", "она", "они", "там", "тут", "так", "вот", "the", "and", "for", "with", "this", "that"]);
+  const meaningfulWords = new Set(words.filter((word) => (
+    word.length >= 3
+    && /\p{L}/u.test(word)
+    && /[аеёиоуыэюяaeiouy]/u.test(word)
+    && !stopWords.has(word)
+  )));
+  return rationale.length >= 40
+    && rationale.length <= 900
+    && words.length >= 7
+    && meaningfulWords.size >= 5
+    && /риск\s*:.+(проверка|доказательство)\s*:.+(действие|следующий шаг)\s*:/iu.test(rationale);
+}
+
+function finalExamDraftKey(userId = state.user?.id) {
+  const safeUser = String(userId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  return safeUser ? `contentengine.final-exam-draft.v${FINAL_EXAM_DRAFT_VERSION}:${safeUser}` : "";
+}
+
+function persistFinalExamDraft(form) {
+  const key = finalExamDraftKey();
+  if (!key || !form) return;
+  const answers = {};
+  finalExamQuestions().forEach((question) => {
+    answers[question.code] = Array.from(form.querySelectorAll(
+      `input[name="${CSS.escape(`answer_${question.code}`)}"]:checked`,
+    )).map((input) => String(input.value || "")).filter(Boolean);
+  });
+  const rationales = {};
+  FINAL_EXAM_RATIONALE_CODES.forEach((questionCode) => {
+    const textarea = form.elements.namedItem(`rationale_${questionCode}`);
+    rationales[questionCode] = String(textarea?.value || "").slice(0, 900);
+  });
+  try {
+    window.localStorage.setItem(key, JSON.stringify({
+      version: FINAL_EXAM_DRAFT_VERSION,
+      updatedAt: Date.now(),
+      answers,
+      rationales,
+    }));
+  } catch {
+    // Draft persistence is a convenience; the protected server remains authoritative.
+  }
+}
+
+function restoreFinalExamDraft(form = document.querySelector("#exam-form")) {
+  const key = finalExamDraftKey();
+  if (!key || !form) return false;
+  try {
+    const draft = JSON.parse(window.localStorage.getItem(key) || "null");
+    if (
+      !draft
+      || draft.version !== FINAL_EXAM_DRAFT_VERSION
+      || Date.now() - Number(draft.updatedAt || 0) > FINAL_EXAM_DRAFT_MAX_AGE_MS
+    ) {
+      window.localStorage.removeItem(key);
+      return false;
+    }
+    finalExamQuestions().forEach((question) => {
+      const selected = new Set(Array.isArray(draft.answers?.[question.code])
+        ? draft.answers[question.code].map(String)
+        : []);
+      form.querySelectorAll(`input[name="${CSS.escape(`answer_${question.code}`)}"]`).forEach((input) => {
+        input.checked = selected.has(String(input.value || ""));
+      });
+    });
+    FINAL_EXAM_RATIONALE_CODES.forEach((questionCode) => {
+      const textarea = form.elements.namedItem(`rationale_${questionCode}`);
+      if (!textarea || String(textarea.tagName || "").toUpperCase() !== "TEXTAREA") return;
+      textarea.value = String(draft.rationales?.[questionCode] || "").slice(0, 900);
+      const counter = textarea.closest(".knowledge-rationale")?.querySelector("[data-rationale-count]");
+      if (counter) counter.textContent = String(textarea.value.length);
+    });
+    const answered = finalExamQuestions().filter((question) => (
+      form.querySelector(`input[name="${CSS.escape(`answer_${question.code}`)}"]:checked`)
+    )).length;
+    const counter = form.querySelector("#exam-answer-count");
+    if (counter) counter.textContent = `${answered} из ${finalExamQuestions().length} отвечено`;
+    const status = form.querySelector("#exam-draft-status");
+    if (status) status.textContent = "Черновик решений и обоснований восстановлен на этом устройстве.";
+    return true;
+  } catch {
+    window.localStorage.removeItem(key);
+    return false;
+  }
+}
+
+function clearFinalExamDraft() {
+  const key = finalExamDraftKey();
+  if (!key) return;
+  try { window.localStorage.removeItem(key); } catch { /* no-op */ }
+}
+
 function finalExamPassScore() {
   return Number(state.bootstrap?.training?.exam?.passScore || 0);
 }
@@ -2081,7 +2272,7 @@ function trainingCatalogReady() {
   return (
     courses.length === REQUIRED_MODULE_CODES.length &&
     REQUIRED_MODULE_CODES.every((code) => courseCodes.has(code)) &&
-    courses.every((course) => course.title && course.lessons.length > 0 && course.knowledgeCheck?.questions.length >= 3) &&
+    courses.every((course) => course.title && course.lessons.length > 0 && course.knowledgeCheck?.questions.length === 6) &&
     state.bootstrap?.training?.exam?.questionCount === 12 &&
     finalExamPassScore() >= 1 &&
     finalExamPassScore() <= state.bootstrap.training.exam.questionCount
@@ -2203,6 +2394,10 @@ function render() {
       renderAccountLaunch(accountLaunchSlug);
       return;
     }
+    if (path === "/learn/practical") {
+      renderTrainingPracticalProject();
+      return;
+    }
     if (path.startsWith("/learn/") && path !== "/learn/exam") {
       renderCourse(path.replace("/learn/", ""));
       return;
@@ -2225,6 +2420,10 @@ function render() {
   }
   if (accountLaunchSlug !== null) {
     renderAccountLaunch(accountLaunchSlug);
+    return;
+  }
+  if (path === "/learn/practical") {
+    renderTrainingPracticalProject();
     return;
   }
   if (path.startsWith("/learn/") && path !== "/learn/exam") {
@@ -2503,10 +2702,36 @@ function renderLearningHome() {
   const courses = learningCourses();
   const completeCount = REQUIRED_MODULE_CODES.filter((code) => completed.has(code)).length;
   const examPassed = state.bootstrap.training.exam.passed;
-  const progress = Math.round(((completeCount + (examPassed ? 1 : 0)) / 5) * 100);
+  const practicalProject = normalizeTrainingPracticalProject(state.bootstrap.training.practicalProject);
+  const practicalApproved = practicalProject.approved;
+  const practicalGate = trainingPracticalGateSnapshot(practicalProject, {
+    coursesComplete: completeCount === REQUIRED_MODULE_CODES.length,
+    examPassed,
+  });
+  const coursesComplete = completeCount === REQUIRED_MODULE_CODES.length;
+  const practicalStatusLabel = practicalProject.approved
+    ? "Принята"
+    : practicalProject.status === "submitted"
+      ? "На проверке"
+      : practicalProject.status === "changes_requested"
+        ? "Нужна доработка"
+        : coursesComplete ? "Доступна" : "После 4 курсов";
+  const practicalStatusTone = practicalProject.approved
+    ? "badge-success"
+    : practicalProject.status === "submitted"
+      ? "badge-warning"
+      : coursesComplete ? "badge-info" : "";
+  const practicalActionLabel = practicalProject.approved
+    ? "Посмотреть решение"
+    : practicalProject.status === "submitted"
+      ? "Проверить статус"
+      : practicalProject.status === "changes_requested"
+        ? "Исправить и отправить"
+        : "Отправить пробный ролик";
+  const progress = Math.round(((completeCount + (practicalApproved ? 1 : 0) + (examPassed ? 1 : 0)) / 6) * 100);
   const catalogReady = trainingCatalogReady();
   const workspaceReady = hasWorkspaceAccess();
-  const rolePending = examPassed && !hasOperationalWorkspaceRole();
+  const rolePending = examPassed && practicalApproved && !hasOperationalWorkspaceRole();
   const nextCourse = courses.find((course) => !completed.has(course.code));
   const nextHref = rolePending
     ? "#/learn"
@@ -2514,14 +2739,18 @@ function renderLearningHome() {
     ? "#/workspace/home"
     : nextCourse
       ? `#/learn/${encodeURIComponent(nextCourse.code)}`
-      : "#/learn/exam";
+      : !practicalApproved
+        ? "#/learn/practical"
+        : "#/learn/exam";
   const nextLabel = rolePending
     ? "Проверить назначение роли"
     : workspaceReady
     ? "Перейти к работе"
     : nextCourse
       ? completeCount === 0 ? "Начать с блока 1" : "Продолжить обучение"
-      : examPassed ? "Проверить допуск" : "Начать экзамен";
+      : !practicalApproved
+        ? practicalProject.status === "submitted" ? "Проверить решение руководителя" : "Отправить пробный ролик"
+        : examPassed ? "Проверить допуск" : "Начать экзамен";
   const nextCourseIndex = nextCourse ? courses.findIndex((course) => course.code === nextCourse.code) : -1;
   const afterNextCourse = nextCourseIndex >= 0 ? courses[nextCourseIndex + 1] : null;
   const nowTitle = rolePending
@@ -2530,27 +2759,33 @@ function renderLearningHome() {
     ? "Допуск готов — откройте рабочий кабинет"
     : nextCourse
       ? `Сейчас: ${nextCourse.title}`
-      : "Сейчас: итоговый экзамен";
+      : !practicalApproved
+        ? practicalProject.status === "submitted" ? "Сейчас: дождитесь проверки пробного ролика" : "Сейчас: покажите навык на пробном ролике"
+        : "Сейчас: итоговый экзамен";
   const nowDescription = rolePending
     ? "Руководитель команды должен назначить вам рабочую роль. Только после этого откроется кабинет; учебная смена ниже остаётся необязательной тренировкой."
     : workspaceReady
     ? `Обучение завершено. Портал покажет одно главное действие на сегодня и проведёт по ${FACTORY_FLOW.length} рабочим этапам.`
     : nextCourse
       ? `Завершите только этот блок. ${afterNextCourse ? `После него откроется «${afterNextCourse.title}».` : "После него откроется итоговый экзамен."}`
-      : "Ответьте на 12 рабочих ситуаций. После успешной попытки автоматически откроется кабинет.";
+      : !practicalApproved
+        ? practicalProject.status === "submitted"
+          ? "Руководитель должен полностью посмотреть материал и принять его либо вернуть с конкретным замечанием. Повторной кнопкой этот этап не закрывается."
+          : "Загрузите один вертикальный ролик, пройдите самопроверку и передайте его руководителю. Только человеческое решение откроет экзамен."
+        : "Ответьте на 12 рабочих ситуаций. После успешной попытки автоматически откроется кабинет.";
   const nowStep = workspaceReady || rolePending
     ? "✓"
-    : String(nextCourseIndex >= 0 ? nextCourseIndex + 1 : 5).padStart(2, "0");
+    : String(nextCourseIndex >= 0 ? nextCourseIndex + 1 : practicalApproved ? 6 : 5).padStart(2, "0");
   const heroTitle = workspaceReady
     ? "Вы готовы к производству"
     : rolePending
       ? "Обучение завершено — роль назначает руководитель"
-      : "Освойте весь цикл на одном экране";
+      : "Освойте цикл и докажите навык на реальной работе";
   const heroDescription = workspaceReady
     ? "Допуск получен. Возвращайтесь к схемам и инструкциям в любой момент — они остаются вашей рабочей шпаргалкой."
     : rolePending
       ? "Экзамен уже сдан. Руководитель команды должен назначить рабочую роль; учебная смена остаётся дополнительной практикой и не открывает кабинет."
-      : "От точного товара до опубликованного ролика и метрик: короткие уроки показывают, куда нажимать, что проверять и когда остановить задачу.";
+      : "От точного товара до опубликованного ролика и метрик: уроки объясняют маршрут, сложные кейсы проверяют решение, а пробный ролик подтверждает практический навык.";
   const primaryActionMarkup = rolePending
     ? `<button class="btn" type="button" data-action="retry-bootstrap">Проверить назначение роли <span aria-hidden="true">↻</span></button>`
     : `<a class="btn" href="${nextHref}">${nextLabel} <span aria-hidden="true">→</span></a>`;
@@ -2586,8 +2821,12 @@ function renderLearningHome() {
                 <div><strong>${escapeHtml(course.title)}</strong><small>${completed.has(course.code) ? "готово" : course.duration}</small></div>
               </li>
             `).join("")}
-            <li class="${examPassed ? "complete" : completeCount === 4 ? "current" : ""}">
-              <span>${examPassed ? "✓" : 5}</span>
+            <li class="${practicalApproved ? "complete" : practicalGate.nextStep === "practical" || practicalGate.nextStep === "manager_review" ? "current" : ""}">
+              <span>${practicalApproved ? "✓" : 5}</span>
+              <div><strong>Пробная работа</strong><small>${practicalStatusLabel.toLocaleLowerCase("ru-RU")}</small></div>
+            </li>
+            <li class="${examPassed ? "complete" : practicalGate.nextStep === "exam" ? "current" : ""}">
+              <span>${examPassed ? "✓" : 6}</span>
               <div><strong>Итоговый экзамен</strong><small>${examPassed ? "экзамен сдан" : "12 сценариев"}</small></div>
             </li>
           </ol>
@@ -2636,18 +2875,32 @@ function renderLearningHome() {
         ${courses.map((course, index) => courseCardMarkup(course, index, completed.has(course.code), nextCourse?.code === course.code && !workspaceReady)).join("")}
       </div>
 
+      <section class="card exam-card premium-exam-card training-practical-card">
+        <div class="exam-card-visual" aria-hidden="true">
+          <span>${practicalProject.approved ? "✓" : "05"}</span><small>пробная<br />работа</small>
+        </div>
+        <div class="exam-card-copy">
+          <span class="badge ${practicalStatusTone}">${practicalStatusLabel}</span>
+          <h2>Докажите навык на одном реальном ролике</h2>
+          <p class="muted">Загрузите вертикальный MP4 или безопасную HTTPS-ссылку. Руководитель полностью посмотрит материал и сохранит решение с комментарием.</p>
+        </div>
+        ${coursesComplete
+          ? `<a class="btn" href="#/learn/practical">${practicalActionLabel} <span aria-hidden="true">→</span></a>`
+          : `<span class="btn btn-secondary" aria-disabled="true">Сначала завершите курсы</span>`}
+      </section>
+
       <section class="card exam-card premium-exam-card">
         <div class="exam-card-visual" aria-hidden="true">
           <span>12</span><small>рабочих<br />сценариев</small>
         </div>
         <div class="exam-card-copy">
-          <span class="badge ${examPassed ? "badge-success" : prerequisitesComplete() ? "badge-info" : ""}">${examPassed ? "Сдан" : catalogReady && prerequisitesComplete() ? "Доступен" : "После 4 курсов"}</span>
+          <span class="badge ${examPassed ? "badge-success" : coursesComplete && practicalApproved ? "badge-info" : ""}">${examPassed ? "Сдан" : !coursesComplete ? "После 4 курсов" : catalogReady && practicalApproved ? "Доступен" : practicalProject.status === "submitted" ? "После проверки ролика" : "После пробной работы"}</span>
           <h2>Финальная проверка перед работой</h2>
           <p class="muted">Нужно решить не меньше ${finalExamPassScore()} из 12 реальных ситуаций: товар, качество, публикация, деньги и безопасность.</p>
         </div>
-        ${catalogReady && prerequisitesComplete()
+        ${catalogReady && prerequisitesComplete() && practicalApproved
           ? `<a class="btn" href="#/learn/exam">${examPassed ? "Посмотреть результат" : "Начать экзамен"} <span aria-hidden="true">→</span></a>`
-          : `<span class="btn btn-secondary" aria-disabled="true">Сначала завершите курсы</span>`}
+          : `<span class="btn btn-secondary" aria-disabled="true">${coursesComplete ? "Сначала сдайте пробную работу" : "Сначала завершите курсы"}</span>`}
       </section>
 
       <div class="learning-section-heading learning-section-heading--optional">
@@ -2786,7 +3039,7 @@ function renderCourse(code) {
         <ol>
           <li><span>1</span><div><strong>Изучите уроки</strong><small>Пройдите материал сверху вниз и сверьтесь с примерами.</small></div></li>
           <li><span>2</span><div><strong>Закрепите на практике</strong><small>Разберите кадры, решите короткую ситуацию и отметьте самопроверку.</small></div></li>
-          <li><span>3</span><div><strong>Пройдите мини-тест</strong><small>Мини-тест и сертификацию проверяет защищённый сервер.</small></div></li>
+          <li><span>3</span><div><strong>Пройдите рабочую аттестацию</strong><small>Решения и допуск проверяет защищённый сервер.</small></div></li>
           <li><span>4</span><div><strong>Подтвердите готовность</strong><small>Сверьте финальный чек-лист — портал сохранит результат и выдаст ачивку.</small></div></li>
         </ol>
       </section>
@@ -2798,14 +3051,16 @@ function renderCourse(code) {
             <div><p class="eyebrow">Содержание</p><strong>Открывайте по одному уроку</strong></div>
             <ol>
               ${course.lessons.map((lesson, index) => `${lesson.groupStart ? `<li class="course-roadmap-group"><span>${escapeHtml(lesson.groupTitle)}</span></li>` : ""}<li data-course-roadmap-lesson="${index}" class="${lessonJourney.understood.includes(index) ? "is-understood" : ""} ${lesson.trackRecommended ? "is-track-recommended" : "is-track-reference"}"><button type="button" data-action="training-lesson-open" data-lesson-index="${index}" aria-current="${lessonJourney.activeIndex === index ? "step" : "false"}"><span>${lessonJourney.understood.includes(index) ? "✓" : index + 1}</span>${escapeHtml(lesson.title)}</button></li>`).join("")}
-              <li><button type="button" data-action="scroll-to" data-target="course-check"><span>✓</span>Мини-тест блока</button></li>
+              <li><button type="button" data-action="scroll-to" data-target="course-check"><span>✓</span>Рабочая аттестация</button></li>
             </ol>
           </nav>
           <div class="lesson-stack">
             ${course.lessons.map((lesson, index) => `${lesson.groupStart ? `<header class="lesson-group-heading"><span>${String(course.lessonGroups.findIndex((group) => group.id === lesson.groupId) + 1).padStart(2, "0")}</span><div><p class="eyebrow">Этап маршрута</p><h2>${escapeHtml(lesson.groupTitle)}</h2></div></header>` : ""}${lessonMarkup(lesson, index, course.lessons, lessonJourney)}`).join("")}
           </div>
           ${courseVisualExamplesMarkup(course.code)}
+          <div data-training-media-cards-host data-module-code="${escapeHtml(course.code)}" aria-live="polite"></div>
           ${trainingInteractiveMarkup(course.code, course.interactiveWalkthroughs)}
+          ${course.code === "publishing_funnel" ? trainingPlatformSimulatorsMarkup() : ""}
           ${courseGlossaryMarkup(course.glossary)}
           ${courseKnowledgeCheckMarkup(course, checkPassed)}
         </div>
@@ -2814,11 +3069,11 @@ function renderCourse(code) {
           <p class="eyebrow">Завершение курса</p>
           <h2>Проверьте себя</h2>
           <div class="course-achievement-preview"><span aria-hidden="true">${escapeHtml(course.achievement.icon || courseAchievement(course.code).icon)}</span><div><small>Ачивка после подтверждения</small><strong>${escapeHtml(course.achievement.name || course.achievement.title || courseAchievement(course.code).name)}</strong></div></div>
-          <p class="muted tiny">Сначала пройдите мини-тест блока, затем подтвердите чек-лист. Завершение сохранится в рабочем профиле.</p>
+          <p class="muted tiny">Сначала пройдите рабочую аттестацию блока, затем подтвердите чек-лист. Завершение сохранится в рабочем профиле.</p>
           ${complete ? alertMarkup("Курс уже пройден. Материал можно повторять без ограничений.", "success") : `
             <div class="course-check-gate ${checkPassed ? "passed" : ""}" data-course-check-gate>
               <span aria-hidden="true">${checkPassed ? "✓" : "?"}</span>
-              <strong>${checkPassed ? "Мини-тест пройден" : "Сначала пройдите мини-тест ниже"}</strong>
+              <strong>${checkPassed ? "Аттестация пройдена" : "Сначала пройдите аттестацию ниже"}</strong>
             </div>
             <div class="completion-checklist">
               ${completionChecklist.map((item, index) => `
@@ -2829,7 +3084,7 @@ function renderCourse(code) {
               `).join("")}
             </div>
             <button class="btn btn-block" type="button" data-action="complete-course" data-module-code="${escapeHtml(course.code)}" disabled>Завершить блок</button>
-            <p class="course-completion-reason" data-course-completion-reason role="status">Сначала завершите маршрут, лабораторию и мини-тест.</p>
+            <p class="course-completion-reason" data-course-completion-reason role="status">Сначала завершите маршрут, лабораторию и рабочую аттестацию.</p>
           `}
           <a class="btn btn-secondary btn-block course-back-link" href="#/learn">К списку курсов</a>
         </aside>
@@ -2837,12 +3092,100 @@ function renderCourse(code) {
     </div>
   `;
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
+  if (checkPassed) clearCourseAssessmentDraft(course.code);
+  else restoreCourseAssessmentDraft(course.code);
   syncCourseLessonJourney(course, lessonJourney);
   restoreTrainingWalkthroughState(course.code);
   restoreTrainingAudience(course.code);
+  bindCoursePlatformSimulators(course);
+  void hydrateTrainingMediaCards(course.code);
   syncCourseMasteryPanel(course);
   void restoreServerTrainingWalkthroughState(course.code);
   track("course_opened", { module_code: course.code });
+}
+
+function courseAssessmentDraftKey(courseCode, userId = state.user?.id) {
+  const safeUser = String(userId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const safeCourse = String(courseCode || "").replace(/[^a-z0-9_-]/g, "");
+  return safeUser && safeCourse
+    ? `contentengine.course-assessment-draft.v1:${safeUser}:${safeCourse}`
+    : "";
+}
+
+function persistCourseAssessmentDraft(form) {
+  const courseCode = String(form?.dataset?.courseCode || "");
+  const key = courseAssessmentDraftKey(courseCode);
+  if (!key || !form) return;
+  const answers = {};
+  form.querySelectorAll("[data-check-question]").forEach((question) => {
+    const questionId = String(question.dataset.checkQuestion || "");
+    if (!questionId) return;
+    answers[questionId] = Array.from(question.querySelectorAll("input:checked"))
+      .map((input) => String(input.value || ""))
+      .filter(Boolean)
+      .slice(0, 8);
+  });
+  const rationales = {};
+  form.querySelectorAll(".knowledge-rationale textarea").forEach((textarea) => {
+    const name = String(textarea.name || "");
+    if (name) rationales[name] = String(textarea.value || "").slice(0, 900);
+  });
+  try {
+    window.localStorage.setItem(key, JSON.stringify({
+      version: 1,
+      courseCode,
+      updatedAt: Date.now(),
+      answers,
+      rationales,
+    }));
+  } catch {
+    // Draft persistence is a convenience; assessment submission stays usable.
+  }
+}
+
+function restoreCourseAssessmentDraft(courseCode) {
+  const key = courseAssessmentDraftKey(courseCode);
+  const form = document.querySelector(`#course-check-form[data-course-code="${CSS.escape(courseCode)}"]`);
+  if (!key || !form) return false;
+  try {
+    const draft = JSON.parse(window.localStorage.getItem(key) || "null");
+    if (
+      !draft
+      || draft.version !== 1
+      || draft.courseCode !== courseCode
+      || Date.now() - Number(draft.updatedAt || 0) > 7 * 24 * 60 * 60 * 1000
+    ) {
+      window.localStorage.removeItem(key);
+      return false;
+    }
+    Object.entries(draft.answers || {}).forEach(([questionId, values]) => {
+      const selected = new Set(Array.isArray(values) ? values.map(String) : []);
+      form.querySelectorAll(
+        `[data-check-question="${CSS.escape(questionId)}"] input`,
+      ).forEach((input) => { input.checked = selected.has(String(input.value || "")); });
+    });
+    Object.entries(draft.rationales || {}).forEach(([name, value]) => {
+      const textarea = form.elements.namedItem(name);
+      if (!textarea || String(textarea.tagName || "").toUpperCase() !== "TEXTAREA") return;
+      textarea.value = String(value || "").slice(0, 900);
+      const counter = textarea.closest(".knowledge-rationale")?.querySelector("[data-rationale-count]");
+      if (counter) counter.textContent = String(textarea.value.length);
+    });
+    const result = form.querySelector("#course-check-result");
+    if (result && Object.keys(draft.rationales || {}).length) {
+      result.textContent = "Черновик ответов восстановлен на этом устройстве.";
+    }
+    return true;
+  } catch {
+    window.localStorage.removeItem(key);
+    return false;
+  }
+}
+
+function clearCourseAssessmentDraft(courseCode) {
+  const key = courseAssessmentDraftKey(courseCode);
+  if (!key) return;
+  try { window.localStorage.removeItem(key); } catch { /* no-op */ }
 }
 
 function trainingWalkthroughRoot(control) {
@@ -2881,6 +3224,355 @@ function persistTrainingWalkthroughState(root, { syncServer = true } = {}) {
   }
   if (syncServer) scheduleServerTrainingWalkthroughProgress(root);
   syncCourseMasteryPanel();
+}
+
+function renderTrainingPracticalProject() {
+  const project = state.bootstrap.training.practicalProject;
+  const upload = state.bootstrap.training.practicalUpload || {};
+  const coursesComplete = prerequisitesComplete();
+  const managerReviewQueue = canManageTeam()
+    ? trainingPracticalReviewQueueMarkup(state.bootstrap?.training?.practicalReviews || [])
+    : "";
+  const content = `
+    <div class="page-wrap learning-page training-practical-page">
+      <header class="card course-hero course-tone-4">
+        <div class="course-hero-copy">
+          <p class="eyebrow"><a href="#/learn">Академия</a> · Практический допуск</p>
+          <h1>Один ролик, который нельзя зачесть кликами</h1>
+          <p>Для финального допуска загрузите пробную вертикальную работу MP4. Безопасную HTTPS-ссылку можно отправить только для предварительного разбора и возврата замечаний.</p>
+        </div>
+        <div class="course-hero-outcome"><span class="course-hero-icon" aria-hidden="true">05</span><p>Критерий</p><h2>Точный товар, чистый кадр, безопасный текст и воспроизводимый результат</h2></div>
+      </header>
+      ${managerReviewQueue}
+      ${coursesComplete
+        ? trainingPracticalProjectMarkup(project, { maxUploadBytes: upload.maxUploadBytes })
+        : `<section class="card result-banner"><div class="result-score">4/4</div><h2>Сначала завершите четыре курса</h2><p class="muted">Пробная работа откроется после серверного зачёта всех блоков.</p><a class="btn" href="#/learn">Вернуться к курсам</a></section>`}
+      ${coursesComplete && practicalProjectApproved()
+        ? `<section class="card training-practical-next"><div><p class="eyebrow">Следующий этап</p><h2>Практика принята — переходите к итоговым ситуациям</h2></div><a class="btn" href="#/learn/exam">Открыть экзамен <span aria-hidden="true">→</span></a></section>`
+        : ""}
+    </div>
+  `;
+  app.innerHTML = learningScaffold(content, "/learn/practical");
+  const form = document.querySelector("#training-practical-submit-form");
+  if (form) syncTrainingPracticalSource(form);
+}
+
+function trainingPracticalUploadSettings() {
+  const source = state.bootstrap?.training?.practicalUpload || {};
+  return {
+    bucketId: String(source.bucketId || "").trim(),
+    pathPrefix: String(source.pathPrefix || "").trim(),
+    maxUploadBytes: Math.max(1, Number(source.maxUploadBytes) || 52_428_800),
+    acceptedMimeTypes: new Set(
+      (Array.isArray(source.acceptedMimeTypes) ? source.acceptedMimeTypes : ["video/mp4"])
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  };
+}
+
+async function submitTrainingPracticalProject(form) {
+  const submission = readTrainingPracticalSubmission(form);
+  if (!submission.valid) {
+    toast(submission.errors[0] || "Проверьте пробную работу перед отправкой.", "error");
+    return;
+  }
+
+  const settings = trainingPracticalUploadSettings();
+  const file = submission.file;
+  let uploadedObjectKey = "";
+  let projectCommitted = false;
+  if (file) {
+    if (!settings.bucketId || !settings.pathPrefix) {
+      toast("Защищённая папка для пробной работы ещё не подготовлена. Обновите страницу или обратитесь к руководителю.", "error");
+      return;
+    }
+    if (file.size > settings.maxUploadBytes) {
+      toast(`Файл превышает лимит ${Math.max(1, Math.round(settings.maxUploadBytes / 1_048_576))} МБ.`, "error");
+      return;
+    }
+    if (!settings.acceptedMimeTypes.has(String(file.type || "").toLowerCase())) {
+      toast("Для пробной работы нужен MP4-файл.", "error");
+      return;
+    }
+  }
+
+  setFormBusy(form, true, file ? "Загружаем и отправляем…" : "Отправляем…");
+  try {
+    const payload = {
+      ...submission.payload,
+      action: "submit",
+      evidence_kind: file ? "private_file" : "https_url",
+    };
+    if (file) {
+      uploadedObjectKey = `${settings.pathPrefix}${crypto.randomUUID()}.mp4`;
+      await state.api.uploadTrainingPracticalObject(
+        settings.bucketId,
+        settings.pathPrefix,
+        uploadedObjectKey,
+        file,
+      );
+      payload.object_key = uploadedObjectKey;
+      payload.file_metadata = { file_name: file.name };
+      delete payload.evidence_url;
+    }
+
+    await state.api.savePracticalProject(payload);
+    projectCommitted = true;
+    await track("training_practical_project_submitted", {
+      platform: payload.platform,
+      evidence_kind: payload.evidence_kind,
+    });
+    await loadBootstrap();
+    render();
+    toast("Пробная работа передана руководителю. Решение появится в этом разделе.", "success");
+  } catch (error) {
+    if (uploadedObjectKey && !projectCommitted && error?.name === "CreatorApiError") {
+      await state.api.removeTrainingPracticalObject(
+        settings.bucketId,
+        settings.pathPrefix,
+        uploadedObjectKey,
+      ).catch(() => {});
+    }
+    toast(actionErrorMessage(error), "error");
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
+  }
+}
+
+async function submitTrainingPracticalDecision(form, submitter) {
+  const decision = readTrainingPracticalDecision(form, submitter);
+  if (!decision.valid) {
+    toast(decision.errors[0] || "Проверьте решение по пробной работе.", "error");
+    return;
+  }
+  setFormBusy(form, true, "Сохраняем решение…");
+  try {
+    await state.api.decidePracticalProject(decision.payload);
+    await track("training_practical_project_decided", {
+      project_id: decision.payload.project_id,
+      decision: decision.payload.decision,
+    });
+    await loadBootstrap();
+    render();
+    toast(
+      decision.payload.decision === "approve"
+        ? "Пробная работа принята. Участнику открыт итоговый экзамен."
+        : "Работа возвращена с комментарием. Участник увидит, что исправить.",
+      "success",
+    );
+  } catch (error) {
+    toast(actionErrorMessage(error), "error");
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
+  }
+}
+
+let trainingPracticalReviewRefreshPromise = null;
+
+async function refreshTrainingPracticalReviews({ silent = false, control = null } = {}) {
+  if (
+    !canManageTeam()
+    || !["/learn/practical", "/workspace/team"].includes(state.route.path)
+  ) return;
+  if (trainingPracticalReviewRefreshPromise) {
+    await trainingPracticalReviewRefreshPromise;
+    return;
+  }
+  if (control) {
+    control.disabled = true;
+    control.setAttribute("aria-busy", "true");
+  }
+  trainingPracticalReviewRefreshPromise = state.api.bootstrap({
+    session_id: state.sessionId,
+    refresh_scope: "training_practical_reviews",
+  });
+  try {
+    const raw = await trainingPracticalReviewRefreshPromise;
+    const fresh = normalizeBootstrap(raw);
+    if (
+      fresh.profile?.id !== state.bootstrap?.profile?.id
+      || fresh.organization?.id !== state.bootstrap?.organization?.id
+    ) throw new Error("training_practical_refresh_context_changed");
+    state.api.commitBootstrapContext(raw);
+    state.bootstrap = {
+      ...state.bootstrap,
+      training: {
+        ...state.bootstrap.training,
+        practicalReviews: fresh.training.practicalReviews,
+      },
+    };
+    const queue = document.querySelector(".training-practical-queue");
+    const hasUnsentReviewNote = Array.from(
+      queue?.querySelectorAll(".training-practical-review__form textarea") || [],
+    ).some((textarea) => String(textarea.value || "").trim());
+    if (queue && !hasUnsentReviewNote) {
+      const replacement = document.createElement("div");
+      replacement.innerHTML = trainingPracticalReviewQueueMarkup(
+        state.bootstrap.training.practicalReviews,
+      ).trim();
+      if (replacement.firstElementChild) queue.replaceWith(replacement.firstElementChild);
+    } else if (queue && hasUnsentReviewNote) {
+      queue.dataset.refreshPending = "true";
+      if (!silent) toast("Очередь получена, но не перерисована: сначала сохраните набранный комментарий.", "info");
+      return;
+    }
+    if (!silent) toast("Очередь пробных работ обновлена.", "success");
+  } catch (error) {
+    if (!silent) toast(actionErrorMessage(error), "error");
+  } finally {
+    trainingPracticalReviewRefreshPromise = null;
+    if (control?.isConnected) {
+      control.disabled = false;
+      control.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function openTrainingPracticalMedia(control) {
+  const objectKey = String(control.dataset.objectKey || "").trim();
+  const bucketId = String(state.bootstrap?.training?.practicalUpload?.bucketId || "").trim();
+  const pendingWindow = openGenerationWaitingWindow();
+  const originalLabel = control.textContent;
+  control.disabled = true;
+  control.textContent = "Готовим защищённую ссылку…";
+  try {
+    if (!objectKey || !bucketId) throw new Error("Защищённый файл пробной работы не найден.");
+    const urls = await state.api.signedTrainingPracticalObjectUrls(bucketId, [objectKey], 600);
+    const signedUrl = String(urls.get(objectKey) || "");
+    if (!signedUrl) throw new Error("Сервис не выдал ссылку на пробную работу.");
+    openGenerationOutput(signedUrl, pendingWindow);
+    toast("Пробная работа открыта по временной защищённой ссылке.", "success");
+  } catch (error) {
+    pendingWindow?.close();
+    toast(actionErrorMessage(error), "error");
+  } finally {
+    if (control.isConnected) {
+      control.disabled = false;
+      control.textContent = originalLabel;
+    }
+  }
+}
+
+function platformSimulatorSessionStorageKey() {
+  const userId = String(state.user?.id || "anonymous");
+  return `contentengine.training-platform-simulators.v1:${userId}`;
+}
+
+function restorePlatformSimulatorSession() {
+  try {
+    const raw = window.localStorage.getItem(platformSimulatorSessionStorageKey());
+    const parsed = raw ? JSON.parse(raw) : {};
+    const states = parsed?.states && typeof parsed.states === "object"
+      ? Object.fromEntries(Object.entries(parsed.states).map(([platformId, platformState]) => [
+        platformId,
+        {
+          ...(platformState && typeof platformState === "object" ? platformState : {}),
+          finished: false,
+          passed: false,
+          complete: false,
+          serverResult: null,
+        },
+      ]))
+      : {};
+    return { activePlatformId: String(parsed?.activePlatformId || ""), states };
+  } catch {
+    return {};
+  }
+}
+
+function bindCoursePlatformSimulators(course) {
+  if (course?.code !== "publishing_funnel") return;
+  const section = document.querySelector("[data-training-platform-simulators]");
+  if (!section) return;
+  bindTrainingPlatformSimulators(section, {
+    initialState: restorePlatformSimulatorSession(),
+    onChange(session, action) {
+      try {
+        const gradedState = session.states?.[String(action?.platformId || "")];
+        if (action?.type === "apply-server-result" && gradedState?.passed) {
+          window.localStorage.removeItem(platformSimulatorSessionStorageKey());
+        } else {
+          window.localStorage.setItem(platformSimulatorSessionStorageKey(), JSON.stringify(session));
+        }
+      } catch {
+        // Server progress remains authoritative for completed simulator routes.
+      }
+      syncCourseMasteryPanel(course);
+    },
+    async onSubmitAttempt(payload) {
+      const raw = await state.api.submitPlatformSimulator({
+        platformId: payload.platformId,
+        assessmentVersion: payload.assessmentVersion,
+        decisions: payload.decisions,
+        rationales: payload.rationales,
+      });
+      const attempt = raw?.attempt || raw?.result?.attempt || raw?.data?.attempt || {};
+      const passed = attempt.passed === true;
+      const rawProgress = raw?.progress || raw?.result?.progress || raw?.data?.progress || null;
+      if (passed && rawProgress) {
+        const [progress] = normalizeServerTrainingProgress({ items: [rawProgress] });
+        if (progress) {
+          const key = trainingProgressKey(progress.moduleCode, progress.walkthroughId);
+          const current = state.trainingProgress.items.get(key);
+          if (!current || progress.version >= current.version) {
+            state.trainingProgress.items.set(key, progress);
+            state.trainingProgress.loadedModules.add(progress.moduleCode);
+            applyServerTrainingProgress(progress);
+          }
+        }
+      }
+      track("training_platform_simulator_graded", {
+        platform: payload.platformId,
+        passed,
+        server_graded: true,
+      });
+      toast(
+        passed
+          ? `Маршрут ${payload.platformId} подтверждён сервером.`
+          : "Попытка не зачтена. Повторите материал и через минуту пройдите все шесть решений заново.",
+        passed ? "success" : "error",
+      );
+      return raw;
+    },
+  });
+}
+
+async function trainingMediaCatalog() {
+  if (!trainingMediaCatalogPromise) {
+    trainingMediaCatalogPromise = fetch("./assets/training/training-media-catalog.v1.json", {
+      credentials: "same-origin",
+      cache: "no-cache",
+    }).then((response) => {
+      if (!response.ok) throw new Error(`training_media_catalog_${response.status}`);
+      return response.json();
+    }).catch((error) => {
+      trainingMediaCatalogPromise = null;
+      throw error;
+    });
+  }
+  return trainingMediaCatalogPromise;
+}
+
+async function hydrateTrainingMediaCards(courseCode) {
+  const host = document.querySelector(
+    `[data-training-media-cards-host][data-module-code="${CSS.escape(String(courseCode || ""))}"]`,
+  );
+  if (!host) return;
+  try {
+    const catalog = await trainingMediaCatalog();
+    if (!host.isConnected || state.route.path !== `/learn/${courseCode}`) return;
+    host.innerHTML = trainingMediaCardsMarkup(catalog, { moduleCode: courseCode });
+    bindTrainingMediaCards(host);
+  } catch (error) {
+    console.warn("Training media catalog unavailable", error);
+    if (host.isConnected) {
+      host.innerHTML = alertMarkup(
+        "Примеры «правильно / ошибка» временно не загрузились. Обновите страницу; текст курса и обязательная проверка остаются доступны.",
+        "warning",
+      );
+    }
+  }
 }
 
 function restoreTrainingWalkthroughState(courseCode) {
@@ -3023,6 +3715,7 @@ function applyServerTrainingProgress(progress) {
   );
   root.dataset.trainingProgressVersion = String(progress.version);
   if (progress.completed === true) {
+    root.dataset.trainingServerComplete = "true";
     root.querySelectorAll("[data-training-check]").forEach((input) => {
       input.checked = true;
     });
@@ -3038,6 +3731,11 @@ function applyServerTrainingProgress(progress) {
       }
     }
     syncTrainingWalkthroughStatus(root);
+    if (DEDICATED_PLATFORM_WALKTHROUGH_IDS.has(progress.walkthroughId)) {
+      syncPlatformSimulatorWalkthroughDOM(root, {
+        platformId: progress.walkthroughId.replace("platform_publish_", ""),
+      });
+    }
   }
   const video = root.querySelector("[data-training-video]");
   if (video && progress.positionSeconds > 0) {
@@ -3058,6 +3756,7 @@ function serverTrainingProgressPayload(root) {
   if (!root) return null;
   const moduleCode = String(root.dataset.trainingCourse || "");
   const walkthroughId = String(root.dataset.trainingWalkthrough || "");
+  if (DEDICATED_PLATFORM_WALKTHROUGH_IDS.has(walkthroughId)) return null;
   const frames = Array.from(root.querySelectorAll("[data-training-frame]"));
   const currentIndex = Math.max(
     0,
@@ -3281,9 +3980,35 @@ async function flushRequiredTrainingProgress(course) {
   const roots = Array.from(document.querySelectorAll(
     `[data-training-course="${CSS.escape(String(course?.code || ""))}"]`,
   )).filter((root) => required.has(String(root.dataset.trainingWalkthrough || "")));
+  const missingDedicatedProgress = roots.some((root) => {
+    const walkthroughId = String(root.dataset.trainingWalkthrough || "");
+    const key = trainingProgressKey(root.dataset.trainingCourse, walkthroughId);
+    return DEDICATED_PLATFORM_WALKTHROUGH_IDS.has(walkthroughId)
+      && state.trainingProgress.items.get(key)?.completed !== true;
+  });
+  if (missingDedicatedProgress) {
+    const raw = await state.api.trainingProgress(String(course?.code || ""));
+    for (const progress of normalizeServerTrainingProgress(raw)) {
+      const key = trainingProgressKey(progress.moduleCode, progress.walkthroughId);
+      const current = state.trainingProgress.items.get(key);
+      if (!current || progress.version >= current.version) {
+        state.trainingProgress.items.set(key, progress);
+        applyServerTrainingProgress(progress);
+      }
+    }
+    state.trainingProgress.loadedModules.add(String(course?.code || ""));
+  }
   for (const root of roots) {
-    persistTrainingWalkthroughState(root);
     const key = trainingProgressKey(root.dataset.trainingCourse, root.dataset.trainingWalkthrough);
+    if (DEDICATED_PLATFORM_WALKTHROUGH_IDS.has(String(root.dataset.trainingWalkthrough || ""))) {
+      if (state.trainingProgress.items.get(key)?.completed !== true) {
+        const error = new Error("platform_simulator_server_grading_required");
+        error.code = "platform_simulator_server_grading_required";
+        throw error;
+      }
+      continue;
+    }
+    persistTrainingWalkthroughState(root);
     await drainTrainingProgressSaveQueue(key);
     await waitForCompletedTrainingProgress(key);
   }
@@ -3658,7 +4383,7 @@ function lessonAudienceLabel(lesson) {
 
 function lessonRouteLabel(lesson) {
   if (restoreLearningTrack() === "all") return "Общий маршрут";
-  return lesson?.trackRecommended ? "Ваш маршрут" : "К общему мини-тесту";
+  return lesson?.trackRecommended ? "Ваш маршрут" : "К общей аттестации";
 }
 
 function lessonMarkup(lesson, index, lessons, journey = {}) {
@@ -3693,7 +4418,7 @@ function lessonMarkup(lesson, index, lessons, journey = {}) {
           <footer class="lesson-actions">
             <div class="lesson-actions__nav">
               ${index > 0 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${index - 1}"><span aria-hidden="true">←</span> Предыдущий</button>` : ""}
-              ${index < total - 1 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${index + 1}">Следующий <span aria-hidden="true">→</span></button>` : `<button class="btn btn-secondary btn-small" type="button" data-action="scroll-to" data-target="course-check">К мини-тесту <span aria-hidden="true">↓</span></button>`}
+              ${index < total - 1 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${index + 1}">Следующий <span aria-hidden="true">→</span></button>` : `<button class="btn btn-secondary btn-small" type="button" data-action="scroll-to" data-target="course-check">К аттестации <span aria-hidden="true">↓</span></button>`}
             </div>
             <button class="btn btn-small lesson-understood" type="button" data-action="training-lesson-understood" data-lesson-index="${index}" aria-pressed="${understood ? "true" : "false"}">${understood ? '<span aria-hidden="true">✓</span> Урок понятен' : index < total - 1 ? 'Понятно — следующий урок <span aria-hidden="true">→</span>' : '<span aria-hidden="true">✓</span> Урок понятен'}</button>
           </footer>
@@ -3727,34 +4452,36 @@ function courseKnowledgeCheckMarkup(course, passed) {
   return `
     <section id="course-check" class="card course-knowledge-check" aria-labelledby="course-check-title" tabindex="-1">
       <div class="knowledge-check-head">
-        <div><p class="eyebrow">Мини-тест блока</p><h2 id="course-check-title">${escapeHtml(check.title)}</h2></div>
+        <div><p class="eyebrow">Рабочая аттестация блока</p><h2 id="course-check-title">${escapeHtml(check.title)}</h2></div>
         <span>${questionCount} ${questionLabel} · нужно ${check.passScore}</span>
       </div>
       <div class="knowledge-check-audience">
         <span>Кому: ${escapeHtml(check.audienceLabel)}</span>
         <p>${escapeHtml(check.roleHint)}</p>
       </div>
-      <p class="muted">Ошибаться можно: после проверки вы увидите объяснение и сможете ответить ещё раз.</p>
+      <p class="muted">Это рабочая аттестация, а не опрос на внимательность. Ответ фиксируется вместе с вашим обоснованием; в вопросах «выберите все» засчитывается только точный набор действий. Критически опасное решение проваливает попытку целиком.</p>
       <form id="course-check-form" data-course-code="${escapeHtml(course.code)}" novalidate>
         ${check.questions.map((question, questionIndex) => {
           const inputName = `check_${course.code}_${question.id}`;
+          const isMulti = question.type === "multi_select";
           return `
             <fieldset class="knowledge-question" data-check-question="${escapeHtml(question.id)}">
-              <legend><span>${questionIndex + 1}</span>${escapeHtml(question.prompt)}</legend>
+              <legend><span class="knowledge-question-number">${questionIndex + 1}</span><span class="knowledge-question-copy">${escapeHtml(question.prompt)}<small>${isMulti ? "Выберите все необходимые действия — лишний вариант делает ответ неверным." : "Выберите одно лучшее рабочее решение."}</small></span></legend>
               <div class="knowledge-options">
-                ${question.options.map((option, optionIndex) => `
+                ${question.options.map((option) => `
                   <label>
-                    <input type="radio" name="${escapeHtml(inputName)}" value="${escapeHtml(option.value)}" ${optionIndex === 0 ? "required" : ""} />
+                    <input type="${isMulti ? "checkbox" : "radio"}" name="${escapeHtml(inputName)}" value="${escapeHtml(option.value)}" />
                     <span>${escapeHtml(option.label)}</span>
                   </label>
                 `).join("")}
               </div>
+              ${question.requiresRationale ? `<label class="knowledge-rationale"><span>${escapeHtml(question.rationalePrompt)}</span><textarea name="reason_${escapeHtml(course.code)}_${escapeHtml(question.id)}" minlength="40" maxlength="900" rows="3" required placeholder="Риск: … Проверка: … Действие: …"></textarea><small><span data-rationale-count>0</span>/900 · три части «Риск / Проверка / Действие», минимум 40 знаков, 7 слов и 5 разных содержательных слов</small></label>` : ""}
             </fieldset>
           `;
         }).join("")}
         <div class="knowledge-check-actions">
           <button class="btn" type="submit">Проверить ответы</button>
-          <div id="course-check-result" class="knowledge-check-result ${passed ? "passed" : ""}" aria-live="polite">${passed ? "Мини-тест уже пройден. Можно завершать блок." : ""}</div>
+          <div id="course-check-result" class="knowledge-check-result ${passed ? "passed" : ""}" aria-live="polite">${passed ? "Рабочая аттестация уже пройдена. Можно завершать блок." : ""}</div>
         </div>
       </form>
     </section>
@@ -3890,7 +4617,28 @@ function renderExam() {
     return;
   }
 
+  if (!practicalProjectApproved()) {
+    const project = normalizeTrainingPracticalProject(state.bootstrap.training.practicalProject);
+    const waiting = project.status === "submitted";
+    const content = `
+      <div class="page-wrap">
+        <section class="card result-banner">
+          <div class="result-score" aria-hidden="true">05</div>
+          <p class="eyebrow">Практический допуск</p>
+          <h2>${waiting ? "Пробная работа проверяется руководителем" : "Сначала покажите навык на пробном ролике"}</h2>
+          <p class="muted">${waiting
+            ? "Экзамен откроется только после человеческого решения. Обновите статус позже — повторная отправка не ускорит проверку."
+            : "Одних кликов и правильных ответов недостаточно. Загрузите вертикальный MP4 или HTTPS-ссылку, пройдите самопроверку и получите решение руководителя."}</p>
+          <a class="btn" href="#/learn/practical">${waiting ? "Открыть статус проверки" : "Перейти к пробной работе"} <span aria-hidden="true">→</span></a>
+        </section>
+      </div>
+    `;
+    app.innerHTML = learningScaffold(content, "/learn/exam");
+    return;
+  }
+
   if (state.bootstrap.training.exam.passed) {
+    clearFinalExamDraft();
     const score = state.bootstrap.training.exam.score;
     const workspaceReady = hasWorkspaceAccess();
     const content = `
@@ -3956,7 +4704,7 @@ function renderExam() {
         <div>
           <p class="eyebrow">Итоговый допуск · ${questions.length} сценариев</p>
           <h1>Как вы поступите в реальной работе?</h1>
-          <p>Ответьте на все вопросы. Для прохождения нужно ${finalExamPassScore()} правильных ответов из 12. Проверка выполняется на защищённом сервере.</p>
+          <p>Ответьте на все вопросы и письменно разберите четыре ключевых решения по схеме «Риск / Проверка / Действие». Для прохождения нужно ${finalExamPassScore()} правильных ответов из 12. Проверка выполняется на защищённом сервере.</p>
         </div>
         <span class="badge badge-warning">Попытка за 24 часа ${Math.min(state.bootstrap.training.exam.attemptCount24h + 1, state.bootstrap.training.exam.attemptLimit24h)}/${state.bootstrap.training.exam.attemptLimit24h}</span>
       </header>
@@ -3964,13 +4712,14 @@ function renderExam() {
       <form id="exam-form" class="exam-form" novalidate>
         ${questions.map((question, index) => questionMarkup(question, index)).join("")}
         <div class="exam-submit">
-          <div><strong id="exam-answer-count" aria-live="polite">0 из ${questions.length} отвечено</strong><br /><small class="muted">Незаполненный экзамен не отправится</small></div>
+          <div><strong id="exam-answer-count" aria-live="polite">0 из ${questions.length} отвечено</strong><br /><small id="exam-draft-status" class="muted" aria-live="polite">Незаполненный экзамен не отправится · черновик хранится 7 дней на этом устройстве</small></div>
           <button class="btn" type="submit">Проверить ответы</button>
         </div>
       </form>
     </div>
   `;
   app.innerHTML = learningScaffold(content, "/learn/exam");
+  restoreFinalExamDraft();
   track("exam_opened", { question_count: questions.length });
 }
 
@@ -3987,19 +4736,23 @@ function questionMarkup(question, index) {
           </label>
         `).join("")}
       </div>
+      ${finalExamRequiresRationale(question.code) ? `
+        <label class="knowledge-rationale exam-rationale">
+          <span>${escapeHtml(FINAL_EXAM_RATIONALE_PROMPTS[question.code])}</span>
+          <textarea name="rationale_${escapeHtml(question.code)}" data-exam-rationale="${escapeHtml(question.code)}" minlength="40" maxlength="900" rows="4" required placeholder="Риск: … Проверка: … Действие: …"></textarea>
+          <small><span data-rationale-count>0</span>/900 · три разные по смыслу части, минимум 40 знаков, 7 слов и 5 содержательных слов</small>
+        </label>
+      ` : ""}
     </fieldset>
   `;
 }
 
 function examResultMarkup(result) {
-  const correct = Number(result.correctCount || 0);
-  const total = Number(result.total || finalExamQuestions().length);
   return `
     <section class="card result-banner" style="margin-bottom:18px">
-      <div class="result-score">${correct}/${total}</div>
+      <div class="result-score" aria-hidden="true">?</div>
       <h2>Пока не хватило одного или нескольких решений</h2>
-      <p class="muted">Повторите темы, отмеченные проверкой, и попробуйте ещё раз. Рабочий кабинет остаётся закрыт.</p>
-      ${result.topics?.length ? `<p><strong>Повторить:</strong> ${result.topics.map(escapeHtml).join(", ")}</p>` : ""}
+      <p class="muted">Точный балл и правильные ответы не раскрываются. Повторите рабочий маршрут целиком и попробуйте ещё раз — кабинет пока закрыт.</p>
     </section>
   `;
 }
@@ -4025,6 +4778,7 @@ function learningScaffold(content, activePath) {
   const profile = displayProfile();
   const transitionClass = consumeRouteTransitionClass();
   const rolePending = state.bootstrap?.training?.exam?.passed === true
+    && practicalProjectApproved()
     && !hasOperationalWorkspaceRole();
   return `
     <div class="workspace-shell">
@@ -4041,6 +4795,9 @@ function learningScaffold(content, activePath) {
           <a class="nav-link ${activePath.startsWith(ACCOUNT_LAUNCH_PATH) ? "active" : ""}" href="#${ACCOUNT_LAUNCH_PATH}" ${activePath.startsWith(ACCOUNT_LAUNCH_PATH) ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span>
           </a>
+          <a class="nav-link ${activePath === "/learn/practical" ? "active" : ""}" href="#/learn/practical" ${activePath === "/learn/practical" ? 'aria-current="page"' : ""}>
+            <span class="nav-icon" aria-hidden="true">▣</span><span>Пробная работа</span>
+          </a>
           <a class="nav-link ${activePath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activePath === "/learn/exam" ? 'aria-current="page"' : ""}>
             <span class="nav-icon" aria-hidden="true">◇</span><span>Итоговый экзамен</span>
           </a>
@@ -4049,7 +4806,7 @@ function learningScaffold(content, activePath) {
             <a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span><span>Открыть кабинет</span></a>
           ` : `
             <span class="nav-caption" style="margin-top:15px">Работа</span>
-            <span class="nav-link" aria-disabled="true" style="opacity:.58"><span class="nav-icon" aria-hidden="true">⌑</span><span>${rolePending ? "Роль назначает руководитель" : "Закрыто до экзамена"}</span></span>
+            <span class="nav-link" aria-disabled="true" style="opacity:.58"><span class="nav-icon" aria-hidden="true">⌑</span><span>${rolePending ? "Роль назначает руководитель" : "Закрыто до полного допуска"}</span></span>
           `}
         </nav>
         ${sidebarFooterMarkup(profile)}
@@ -4897,6 +5654,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
         <a class="nav-link ${activeLearningPath === "/learn" ? "active" : ""}" href="#/learn" ${activeLearningPath === "/learn" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◎</span>Курсы</a>
         <a class="nav-link ${activeLearningPath === "/learn/first-shift" ? "active" : ""}" href="#/learn/first-shift" ${activeLearningPath === "/learn/first-shift" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">↗</span>Первая смена</a>
         <a class="nav-link ${activeLearningPath.startsWith(ACCOUNT_LAUNCH_PATH) ? "active" : ""}" href="#${ACCOUNT_LAUNCH_PATH}" ${activeLearningPath.startsWith(ACCOUNT_LAUNCH_PATH) ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
+        <a class="nav-link ${activeLearningPath === "/learn/practical" ? "active" : ""}" href="#/learn/practical" ${activeLearningPath === "/learn/practical" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">▣</span>Пробная работа</a>
         <a class="nav-link ${activeLearningPath === "/learn/exam" ? "active" : ""}" href="#/learn/exam" ${activeLearningPath === "/learn/exam" ? 'aria-current="page"' : ""}><span class="nav-icon" aria-hidden="true">◇</span>Экзамен</a>
         ${hasWorkspaceAccess() ? `<a class="nav-link" href="#/workspace/home"><span class="nav-icon" aria-hidden="true">→</span>Кабинет</a>` : ""}
       ` : `
@@ -7766,7 +8524,7 @@ function renderTeamSection(sectionState) {
   return `
     <div class="page-wrap">
       ${pageHeader("Команда", "Пригласите креаторов по рабочей почте. Пароли и секреты в эту форму не вводятся.", `<span class="badge badge-info">До 50 человек</span>`)}
-      ${alertMarkup("Каждый новый участник входит как trainee. Рабочие разделы откроются только после четырёх курсов и успешного экзамена из 12 сценариев.", "info")}
+      ${alertMarkup("Каждый новый участник входит как trainee. Рабочие разделы откроются только после четырёх курсов, принятой руководителем пробной работы и успешного экзамена из 12 сценариев.", "info")}
       <div class="split-grid" style="margin-top:18px">
         <section class="card card-pad">
           <p class="eyebrow">Массовое приглашение</p>
@@ -7790,6 +8548,7 @@ function renderTeamSection(sectionState) {
         <div class="card-header"><div><p class="eyebrow">Доступ и результат</p><h2>Участники команды</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="team">Обновить</button></div>
         ${sectionBody(sectionState, members.length ? teamMembersTable(members) : emptyState("◎", "В команде пока никого нет", "Отправьте приглашения выше — новые участники появятся после первого входа."))}
       </section>
+      ${trainingPracticalReviewQueueMarkup(state.bootstrap?.training?.practicalReviews || [])}
       ${managerDashboardSectionMarkup()}
     </div>
   `;
@@ -8030,6 +8789,16 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "open-training-practical-media") {
+    await openTrainingPracticalMedia(control);
+    return;
+  }
+
+  if (action === "refresh-training-practical-reviews") {
+    await refreshTrainingPracticalReviews({ control });
+    return;
+  }
 
   if (action === "select-learning-track") {
     const selected = persistLearningTrack(control.dataset.learningTrack);
@@ -8640,7 +9409,7 @@ async function handleClick(event) {
       const messages = {
         lessons: "Сначала отметьте понятными уроки вашего маршрута.",
         practice: "Сначала завершите обязательную учебную лабораторию.",
-        test: "Сначала пройдите мини-тест этого блока.",
+        test: "Сначала пройдите рабочую аттестацию этого блока.",
         confirmation: "Подтвердите все пункты финальной самопроверки.",
       };
       toast(messages[mastery?.nextStep] || "Завершите все четыре шага освоения навыка.", "error");
@@ -8648,7 +9417,7 @@ async function handleClick(event) {
       return;
     }
     if (state.courseCheckResults[moduleCode]?.passed !== true) {
-      toast("Сначала пройдите мини-тест этого блока.", "error");
+      toast("Сначала пройдите рабочую аттестацию этого блока.", "error");
       scrollElementIntoView(document.querySelector("#course-check-form"));
       return;
     }
@@ -8821,6 +9590,8 @@ async function handleSubmit(event) {
   else if (form.id === "password-form") await submitPassword(form);
   else if (form.id === "account-ad-form") submitAccountAdvertisingCheck(form);
   else if (form.id === "course-check-form") await submitCourseKnowledgeCheck(form);
+  else if (form.id === "training-practical-submit-form") await submitTrainingPracticalProject(form);
+  else if (form.classList.contains("training-practical-review__form")) await submitTrainingPracticalDecision(form, event.submitter);
   else if (form.id === "exam-form") await submitExam(form);
   else if (form.id === "workspace-folder-create-form") await submitWorkspaceFolderCreate(form);
   else if (form.id === "workspace-folder-edit-form") await submitWorkspaceFolderEdit(form);
@@ -9090,6 +9861,11 @@ async function submitSavedMyWorkView(form) {
 function handleChange(event) {
   handleFormActivity(event);
 
+  if (event.target.matches("[data-training-practical-source]")) {
+    const form = event.target.closest("[data-training-practical-form]");
+    if (form) syncTrainingPracticalSource(form, event.target.value);
+  }
+
   if (event.target.matches("[data-account-check]")) {
     const guide = event.target.closest("[data-account-guide]");
     const slug = String(guide?.dataset.accountGuide || "");
@@ -9177,6 +9953,17 @@ function submitAccountAdvertisingCheck(form) {
 }
 
 function handleFormActivity(event) {
+  const rationale = event.target.closest?.(".knowledge-rationale textarea");
+  if (rationale) {
+    const counter = rationale.closest(".knowledge-rationale")?.querySelector("[data-rationale-count]");
+    if (counter) counter.textContent = String(rationale.value.length);
+  }
+  const courseAssessmentForm = event.target.closest?.("#course-check-form");
+  if (courseAssessmentForm) persistCourseAssessmentDraft(courseAssessmentForm);
+  const finalExamForm = event.target.closest?.("#exam-form");
+  if (finalExamForm) persistFinalExamDraft(finalExamForm);
+  const practicalReviewForm = event.target.closest?.(".training-practical-review__form");
+  if (practicalReviewForm) practicalReviewForm.dataset.dirty = "true";
   const form = event.target.closest?.("#workspace-content form");
   if (form) {
     form.dataset.dirty = "true";
@@ -9558,68 +10345,77 @@ async function submitCourseKnowledgeCheck(form) {
   const course = learningCourses().find((item) => item.code === courseCode);
   const check = course?.knowledgeCheck;
   if (!check?.questions?.length) {
-    toast("Мини-тест блока не загрузился. Обновите страницу.", "error");
+    toast("Рабочая аттестация блока не загрузилась. Обновите страницу.", "error");
     return;
   }
 
   const answers = {};
+  const rationales = {};
   for (const question of check.questions) {
     const inputName = `check_${courseCode}_${question.id}`;
-    const selected = form.querySelector(`input[name="${CSS.escape(inputName)}"]:checked`);
-    if (!selected) {
+    const selected = Array.from(form.querySelectorAll(`input[name="${CSS.escape(inputName)}"]:checked`));
+    if (!selected.length) {
       const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
       fieldset?.classList.add("incorrect");
       fieldset?.setAttribute("aria-invalid", "true");
       fieldset?.setAttribute("tabindex", "-1");
       scrollElementIntoView(fieldset, "center");
       fieldset?.focus({ preventScroll: true });
-      toast("Ответьте на все вопросы мини-теста.", "error");
+      toast("Ответьте на все вопросы рабочей аттестации.", "error");
       return;
     }
-    answers[question.id] = selected.value;
+    answers[question.id] = question.type === "multi_select"
+      ? selected.map((input) => input.value)
+      : selected[0].value;
+    if (question.requiresRationale) {
+      const rationaleName = `reason_${courseCode}_${question.id}`;
+      const rationale = String(form.elements.namedItem(rationaleName)?.value || "").replace(/\s+/gu, " ").trim();
+      const rationaleWords = rationale.toLocaleLowerCase("ru-RU").match(/[\p{L}\p{N}]+/gu) || [];
+      const rationaleStopWords = new Set(["это", "как", "для", "что", "или", "при", "без", "под", "над", "его", "её", "она", "они", "там", "тут", "так", "вот", "the", "and", "for", "with", "this", "that"]);
+      const meaningfulWords = new Set(rationaleWords.filter((word) => (
+        word.length >= 3
+        && /\p{L}/u.test(word)
+        && /[аеёиоуыэюяaeiouy]/u.test(word)
+        && !rationaleStopWords.has(word)
+      )));
+      const structuredRationale = /риск\s*:.+(проверка|доказательство)\s*:.+(действие|следующий шаг)\s*:/iu.test(rationale);
+      if (rationale.length < 40 || rationaleWords.length < 7 || meaningfulWords.size < 5 || !structuredRationale) {
+        const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
+        fieldset?.classList.add("incorrect");
+        fieldset?.setAttribute("aria-invalid", "true");
+        scrollElementIntoView(fieldset, "center");
+        form.elements.namedItem(rationaleName)?.focus({ preventScroll: true });
+        toast("Заполните три части своими словами: «Риск: … Проверка: … Действие: …». Нужно минимум 40 знаков, 7 слов и 5 разных содержательных слов.", "error");
+        return;
+      }
+      rationales[question.id] = rationale;
+    }
   }
 
   setFormBusy(form, true, "Проверяем на сервере…");
   try {
-    const raw = await state.api.submitCourseCheck(courseCode, answers);
+    const raw = await state.api.submitCourseCheck(courseCode, answers, rationales);
     const source = raw?.result || raw?.data || raw || {};
     const passed = normalizeBoolean(source.passed);
-    const correctCount = Math.max(0, Number(source.correct_count ?? source.correctCount ?? 0));
     const questionCount = Math.max(1, Number(source.question_count ?? source.questionCount ?? check.questions.length));
     const requiredCorrect = Math.max(1, Number(source.required_correct ?? source.requiredCorrect ?? check.passScore));
-    const reviewTopics = (Array.isArray(source.review_topics) ? source.review_topics : [])
-      .map((topic) => {
-        const questionCode = String(topic?.question_code || topic?.questionCode || "");
-        const remediation = course.knowledgeRemediation?.[questionCode] || null;
-        const lessonIndex = remediation
-          ? course.lessons.findIndex((lesson) => lesson.id === remediation.lessonId)
-          : -1;
-        return {
-          questionCode,
-          prompt: String(topic?.prompt || "Повторите отмеченную тему."),
-          tip: String(remediation?.tip || ""),
-          lessonIndex,
-          lessonTitle: lessonIndex >= 0 ? course.lessons[lessonIndex].title : "",
-        };
-      });
-    const reviewCodes = new Set(reviewTopics.map((topic) => topic.questionCode).filter(Boolean));
+    const reasoningCount = passed ? questionCount : 0;
 
     for (const question of check.questions) {
       const fieldset = form.querySelector(`[data-check-question="${CSS.escape(question.id)}"]`);
       fieldset?.classList.remove("correct", "incorrect");
-      fieldset?.setAttribute("aria-invalid", reviewCodes.has(question.id) ? "true" : "false");
-      if (reviewCodes.has(question.id)) {
-        fieldset?.classList.add("incorrect");
-        fieldset?.setAttribute("tabindex", "-1");
-      } else if (passed) fieldset?.classList.add("correct");
+      fieldset?.setAttribute("aria-invalid", "false");
+      if (passed) fieldset?.classList.add("correct");
     }
 
     state.courseCheckResults[courseCode] = {
       passed,
-      score: correctCount,
+      score: passed ? requiredCorrect : 0,
       total: questionCount,
       status: passed ? "passed" : "retry_required",
     };
+    if (passed) clearCourseAssessmentDraft(courseCode);
+    else persistCourseAssessmentDraft(form);
     const nextMasteryStep = passed ? courseMasteryState(course).nextStep : "test";
     const nextInstruction = {
       lessons: "Теперь вернитесь к незавершённым урокам — тренер навыка покажет первый из них.",
@@ -9634,27 +10430,21 @@ async function submitCourseKnowledgeCheck(form) {
         : "Повторите отмеченные темы и попробуйте ещё раз."));
       result.className = `knowledge-check-result ${passed ? "passed" : "failed"}`;
       result.innerHTML = passed
-        ? `<strong>Готово: ${correctCount} из ${questionCount}.</strong><span>${escapeHtml(feedback)} ${escapeHtml(nextInstruction)}</span>`
-        : `<strong>${correctCount} из ${questionCount}. Нужно ${requiredCorrect}.</strong><span>${escapeHtml(feedback)}</span>${reviewTopics.length ? `<ul>${reviewTopics.map((topic) => `<li><span>${escapeHtml(topic.tip || topic.prompt)}</span>${topic.lessonIndex >= 0 ? `<button class="btn btn-secondary btn-small" type="button" data-action="training-lesson-open" data-lesson-index="${topic.lessonIndex}">Повторить «${escapeHtml(topic.lessonTitle)}» <span aria-hidden="true">→</span></button>` : ""}</li>`).join("")}</ul>` : ""}`;
+        ? `<strong>Серверная проверка пройдена: приняты все ${reasoningCount} обоснований.</strong><span>${escapeHtml(feedback)} ${escapeHtml(nextInstruction)}</span>`
+        : `<strong>Попытка не зачтена — правильные ответы и точный балл не раскрываются.</strong><span>${escapeHtml(feedback)}</span>`;
     }
     const gate = document.querySelector("[data-course-check-gate]");
     if (gate) {
       gate.classList.toggle("passed", passed);
-      gate.innerHTML = `<span aria-hidden="true">${passed ? "✓" : "?"}</span><strong>${passed ? "Мини-тест пройден" : "Мини-тест пока не пройден"}</strong>`;
+      gate.innerHTML = `<span aria-hidden="true">${passed ? "✓" : "?"}</span><strong>${passed ? "Аттестация пройдена" : "Аттестация пока не пройдена"}</strong>`;
     }
     syncCourseCompletionButton();
     await track("course_check_submitted", {
       module_code: courseCode,
       passed,
-      score: correctCount,
       question_count: questionCount,
     });
-    if (!passed) {
-      const firstIncorrect = form.querySelector('.knowledge-question[aria-invalid="true"]');
-      scrollElementIntoView(firstIncorrect, "center");
-      firstIncorrect?.focus({ preventScroll: true });
-    }
-    toast(passed ? "Мини-тест пройден." : "Есть ошибки — посмотрите отмеченные темы и повторите.", passed ? "success" : "info");
+    toast(passed ? "Рабочая аттестация пройдена." : "Попытка не зачтена — повторите рабочий маршрут целиком.", passed ? "success" : "info");
   } catch (error) {
       toast(actionErrorMessage(error), "error");
   } finally {
@@ -9669,6 +10459,7 @@ function syncCourseCompletionButton() {
 async function submitExam(form) {
   const questions = finalExamQuestions();
   const answers = {};
+  const rationales = {};
   for (const question of questions) {
     const selected = [
       ...form.querySelectorAll(`input[name="${CSS.escape(`answer_${question.code}`)}"]:checked`),
@@ -9685,24 +10476,54 @@ async function submitExam(form) {
     answers[question.code] = selected.map((input) => input.value);
   }
 
+  const normalizedRationales = new Set();
+  for (const questionCode of FINAL_EXAM_RATIONALE_CODES) {
+    const rationaleName = `rationale_${questionCode}`;
+    const textarea = form.elements.namedItem(rationaleName);
+    const rationale = String(textarea?.value || "").replace(/\s+/gu, " ").trim();
+    const card = form.querySelector(`[data-exam-question="${CSS.escape(questionCode)}"]`);
+    if (!finalExamRationaleIsValid(rationale)) {
+      card?.setAttribute("aria-invalid", "true");
+      scrollElementIntoView(card, "center");
+      textarea?.focus({ preventScroll: true });
+      persistFinalExamDraft(form);
+      toast("Для четырёх ключевых кейсов нужен собственный разбор: «Риск: … Проверка: … Действие: …». Минимум 40 знаков, 7 слов и 5 содержательных слов.", "error");
+      return;
+    }
+    const normalizedRationale = rationale.toLocaleLowerCase("ru-RU");
+    if (normalizedRationales.has(normalizedRationale)) {
+      card?.setAttribute("aria-invalid", "true");
+      scrollElementIntoView(card, "center");
+      textarea?.focus({ preventScroll: true });
+      persistFinalExamDraft(form);
+      toast("Нельзя копировать одно обоснование в разные кейсы. Разберите риск, проверку и действие отдельно для каждой ситуации.", "error");
+      return;
+    }
+    normalizedRationales.add(normalizedRationale);
+    rationales[questionCode] = rationale;
+  }
+
+  persistFinalExamDraft(form);
   setFormBusy(form, true, "Проверяем на сервере…");
   try {
-    const raw = await state.api.submitExam(answers);
+    const raw = await state.api.submitExam(answers, rationales);
     const source = raw?.result || raw?.data || raw || {};
     state.examResult = {
       passed: normalizeBoolean(source.passed),
-      correctCount: Number(source.correct_count ?? source.correctCount ?? 0),
       total: Number(source.question_count ?? source.total ?? questions.length),
-      score: normalizePercent(source.score_percent ?? source.score ?? 0),
-      topics: Array.isArray(source.topics) ? source.topics : source.review_topics || [],
     };
+    if (state.examResult.passed) clearFinalExamDraft();
     await track("exam_submitted", {
       passed: state.examResult.passed,
-      score: state.examResult.score,
       attempt_number: state.bootstrap.training.exam.attemptCount + 1,
     });
     await loadBootstrap();
-    if (hasWorkspaceAccess()) {
+    if (!state.examResult.passed) {
+      state.route = { path: "/learn/exam", query: new URLSearchParams() };
+      render();
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      toast("Экзамен не зачтён. Точный балл скрыт — повторите весь рабочий маршрут.", "info");
+    } else if (hasWorkspaceAccess()) {
       toast("Экзамен сдан. Рабочий кабинет открыт.", "success");
       navigate("/workspace/home", true);
     } else {
@@ -11501,6 +12322,7 @@ function settleRouteView() {
       "/learn": "Обучение",
       "/learn/first-shift": "Первая смена",
       "/learn/accounts": "Запуск аккаунтов",
+      "/learn/practical": "Пробная работа",
       "/learn/exam": "Итоговый экзамен",
     }[path];
     if (!label && path.startsWith("/learn/accounts/")) {

@@ -86,10 +86,11 @@ jobs:
             exit 1
           fi
 
-      - name: Apply immutable migrations and private exam grading keys
+      - name: Apply immutable migrations and private grading keys
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_EXAM_KEYS_B64: ${{ secrets.SUPABASE_EXAM_KEYS_B64 }}
+          SUPABASE_TRAINING_KEYS_B64: ${{ secrets.SUPABASE_TRAINING_KEYS_B64 }}
         run: >-
           python scripts/deploy_supabase_management_api.py
           --migrations-dir supabase/migrations
