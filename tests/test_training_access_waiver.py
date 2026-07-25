@@ -37,6 +37,21 @@ def test_waiver_migration_is_transactional_and_follows_gate_repair() -> None:
     assert SQL.rstrip().casefold().endswith("commit;")
 
 
+def test_waiver_migration_can_resume_after_legacy_partial_application() -> None:
+    for preserved_function in (
+        "content_factory_private.membership_role_pre_training_waiver"
+        "(uuid,boolean,text[])",
+        "content_factory.storage_access_allowed_pre_training_waiver"
+        "(text,text,boolean)",
+        "content_factory_private.creator_bootstrap_pre_training_waiver(jsonb)",
+    ):
+        assert re.search(
+            rf"if\s+to_regprocedure\(\s*'{re.escape(preserved_function)}'\s*\)"
+            r"\s+is\s+null\s+then",
+            LOWER,
+        )
+
+
 def test_waiver_is_explicit_audited_reversible_and_not_a_certificate() -> None:
     table = LOWER.split(
         "create table if not exists content_factory.training_access_waivers", 1

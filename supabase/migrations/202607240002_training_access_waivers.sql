@@ -101,10 +101,18 @@ revoke all on function
 -- Passing require_certification=false through the wrapper skips every training
 -- layer owned by that boundary while retaining authentication, active-account,
 -- membership, and role checks.
-alter function content_factory_private.membership_role(
-  uuid, boolean, text[]
-)
-  rename to membership_role_pre_training_waiver;
+do $preserve_membership_role$
+begin
+  if to_regprocedure(
+    'content_factory_private.membership_role_pre_training_waiver(uuid,boolean,text[])'
+  ) is null then
+    alter function content_factory_private.membership_role(
+      uuid, boolean, text[]
+    )
+      rename to membership_role_pre_training_waiver;
+  end if;
+end;
+$preserve_membership_role$;
 revoke all on function
   content_factory_private.membership_role_pre_training_waiver(
     uuid, boolean, text[]
@@ -155,8 +163,18 @@ revoke all on function
 -- Preserve the complete installed storage predicate as the non-waiver branch.
 -- Storage policies retain function OIDs, so they are recreated below against
 -- the public wrapper rather than left pointing at the renamed implementation.
-alter function content_factory.storage_access_allowed(text, text, boolean)
-  rename to storage_access_allowed_pre_training_waiver;
+do $preserve_storage_access$
+begin
+  if to_regprocedure(
+    'content_factory.storage_access_allowed_pre_training_waiver(text,text,boolean)'
+  ) is null then
+    alter function content_factory.storage_access_allowed(
+      text, text, boolean
+    )
+      rename to storage_access_allowed_pre_training_waiver;
+  end if;
+end;
+$preserve_storage_access$;
 revoke all on function
   content_factory.storage_access_allowed_pre_training_waiver(
     text, text, boolean
@@ -278,10 +296,22 @@ using (
 -- Preserve the final, assessment-sanitized bootstrap as a private
 -- implementation.  This wrapper reopens only normal learning/workspace states;
 -- password, membership, organization, and account locks remain fail-closed.
-alter function public.creator_bootstrap(jsonb)
-  rename to creator_bootstrap_pre_training_waiver;
-alter function public.creator_bootstrap_pre_training_waiver(jsonb)
-  set schema content_factory_private;
+do $preserve_creator_bootstrap$
+begin
+  if to_regprocedure(
+    'content_factory_private.creator_bootstrap_pre_training_waiver(jsonb)'
+  ) is null then
+    if to_regprocedure(
+      'public.creator_bootstrap_pre_training_waiver(jsonb)'
+    ) is null then
+      alter function public.creator_bootstrap(jsonb)
+        rename to creator_bootstrap_pre_training_waiver;
+    end if;
+    alter function public.creator_bootstrap_pre_training_waiver(jsonb)
+      set schema content_factory_private;
+  end if;
+end;
+$preserve_creator_bootstrap$;
 revoke all on function
   content_factory_private.creator_bootstrap_pre_training_waiver(jsonb)
   from public, anon, authenticated, service_role;
