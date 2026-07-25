@@ -47,7 +47,7 @@ import {
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260725.2";
+} from "./content-generation-handoff.js?v=20260725.3";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -10752,12 +10752,19 @@ function generationLearningMarkup(form = null) {
   } else if (disabled && policy?.applied) {
     copy = policy.selectionMode === "bounded_exploration"
       ? `Автотест ракурса «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`
-      : `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
+      : policy.selectionMode === "quality"
+        ? `Ракурс из контура качества «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`
+        : `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
     stateName = "baseline";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
   } else if (policy?.applied && policy.selectionMode === "bounded_exploration") {
     title = "Автотест ракурса назначен";
     copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.`;
+    stateName = "applied";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
+  } else if (policy?.applied && policy.selectionMode === "quality") {
+    title = "Контур качества применён";
+    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} независимо проверенных вариантов. Система выбрала структуру с устойчиво лучшим прохождением QA; реальные метрики публикаций получат приоритет, когда накопятся.`;
     stateName = "applied";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied) {

@@ -385,7 +385,11 @@ export function normalizeGenerationLearningPolicy(value) {
   ]);
   const preferredAngle = cleanText(value.preferred_angle);
   const policyHash = cleanText(value.policy_hash);
-  const selectionMode = ["performance", "bounded_exploration"].includes(
+  const selectionMode = [
+    "performance",
+    "quality",
+    "bounded_exploration",
+  ].includes(
     cleanText(value.selection_mode),
   )
     ? cleanText(value.selection_mode)

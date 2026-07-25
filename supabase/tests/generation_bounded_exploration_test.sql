@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(11);
+select plan(17);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -286,6 +286,297 @@ select ok(
     'execute'
   ),
   'authenticated users retain the single audited public policy RPC'
+);
+
+insert into auth.users (
+  id, instance_id, aud, role, email, encrypted_password,
+  email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at
+) values (
+  '96969696-9696-4696-8696-969696969696'::uuid,
+  '00000000-0000-0000-0000-000000000000'::uuid,
+  'authenticated',
+  'authenticated',
+  'generation-quality-reviewer@example.test',
+  extensions.crypt('test-only-password', extensions.gen_salt('bf')),
+  now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{"display_name":"Independent Quality Reviewer"}'::jsonb,
+  now(),
+  now()
+);
+
+insert into content_factory.profiles (
+  id, email, display_name, status
+) values (
+  '96969696-9696-4696-8696-969696969696'::uuid,
+  'generation-quality-reviewer@example.test',
+  'Independent Quality Reviewer',
+  'active'
+);
+
+insert into content_factory.memberships (
+  organization_id, profile_id, role, status
+)
+select
+  context.organization_id,
+  '96969696-9696-4696-8696-969696969696'::uuid,
+  'reviewer',
+  'active'
+from exploration_test_context context;
+
+-- Seed terminal provider/review history without invoking paid provider or
+-- release triggers. Check constraints remain active; only trigger side
+-- effects and foreign-key trigger timing are disabled inside this rollback.
+set local session_replication_role = replica;
+
+do $quality_observation_fixture$
+declare
+  context_row exploration_test_context%rowtype;
+  campaign_id_value uuid;
+  batch_id_value uuid;
+  job_id_value uuid;
+  media_id_value uuid;
+  review_id_value uuid;
+  position integer;
+  angle_value text;
+  patterns_value jsonb;
+  decision_value text;
+  score_value integer;
+  blockers_value integer;
+begin
+  select * into context_row from exploration_test_context;
+  select campaign.id into campaign_id_value
+  from content_factory.generation_campaigns campaign
+  where campaign.organization_id = context_row.organization_id
+    and campaign.kind = 'default';
+
+  for position in 1..6 loop
+    batch_id_value := extensions.gen_random_uuid();
+    job_id_value := extensions.gen_random_uuid();
+    media_id_value := extensions.gen_random_uuid();
+    review_id_value := extensions.gen_random_uuid();
+    angle_value := case
+      when position <= 3 then 'product_focus'
+      else 'demonstration'
+    end;
+    patterns_value := case
+      when position <= 3 then '[]'::jsonb
+      else '["demonstration"]'::jsonb
+    end;
+    decision_value := case
+      when position <= 3 then 'approved'
+      else 'rejected'
+    end;
+    score_value := case when position <= 3 then 92 else 55 end;
+    blockers_value := case when position <= 3 then 0 else 1 end;
+
+    insert into content_factory.generation_batches (
+      id, organization_id, product_id, created_by, name,
+      mode, allow_real_spend, status, total_requested, total_created,
+      input, request_hash, idempotency_key, provider, model,
+      duration_seconds, audio, estimated_cost_minor, estimated_credits,
+      currency, campaign_id
+    ) values (
+      batch_id_value,
+      context_row.organization_id,
+      context_row.product_id,
+      context_row.profile_id,
+      'Quality observation ' || position::text,
+      'real',
+      true,
+      'succeeded',
+      1,
+      1,
+      jsonb_build_object(
+        'model', 'gen4_turbo',
+        'duration_seconds', 5,
+        'audio', false
+      ),
+      repeat('1', 64),
+      'pgtap-quality-batch-' || position::text || '-0001',
+      'runway',
+      'gen4_turbo',
+      5,
+      false,
+      25,
+      25,
+      'USD',
+      campaign_id_value
+    );
+
+    insert into content_factory.generation_jobs (
+      id, organization_id, product_id, batch_id, ordinal,
+      requested_by, assigned_to, mode, provider, allow_real_spend,
+      estimated_cost_minor, actual_cost_minor, status, input, output,
+      request_hash, idempotency_key, campaign_id
+    ) values (
+      job_id_value,
+      context_row.organization_id,
+      context_row.product_id,
+      batch_id_value,
+      1,
+      context_row.profile_id,
+      context_row.profile_id,
+      'real',
+      'runway',
+      true,
+      25,
+      25,
+      'succeeded',
+      jsonb_build_object(
+        'platform', 'youtube',
+        'model', 'gen4_turbo',
+        'duration_seconds', 5,
+        'audio', false,
+        'prompt_text', 'Test-only structural quality prompt'
+      ),
+      jsonb_build_object(
+        'provider_task_id', 'quality-task-' || position::text,
+        'output_media_id', media_id_value
+      ),
+      repeat('2', 64),
+      'pgtap-quality-job-' || position::text || '-0001',
+      campaign_id_value
+    );
+
+    insert into content_factory.media_objects (
+      id, organization_id, owner_id, product_id, bucket_id, object_name,
+      mime_type, size_bytes, sha256, status, metadata, idempotency_key
+    ) values (
+      media_id_value,
+      context_row.organization_id,
+      context_row.profile_id,
+      context_row.product_id,
+      'contentengine-private',
+      context_row.organization_id::text || '/'
+        || context_row.profile_id::text || '/generated/'
+        || job_id_value::text || '.mp4',
+      'video/mp4',
+      1024,
+      repeat('3', 64),
+      'ready',
+      jsonb_build_object(
+        'kind', 'generated_video',
+        'rights_confirmed', true
+      ),
+      'pgtap-quality-media-' || position::text || '-0001'
+    );
+
+    insert into content_factory.content_review_runs (
+      id, organization_id, media_object_id, requested_by, status,
+      media_sha256_snapshot, input, result, ruleset_version,
+      model_provider, model_version, request_hash, completion_hash,
+      idempotency_key, finished_at
+    ) values (
+      review_id_value,
+      context_row.organization_id,
+      media_id_value,
+      context_row.profile_id,
+      'completed',
+      repeat('3', 64),
+      '{}'::jsonb,
+      jsonb_build_object(
+        'overall_score', score_value,
+        'blockers_count', blockers_value
+      ),
+      'pgtap-quality-v1',
+      'test',
+      'quality-fixture-v1',
+      repeat('4', 64),
+      repeat('5', 64),
+      'pgtap-quality-review-' || position::text || '-0001',
+      now()
+    );
+
+    insert into content_factory.content_review_decisions (
+      organization_id, review_id, decided_by, decision, comment,
+      media_watched_confirmed, review_completion_hash,
+      media_sha256_snapshot, idempotency_key
+    ) values (
+      context_row.organization_id,
+      review_id_value,
+      '96969696-9696-4696-8696-969696969696'::uuid,
+      decision_value,
+      'Independent quality fixture decision ' || position::text,
+      true,
+      repeat('5', 64),
+      repeat('3', 64),
+      'pgtap-quality-decision-' || position::text || '-0001'
+    );
+
+    insert into content_factory.generation_creative_signals (
+      organization_id, generation_job_id, product_id, platform, model,
+      creative_angle, hook_patterns, source, compiler_version, prompt_hash
+    ) values (
+      context_row.organization_id,
+      job_id_value,
+      context_row.product_id,
+      'youtube',
+      'gen4_turbo',
+      angle_value,
+      patterns_value,
+      'baseline',
+      'safe-brief-v3',
+      repeat('6', 64)
+    );
+  end loop;
+end;
+$quality_observation_fixture$;
+
+create temporary table quality_learning_policy (
+  policy jsonb not null
+) on commit drop;
+
+insert into quality_learning_policy (policy)
+select public.creator_generation_learning_policy(jsonb_build_object(
+  'organization_id', context.organization_id,
+  'media_id', context.media_id,
+  'platform', 'youtube',
+  'model', 'gen4_turbo'
+))
+from exploration_test_context context;
+
+select is(
+  (select policy ->> 'selection_mode' from quality_learning_policy),
+  'quality',
+  'independent repeated QA evidence activates the quality tier'
+);
+
+select is(
+  (select policy ->> 'preferred_angle' from quality_learning_policy),
+  'product_focus',
+  'quality tier selects the independently stronger angle'
+);
+
+select is(
+  (select (policy ->> 'evidence_count')::integer
+    from quality_learning_policy),
+  6,
+  'quality tier reports only eligible repeated observations'
+);
+
+select is(
+  (select policy #>> '{benchmark,approval_rate}'
+    from quality_learning_policy),
+  '1.00000000000000000000',
+  'quality benchmark is computed from decisions rather than copy'
+);
+
+select is(
+  (select policy #>> '{safety,human_decision_is_independent}'
+    from quality_learning_policy),
+  'true',
+  'quality policy exposes the independent-review invariant'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'content_factory_private.creator_generation_learning_policy_exploration_v2(jsonb)',
+    'execute'
+  ),
+  'the exploration implementation remains private behind the quality RPC'
 );
 
 select * from finish();

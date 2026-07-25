@@ -378,6 +378,54 @@ def test_bounded_exploration_changes_only_structural_direction_and_keeps_guards(
     }
 
 
+def test_independent_quality_policy_changes_only_structural_direction() -> None:
+    result = _run_module(
+        """
+        const policy = {
+          version: "generation-learning-v3",
+          applied: true,
+          confidence: "medium",
+          selection_mode: "quality",
+          evidence_count: 6,
+          preferred_angle: "trust_builder",
+          preferred_hook_patterns: [],
+          policy_hash: "e".repeat(64),
+        };
+        const normalized = subject.normalizeGenerationLearningPolicy(policy);
+        const compiled = subject.compileSafeGenerationBrief({
+          mode: "real_seedance",
+          productName: "Точный товар",
+          sku: "SKU-QUALITY-1",
+          learningPolicy: policy,
+        });
+        return {
+          applied: normalized?.applied,
+          selectionMode: normalized?.selectionMode,
+          evidenceCount: normalized?.evidenceCount,
+          ready: compiled.ready,
+          direction: compiled.prompt.includes(
+            "Обученное направление: спокойная правдивая демонстрация"
+          ),
+          productLock: compiled.prompt.includes(
+            "Сохрани форму, цвет, упаковку, этикетку и пропорции"
+          ),
+          claimGuard: compiled.prompt.includes(
+            "Не добавляй новые свойства, результаты, медицинские обещания"
+          ),
+        };
+        """
+    )
+    assert result == {
+        "applied": True,
+        "selectionMode": "quality",
+        "evidenceCount": 6,
+        "ready": True,
+        "direction": True,
+        "productLock": True,
+        "claimGuard": True,
+    }
+
+
 def test_sparse_or_untrusted_learning_policy_cannot_enter_prompt() -> None:
     result = _run_module(
         """
@@ -580,7 +628,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260725.2" in APP
-    assert "./app.js?v=20260725.22" in INDEX
+    assert "./content-generation-handoff.js?v=20260725.3" in APP
+    assert "./app.js?v=20260725.23" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header
