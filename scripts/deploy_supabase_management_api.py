@@ -393,7 +393,7 @@ def decode_private_training_keys(encoded: str) -> str:
         # whitespace before retaining strict alphabet/padding validation.
         normalized = "".join(encoded.split())
         raw = base64.b64decode(normalized, validate=True)
-    except (binascii.Error, ValueError) as exc:
+    except (binascii.Error, ValueError):
         # A previously provisioned environment may contain the protected JSON
         # directly. It is still secret-scoped and receives the exact same
         # fail-closed schema/value validation below; no payload is logged.
