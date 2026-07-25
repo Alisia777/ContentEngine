@@ -273,10 +273,14 @@ def test_partial_failure_cannot_record_failed_migration(tmp_path: Path) -> None:
             private_exam_sql_body="select 1;",
         )
 
-    assert fake_http.history == {}
+    assert fake_http.history == {
+        migrations[0].version: migrations[0].sha256,
+    }
     failed_query = fake_http.requests[-1]["query"].casefold()
     assert failed_query.startswith("begin;")
     assert "insert into contentengine_deploy.schema_migrations" in failed_query
+    assert migrations[0].version not in failed_query
+    assert migrations[1].version in failed_query
     assert failed_query.endswith("commit;")
 
 
@@ -307,7 +311,7 @@ def test_private_sql_and_http_error_body_are_never_exposed(
     assert output.out == output.err == ""
 
 
-def test_each_migration_is_wrapped_with_history_in_one_transaction(
+def test_each_migration_and_its_history_receipt_share_one_transaction(
     tmp_path: Path,
 ) -> None:
     migrations = _fixture_migrations(tmp_path)
@@ -325,13 +329,16 @@ def test_each_migration_is_wrapped_with_history_in_one_transaction(
         for item in fake_http.requests
         if "insert into contentengine_deploy.schema_migrations" in item["query"]
     ]
-    assert len(migration_queries) == 1
-    query = migration_queries[0]
-    assert query.startswith("begin;")
-    assert query.count("insert into contentengine_deploy.schema_migrations") == 2
-    assert "pg_advisory_xact_lock" in query
-    assert "deployment_history_changed_retry" in query
-    assert query.endswith("commit;")
+    assert len(migration_queries) == len(migrations)
+    for migration, query in zip(migrations, migration_queries, strict=True):
+        assert query.startswith("begin;")
+        assert query.count(
+            "insert into contentengine_deploy.schema_migrations"
+        ) == 1
+        assert migration.version in query
+        assert "pg_advisory_xact_lock" in query
+        assert "deployment_history_changed_retry" in query
+        assert query.endswith("commit;")
 
 
 @pytest.mark.parametrize(

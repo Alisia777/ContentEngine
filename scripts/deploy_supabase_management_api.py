@@ -1043,12 +1043,35 @@ def deploy(
     remote_history = read_remote_history(client)
     _validate_history_prefix(migrations, remote_history)
 
-    deployment_sql, applied = _deployment_transaction(
-        migrations=migrations,
+    applied: list[str] = []
+    for migration in migrations:
+        if migration.version in remote_history:
+            continue
+        deployment_sql, _ = _deployment_transaction(
+            migrations=[migration],
+            remote_history=remote_history,
+            private_exam_sql_body="",
+        )
+        try:
+            client.execute(deployment_sql)
+        except DeploymentError as exc:
+            raise DeploymentError(
+                f"Supabase migration {migration.version} failed: {exc}"
+            ) from None
+        remote_history[migration.version] = migration.sha256
+        applied.append(migration.version)
+
+    private_sql, _ = _deployment_transaction(
+        migrations=[],
         remote_history=remote_history,
         private_exam_sql_body=private_exam_sql_body,
     )
-    client.execute(deployment_sql)
+    try:
+        client.execute(private_sql)
+    except DeploymentError as exc:
+        raise DeploymentError(
+            f"Private grading data deployment failed: {exc}"
+        ) from None
     return applied
 
 

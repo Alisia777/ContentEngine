@@ -62,8 +62,9 @@ not create creator tasks until a person approves the draft.
   undocumented dashboard-only state.
 - `.github/workflows/supabase-pages.yml` starts automatically only after the
   `CI` workflow succeeds for `main`. It applies immutable SQL migrations through
-  the official Supabase Management API, records their SHA-256 checksums in the
-  private `contentengine_deploy.schema_migrations` table, provisions private
+  the official Supabase Management API, commits each migration and its SHA-256
+  receipt in one resumable transaction in the private
+  `contentengine_deploy.schema_migrations` table, provisions private
   exam grading material entirely in memory with command output withheld, and
   publishes the Pages artifact only after the database job succeeds. Missing,
   malformed or changed migration material fails closed. Pull-request/fork
