@@ -236,6 +236,56 @@ select
   bootstrap
 from (select public.creator_bootstrap('{}'::jsonb) as bootstrap) response;
 
+insert into auth.users (
+  id, instance_id, aud, role, email, encrypted_password,
+  email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at
+) values (
+  '33333333-3333-4333-8333-333333333333'::uuid,
+  '00000000-0000-0000-0000-000000000000'::uuid,
+  'authenticated',
+  'authenticated',
+  'creator-factory-reviewer@example.test',
+  extensions.crypt('test-only-password', extensions.gen_salt('bf')),
+  now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{"display_name":"Factory Reviewer"}'::jsonb,
+  now(),
+  now()
+);
+
+insert into content_factory.profiles (id, email, display_name, status)
+values (
+  '33333333-3333-4333-8333-333333333333'::uuid,
+  'creator-factory-reviewer@example.test',
+  'Factory Reviewer',
+  'active'
+)
+on conflict (id) do update set
+  email = excluded.email,
+  display_name = excluded.display_name,
+  status = excluded.status;
+
+insert into content_factory.memberships (
+  organization_id, profile_id, role, status
+)
+select
+  context.organization_id,
+  '33333333-3333-4333-8333-333333333333'::uuid,
+  'admin',
+  'active'
+from creator_test_context context;
+
+insert into storage.objects (id, bucket_id, name, owner, metadata)
+select
+  '33444444-4444-4444-8444-444444444444'::uuid,
+  'contentengine-training',
+  context.organization_id::text
+    || '/11111111-1111-4111-8111-111111111111/practical/factory-owner.mp4',
+  '11111111-1111-4111-8111-111111111111'::uuid,
+  jsonb_build_object('size', 1048576, 'mimetype', 'video/mp4')
+from creator_test_context context;
+
 select is(
   (select bootstrap -> 'membership' ->> 'role' from creator_test_context),
   'owner',
@@ -413,9 +463,15 @@ begin
     public.creator_save_practical_project(jsonb_build_object(
       'organization_id', context_row.organization_id,
       'action', 'submit',
-      'evidence_kind', 'public_url',
+      'evidence_kind', 'uploaded_file',
       'platform', 'youtube',
-      'evidence_url', 'https://example.test/practice/factory-owner',
+      'media_id', '33444444-4444-4444-8444-444444444444',
+      'object_key',
+        context_row.organization_id::text
+          || '/11111111-1111-4111-8111-111111111111/practical/factory-owner.mp4',
+      'file_metadata', jsonb_build_object(
+        'file_name', 'factory-owner.mp4'
+      ),
       'learner_note', 'Test-only practical project evidence.',
       'rights_confirmed', true,
       'self_check_codes', jsonb_build_array(
@@ -425,14 +481,26 @@ begin
     )) #>> '{practical_project,id}'
   )::uuid;
 
+  perform set_config(
+    'request.jwt.claim.sub',
+    '33333333-3333-4333-8333-333333333333',
+    true
+  );
+
   perform public.creator_decide_practical_project(jsonb_build_object(
     'organization_id', context_row.organization_id,
     'id', practice_project_id,
     'decision', 'approve',
-    'review_note', 'Test-only owner bootstrap approval.',
+    'review_note', 'Test-only independent bootstrap approval.',
     'media_watched_confirmed', true,
-    'idempotency_key', 'pgtap-practical-approve-owner-0001'
+    'idempotency_key', 'pgtap-practical-approve-reviewer-0001'
   ));
+
+  perform set_config(
+    'request.jwt.claim.sub',
+    '11111111-1111-4111-8111-111111111111',
+    true
+  );
 
   perform public.creator_submit_exam(jsonb_build_object(
     'organization_id', context_row.organization_id,
