@@ -151,4 +151,4 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
     assert './styles.css?v=20260724.5' in INDEX
-    assert './app.js?v=20260725.18' in INDEX
+    assert './app.js?v=20260725.19' in INDEX

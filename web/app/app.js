@@ -56,6 +56,7 @@ import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
   contentReviewHasBlockers,
+  contentReviewIsBusy,
   contentReviewRequiredRiskCodes,
   contentReviewStatusKind,
   contentReviewWorkspaceMarkup,
@@ -64,7 +65,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260717.1";
+} from "./content-review-view.js?v=20260725.1";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -12807,7 +12808,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form) 
 
 async function submitContentReview(form) {
   const review = state.contentReview;
-  if (["preparing", "saving_evidence", "queueing", "starting", "processing", "deciding"].includes(review.phase)) {
+  if (contentReviewIsBusy(review.phase, review.record)) {
     toast("Текущая проверка ещё не завершена. Дождитесь результата или откройте её статус.", "info");
     return;
   }

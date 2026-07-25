@@ -98,6 +98,19 @@ export function contentReviewStatusKind(value) {
   return "unknown";
 }
 
+export function contentReviewIsBusy(phase, run) {
+  return [
+    "preparing",
+    "saving_evidence",
+    "queueing",
+    "starting",
+    "refreshing",
+    "deciding",
+  ].includes(phase) || Boolean(
+    run && contentReviewStatusKind(run.status) === "active",
+  );
+}
+
 export function normalizeContentReviewCatalog(raw) {
   const source = unwrap(raw);
   const media = arrayFrom(source, "media", "media_items", "artifacts")
@@ -210,8 +223,7 @@ export function contentReviewWorkspaceMarkup({
     : normalized.runs.find((item) => contentReviewStatusKind(item.status) === "active")
       || normalized.runs[0]
       || null;
-  const busy = ["preparing", "saving_evidence", "queueing", "starting", "processing", "refreshing", "deciding"].includes(phase)
-    || contentReviewStatusKind(selected?.status) === "active";
+  const busy = contentReviewIsBusy(phase, selected);
   return `
     <section class="content-review-hero" aria-labelledby="content-review-hero-title">
       <div>

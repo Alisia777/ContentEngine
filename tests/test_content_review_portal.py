@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260717.1' in APP
+    assert './content-review-view.js?v=20260725.1' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260725.18' in INDEX
+    assert './app.js?v=20260725.19' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -586,6 +586,47 @@ if (!html.includes('href="https://government.ru/docs/all/98086/"')) throw new Er
 if (!html.includes('target="_blank" rel="noopener noreferrer"')) throw new Error("safe external-link attributes missing");
 if (html.includes("javascript:alert(1)")) throw new Error("model URL reached markup");
 if (html.includes("<img src=x")) throw new Error("finding content was not escaped");
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_stale_processing_phase_does_not_lock_an_empty_review_form() -> None:
+    module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
+    script = f"""
+import {{ contentReviewIsBusy, contentReviewWorkspaceMarkup }} from {json.dumps(module_url)};
+if (contentReviewIsBusy("processing", null)) throw new Error("stale state stayed busy");
+if (!contentReviewIsBusy("processing", {{ status: "queued" }})) {{
+  throw new Error("active run was not busy");
+}}
+const html = contentReviewWorkspaceMarkup({{
+  catalog: {{
+    media: [{{
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "product.png",
+      supported: true,
+      isVideo: false,
+      url: "https://example.test/product.png"
+    }}],
+    runs: []
+  }},
+  currentRun: null,
+  phase: "processing"
+}});
+if (!html.includes('aria-busy="false"')) throw new Error("empty form stayed busy");
+if (!html.includes(">Проверить качество и риски</button>")) {{
+  throw new Error("action label did not recover");
+}}
+if (html.includes("Проверка уже выполняется…")) {{
+  throw new Error("stale processing label leaked into empty form");
+}}
 """
     result = subprocess.run(
         ["node", "--input-type=module", "--eval", script],
