@@ -385,6 +385,11 @@ export function normalizeGenerationLearningPolicy(value) {
   ]);
   const preferredAngle = cleanText(value.preferred_angle);
   const policyHash = cleanText(value.policy_hash);
+  const selectionMode = ["performance", "bounded_exploration"].includes(
+    cleanText(value.selection_mode),
+  )
+    ? cleanText(value.selection_mode)
+    : "performance";
   const applied = value.applied === true
     && ["medium", "high"].includes(value.confidence)
     && allowedAngles.has(preferredAngle)
@@ -406,6 +411,7 @@ export function normalizeGenerationLearningPolicy(value) {
       value.preferred_hook_patterns,
       4,
     ).filter((pattern) => allowedPatterns.has(pattern)),
+    selectionMode,
     reasonCodes: uniqueStrings(value.reason_codes, 8),
     scope: cleanText(value.scope),
     policyHash,

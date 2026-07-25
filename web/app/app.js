@@ -47,7 +47,7 @@ import {
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260725.1";
+} from "./content-generation-handoff.js?v=20260725.2";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -10750,9 +10750,16 @@ function generationLearningMarkup(form = null) {
     stateName = "warning";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
   } else if (disabled && policy?.applied) {
-    copy = `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
+    copy = policy.selectionMode === "bounded_exploration"
+      ? `Автотест ракурса «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`
+      : `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
     stateName = "baseline";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
+  } else if (policy?.applied && policy.selectionMode === "bounded_exploration") {
+    title = "Автотест ракурса назначен";
+    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.`;
+    stateName = "applied";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied) {
     title = "Самообучение применено";
     copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} одобренных публикаций · уверенность ${policy.confidence === "high" ? "высокая" : "средняя"}. Тексты обещаний, права и параметры запуска не обучаются.`;
