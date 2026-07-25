@@ -209,7 +209,12 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
           duration: compiled.durationSeconds,
           exactProduct: compiled.prompt.includes("BOMBBAR PRO"),
           square2k: compiled.prompt.includes("квадратное товарное фото 2048 × 2048"),
-          exactReference: compiled.prompt.includes("Figure 1 как единственный точный референс"),
+          exactReference: compiled.prompt.includes("@ProductReference как единственный точный референс"),
+          tamperedBlockers: subject.inspectContentGenerationPrompt(
+            compiled.prompt.replace("@ProductReference", "Figure 1"),
+            "real_photo",
+            { productName: record.productName },
+          ).blockers.map((item) => item.code),
           hasVideoDuration: compiled.prompt.includes("8 секунд"),
           hasSpokenLine: compiled.prompt.includes("Реплика героя дословно"),
           blockers: compiled.blockers.map((item) => item.code),
@@ -222,6 +227,7 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
         "exactProduct": True,
         "square2k": True,
         "exactReference": True,
+        "tamperedBlockers": ["photo_reference_guard_missing"],
         "hasVideoDuration": False,
         "hasSpokenLine": False,
         "blockers": [],
@@ -399,7 +405,7 @@ def test_historical_hook_is_reduced_to_bounded_patterns_not_reused_as_copy() -> 
         "concise",
     }
     assert result["containsRawHook"] is False
-    assert result["compilerVersion"] == "safe-brief-v2"
+    assert result["compilerVersion"] == "safe-brief-v3"
 
 
 def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
@@ -526,7 +532,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260724.3" in APP
-    assert "./app.js?v=20260725.19" in INDEX
+    assert "./content-generation-handoff.js?v=20260725.1" in APP
+    assert "./app.js?v=20260725.20" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

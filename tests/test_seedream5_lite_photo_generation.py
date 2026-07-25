@@ -6,7 +6,14 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607240007_seedream5_lite_photo_generation.sql"
 ).read_text(encoding="utf-8")
+REFERENCE_TAG_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607250001_seedream_reference_tag_fidelity.sql"
+).read_text(encoding="utf-8")
 EDGE = (ROOT / "supabase/functions/creator-generate/index.ts").read_text(
+    encoding="utf-8"
+)
+HANDOFF = (ROOT / "web/app/content-generation-handoff.js").read_text(
     encoding="utf-8"
 )
 WORKER = (
@@ -85,7 +92,8 @@ def test_edge_calls_runway_text_to_image_with_one_reference_and_png() -> None:
         '`${RUNWAY_API_ORIGIN}/v1/text_to_image`',
         'outputFormat: "png"',
         "outputCount: 1",
-        "referenceImages: [{ uri: signedInputUrl }]",
+        'const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference"',
+        "tag: RUNWAY_PRODUCT_REFERENCE_TAG",
         'const outputMimeType = photoOutput ? "image/png" : "video/mp4"',
         "photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)",
         "view.getUint32(0, false) === 2_048",
@@ -93,6 +101,22 @@ def test_edge_calls_runway_text_to_image_with_one_reference_and_png() -> None:
         "system_complete_seedream5_lite_photo",
     ):
         assert token in EDGE
+
+
+def test_photo_reference_tag_is_bound_across_prompt_provider_and_database() -> None:
+    assert (
+        'CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference"'
+        in HANDOFF
+    )
+    assert "@${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG}" in HANDOFF
+    for token in (
+        "enforce_seedream_reference_tag",
+        "'@ProductReference'",
+        "'seedream_photo_reference_tag_required'",
+        "'Figure 1'",
+        "create trigger seedream_reference_tag_guard",
+    ):
+        assert token in REFERENCE_TAG_MIGRATION
 
 
 def test_photo_success_registers_private_generated_image_and_review_task() -> None:

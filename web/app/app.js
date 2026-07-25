@@ -47,7 +47,7 @@ import {
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260724.3";
+} from "./content-generation-handoff.js?v=20260725.1";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,

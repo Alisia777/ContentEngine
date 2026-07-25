@@ -1,7 +1,8 @@
 export const CONTENT_GENERATION_HANDOFF_VERSION = 1;
 export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
-export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v2";
+export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
+export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v3";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const REAL_GEN4_MODE = "real_gen4";
@@ -249,7 +250,7 @@ export function compileSafeGenerationBrief({
     durationSeconds = 0;
     promptLines = [
       required("Создай одно квадратное товарное фото 2048 × 2048."),
-      required(`Используй Figure 1 как единственный точный референс товара. ${identityLine}`),
+      required(`Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как единственный точный референс товара. ${identityLine}`),
       required("Премиальная студийная предметная съёмка: один товар целиком в центре кадра, чистый нейтральный коммерческий фон, мягкий рассеянный свет, естественная тень, высокая детализация."),
       optional(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
@@ -495,7 +496,9 @@ export function inspectContentGenerationPrompt(
         message: "Верните точный формат одного квадратного товарного фото 2048 × 2048.",
       });
     }
-    if (!normalized.includes("Используй Figure 1 как единственный точный референс товара")) {
+    if (!normalized.includes(
+      `Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как единственный точный референс товара`,
+    )) {
       blockers.push({
         code: "photo_reference_guard_missing",
         message: "Верните указание использовать выбранный исходник как единственный точный референс.",
