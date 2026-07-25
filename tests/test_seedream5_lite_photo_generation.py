@@ -30,6 +30,19 @@ def test_database_adds_one_fixed_price_2k_photo_sku() -> None:
         assert token in MIGRATION
 
 
+def test_photo_constraints_can_resume_after_legacy_partial_application() -> None:
+    for constraint_name in (
+        "generation_batches_model_v2_check",
+        "generation_batches_sku_contract_v2_check",
+        "generation_jobs_spend_contract_v2_check",
+    ):
+        drop = f"drop constraint if exists {constraint_name}"
+        add = f"add constraint {constraint_name}"
+        assert drop in MIGRATION
+        assert add in MIGRATION
+        assert MIGRATION.index(drop) < MIGRATION.index(add)
+
+
 def test_photo_start_requires_one_owned_rights_confirmed_product_image() -> None:
     photo_start = MIGRATION[
         MIGRATION.index("creator_start_seedream5_lite_photo"):

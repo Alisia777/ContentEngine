@@ -5,7 +5,9 @@ begin;
 -- rights-confirmed product reference.
 alter table content_factory.generation_batches
   drop constraint if exists generation_batches_model_check,
-  drop constraint if exists generation_batches_sku_contract_check;
+  drop constraint if exists generation_batches_sku_contract_check,
+  drop constraint if exists generation_batches_model_v2_check,
+  drop constraint if exists generation_batches_sku_contract_v2_check;
 
 alter table content_factory.generation_batches
   add constraint generation_batches_model_v2_check
@@ -53,7 +55,8 @@ alter table content_factory.generation_batches
     );
 
 alter table content_factory.generation_jobs
-  drop constraint if exists generation_jobs_spend_contract_check;
+  drop constraint if exists generation_jobs_spend_contract_check,
+  drop constraint if exists generation_jobs_spend_contract_v2_check;
 
 alter table content_factory.generation_jobs
   add constraint generation_jobs_spend_contract_v2_check
