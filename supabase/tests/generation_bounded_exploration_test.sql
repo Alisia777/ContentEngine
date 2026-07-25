@@ -306,15 +306,8 @@ insert into auth.users (
   now()
 );
 
-insert into content_factory.profiles (
-  id, email, display_name, status
-) values (
-  '96969696-9696-4696-8696-969696969696'::uuid,
-  'generation-quality-reviewer@example.test',
-  'Independent Quality Reviewer',
-  'active'
-);
-
+-- The auth-user trigger creates the matching profile; only organization
+-- membership is still required for the independent reviewer.
 insert into content_factory.memberships (
   organization_id, profile_id, role, status
 )
