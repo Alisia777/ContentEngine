@@ -55,14 +55,17 @@ begin
   if function_body is null then
     raise exception 'creator_create_mock_batch_missing';
   end if;
-  if strpos(function_body, exam_guard) = 0 then
-    raise exception 'creator_create_mock_batch_exam_guard_changed';
-  end if;
   if strpos(
     function_body,
     'content_factory_private.training_access_waiver_active('
   ) > 0 then
-    raise exception 'creator_create_mock_batch_waiver_guard_already_present';
+    -- A legacy batched deploy could commit the function replacement before
+    -- failing to record this migration. The contract block below still
+    -- verifies the complete patched shape and browser privilege.
+    return;
+  end if;
+  if strpos(function_body, exam_guard) = 0 then
+    raise exception 'creator_create_mock_batch_exam_guard_changed';
   end if;
 
   patched_body := replace(function_body, exam_guard, waiver_or_exam_guard);
