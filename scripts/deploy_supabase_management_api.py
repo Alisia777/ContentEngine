@@ -388,7 +388,11 @@ def decode_private_training_keys(encoded: str) -> str:
     if not encoded or not encoded.strip():
         raise ConfigurationError("SUPABASE_TRAINING_KEYS_B64 is required")
     try:
-        raw = base64.b64decode(encoded.strip(), validate=True)
+        # Standard base64 tools commonly wrap long output at 76 columns.
+        # GitHub preserves those line breaks in secrets, so remove only
+        # whitespace before retaining strict alphabet/padding validation.
+        normalized = "".join(encoded.split())
+        raw = base64.b64decode(normalized, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ConfigurationError(
             "SUPABASE_TRAINING_KEYS_B64 is not valid base64"
@@ -629,7 +633,8 @@ def decode_private_exam_sql(encoded: str) -> str:
     if not encoded or not encoded.strip():
         raise ConfigurationError("SUPABASE_EXAM_KEYS_B64 is required")
     try:
-        payload = base64.b64decode(encoded.strip(), validate=True)
+        normalized = "".join(encoded.split())
+        payload = base64.b64decode(normalized, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ConfigurationError("SUPABASE_EXAM_KEYS_B64 is not valid base64") from exc
     if not payload or len(payload) > MAX_PRIVATE_SQL_BYTES:
