@@ -77,6 +77,24 @@ begin
 end;
 $fixture$;
 
+create or replace function pg_temp.final_exam_test_rationales()
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $fixture$
+  select jsonb_build_object(
+    'exam_sku_mismatch',
+      'Риск: неверный SKU смешает товары и разрушит доказательства. Проверка: сверяю карточку, упаковку и назначение. Действие: останавливаю задачу и запрашиваю точные материалы.',
+    'exam_qa_requirements',
+      'Риск: технический успех скроет визуальный дефект результата. Проверка: просматриваю файл полностью и сверяю товар. Действие: отклоняю плохой вариант и сохраняю замечание.',
+    'exam_publication_evidence',
+      'Риск: публикация без точной ссылки потеряется в учёте. Проверка: открываю конкретный пост вне авторской сессии. Действие: сохраняю ссылку и квитанцию в назначенной задаче.',
+    'exam_payout_separation',
+      'Риск: публикацию ошибочно примут за подтверждённую выплату. Проверка: сверяю отдельное начисление и полномочия менеджера. Действие: передаю доказательство без самостоятельной отметки оплаты.'
+  );
+$fixture$;
+
 select ok(
   to_regclass('content_factory.training_practical_projects') is not null,
   'practical project receipt table exists'
@@ -286,7 +304,8 @@ select throws_ok(
     select public.creator_submit_exam(jsonb_build_object(
       'organization_id', '99000000-0000-4000-8000-000000000001',
       'idempotency_key', 'pgtap-practical-exam-blocked-0001',
-      'answers', '{}'::jsonb
+      'answers', '{}'::jsonb,
+      'rationales', pg_temp.final_exam_test_rationales()
     ))
   $$,
   '42501',
@@ -672,7 +691,8 @@ select is(
   public.creator_submit_exam(jsonb_build_object(
     'organization_id', '99000000-0000-4000-8000-000000000001',
     'idempotency_key', 'pgtap-practical-exam-knowledge-0001',
-    'answers', '{}'::jsonb
+    'answers', '{}'::jsonb,
+    'rationales', pg_temp.final_exam_test_rationales()
   )) #>> '{passed}',
   'false',
   'after course and practical approval the exam reaches knowledge grading'

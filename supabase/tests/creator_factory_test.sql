@@ -5,6 +5,24 @@ set local search_path = public, extensions, pg_temp, pg_catalog;
 
 select plan(47);
 
+create or replace function pg_temp.final_exam_test_rationales()
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $fixture$
+  select jsonb_build_object(
+    'exam_sku_mismatch',
+      'Риск: неверный SKU смешает товары и разрушит доказательства. Проверка: сверяю карточку, упаковку и назначение. Действие: останавливаю задачу и запрашиваю точные материалы.',
+    'exam_qa_requirements',
+      'Риск: технический успех скроет визуальный дефект результата. Проверка: просматриваю файл полностью и сверяю товар. Действие: отклоняю плохой вариант и сохраняю замечание.',
+    'exam_publication_evidence',
+      'Риск: публикация без точной ссылки потеряется в учёте. Проверка: открываю конкретный пост вне авторской сессии. Действие: сохраняю ссылку и квитанцию в назначенной задаче.',
+    'exam_payout_separation',
+      'Риск: публикацию ошибочно примут за подтверждённую выплату. Проверка: сверяю отдельное начисление и полномочия менеджера. Действие: передаю доказательство без самостоятельной отметки оплаты.'
+  );
+$fixture$;
+
 -- TEST-ONLY grading material. These deliberately synthetic keys are derived
 -- from the first option and disappear with the transaction rollback.
 insert into content_factory_private.training_answer_keys (
@@ -66,7 +84,9 @@ select is(
         'creator_real_generation_reconciliation_context',
         'creator_my_work', 'creator_notifications',
         'creator_mark_notifications_read', 'creator_training_progress',
-        'creator_save_training_progress', 'creator_saved_work_views',
+        'creator_save_training_progress',
+        'creator_submit_platform_simulator',
+        'creator_saved_work_views',
         'creator_account_access_status',
         'creator_generation_spend_overview',
         'creator_update_generation_spend_policy',
@@ -75,12 +95,14 @@ select is(
         'creator_prepare_content_review_evidence',
         'creator_commit_content_review_evidence',
         'creator_save_practical_project',
-        'creator_decide_practical_project'
+        'creator_decide_practical_project',
+        'creator_generation_media_identity',
+        'creator_generation_learning_policy'
       ])
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  48,
+  51,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -93,7 +115,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  48,
+  51,
   'authenticated can execute all creator RPCs'
 );
 
@@ -229,6 +251,9 @@ declare
   exact_answers jsonb;
   exact_rationales jsonb;
   walkthrough_id text;
+  platform_code_value text;
+  platform_decisions jsonb;
+  platform_rationales jsonb;
   practice_project_id uuid;
 begin
   select * into context_row from creator_test_context;
@@ -313,14 +338,58 @@ begin
       select value
       from jsonb_array_elements_text(module_row.required_walkthrough_ids)
     loop
-      perform public.creator_save_training_progress(jsonb_build_object(
-        'organization_id', context_row.organization_id,
-        'module_code', module_row.code,
-        'walkthrough_id', walkthrough_id,
-        'completed', true,
-        'idempotency_key',
-          'pgtap-practice-' || module_row.code || '-' || walkthrough_id
-      ));
+      if walkthrough_id in (
+        'platform_publish_instagram',
+        'platform_publish_youtube',
+        'platform_publish_vk'
+      ) then
+        platform_code_value := replace(
+          walkthrough_id,
+          'platform_publish_',
+          ''
+        );
+
+        select
+          jsonb_object_agg(
+            answer_key.step_code,
+            answer_key.correct_option
+            order by answer_key.step_code
+          ),
+          jsonb_object_agg(
+            answer_key.step_code,
+            format(
+              'Риск: тестовый шаг %s для %s может нарушить выпуск. Проверка: сверяем адресный сценарий и доказательство перед продолжением. Следующий шаг: выполняем безопасное действие и сохраняем серверный результат.',
+              answer_key.step_code,
+              platform_code_value
+            )
+            order by answer_key.step_code
+          )
+        into platform_decisions, platform_rationales
+        from content_factory_private.training_platform_answer_keys answer_key
+        where answer_key.assessment_version = 1
+          and answer_key.platform_code = platform_code_value;
+
+        perform public.creator_submit_platform_simulator(
+          jsonb_build_object(
+            'organization_id', context_row.organization_id,
+            'platform', platform_code_value,
+            'assessment_version', 1,
+            'decisions', platform_decisions,
+            'rationales', platform_rationales,
+            'idempotency_key',
+              'pgtap-platform-simulator-' || platform_code_value
+          )
+        );
+      else
+        perform public.creator_save_training_progress(jsonb_build_object(
+          'organization_id', context_row.organization_id,
+          'module_code', module_row.code,
+          'walkthrough_id', walkthrough_id,
+          'completed', true,
+          'idempotency_key',
+            'pgtap-practice-' || module_row.code || '-' || walkthrough_id
+        ));
+      end if;
     end loop;
 
     perform public.creator_complete_module(jsonb_build_object(
@@ -366,6 +435,7 @@ begin
     'organization_id', context_row.organization_id,
     'module_code', 'operator_final_exam',
     'answers', exact_answers,
+    'rationales', pg_temp.final_exam_test_rationales(),
     'idempotency_key', 'pgtap-exam-pass-0001'
   ));
 

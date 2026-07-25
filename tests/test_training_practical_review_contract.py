@@ -293,5 +293,5 @@ def test_database_workflow_and_legacy_fixture_cover_the_new_gate() -> None:
     approve = CREATOR_FACTORY.index("creator_decide_practical_project", submit)
     exam = CREATOR_FACTORY.index("creator_submit_exam", approve)
     assert submit < approve < exam
-    assert "48,\n  'all browser rpcs expose exactly p_payload jsonb'" in CREATOR_FACTORY
-    assert "48,\n  'authenticated can execute all creator rpcs'" in CREATOR_FACTORY
+    assert "51,\n  'all browser rpcs expose exactly p_payload jsonb'" in CREATOR_FACTORY
+    assert "51,\n  'authenticated can execute all creator rpcs'" in CREATOR_FACTORY

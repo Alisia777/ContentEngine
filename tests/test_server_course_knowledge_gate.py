@@ -388,15 +388,26 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
     creator = (PGTAP_DIR / "creator_factory_test.sql").read_text(
         encoding="utf-8"
     ).casefold()
+    grading_fixture = (
+        ROOT / "supabase/test-fixtures/training_assessment_v5_keys.sql"
+    ).read_text(encoding="utf-8").casefold()
     assert "'creator_submit_course_check'" in creator
-    assert creator.count("\n  48,\n") >= 2
+    assert creator.count("\n  51,\n") >= 2
     assert "'creator_save_practical_project'" in creator
     assert "'creator_decide_practical_project'" in creator
+    assert "'creator_submit_platform_simulator'" in creator
+    assert "'creator_generation_media_identity'" in creator
+    assert "'creator_generation_learning_policy'" in creator
     assert "perform public.creator_submit_course_check" in creator
+    assert "perform public.creator_submit_platform_simulator" in creator
     assert "'pgtap-course-check-' || module_row.code" in creator
     assert "answer_key.correct_answers" in creator
     assert "question.order_index between 901 and 1000" in creator
     assert "perform pg_temp.grant_refreshed_course_gate" not in creator
+    assert "training_platform_answer_keys" in grading_fixture
+    assert "valid_platform_key_count <> 18" in grading_fixture
+    assert "test_platform_gate_fixture_invalid" in grading_fixture
+    assert "pg_temp.final_exam_test_rationales()" in creator
 
     fixture_files = {
         "limited_member_provisioning_test.sql": 2,

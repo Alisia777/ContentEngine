@@ -33,10 +33,50 @@ on conflict (question_code) do update set
   rubric = excluded.rubric,
   updated_at = excluded.updated_at;
 
+-- The production platform simulator keys are secret-injected as well. Local
+-- pgTAP needs a complete, deterministic six-step key for each platform so the
+-- server-owned grading path can be exercised without copying production
+-- answers into source control.
+insert into content_factory_private.training_platform_answer_keys (
+  assessment_version,
+  platform_code,
+  step_code,
+  allowed_options,
+  correct_option,
+  critical_options,
+  updated_at
+)
+select
+  1,
+  platform.platform_code,
+  step.step_code,
+  jsonb_build_array('test_correct', 'test_wrong'),
+  'test_correct',
+  '[]'::jsonb,
+  now()
+from (
+  values ('instagram'), ('youtube'), ('vk')
+) platform(platform_code)
+cross join (
+  values
+    ('account'),
+    ('warmup'),
+    ('publication'),
+    ('review'),
+    ('link'),
+    ('result')
+) step(step_code)
+on conflict (assessment_version, platform_code, step_code) do update set
+  allowed_options = excluded.allowed_options,
+  correct_option = excluded.correct_option,
+  critical_options = excluded.critical_options,
+  updated_at = excluded.updated_at;
+
 do $training_assessment_v5_test_fixture$
 declare
   course_question_count integer;
   valid_key_count integer;
+  valid_platform_key_count integer;
 begin
   select count(*) into course_question_count
   from content_factory.training_questions question
@@ -76,6 +116,26 @@ begin
     raise exception using
       errcode = '55000',
       message = 'test_course_gate_fixture_invalid';
+  end if;
+
+  select count(*) into valid_platform_key_count
+  from content_factory_private.training_platform_answer_keys answer_key
+  where answer_key.assessment_version = 1
+    and answer_key.platform_code in ('instagram', 'youtube', 'vk')
+    and answer_key.step_code in (
+      'account', 'warmup', 'publication', 'review', 'link', 'result'
+    )
+    and answer_key.allowed_options @>
+      jsonb_build_array(answer_key.correct_option)
+    and not (
+      answer_key.critical_options @>
+        jsonb_build_array(answer_key.correct_option)
+    );
+
+  if valid_platform_key_count <> 18 then
+    raise exception using
+      errcode = '55000',
+      message = 'test_platform_gate_fixture_invalid';
   end if;
 end;
 $training_assessment_v5_test_fixture$;
