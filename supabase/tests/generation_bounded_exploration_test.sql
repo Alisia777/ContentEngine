@@ -59,6 +59,30 @@ select
   '93939393-9393-4393-8393-939393939393'::uuid
 from (select public.creator_bootstrap('{}'::jsonb) as bootstrap) response;
 
+-- This test exercises generation policy, not training.  Use the same explicit,
+-- auditable workspace waiver as production onboarding instead of fabricating
+-- exam answers, certifications or practical-review evidence.
+update content_factory.memberships membership
+set role = 'operator'
+from exploration_test_context context
+where membership.organization_id = context.organization_id
+  and membership.profile_id = context.profile_id;
+
+insert into content_factory.training_access_waivers (
+  organization_id, profile_id, scope, status, previous_role, granted_role,
+  grant_reason, granted_by
+)
+select
+  context.organization_id,
+  context.profile_id,
+  'workspace_generation',
+  'active',
+  'trainee',
+  'operator',
+  'TEST-ONLY waiver for bounded generation exploration pgTAP coverage.',
+  context.profile_id
+from exploration_test_context context;
+
 insert into content_factory.products (
   id, organization_id, sku, title, status, metadata, created_by
 )
