@@ -279,8 +279,9 @@ def test_partial_failure_cannot_record_failed_migration(tmp_path: Path) -> None:
     failed_query = fake_http.requests[-1]["query"].casefold()
     assert failed_query.startswith("begin;")
     assert "insert into contentengine_deploy.schema_migrations" in failed_query
-    assert migrations[0].version not in failed_query
-    assert migrations[1].version in failed_query
+    migration_body = failed_query.split("$contentengine_deployment_guard$;", 1)[1]
+    assert migrations[0].version not in migration_body
+    assert migrations[1].version in migration_body
     assert failed_query.endswith("commit;")
 
 
