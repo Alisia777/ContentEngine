@@ -321,6 +321,7 @@ def test_production_workflow_releases_the_successful_main_ci_commit() -> None:
 
 def test_pages_build_accepts_only_browser_safe_configuration() -> None:
     workflow = _text(PRODUCTION_WORKFLOW)
+    builder = _text("scripts/build_pages_release.py")
     parsed = _yaml(PRODUCTION_WORKFLOW)
     build = parsed["jobs"]["build-pages"]
 
@@ -334,19 +335,22 @@ def test_pages_build_accepts_only_browser_safe_configuration() -> None:
     assert "OPENAI_API_KEY" not in build["env"]
     assert "RUNWAYML_API_SECRET" not in build["env"]
     assert "_site/config.js" in workflow
-    assert "cp -R web/app/. _site/" in workflow
-    assert "test -f _site/index.html" in workflow
+    assert "python scripts/build_pages_release.py" in workflow
+    assert "--source-dir web/app" in workflow
+    assert "--output-dir _site" in workflow
+    assert "--edge-function supabase/functions/creator-generate/index.ts" in workflow
     assert "__SET_SUPABASE_|127\\.0\\.0\\.1|localhost" in workflow
-    assert '"MOCK_ONLY"' not in workflow
-    assert '"MOCK_ENABLED": True' in workflow
-    assert '"REAL_GENERATION_ENABLED": True' in workflow
-    assert '"REAL_PROVIDER": "runway"' in workflow
-    assert '"REAL_MODEL": "gen4_turbo"' in workflow
-    assert '"REAL_DURATION_SECONDS": 5' in workflow
-    assert '"REAL_ESTIMATED_CREDITS": 25' in workflow
-    assert '"REAL_ESTIMATED_COST_USD": 0.25' in workflow
-    assert '"MAX_BATCH_SIZE": 50' in workflow
-    assert '"STORAGE_BUCKET": "contentengine-private"' in workflow
+    assert '"MOCK_ONLY"' not in builder
+    assert '"MOCK_ENABLED": True' in builder
+    assert '"REAL_GENERATION_ENABLED": True' in builder
+    assert '"REAL_PROVIDER": "runway"' in builder
+    assert '"REAL_MODEL": "gen4_turbo"' in builder
+    assert '"REAL_DURATION_SECONDS": 5' in builder
+    assert '"REAL_ESTIMATED_CREDITS": 25' in builder
+    assert '"REAL_ESTIMATED_COST_USD": 0.25' in builder
+    assert '"MAX_BATCH_SIZE": 50' in builder
+    assert '"STORAGE_BUCKET": "contentengine-private"' in builder
+    assert '"release-manifest.json"' in builder
 
 
 def test_private_exam_keys_are_step_scoped_and_never_printed() -> None:

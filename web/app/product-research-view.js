@@ -356,6 +356,12 @@ function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", dis
     ${textArea(`scenario_${index}_shots`, "Кадры по порядку", item.shotList, "Один кадр на строку", 2400, disabled)}
     ${textField(`scenario_${index}_task_title`, "Название задачи", item.taskTitle, 180, disabled)}
     <label class="field"><span>Исполнитель задачи</span><select name="scenario_${index}_assignee_id" required ${disabled ? "disabled" : ""}>${assigneeOptions}</select><small class="field-hint">При утверждении эта задача будет назначена выбранному участнику.</small></label>
+    ${disabled ? `
+      <div class="product-research-generation-action">
+        <div><strong>Сценарий утверждён</strong><small>Перенесём товар, хук, реплику и кадры в генератор и проверим их под 5 или 8 секунд.</small></div>
+        <button class="btn btn-secondary btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}">Создать ролик по сценарию →</button>
+      </div>
+    ` : ""}
   </fieldset>`;
 }
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from app.creative.types import HookCandidate
-from app.intelligence.types import CreativeIntelligencePack
+from app.intelligence.creative_learning import CreativeLearningPolicyBuilder
+from app.intelligence.types import CreativeIntelligencePack, CreativeLearningPolicy
 
 
 HOOKS_BY_FLAG = {
@@ -16,9 +17,23 @@ HOOKS_BY_FLAG = {
 
 
 class HookStrategySelector:
-    def select(self, pack: CreativeIntelligencePack) -> list[HookCandidate]:
+    def select(
+        self,
+        pack: CreativeIntelligencePack,
+        *,
+        platform: str | None = None,
+        learning_policy: CreativeLearningPolicy | None = None,
+    ) -> list[HookCandidate]:
+        policy = learning_policy or CreativeLearningPolicyBuilder().build(
+            pack.content_learnings,
+            target_platform=platform,
+            source_ids=pack.source_map.get("creative_performance") or [],
+        )
         flags = self._flags(pack)
         hook_types = []
+        if policy.applied:
+            hook_types.extend(policy.preferred_angles)
+            flags.append("learned_performance")
         for flag in flags:
             hook_types.extend(HOOKS_BY_FLAG.get(flag, []))
         if not hook_types:
@@ -51,17 +66,17 @@ class HookStrategySelector:
         hook_copy = {
             "curiosity_gap": f"The one detail shoppers miss about {product}",
             "contradiction": f"Looks simple, but {product} solves a real daily friction",
-            "benefit_first_frame": f"See the product benefit before the first scroll",
+            "benefit_first_frame": "See the product benefit before the first scroll",
             "objection_handling": f"Wondering {objection}",
             "trust_builder": f"Why shoppers choose {product} for everyday use",
             "value_explanation": f"What makes {product} worth comparing",
             "expectation_setting": f"Before you buy {product}, see how it is meant to be used",
             "usage_instruction": f"Use {product} this way for the clearest result",
             "mistake_to_avoid": f"One mistake to avoid with {product}",
-            "comparison": f"Cheaper is not always the same value",
+            "comparison": "Cheaper is not always the same value",
             "soft_education": f"Learn where {product} fits before demand spikes",
             "no_aggressive_promo": f"A calm look at whether {product} fits your routine",
-            "message_match": f"If the card made a promise, this video proves it quickly",
+            "message_match": "If the card made a promise, this video proves it quickly",
             "offer_clarity": f"What you get with {product}, shown plainly",
             "problem_solution": f"One everyday problem {product} is built for",
             "use_case_demo": f"Watch {product} in the exact use case",

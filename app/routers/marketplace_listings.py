@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.marketplace_listings import (
     ListingAmbiguityError,
-    ListingConflictError,
     ListingNotFoundError,
     ListingResolutionQuarantinedError,
     ListingValidationError,

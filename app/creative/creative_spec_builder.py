@@ -19,7 +19,7 @@ from app.demand.types import DemandHypothesis
 from app.intelligence.errors import MissingGeneratorDataError
 from app.intelligence.insight_builder import CreativeIntelligenceBuilder
 from app.intelligence.script_brief_builder import ScriptBriefBuilder
-from app.intelligence.types import CreativeIntelligencePack
+from app.intelligence.types import CreativeIntelligencePack, ScriptBriefOutput
 
 
 class CreativeSpecBuilder:
@@ -42,9 +42,14 @@ class CreativeSpecBuilder:
             select(models.BrandGuide).where(models.BrandGuide.brand == product.brand).order_by(models.BrandGuide.id)
         )
         intelligence_record = CreativeIntelligenceBuilder(self.db).build_for_product(product_id)
-        script_brief = ScriptBriefBuilder(self.db).build_from_record(intelligence_record.id)
+        script_brief = ScriptBriefBuilder(self.db).build_from_record(intelligence_record.id, platform=platform)
+        brief_output = ScriptBriefOutput.model_validate(script_brief.brief_json)
         pack = CreativeIntelligencePack.model_validate(intelligence_record.pack_json)
-        hook_candidates = HookStrategySelector().select(pack)
+        hook_candidates = HookStrategySelector().select(
+            pack,
+            platform=platform,
+            learning_policy=brief_output.learning_policy,
+        )
         selected_hook = hook_candidates[0]
         allowed_claim_refs = [f"{claim.source_type}:{claim.source_key}" for claim in pack.allowed_claims]
         warnings = list(pack.warnings or [])
@@ -87,7 +92,8 @@ class CreativeSpecBuilder:
             aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
             creative_objective=pack.recommended_objective,
-            creative_angle=pack.recommended_creative_angles[0] if pack.recommended_creative_angles else "value_explanation",
+            creative_angle=brief_output.creative_angle,
+            learning_policy=brief_output.learning_policy,
             hook_candidates=hook_candidates,
             selected_hook=selected_hook,
             hook_type=selected_hook.hook_type,
@@ -108,7 +114,12 @@ class CreativeSpecBuilder:
             allowed_claims=pack.allowed_claims,
             allowed_claim_refs=allowed_claim_refs,
             reference_images=reference_images,
-            source_map={**pack.source_map, "creative_intelligence_pack_id": intelligence_record.id, "script_brief_id": script_brief.id},
+            source_map={
+                **pack.source_map,
+                "creative_intelligence_pack_id": intelligence_record.id,
+                "script_brief_id": script_brief.id,
+                "creative_learning_policy": brief_output.learning_policy.model_dump(mode="json"),
+            },
             quality_rubric=default_quality_rubric(reference_images_required=bool(reference_images)),
             warnings=list(dict.fromkeys(warnings)),
             cta=cta,
@@ -170,7 +181,8 @@ class CreativeSpecBuilder:
         self.db.add(intelligence_record)
         self.db.commit()
         self.db.refresh(intelligence_record)
-        script_brief = ScriptBriefBuilder(self.db).build_from_record(intelligence_record.id)
+        script_brief = ScriptBriefBuilder(self.db).build_from_record(intelligence_record.id, platform=platform)
+        brief_output = ScriptBriefOutput.model_validate(script_brief.brief_json)
         hook_candidates = mapper.hook_candidates(hypothesis)
         selected_hook = hook_candidates[0]
         allowed_claim_refs = [f"{claim.source_type}:{claim.source_key}" for claim in pack.allowed_claims]
@@ -209,7 +221,8 @@ class CreativeSpecBuilder:
             aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
             creative_objective=pack.recommended_objective,
-            creative_angle=pack.recommended_creative_angles[0] if pack.recommended_creative_angles else hypothesis.need_type,
+            creative_angle=brief_output.creative_angle,
+            learning_policy=brief_output.learning_policy,
             hook_candidates=hook_candidates,
             selected_hook=selected_hook,
             hook_type=selected_hook.hook_type,

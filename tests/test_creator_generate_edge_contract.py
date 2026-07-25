@@ -9,6 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATH = ROOT / "supabase/functions/creator-generate/index.ts"
 WORKFLOW_PATH = ROOT / ".github/workflows/supabase-pages.yml"
+PAGES_BUILDER_PATH = ROOT / "scripts/build_pages_release.py"
 
 
 def _source() -> str:
@@ -25,7 +26,10 @@ def test_real_generation_edge_function_is_authenticated_and_origin_bound() -> No
     assert config["functions"]["creator-generate"]["verify_jwt"] is True
     assert 'auth: "user"' in source
     assert 'const PUBLIC_APP_ORIGIN = "https://alisia777.github.io"' in source
-    assert 'request.headers.get("origin") !== PUBLIC_APP_ORIGIN' in source
+    assert 'const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767"' in source
+    assert 'USER_APP_ORIGINS.has(request.headers.get("origin") ?? "")' in source
+    assert '"access-control-allow-origin", origin' in source
+    assert '"access-control-allow-origin", "*"' not in source
     assert 'request.method !== "POST"' in source
     assert "MAX_BODY_BYTES" in source
     assert "readBoundedStream(request.body, MAX_BODY_BYTES)" in source
@@ -238,6 +242,7 @@ def test_provider_errors_and_ephemeral_urls_are_not_returned_raw() -> None:
 
 def test_production_workflow_masks_sets_and_deploys_runway_secret() -> None:
     text = WORKFLOW_PATH.read_text(encoding="utf-8")
+    builder = PAGES_BUILDER_PATH.read_text(encoding="utf-8")
     workflow = yaml.safe_load(text)
     migrate = workflow["jobs"]["migrate"]
     steps = migrate["steps"]
@@ -265,12 +270,12 @@ def test_production_workflow_masks_sets_and_deploys_runway_secret() -> None:
     )
     assert "--no-verify-jwt" not in deploy["run"]
     assert "RUNWAYML_API_SECRET" not in workflow["jobs"]["build-pages"]["env"]
-    assert '"MOCK_ONLY"' not in text
-    assert '"MOCK_ENABLED": True' in text
-    assert '"REAL_GENERATION_ENABLED": True' in text
-    assert '"REAL_PROVIDER": "runway"' in text
-    assert '"REAL_MODEL": "gen4_turbo"' in text
-    assert '"REAL_ESTIMATED_COST_USD": 0.25' in text
+    assert '"MOCK_ONLY"' not in builder
+    assert '"MOCK_ENABLED": True' in builder
+    assert '"REAL_GENERATION_ENABLED": True' in builder
+    assert '"REAL_PROVIDER": "runway"' in builder
+    assert '"REAL_MODEL": "gen4_turbo"' in builder
+    assert '"REAL_ESTIMATED_COST_USD": 0.25' in builder
 
 
 def test_ci_formats_lints_and_checks_both_edge_functions() -> None:

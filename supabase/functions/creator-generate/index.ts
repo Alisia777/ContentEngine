@@ -6,8 +6,14 @@ import {
 } from "../_shared/internal-worker-auth.ts";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
+const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
+const USER_APP_ORIGINS = new Set([
+  PUBLIC_APP_ORIGIN,
+  LOCAL_QA_APP_ORIGIN,
+]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-25.v1";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
@@ -27,6 +33,17 @@ const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
 const GEN4_RATIOS = new Set(["1280:720", "720:1280", "960:960"]);
 const SEEDANCE_FAST_RATIO = "720:1280";
+const SEEDREAM5_LITE_RATIO = "2048:2048";
+const RUNWAY_SKU_CREDITS = Object.freeze({
+  gen4_turbo: 25,
+  seedance2_fast: 232,
+  seedream5_lite: 4,
+});
+const RUNWAY_PROMPT_LIMITS = Object.freeze({
+  gen4_turbo: 1_000,
+  seedance2_fast: 1_200,
+  seedream5_lite: 1_200,
+});
 const DEFINITIVE_CREATE_HTTP_STATUSES = new Set([
   400,
   401,
@@ -130,7 +147,19 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      creator_generation_spend_overview: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      creator_generation_learning_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_update_real_generation: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_complete_seedream5_lite_photo: {
         Args: { p_payload: Json };
         Returns: Json;
       };
@@ -205,6 +234,33 @@ type CommonStartPayload = {
   mode: "real";
   provider: "runway";
   allow_real_spend: true;
+  learning_context: GenerationLearningContext;
+  learning_opt_out?: true;
+};
+
+type GenerationLearningContext = {
+  creative_angle:
+    | "product_focus"
+    | "trust_builder"
+    | "demonstration"
+    | "comparison"
+    | "objection_handling"
+    | "curiosity_gap";
+  hook_patterns: (
+    | "question_led"
+    | "why_explanation"
+    | "before_buying"
+    | "comparison"
+    | "demonstration"
+    | "first_person"
+    | "numbered"
+    | "concise"
+  )[];
+  source: "baseline" | "approved_research" | "performance_learning";
+  compiler_version: string;
+  applied_policy_hash?: string;
+  creative_brief_draft_id?: string;
+  scenario_position?: 1 | 2 | 3;
 };
 
 type StartPayload =
@@ -223,7 +279,22 @@ type StartPayload =
       format: "9:16";
       spend_confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32";
     }
+    | {
+      model: "seedream5_lite";
+      duration_seconds: 0;
+      audio?: false;
+      format: "1:1";
+      spend_confirmation: "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04";
+    }
   );
+
+type RunwayModel = keyof typeof RUNWAY_SKU_CREDITS;
+
+type PreflightPayload = {
+  action: "preflight";
+  organization_id: string;
+  model: RunwayModel;
+};
 
 type StatusPayload = {
   action: "status";
@@ -253,6 +324,32 @@ type ReconciliationContext = {
   requiredAt: string;
 };
 
+type RunwayProviderReadinessSnapshot = {
+  ready: boolean;
+  model: RunwayModel;
+  estimatedCredits: number;
+  balanceSufficient: boolean;
+  modelAvailable: boolean;
+  dailyQuotaAvailable: boolean;
+};
+
+type RunwayProviderReadiness =
+  | (RunwayProviderReadinessSnapshot & {
+    ready: true;
+    balanceSufficient: true;
+    modelAvailable: true;
+    dailyQuotaAvailable: true;
+  })
+  | {
+    ready: false;
+    model: RunwayModel;
+    estimatedCredits: number;
+    balanceSufficient: boolean;
+    modelAvailable: boolean;
+    dailyQuotaAvailable: boolean;
+    failureCode: string;
+  };
+
 type StartJob = {
   id: string;
   batchId: string;
@@ -260,8 +357,8 @@ type StartJob = {
   campaignName: string;
   status: string;
   provider: "runway";
-  model: "gen4_turbo" | "seedance2_fast";
-  durationSeconds: 5 | 8;
+  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  durationSeconds: 0 | 5 | 8;
   audio: boolean;
   ratio: string;
   promptText: string;
@@ -279,8 +376,8 @@ type StatusJob = {
   status: string;
   provider: "runway";
   providerTaskId: string | null;
-  model: "gen4_turbo" | "seedance2_fast";
-  durationSeconds: 5 | 8;
+  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  durationSeconds: 0 | 5 | 8;
   audio: boolean;
   ratio: string;
   estimatedCostMinor: number;
@@ -307,8 +404,8 @@ type SafeJob = {
   status: string;
   provider: "runway";
   provider_task_id: string | null;
-  model: "gen4_turbo" | "seedance2_fast";
-  duration_seconds: 5 | 8;
+  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  duration_seconds: 0 | 5 | 8;
   audio: boolean;
   ratio: string;
   estimated_cost_minor: number;
@@ -335,10 +432,12 @@ function responseHeaders(request: Request): Headers {
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
     vary: "Origin",
+    "x-contentengine-learning-gate": GENERATION_LEARNING_GATE_VERSION,
     "x-content-type-options": "nosniff",
   });
-  if (request.headers.get("origin") === PUBLIC_APP_ORIGIN) {
-    headers.set("access-control-allow-origin", PUBLIC_APP_ORIGIN);
+  const origin = request.headers.get("origin");
+  if (origin !== null && USER_APP_ORIGINS.has(origin)) {
+    headers.set("access-control-allow-origin", origin);
   }
   return headers;
 }
@@ -438,6 +537,14 @@ function isObjectName(value: unknown): value is string {
   );
 }
 
+function readRunwayModel(value: unknown): RunwayModel | null {
+  return value === "gen4_turbo" ||
+      value === "seedance2_fast" ||
+      value === "seedream5_lite"
+    ? value
+    : null;
+}
+
 function readStartPayload(value: unknown): StartPayload | null {
   if (!isRecord(value)) return null;
   const required = new Set([
@@ -459,12 +566,14 @@ function readStartPayload(value: unknown): StartPayload | null {
     "duration_seconds",
     "allow_real_spend",
     "spend_confirmation",
+    "learning_context",
   ]);
   const allowed = new Set([
     ...required,
     "audio",
     "assignee_id",
     "payout_minor",
+    "learning_opt_out",
   ]);
   if (!hasOnlyKeys(value, allowed)) return null;
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
@@ -479,6 +588,14 @@ function readStartPayload(value: unknown): StartPayload | null {
     value.format === "9:16" &&
     value.spend_confirmation ===
       "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32";
+  const seedreamSku = value.model === "seedream5_lite" &&
+    value.duration_seconds === 0 &&
+    (!Object.hasOwn(value, "audio") || value.audio === false) &&
+    value.format === "1:1" &&
+    value.spend_confirmation ===
+      "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04";
+  const model = readRunwayModel(value.model);
+  const promptLimit = model === null ? 0 : RUNWAY_PROMPT_LIMITS[model];
   if (
     !Array.isArray(mediaIds) || mediaIds.length !== 1 ||
     !isUuid(mediaIds[0])
@@ -504,11 +621,12 @@ function readStartPayload(value: unknown): StartPayload | null {
     !isBoundedText(value.product_name, 2, 180) ||
     value.count !== 1 ||
     typeof value.format !== "string" || !formats.has(value.format) ||
-    !isBoundedText(value.brief, 1, 1_200) ||
+    !isBoundedText(value.brief, 1, promptLimit) ||
     typeof value.platform !== "string" || !platforms.has(value.platform) ||
     !isBoundedText(value.destination_ref, 2, 240) ||
     value.mode !== "real" || value.provider !== "runway" ||
-    value.allow_real_spend !== true || (!gen4Sku && !seedanceSku)
+    value.allow_real_spend !== true ||
+    (!gen4Sku && !seedanceSku && !seedreamSku)
   ) {
     return null;
   }
@@ -521,7 +639,148 @@ function readStartPayload(value: unknown): StartPayload | null {
   ) {
     return null;
   }
+  const learningContext = readGenerationLearningContext(value.learning_context);
+  if (learningContext === null) {
+    return null;
+  }
+  if (
+    Object.hasOwn(value, "learning_opt_out") &&
+    (
+      value.learning_opt_out !== true ||
+      learningContext.source === "performance_learning"
+    )
+  ) {
+    return null;
+  }
   return value as StartPayload;
+}
+
+function readPreflightPayload(value: unknown): PreflightPayload | null {
+  if (!isRecord(value)) return null;
+  const allowed = new Set(["action", "organization_id", "model"]);
+  const model = readRunwayModel(value.model);
+  if (
+    !hasOnlyKeys(value, allowed) ||
+    Object.keys(value).length !== allowed.size ||
+    value.action !== "preflight" ||
+    !isUuid(value.organization_id) ||
+    model === null
+  ) {
+    return null;
+  }
+  return {
+    action: "preflight",
+    organization_id: value.organization_id,
+    model,
+  };
+}
+
+function readGenerationLearningContext(
+  value: unknown,
+): GenerationLearningContext | null {
+  if (!isRecord(value)) return null;
+  const allowed = new Set([
+    "creative_angle",
+    "hook_patterns",
+    "source",
+    "compiler_version",
+    "applied_policy_hash",
+    "creative_brief_draft_id",
+    "scenario_position",
+  ]);
+  const required = [
+    "creative_angle",
+    "hook_patterns",
+    "source",
+    "compiler_version",
+  ];
+  if (
+    !hasOnlyKeys(value, allowed) ||
+    !required.every((key) => Object.hasOwn(value, key))
+  ) {
+    return null;
+  }
+  const angles = new Set([
+    "product_focus",
+    "trust_builder",
+    "demonstration",
+    "comparison",
+    "objection_handling",
+    "curiosity_gap",
+  ]);
+  const patterns = new Set([
+    "question_led",
+    "why_explanation",
+    "before_buying",
+    "comparison",
+    "demonstration",
+    "first_person",
+    "numbered",
+    "concise",
+  ]);
+  const sources = new Set([
+    "baseline",
+    "approved_research",
+    "performance_learning",
+  ]);
+  const hookPatterns = value.hook_patterns;
+  if (
+    typeof value.creative_angle !== "string" ||
+    !angles.has(value.creative_angle) ||
+    !Array.isArray(hookPatterns) ||
+    hookPatterns.length > 8 ||
+    hookPatterns.some((pattern) =>
+      typeof pattern !== "string" || !patterns.has(pattern)
+    ) ||
+    new Set(hookPatterns).size !== hookPatterns.length ||
+    typeof value.source !== "string" ||
+    !sources.has(value.source) ||
+    typeof value.compiler_version !== "string" ||
+    !/^[a-z0-9][a-z0-9._-]{2,63}$/u.test(value.compiler_version) ||
+    (
+      Object.hasOwn(value, "applied_policy_hash") &&
+      (
+        typeof value.applied_policy_hash !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(value.applied_policy_hash)
+      )
+    )
+  ) {
+    return null;
+  }
+  if (
+    value.source === "approved_research" &&
+    (
+      !isUuid(value.creative_brief_draft_id) ||
+      ![1, 2, 3].includes(Number(value.scenario_position)) ||
+      Object.hasOwn(value, "applied_policy_hash")
+    )
+  ) {
+    return null;
+  }
+  if (
+    value.source === "performance_learning" &&
+    (
+      typeof value.applied_policy_hash !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(value.applied_policy_hash) ||
+      Object.hasOwn(value, "creative_brief_draft_id") ||
+      Object.hasOwn(value, "scenario_position")
+    )
+  ) {
+    return null;
+  }
+  if (
+    value.source === "baseline" &&
+    (
+      value.creative_angle !== "product_focus" ||
+      hookPatterns.length !== 0 ||
+      Object.hasOwn(value, "applied_policy_hash") ||
+      Object.hasOwn(value, "creative_brief_draft_id") ||
+      Object.hasOwn(value, "scenario_position")
+    )
+  ) {
+    return null;
+  }
+  return value as GenerationLearningContext;
 }
 
 function readStatusPayload(value: unknown): StatusPayload | null {
@@ -586,13 +845,19 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
 }
 
 function rpcPayload(payload: StartPayload | StatusPayload): Json {
-  const { action: _action, ...rest } = payload;
+  const {
+    action: _action,
+    ...rest
+  } = payload;
+  if ("learning_opt_out" in rest) {
+    delete (rest as Partial<StartPayload>).learning_opt_out;
+  }
   return rest as Json;
 }
 
 function readRunwaySku(job: Record<string, unknown>): {
-  model: "gen4_turbo" | "seedance2_fast";
-  durationSeconds: 5 | 8;
+  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  durationSeconds: 0 | 5 | 8;
   audio: boolean;
   ratio: string;
   estimatedCostMinor: number;
@@ -625,6 +890,20 @@ function readRunwaySku(job: Record<string, unknown>): {
       ratio: SEEDANCE_FAST_RATIO,
       estimatedCostMinor: 232,
       estimatedCredits: 232,
+    };
+  }
+  if (
+    job.model === "seedream5_lite" && job.duration_seconds === 0 &&
+    job.audio === false && job.ratio === SEEDREAM5_LITE_RATIO &&
+    job.estimated_cost_minor === 4 && job.estimated_credits === 4
+  ) {
+    return {
+      model: "seedream5_lite",
+      durationSeconds: 0,
+      audio: false,
+      ratio: SEEDREAM5_LITE_RATIO,
+      estimatedCostMinor: 4,
+      estimatedCredits: 4,
     };
   }
   return null;
@@ -891,6 +1170,140 @@ function runwaySecret(): string | null {
   return value;
 }
 
+function readNonNegativeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+function parseRunwayOrganizationReadiness(
+  value: unknown,
+  model: RunwayModel,
+): RunwayProviderReadinessSnapshot | null {
+  if (!isRecord(value) || !isRecord(value.tier) || !isRecord(value.usage)) {
+    return null;
+  }
+  const creditBalance = readNonNegativeNumber(value.creditBalance);
+  const tierModels = value.tier.models;
+  const usageModels = value.usage.models;
+  if (
+    creditBalance === null ||
+    !isRecord(tierModels) ||
+    !isRecord(usageModels)
+  ) {
+    return null;
+  }
+  const tierModel = tierModels[model];
+  const usageModel = usageModels[model];
+  const maxDaily = isRecord(tierModel)
+    ? readNonNegativeNumber(tierModel.maxDailyGenerations)
+    : null;
+  const dailyGenerations = isRecord(usageModel)
+    ? readNonNegativeNumber(usageModel.dailyGenerations)
+    : 0;
+  const estimatedCredits = RUNWAY_SKU_CREDITS[model];
+  const modelAvailable = maxDaily !== null && maxDaily > 0;
+  const balanceSufficient = creditBalance >= estimatedCredits;
+  const dailyQuotaAvailable = modelAvailable &&
+    dailyGenerations !== null && dailyGenerations < maxDaily;
+  return {
+    ready: balanceSufficient && modelAvailable && dailyQuotaAvailable,
+    model,
+    estimatedCredits,
+    balanceSufficient,
+    modelAvailable,
+    dailyQuotaAvailable,
+  };
+}
+
+async function checkRunwayProviderReadiness(
+  secret: string,
+  model: RunwayModel,
+): Promise<RunwayProviderReadiness> {
+  const estimatedCredits = RUNWAY_SKU_CREDITS[model];
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${RUNWAY_API_ORIGIN}/v1/organization`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "x-runway-version": RUNWAY_API_VERSION,
+        },
+      },
+      PROVIDER_TIMEOUT_MS,
+    );
+  } catch {
+    return {
+      ready: false,
+      model,
+      estimatedCredits,
+      balanceSufficient: false,
+      modelAvailable: false,
+      dailyQuotaAvailable: false,
+      failureCode: "provider_request_failed",
+    };
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    return {
+      ready: false,
+      model,
+      estimatedCredits,
+      balanceSufficient: false,
+      modelAvailable: false,
+      dailyQuotaAvailable: false,
+      failureCode: providerFailureForHttp(response.status),
+    };
+  }
+  let value: unknown;
+  try {
+    value = await readProviderJson(response);
+  } catch {
+    return {
+      ready: false,
+      model,
+      estimatedCredits,
+      balanceSufficient: false,
+      modelAvailable: false,
+      dailyQuotaAvailable: false,
+      failureCode: "provider_response_invalid",
+    };
+  }
+  const parsed = parseRunwayOrganizationReadiness(value, model);
+  if (parsed === null) {
+    return {
+      ready: false,
+      model,
+      estimatedCredits,
+      balanceSufficient: false,
+      modelAvailable: false,
+      dailyQuotaAvailable: false,
+      failureCode: "provider_response_invalid",
+    };
+  }
+  if (parsed.ready) {
+    return {
+      ...parsed,
+      ready: true,
+      balanceSufficient: true,
+      modelAvailable: true,
+      dailyQuotaAvailable: true,
+    };
+  }
+  return {
+    ...parsed,
+    ready: false,
+    failureCode: !parsed.modelAvailable
+      ? "provider_request_rejected"
+      : !parsed.balanceSufficient
+      ? "provider_credits_unavailable"
+      : "provider_rate_limited",
+  };
+}
+
 async function fetchWithTimeout(
   input: string,
   init: RequestInit,
@@ -1010,6 +1423,29 @@ function isMp4(bytes: Uint8Array): boolean {
     bytes[6] === 0x79 && bytes[7] === 0x70;
 }
 
+function isPng(bytes: Uint8Array): boolean {
+  if (
+    bytes.byteLength < 24 ||
+    !(
+      bytes[0] === 0x89 && bytes[1] === 0x50 &&
+      bytes[2] === 0x4e && bytes[3] === 0x47 &&
+      bytes[4] === 0x0d && bytes[5] === 0x0a &&
+      bytes[6] === 0x1a && bytes[7] === 0x0a
+    ) ||
+    bytes[12] !== 0x49 || bytes[13] !== 0x48 ||
+    bytes[14] !== 0x44 || bytes[15] !== 0x52
+  ) {
+    return false;
+  }
+  const view = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + 16,
+    8,
+  );
+  return view.getUint32(0, false) === 2_048 &&
+    view.getUint32(4, false) === 2_048;
+}
+
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((value) =>
@@ -1079,13 +1515,7 @@ function parseCreatedRunwayTask(value: unknown): { id: string } | null {
 
 const CREATOR_GENERATE_USER_OPTIONS = {
   auth: "user",
-  cors: {
-    "Access-Control-Allow-Headers":
-      "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Origin": PUBLIC_APP_ORIGIN,
-    Vary: "Origin",
-  },
+  cors: false,
 } as const;
 
 const CREATOR_GENERATE_WORKER_OPTIONS = {
@@ -1107,7 +1537,7 @@ async function handleCreatorGenerate(
   }
   if (
     (!internalWorker &&
-      request.headers.get("origin") !== PUBLIC_APP_ORIGIN) ||
+      !USER_APP_ORIGINS.has(request.headers.get("origin") ?? "")) ||
     (internalWorker && request.headers.get("origin") !== null)
   ) {
     return json(request, { ok: false, code: "origin_not_allowed" }, 403);
@@ -1215,6 +1645,20 @@ async function handleCreatorGenerate(
     try {
       const { data, error } = await supabaseAdmin.rpc(
         "system_update_real_generation",
+        { p_payload: payload },
+      );
+      return error ? null : data;
+    } catch {
+      return null;
+    }
+  };
+
+  const completeSeedreamPhoto = async (
+    payload: Record<string, Json>,
+  ): Promise<Json | null> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_complete_seedream5_lite_photo",
         { p_payload: payload },
       );
       return error ? null : data;
@@ -1616,6 +2060,8 @@ async function handleCreatorGenerate(
       );
     }
 
+    const photoOutput = current.model === "seedream5_lite";
+    const outputMimeType = photoOutput ? "image/png" : "video/mp4";
     let outputBytes: Uint8Array<ArrayBuffer>;
     try {
       const outputResponse = await fetchWithTimeout(
@@ -1627,7 +2073,9 @@ async function handleCreatorGenerate(
         .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
       if (
         !outputResponse.ok ||
-        !new Set(["video/mp4", "application/mp4"]).has(mimeType)
+        !(photoOutput
+          ? mimeType === "image/png"
+          : new Set(["video/mp4", "application/mp4"]).has(mimeType))
       ) {
         await outputResponse.body?.cancel();
         return await respondProviderUnavailable(
@@ -1647,7 +2095,9 @@ async function handleCreatorGenerate(
         batch,
       );
     }
-    if (!isMp4(outputBytes)) {
+    if (
+      photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)
+    ) {
       return await respondProviderUnavailable(
         payload.organization_id,
         payload.job_id,
@@ -1656,15 +2106,23 @@ async function handleCreatorGenerate(
     }
     const digest = await sha256Hex(outputBytes);
     const storage = supabaseAdmin.storage.from(STORAGE_BUCKET);
-    const { error: uploadError } = await storage.upload(
-      current.outputObjectName,
-      outputBytes,
-      {
+    const uploadOptions = photoOutput
+      ? {
+        cacheControl: "31536000",
+        contentType: "image/png",
+        upsert: true,
+        metadata: { sha256: digest },
+      }
+      : {
         cacheControl: "31536000",
         contentType: "video/mp4",
         upsert: true,
         metadata: { sha256: digest },
-      },
+      };
+    const { error: uploadError } = await storage.upload(
+      current.outputObjectName,
+      outputBytes,
+      uploadOptions,
     );
     if (uploadError) {
       return await respondProviderUnavailable(
@@ -1674,15 +2132,18 @@ async function handleCreatorGenerate(
       );
     }
 
-    const completed = await updateSystemJob({
+    const successPayload = {
       job_id: current.id,
       provider_task_id: current.providerTaskId,
       status: "succeeded",
       output_object_name: current.outputObjectName,
-      mime_type: "video/mp4",
+      mime_type: outputMimeType,
       size_bytes: outputBytes.byteLength,
       sha256: digest,
-    });
+    } satisfies Record<string, Json>;
+    const completed = photoOutput
+      ? await completeSeedreamPhoto(successPayload)
+      : await updateSystemJob(successPayload);
     if (completed === null) {
       return json(
         request,
@@ -1841,6 +2302,72 @@ async function handleCreatorGenerate(
     );
   };
 
+  const handlePreflight = async (
+    payload: PreflightPayload,
+  ): Promise<Response> => {
+    try {
+      const { error } = await context.supabase.rpc(
+        "creator_generation_spend_overview",
+        { p_payload: { organization_id: payload.organization_id } },
+      );
+      if (error !== null) {
+        return json(
+          request,
+          { ok: false, code: "generation_rejected" },
+          403,
+        );
+      }
+    } catch {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
+    const secret = runwaySecret();
+    if (secret === null) {
+      return json(
+        request,
+        { ok: false, code: "provider_configuration_error" },
+        503,
+      );
+    }
+    const readiness = await checkRunwayProviderReadiness(
+      secret,
+      payload.model,
+    );
+    if (!readiness.ready) {
+      const status = readiness.failureCode === "provider_credits_unavailable" ||
+          readiness.failureCode === "provider_rate_limited"
+        ? 409
+        : 503;
+      return json(
+        request,
+        { ok: false, code: readiness.failureCode },
+        status,
+      );
+    }
+    return json(request, {
+      ok: true,
+      preflight: {
+        provider: "runway",
+        model: readiness.model,
+        ready: true,
+        estimated_credits: readiness.estimatedCredits,
+        balance_sufficient: readiness.balanceSufficient,
+        model_available: readiness.modelAvailable,
+        daily_quota_available: readiness.dailyQuotaAvailable,
+        learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
+        checked_at: new Date().toISOString(),
+      },
+    });
+  };
+
+  const preflightPayload = readPreflightPayload(body);
+  if (!internalWorker && preflightPayload !== null) {
+    return await handlePreflight(preflightPayload);
+  }
+
   const reconcilePayload = readReconcilePayload(body);
   if (!internalWorker && reconcilePayload !== null) {
     return await handleReconciliation(reconcilePayload);
@@ -1857,20 +2384,86 @@ async function handleCreatorGenerate(
   if (startPayload === null) {
     return json(request, { ok: false, code: "invalid_payload" }, 400);
   }
+  let learningPolicy: Record<string, unknown> | null = null;
+  try {
+    const { data, error } = await context.supabase.rpc(
+      "creator_generation_learning_policy",
+      {
+        p_payload: {
+          organization_id: startPayload.organization_id,
+          media_id: startPayload.media_ids[0],
+          platform: startPayload.platform,
+          model: startPayload.model,
+        },
+      },
+    );
+    if (error !== null || !isRecord(data)) {
+      return json(
+        request,
+        { ok: false, code: "generation_learning_unavailable" },
+        503,
+      );
+    }
+    learningPolicy = data;
+  } catch {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_unavailable" },
+      503,
+    );
+  }
+  if (
+    learningPolicy === null ||
+    typeof learningPolicy.applied !== "boolean"
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_unavailable" },
+      503,
+    );
+  }
+  const learningSource = startPayload.learning_context.source;
+  if (
+    learningPolicy.applied &&
+    learningSource !== "performance_learning" &&
+    startPayload.learning_opt_out !== true
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_policy_required" },
+      409,
+    );
+  }
+  if (!learningPolicy.applied && learningSource === "performance_learning") {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_policy_stale" },
+      409,
+    );
+  }
   const { data: startData, error: startError } = await context.supabase.rpc(
     "creator_start_real_generation",
     { p_payload: rpcPayload(startPayload) },
   );
   if (startError) {
     const budgetCode = readBudgetErrorCode(startError);
+    const learningCode = [
+        "generation_learning_context_invalid",
+        "generation_learning_policy_stale",
+        "generation_learning_research_provenance_invalid",
+      ].includes(startError.message)
+      ? startError.message
+      : null;
     const code = budgetCode ??
       (startError.message === "real_generation_reconciliation_required"
         ? "real_generation_reconciliation_required"
-        : "generation_rejected");
+        : learningCode ?? "generation_rejected");
     const status = budgetCode !== null
       ? budgetErrorHttpStatus(budgetCode)
       : code === "generation_rejected"
       ? 403
+      : code === "generation_learning_context_invalid"
+      ? 422
       : 409;
     return json(
       request,
@@ -1955,6 +2548,18 @@ async function handleCreatorGenerate(
       batch,
     );
   }
+  const providerReadiness = await checkRunwayProviderReadiness(
+    secret,
+    startJob.model,
+  );
+  if (!providerReadiness.ready) {
+    await markFailed(startJob.id, providerReadiness.failureCode);
+    return await respondWithCurrent(
+      startPayload.organization_id,
+      startJob.id,
+      batch,
+    );
+  }
   const { data: signedInputData, error: signedInputError } = await context
     .supabaseAdmin.storage.from(STORAGE_BUCKET).createSignedUrl(
       startJob.inputObjectName,
@@ -1972,7 +2577,17 @@ async function handleCreatorGenerate(
     );
   }
 
-  const providerRequestBody = startJob.model === "seedance2_fast"
+  const photoGeneration = startJob.model === "seedream5_lite";
+  const providerRequestBody = photoGeneration
+    ? {
+      model: startJob.model,
+      promptText: startJob.promptText,
+      ratio: startJob.ratio,
+      outputFormat: "png",
+      outputCount: 1,
+      referenceImages: [{ uri: signedInputUrl }],
+    }
+    : startJob.model === "seedance2_fast"
     ? {
       model: startJob.model,
       duration: startJob.durationSeconds,
@@ -1988,11 +2603,14 @@ async function handleCreatorGenerate(
       promptText: startJob.promptText,
       promptImage: signedInputUrl,
     };
+  const providerEndpoint = photoGeneration
+    ? `${RUNWAY_API_ORIGIN}/v1/text_to_image`
+    : `${RUNWAY_API_ORIGIN}/v1/image_to_video`;
 
   let createResponse: Response;
   try {
     createResponse = await fetchWithTimeout(
-      `${RUNWAY_API_ORIGIN}/v1/image_to_video`,
+      providerEndpoint,
       {
         method: "POST",
         redirect: "manual",
@@ -2103,7 +2721,7 @@ const creatorGenerateWorker = withSupabase<ContentEngineDatabase>(
 export default {
   fetch(request: Request): Promise<Response> | Response {
     if (request.method === "OPTIONS") {
-      if (request.headers.get("origin") !== PUBLIC_APP_ORIGIN) {
+      if (!USER_APP_ORIGINS.has(request.headers.get("origin") ?? "")) {
         return json(request, { ok: false, code: "origin_not_allowed" }, 403);
       }
       return new Response(null, {

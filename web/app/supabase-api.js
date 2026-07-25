@@ -14,6 +14,8 @@ export const RPC = Object.freeze({
   submitPlatformSimulator: "creator_submit_platform_simulator",
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
+  generationMediaIdentity: "creator_generation_media_identity",
+  generationLearningPolicy: "creator_generation_learning_policy",
   generationArchive: "creator_generation_archive",
   workspaceBrowser: "creator_workspace_browser",
   createWorkspaceFolder: "creator_create_workspace_folder",
@@ -64,6 +66,7 @@ const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
     duration_seconds: 5,
     audio: false,
+    prompt_max_length: 1000,
     confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25",
     estimated_usd: "0.25",
   }),
@@ -71,8 +74,17 @@ const REAL_GENERATION_SKUS = Object.freeze({
     duration_seconds: 8,
     audio: true,
     format: "9:16",
+    prompt_max_length: 1200,
     confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
     estimated_usd: "2.32",
+  }),
+  seedream5_lite: Object.freeze({
+    duration_seconds: 0,
+    audio: false,
+    format: "1:1",
+    prompt_max_length: 1200,
+    confirmation: "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04",
+    estimated_usd: "0.04",
   }),
 });
 
@@ -209,7 +221,80 @@ export class CreatorApi {
       }
       payload.cursor = options.cursor;
     }
-    return this.call(RPC.workspaceSection, this.withOrganization(payload));
+    return this.call(
+      RPC.workspaceSection,
+      this.withOrganization(payload),
+    ).then((response) => {
+      if (section !== "generation") return response;
+
+      const source = response?.data && typeof response.data === "object"
+        ? response.data
+        : response;
+      const mediaIds = [...new Set(
+        (Array.isArray(source?.media) ? source.media : [])
+          .map((item) => String(item?.public_id || item?.id || "").trim())
+          .filter((mediaId) => isUuid(mediaId)),
+      )].slice(0, 100);
+      if (!mediaIds.length) return response;
+
+      return this.generationMediaIdentity(mediaIds)
+        .then((identityResponse) =>
+          mergeGenerationMediaIdentity(response, identityResponse)
+        )
+        .catch((error) => {
+          console.warn(
+            "Generation media identity unavailable",
+            error?.serverCode || error?.code || "",
+          );
+          return mergeGenerationMediaIdentity(response, { items: [] });
+        });
+    });
+  }
+
+  generationMediaIdentity(mediaIds) {
+    const normalized = [...new Set(
+      (Array.isArray(mediaIds) ? mediaIds : [])
+        .map((mediaId) => String(mediaId || "").trim())
+        .filter(Boolean),
+    )];
+    if (
+      normalized.length < 1
+      || normalized.length > 100
+      || normalized.some((mediaId) => !isUuid(mediaId))
+    ) {
+      throw new CreatorApiError("Не удалось проверить привязку фото к товару.", {
+        code: "generation_media_identity_ids_invalid",
+      });
+    }
+    return this.call(RPC.generationMediaIdentity, this.withOrganization({
+      media_ids: normalized,
+    }));
+  }
+
+  generationLearningPolicy({ mediaId, platform, model }) {
+    const normalizedMediaId = String(mediaId || "").trim();
+    const normalizedPlatform = String(platform || "").trim().toLowerCase();
+    const normalizedModel = String(model || "").trim().toLowerCase();
+    if (!isUuid(normalizedMediaId)) {
+      throw new CreatorApiError("Не удалось определить исходник для самообучения.", {
+        code: "generation_learning_policy_media_invalid",
+      });
+    }
+    if (!["instagram", "tiktok", "youtube", "vk", "telegram", "wildberries"].includes(normalizedPlatform)) {
+      throw new CreatorApiError("Выберите площадку для подбора обученного ТЗ.", {
+        code: "generation_learning_policy_scope_invalid",
+      });
+    }
+    if (!Object.hasOwn(REAL_GENERATION_SKUS, normalizedModel)) {
+      throw new CreatorApiError("Выберите режим генерации для обученного ТЗ.", {
+        code: "generation_learning_policy_scope_invalid",
+      });
+    }
+    return this.call(RPC.generationLearningPolicy, this.withOrganization({
+      media_id: normalizedMediaId,
+      platform: normalizedPlatform,
+      model: normalizedModel,
+    }));
   }
 
   savePracticalProject(payload) {
@@ -1381,9 +1466,40 @@ export class CreatorApi {
       });
     }
     if (batch?.spend_confirmation !== sku.confirmation) {
-      throw new CreatorApiError(`Подтвердите создание одного платного видео примерно за $${sku.estimated_usd}.`, {
+      const contentLabel = model === "seedream5_lite" ? "фото" : "видео";
+      throw new CreatorApiError(`Подтвердите создание одного платного ${contentLabel} примерно за $${sku.estimated_usd}.`, {
         code: "real_spend_confirmation_required",
       });
+    }
+    const brief = String(batch?.brief || "").trim();
+    if (!brief || brief.length > sku.prompt_max_length) {
+      throw new CreatorApiError(
+        `Сократите ТЗ для выбранной модели до ${sku.prompt_max_length} символов.`,
+        { code: "brief_invalid" },
+      );
+    }
+    const learningContext = batch?.learning_context;
+    if (
+      !learningContext
+      || typeof learningContext !== "object"
+      || Array.isArray(learningContext)
+    ) {
+      throw new CreatorApiError(
+        "Восстановите безопасное авто-ТЗ и дождитесь проверки обучения.",
+        { code: "generation_learning_context_required" },
+      );
+    }
+    if (
+      batch?.learning_opt_out !== undefined
+      && (
+        batch.learning_opt_out !== true
+        || learningContext.source === "performance_learning"
+      )
+    ) {
+      throw new CreatorApiError(
+        "Не удалось подтвердить осознанное отключение обученного ракурса.",
+        { code: "generation_learning_opt_out_invalid" },
+      );
     }
 
     return this.invokeRealGeneration("start", {
@@ -1398,6 +1514,18 @@ export class CreatorApi {
       audio: sku.audio,
       allow_real_spend: true,
       spend_confirmation: sku.confirmation,
+    });
+  }
+
+  realGenerationPreflight(model) {
+    const normalizedModel = String(model || "").trim();
+    if (!REAL_GENERATION_SKUS[normalizedModel]) {
+      throw new CreatorApiError("Выберите доступный платный режим.", {
+        code: "real_generation_sku_invalid",
+      });
+    }
+    return this.invokeRealGeneration("preflight", {
+      model: normalizedModel,
     });
   }
 
@@ -1465,7 +1593,7 @@ export class CreatorApi {
   }
 
   async invokeRealGeneration(action, payload = {}) {
-    if (!new Set(["start", "status", "reconcile"]).has(action)) {
+    if (!new Set(["preflight", "start", "status", "reconcile"]).has(action)) {
       throw new CreatorApiError("Неизвестное действие платной генерации.", {
         code: "real_generation_action_invalid",
       });
@@ -1482,7 +1610,7 @@ export class CreatorApi {
     const scopedPayload = this.withOrganization({ ...payload, action });
     const actorId = String(sessionData.session?.user?.id || "unknown");
     const fingerprint = `edge:${REAL_GENERATION_FUNCTION}:${actorId}:${stableStringify(scopedPayload)}`;
-    const idempotencyKey = action !== "status"
+    const idempotencyKey = new Set(["start", "reconcile"]).has(action)
       ? (this.mutationKeys[fingerprint] || crypto.randomUUID())
       : null;
     if (idempotencyKey) {
@@ -1522,6 +1650,28 @@ export class CreatorApi {
             message: String(data.error || data.code || "Generation failed"),
           };
       throw new CreatorApiError(safeGenerationMessage(details), details);
+    }
+    if (action === "preflight") {
+      const preflight = data.preflight;
+      if (
+        !preflight ||
+        typeof preflight !== "object" ||
+        Array.isArray(preflight) ||
+        preflight.provider !== "runway" ||
+        preflight.model !== payload.model ||
+        preflight.ready !== true ||
+        preflight.balance_sufficient !== true ||
+        preflight.model_available !== true ||
+        preflight.daily_quota_available !== true ||
+        !Number.isSafeInteger(preflight.estimated_credits) ||
+        preflight.estimated_credits < 1
+      ) {
+        throw new CreatorApiError(
+          "Runway не подтвердил готовность выбранной модели. Платный запуск не создан.",
+          { code: "provider_preflight_invalid" },
+        );
+      }
+      return data;
     }
     if (!data.job || typeof data.job !== "object" || !data.job.id || !data.job.status) {
       throw new CreatorApiError("Сервис генерации вернул некорректную задачу.", {
@@ -1865,6 +2015,60 @@ function normalizeAccessEmail(value) {
   return email;
 }
 
+export function mergeGenerationMediaIdentity(response, identityResponse) {
+  const wrapped = response?.data && typeof response.data === "object"
+    && !Array.isArray(response.data);
+  const source = wrapped ? response.data : response;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return response;
+  }
+  const identitySource = identityResponse?.data
+    && typeof identityResponse.data === "object"
+    && !Array.isArray(identityResponse.data)
+    ? identityResponse.data
+    : identityResponse;
+  const identities = Array.isArray(identitySource?.items)
+    ? identitySource.items
+    : [];
+  const identityById = new Map();
+  for (const item of identities) {
+    const id = String(item?.public_id || item?.id || "").trim();
+    const sku = String(item?.sku || "").trim();
+    const productName = String(item?.product_name || "").trim();
+    if (
+      !isUuid(id)
+      || item?.identity_verified !== true
+      || !sku
+      || !productName
+    ) continue;
+    identityById.set(id, {
+      product_id: String(item?.product_id || "").trim(),
+      sku,
+      product_name: productName,
+      rights_confirmed: item?.rights_confirmed === true,
+      identity_verified: true,
+    });
+  }
+  const media = Array.isArray(source.media) ? source.media : [];
+  const mergedSource = {
+    ...source,
+    media: media.map((item) => {
+      const id = String(item?.public_id || item?.id || "").trim();
+      const identity = identityById.get(id);
+      return identity
+        ? { ...item, ...identity }
+        : {
+            ...item,
+            identity_verified: false,
+            rights_confirmed: false,
+          };
+    }),
+  };
+  return wrapped
+    ? { ...response, data: mergedSource }
+    : mergedSource;
+}
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     String(value || ""),
@@ -2119,6 +2323,14 @@ function toFriendlyMessage(error) {
     real_generation_action_invalid: "Неизвестное действие платной генерации.",
     real_generation_response_invalid: "Сервис генерации вернул некорректный ответ.",
     real_generation_request_failed: "Не удалось вызвать сервис платной генерации. Повторите попытку позже.",
+    provider_preflight_invalid: "Runway не подтвердил готовность выбранной модели. Платный запуск не создан.",
+    provider_configuration_error: "Ключ Runway не настроен. Платный запуск не создан.",
+    provider_authentication_failed: "Runway отклонил ключ доступа. Платный запуск не создан.",
+    provider_credits_unavailable: "В Runway недостаточно кредитов для выбранного запуска. Деньги не списаны.",
+    provider_rate_limited: "Суточная квота Runway исчерпана. Платный запуск не создан.",
+    provider_request_rejected: "Выбранная модель сейчас недоступна в Runway. Платный запуск не создан.",
+    provider_request_failed: "Runway не ответил на бесплатную проверку готовности. Платный запуск не создан.",
+    provider_response_invalid: "Runway вернул некорректный ответ проверки. Платный запуск не создан.",
     real_generation_failed: "Платная генерация завершилась ошибкой. Проверьте статус задачи.",
     real_generation_user_daily_quota_exceeded: "Дневной лимит платных запусков исчерпан. Продолжите после обновления лимита.",
     real_generation_organization_daily_quota_exceeded: "Командный дневной лимит платных запусков исчерпан. Обратитесь к руководителю.",
@@ -2173,6 +2385,11 @@ function toFriendlyMessage(error) {
     generation_reconciliation_wait_required: "Для подтверждения отсутствия Runway task подождите две минуты после фиксации инцидента.",
     generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
     real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к Runway.",
+    generation_learning_context_required: "Восстановите безопасное авто-ТЗ и дождитесь бесплатной проверки обучения.",
+    generation_learning_opt_out_invalid: "Не удалось подтвердить осознанное отключение обученного ракурса.",
+    generation_learning_unavailable: "Обученное ТЗ временно не проверено. Платный запуск не создан.",
+    generation_learning_policy_required: "Для товара уже есть подтверждённое обучение. Обновите авто-ТЗ перед запуском.",
+    generation_learning_policy_stale: "Обученное ТЗ обновилось. Восстановите авто-ТЗ и повторите запуск.",
     auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
     authentication_required: "Сессия истекла. Войдите снова перед платным запуском.",
     invalid_payload: "Проверьте поля платного запуска и выбранный исходник.",

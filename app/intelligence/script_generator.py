@@ -7,7 +7,7 @@ from app import models
 from app.config import get_settings
 from app.enums import WorkflowStatus
 from app.intelligence.errors import MissingGeneratorDataError, ProviderConfigurationError
-from app.intelligence.types import GeneratedScriptOutput, ScriptBriefOutput
+from app.intelligence.types import ScriptBriefOutput
 from app.intelligence.validators import validate_script_claim_refs
 from app.providers.mock_llm import MockLLMProvider
 from app.providers.openai_llm import OpenAILLMProvider

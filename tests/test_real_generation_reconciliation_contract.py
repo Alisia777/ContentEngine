@@ -401,8 +401,8 @@ def test_browser_adapter_validates_and_idempotently_sends_manual_resolution() ->
         'this.invokeRealGeneration("reconcile"',
     ):
         assert token in reconcile
-    assert 'new Set(["start", "status", "reconcile"])' in API
-    assert 'const idempotencyKey = action !== "status"' in API
+    assert 'new Set(["preflight", "start", "status", "reconcile"])' in API
+    assert 'const idempotencyKey = new Set(["start", "reconcile"]).has(action)' in API
     assert "this.mutationKeys[fingerprint] || crypto.randomUUID()" in API
     assert "real_generation_reconciliation_required" in API
 

@@ -272,7 +272,10 @@ function isStorageCleanupRow(value: unknown): value is StorageCleanupRow {
     typeof value.object_name === "string" &&
     value.object_name.startsWith(`${value.organization_id}/`) &&
     value.object_name.includes("/generated/") &&
-    value.object_name.endsWith(`/${value.generation_job_id}.mp4`) &&
+    (
+      value.object_name.endsWith(`/${value.generation_job_id}.mp4`) ||
+      value.object_name.endsWith(`/${value.generation_job_id}.png`)
+    ) &&
     !value.object_name.split("/").includes("..") &&
     value.status === "pending" && Number.isSafeInteger(value.attempt_count) &&
     Number(value.attempt_count) >= 0 && Number(value.attempt_count) <= 5;

@@ -10,7 +10,7 @@ from app.creative.product_geometry import (
     geometry_negative_prompt,
 )
 from app.intelligence.errors import MissingGeneratorDataError
-from app.intelligence.types import PromptPackOutput, PromptSceneOutput
+from app.intelligence.types import PromptPackOutput, PromptSceneOutput, ScriptBriefOutput
 
 
 class PromptPackBuilder:
@@ -28,7 +28,8 @@ class PromptPackBuilder:
         if not variant:
             raise MissingGeneratorDataError(f"Script variant {script_variant_id} not found.")
         brief = self._brief_for_variant(variant, script_brief_id)
-        prompt_output = self._output_for_variant(variant, provider)
+        brief_output = ScriptBriefOutput.model_validate(brief.brief_json)
+        prompt_output = self._output_for_variant(variant, provider, brief_output)
         record = models.PromptPack(
             script_brief_id=brief.id,
             script_variant_id=variant.id,
@@ -51,9 +52,20 @@ class PromptPackBuilder:
         self.db.refresh(record)
         return record
 
-    def _output_for_variant(self, variant: models.ScriptVariant, provider: str) -> PromptPackOutput:
+    def _output_for_variant(
+        self,
+        variant: models.ScriptVariant,
+        provider: str,
+        brief: ScriptBriefOutput,
+    ) -> PromptPackOutput:
         scenes = sorted(variant.scenes, key=lambda scene: scene.scene_number)
         prompt_scenes = []
+        learning_direction = ""
+        if brief.learning_policy.applied:
+            learning_direction = (
+                f" Performance-informed creative direction: use the '{brief.creative_angle}' angle; "
+                "historical performance is not a source for product claims."
+            )
         for scene in scenes:
             duration = max(1, int(scene.time_end - scene.time_start))
             prompt_scenes.append(
@@ -63,6 +75,7 @@ class PromptPackBuilder:
                     prompt_text=(
                         f"{scene.video_prompt or scene.visual_description or ''} "
                         f"Product geometry lock: {geometry_lock_prompt_text()}"
+                        f"{learning_direction}"
                     ).strip(),
                     negative_prompt=geometry_negative_prompt(
                         scene.negative_prompt or "distorted product, unsupported claims, low quality"
@@ -74,6 +87,7 @@ class PromptPackBuilder:
                         "do not alter product shape",
                         "do not add unsupported claims",
                         "keep labels and packaging believable",
+                        "use only allowed product claims; performance history is directional evidence only",
                         *GEOMETRY_LOCK_PROMPT_LINES,
                     ],
                 )
@@ -100,4 +114,3 @@ class PromptPackBuilder:
         if not brief:
             raise MissingGeneratorDataError("ScriptBrief is required before building a PromptPack.")
         return brief
-

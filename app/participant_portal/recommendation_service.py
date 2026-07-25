@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import models
 from app.participant_portal.assignment_portal_service import AssignmentPortalService
 from app.participant_portal.onboarding_service import OnboardingService
 from app.participant_portal.participant_metrics_service import ParticipantMetricsService
@@ -27,7 +25,6 @@ class RecommendationService:
             if assignment.publishing_task and not assignment.publishing_task.final_url:
                 recommendations.append({"action": "publish_pending_task", "assignment_id": assignment.id, "reason": "publishing_task_has_no_final_url"})
         links = OnboardingService(self.db).destinations(participant_id)
-        metric_ids = []
         stats = ParticipantMetricsService(self.db).dashboard_stats(participant_id)
         if stats["published_total"] and not stats["views_total"]:
             recommendations.append({"action": "import_missing_stats", "reason": "published_posts_have_no_metrics"})

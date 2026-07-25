@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.creative.types import CreativeSpec
+from app.intelligence.creative_learning import CreativeLearningPolicyBuilder
 from app.intelligence.types import CreativeIntelligencePack
 from app.variants.errors import VariantDataError
 from app.variants.types import VariantScoreResult
@@ -19,7 +20,6 @@ class VariantScorer:
             raise VariantDataError(f"CreativeVariantSet {variant_set_id} not found.")
         for variant in variant_set.variants:
             self.score_variant(variant)
-        scores = [variant.score_json for variant in variant_set.variants if variant.score_json]
         variant_set.score_summary_json = {
             "scores": [{"creative_variant_id": variant.id, **variant.score_json} for variant in variant_set.variants],
             "metadata_only": True,
@@ -41,6 +41,7 @@ class VariantScorer:
             "asset_readiness": self._asset_readiness(variant, variant.variant_set.asset_kit),
             "platform_fit": 0.9 if spec.platform.lower() in {"instagram reels", "tiktok", "youtube shorts"} else 0.7,
             "cta_clarity": 0.9 if variant.cta_framing and len(variant.cta_framing) <= 80 else 0.55,
+            "learning_alignment": self._learning_alignment(spec, pack),
         }
         risk_flags = list(variant.risk_flags_json or [])
         if variant.product_reveal_timing > 1.0:
@@ -53,7 +54,8 @@ class VariantScorer:
             risk_flags.append("vague_hook")
         risk_penalty = min(0.35, 0.07 * len(set(risk_flags)))
         dimensions["risk_penalty"] = round(risk_penalty, 3)
-        positive = sum(value for key, value in dimensions.items() if key != "risk_penalty") / 7
+        positive_values = [value for key, value in dimensions.items() if key != "risk_penalty"]
+        positive = sum(positive_values) / len(positive_values)
         score = max(0, min(100, round((positive - risk_penalty) * 100, 2)))
         critical_risks = {
             "product_not_visible_in_first_second",
@@ -62,12 +64,17 @@ class VariantScorer:
             "packshot_missing_for_product_accuracy",
         }
         safe = score >= 60 and not critical_risks.intersection(risk_flags)
+        notes = ["Metadata/rules-based score. No visual inspection or computer vision was performed."]
+        if spec.learning_policy.applied:
+            notes.append(
+                f"Learning alignment uses {spec.learning_policy.confidence}-confidence SKU performance evidence."
+            )
         result = VariantScoreResult(
             score=score,
             safe=safe,
             dimensions={key: round(value, 3) for key, value in dimensions.items()},
             risk_flags=list(dict.fromkeys(risk_flags)),
-            notes=["Metadata/rules-based score. No visual inspection or computer vision was performed."],
+            notes=notes,
         )
         variant.score_json = result.model_dump(mode="json")
         variant.risk_flags_json = result.risk_flags
@@ -94,6 +101,23 @@ class VariantScorer:
             if buyer_language and any(word in text for word in buyer_language.split()[:8]):
                 score += 0.08
         return min(1.0, score)
+
+    @staticmethod
+    def _learning_alignment(spec: CreativeSpec, pack: CreativeIntelligencePack | None) -> float:
+        policy = spec.learning_policy
+        if not policy.applied and pack:
+            policy = CreativeLearningPolicyBuilder().build(
+                pack.content_learnings,
+                target_platform=spec.platform,
+                source_ids=pack.source_map.get("creative_performance") or [],
+            )
+        if not policy.applied:
+            return 0.7
+        if spec.creative_angle in policy.preferred_angles:
+            return 1.0
+        if spec.creative_angle in policy.avoid_angles:
+            return 0.25
+        return 0.65
 
     @staticmethod
     def _first_frame_clarity(variant: models.CreativeVariant) -> float:

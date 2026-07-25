@@ -67,7 +67,9 @@ def test_portal_requires_explicit_seedance_price_confirmation() -> None:
 
 def test_portal_requires_a_product_specific_script_and_never_auto_submits() -> None:
     assert "Это кислотный пилинг AHA тридцать и BHA два процента" not in APP
-    assert "сценарий именно выбранного товара" in APP
+    assert "compileSafeGenerationBrief" in APP
+    assert "productName: identity.productName" in APP
+    assert "Авто-ТЗ добавит короткую дословную реплику" in APP
     assert "SEEDANCE_BLOGGER_BRIEF" not in APP
     assert "requestSubmit()" not in APP
 

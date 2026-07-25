@@ -79,7 +79,7 @@ def test_factory_flow_has_seven_ordered_user_facing_stages() -> None:
     assert _workspace_tab_keys()[:7] == EXPECTED_FLOW
     assert [
         "Материалы",
-        "Создание видео",
+        "Создание контента",
         "Проверка контента",
         "Задачи",
         "Публикации",

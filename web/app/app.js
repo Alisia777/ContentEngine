@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260718.2";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260724.6";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -6,7 +6,7 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260716.3";
+} from "./catalog.js?v=20260724.1";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
@@ -37,7 +37,21 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260716.2";
+} from "./product-research-view.js?v=20260724.1";
+import {
+  compileContentGenerationPrompt,
+  compileSafeGenerationBrief,
+  createContentGenerationHandoff,
+  GENERATION_LEARNING_COMPILER_VERSION,
+  inferGenerationCreativeSignals,
+  inspectContentGenerationPrompt,
+  normalizeGenerationLearningPolicy,
+  parseContentGenerationHandoff,
+} from "./content-generation-handoff.js?v=20260724.3";
+import {
+  evaluateGenerationFormReadiness,
+  generationReadinessMarkup,
+} from "./generation-form-readiness.js?v=20260724.2";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -153,7 +167,10 @@ const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
 const MOCK_GENERATION_ENABLED = CONFIG.MOCK_ENABLED === true;
 const REAL_GENERATION_ENABLED = CONFIG.REAL_GENERATION_ENABLED === true;
+const LOCAL_QA_MEDIA_FIXTURE_ENABLED = window.location.protocol === "http:";
+const LOCAL_QA_MEDIA_FIXTURE_URL = "./assets/training/ugc_bombbar_pro_poster.png";
 const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+const AUTH_SERVICE_UNAVAILABLE_MESSAGE = "Сервис входа временно недоступен или перезапускается. Аккаунт и пароль не изменены — подождите минуту и повторите вход.";
 const AUTH_LINK_TIMEOUT_MESSAGE = "The auth service timed out. Retry this same link.";
 const HOME_SECTION_TIMEOUT_MS = 8_000;
 const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
@@ -181,6 +198,7 @@ const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
+const CONTENT_GENERATION_HANDOFF_STORAGE_KEY = "contentengine.content-generation-handoff.v1";
 const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "owner",
   "admin",
@@ -338,12 +356,16 @@ const FINAL_EXAM_RATIONALE_PROMPTS = Object.freeze({
 const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONALE_PROMPTS));
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
+const REAL_PHOTO_MODE = "real_photo";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-25.v1";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
+    contentKind: "video",
     model: "gen4_turbo",
     durationSeconds: 5,
     audio: false,
     format: null,
+    promptMaxLength: 1000,
     estimatedCredits: 25,
     estimatedMinor: 25,
     estimatedUsd: "0.25",
@@ -351,15 +373,30 @@ const REAL_GENERATION_SKUS = Object.freeze({
     label: "Анимация товара · 5 секунд · без голоса · ≈ $0.25",
   }),
   [REAL_SEEDANCE_MODE]: Object.freeze({
+    contentKind: "video",
     model: "seedance2_fast",
     durationSeconds: 8,
     audio: true,
     format: "9:16",
+    promptMaxLength: 1200,
     estimatedCredits: 232,
     estimatedMinor: 232,
     estimatedUsd: "2.32",
     confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
     label: "Блогер + голос · 8 секунд · ≈ $2.32",
+  }),
+  [REAL_PHOTO_MODE]: Object.freeze({
+    contentKind: "photo",
+    model: "seedream5_lite",
+    durationSeconds: 0,
+    audio: false,
+    format: "1:1",
+    promptMaxLength: 1200,
+    estimatedCredits: 4,
+    estimatedMinor: 4,
+    estimatedUsd: "0.04",
+    confirmation: "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04",
+    label: "Фото товара · квадрат 2K · ≈ $0.04",
   }),
 });
 const MEMBERSHIP_LOCK_COPY = Object.freeze({
@@ -385,9 +422,9 @@ const FACTORY_FLOW = Object.freeze([
   Object.freeze({
     key: "generation",
     step: "02",
-    label: "Создание видео",
-    hint: "сценарий и ролик",
-    learning: "Выберите режим, задайте сценарий и подтвердите стоимость.",
+    label: "Создание контента",
+    hint: "авто-ТЗ, фото и видео",
+    learning: "Выберите режим и точный исходник, проверьте авто-ТЗ и подтвердите стоимость.",
   }),
   Object.freeze({
     key: "review",
@@ -558,7 +595,7 @@ const COURSE_VISUAL_EXAMPLES = Object.freeze({
         step: "Экран 2",
         anchorLesson: "generation_modes",
         kind: "portal",
-        eyebrow: "Портал · Создание видео",
+        eyebrow: "Портал · Создание контента",
         title: "Выберите формат и прочитайте стоимость до запуска",
         caption: "Для восьмисекундного UGC выберите режим с блогером и голосом. Указанная цена — только пример: перед запуском сверьте фактическую сумму в портале и подтвердите её отдельно.",
         result: "Один подтверждённый запуск",
@@ -839,6 +876,7 @@ const state = {
   realGenerationStatusRequests: new Map(),
   realGenerationResults: new Map(),
   realGenerationDrafts: new Map(),
+  contentGenerationHandoff: readStoredContentGenerationHandoff(),
   lastRealGenerationJobId: null,
   examResult: null,
   courseCheckResults: {},
@@ -857,6 +895,15 @@ const state = {
     requestId: 0,
     updatedAt: 0,
     saving: false,
+  },
+  generationLearning: {
+    status: "idle",
+    data: null,
+    error: null,
+    requestId: 0,
+    key: "",
+    disabledKey: "",
+    promise: null,
   },
   accessCenter: {
     status: "idle",
@@ -1033,6 +1080,37 @@ function safeStorageRemove(storage, key) {
   }
 }
 
+function readStoredContentGenerationHandoff() {
+  try {
+    return parseContentGenerationHandoff(
+      safeStorageGet(window.sessionStorage, CONTENT_GENERATION_HANDOFF_STORAGE_KEY),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function persistContentGenerationHandoff(handoff) {
+  try {
+    safeStorageSet(
+      window.sessionStorage,
+      CONTENT_GENERATION_HANDOFF_STORAGE_KEY,
+      JSON.stringify(handoff),
+    );
+  } catch {
+    // The handoff remains usable in memory when session storage is unavailable.
+  }
+}
+
+function clearContentGenerationHandoff() {
+  state.contentGenerationHandoff = null;
+  try {
+    safeStorageRemove(window.sessionStorage, CONTENT_GENERATION_HANDOFF_STORAGE_KEY);
+  } catch {
+    // Cleanup is best effort.
+  }
+}
+
 function navigationPreferenceStorage() {
   try {
     return window.localStorage;
@@ -1174,7 +1252,7 @@ async function completeInitialization(authLink) {
     : await withUiTimeout(
       state.supabase.auth.getSession(),
       AUTH_REQUEST_TIMEOUT_MS,
-      "Сервер входа не ответил за 15 секунд. Проверьте соединение и повторите.",
+      AUTH_SERVICE_UNAVAILABLE_MESSAGE,
     );
   const { data, error } = sessionResult;
   if (error) throw error;
@@ -1601,6 +1679,16 @@ function normalizeBootstrap(raw) {
         : ["video/mp4"]
     ).map(String).filter((item) => ["video/mp4", "video/webm", "video/quicktime"].includes(item)),
   };
+  const accessWaiverSource =
+    trainingSource.access_waiver || trainingSource.accessWaiver || {};
+  const accessWaiver = {
+    active:
+      normalizeBoolean(accessWaiverSource.active ?? false) &&
+      String(accessWaiverSource.scope || "") === "workspace_generation",
+    scope: String(accessWaiverSource.scope || ""),
+    reason: String(accessWaiverSource.reason || ""),
+    grantedAt: accessWaiverSource.granted_at ?? accessWaiverSource.grantedAt ?? null,
+  };
 
   return {
     accessState: String(source.state || ""),
@@ -1614,6 +1702,7 @@ function normalizeBootstrap(raw) {
       practicalProject,
       practicalReviews,
       practicalUpload,
+      accessWaiver,
       exam: {
         passed: examPassed,
         score: normalizePercent(examSource.score ?? trainingSource.exam_score ?? 0),
@@ -1658,13 +1747,18 @@ function practicalProjectApproved() {
   ).approved;
 }
 
+function trainingAccessWaiverActive() {
+  return state.bootstrap?.training?.accessWaiver?.active === true;
+}
+
 function hasWorkspaceAccess() {
   if (
     !state.bootstrap
     || state.bootstrap.workspaceAccess !== true
     || !hasOperationalWorkspaceRole()
-    || !trainingCatalogReady()
   ) return false;
+  if (trainingAccessWaiverActive()) return true;
+  if (!trainingCatalogReady()) return false;
   const completed = new Set(state.bootstrap.training.completedModules);
   return (
     REQUIRED_MODULE_CODES.every((code) => completed.has(code)) &&
@@ -5787,7 +5881,13 @@ async function loadSection(section, options = {}) {
         };
         state.generationArchive.error = "";
       } else {
-        console.warn("Server generation archive unavailable", archiveOutcome?.reason);
+        console.warn(
+          "Server generation archive unavailable",
+          archiveOutcome?.reason?.code || "",
+          archiveOutcome?.reason?.serverCode || "",
+          archiveOutcome?.reason?.details || "",
+          archiveOutcome?.reason?.hint || "",
+        );
         state.generationArchive.error = "Серверный архив временно недоступен. Показана первая локальная страница.";
       }
     }
@@ -6389,7 +6489,7 @@ function homeNextAction({ media, batches, tasks, placements, publications, payou
       href: "#/workspace/media",
       cta: "Добавить материал",
       doneWhen: "Фото загрузилось, а товар, объём и этикетка совпадают.",
-      nextHint: "Перейдите в «Создание видео» и выберите этот исходник.",
+      nextHint: "Перейдите в «Создание контента» и выберите этот исходник.",
     };
   }
   return {
@@ -6601,6 +6701,285 @@ function realGenerationSpendAllowed(mode, campaignId = "") {
   );
 }
 
+function contentGenerationHandoffMarkup(handoff, evaluation) {
+  if (!handoff) return "";
+  const issues = [...(evaluation?.blockers || []), ...(evaluation?.warnings || [])];
+  const ready = evaluation?.ready === true;
+  return `
+    <section class="generation-handoff" id="generation-handoff-panel" data-readiness="${ready ? "ready" : "needs_revision"}" aria-live="polite">
+      <div class="generation-handoff__header">
+        <div>
+          <p class="eyebrow">Из утверждённого AI-ТЗ</p>
+          <h3>${escapeHtml(handoff.scenario.title)}</h3>
+          <p>${escapeHtml(handoff.productName)} · сценарий ${handoff.scenario.position} · ${escapeHtml(handoff.scenario.platform)}</p>
+        </div>
+        <span class="badge ${ready ? "badge-info" : "badge-warning"}" data-generation-handoff-status>${ready ? "ГОТОВО К ПРОВЕРКЕ" : "НУЖНА ПРАВКА"}</span>
+      </div>
+      <p class="generation-handoff__copy">Поля перенесены без ручного копирования. Перед оплатой выберите точное фото товара, проверьте реплику и заполните площадку публикации.</p>
+      <ul class="generation-handoff__issues" data-generation-handoff-issues>
+        ${issues.length
+          ? issues.map((item) => `<li data-kind="${(evaluation?.blockers || []).includes(item) ? "blocker" : "warning"}">${escapeHtml(item.message)}</li>`).join("")
+          : "<li data-kind=\"ready\">Промпт помещается в лимит и соответствует выбранной длительности.</li>"}
+      </ul>
+      <div class="inline-actions">
+        <a class="btn btn-ghost btn-small" href="#/workspace/research">Вернуться к ТЗ</a>
+        <button class="btn btn-ghost btn-small" type="button" data-action="dismiss-generation-handoff">Начать вручную</button>
+      </div>
+    </section>
+  `;
+}
+
+function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
+  const handoff = state.contentGenerationHandoff;
+  const panel = form?.querySelector("#generation-handoff-panel");
+  if (!handoff || !form || !panel) return null;
+  const mode = String(form.elements.generation_mode?.value || "mock");
+  const compiled = compileContentGenerationPrompt(
+    handoff,
+    mode,
+    activeGenerationLearningPolicy(form),
+  );
+  const brief = form.elements.brief;
+  const previousAutoPrompt = String(handoff._appliedPrompt || "");
+  const canRebuild = rebuildPrompt && brief
+    && (!previousAutoPrompt || !brief.value.trim() || brief.value === previousAutoPrompt);
+  if (canRebuild) {
+    brief.value = compiled.prompt;
+    handoff._appliedPrompt = compiled.prompt;
+    form.dataset.autoGenerationBrief = compiled.prompt;
+  }
+  const inspected = inspectContentGenerationPrompt(brief?.value || "", mode, {
+    productName: handoff.productName,
+    avoidClaims: handoff.creativeBrief?.avoidClaims || [],
+  });
+  const compilerWarnings = brief?.value === compiled.prompt ? compiled.warnings : [];
+  const evaluation = {
+    ...inspected,
+    warnings: [
+      ...inspected.warnings,
+      ...compilerWarnings.filter((item) =>
+        !inspected.warnings.some((existing) => existing.code === item.code)
+      ),
+    ],
+  };
+  const issues = [...evaluation.blockers, ...evaluation.warnings];
+  panel.dataset.readiness = evaluation.ready ? "ready" : "needs_revision";
+  const status = panel.querySelector("[data-generation-handoff-status]");
+  if (status) {
+    status.textContent = evaluation.ready ? "ГОТОВО К ПРОВЕРКЕ" : "НУЖНА ПРАВКА";
+    status.classList.toggle("badge-info", evaluation.ready);
+    status.classList.toggle("badge-warning", !evaluation.ready);
+  }
+  const issueList = panel.querySelector("[data-generation-handoff-issues]");
+  if (issueList) {
+    issueList.innerHTML = issues.length
+      ? issues.map((item) => `<li data-kind="${evaluation.blockers.includes(item) ? "blocker" : "warning"}">${escapeHtml(item.message)}</li>`).join("")
+      : "<li data-kind=\"ready\">Промпт помещается в лимит и соответствует выбранной длительности.</li>";
+  }
+  const submit = form.querySelector("#generation-submit");
+  if (submit && isRealGenerationMode(mode) && !evaluation.ready) submit.disabled = true;
+  syncGenerationFormReadiness(form);
+  return evaluation;
+}
+
+function generationFormReadiness(form) {
+  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  const sku = realGenerationSku(mode);
+  const mediaCount = form
+    ? form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)').length
+    : 0;
+  return evaluateGenerationFormReadiness({
+    mode,
+    sku: form?.elements?.sku?.value,
+    productName: form?.elements?.product_name?.value,
+    platform: form?.elements?.platform?.value,
+    destinationRef: form?.elements?.destination_ref?.value,
+    mediaCount,
+    brief: form?.elements?.brief?.value,
+    campaignId: form?.elements?.campaign_id?.value,
+    spendAllowed: !sku || realGenerationSpendAllowed(
+      mode,
+      form?.elements?.campaign_id?.value || "",
+    ),
+    confirmationMatches: !sku || (
+      form?.elements?.real_spend_confirmation?.checked === true
+      && form.elements.real_spend_confirmation.value === sku.confirmation
+    ),
+    count: form?.elements?.count?.value,
+    maxMockCount: MAX_MOCK_BATCH_SIZE,
+  });
+}
+
+function generationPromptInspection(form) {
+  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  if (!form || !isRealGenerationMode(mode)) return null;
+  const identity = selectedGenerationProductIdentity(form);
+  const handoff = state.contentGenerationHandoff;
+  const matchingHandoff = identity && handoff
+    && identity.sku === handoff.sku
+    && identity.productName === handoff.productName;
+  return inspectContentGenerationPrompt(
+    form.elements.brief?.value || "",
+    mode,
+    {
+      productName: identity?.productName || form.elements.product_name?.value || "",
+      avoidClaims: matchingHandoff ? handoff.creativeBrief?.avoidClaims || [] : [],
+    },
+  );
+}
+
+function syncGenerationFormReadiness(form) {
+  if (!form) return null;
+  const readiness = generationFormReadiness(form);
+  const current = form.querySelector("#generation-readiness");
+  if (current && current.dataset.signature !== readiness.signature) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = generationReadinessMarkup(readiness).trim();
+    if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
+  }
+  const mode = String(form.elements.generation_mode?.value || "mock");
+  const sku = realGenerationSku(mode);
+  const learningKey = generationLearningKey(form);
+  const learningStateMatches = Boolean(
+    learningKey && state.generationLearning.key === learningKey,
+  );
+  const learningReady = !sku || (
+    learningStateMatches && state.generationLearning.status === "ready"
+  );
+  const learningLoading = Boolean(
+    sku && learningStateMatches && state.generationLearning.status === "loading",
+  );
+  const learningContextBound = !sku || Boolean(generationLearningContext(form));
+  const promptInspection = generationPromptInspection(form);
+  const promptReady = !sku || promptInspection?.ready === true;
+  const autoBriefStatus = form.querySelector("#generation-auto-brief-status");
+  if (sku && readiness.ready && !promptReady && autoBriefStatus) {
+    autoBriefStatus.dataset.state = "warning";
+    autoBriefStatus.textContent = promptInspection?.blockers?.[0]?.message
+      || "Восстановите безопасное ТЗ перед платным запуском.";
+  }
+  const submit = form.querySelector("#generation-submit");
+  if (submit) {
+    const busy = state.realGenerationStartInFlight || form.dataset.busy === "true";
+    const spendAllowed = !sku || realGenerationSpendAllowed(
+      mode,
+      form.elements.campaign_id?.value || "",
+    );
+    submit.disabled = busy
+      || !readiness.ready
+      || !promptReady
+      || !learningReady
+      || !learningContextBound;
+    submit.textContent = busy
+      ? sku
+        ? "Проверяем платный запуск — не повторяйте"
+        : "Создаём тестовые варианты…"
+      : learningLoading
+        ? "Проверяем обученное ТЗ без списания…"
+      : sku && !learningReady
+        ? "Повторите проверку обученного ТЗ"
+      : sku && !learningContextBound
+        ? "Восстановите безопасное авто-ТЗ"
+      : sku && !spendAllowed
+        ? "Платный запуск остановлен лимитом"
+        : !readiness.ready
+          ? "Заполните обязательные шаги"
+        : !promptReady
+          ? "Восстановите безопасное ТЗ"
+        : sku
+          ? `Создать одно платное ${sku.contentKind === "photo" ? "фото" : "видео"} · около $${sku.estimatedUsd}`
+          : "Создать тестовые варианты";
+  }
+  return readiness;
+}
+
+function applyContentGenerationHandoffToForm() {
+  const handoff = state.contentGenerationHandoff;
+  const form = document.querySelector("#mock-batch-form");
+  if (!handoff || !form || !form.querySelector("#generation-handoff-panel")) return;
+  const existingBrief = String(form.elements.brief?.value || "").trim();
+  const firstApplication = (
+    String(form.elements.sku?.value || "").trim() !== handoff.sku
+    || String(form.elements.product_name?.value || "").trim() !== handoff.productName
+    || !existingBrief
+  );
+  if (firstApplication) {
+    const setValue = (name, value) => {
+      const field = form.elements[name];
+      if (field && value) field.value = String(value);
+    };
+    setValue("sku", handoff.sku);
+    setValue("product_name", handoff.productName);
+    setValue("platform", handoff.scenario.platform);
+    setValue("format", "9:16");
+    const compiled = compileContentGenerationPrompt(
+      handoff,
+      String(form.elements.generation_mode?.value || "mock"),
+      activeGenerationLearningPolicy(form),
+    );
+    if (form.elements.brief) form.elements.brief.value = compiled.prompt;
+    handoff._appliedPrompt = compiled.prompt;
+    form.dataset.autoGenerationBrief = compiled.prompt;
+    form.dataset.dirty = "true";
+  }
+  syncGenerationModeForm(form);
+  syncContentGenerationHandoff(form);
+  if (firstApplication) {
+    scrollElementIntoView(form, "start");
+    window.setTimeout(
+      () => form.elements.destination_ref?.focus({ preventScroll: true }),
+      prefersReducedMotion() ? 0 : 350,
+    );
+  }
+}
+
+function generationMediaIdentity(item = {}) {
+  const sku = String(item.sku || "").trim();
+  const productName = String(item.product_name || "").trim();
+  const verified = item.identity_verified === true && Boolean(sku && productName);
+  const rightsConfirmed = item.rights_confirmed === true;
+  return {
+    sku,
+    productName,
+    verified,
+    rightsConfirmed,
+    paidReady: verified && rightsConfirmed,
+  };
+}
+
+function generationMediaOptionMarkup(item, real) {
+  const identity = generationMediaIdentity(item);
+  const mediaId = String(item.public_id || item.id || "");
+  const filename = item.original_filename || item.name || "Файл";
+  const kind = humanMediaKind(item.kind);
+  const identityCopy = identity.verified
+    ? `${identity.sku} · ${identity.productName}`
+    : "товар не привязан";
+  const safetyCopy = identity.paidReady
+    ? ""
+    : identity.verified
+      ? " · права не подтверждены"
+      : " · недоступно для платного запуска";
+  return `
+    <label class="option generation-media-option" data-paid-ready="${identity.paidReady ? "true" : "false"}">
+      <input
+        type="${real ? "radio" : "checkbox"}"
+        name="media_id"
+        value="${escapeHtml(mediaId)}"
+        data-media-identity-verified="${identity.verified ? "true" : "false"}"
+        data-media-rights-confirmed="${identity.rightsConfirmed ? "true" : "false"}"
+        data-media-sku="${escapeHtml(identity.sku)}"
+        data-media-product-name="${escapeHtml(identity.productName)}"
+        ${real && !identity.paidReady ? "disabled" : ""}
+      />
+      <span>
+        <strong>${escapeHtml(filename)}</strong><br />
+        <small class="muted">${escapeHtml(kind)} · ${escapeHtml(identityCopy)}${escapeHtml(safetyCopy)}</small>
+      </span>
+    </label>
+  `;
+}
+
 function renderGenerationSection(sectionState) {
   const data = sectionState.data || {};
   const batches = listFrom(data, "batches");
@@ -6617,20 +6996,39 @@ function renderGenerationSection(sectionState) {
   const gen4Campaign = generationCampaigns.find((campaign) =>
     realGenerationSpendAllowed(REAL_GEN4_MODE, campaign.id)
   );
+  const photoCampaign = generationCampaigns.find((campaign) =>
+    realGenerationSpendAllowed(REAL_PHOTO_MODE, campaign.id)
+  );
   const seedanceSpendAllowed = Boolean(seedanceCampaign);
   const gen4SpendAllowed = Boolean(gen4Campaign);
-  const defaultMode = MOCK_GENERATION_ENABLED
-    ? "mock"
-    : seedanceSpendAllowed
+  const photoSpendAllowed = Boolean(photoCampaign);
+  const handoff = state.contentGenerationHandoff;
+  const defaultMode = handoff
+    ? seedanceSpendAllowed
       ? REAL_SEEDANCE_MODE
       : gen4SpendAllowed
         ? REAL_GEN4_MODE
-        : REAL_SEEDANCE_MODE;
+        : photoSpendAllowed
+          ? REAL_PHOTO_MODE
+        : MOCK_GENERATION_ENABLED
+          ? "mock"
+          : REAL_PHOTO_MODE
+    : MOCK_GENERATION_ENABLED
+      ? "mock"
+      : photoSpendAllowed
+        ? REAL_PHOTO_MODE
+        : seedanceSpendAllowed
+          ? REAL_SEEDANCE_MODE
+          : gen4SpendAllowed
+            ? REAL_GEN4_MODE
+            : REAL_PHOTO_MODE;
   const defaultCampaignId = defaultMode === REAL_SEEDANCE_MODE
     ? seedanceCampaign?.id || ""
     : defaultMode === REAL_GEN4_MODE
       ? gen4Campaign?.id || ""
-      : seedanceCampaign?.id || gen4Campaign?.id || generationCampaigns[0]?.id || "";
+      : defaultMode === REAL_PHOTO_MODE
+        ? photoCampaign?.id || ""
+        : seedanceCampaign?.id || gen4Campaign?.id || photoCampaign?.id || generationCampaigns[0]?.id || "";
   const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
   if (state.generationSpend.status === "idle") {
@@ -6647,13 +7045,30 @@ function renderGenerationSection(sectionState) {
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
+    applyContentGenerationHandoffToForm();
+    syncGenerationFormReadiness(document.querySelector("#mock-batch-form"));
+  });
+  const handoffEvaluation = handoff
+    ? compileContentGenerationPrompt(handoff, defaultMode)
+    : null;
+  const initialGenerationReadiness = evaluateGenerationFormReadiness({
+    mode: defaultMode,
+    mediaCount: 0,
+    campaignId: defaultCampaignId,
+    spendAllowed: !defaultIsReal || realGenerationSpendAllowed(
+      defaultMode,
+      defaultCampaignId,
+    ),
+    confirmationMatches: false,
+    count: defaultIsReal ? 1 : 5,
+    maxMockCount: MAX_MOCK_BATCH_SIZE,
   });
   return `
     <div class="page-wrap">
       ${pageHeader(
-        "Создание видео",
-        "Создайте тестовые варианты без списаний или один готовый ролик по фотографии выбранного товара.",
-        REAL_GENERATION_ENABLED && (seedanceSpendAllowed || gen4SpendAllowed)
+        "Создание контента",
+        "Создайте тестовые варианты без списаний, готовое видео или товарное фото по точному исходнику.",
+        REAL_GENERATION_ENABLED && (seedanceSpendAllowed || gen4SpendAllowed || photoSpendAllowed)
           ? `<span class="badge badge-info">ТЕСТОВЫЙ + ПЛАТНЫЙ</span>`
           : `<span class="badge badge-mock">ТЕСТОВЫЙ · БЕЗ СПИСАНИЙ</span>`,
       )}
@@ -6661,20 +7076,27 @@ function renderGenerationSection(sectionState) {
         <section class="card card-pad">
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
-          <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платный режим создаёт ровно один ролик: 5-секундную анимацию товара без голоса или 8-секундного блогера с озвучкой.</p>
+          <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платные режимы создают ровно один результат: квадратное фото 2K, 5-секундную анимацию или 8-секундного блогера с озвучкой.</p>
+          ${contentGenerationHandoffMarkup(handoff, handoffEvaluation)}
           ${generationSpendSnapshotMarkup(state.generationSpend, {
-            requestMinor: Math.min(REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor, REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].estimatedMinor),
+            requestMinor: Math.min(
+              REAL_GENERATION_SKUS[REAL_PHOTO_MODE].estimatedMinor,
+              REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
+              REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].estimatedMinor,
+            ),
             campaignId: defaultCampaignId,
           })}
           ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
+            ${generationReadinessMarkup(initialGenerationReadiness)}
             <label class="field">
               <span>Режим генерации *</span>
               <select id="generation-mode" name="generation_mode" required>
                 ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Тестовые варианты · без списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
+                  <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""} ${photoSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_PHOTO_MODE].label}${photoSpendAllowed ? "" : " · лимит"}</option>
                   <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""} ${seedanceSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}${seedanceSpendAllowed ? "" : " · лимит"}</option>
                   <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}${gen4SpendAllowed ? "" : " · лимит"}</option>
                 ` : ""}
@@ -6690,11 +7112,15 @@ function renderGenerationSection(sectionState) {
               <small class="field-hint">Сумма будет атомарно зарезервирована и в лимите команды, и в лимите этой кампании.</small>
             </label>
             <div id="real-generation-confirmation" ${defaultIsReal ? "" : "hidden"}>
-              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Один ролик — около $${defaultRealSku.estimatedUsd} (${defaultRealSku.estimatedCredits} кредитов). Окончательная стоимость зависит от тарифа сервиса.</span></div>
-              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией." : "Этот режим создаёт видео без сгенерированной речи."}</p>
+              <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Один результат — около $${defaultRealSku.estimatedUsd} (${defaultRealSku.estimatedCredits} кредитов). Окончательная стоимость зависит от тарифа сервиса.</span></div>
+              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией." : defaultMode === REAL_PHOTO_MODE ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст." : "Этот режим создаёт видео без сгенерированной речи."}</p>
+              <div class="inline-actions" style="align-items:center; margin-top:10px">
+                <button class="btn btn-secondary btn-small" type="button" data-action="check-runway-readiness" data-runway-model="${defaultRealSku.model}">Проверить Runway бесплатно</button>
+                <small id="runway-readiness-status" class="muted" role="status" aria-live="polite">Проверка не создаёт задачу и ничего не списывает.</small>
+              </div>
               <label class="option" style="margin-top:10px">
                 <input type="checkbox" name="real_spend_confirmation" value="${defaultRealSku.confirmation}" ${defaultIsReal ? "required" : ""} />
-                <span><strong>Подтверждаю создание одного платного видео</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.durationSeconds} секунд · одно видео · около $${defaultRealSku.estimatedUsd}</small></span>
+                <span><strong id="real-generation-confirmation-title">Подтверждаю создание одного платного ${defaultRealSku.contentKind === "photo" ? "фото" : "видео"}</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.contentKind === "photo" ? "квадрат 2K · одно фото" : `${defaultRealSku.durationSeconds} секунд · одно видео`} · около $${defaultRealSku.estimatedUsd}</small></span>
               </label>
             </div>
             <label class="field">
@@ -6706,6 +7132,9 @@ function renderGenerationSection(sectionState) {
               <span>Название товара *</span>
               <input name="product_name" required maxlength="180" placeholder="Точное название и вариант" autocomplete="off" />
             </label>
+            <p id="generation-product-identity-note" class="generation-product-identity" role="status">
+              Выберите проверенное фото ниже — артикул и название подставятся автоматически.
+            </p>
             <div class="form-grid-2">
               <label class="field">
                 <span>Площадка *</span>
@@ -6736,7 +7165,7 @@ function renderGenerationSection(sectionState) {
               <label class="field">
                 <span>Количество вариантов</span>
                 <input name="count" type="number" min="1" max="${defaultIsReal ? 1 : MAX_MOCK_BATCH_SIZE}" value="${defaultIsReal ? 1 : 5}" ${defaultIsReal ? "readonly" : ""} required />
-                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? "Платный режим всегда создаёт ровно одно видео." : `Тестовый режим: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
+                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? `Платный режим всегда создаёт ровно одно ${defaultRealSku.contentKind === "photo" ? "фото" : "видео"}.` : `Тестовый режим: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
               </label>
               <label class="field">
                 <span>Формат</span>
@@ -6746,23 +7175,25 @@ function renderGenerationSection(sectionState) {
             <label class="field">
               <span>Сценарий и главная мысль</span>
               <textarea name="brief" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Кто в кадре, где происходит действие, как показан товар и какую фразу произносит герой"></textarea>
-              <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Перед оплатой вставьте сценарий именно выбранного товара и проверьте дословную реплику." : "Для платного режима опишите один ролик без неподтверждённых обещаний."}</small>
+              <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Авто-ТЗ добавит короткую дословную реплику; перед оплатой её можно уточнить." : defaultMode === REAL_PHOTO_MODE ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар." : "Авто-ТЗ соберёт один 5-секундный проход камеры без речи и новых надписей."}</small>
             </label>
+            <div id="generation-brief-assist" class="generation-brief-assist" ${defaultIsReal ? "" : "hidden"}>
+              <button class="btn btn-secondary btn-small" type="button" data-action="restore-auto-generation-brief" disabled>Собрать безопасное ТЗ автоматически</button>
+              <small id="generation-auto-brief-status" class="field-hint" role="status">Выберите проверенное фото товара — ТЗ заполнится само.</small>
+            </div>
+            ${generationLearningMarkup()}
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
                 <legend class="field-label">Фото выбранного товара *</legend>
                 <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для тестового режима можно выбрать один или несколько исходников."}</p>
                 <div class="option-list" style="margin-top:8px">
-                  ${exactMedia.slice(0, 8).map((item) => `
-                    <label class="option">
-                      <input type="${defaultIsReal ? "radio" : "checkbox"}" name="media_id" value="${escapeHtml(item.public_id || item.id)}" />
-                      <span><strong>${escapeHtml(item.original_filename || item.name || "Файл")}</strong><br /><small class="muted">${escapeHtml(humanMediaKind(item.kind))}</small></span>
-                    </label>
-                  `).join("")}
+                  ${exactMedia.slice(0, 8).map((item) =>
+                    generationMediaOptionMarkup(item, defaultIsReal)
+                  ).join("")}
                 </div>
               </fieldset>
             ` : `<div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span>Сначала добавьте точное фото товара или упаковки в разделе <a href="#/workspace/media">«Материалы»</a>. Без исходника запуск недоступен.</span></div>`}
-            <button id="generation-submit" class="btn btn-block" type="submit" ${(exactMedia.length && !state.realGenerationStartInFlight && (!defaultIsReal || realGenerationSpendAllowed(defaultMode, defaultCampaignId))) ? "" : "disabled"}>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : (defaultIsReal ? `Создать один ролик · около $${defaultRealSku.estimatedUsd}` : "Создать тестовые варианты")}</button>
+            <button id="generation-submit" class="btn btn-block" type="submit" disabled>${state.realGenerationStartInFlight ? "Проверяем платный запуск — не повторяйте" : "Заполните обязательные шаги"}</button>
           </form>
           ${canRepeatRealGeneration(state.lastRealGenerationJobId) ? `
             <div class="generation-repeat-panel" role="status">
@@ -6773,7 +7204,7 @@ function renderGenerationSection(sectionState) {
         </section>
 
         <section class="card">
-          <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Видео по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных роликов каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+          <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Контент по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных запусков каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
           ${sectionBody(sectionState, generationArchiveMarkup(
             batches,
             filteredBatches,
@@ -7001,7 +7432,7 @@ async function loadMoreGenerationArchive() {
 function generationTable(items) {
   return `
     <div class="table-wrap"><table class="data-table generation-table">
-      <caption class="sr-only">Архив запусков генерации видео</caption>
+      <caption class="sr-only">Архив запусков генерации контента</caption>
       <thead><tr><th scope="col">Запуск</th><th scope="col">Код товара</th><th scope="col">Этап</th><th scope="col">Стоимость</th><th scope="col">Создан</th></tr></thead>
       <tbody>${items.map((item, index) => {
         const weekLabel = generationWeekLabel(item.created_at);
@@ -7025,22 +7456,25 @@ function generationTable(items) {
         }
 
         const failure = details.failureCode ? generationFailureMessage(details.failureCode) : "";
+        const contentLabel = details.photo ? "Фото" : "Ролик";
         const previewUrl = trustedCachedGenerationUrl(details.jobId);
         const startingWarning = details.reconciliationRequired
           ? `<div class="generation-reconcile-warning generation-reconcile-warning-critical" role="alert"><strong>Нужна ручная сверка Runway.</strong><span>Автоопрос остановлен, потому что исход платного POST неизвестен. Новый запуск запрещён до фиксации существующего task ID или подтверждения его отсутствия.</span></div>`
           : details.status === "starting"
-            ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно — сначала система проверит, был ли запрос принят сервисом.</span></div>`
+            ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно и не повторяйте фото — сначала система проверит, был ли запрос принят сервисом.</span></div>`
           : "";
         const failureMarkup = details.status === "failed"
-          ? `<div class="generation-failure" role="alert"><strong>Ролик не создан</strong><span>${escapeHtml(failure || "Видеосервис завершил задачу с ошибкой.")}</span></div>`
+          ? `<div class="generation-failure" role="alert"><strong>${contentLabel} не ${details.photo ? "создано" : "создан"}</strong><span>${escapeHtml(failure || "Сервис генерации завершил задачу с ошибкой.")}</span></div>`
           : "";
         const actions = generationActionsMarkup(details);
         const preview = previewUrl
-          ? `<div class="generation-result-preview"><video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video><small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
+          ? `<div class="generation-result-preview">${details.photo
+            ? `<img src="${escapeHtml(previewUrl)}" loading="lazy" alt="Готовое товарное фото ${escapeHtml(item.sku || "")}" />`
+            : `<video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video>`}<small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
           : "";
         return `${weekHeading}
           <tr data-generation-job-id="${escapeHtml(details.jobId)}" tabindex="-1">
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}</small></td>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото · квадрат 2K" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small></td>
             <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
             <td>
               ${generationStageMarkup(details.status)}
@@ -7066,6 +7500,8 @@ function generationBatchDetails(item) {
   const cached = jobId ? state.realGenerationResults.get(jobId) : null;
   const job = cached?.job && typeof cached.job === "object" ? cached.job : {};
   const billing = parameters.billing && typeof parameters.billing === "object" ? parameters.billing : {};
+  const model = String(job.model || item?.model || parameters.model || "");
+  const photo = model === "seedream5_lite";
   const status = String(job.status || item?.status || parameters.job_status || "queued").toLowerCase();
   const estimatedMinor = firstFiniteNumber(job.estimated_cost_minor, item?.estimated_cost_minor, billing.estimated_cost_minor);
   const actualMinor = firstFiniteNumber(job.actual_cost_minor, item?.actual_cost_minor, parameters.actual_cost_minor);
@@ -7075,7 +7511,13 @@ function generationBatchDetails(item) {
     real,
     jobId,
     status,
-    duration: Number(job.duration_seconds || item?.duration_seconds || parameters.duration_seconds || 5),
+    model,
+    photo,
+    duration: firstFiniteNumber(
+      job.duration_seconds,
+      item?.duration_seconds,
+      parameters.duration_seconds,
+    ) ?? 5,
     audio: normalizeBoolean(job.audio ?? item?.audio ?? parameters.audio),
     estimatedMinor,
     actualMinor,
@@ -7159,8 +7601,8 @@ function generationActionsMarkup(details) {
   if (["succeeded", "completed"].includes(details.status)) {
     return `
       <div class="generation-result-actions">
-        <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать видео</button>
-        <button class="btn btn-small" type="button" data-action="check-real-generation" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать MP4</button>
+        <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать ${details.photo ? "фото" : "видео"}</button>
+        <button class="btn btn-small" type="button" data-action="check-real-generation" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать ${details.photo ? "PNG" : "MP4"}</button>
         <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="open" data-job-id="${escapeHtml(details.jobId)}">Открыть отдельно</button>
         <a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>
       </div>
@@ -7337,7 +7779,12 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   }
   if (options.source === "auto" && previousStatus && previousStatus !== nextStatus) {
     if (["succeeded", "completed"].includes(nextStatus)) {
-      toast("Платный ролик готов. Он доступен в очереди для просмотра и скачивания.", "success");
+      toast(
+        String(job.model || "") === "seedream5_lite"
+          ? "Платное фото готово. Оно доступно в очереди для просмотра и скачивания."
+          : "Платный ролик готов. Он доступен в очереди для просмотра и скачивания.",
+        "success",
+      );
     } else if (nextStatus === "failed") {
       toast(generationFailureMessage(job.failure_code), "error");
     }
@@ -7504,13 +7951,13 @@ function openGenerationOutput(url, pendingWindow = null) {
   openExternalDownload(url);
 }
 
-function downloadGenerationOutput(url, jobId) {
+function downloadGenerationOutput(url, jobId, photo = false) {
   const link = document.createElement("a");
   link.href = url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.referrerPolicy = "no-referrer";
-  link.download = `contentengine-${String(jobId || "video")}.mp4`;
+  link.download = `contentengine-${String(jobId || (photo ? "photo" : "video"))}.${photo ? "png" : "mp4"}`;
   document.body.append(link);
   link.click();
   link.remove();
@@ -8430,6 +8877,12 @@ function renderMediaSection(sectionState) {
               <label for="media-file">Выбрать файл</label>
               <input id="media-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required />
               <small class="muted">Фото JPG, PNG, WEBP или видео MP4</small>
+              ${LOCAL_QA_MEDIA_FIXTURE_ENABLED ? `
+                <button class="btn btn-ghost btn-small" type="button" data-action="use-local-media-fixture">
+                  Подставить тестовое фото
+                </button>
+                <small class="muted">Только для локального QA-прогона; в HTTPS-сборке кнопки нет.</small>
+              ` : ""}
               <strong id="selected-file-name" style="margin-top:8px"></strong>
             </div>
             <label class="field"><span>Тип материала</span><select name="kind" required><option value="product_photo">Фото товара</option><option value="packshot">Фото упаковки без фона</option><option value="creator_reference">Пример желаемого кадра</option><option value="source_video">Исходное видео</option></select></label>
@@ -8496,7 +8949,7 @@ function renderFeedbackSection(sectionState) {
           <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Что мешает выполнить работу?</h2>
           <form id="feedback-form" class="form-stack" style="margin-top:18px" novalidate>
             <div class="feedback-form-grid">
-              <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание видео</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
+              <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание контента</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
               <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => !["home", "team"].includes(key)).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
               <label class="field field-wide"><span>Короткий заголовок *</span><input name="title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
               <label class="field field-wide"><span>Что произошло и какой результат нужен *</span><textarea name="description" required minlength="5" maxlength="2000" placeholder="Опишите шаги без паролей, токенов и платёжных реквизитов"></textarea></label>
@@ -8789,6 +9242,32 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "use-local-media-fixture") {
+    const form = control.closest("#media-upload-form");
+    const input = form?.elements?.file;
+    if (!LOCAL_QA_MEDIA_FIXTURE_ENABLED || !(input instanceof HTMLInputElement)) return;
+    control.disabled = true;
+    try {
+      const response = await fetch(LOCAL_QA_MEDIA_FIXTURE_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error("local_media_fixture_unavailable");
+      const blob = await response.blob();
+      const file = new File([blob], "ugc_bombbar_pro_poster.png", {
+        type: "image/png",
+      });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      form.dataset.dirty = "true";
+      toast("Тестовое фото подставлено. Проверьте артикул и загрузите файл.", "info");
+    } catch {
+      toast("Не удалось подставить тестовое фото из локальной сборки.", "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
+    return;
+  }
 
   if (action === "open-training-practical-media") {
     await openTrainingPracticalMedia(control);
@@ -9110,6 +9589,110 @@ async function handleClick(event) {
 
   if (action === "refresh-product-research") {
     await pollProductResearchStatus();
+    return;
+  }
+
+  if (action === "generate-research-scenario") {
+    try {
+      const handoff = createContentGenerationHandoff(
+        state.productResearch.record,
+        Number(control.dataset.scenarioIndex),
+      );
+      state.contentGenerationHandoff = handoff;
+      persistContentGenerationHandoff(handoff);
+      state.sections.generation.status = "idle";
+      state.sections.generation.error = null;
+      state.generationSpend.status = "idle";
+      await track("research_scenario_sent_to_generation", {
+        research_id: handoff.researchId,
+        draft_id: handoff.draftId,
+        scenario_position: handoff.scenario.position,
+        platform: handoff.scenario.platform,
+      });
+      navigate("/workspace/generation");
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+    }
+    return;
+  }
+
+  if (action === "dismiss-generation-handoff") {
+    clearContentGenerationHandoff();
+    if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+    toast("Связь со сценарием убрана. Форму можно заполнить вручную.", "info");
+    return;
+  }
+
+  if (action === "restore-auto-generation-brief") {
+    const form = control.closest("#mock-batch-form");
+    const identity = syncGenerationProductIdentity(form);
+    const compiled = syncAutomaticGenerationBrief(form, { force: true, identity });
+    if (!compiled?.ready) {
+      toast(compiled?.blockers?.[0]?.message || "Сначала выберите проверенное фото товара.", "error");
+      return;
+    }
+    form.dataset.dirty = "true";
+    syncContentGenerationHandoff(form);
+    syncGenerationFormReadiness(form);
+    form.elements.brief?.focus({ preventScroll: true });
+    toast("Безопасное ТЗ восстановлено по выбранному товару и режиму.", "success");
+    return;
+  }
+
+  if (action === "check-runway-readiness") {
+    await checkRunwayReadiness(control);
+    return;
+  }
+
+  if (action === "retry-generation-learning") {
+    const form = control.closest("#mock-batch-form");
+    const identity = selectedGenerationProductIdentity(form);
+    if (!form || !identity || !generationLearningKey(form, identity)) {
+      toast("Сначала выберите проверенный исходник товара.", "error");
+      return;
+    }
+    control.disabled = true;
+    try {
+      await loadGenerationLearningPolicy(form, identity, { force: true });
+      if (state.generationLearning.status === "ready") {
+        toast("Обученное ТЗ проверено. Платный запуск снова доступен.", "success");
+      } else {
+        toast("Проверка обученного ТЗ пока недоступна. Платный запуск не создан.", "error");
+      }
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
+    return;
+  }
+
+  if (action === "disable-generation-learning" || action === "enable-generation-learning") {
+    const form = control.closest("#mock-batch-form");
+    const identity = selectedGenerationProductIdentity(form);
+    const key = generationLearningKey(form, identity);
+    if (!form || !identity || !key) {
+      toast("Сначала выберите проверенный исходник товара.", "error");
+      return;
+    }
+    state.generationLearning.disabledKey =
+      action === "disable-generation-learning" ? key : "";
+    const compiled = syncAutomaticGenerationBrief(form, {
+      force: true,
+      identity,
+    });
+    syncContentGenerationHandoff(form);
+    syncGenerationLearningStatus(form);
+    syncGenerationFormReadiness(form);
+    if (!compiled?.ready) {
+      toast("Не удалось восстановить безопасное ТЗ.", "error");
+      return;
+    }
+    form.dataset.dirty = "true";
+    toast(
+      action === "disable-generation-learning"
+        ? "Обученный ракурс отключён. Восстановлено базовое безопасное ТЗ."
+        : "Обученный ракурс снова применён к безопасному ТЗ.",
+      "success",
+    );
     return;
   }
 
@@ -9508,25 +10091,27 @@ async function handleClick(event) {
       }
       const result = outcome.result;
       const status = String(result?.job?.status || "processing").toLowerCase();
+      const photo = String(result?.job?.model || "") === "seedream5_lite";
+      const contentLabel = photo ? "Фото" : "Ролик";
       const signedUrl = String(result?.signed_url || "");
       if (["succeeded", "completed"].includes(status) && signedUrl) {
         if (!isTrustedGenerationDownload(signedUrl)) throw new Error("Сервис вернул небезопасную ссылку на результат.");
         if (outputAction === "download") {
-          downloadGenerationOutput(signedUrl, jobId);
-          toast("Ролик готов. Браузеру передан свежий MP4-файл.", "success");
+          downloadGenerationOutput(signedUrl, jobId, photo);
+          toast(`${contentLabel} готов${photo ? "о" : ""}. Браузеру передан свежий ${photo ? "PNG" : "MP4"}-файл.`, "success");
         } else if (outputAction === "open") {
           openGenerationOutput(signedUrl, pendingWindow);
-          toast("Ролик открыт по свежей защищённой ссылке.", "success");
+          toast(`${contentLabel} открыт${photo ? "о" : ""} по свежей защищённой ссылке.`, "success");
         } else {
           pendingWindow?.close();
-          toast("Ролик готов — его можно посмотреть и скачать в карточке запуска.", "success");
+          toast(`${contentLabel} готов${photo ? "о" : ""} — результат можно посмотреть и скачать в карточке запуска.`, "success");
         }
       } else if (status === "failed") {
         pendingWindow?.close();
         toast(generationFailureMessage(result?.job?.failure_code), "error");
       } else {
         pendingWindow?.close();
-        toast(`Текущий статус видео: ${humanGenerationStatus(status)}.`, "info");
+        toast(`Текущий статус генерации: ${humanGenerationStatus(status)}.`, "info");
       }
     } catch (error) {
       pendingWindow?.close();
@@ -9920,8 +10505,18 @@ function handleChange(event) {
   }
 
   const generationForm = event.target.closest("#mock-batch-form");
-  if (generationForm && ["generation_mode", "campaign_id"].includes(event.target.name)) {
-    syncGenerationModeForm(generationForm);
+  if (generationForm && ["generation_mode", "campaign_id", "platform"].includes(event.target.name)) {
+    if (event.target.name === "platform") {
+      syncGenerationProductIdentity(generationForm);
+    } else {
+      syncGenerationModeForm(generationForm);
+    }
+    syncContentGenerationHandoff(generationForm, {
+      rebuildPrompt: event.target.name === "generation_mode",
+    });
+  } else if (generationForm && event.target.name === "media_id") {
+    syncGenerationProductIdentity(generationForm);
+    syncGenerationFormReadiness(generationForm);
   }
 
   const contentReviewForm = event.target.closest("#content-review-form");
@@ -9968,6 +10563,14 @@ function handleFormActivity(event) {
   if (form) {
     form.dataset.dirty = "true";
     if (form.id === "content-review-form") persistContentReviewDraft(form);
+    if (form.id === "mock-batch-form") {
+      if (event.target.name === "brief") {
+        syncGenerationModeForm(form);
+        syncContentGenerationHandoff(form);
+      } else {
+        syncGenerationFormReadiness(form);
+      }
+    }
   }
 }
 
@@ -10073,14 +10676,404 @@ function syncMediaProductFields(form) {
   }
 }
 
+function selectedGenerationProductIdentity(form) {
+  if (!form) return null;
+  const selected = [...form.querySelectorAll('input[name="media_id"]:checked')]
+    .find((input) => !input.disabled) || null;
+  const verified = selected?.dataset.mediaIdentityVerified === "true";
+  const rightsConfirmed = selected?.dataset.mediaRightsConfirmed === "true";
+  const sku = String(selected?.dataset.mediaSku || "").trim();
+  const productName = String(selected?.dataset.mediaProductName || "").trim();
+  if (!selected || !verified || !rightsConfirmed || !sku || !productName) return null;
+  return { mediaId: selected.value, sku, productName };
+}
+
+function generationLearningKey(form, identity = selectedGenerationProductIdentity(form)) {
+  const mode = String(form?.elements?.generation_mode?.value || "");
+  const sku = realGenerationSku(mode);
+  const platform = String(form?.elements?.platform?.value || "").trim().toLowerCase();
+  if (!form || !identity || !sku || !platform) return "";
+  return [identity.mediaId, sku.model, platform].join(":");
+}
+
+function activeGenerationLearningPolicy(
+  form,
+  identity = selectedGenerationProductIdentity(form),
+) {
+  const key = generationLearningKey(form, identity);
+  if (
+    !key
+    || state.generationLearning.key !== key
+    || state.generationLearning.status !== "ready"
+    || state.generationLearning.disabledKey === key
+  ) return null;
+  return normalizeGenerationLearningPolicy(state.generationLearning.data);
+}
+
+function generationCreativeAngleLabel(value) {
+  return {
+    product_focus: "фокус на товаре",
+    trust_builder: "доверительная подача",
+    demonstration: "демонстрация",
+    comparison: "сравнительная структура",
+    objection_handling: "снятие сомнения",
+    curiosity_gap: "интрига первой детали",
+  }[String(value || "")] || "базовый ракурс";
+}
+
+function generationLearningMarkup(form = null) {
+  const identity = selectedGenerationProductIdentity(form);
+  const key = generationLearningKey(form, identity);
+  const current = key && state.generationLearning.key === key
+    ? state.generationLearning
+    : { status: "idle", data: null, error: null };
+  const policy = normalizeGenerationLearningPolicy(current.data);
+  const disabled = Boolean(key && state.generationLearning.disabledKey === key);
+  let title = "Безопасное самообучение";
+  let copy = "Выберите проверенный исходник — портал проверит только одобренные публикации этого товара с достаточными метриками.";
+  let stateName = "idle";
+  let action = "";
+  if (current.status === "loading") {
+    copy = "Сверяем одобренные публикации и метрики. Платный запуск дождётся этой бесплатной проверки.";
+    stateName = "loading";
+  } else if (current.status === "error") {
+    const diagnosticCode = String(
+      current.error?.serverCode
+      || current.error?.code
+      || "generation_learning_unavailable",
+    ).trim();
+    const safeDiagnosticCode = /^[a-z0-9_]{3,96}$/iu.test(diagnosticCode)
+      ? diagnosticCode
+      : "generation_learning_unavailable";
+    copy = `Обученный сигнал временно недоступен. Платный запуск приостановлен до безопасной повторной проверки. Код: ${safeDiagnosticCode}.`;
+    stateName = "warning";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
+  } else if (disabled && policy?.applied) {
+    copy = `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
+    stateName = "baseline";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
+  } else if (policy?.applied) {
+    title = "Самообучение применено";
+    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} одобренных публикаций · уверенность ${policy.confidence === "high" ? "высокая" : "средняя"}. Тексты обещаний, права и параметры запуска не обучаются.`;
+    stateName = "applied";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
+  } else if (current.status === "ready") {
+    const evidence = policy?.evidenceCount || 0;
+    copy = evidence
+      ? `Накоплено ${evidence} квалифицированных наблюдений, но устойчивого победителя пока нет. Используется базовое безопасное ТЗ.`
+      : "Пока нет минимум шести сопоставимых одобренных публикаций с метриками. Портал использует базовое ТЗ и начинает собирать безопасные структурные сигналы.";
+    stateName = "baseline";
+  }
+  return `
+    <div id="generation-learning-status" class="generation-learning-status" data-state="${stateName}" role="status">
+      <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span></div>
+      ${action}
+    </div>
+  `;
+}
+
+function syncGenerationLearningStatus(form) {
+  const current = form?.querySelector("#generation-learning-status");
+  if (!current) return;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = generationLearningMarkup(form).trim();
+  if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
+}
+
+async function loadGenerationLearningPolicy(
+  form,
+  identity = selectedGenerationProductIdentity(form),
+  { force = false } = {},
+) {
+  const key = generationLearningKey(form, identity);
+  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  const platform = String(form?.elements?.platform?.value || "").trim().toLowerCase();
+  if (!key || !sku || !identity) {
+    syncGenerationLearningStatus(form);
+    return null;
+  }
+  const learning = state.generationLearning;
+  if (
+    !force
+    && learning.key === key
+    && ["loading", "ready"].includes(learning.status)
+  ) {
+    syncGenerationLearningStatus(form);
+    if (learning.status === "loading" && learning.promise) {
+      return await learning.promise;
+    }
+    return learning.data;
+  }
+  const requestId = learning.requestId + 1;
+  learning.requestId = requestId;
+  learning.key = key;
+  learning.status = "loading";
+  learning.data = null;
+  learning.error = null;
+  syncGenerationLearningStatus(form);
+  syncGenerationFormReadiness(form);
+  const pending = (async () => {
+    let raw;
+    try {
+      raw = await state.api.generationLearningPolicy({
+        mediaId: identity.mediaId,
+        platform,
+        model: sku.model,
+      });
+      if (
+        requestId !== learning.requestId
+        || learning.key !== key
+        || generationLearningKey(form) !== key
+      ) return null;
+    } catch (error) {
+      if (requestId !== learning.requestId || learning.key !== key) return null;
+      learning.status = "error";
+      learning.error = error;
+      learning.data = null;
+      syncGenerationLearningStatus(form);
+      syncGenerationFormReadiness(form);
+      return null;
+    }
+    learning.data = raw?.data ?? raw ?? {};
+    learning.status = "ready";
+    learning.error = null;
+    syncAutomaticGenerationBrief(form, { identity });
+    syncContentGenerationHandoff(form);
+    syncGenerationLearningStatus(form);
+    syncGenerationFormReadiness(form);
+    return learning.data;
+  })();
+  learning.promise = pending;
+  try {
+    return await pending;
+  } finally {
+    if (learning.promise === pending) learning.promise = null;
+  }
+}
+
+async function ensureGenerationLearningPolicy(
+  form,
+  identity = selectedGenerationProductIdentity(form),
+) {
+  const key = generationLearningKey(form, identity);
+  if (!form || !identity || !key) {
+    throw new Error("generation_learning_identity_required");
+  }
+  const learning = state.generationLearning;
+  await loadGenerationLearningPolicy(form, identity, {
+    force: learning.key === key && learning.status === "error",
+  });
+  if (
+    !form.isConnected
+    || generationLearningKey(form) !== key
+    || learning.key !== key
+    || learning.status !== "ready"
+  ) {
+    throw new Error("generation_learning_unavailable");
+  }
+  syncAutomaticGenerationBrief(form, { identity });
+  syncContentGenerationHandoff(form);
+  syncGenerationFormReadiness(form);
+  return learning.data;
+}
+
+function automaticGenerationBriefCandidate(form, identity) {
+  if (!form || !identity) return null;
+  const mode = String(form.elements.generation_mode?.value || "mock");
+  if (!isRealGenerationMode(mode)) return null;
+  const handoff = state.contentGenerationHandoff;
+  const handoffMatchesIdentity = handoff
+    && handoff.sku === identity.sku
+    && handoff.productName === identity.productName;
+  const learningPolicy = activeGenerationLearningPolicy(form, identity);
+  if (handoffMatchesIdentity) {
+    return compileContentGenerationPrompt(handoff, mode, learningPolicy);
+  }
+  return compileSafeGenerationBrief({
+    mode,
+    sku: identity.sku,
+    productName: identity.productName,
+    learningPolicy,
+  });
+}
+
+function generationLearningContext(form) {
+  const identity = selectedGenerationProductIdentity(form);
+  const autoPrompt = String(form?.dataset?.autoGenerationBrief || "");
+  const currentPrompt = String(form?.elements?.brief?.value || "");
+  if (!identity || !autoPrompt || currentPrompt !== autoPrompt) return null;
+  const policy = activeGenerationLearningPolicy(form, identity);
+  if (policy?.applied) {
+    return {
+      creative_angle: policy.preferredAngle,
+      hook_patterns: policy.preferredHookPatterns,
+      source: "performance_learning",
+      compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+      applied_policy_hash: policy.policyHash,
+    };
+  }
+  const handoff = state.contentGenerationHandoff;
+  if (
+    handoff
+    && handoff.sku === identity.sku
+    && handoff.productName === identity.productName
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+      String(handoff.draftId || ""),
+    )
+  ) {
+    const signal = inferGenerationCreativeSignals({
+      hook: handoff.scenario?.hook,
+      shotList: handoff.scenario?.shotList,
+      visualDirection: handoff.creativeBrief?.visualDirection,
+    });
+    return {
+      creative_angle: signal.creativeAngle,
+      hook_patterns: signal.hookPatterns,
+      source: "approved_research",
+      compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+      creative_brief_draft_id: handoff.draftId,
+      scenario_position: handoff.scenario.position,
+    };
+  }
+  return {
+    creative_angle: "product_focus",
+    hook_patterns: [],
+    source: "baseline",
+    compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+  };
+}
+
+function generationLearningOptOut(form) {
+  const key = generationLearningKey(form);
+  return Boolean(key && state.generationLearning.disabledKey === key);
+}
+
+function syncAutomaticGenerationBrief(form, { force = false, identity = null } = {}) {
+  if (!form) return null;
+  const mode = String(form.elements.generation_mode?.value || "mock");
+  const real = isRealGenerationMode(mode);
+  const assist = form.querySelector("#generation-brief-assist");
+  const button = assist?.querySelector('[data-action="restore-auto-generation-brief"]');
+  const status = form.querySelector("#generation-auto-brief-status");
+  if (assist) assist.hidden = !real;
+  if (!real) {
+    if (button) button.disabled = true;
+    return null;
+  }
+
+  const verifiedIdentity = identity || selectedGenerationProductIdentity(form);
+  if (!verifiedIdentity) {
+    if (button) button.disabled = true;
+    if (status) {
+      status.dataset.state = "idle";
+      status.textContent = "Выберите проверенное фото товара — ТЗ заполнится само.";
+    }
+    return null;
+  }
+
+  const compiled = automaticGenerationBriefCandidate(form, verifiedIdentity);
+  if (button) button.disabled = compiled?.ready !== true;
+  if (!compiled?.ready) {
+    if (status) {
+      status.dataset.state = "warning";
+      status.textContent = compiled?.blockers?.[0]?.message || "Не удалось собрать безопасное ТЗ.";
+    }
+    return compiled;
+  }
+
+  const brief = form.elements.brief;
+  const previousAutomatic = String(form.dataset.autoGenerationBrief || "");
+  const canApply = Boolean(
+    brief && (
+      force
+      || !brief.value.trim()
+      || (previousAutomatic && brief.value === previousAutomatic)
+    )
+  );
+  if (canApply) {
+    brief.value = compiled.prompt;
+    form.dataset.autoGenerationBrief = compiled.prompt;
+    if (state.contentGenerationHandoff) state.contentGenerationHandoff._appliedPrompt = compiled.prompt;
+  }
+  if (status) {
+    status.dataset.state = canApply ? "verified" : "manual";
+    status.textContent = canApply
+      ? mode === REAL_PHOTO_MODE
+        ? "Авто-ТЗ готово: точный товар, один квадратный 2K-кадр и запрет на выдуманные детали."
+        : mode === REAL_SEEDANCE_MODE
+          ? "Авто-ТЗ готово: 8 секунд, точный товар и короткая дословная реплика."
+          : "Авто-ТЗ готово: 5 секунд, одно движение камеры, без речи и новых надписей."
+      : "ТЗ изменено вручную. Кнопка слева вернёт безопасную версию для выбранного режима.";
+  }
+  return compiled;
+}
+
+function syncGenerationProductIdentity(form) {
+  if (!form) return null;
+  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const selected = [...form.querySelectorAll('input[name="media_id"]:checked')]
+    .find((input) => !input.disabled) || null;
+  const skuInput = form.elements.sku;
+  const nameInput = form.elements.product_name;
+  const note = form.querySelector("#generation-product-identity-note");
+  const verified = selected?.dataset.mediaIdentityVerified === "true";
+  const rightsConfirmed = selected?.dataset.mediaRightsConfirmed === "true";
+  const sku = String(selected?.dataset.mediaSku || "").trim();
+  const productName = String(selected?.dataset.mediaProductName || "").trim();
+  const identityReady = Boolean(verified && rightsConfirmed && sku && productName);
+
+  if (!selected || !identityReady) {
+    if (skuInput) skuInput.readOnly = false;
+    if (nameInput) nameInput.readOnly = false;
+    delete form.dataset.identityMediaId;
+    if (note) {
+      note.dataset.state = selected ? "warning" : "idle";
+      note.textContent = selected
+        ? "У этого исходника нет проверенной привязки к товару и правам. Для платного запуска выберите другой файл."
+        : "Выберите проверенное фото ниже — артикул и название подставятся автоматически.";
+    }
+    syncAutomaticGenerationBrief(form);
+    syncGenerationLearningStatus(form);
+    return null;
+  }
+
+  const applyValue = (input, value) => {
+    if (!input) return;
+    const previousAutomatic = String(input.dataset.mediaIdentityValue || "");
+    const canAutofill = real || !input.value.trim() || input.value === previousAutomatic;
+    if (canAutofill) {
+      input.value = value;
+      input.dataset.mediaIdentityValue = value;
+    }
+    input.readOnly = real && input.value === value;
+  };
+  applyValue(skuInput, sku);
+  applyValue(nameInput, productName);
+  form.dataset.identityMediaId = selected.value;
+  if (note) {
+    note.dataset.state = "verified";
+    note.textContent = real
+      ? `Товар зафиксирован по проверенному исходнику: ${sku} · ${productName}.`
+      : `Из исходника определён товар: ${sku} · ${productName}. Поля можно уточнить вручную.`;
+  }
+  const identity = { mediaId: selected.value, sku, productName };
+  syncAutomaticGenerationBrief(form, { identity });
+  window.queueMicrotask(() => {
+    if (form.isConnected) loadGenerationLearningPolicy(form, identity);
+  });
+  return identity;
+}
+
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
   const sku = realGenerationSku(mode);
   const real = sku !== null;
   const seedance = mode === REAL_SEEDANCE_MODE;
+  const photo = mode === REAL_PHOTO_MODE;
   const count = form.elements.count;
   const brief = form.elements.brief;
   const format = form.elements.format;
+  const platform = form.elements.platform;
   const confirmation = form.querySelector("#real-generation-confirmation");
   const campaignField = form.querySelector("#generation-campaign-field");
   const campaignSelect = form.elements.campaign_id;
@@ -10091,6 +11084,9 @@ function syncGenerationModeForm(form) {
   const price = form.querySelector("#real-generation-price");
   const note = form.querySelector("#real-generation-note");
   const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
+  const confirmationTitle = form.querySelector("#real-generation-confirmation-title");
+  const preflightButton = form.querySelector('[data-action="check-runway-readiness"]');
+  const preflightStatus = form.querySelector("#runway-readiness-status");
   const briefHint = form.querySelector("#generation-brief-hint");
   const spendAllowed = !real || realGenerationSpendAllowed(mode, campaignSelect?.value || "");
 
@@ -10108,7 +11104,11 @@ function syncGenerationModeForm(form) {
   }
   if (brief) {
     brief.required = real;
+    brief.maxLength = sku?.promptMaxLength || 1200;
   }
+  const instagramOption = platform?.querySelector('option[value="instagram"]');
+  if (instagramOption) instagramOption.disabled = real;
+  if (real && platform?.value === "instagram") platform.value = "tiktok";
   if (format) {
     format.disabled = Boolean(sku?.format);
     if (sku?.format) format.value = sku.format;
@@ -10130,10 +11130,15 @@ function syncGenerationModeForm(form) {
   }
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
     input.type = real ? "radio" : "checkbox";
+    const paidReady = input.dataset.mediaIdentityVerified === "true"
+      && input.dataset.mediaRightsConfirmed === "true";
+    input.disabled = real && !paidReady;
+    if (input.disabled) input.checked = false;
   });
+  syncGenerationProductIdentity(form);
   if (countHint) {
     countHint.textContent = real
-      ? "Платный режим всегда создаёт ровно одно видео."
+      ? `Платный режим всегда создаёт ровно одно ${photo ? "фото" : "видео"}.`
       : `Можно подготовить от 1 до ${MAX_MOCK_BATCH_SIZE} тестовых вариантов.`;
   }
   if (mediaHint) {
@@ -10147,15 +11152,35 @@ function syncGenerationModeForm(form) {
   if (note && sku) {
     note.textContent = seedance
       ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией."
-      : "Этот режим создаёт видео без сгенерированной речи.";
+      : photo
+        ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст."
+        : "Этот режим создаёт видео без сгенерированной речи.";
+  }
+  if (confirmationTitle && sku) {
+    confirmationTitle.textContent = `Подтверждаю создание одного платного ${photo ? "фото" : "видео"}`;
   }
   if (confirmationCopy && sku) {
-    confirmationCopy.textContent = `${sku.durationSeconds} секунд · одно видео · около $${sku.estimatedUsd}`;
+    confirmationCopy.textContent = `${photo ? "квадрат 2K · одно фото" : `${sku.durationSeconds} секунд · одно видео`} · около $${sku.estimatedUsd}`;
+  }
+  if (preflightButton) {
+    const previousModel = String(preflightButton.dataset.runwayModel || "");
+    preflightButton.disabled = !real;
+    preflightButton.dataset.runwayModel = sku?.model || "";
+    if (preflightStatus && previousModel !== (sku?.model || "")) {
+      preflightStatus.textContent = real
+        ? "Проверка не создаёт задачу и ничего не списывает."
+        : "";
+      preflightStatus.removeAttribute("data-status");
+    }
   }
   if (briefHint) {
     briefHint.textContent = seedance
-      ? "Перед оплатой вставьте сценарий именно выбранного товара и проверьте дословную реплику."
-      : "Для платного режима опишите один ролик без неподтверждённых обещаний.";
+      ? "Авто-ТЗ добавит короткую дословную реплику; перед оплатой её можно уточнить."
+      : photo
+        ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар."
+        : real
+          ? "Авто-ТЗ соберёт один 5-секундный проход камеры без речи и новых надписей."
+          : "Для тестовых вариантов кратко опишите идею и нужный результат.";
   }
   const spendSnapshot = form.closest(".card")?.querySelector(".generation-spend-snapshot");
   if (spendSnapshot) {
@@ -10167,14 +11192,7 @@ function syncGenerationModeForm(form) {
     if (wrapper.firstElementChild) spendSnapshot.replaceWith(wrapper.firstElementChild);
   }
   if (submit) {
-    submit.disabled = state.realGenerationStartInFlight
-      || !form.querySelector('input[name="media_id"]')
-      || !spendAllowed;
-    submit.textContent = state.realGenerationStartInFlight
-      ? "Проверяем платный запуск — не повторяйте"
-      : real && !spendAllowed
-        ? "Платный запуск остановлен лимитом"
-        : (real ? `Создать одно платное видео · около $${sku.estimatedUsd}` : "Создать тестовые варианты");
+    syncGenerationFormReadiness(form);
   }
 }
 
@@ -10188,7 +11206,7 @@ async function submitLogin(form) {
     const { data, error } = await withUiTimeout(
       state.supabase.auth.signInWithPassword({ email, password }),
       AUTH_REQUEST_TIMEOUT_MS,
-      "Сервер входа не ответил за 15 секунд. Проверьте соединение и повторите.",
+      AUTH_SERVICE_UNAVAILABLE_MESSAGE,
     );
     if (error) throw error;
     state.session = data.session;
@@ -10550,6 +11568,55 @@ async function submitGenerationBatch(form) {
   await submitMockBatch(form, values);
 }
 
+async function checkRunwayReadiness(control) {
+  const form = control.closest("#mock-batch-form");
+  const mode = String(form?.elements?.generation_mode?.value || "");
+  const sku = realGenerationSku(mode);
+  const status = form?.querySelector("#runway-readiness-status");
+  if (!form || !sku || !status) {
+    toast("Выберите платный режим, который нужно проверить.", "error");
+    return;
+  }
+  if (state.realGenerationStartInFlight) {
+    toast("Сначала дождитесь результата текущего платного запуска.", "info");
+    return;
+  }
+
+  const originalLabel = control.textContent;
+  control.disabled = true;
+  control.textContent = "Проверяем…";
+  status.removeAttribute("data-status");
+  status.textContent = "Проверяем ключ, кредиты, модель и дневной лимит. Списаний нет…";
+  try {
+    const result = await withUiTimeout(
+      state.api.realGenerationPreflight(sku.model),
+      REAL_GENERATION_SOFT_TIMEOUT_MS,
+      "Runway preflight timeout",
+    );
+    const preflight = result?.preflight;
+    if (
+      preflight?.ready !== true
+      || preflight.model !== sku.model
+      || preflight.estimated_credits !== sku.estimatedCredits
+      || preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION
+    ) {
+      throw new Error("Runway preflight response invalid");
+    }
+    status.dataset.status = "ready";
+    status.textContent = `Runway готов: модель доступна, кредитов и дневного лимита хватает. Проверка бесплатная; списаний нет.`;
+    toast("Runway готов к запуску. Эта проверка ничего не списала.", "success");
+  } catch (error) {
+    status.dataset.status = "error";
+    status.textContent = `Платный запуск не создан. ${actionErrorMessage(error)}`;
+    toast(status.textContent, "error");
+  } finally {
+    if (control.isConnected) {
+      control.disabled = false;
+      control.textContent = originalLabel;
+    }
+  }
+}
+
 async function submitRealGenerationReconciliation(form, submitter) {
   const resolution = String(submitter?.value || "");
   const values = new FormData(form);
@@ -10641,10 +11708,33 @@ async function submitRealGeneration(form, values, mode) {
     if (state.route.path === "/workspace/generation") renderWorkspace("generation");
     return;
   }
+  const identity = selectedGenerationProductIdentity(form);
+  if (!identity) {
+    toast("Для платного запуска выберите проверенное фото товара с подтверждёнными правами.", "error");
+    return;
+  }
+  setFormBusy(form, true, "Проверяем обученное ТЗ без списания…");
+  try {
+    await ensureGenerationLearningPolicy(form, identity);
+  } catch {
+    if (form.isConnected) {
+      setFormBusy(form, false);
+      syncGenerationFormReadiness(form);
+    }
+    toast("Платный запуск не создан: не удалось безопасно проверить обученное ТЗ. Повторите бесплатную проверку.", "error");
+    return;
+  }
+  if (form.isConnected) {
+    setFormBusy(form, false);
+    syncGenerationFormReadiness(form);
+  }
+  values = new FormData(form);
   const mediaIds = values.getAll("media_id").map(String);
   const brief = String(values.get("brief") || "").trim();
+  const photo = generationSku.contentKind === "photo";
+  const contentLabel = photo ? "фото" : "видео";
   if (Number(values.get("count")) !== 1) {
-    toast("Платный режим создаёт ровно одно видео за запуск.", "error");
+    toast(`Платный режим создаёт ровно одно ${contentLabel} за запуск.`, "error");
     return;
   }
   if (mediaIds.length !== 1) {
@@ -10652,11 +11742,37 @@ async function submitRealGeneration(form, values, mode) {
     return;
   }
   if (!brief) {
-    toast("Укажите одну главную мысль ролика.", "error");
+    toast(photo ? "Опишите композицию и требования к товарному фото." : "Укажите одну главную мысль ролика.", "error");
+    return;
+  }
+  if (brief.length > generationSku.promptMaxLength) {
+    toast(`Сократите ТЗ для выбранной модели до ${generationSku.promptMaxLength} символов.`, "error");
+    form.elements.brief?.focus();
+    return;
+  }
+  const generationHandoff = state.contentGenerationHandoff;
+  const promptReadiness = generationPromptInspection(form);
+  if (!promptReadiness?.ready) {
+    toast(promptReadiness?.blockers?.[0]?.message || "Восстановите безопасное ТЗ перед платным запуском.", "error");
+    scrollElementIntoView(
+      form.querySelector("#generation-handoff-panel, #generation-brief-assist"),
+      "center",
+    );
+    form.elements.brief?.focus({ preventScroll: true });
+    return;
+  }
+  const learningContext = generationLearningContext(form);
+  if (!learningContext) {
+    toast("Восстановите безопасное авто-ТЗ перед платным запуском. Ручной текст не будет отправлен без привязки к обучению.", "error");
+    scrollElementIntoView(
+      form.querySelector("#generation-handoff-panel, #generation-brief-assist"),
+      "center",
+    );
+    form.elements.brief?.focus({ preventScroll: true });
     return;
   }
   if (values.get("real_spend_confirmation") !== generationSku.confirmation) {
-    toast(`Подтвердите создание одного платного видео примерно за $${generationSku.estimatedUsd}.`, "error");
+    toast(`Подтвердите создание одного платного ${contentLabel} примерно за $${generationSku.estimatedUsd}.`, "error");
     return;
   }
   const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
@@ -10679,6 +11795,8 @@ async function submitRealGeneration(form, values, mode) {
     duration_seconds: generationSku.durationSeconds,
     audio: generationSku.audio,
     spend_confirmation: String(values.get("real_spend_confirmation") || ""),
+    learning_context: learningContext,
+    ...(generationLearningOptOut(form) ? { learning_opt_out: true } : {}),
     ...(canManageTeam()
       ? {
           assignee_id: String(values.get("assignee_id") || state.user?.id || ""),
@@ -10689,12 +11807,34 @@ async function submitRealGeneration(form, values, mode) {
 
   state.realGenerationStartInFlight = true;
   state.realGenerationStartNotice = "";
-  setFormBusy(form, true, "Отправляем платный запуск…");
+  setFormBusy(form, true, "Проверяем Runway без списания…");
   const draft = realGenerationDraftFromPayload(payload, mode);
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
-  const startRequest = state.api.startRealGeneration(payload);
+  let providerStartAttempted = false;
   try {
+    const preflightResult = await withUiTimeout(
+      state.api.realGenerationPreflight(generationSku.model),
+      REAL_GENERATION_SOFT_TIMEOUT_MS,
+      "Runway preflight timeout",
+    );
+    if (
+      requestEpoch !== state.dataEpoch ||
+      requestUserId !== state.user?.id
+    ) return;
+    if (
+      preflightResult?.preflight?.ready !== true ||
+      preflightResult.preflight.model !== generationSku.model ||
+      preflightResult.preflight.estimated_credits !==
+        generationSku.estimatedCredits ||
+      preflightResult.preflight.learning_gate_version !==
+        GENERATION_LEARNING_GATE_VERSION
+    ) {
+      throw new Error("Runway preflight response invalid");
+    }
+    setFormBusy(form, true, "Отправляем платный запуск…");
+    providerStartAttempted = true;
+    const startRequest = state.api.startRealGeneration(payload);
     const firstWait = await withSoftTimeoutResult(startRequest, REAL_GENERATION_SOFT_TIMEOUT_MS);
     let result;
     if (firstWait.timedOut) {
@@ -10722,6 +11862,10 @@ async function submitRealGeneration(form, values, mode) {
       format: payload.format,
       platform: payload.platform,
       has_media: true,
+      generation_job_id: jobId,
+      research_id: generationHandoff?.researchId || null,
+      creative_brief_draft_id: generationHandoff?.draftId || null,
+      scenario_position: generationHandoff?.scenario?.position || null,
     });
     state.realGenerationStartNotice = "";
     setFormBusy(form, false);
@@ -10735,7 +11879,13 @@ async function submitRealGeneration(form, values, mode) {
     if (resultStatus === "failed") {
       toast(generationFailureMessage(result.job.failure_code), "error");
     } else {
-      toast(`Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`, "success");
+      clearContentGenerationHandoff();
+      toast(
+        photo
+          ? `Платный запуск принят: одно фото 2K, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`
+          : `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`,
+        "success",
+      );
     }
     render();
   } catch (error) {
@@ -10749,7 +11899,9 @@ async function submitRealGeneration(form, values, mode) {
       state.lastRealGenerationJobId = jobId;
       applyRealGenerationResult(jobId, { job: error.job }, { renderNow: false });
     }
-    state.realGenerationStartNotice = "Запуск не подтверждён окончательно. Сначала обновите очередь и проверьте существующую задачу; не создавайте дубликат с новой оплатой.";
+    state.realGenerationStartNotice = providerStartAttempted
+      ? "Запуск не подтверждён окончательно. Сначала обновите очередь и проверьте существующую задачу; не создавайте дубликат с новой оплатой."
+      : "Платный запуск не создан: бесплатная проверка Runway не пройдена. Исправьте баланс, ключ или квоту и повторите подтверждение.";
     state.sections.generation.status = "idle";
     toast(actionErrorMessage(error), "error");
   } finally {
@@ -10811,8 +11963,13 @@ async function submitMockBatch(form, values = new FormData(form)) {
       has_media: true,
       delegated: Boolean(payload.assignee_id && payload.assignee_id !== state.user?.id),
       payout_minor: payload.payout_minor || 0,
+      research_id: state.contentGenerationHandoff?.researchId || null,
+      creative_brief_draft_id: state.contentGenerationHandoff?.draftId || null,
+      scenario_position: state.contentGenerationHandoff?.scenario?.position || null,
     });
+    clearContentGenerationHandoff();
     delete form.dataset.dirty;
+    setFormBusy(form, false);
     form.reset();
     syncGenerationModeForm(form);
     state.sections.generation.status = "idle";
@@ -11981,7 +13138,6 @@ async function track(eventName, properties = {}) {
       event_version: 1,
       session_id: state.sessionId,
       route: state.route.path,
-      occurred_at: new Date().toISOString(),
       properties,
     });
   } catch {
@@ -12122,6 +13278,7 @@ function clearAuthenticatedState() {
   state.realGenerationStatusRequests.clear();
   state.realGenerationResults.clear();
   state.realGenerationDrafts.clear();
+  clearContentGenerationHandoff();
   state.lastRealGenerationJobId = null;
   state.bootstrap = null;
   state.bootstrapStatus = "idle";
@@ -12162,6 +13319,13 @@ function clearAuthenticatedState() {
   state.generationSpend.notice = "";
   state.generationSpend.updatedAt = 0;
   state.generationSpend.saving = false;
+  state.generationLearning.requestId += 1;
+  state.generationLearning.status = "idle";
+  state.generationLearning.data = null;
+  state.generationLearning.error = null;
+  state.generationLearning.key = "";
+  state.generationLearning.disabledKey = "";
+  state.generationLearning.promise = null;
   state.accessCenter.requestId += 1;
   state.accessCenter.status = "idle";
   state.accessCenter.email = "";
@@ -12358,7 +13522,7 @@ function authErrorMessage(error) {
   if (normalized.includes("email not confirmed")) return "Сначала подтвердите почту по ссылке из приглашения.";
   if (normalized.includes("expired") || normalized.includes("otp")) return "Ссылка устарела или уже использована. Запросите новую.";
   if (normalized.includes("rate limit")) return "Слишком много попыток. Подождите несколько минут.";
-  if (normalized.includes("не ответил за 15 секунд")) return raw;
+  if (error?.code === "ui_timeout") return raw;
   if (normalized.includes("required_password_change_incomplete")) return "Сервер не подтвердил смену временного пароля. Рабочие разделы остаются закрыты; повторите попытку.";
   console.error("Authentication request failed", error);
   return "Не удалось выполнить запрос. Проверьте соединение и попробуйте ещё раз.";

@@ -32,7 +32,9 @@ class OpenAILLMProvider:
                     "content": (
                         "You generate marketplace product video scripts as strict JSON. "
                         "Use only allowed claims. Every claim_ref must exactly match either an allowed "
-                        "claim source_key or source_type:source_key from the provided allowed_claims."
+                        "claim source_key or source_type:source_key from the provided allowed_claims. "
+                        "Treat learning_policy as directional creative evidence only: never copy historical "
+                        "claims or treat performance history as a product-fact source."
                     ),
                 },
                 {

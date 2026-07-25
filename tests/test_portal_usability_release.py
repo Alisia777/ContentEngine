@@ -263,6 +263,17 @@ def test_login_error_keeps_safe_email_context_and_moves_focus_to_password() -> N
     assert "min-height: 46px" in _between(STYLES, ".auth-access-guide summary", ".auth-access-guide summary::-webkit-details-marker")
 
 
+def test_login_timeout_explains_service_restart_without_blaming_credentials() -> None:
+    submit_login = _between(APP, "async function submitLogin", "async function submitReset")
+    error_mapper = _between(APP, "function authErrorMessage", "function actionErrorMessage")
+
+    assert "const AUTH_SERVICE_UNAVAILABLE_MESSAGE =" in APP
+    assert "Сервис входа временно недоступен или перезапускается" in APP
+    assert "Аккаунт и пароль не изменены" in APP
+    assert "AUTH_SERVICE_UNAVAILABLE_MESSAGE" in submit_login
+    assert 'error?.code === "ui_timeout"' in error_mapper
+
+
 def test_password_reset_copy_describes_the_actual_two_step_flow() -> None:
     reset = _between(APP, "function renderResetRequest", "function renderAuthLinkError")
 
@@ -320,7 +331,7 @@ def test_generation_archive_has_clear_busy_live_empty_retry_and_table_semantics(
     assert "Период, статус и поиск применяются на сервере ко всему архиву" in archive
     assert "Повторить загрузку истории" in archive
     assert 'disabled' in archive and "archive.loadingMore" in archive
-    assert '<caption class="sr-only">Архив запусков генерации видео</caption>' in table
+    assert '<caption class="sr-only">Архив запусков генерации контента</caption>' in table
     assert table.count('scope="col"') == 5
     assert ".generation-mobile-hint { display: inline; }" in EXPERIENCE_CSS
     submit_filters = _between(APP, "function submitGenerationArchiveFilters", "async function loadMoreGenerationArchive")

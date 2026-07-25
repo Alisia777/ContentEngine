@@ -6,7 +6,7 @@ import math
 import re
 from dataclasses import replace
 from threading import RLock
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 

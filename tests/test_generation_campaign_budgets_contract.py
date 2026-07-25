@@ -209,7 +209,7 @@ def test_generator_selector_and_preflight_use_the_same_campaign_budget() -> None
         ".filter((campaign) => campaign.id && campaign.enabled && !campaign.blockerCode)",
         "function realGenerationSpendAllowed(mode, campaignId",
         'select name="campaign_id"',
-        'generationForm && ["generation_mode", "campaign_id"].includes(event.target.name)',
+        'generationForm && ["generation_mode", "campaign_id", "platform"].includes(event.target.name)',
         "generationSpendSnapshotMarkup(state.generationSpend",
         'String(values.get("campaign_id") || "").trim()',
         "realGenerationSpendAllowed(mode, campaignId)",

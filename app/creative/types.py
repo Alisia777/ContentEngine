@@ -9,7 +9,7 @@ from app.creative.product_geometry import (
     default_product_scale_rules,
     default_product_visibility_rules,
 )
-from app.intelligence.types import AllowedClaim
+from app.intelligence.types import AllowedClaim, CreativeLearningPolicy
 
 
 class HookCandidate(BaseModel):
@@ -105,6 +105,7 @@ class CreativeSpec(BaseModel):
     duration_seconds: int
     creative_objective: str
     creative_angle: str
+    learning_policy: CreativeLearningPolicy = Field(default_factory=CreativeLearningPolicy)
     hook_candidates: list[HookCandidate]
     selected_hook: HookCandidate
     hook_type: str

@@ -7,7 +7,6 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app import models
-from app.participant_portal.errors import ParticipantPortalDataError
 from app.participant_portal.onboarding_service import OnboardingService
 from app.participant_portal.participant_service import ParticipantService
 from app.participant_portal.types import ParticipantMetricResult

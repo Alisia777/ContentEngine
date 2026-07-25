@@ -43,13 +43,16 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
 
       - name: Validate GitHub workflow YAML syntax
         run: python -c "import pathlib, yaml; [yaml.safe_load(path.read_text(encoding='utf-8')) for path in pathlib.Path('.github/workflows').glob('*.yml')]"
 
       - name: Compile application
         run: python -m compileall -q app scripts
+
+      - name: Lint application
+        run: python -m ruff check app scripts
 
       - name: Run test suite
         run: python -m pytest -q -p scripts.pytest_shard_plugin --durations=25 --durations-min=1.0
@@ -73,6 +76,19 @@ jobs:
 
       - name: Lint migrated database
         run: supabase db lint --local --level error
+
+      - name: Install test-only training grading fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_URL="$(
+            supabase status -o env |
+              sed -n 's/^DB_URL="\(.*\)"$/\1/p'
+          )"
+          : "${DB_URL:?Local Supabase DB URL unavailable}"
+          psql "$DB_URL" \
+            --set ON_ERROR_STOP=1 \
+            --file supabase/test-fixtures/training_assessment_v5_keys.sql
 
       - name: Run database security and workflow contract tests
         run: supabase test db

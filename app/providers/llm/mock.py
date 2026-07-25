@@ -1,5 +1,4 @@
 import json
-from typing import Any
 
 
 class MockLLMClient:
@@ -120,4 +119,3 @@ class MockLLMClient:
             "checks": checks,
             "source_policy": "Claims must reference product, brand, or needs_data fields.",
         }
-

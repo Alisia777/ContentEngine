@@ -94,6 +94,7 @@ from app.public_pilot.gate_matrix import (
     MARKETPLACE_LISTING_MANAGE,
     GENERATION_COST_MANAGE,
     METRICS_IMPORT,
+    OUTPUT_REVIEW,
     PUBLISHING_APPROVE,
     PublicPilotGateMatrix,
     TRAINING_ATTEMPT,
@@ -3453,4 +3454,3 @@ async def complete_training(
         f"/workbench?tab=people&module={quote(module_code)}&training_result={status_label}&training_score={score_percent}",
         status_code=303,
     )
-

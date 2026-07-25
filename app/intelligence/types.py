@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,22 @@ class ContentLearning(BaseModel):
     ctr: float | None = None
     retention_rate: float | None = None
     orders: int | None = None
+
+
+class CreativeLearningPolicy(BaseModel):
+    confidence: Literal["none", "low", "medium", "high"] = "none"
+    applied: bool = False
+    evidence_count: int = 0
+    target_platform: str | None = None
+    preferred_angles: list[str] = Field(default_factory=list)
+    avoid_angles: list[str] = Field(default_factory=list)
+    preferred_hook_patterns: list[str] = Field(default_factory=list)
+    avoid_hook_patterns: list[str] = Field(default_factory=list)
+    instructions: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    benchmark_summary: dict[str, float] = Field(default_factory=dict)
+    angle_scores: dict[str, float] = Field(default_factory=dict)
+    source_ids: list[int] = Field(default_factory=list)
 
 
 class CreativeIntelligencePack(BaseModel):
@@ -50,6 +66,7 @@ class ScriptBriefOutput(BaseModel):
     product_title: str
     objective: str
     creative_angle: str
+    platform: str | None = None
     target_audience: str | None = None
     reasoning_summary: str
     allowed_claims: list[AllowedClaim] = Field(default_factory=list)
@@ -63,6 +80,7 @@ class ScriptBriefOutput(BaseModel):
     aspect_ratio: str = "9:16"
     missing_data: list[str] = Field(default_factory=list)
     safety_warnings: list[str] = Field(default_factory=list)
+    learning_policy: CreativeLearningPolicy = Field(default_factory=CreativeLearningPolicy)
 
 
 class GeneratedSceneOutput(BaseModel):
@@ -119,4 +137,3 @@ class ProviderVideoStatus(BaseModel):
     provider_job_id: str
     status: str
     raw_response: dict[str, Any] = Field(default_factory=dict)
-

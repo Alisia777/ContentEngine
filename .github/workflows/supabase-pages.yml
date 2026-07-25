@@ -313,46 +313,13 @@ jobs:
             sb_publishable_*) ;;
             *) echo "SUPABASE_PUBLISHABLE_KEY must be a browser-safe sb_publishable_ key" >&2; exit 1 ;;
           esac
-          mkdir -p _site
-          cp -R web/app/. _site/
-          rm -f _site/config.example.js
-          touch _site/.nojekyll
-          test -f _site/index.html
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          import re
-
-          project_ref = os.environ["SUPABASE_PROJECT_REF"].strip()
-          publishable_key = os.environ["SUPABASE_PUBLISHABLE_KEY"].strip()
-          if re.fullmatch(r"[a-z0-9]{20}", project_ref) is None:
-              raise SystemExit("SUPABASE_PROJECT_REF has an invalid format")
-          if not publishable_key.startswith("sb_publishable_"):
-              raise SystemExit("Only a browser-safe Supabase publishable key is allowed")
-          config = {
-              "APP_NAME": "Контент ИИ Завод",
-              "SUPABASE_URL": f"https://{project_ref}.supabase.co",
-              "SUPABASE_PUBLISHABLE_KEY": publishable_key,
-              "RPC_SCHEMA": "public",
-              "STORAGE_BUCKET": "contentengine-private",
-              "MOCK_ENABLED": True,
-              "REAL_GENERATION_ENABLED": True,
-              "REAL_PROVIDER": "runway",
-              "REAL_MODEL": "gen4_turbo",
-              "REAL_DURATION_SECONDS": 5,
-              "REAL_ESTIMATED_CREDITS": 25,
-              "REAL_ESTIMATED_COST_USD": 0.25,
-              "MAX_BATCH_SIZE": 50,
-              "MAX_UPLOAD_BYTES": 52_428_800,
-          }
-          Path("_site/config.js").write_text(
-              "window.CONTENTENGINE_CONFIG = Object.freeze("
-              + json.dumps(config, ensure_ascii=False, separators=(",", ":"))
-              + ");\n",
-              encoding="utf-8",
-          )
-          PY
+          python scripts/build_pages_release.py \
+            --source-dir web/app \
+            --output-dir _site \
+            --edge-function supabase/functions/creator-generate/index.ts \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --expected-project-ref "$EXPECTED_SUPABASE_PROJECT_REF" \
+            --publishable-key "$SUPABASE_PUBLISHABLE_KEY"
 
       - name: Reject server secrets and localhost from Pages artifact
         shell: bash

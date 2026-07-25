@@ -237,7 +237,11 @@ values
     'practical-producer@example.test',
     'Practical Producer',
     'active'
-  );
+  )
+on conflict (id) do update set
+  email = excluded.email,
+  display_name = excluded.display_name,
+  status = excluded.status;
 
 insert into content_factory.organizations (id, name, slug, status)
 values (

@@ -227,6 +227,7 @@ declare
   context_row creator_test_context%rowtype;
   module_row record;
   exact_answers jsonb;
+  exact_rationales jsonb;
   walkthrough_id text;
   practice_project_id uuid;
 begin
@@ -278,10 +279,33 @@ begin
         message = 'test_course_gate_fixture_invalid';
     end if;
 
+    select coalesce(
+      jsonb_object_agg(
+        question.code,
+        format(
+          'Риск: ошибка в сценарии %s приведёт к неверному решению. Проверка: сверяем вариант и доказательство для вопроса %s. Следующий шаг: выполняем безопасное действие по модулю %s.',
+          question.order_index,
+          question.code,
+          module_row.code
+        )
+        order by question.order_index
+      ),
+      '{}'::jsonb
+    )
+    into exact_rationales
+    from content_factory.training_questions question
+    where question.module_code = module_row.code
+      and question.order_index between 901 and 1000
+      and strpos(
+        question.code,
+        'course_check_' || module_row.code || '_'
+      ) = 1;
+
     perform public.creator_submit_course_check(jsonb_build_object(
       'organization_id', context_row.organization_id,
       'module_code', module_row.code,
       'answers', exact_answers,
+      'rationales', exact_rationales,
       'idempotency_key', 'pgtap-course-check-' || module_row.code
     ));
 
