@@ -241,7 +241,7 @@ insert into auth.users (
   email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
   created_at, updated_at
 ) values (
-  '33333333-3333-4333-8333-333333333333'::uuid,
+  '77777777-7777-4777-8777-777777777777'::uuid,
   '00000000-0000-0000-0000-000000000000'::uuid,
   'authenticated',
   'authenticated',
@@ -256,7 +256,7 @@ insert into auth.users (
 
 insert into content_factory.profiles (id, email, display_name, status)
 values (
-  '33333333-3333-4333-8333-333333333333'::uuid,
+  '77777777-7777-4777-8777-777777777777'::uuid,
   'creator-factory-reviewer@example.test',
   'Factory Reviewer',
   'active'
@@ -271,7 +271,7 @@ insert into content_factory.memberships (
 )
 select
   context.organization_id,
-  '33333333-3333-4333-8333-333333333333'::uuid,
+  '77777777-7777-4777-8777-777777777777'::uuid,
   'admin',
   'active'
 from creator_test_context context;
@@ -483,7 +483,7 @@ begin
 
   perform set_config(
     'request.jwt.claim.sub',
-    '33333333-3333-4333-8333-333333333333',
+    '77777777-7777-4777-8777-777777777777',
     true
   );
 
