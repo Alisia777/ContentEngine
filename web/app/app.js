@@ -65,7 +65,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260725.1";
+} from "./content-review-view.js?v=20260725.2";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -8181,7 +8181,7 @@ function renderContentReviewSection(sectionState) {
     <div class="page-wrap content-review-page">
       ${pageHeader(
         "Проверка контента",
-        "Проверьте готовый файл до публикации: отдельно качество ролика, отдельно риски и обязательные реквизиты.",
+        "Проверьте готовый файл до публикации: отдельно качество фото или видео, отдельно риски и обязательные реквизиты.",
         `<span class="badge badge-info">Решение принимает человек</span>`,
       )}
       ${contentReviewWorkspaceMarkup({
@@ -9700,14 +9700,14 @@ async function handleClick(event) {
   if (action === "open-generated-content-review") {
     const mediaId = String(control.dataset.mediaId || "").trim();
     if (!mediaId) {
-      toast("У готового ролика не найден точный файл. Обновите задачи и генерацию.", "error");
+      toast("У готового материала не найден точный файл. Обновите задачи и генерацию.", "error");
       return;
     }
     state.contentReview.pendingMediaId = mediaId;
     state.contentReview.record = null;
     state.contentReview.phase = "idle";
     state.contentReview.error = "";
-    state.contentReview.notice = "Выберите контекст публикации и запустите обязательную проверку готового ролика.";
+    state.contentReview.notice = "Выберите контекст публикации и запустите обязательную проверку готового фото или видео.";
     navigate("/workspace/review");
     return;
   }
@@ -12982,7 +12982,12 @@ async function submitContentReviewDecision(form, submitter) {
     return;
   }
   if (!contentReviewExactMediaReady(form)) {
-    toast("Решение заблокировано: точный файл не загрузился или MP4 не был воспроизведён до конца без смены источника.", "error");
+    toast(
+      review.record?.media?.isVideo
+        ? "Решение заблокировано: MP4 не загрузился или не был воспроизведён до конца без смены источника."
+        : "Решение заблокировано: точное изображение не загрузилось в полном размере.",
+      "error",
+    );
     form.querySelector("[data-content-review-exact-media]")?.focus();
     return;
   }
@@ -12992,7 +12997,12 @@ async function submitContentReviewDecision(form, submitter) {
     return;
   }
   if (!decision.mediaWatchedConfirmed) {
-    toast("Сначала полностью просмотрите именно этот защищённый файл, включая звук и субтитры.", "error");
+    toast(
+      review.record?.media?.isVideo
+        ? "Сначала полностью просмотрите именно этот защищённый файл, включая звук и субтитры."
+        : "Сначала осмотрите именно этот защищённый PNG в полном размере и подтвердите товар, этикетку и надписи.",
+      "error",
+    );
     form.elements.media_watched_confirmed?.focus();
     return;
   }

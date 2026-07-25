@@ -196,6 +196,29 @@ export function contentReviewHasBlockers(run) {
   return run.result.findings.some((item) => item.severity === "blocker");
 }
 
+export function generatedImageApprovalContextReady(run) {
+  if (run?.media?.kind !== "generated_image") return true;
+  const input = run.input || {};
+  return Boolean(
+    input.generationJobId
+    && ["tiktok", "youtube", "vk", "telegram", "wildberries"].includes(input.platform)
+    && input.contentKind === "advertising"
+    && input.aiGenerated
+    && input.externalAiProcessingConfirmed
+    && input.adLabelConfirmed
+    && input.ordConfirmed
+    && input.advertiserName.length >= 2
+    && input.erid.length >= 6
+    && input.rightsConfirmed
+    && input.claimsVerified
+    && input.productCategoryVerified
+    && input.productCategorySource === "product_metadata"
+    && (input.platform !== "youtube" || input.aiDisclosureConfirmed)
+    && (input.productCategory !== "baa" || input.mandatoryWarningConfirmed)
+    && (!input.audienceOver10000 || input.rknRegistered)
+  );
+}
+
 export function contentReviewRequiredRiskCodes(run) {
   if (!run?.result) return [];
   const required = [...new Set(
@@ -603,6 +626,8 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
     ? [{ code: "general_human_review", title: "Результат требует отдельного решения человека" }]
     : [];
   const recommendationItems = run.result.recommendations.filter((item) => item.code);
+  const generatedImageContextReady = generatedImageApprovalContextReady(run);
+  const approvalBlocked = blockers || !generatedImageContextReady;
   const mediaAvailable = Boolean(run.media?.url)
     && run.mediaIsStale !== true
     && (!run.media?.status || run.media.status === "ready");
@@ -614,15 +639,27 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
       ? `<video class="content-review-decision-preview__media" data-content-review-exact-media data-media-kind="video" src="${escapeHtml(run.media.url)}" controls preload="metadata" playsinline></video>`
       : `<img class="content-review-decision-preview__media" data-content-review-exact-media data-media-kind="image" src="${escapeHtml(run.media.url)}" alt="${escapeHtml(run.media.name || "Проверяемый материал")}" />`
     : `<div class="content-review-decision-preview__missing">${escapeHtml(unavailableMessage)}</div>`;
+  const previewTitle = run.media?.isVideo
+    ? "Просмотрите именно этот файл целиком"
+    : "Осмотрите именно это изображение в полном размере";
+  const previewCopy = run.media?.isVideo
+    ? "Кадры ИИ — вспомогательная выборка. Браузер фиксирует загрузку файла и окончание воспроизведения, но подтверждение звука, титров и смысла всё равно даёт человек."
+    : "Проверка ИИ вспомогательная. Человек отдельно подтверждает товар, этикетку, композицию, рекламные реквизиты и отсутствие выдуманных деталей.";
+  const confirmationTitle = run.media?.isVideo
+    ? "Я подтверждаю, что лично просмотрел(а) именно этот защищённый файл до конца и проверил(а) звук и субтитры"
+    : "Я подтверждаю, что лично осмотрел(а) именно этот защищённый PNG в полном размере и проверил(а) товар, этикетку и все надписи";
+  const confirmationCopy = run.media?.isVideo
+    ? "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после загрузки метаданных и события окончания без смены файла."
+    : "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после успешной загрузки неизменённого изображения.";
   return `
-    <form class="card content-review-decision-form" data-review-id="${escapeHtml(run.id)}" data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}" novalidate>
-      <div><p class="eyebrow">Финальное решение человека</p><h3>${blockers ? "Одобрение недоступно из-за блокеров" : "Зафиксируйте результат проверки"}</h3><p>После сохранения решение нельзя переписать. Для исправленной версии запустите новую проверку.</p></div>
+    <form class="card content-review-decision-form" data-review-id="${escapeHtml(run.id)}" data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}" data-release-context-ready="${generatedImageContextReady ? "true" : "false"}" novalidate>
+      <div><p class="eyebrow">Финальное решение человека</p><h3>${approvalBlocked ? (blockers ? "Одобрение недоступно из-за блокеров" : "Сначала подтвердите рекламный контекст") : "Зафиксируйте результат проверки"}</h3><p>${!generatedImageContextReady ? "Автоматическая проверка фото не содержит подтверждённые реквизиты рекламы. Выберите этот PNG в форме выше, заполните площадку, маркировку, ОРД, ERID и запустите новую проверку — портал свяжет её с тем же платным результатом." : "После сохранения решение нельзя переписать. Для исправленной версии запустите новую проверку."}</p></div>
       <section class="content-review-decision-preview">
-        <div><strong>Просмотрите именно этот файл целиком</strong><small>Кадры ИИ — вспомогательная выборка. Браузер фиксирует загрузку файла и окончание воспроизведения, но подтверждение звука, титров и смысла всё равно даёт человек.</small></div>
+        <div><strong>${previewTitle}</strong><small>${previewCopy}</small></div>
         ${exactPreview}
         <p class="content-review-decision-preview__state ${mediaAvailable ? "" : "is-error"}" data-content-review-media-state role="status">${mediaAvailable ? (run.media.isVideo ? "Загружаем метаданные MP4. Затем воспроизведите файл до события окончания." : "Проверяем доступность изображения.") : escapeHtml(unavailableMessage)}</p>
       </section>
-      <label class="content-review-check content-review-watch-confirmation"><input type="checkbox" name="media_watched_confirmed" value="yes" required disabled /><span><strong>Я подтверждаю, что лично просмотрел(а) именно этот защищённый файл до конца и проверил(а) звук и субтитры</strong><small>Это подтверждение пользователя, а не автоматическое доказательство качества. Для MP4 поле откроется только после загрузки метаданных и события окончания без смены файла.</small></span></label>
+      <label class="content-review-check content-review-watch-confirmation"><input type="checkbox" name="media_watched_confirmed" value="yes" required disabled /><span><strong>${confirmationTitle}</strong><small>${confirmationCopy}</small></span></label>
       ${riskItems.length || fallbackRisk.length ? `
         <fieldset class="content-review-decision-checks">
           <legend>Риски, которые проверены лично</legend>
@@ -637,7 +674,7 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
       ` : ""}
       <label class="field"><span>Почему принято такое решение *</span><textarea name="reason" required minlength="10" maxlength="2000" rows="3" placeholder="Что проверено, что нужно исправить или почему материал отклонён"></textarea></label>
       <div class="content-review-decision-actions">
-        ${blockers ? "" : `<button class="btn" type="submit" name="decision" value="approved" data-review-decision-submit disabled>Одобрить</button>`}
+        ${approvalBlocked ? "" : `<button class="btn" type="submit" name="decision" value="approved" data-review-decision-submit disabled>Одобрить</button>`}
         <button class="btn btn-secondary" type="submit" name="decision" value="needs_changes" data-review-decision-submit disabled>На доработку</button>
         <button class="btn btn-ghost" type="submit" name="decision" value="rejected" data-review-decision-submit disabled>Отклонить</button>
       </div>
@@ -979,6 +1016,19 @@ function normalizeInput(raw) {
     advertiserName: text(source.advertiser_name || source.advertiserName, 240),
     erid: text(source.erid, 180),
     technicalMetrics: objectFrom(source.technical_metrics) || objectFrom(source.technicalMetrics) || {},
+    generationJobId: text(source.generation_job_id || source.generationJobId, 180),
+    productCategoryVerified: Boolean(source.product_category_verified ?? source.productCategoryVerified),
+    productCategorySource: text(source.product_category_source || source.productCategorySource, 80).toLowerCase(),
+    aiGenerated: Boolean(source.ai_generated ?? source.aiGenerated),
+    externalAiProcessingConfirmed: Boolean(source.external_ai_processing_confirmed ?? source.externalAiProcessingConfirmed),
+    adLabelConfirmed: Boolean(source.ad_label_confirmed ?? source.adLabelConfirmed),
+    ordConfirmed: Boolean(source.ord_confirmed ?? source.ordConfirmed),
+    rightsConfirmed: Boolean(source.rights_confirmed ?? source.rightsConfirmed),
+    claimsVerified: Boolean(source.claims_verified ?? source.claimsVerified),
+    aiDisclosureConfirmed: Boolean(source.ai_disclosure_confirmed ?? source.aiDisclosureConfirmed),
+    mandatoryWarningConfirmed: Boolean(source.mandatory_warning_confirmed ?? source.mandatoryWarningConfirmed),
+    audienceOver10000: Boolean(source.audience_over_10000 ?? source.audienceOver10000),
+    rknRegistered: Boolean(source.rkn_registered ?? source.rknRegistered),
   };
 }
 

@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260725.1' in APP
+    assert './content-review-view.js?v=20260725.2' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260725.20' in INDEX
+    assert './app.js?v=20260725.21' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -362,7 +362,8 @@ def test_exact_media_is_refreshed_loaded_and_watched_before_decision() -> None:
         "media.dataset.contentReviewLoadedSrc === currentSource",
         "media.dataset.contentReviewEndedSrc === currentSource",
         "contentReviewExactMediaReady(form)",
-            "точный файл не загрузился",
+            "MP4 не загрузился",
+            "точное изображение не загрузилось",
     ):
         assert marker in APP
     assert "data-content-review-exact-media" in VIEW
