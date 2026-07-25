@@ -35,7 +35,10 @@ select
   jsonb_build_array(question.options ->> 0),
   'TEST-ONLY synthetic pgTAP key'
 from content_factory.training_questions question
-where question.module_code = 'operator_final_exam';
+where question.module_code = 'operator_final_exam'
+on conflict (question_code) do update set
+  correct_answers = excluded.correct_answers,
+  rubric = excluded.rubric;
 
 select is(
   (

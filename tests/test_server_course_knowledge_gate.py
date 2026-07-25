@@ -407,6 +407,8 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
     assert "training_platform_answer_keys" in grading_fixture
     assert "valid_platform_key_count <> 18" in grading_fixture
     assert "test_platform_gate_fixture_invalid" in grading_fixture
+    assert "valid_final_exam_key_count <> final_exam_question_count" in grading_fixture
+    assert "test_final_exam_fixture_invalid" in grading_fixture
     assert "pg_temp.final_exam_test_rationales()" in creator
 
     fixture_files = {
