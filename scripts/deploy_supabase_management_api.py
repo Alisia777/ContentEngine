@@ -394,16 +394,17 @@ def decode_private_training_keys(encoded: str) -> str:
         normalized = "".join(encoded.split())
         raw = base64.b64decode(normalized, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ConfigurationError(
-            "SUPABASE_TRAINING_KEYS_B64 is not valid base64"
-        ) from exc
+        # A previously provisioned environment may contain the protected JSON
+        # directly. It is still secret-scoped and receives the exact same
+        # fail-closed schema/value validation below; no payload is logged.
+        raw = encoded.encode("utf-8")
     if not raw or len(raw) > MAX_PRIVATE_TRAINING_KEYS_BYTES:
         raise ConfigurationError("Private training-key payload has an invalid size")
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ConfigurationError(
-            "Private training-key payload is not valid JSON"
+            "Private training-key payload is neither valid base64 nor JSON"
         ) from exc
     if not isinstance(payload, dict) or set(payload) != {"version", "course", "platform"}:
         raise ConfigurationError("Private training-key payload has an invalid shape")

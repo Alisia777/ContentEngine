@@ -148,11 +148,13 @@ Prepare `SUPABASE_EXAM_KEYS_B64` and `SUPABASE_TRAINING_KEYS_B64` outside the
 repository and paste them directly into the environment-secret form. Do not
 place decoded grading data in a commit, issue, Actions input, screenshot,
 artifact or chat. The provisioning step scopes both secrets to one step,
-decodes and validates them only in process memory, withholds all
-database-command output and blocks the release if validation or application
-fails. The training secret is data-only JSON: the deployer checks exact row
-counts, identifiers, option sets and full platform coverage before rendering
-the two approved private-table upserts.
+decodes and validates them only in process memory, withholds payload contents
+and database-command output from logs, and blocks the release if validation or
+application fails. It also accepts an already-provisioned direct JSON training
+bank while applying the same strict schema validation; Base64 remains the
+preferred format for new secret configuration. The training secret is data-only
+JSON: the deployer checks exact row counts, identifiers, option sets and full
+platform coverage before rendering the two approved private-table upserts.
 
 Being signed in to the Supabase dashboard does not authorize a GitHub runner.
 The dashboard session is for the human operator; `SUPABASE_ACCESS_TOKEN`

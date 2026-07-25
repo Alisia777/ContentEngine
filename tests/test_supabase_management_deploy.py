@@ -395,6 +395,15 @@ def test_private_training_json_accepts_wrapped_standard_base64() -> None:
     assert "private_training_key_contract_failed" in validated
 
 
+def test_private_training_json_accepts_direct_secret_scoped_json() -> None:
+    encoded = json.dumps(_private_training_payload(), ensure_ascii=False)
+
+    validated = decode_private_training_keys(encoded)
+
+    assert validated.count("insert into content_factory_private.") == 2
+    assert "private_training_key_contract_failed" in validated
+
+
 def test_private_training_json_rejects_missing_rows_and_unknown_fields() -> None:
     missing = _private_training_payload()
     missing["course"] = missing["course"][:-1]
