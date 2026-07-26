@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v1";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v2";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
@@ -782,6 +782,120 @@ function readGenerationLearningContext(
     return null;
   }
   return value as GenerationLearningContext;
+}
+
+function generationLearningPromptRequirements(
+  value: unknown,
+  model: RunwayModel,
+): string[] | null {
+  if (!isRecord(value) || value.applied !== true) return null;
+  const photo = model === "seedream5_lite";
+  const angle = typeof value.preferred_angle === "string"
+    ? value.preferred_angle
+    : "";
+  const angleRequirements = photo
+    ? {
+      product_focus: "Обученный ракурс: товар целиком, строгий фокус.",
+      trust_builder: "Обученный ракурс: естественная предметная подача.",
+      demonstration: "Обученный ракурс: одна видимая деталь товара.",
+      comparison: "Обученный ракурс: ясный масштаб без второго товара.",
+      objection_handling: "Обученный ракурс: упаковка и проверяемые детали.",
+      curiosity_gap:
+        "Обученный ракурс: выразительная деталь при видимом целом товаре.",
+    }
+    : {
+      product_focus: "Обученное направление: товар главный во всех кадрах.",
+      trust_builder:
+        "Обученное направление: естественная подача без преувеличений.",
+      demonstration: "Обученное направление: одно видимое действие с товаром.",
+      comparison:
+        "Обученное направление: сравнение без второго товара и обещаний.",
+      objection_handling:
+        "Обученное направление: одна проверяемая деталь товара.",
+      curiosity_gap:
+        "Обученное направление: заметная деталь, затем товар целиком.",
+    };
+  const angleRequirement =
+    angleRequirements[angle as keyof typeof angleRequirements];
+  if (typeof angleRequirement !== "string") return null;
+  const requirements = [angleRequirement];
+
+  const hookPatterns = value.preferred_hook_patterns;
+  if (!Array.isArray(hookPatterns) || hookPatterns.length > 4) return null;
+  if (!photo && hookPatterns.length > 0) {
+    const hookRequirements = {
+      question_led:
+        "Структурный hook: визуальный вопрос сразу раскрывается точным товаром.",
+      why_explanation:
+        "Структурный hook: видимая причина рассмотреть товар, без утверждений.",
+      before_buying:
+        "Структурный hook: спокойная проверка товара перед выбором.",
+      comparison:
+        "Структурный hook: сравнение без второго товара, цифр и обещаний.",
+      demonstration: "Структурный hook: одно простое действие с товаром.",
+      first_person:
+        "Структурный hook: от первого лица; товар целиком и в фокусе.",
+      numbered: "Структурный hook: один понятный шаг без цифр и надписей.",
+      concise: "Структурный hook: простой первый кадр сразу показывает товар.",
+    };
+    const firstHook = hookPatterns[0];
+    if (typeof firstHook !== "string") return null;
+    const hookRequirement =
+      hookRequirements[firstHook as keyof typeof hookRequirements];
+    if (typeof hookRequirement !== "string") return null;
+    requirements.push(hookRequirement);
+  }
+
+  const guardCodes = value.quality_guard_codes ?? [];
+  if (
+    !Array.isArray(guardCodes) || guardCodes.length > 3 ||
+    new Set(guardCodes).size !== guardCodes.length
+  ) {
+    return null;
+  }
+  const guardRequirements = photo
+    ? {
+      product_fidelity:
+        "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
+      technical_stability:
+        "QA: резкий товар, ровный свет, без пересвета и размытия.",
+      hook_clarity: "QA: товар считывается первым.",
+      visual_quality: "QA: чистые края без дублей, деформаций и AI-артефактов.",
+      trust: "QA: естественные материалы, свет и масштаб.",
+      platform_fit: "QA: мастер 1:1, безопасные поля.",
+    }
+    : {
+      product_fidelity:
+        "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
+      technical_stability:
+        "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+      hook_clarity:
+        "QA: точный товар и одно действие видны в первые 2 секунды.",
+      visual_quality:
+        "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
+      trust: "QA: естественная подача без гиперболы и новых обещаний.",
+      platform_fit: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+    };
+  for (const guardCode of guardCodes) {
+    if (typeof guardCode !== "string") return null;
+    const requirement =
+      guardRequirements[guardCode as keyof typeof guardRequirements];
+    if (typeof requirement !== "string") return null;
+    requirements.push(requirement);
+  }
+  return requirements;
+}
+
+function generationLearningPromptIsBound(
+  policy: unknown,
+  payload: StartPayload,
+): boolean {
+  const requirements = generationLearningPromptRequirements(
+    policy,
+    payload.model,
+  );
+  return requirements !== null &&
+    requirements.every((requirement) => payload.brief.includes(requirement));
 }
 
 function readStatusPayload(value: unknown): StatusPayload | null {
@@ -2442,6 +2556,16 @@ async function handleCreatorGenerate(
       409,
     );
   }
+  if (
+    learningSource === "performance_learning" &&
+    !generationLearningPromptIsBound(learningPolicy, startPayload)
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_prompt_binding_invalid" },
+      422,
+    );
+  }
   const { data: startData, error: startError } = await context.supabase.rpc(
     "creator_start_real_generation",
     { p_payload: rpcPayload(startPayload) },
@@ -2451,6 +2575,7 @@ async function handleCreatorGenerate(
     const learningCode = [
         "generation_learning_context_invalid",
         "generation_learning_policy_stale",
+        "generation_learning_prompt_binding_invalid",
         "generation_learning_research_provenance_invalid",
       ].includes(startError.message)
       ? startError.message
@@ -2463,7 +2588,8 @@ async function handleCreatorGenerate(
       ? budgetErrorHttpStatus(budgetCode)
       : code === "generation_rejected"
       ? 403
-      : code === "generation_learning_context_invalid"
+      : code === "generation_learning_context_invalid" ||
+          code === "generation_learning_prompt_binding_invalid"
       ? 422
       : 409;
     return json(

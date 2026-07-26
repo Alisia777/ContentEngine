@@ -401,16 +401,24 @@ export function normalizeGenerationLearningPolicy(value) {
     "trust",
     "platform_fit",
   ]);
-  const preferredAngle = cleanText(value.preferred_angle);
-  const policyHash = cleanText(value.policy_hash);
+  const preferredAngle = cleanText(policyField(
+    value,
+    "preferred_angle",
+    "preferredAngle",
+  ));
+  const policyHash = cleanText(policyField(
+    value,
+    "policy_hash",
+    "policyHash",
+  ));
   const selectionMode = [
     "performance",
     "quality",
     "bounded_exploration",
   ].includes(
-    cleanText(value.selection_mode),
+    cleanText(policyField(value, "selection_mode", "selectionMode")),
   )
-    ? cleanText(value.selection_mode)
+    ? cleanText(policyField(value, "selection_mode", "selectionMode"))
     : "performance";
   const applied = value.applied === true
     && ["medium", "high"].includes(value.confidence)
@@ -422,36 +430,90 @@ export function normalizeGenerationLearningPolicy(value) {
     confidence: ["none", "low", "medium", "high"].includes(value.confidence)
       ? value.confidence
       : "none",
-    evidenceCount: Number.isInteger(Number(value.evidence_count))
-      ? Math.max(0, Number(value.evidence_count))
+    evidenceCount: Number.isInteger(Number(policyField(
+      value,
+      "evidence_count",
+      "evidenceCount",
+    )))
+      ? Math.max(0, Number(policyField(
+        value,
+        "evidence_count",
+        "evidenceCount",
+      )))
       : 0,
     preferredAngle: applied ? preferredAngle : "",
-    avoidAngle: allowedAngles.has(cleanText(value.avoid_angle))
-      ? cleanText(value.avoid_angle)
+    avoidAngle: allowedAngles.has(cleanText(policyField(
+      value,
+      "avoid_angle",
+      "avoidAngle",
+    )))
+      ? cleanText(policyField(value, "avoid_angle", "avoidAngle"))
       : "",
     preferredHookPatterns: uniqueStrings(
-      value.preferred_hook_patterns,
+      policyField(
+        value,
+        "preferred_hook_patterns",
+        "preferredHookPatterns",
+      ),
       4,
     ).filter((pattern) => allowedPatterns.has(pattern)),
     qualityGuardCodes: applied
-      ? uniqueStrings(value.quality_guard_codes, 3)
+      ? uniqueStrings(policyField(
+        value,
+        "quality_guard_codes",
+        "qualityGuardCodes",
+      ), 3)
         .filter((code) => allowedQualityGuards.has(code))
       : [],
     qualityGuardEvidenceCount: Number.isInteger(
-      Number(value.quality_guard_evidence_count),
+      Number(policyField(
+        value,
+        "quality_guard_evidence_count",
+        "qualityGuardEvidenceCount",
+      )),
     )
-      ? Math.max(0, Number(value.quality_guard_evidence_count))
+      ? Math.max(0, Number(policyField(
+        value,
+        "quality_guard_evidence_count",
+        "qualityGuardEvidenceCount",
+      )))
       : 0,
     qualityGuardConfidence: ["none", "low", "medium", "high"].includes(
-      value.quality_guard_confidence,
+      policyField(
+        value,
+        "quality_guard_confidence",
+        "qualityGuardConfidence",
+      ),
     )
-      ? value.quality_guard_confidence
+      ? policyField(
+        value,
+        "quality_guard_confidence",
+        "qualityGuardConfidence",
+      )
       : "none",
     selectionMode,
-    reasonCodes: uniqueStrings(value.reason_codes, 8),
-    scope: cleanText(value.scope),
+    reasonCodes: uniqueStrings(policyField(
+      value,
+      "reason_codes",
+      "reasonCodes",
+    ), 8),
+    scope: cleanText(policyField(value, "scope", "scope")),
     policyHash,
   };
+}
+
+function policyField(value, wireName, normalizedName) {
+  const hasWireValue = Object.hasOwn(value, wireName);
+  const hasNormalizedValue = Object.hasOwn(value, normalizedName);
+  if (hasWireValue && hasNormalizedValue) {
+    const wireValue = value[wireName];
+    const normalizedValue = value[normalizedName];
+    if (JSON.stringify(wireValue) !== JSON.stringify(normalizedValue)) {
+      return undefined;
+    }
+  }
+  if (hasWireValue) return value[wireName];
+  return hasNormalizedValue ? value[normalizedName] : undefined;
 }
 
 function generationLearningDirection(value, mode) {

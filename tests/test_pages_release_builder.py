@@ -34,8 +34,8 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
 ) -> None:
     output, manifest = _build(tmp_path)
 
-    assert manifest["app_script"] == "./app.js?v=20260726.11"
-    assert manifest["learning_gate_version"] == "2026-07-26.v1"
+    assert manifest["app_script"] == "./app.js?v=20260726.12"
+    assert manifest["learning_gate_version"] == "2026-07-26.v2"
     assert manifest["artifact_file_count"] == len(manifest["sha256"])
     assert "app.js" in manifest["sha256"]
     assert "content-generation-handoff.js" in manifest["sha256"]
@@ -60,7 +60,7 @@ def test_pages_release_rejects_client_edge_gate_mismatch(tmp_path: Path) -> None
         ROOT / "supabase/functions/creator-generate/index.ts"
     ).read_text(encoding="utf-8")
     edge.write_text(
-        source.replace("2026-07-26.v1", "2026-07-25.v9", 1),
+        source.replace("2026-07-26.v2", "2026-07-25.v9", 1),
         encoding="utf-8",
     )
 

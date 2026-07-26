@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.5";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.6";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -47,7 +47,7 @@ import {
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260726.5";
+} from "./content-generation-handoff.js?v=20260726.6";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -369,7 +369,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v1";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v2";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",

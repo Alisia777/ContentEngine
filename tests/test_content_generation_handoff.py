@@ -330,6 +330,77 @@ def test_stable_learning_changes_only_structural_direction_and_keeps_guards() ->
     )
 
 
+def test_app_normalized_learning_policy_still_enters_the_actual_auto_prompt() -> None:
+    result = _run_module(
+        """
+        const wirePolicy = {
+          version: "generation-learning-v4",
+          applied: true,
+          confidence: "high",
+          selection_mode: "quality",
+          evidence_count: 12,
+          preferred_angle: "demonstration",
+          preferred_hook_patterns: ["demonstration"],
+          quality_guard_codes: [
+            "product_fidelity",
+            "technical_stability"
+          ],
+          quality_guard_evidence_count: 12,
+          quality_guard_confidence: "high",
+          reason_codes: ["recurring_independent_quality_weakness"],
+          policy_hash: "f".repeat(64),
+        };
+        // app.js stores this normalized object and passes that exact object to
+        // the prompt compiler.  The second normalization must be idempotent.
+        const appPolicy = subject.normalizeGenerationLearningPolicy(wirePolicy);
+        const normalizedAgain = subject.normalizeGenerationLearningPolicy(appPolicy);
+        const modes = ["real_photo", "real_gen4", "real_seedance"];
+        const prompts = Object.fromEntries(modes.map((mode) => {
+          const compiled = subject.compileSafeGenerationBrief({
+            mode,
+            productName: "Точный товар",
+            sku: "SKU-NORMALIZED-1",
+            learningPolicy: appPolicy,
+          });
+          return [mode, {
+            ready: compiled.ready,
+            learnedAngle: compiled.prompt.includes("Обученн"),
+            fidelity: mode === "real_photo"
+              ? compiled.prompt.includes("точная геометрия")
+              : compiled.prompt.includes("упаковка без морфинга"),
+            stability: mode === "real_photo"
+              ? compiled.prompt.includes("без пересвета и размытия")
+              : compiled.prompt.includes("без чёрных кадров, скачков и мерцания"),
+            hook: mode === "real_photo"
+              ? true
+              : compiled.prompt.includes("одно простое действие с товаром"),
+          }];
+        }));
+        const conflicting = subject.normalizeGenerationLearningPolicy({
+          ...wirePolicy,
+          preferredAngle: "comparison",
+        });
+        return {
+          idempotent: JSON.stringify(appPolicy) === JSON.stringify(normalizedAgain),
+          prompts,
+          conflictingApplied: conflicting?.applied,
+        };
+        """
+    )
+    assert result["idempotent"] is True
+    assert all(
+        mode == {
+            "ready": True,
+            "learnedAngle": True,
+            "fidelity": True,
+            "stability": True,
+            "hook": True,
+        }
+        for mode in result["prompts"].values()
+    )
+    assert result["conflictingApplied"] is False
+
+
 def test_bounded_exploration_changes_only_structural_direction_and_keeps_guards() -> None:
     result = _run_module(
         """
@@ -628,7 +699,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260726.5" in APP
-    assert "./app.js?v=20260726.11" in INDEX
+    assert "./content-generation-handoff.js?v=20260726.6" in APP
+    assert "./app.js?v=20260726.12" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header
