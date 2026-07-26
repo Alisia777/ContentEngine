@@ -43,6 +43,16 @@ export function createContentGenerationHandoff(record, scenarioIndex, now = Date
       position: normalizedIndex + 1,
       title: cleanText(scenario.title) || `Сценарий ${normalizedIndex + 1}`,
       platform: normalizePlatform(scenario.platform),
+      recommendedGenerationMode: normalizeRecommendedGenerationMode(
+        scenario.recommendedGenerationMode
+          || scenario.recommended_generation_mode
+          || scenario.generationMode
+          || scenario.generation_mode,
+      ),
+      generationModeReason: cleanText(
+        scenario.generationModeReason
+          || scenario.generation_mode_reason,
+      ).slice(0, 400),
       hook: cleanText(scenario.hook),
       spokenScript: cleanText(scenario.script || scenario.spokenScript),
       shotList: cleanMultiline(scenario.shotList || scenario.shot_list),
@@ -623,6 +633,15 @@ function validHandoff(value, now = Date.now()) {
   }
   if (!cleanText(value.scenario.title)) return false;
   if (
+    value.scenario.recommendedGenerationMode
+    && !normalizeRecommendedGenerationMode(
+      value.scenario.recommendedGenerationMode,
+    )
+  ) return false;
+  if (cleanText(value.scenario.generationModeReason).length > 400) {
+    return false;
+  }
+  if (
     !value.creativeBrief || typeof value.creativeBrief !== "object" ||
     Array.isArray(value.creativeBrief) ||
     !Array.isArray(value.creativeBrief.proofPoints) ||
@@ -689,6 +708,12 @@ function cleanMultiline(value) {
 function normalizeMode(value) {
   if (value === REAL_PHOTO_MODE) return REAL_PHOTO_MODE;
   return value === REAL_GEN4_MODE ? REAL_GEN4_MODE : REAL_SEEDANCE_MODE;
+}
+
+function normalizeRecommendedGenerationMode(value) {
+  return [REAL_GEN4_MODE, REAL_SEEDANCE_MODE].includes(value)
+    ? value
+    : "";
 }
 
 function normalizePlatform(value) {

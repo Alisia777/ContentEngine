@@ -576,8 +576,17 @@ const PRODUCT_RESEARCH_SCHEMA: Json = strictObject({
       target_segment: { type: "string", minLength: 2, maxLength: 180 },
       platform: { type: "string", minLength: 2, maxLength: 80 },
       goal: { type: "string", minLength: 2, maxLength: 240 },
+      recommended_generation_mode: {
+        type: "string",
+        enum: ["real_gen4", "real_seedance"],
+      },
+      generation_mode_reason: {
+        type: "string",
+        minLength: 10,
+        maxLength: 400,
+      },
       hook: { type: "string", minLength: 3, maxLength: 500 },
-      spoken_script: { type: "string", minLength: 20, maxLength: 4_000 },
+      spoken_script: { type: "string", minLength: 0, maxLength: 4_000 },
       shot_list: {
         type: "array",
         minItems: 3,
@@ -928,6 +937,8 @@ function readResearchResult(
         "target_segment",
         "platform",
         "goal",
+        "recommended_generation_mode",
+        "generation_mode_reason",
         "hook",
         "spoken_script",
         "shot_list",
@@ -939,8 +950,16 @@ function readResearchResult(
       !isBoundedText(scenario.target_segment, 2, 180) ||
       !isBoundedText(scenario.platform, 2, 80) ||
       !isBoundedText(scenario.goal, 2, 240) ||
+      !new Set(["real_gen4", "real_seedance"]).has(
+        String(scenario.recommended_generation_mode),
+      ) ||
+      !isBoundedText(scenario.generation_mode_reason, 10, 400) ||
       !isBoundedText(scenario.hook, 3, 500) ||
-      !isBoundedText(scenario.spoken_script, 20, 4_000) ||
+      !(
+        scenario.recommended_generation_mode === "real_gen4"
+          ? isBoundedText(scenario.spoken_script, 0, 4_000)
+          : isBoundedText(scenario.spoken_script, 20, 4_000)
+      ) ||
       !isBoundedText(scenario.cta, 3, 400) ||
       !isTextArray(scenario.proof_points, 1, 8) ||
       !isTextArray(scenario.risks, 1, 8) ||
@@ -1054,6 +1073,13 @@ const RESEARCH_INSTRUCTIONS = `
    гарантированный результат или недоказанную безопасность. В forbidden перечисли
    рискованные формулировки и безопасные альтернативы.
 7. Дай ровно три заметно разных, выполнимых UGC-сценария. Не копируй чужие тексты.
+   Для каждого сценария выбери recommended_generation_mode:
+   real_gen4 — товарный ролик 5 секунд без речи с одним простым действием;
+   real_seedance — UGC 8 секунд, только когда человек и слышимая реплика нужны
+   замыслу. Для real_seedance spoken_script должен содержать не более 22 слов.
+   Для real_gen4 верни spoken_script как пустую строку, а voiceover и
+   on_screen_text обозначь как «без голоса» и «без текста».
+   В generation_mode_reason кратко объясни выбор через структуру сценария, не цену.
 8. creative_potential — эвристическая оценка качества замысла до публикации, а не
    вероятность вирусности, просмотров или продаж. В assumptions и risks явно опиши
    ограничения прогноза: аккаунт, монтаж, подача, сезонность и дистрибуция неизвестны.
@@ -1230,8 +1256,13 @@ function buildCompletionPayload(
     const instructions = [
       `Цель: ${String(scenario.goal)}`,
       `Угол подачи: ${String(scenario.angle)}`,
+      `Режим генерации: ${
+        String(scenario.recommended_generation_mode)
+      } — ${String(scenario.generation_mode_reason)}`,
       `Хук: ${String(scenario.hook)}`,
-      `Текст блогера: ${String(scenario.spoken_script)}`,
+      scenario.recommended_generation_mode === "real_seedance"
+        ? `Текст блогера: ${String(scenario.spoken_script)}`
+        : "Без речи, дикторского текста и сгенерированных надписей.",
       "Кадры:",
       ...shotLines,
       `CTA: ${String(scenario.cta)}`,

@@ -3,6 +3,11 @@ const REAL_GENERATION_MODES = new Set([
   "real_gen4",
   "real_seedance",
 ]);
+const VIDEO_GENERATION_MODES = new Set([
+  "real_gen4",
+  "real_seedance",
+]);
+const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 
 export function chooseInitialGenerationMedia(items, { real = false } = {}) {
   const candidates = (Array.isArray(items) ? items : [])
@@ -43,6 +48,72 @@ export function resolveGenerationPlatform({
     value: canApply ? preferred : current,
     preferred,
     automatic: canApply,
+  };
+}
+
+export function resolveHandoffGenerationMode({
+  handoff = null,
+  availability = {},
+  mockEnabled = true,
+} = {}) {
+  const scenario = handoff?.scenario && typeof handoff.scenario === "object"
+    ? handoff.scenario
+    : {};
+  const requestedMode = VIDEO_GENERATION_MODES.has(
+      String(scenario.recommendedGenerationMode || ""),
+    )
+    ? String(scenario.recommendedGenerationMode)
+    : "";
+  const spokenWords = String(scenario.spokenScript || "")
+    .match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)?.length || 0;
+  const seedanceSpeechFits = spokenWords > 0
+    && spokenWords <= SEEDANCE_SPOKEN_WORD_LIMIT;
+  const recommendedMode = requestedMode === "real_gen4"
+    ? "real_gen4"
+    : requestedMode === "real_seedance" && seedanceSpeechFits
+      ? "real_seedance"
+      : seedanceSpeechFits
+        ? "real_seedance"
+        : "real_gen4";
+  const source = requestedMode
+    ? requestedMode === recommendedMode
+      ? "research_recommendation"
+      : "duration_constraint"
+    : "provider_constraint";
+  const suppliedReason = String(scenario.generationModeReason || "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 400);
+  const reason = source === "duration_constraint"
+    ? `Реплика содержит ${spokenWords} слов и не помещается в лимит ${SEEDANCE_SPOKEN_WORD_LIMIT} слов для 8 секунд; выбран визуальный ролик без речи.`
+    : suppliedReason || (
+      recommendedMode === "real_seedance"
+        ? "Короткая реплика помещается в 8 секунд."
+        : "Сценарий безопасно собирается как короткий визуальный ролик без речи."
+    );
+  const recommendedAvailable = availability?.[recommendedMode] === true;
+  if (recommendedAvailable) {
+    return {
+      value: recommendedMode,
+      requestedMode,
+      recommendedMode,
+      source,
+      reason,
+      spokenWords,
+      automatic: true,
+      blocked: false,
+    };
+  }
+
+  return {
+    value: mockEnabled ? "mock" : recommendedMode,
+    requestedMode,
+    recommendedMode,
+    source,
+    reason,
+    spokenWords,
+    automatic: false,
+    blocked: true,
   };
 }
 

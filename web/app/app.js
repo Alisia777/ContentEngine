@@ -37,7 +37,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260724.1";
+} from "./product-research-view.js?v=20260726.2";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -47,7 +47,7 @@ import {
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260726.4";
+} from "./content-generation-handoff.js?v=20260726.5";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -56,8 +56,9 @@ import {
   chooseInitialGenerationMedia,
   generationPreflightDecision,
   resolveGenerationDestination,
+  resolveHandoffGenerationMode,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260726.2";
+} from "./generation-autopilot.js?v=20260726.3";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -6738,10 +6739,26 @@ function realGenerationSpendAllowed(mode, campaignId = "") {
   );
 }
 
-function contentGenerationHandoffMarkup(handoff, evaluation) {
+function contentGenerationHandoffMarkup(
+  handoff,
+  evaluation,
+  modeResolution = null,
+) {
   if (!handoff) return "";
   const issues = [...(evaluation?.blockers || []), ...(evaluation?.warnings || [])];
   const ready = evaluation?.ready === true;
+  const recommendedModeLabel = modeResolution?.recommendedMode === REAL_GEN4_MODE
+    ? "5 секунд · товарный ролик без речи"
+    : modeResolution?.recommendedMode === REAL_SEEDANCE_MODE
+      ? "8 секунд · UGC с репликой"
+      : "";
+  const modeRecommendation = recommendedModeLabel
+    ? modeResolution.blocked
+      ? modeResolution.value === "mock"
+        ? `Сценарию подходит «${recommendedModeLabel}», но бюджет этого режима сейчас недоступен. Выбран dry-run; платный режим можно вернуть после обновления лимита.`
+        : `Сценарию подходит «${recommendedModeLabel}», но бюджет этого режима сейчас недоступен. Платный запуск заблокирован до обновления лимита.`
+      : `Режим выбран автоматически: «${recommendedModeLabel}». ${modeResolution.reason} Стоимость и права всё равно подтверждаются отдельно.`
+    : "";
   return `
     <section class="generation-handoff" id="generation-handoff-panel" data-readiness="${ready ? "ready" : "needs_revision"}" aria-live="polite">
       <div class="generation-handoff__header">
@@ -6752,7 +6769,7 @@ function contentGenerationHandoffMarkup(handoff, evaluation) {
         </div>
         <span class="badge ${ready ? "badge-info" : "badge-warning"}" data-generation-handoff-status>${ready ? "ГОТОВО К ПРОВЕРКЕ" : "НУЖНА ПРАВКА"}</span>
       </div>
-      <p class="generation-handoff__copy">Поля перенесены без ручного копирования. Перед оплатой проверьте точное фото товара, реплику и назначение публикации.</p>
+      <p class="generation-handoff__copy">Поля перенесены без ручного копирования. ${escapeHtml(modeRecommendation)} Перед оплатой проверьте точное фото товара, реплику и назначение публикации.</p>
       <ul class="generation-handoff__issues" data-generation-handoff-issues>
         ${issues.length
           ? issues.map((item) => `<li data-kind="${(evaluation?.blockers || []).includes(item) ? "blocker" : "warning"}">${escapeHtml(item.message)}</li>`).join("")
@@ -7049,16 +7066,19 @@ function renderGenerationSection(sectionState) {
   const gen4SpendAllowed = Boolean(gen4Campaign);
   const photoSpendAllowed = Boolean(photoCampaign);
   const handoff = state.contentGenerationHandoff;
+  const handoffModeResolution = handoff
+    ? resolveHandoffGenerationMode({
+      handoff,
+      availability: {
+        [REAL_PHOTO_MODE]: photoSpendAllowed,
+        [REAL_GEN4_MODE]: gen4SpendAllowed,
+        [REAL_SEEDANCE_MODE]: seedanceSpendAllowed,
+      },
+      mockEnabled: MOCK_GENERATION_ENABLED,
+    })
+    : null;
   const defaultMode = handoff
-    ? seedanceSpendAllowed
-      ? REAL_SEEDANCE_MODE
-      : gen4SpendAllowed
-        ? REAL_GEN4_MODE
-        : photoSpendAllowed
-          ? REAL_PHOTO_MODE
-        : MOCK_GENERATION_ENABLED
-          ? "mock"
-          : REAL_PHOTO_MODE
+    ? handoffModeResolution.value
     : MOCK_GENERATION_ENABLED
       ? "mock"
       : photoSpendAllowed
@@ -7141,7 +7161,11 @@ function renderGenerationSection(sectionState) {
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
           <p class="muted tiny">Dry-run создаёт задачи и места публикации, но не рендерит фото или видео. Платные режимы создают ровно один медиафайл: квадратное фото 2K, 5-секундную анимацию или 8-секундного блогера с озвучкой.</p>
-          ${contentGenerationHandoffMarkup(handoff, handoffEvaluation)}
+          ${contentGenerationHandoffMarkup(
+            handoff,
+            handoffEvaluation,
+            handoffModeResolution,
+          )}
           ${generationSpendSnapshotMarkup(state.generationSpend, {
             requestMinor: Math.min(
               REAL_GENERATION_SKUS[REAL_PHOTO_MODE].estimatedMinor,
@@ -13454,8 +13478,15 @@ async function submitProductResearchBrief(form, submitter) {
     return;
   }
   const draft = readProductResearchBrief(form);
-  if (draft.scenarios.some((scenario) => !scenario.hook || !scenario.script || !scenario.task_title)) {
-    toast("В каждом из трёх сценариев заполните хук, реплику и название задачи.", "error");
+  if (draft.scenarios.some((scenario) =>
+    !scenario.hook
+    || (
+      scenario.generation_mode !== REAL_GEN4_MODE
+      && !scenario.script
+    )
+    || !scenario.task_title
+  )) {
+    toast("В каждом сценарии заполните хук и название задачи, а для 8-секундного UGC — реплику.", "error");
     return;
   }
   const sourceIds = Array.from(new Set(research.record.sourceIds || [])).filter(Boolean);
@@ -13539,6 +13570,8 @@ function mergeProductResearchBrief(base, draft) {
       ...(originalScenarios[index] || {}),
       title: scenario.title,
       platform: scenario.platform,
+      recommended_generation_mode: scenario.generation_mode,
+      generation_mode_reason: scenario.generation_mode_reason,
       hook: scenario.hook,
       spoken_script: scenario.script,
       shot_list: splitResearchLines(scenario.shot_list),
@@ -13570,11 +13603,20 @@ function productResearchTaskBlueprint(draft) {
     instructions: [
       `Угол подачи: ${scenario.title}`,
       `Площадка: ${scenario.platform}`,
+      scenario.generation_mode
+        ? `Рекомендованный генератор: ${scenario.generation_mode}${
+          scenario.generation_mode_reason
+            ? ` — ${scenario.generation_mode_reason}`
+            : ""
+        }`
+        : "",
       `Хук: ${scenario.hook}`,
-      `Реплика блогера: ${scenario.script}`,
+      scenario.generation_mode === REAL_GEN4_MODE
+        ? "Без речи, дикторского текста и сгенерированных надписей."
+        : `Реплика блогера: ${scenario.script}`,
       `Кадры:\n${scenario.shot_list}`,
       ...sharedInstructions,
-    ].join("\n"),
+    ].filter(Boolean).join("\n"),
     priority: 3,
     payout_minor: 0,
   }));

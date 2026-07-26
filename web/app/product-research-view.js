@@ -235,6 +235,11 @@ export function readProductResearchBrief(form) {
     position: index + 1,
     title: value(data, `scenario_${index}_title`),
     platform: value(data, `scenario_${index}_platform`),
+    generation_mode: value(data, `scenario_${index}_generation_mode`),
+    generation_mode_reason: value(
+      data,
+      `scenario_${index}_generation_mode_reason`,
+    ),
     hook: value(data, `scenario_${index}_hook`),
     script: value(data, `scenario_${index}_script`),
     shot_list: value(data, `scenario_${index}_shots`),
@@ -271,12 +276,41 @@ function normalizeScenarios(value) {
   const source = arrayValue(value);
   return [0, 1, 2].map((index) => {
     const item = objectValue(source[index]) || {};
+    const script = String(
+      item.script
+        || item.spoken_script
+        || item.voiceover
+        || item.text
+        || "",
+    );
+    const providerGenerationMode = normalizeGenerationMode(
+      item.recommended_generation_mode
+        || item.generation_mode
+        || item.generationMode,
+    );
+    const spokenWords = script.match(
+      /[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu,
+    )?.length || 0;
+    const durationFallback = providerGenerationMode === "real_seedance"
+      && (spokenWords < 1 || spokenWords > 22);
     return {
       position: index + 1,
       title: String(item.title || item.name || `Сценарий ${index + 1}`),
       platform: normalizePlatform(item.platform),
+      generationMode: durationFallback
+        ? "real_gen4"
+        : providerGenerationMode,
+      generationModeReason: (
+        durationFallback
+          ? `Реплика содержит ${spokenWords} слов и не помещается в лимит 22 слов для 8 секунд; выбран визуальный ролик без речи.`
+          : String(
+            item.generation_mode_reason
+              || item.generationModeReason
+              || "",
+          )
+      ).replace(/\s+/gu, " ").trim().slice(0, 400),
       hook: String(item.hook || ""),
-      script: String(item.script || item.spoken_script || item.voiceover || item.text || ""),
+      script,
       shotList: formatShotList(item.shot_list || item.shotList || item.shots),
       taskTitle: String(item.task_title || item.taskTitle || item.title || `Снять сценарий ${index + 1}`),
       assigneeId: String(item.assignee_id || item.assigneeId || ""),
@@ -342,17 +376,34 @@ function sourceMarkupItem(source) {
 function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", disabled = false } = {}) {
   const options = [["instagram", "Instagram Reels"], ["youtube", "YouTube Shorts"], ["vk", "VK Клипы"]];
   const selectedAssigneeId = String(item.assigneeId || defaultAssigneeId || members[0]?.profileId || "");
+  const generationModeLabel = item.generationMode === "real_gen4"
+    ? "5 секунд · товарный ролик без речи"
+    : item.generationMode === "real_seedance"
+      ? "8 секунд · UGC с репликой"
+      : "будет подобран по ограничениям сценария";
+  const scriptLabel = item.generationMode === "real_gen4"
+    ? "Реплика не нужна"
+    : "Реплика блогера";
+  const scriptPlaceholder = item.generationMode === "real_gen4"
+    ? "Для рекомендованного Gen4 поле остаётся пустым"
+    : "Короткая разговорная реплика без неподтверждённых обещаний";
   const assigneeOptions = members.length
     ? members.map((member) => `<option value="${escapeHtml(member.profileId)}" ${member.profileId === selectedAssigneeId ? "selected" : ""}>${escapeHtml(member.label)}</option>`).join("")
     : '<option value="">Нет активных участников</option>';
   return `<fieldset class="product-research-scenario">
     <legend><span>${String(index + 1).padStart(2, "0")}</span> Гипотеза ${index + 1}</legend>
+    <input type="hidden" name="scenario_${index}_generation_mode" value="${escapeHtml(item.generationMode)}" />
+    <input type="hidden" name="scenario_${index}_generation_mode_reason" value="${escapeHtml(item.generationModeReason)}" />
     <div class="form-grid-2">
       ${textField(`scenario_${index}_title`, "Угол подачи", item.title, 180, disabled)}
       <label class="field"><span>Площадка</span><select name="scenario_${index}_platform" ${disabled ? "disabled" : ""}>${options.map(([value, label]) => `<option value="${value}" ${item.platform === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
     </div>
+    <div class="alert alert-info product-research-mode-recommendation" role="note">
+      <strong>Автовыбор генератора:</strong>
+      <span>${escapeHtml(generationModeLabel)}${item.generationModeReason ? ` · ${escapeHtml(item.generationModeReason)}` : ""}. Стоимость всё равно подтверждается отдельно перед рендером.</span>
+    </div>
     ${textArea(`scenario_${index}_hook`, "Хук первых секунд", item.hook, "Что зритель увидит и услышит сразу", 800, disabled)}
-    ${textArea(`scenario_${index}_script`, "Реплика блогера", item.script, "Короткая разговорная реплика без неподтверждённых обещаний", 2400, disabled)}
+    ${textArea(`scenario_${index}_script`, scriptLabel, item.script, scriptPlaceholder, 2400, disabled)}
     ${textArea(`scenario_${index}_shots`, "Кадры по порядку", item.shotList, "Один кадр на строку", 2400, disabled)}
     ${textField(`scenario_${index}_task_title`, "Название задачи", item.taskTitle, 180, disabled)}
     <label class="field"><span>Исполнитель задачи</span><select name="scenario_${index}_assignee_id" required ${disabled ? "disabled" : ""}>${assigneeOptions}</select><small class="field-hint">При утверждении эта задача будет назначена выбранному участнику.</small></label>
@@ -387,6 +438,13 @@ function normalizeResearchMembers(value, defaultAssigneeId = "") {
       label: `${name}${profileId === currentId ? " (вы)" : ""}`,
     }];
   });
+}
+
+function normalizeGenerationMode(value) {
+  const normalized = String(value || "").trim();
+  return ["real_gen4", "real_seedance"].includes(normalized)
+    ? normalized
+    : "";
 }
 
 function confidenceCopy(value) {

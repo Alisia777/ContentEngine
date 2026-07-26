@@ -273,7 +273,7 @@ def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading(
 
 
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260726.2"' in APP
+    assert 'from "./generation-autopilot.js?v=20260726.3"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
@@ -309,4 +309,4 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
         "    }"
     )
     assert initial_sync in APP
-    assert './app.js?v=20260726.5' in INDEX
+    assert './app.js?v=20260726.6' in INDEX
