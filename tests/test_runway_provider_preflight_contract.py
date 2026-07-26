@@ -137,11 +137,11 @@ def test_real_mode_automatically_runs_one_free_deduplicated_preflight() -> None:
 
 def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None:
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-25.v1"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v1"'
         in EDGE
     )
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-25.v1"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v1"'
         in APP
     )
     assert (

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(17);
+select plan(22);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -228,7 +228,7 @@ select
   'product_focus',
   '[]'::jsonb,
   'baseline',
-  'safe-brief-v3',
+  'safe-brief-v4',
   repeat('c', 64)
 from exploration_test_context context;
 
@@ -471,7 +471,15 @@ begin
       '{}'::jsonb,
       jsonb_build_object(
         'overall_score', score_value,
-        'blockers_count', blockers_value
+        'blockers_count', blockers_value,
+        'scores', jsonb_build_object(
+          'technical', 60,
+          'product_fidelity', 65,
+          'hook_clarity', 70,
+          'visual_quality', 85,
+          'trust', 90,
+          'platform_fit', 88
+        )
       ),
       'pgtap-quality-v1',
       'test',
@@ -510,7 +518,7 @@ begin
       angle_value,
       patterns_value,
       'baseline',
-      'safe-brief-v3',
+      'safe-brief-v4',
       repeat('6', 64)
     );
   end loop;
@@ -561,6 +569,45 @@ select is(
     from quality_learning_policy),
   'true',
   'quality policy exposes the independent-review invariant'
+);
+
+select is(
+  (select policy ->> 'version' from quality_learning_policy),
+  'generation-learning-v4',
+  'recurring structured weaknesses activate the guard-learning policy'
+);
+
+select is(
+  (select policy -> 'quality_guard_codes' from quality_learning_policy),
+  '[
+    "technical_stability",
+    "product_fidelity",
+    "hook_clarity"
+  ]'::jsonb,
+  'quality guards contain only the three weakest enumerated dimensions'
+);
+
+select is(
+  (select (policy ->> 'quality_guard_evidence_count')::integer
+    from quality_learning_policy),
+  6,
+  'quality guard learning reports the exact eligible observation count'
+);
+
+select is(
+  (select policy #>> '{safety,raw_review_copy_never_learned}'
+    from quality_learning_policy),
+  'true',
+  'quality guard policy declares that raw review copy is excluded'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'content_factory_private.creator_generation_learning_policy_independent_quality_v3(jsonb)',
+    'execute'
+  ),
+  'the prior quality implementation remains private behind the guard RPC'
 );
 
 select ok(

@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-25.v1";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v1";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";

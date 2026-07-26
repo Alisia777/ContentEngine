@@ -2,7 +2,7 @@ export const CONTENT_GENERATION_HANDOFF_VERSION = 1;
 export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
-export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v3";
+export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v4";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const REAL_GEN4_MODE = "real_gen4";
@@ -170,7 +170,7 @@ export function compileContentGenerationPrompt(handoff, mode, learningPolicy = n
     required("С первого кадра показывай именно этот товар. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений."),
     required("Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара."),
     optional(brief.avoidClaims.length ? `Не использовать: ${brief.avoidClaims.join("; ")}.` : ""),
-    optional(generationLearningDirection(learningPolicy, normalizedMode)),
+    required(generationLearningDirection(learningPolicy, normalizedMode)),
   ];
   const prompt = fitPrompt(promptLines, CONTENT_GENERATION_PROMPT_LIMIT);
   if (!prompt) {
@@ -251,13 +251,13 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required("Создай одно квадратное товарное фото 2048 × 2048."),
       required(`Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как единственный точный референс товара. ${identityLine}`),
-      required("Премиальная студийная предметная съёмка: один товар целиком в центре кадра, чистый нейтральный коммерческий фон, мягкий рассеянный свет, естественная тень, высокая детализация."),
-      optional(learningDirection),
+      required("Студийное фото: один товар целиком по центру, нейтральный фон, мягкий свет, естественная тень, высокая детализация."),
+      required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
-      required("Товар должен быть главным и единственным объектом; оставь безопасные поля по краям для последующей вёрстки."),
+      required("Товар — единственный главный объект; оставь безопасные поля по краям."),
       required(productLock),
       required(claimGuard),
-      required("Не добавляй бейджи, декоративный текст, руки, людей, лишний реквизит или дополнительные товары. Не перерисовывай видимый текст и логотип исходника."),
+      required("Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса."),
       optional(safeAvoidClaims.length ? `Не использовать: ${safeAvoidClaims.join("; ")}.` : ""),
     ];
   } else if (normalizedMode === REAL_GEN4_MODE) {
@@ -266,7 +266,7 @@ export function compileSafeGenerationBrief({
       required("Создай один непрерывный вертикальный ролик длительностью 5 секунд."),
       required(identityLine),
       required("С первого кадра показывай именно этот товар. Один спокойный проход камеры: медленно приблизься к неподвижной упаковке, удерживая товар целиком и в резком фокусе."),
-      optional(learningDirection),
+      required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
       required("Без речи, дикторского текста и сгенерированных надписей."),
       required(productLock),
@@ -280,9 +280,9 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required("Создай один непрерывный вертикальный UGC-ролик длительностью 8 секунд."),
       required(identityLine),
-      required("С первого кадра герой держит именно этот товар рядом с лицом. Затем спокойно приближает упаковку к камере и возвращает её в центр кадра."),
+      required("С первого кадра герой держит точный товар у лица, затем приближает упаковку к камере и возвращает в центр."),
       required(`Реплика героя дословно: «${spokenLine}»`),
-      optional(learningDirection),
+      required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
       required(productLock),
       required(claimGuard),
@@ -383,6 +383,14 @@ export function normalizeGenerationLearningPolicy(value) {
     "numbered",
     "concise",
   ]);
+  const allowedQualityGuards = new Set([
+    "product_fidelity",
+    "technical_stability",
+    "hook_clarity",
+    "visual_quality",
+    "trust",
+    "platform_fit",
+  ]);
   const preferredAngle = cleanText(value.preferred_angle);
   const policyHash = cleanText(value.policy_hash);
   const selectionMode = [
@@ -415,6 +423,20 @@ export function normalizeGenerationLearningPolicy(value) {
       value.preferred_hook_patterns,
       4,
     ).filter((pattern) => allowedPatterns.has(pattern)),
+    qualityGuardCodes: applied
+      ? uniqueStrings(value.quality_guard_codes, 3)
+        .filter((code) => allowedQualityGuards.has(code))
+      : [],
+    qualityGuardEvidenceCount: Number.isInteger(
+      Number(value.quality_guard_evidence_count),
+    )
+      ? Math.max(0, Number(value.quality_guard_evidence_count))
+      : 0,
+    qualityGuardConfidence: ["none", "low", "medium", "high"].includes(
+      value.quality_guard_confidence,
+    )
+      ? value.quality_guard_confidence
+      : "none",
     selectionMode,
     reasonCodes: uniqueStrings(value.reason_codes, 8),
     scope: cleanText(value.scope),
@@ -426,24 +448,61 @@ function generationLearningDirection(value, mode) {
   const policy = normalizeGenerationLearningPolicy(value);
   if (!policy?.applied) return "";
   const photoDirections = {
-    product_focus: "Обученный ракурс: строгий фокус на товаре и его читаемом силуэте.",
-    trust_builder: "Обученный ракурс: спокойная правдивая предметная подача без визуального преувеличения.",
-    demonstration: "Обученный ракурс: ясно покажи одну видимую деталь товара без рук, второго товара и новых свойств.",
-    comparison: "Обученный ракурс: дай ясную визуальную иерархию масштаба без второго товара и сравнительных обещаний.",
-    objection_handling: "Обученный ракурс: нейтрально покажи упаковку и ключевые видимые детали, которые помогают проверить выбор.",
-    curiosity_gap: "Обученный ракурс: начни визуальную историю с одной выразительной видимой детали, сохраняя товар целиком.",
+    product_focus: "Обученный ракурс: товар целиком, строгий фокус.",
+    trust_builder: "Обученный ракурс: естественная предметная подача.",
+    demonstration: "Обученный ракурс: одна видимая деталь товара.",
+    comparison: "Обученный ракурс: ясный масштаб без второго товара.",
+    objection_handling: "Обученный ракурс: упаковка и проверяемые детали.",
+    curiosity_gap: "Обученный ракурс: выразительная деталь при видимом целом товаре.",
   };
   const videoDirections = {
-    product_focus: "Обученное направление: товар остаётся главным объектом с первого до последнего кадра.",
-    trust_builder: "Обученное направление: спокойная правдивая демонстрация без преувеличений и новых обещаний.",
-    demonstration: "Обученное направление: одно простое видимое действие с товаром, без добавления новых свойств.",
-    comparison: "Обученное направление: структура визуального сравнения без второго товара, цифр и сравнительных обещаний.",
-    objection_handling: "Обученное направление: покажи одну видимую деталь, помогающую проверить выбор, без новых утверждений.",
-    curiosity_gap: "Обученное направление: первый кадр строится вокруг одной заметной детали товара, затем сразу показывается товар целиком.",
+    product_focus: "Обученное направление: товар главный во всех кадрах.",
+    trust_builder: "Обученное направление: естественная подача без преувеличений.",
+    demonstration: "Обученное направление: одно видимое действие с товаром.",
+    comparison: "Обученное направление: сравнение без второго товара и обещаний.",
+    objection_handling: "Обученное направление: одна проверяемая деталь товара.",
+    curiosity_gap: "Обученное направление: заметная деталь, затем товар целиком.",
   };
-  return mode === REAL_PHOTO_MODE
+  const angleDirection = mode === REAL_PHOTO_MODE
     ? photoDirections[policy.preferredAngle] || ""
     : videoDirections[policy.preferredAngle] || "";
+  const hookDirections = {
+    question_led: "Структурный hook: визуальный вопрос сразу раскрывается точным товаром.",
+    why_explanation: "Структурный hook: видимая причина рассмотреть товар, без утверждений.",
+    before_buying: "Структурный hook: спокойная проверка товара перед выбором.",
+    comparison: "Структурный hook: сравнение без второго товара, цифр и обещаний.",
+    demonstration: "Структурный hook: одно простое действие с товаром.",
+    first_person: "Структурный hook: от первого лица; товар целиком и в фокусе.",
+    numbered: "Структурный hook: один понятный шаг без цифр и надписей.",
+    concise: "Структурный hook: простой первый кадр сразу показывает товар.",
+  };
+  const hookDirection = mode === REAL_PHOTO_MODE
+    ? ""
+    : hookDirections[policy.preferredHookPatterns[0]] || "";
+  const photoQualityGuards = {
+    product_fidelity: "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
+    technical_stability: "QA: резкий товар, ровный свет, без пересвета и размытия.",
+    hook_clarity: "QA: товар считывается первым.",
+    visual_quality: "QA: чистые края без дублей, деформаций и AI-артефактов.",
+    trust: "QA: естественные материалы, свет и масштаб.",
+    platform_fit: "QA: мастер 1:1, безопасные поля.",
+  };
+  const videoQualityGuards = {
+    product_fidelity: "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
+    technical_stability: "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+    hook_clarity: "QA: точный товар и одно действие видны в первые 2 секунды.",
+    visual_quality: "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
+    trust: "QA: естественная подача без гиперболы и новых обещаний.",
+    platform_fit: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+  };
+  const qualityDirections = policy.qualityGuardCodes.map((code) => (
+    mode === REAL_PHOTO_MODE
+      ? photoQualityGuards[code]
+      : videoQualityGuards[code]
+  )).filter(Boolean);
+  return [angleDirection, hookDirection, ...qualityDirections]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function inspectContentGenerationPrompt(

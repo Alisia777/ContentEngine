@@ -47,7 +47,7 @@ import {
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260725.3";
+} from "./content-generation-handoff.js?v=20260726.4";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -368,7 +368,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-25.v1";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v1";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -11290,6 +11290,30 @@ function generationCreativeAngleLabel(value) {
   }[String(value || "")] || "базовый ракурс";
 }
 
+function generationQualityGuardLabel(value) {
+  return {
+    product_fidelity: "точность упаковки",
+    technical_stability: "стабильность кадра",
+    hook_clarity: "ясность первых секунд",
+    visual_quality: "визуальные артефакты",
+    trust: "естественность подачи",
+    platform_fit: "формат площадки",
+  }[String(value || "")] || "";
+}
+
+function generationHookPatternLabel(value) {
+  return {
+    question_led: "визуальный вопрос",
+    why_explanation: "почему стоит рассмотреть",
+    before_buying: "проверка перед выбором",
+    comparison: "сравнительная структура",
+    demonstration: "демонстрация",
+    first_person: "подача от первого лица",
+    numbered: "один понятный шаг",
+    concise: "короткий первый кадр",
+  }[String(value || "")] || "";
+}
+
 function generationLearningMarkup(form = null) {
   const identity = selectedGenerationProductIdentity(form);
   const key = generationLearningKey(form, identity);
@@ -11298,6 +11322,21 @@ function generationLearningMarkup(form = null) {
     : { status: "idle", data: null, error: null };
   const policy = normalizeGenerationLearningPolicy(current.data);
   const disabled = Boolean(key && state.generationLearning.disabledKey === key);
+  const qualityGuardLabels = (policy?.qualityGuardCodes || [])
+    .map(generationQualityGuardLabel)
+    .filter(Boolean);
+  const hookPatternLabel = generationHookPatternLabel(
+    policy?.preferredHookPatterns?.[0],
+  );
+  const learnedInstructionParts = [
+    hookPatternLabel ? `структурный hook «${hookPatternLabel}»` : "",
+    qualityGuardLabels.length
+      ? `QA-усиления: ${qualityGuardLabels.join(", ")}`
+      : "",
+  ].filter(Boolean);
+  const learnedInstructionCopy = learnedInstructionParts.length
+    ? ` Следующее авто-ТЗ уже включает ${learnedInstructionParts.join("; ")}.`
+    : "";
   let title = "Безопасное самообучение";
   let copy = "Выберите проверенный исходник — портал проверит только одобренные публикации этого товара с достаточными метриками.";
   let stateName = "idle";
@@ -11327,17 +11366,17 @@ function generationLearningMarkup(form = null) {
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
   } else if (policy?.applied && policy.selectionMode === "bounded_exploration") {
     title = "Автотест ракурса назначен";
-    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.`;
+    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.${learnedInstructionCopy}`;
     stateName = "applied";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied && policy.selectionMode === "quality") {
     title = "Контур качества применён";
-    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} независимо проверенных вариантов. Система выбрала структуру с устойчиво лучшим прохождением QA; реальные метрики публикаций получат приоритет, когда накопятся.`;
+    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} независимо проверенных вариантов. Система выбрала структуру с устойчиво лучшим прохождением QA; реальные метрики публикаций получат приоритет, когда накопятся.${learnedInstructionCopy}`;
     stateName = "applied";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied) {
     title = "Самообучение применено";
-    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} одобренных публикаций · уверенность ${policy.confidence === "high" ? "высокая" : "средняя"}. Тексты обещаний, права и параметры запуска не обучаются.`;
+    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} одобренных публикаций · уверенность ${policy.confidence === "high" ? "высокая" : "средняя"}. Тексты обещаний, права и параметры запуска не обучаются.${learnedInstructionCopy}`;
     stateName = "applied";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (current.status === "ready") {
