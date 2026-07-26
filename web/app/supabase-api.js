@@ -2133,6 +2133,7 @@ function validContentReviewTechnicalMetrics(value) {
       value.audio_expected === null
       || typeof value.audio_expected === "boolean"
     )
+    || value.speech_transcription_notice_version !== "openai_mp4_v1"
     || !temporalScanValid
   ) return false;
   if (value.audio_analysis_status === "unavailable") {

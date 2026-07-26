@@ -91,6 +91,7 @@ separate, explicitly approved operation with a confirmed budget.
 
 - auditable evidence retention, legal hold and purge;
 - a unified Runway/OpenAI reservation and invoice-reconciliation ledger;
-- audio transcription, speech/script agreement and full-timeline OCR;
+- production-calibrated speech intelligibility and full-timeline OCR (bounded
+  consent-gated speech/script agreement is implemented);
 - external incident alerts and a restore drill;
 - a maintenance/feature flag for completely seamless rolling protocol changes.

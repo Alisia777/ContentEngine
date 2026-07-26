@@ -328,11 +328,14 @@ export function syncContentReviewFormVisibility(form) {
   const advertising = String(form.elements.content_kind?.value || "unknown") === "advertising";
   const baa = String(form.elements.product_category?.value || "other") === "baa";
   const peopleMayBePresent = String(form.elements.people_present?.value || "unknown") !== "no";
+  const selectedMedia = form.querySelector('input[name="media_id"]:checked');
+  const selectedVideo = selectedMedia?.dataset.mediaType === "video";
   const aiGenerated = form.elements.ai_generated?.checked === true;
   const largeAudience = form.elements.audience_over_10000?.checked === true;
   toggleConditional(form, "[data-review-advertising]", advertising);
   toggleConditional(form, "[data-review-baa]", baa);
   toggleConditional(form, "[data-review-person-consent]", peopleMayBePresent);
+  toggleConditional(form, "[data-review-external-ai]", peopleMayBePresent || selectedVideo);
   toggleConditional(form, "[data-review-ai-disclosure]", aiGenerated);
   toggleConditional(form, "[data-review-rkn]", largeAudience);
 }
@@ -428,7 +431,7 @@ function reviewFormMarkup(media, busy) {
           <label class="field"><span>Статус материала</span><select name="content_kind" required>${Object.entries(CONTENT_KIND_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}</select><small class="field-hint">«Неизвестно» — безопасный выбор, если руководитель ещё не решил.</small></label>
           <label class="field field-wide"><span>Категория товара</span><select name="product_category" required>${Object.entries(PRODUCT_CATEGORY_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}</select></label>
           <label class="field field-wide"><span>Подпись к публикации</span><textarea name="caption_text" maxlength="6000" rows="4" placeholder="Текст поста, CTA, хэштеги и обязательные пометки"></textarea></label>
-          <label class="field field-wide"><span>Реплика / сценарий ролика</span><textarea name="script_text" maxlength="6000" rows="5" placeholder="Что произносит блогер или что написано крупным текстом в кадре"></textarea><small class="field-hint">Для видео с речью вставьте точную реплику: браузер измеряет уровни звука, но не расшифровывает слова и не заменяет прослушивание человеком.</small></label>
+          <label class="field field-wide"><span>Реплика / сценарий ролика</span><textarea name="script_text" maxlength="6000" rows="5" placeholder="Что произносит блогер или что написано крупным текстом в кадре"></textarea><small class="field-hint">Для сгенерированного видео точная реплика подставляется из задания. При отдельном явном подтверждении сервер расшифрует речь и сравнит её со сценарием; человек всё равно прослушивает файл.</small></label>
         </div>
       </fieldset>
       <fieldset class="content-review-fieldset">
@@ -440,7 +443,9 @@ function reviewFormMarkup(media, busy) {
           <label class="field content-review-select-row"><span>Есть узнаваемые люди?</span><select name="people_present" required><option value="unknown">Не проверено</option><option value="no">Нет</option><option value="yes">Да</option></select></label>
           <div data-review-person-consent hidden>
             ${checkMarkup("person_consent_confirmed", "Согласие узнаваемых людей на съёмку и публикацию подтверждено", "Особенно важно для сотрудников, покупателей и несовершеннолетних.")}
-            ${checkMarkup("external_ai_processing_confirmed", "Подтверждено законное основание и необходимое информирование для передачи контрольных кадров внешнему AI-провайдеру", "Если в кадре есть узнаваемые люди, без этого подтверждения контрольные кадры нельзя отправлять на внешний анализ.")}
+          </div>
+          <div data-review-external-ai hidden>
+            ${checkMarkup("external_ai_processing_confirmed", "Подтверждено законное основание и необходимое информирование для передачи материалов внешнему AI-провайдеру", "Для видео со сценарием это явное разрешение передать исходный MP4 в OpenAI Transcriptions; без него отправляются только допустимые контрольные кадры, а речь проверяется человеком.")}
           </div>
           ${checkMarkup("ai_generated", "Изображение, голос или видео созданы / существенно изменены ИИ", "Отметьте фактическое использование ИИ; это не оценка качества.")}
           <div data-review-ai-disclosure hidden>${checkMarkup("ai_disclosure_confirmed", "Необходимость пометки об ИИ проверена для площадки и задачи", "Если пометка нужна, она уже предусмотрена в файле или подписи.")}</div>
@@ -466,7 +471,7 @@ function reviewFormMarkup(media, busy) {
         </div>
       </fieldset>
       <div class="content-review-submit">
-        <div><strong>Что будет отправлено</strong><p>Текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 и его звук в ИИ-сервис не отправляются; уровни звука измеряются только локально.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
+        <div><strong>Что будет отправлено</strong><p>Всегда: текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 передаётся в OpenAI Transcriptions только при отмеченном подтверждении выше, наличии сценария, нормальной локальной аудиодорожки и размере до 25 МБ; полный текст расшифровки не сохраняется.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
         <button class="btn" type="submit" ${supported.length && !busy ? "" : "disabled"}>${busy ? "Проверка уже выполняется…" : "Проверить качество и риски"}</button>
       </div>
     </form>
@@ -475,7 +480,7 @@ function reviewFormMarkup(media, busy) {
 
 function reviewCurrentMarkup(run, { phase, canDecide }) {
   if (phase === "preparing") {
-    return progressMarkup("Готовим техническое evidence", "Сохраняем 4–5 кадров, локально сканируем до 24 точек таймлайна и измеряем доступные уровни звука. Сам MP4 во внешний AI не отправляется.", 1);
+    return progressMarkup("Готовим техническое evidence", "Сохраняем 4–5 кадров, локально сканируем до 24 точек таймлайна и измеряем уровни звука. На этом шаге MP4 не передаётся; транскрипция возможна позже только по явному подтверждению формы.", 1);
   }
   if (phase === "saving_evidence") {
     return progressMarkup("Сохраняем evidence", "Кадры загружаются в защищённую папку и фиксируются до запуска проверки.", 2);
@@ -541,6 +546,7 @@ function reviewResultMarkup(run, canDecide) {
       </div>
       ${scoreBreakdownMarkup(result.scores)}
       ${comparisonMarkup(result.comparison)}
+      ${speechAnalysisMarkup(result.speechAnalysis)}
       ${result.strengths.length ? `<section class="card content-review-strengths"><p class="eyebrow">Что уже работает</p><ul>${result.strengths.map((item) => `<li><span aria-hidden="true">✓</span>${escapeHtml(item)}</li>`).join("")}</ul></section>` : ""}
       ${findingsMarkup(result.findings)}
       ${recommendationsMarkup(result.recommendations)}
@@ -570,6 +576,34 @@ function comparisonMarkup(comparison) {
     <section class="card content-review-comparison is-${tone}">
       <span aria-hidden="true">${delta === null ? "↔" : delta > 0 ? "↗" : delta < 0 ? "↘" : "→"}</span>
       <div><p class="eyebrow">Сравнение с прошлой проверкой</p><h3>${delta === null ? "История собирается" : `${delta > 0 ? "+" : ""}${delta} баллов`}</h3><p>${escapeHtml(comparison.summary || "Сравниваются проверки этого же материала и контекста.")}</p></div>
+    </section>`;
+}
+
+function speechAnalysisMarkup(analysis) {
+  if (!analysis || analysis.status === "not_applicable") return "";
+  if (analysis.status === "completed") {
+    const similarity = Math.round((analysis.similarityRatio ?? 0) * 100);
+    const coverage = Math.round((analysis.coverageRatio ?? 0) * 100);
+    const confidence = analysis.transcriptionConfidence === null
+      ? "не предоставлена"
+      : `${Math.round(analysis.transcriptionConfidence * 100)}%`;
+    return `
+      <section class="card content-review-comparison is-${similarity >= 75 ? "positive" : similarity >= 45 ? "neutral" : "negative"}">
+        <span aria-hidden="true">◉</span>
+        <div><p class="eyebrow">Сверка речи со сценарием</p><h3>${similarity}% сходства · ${coverage}% покрытия</h3><p>${analysis.transcriptExcerpt ? `Распознано: «${escapeHtml(analysis.transcriptExcerpt)}»` : "Провайдер не распознал слов в дорожке."}</p><small>${analysis.expectedWordCount} слов в сценарии · ${analysis.transcriptWordCount} распознано · уверенность ${escapeHtml(confidence)}. Полная расшифровка не сохраняется; решение требует прослушивания.</small></div>
+      </section>`;
+  }
+  const copy = {
+    not_requested: "Исходный MP4 не передавался на транскрипцию: явное подтверждение не отмечено.",
+    skipped_no_script: "Транскрипция не запускалась: нет точной реплики для доказательной сверки.",
+    skipped_audio_unavailable: "Транскрипция не запускалась: локальный анализ не подтвердил пригодную речевую дорожку.",
+    skipped_file_too_large: "Транскрипция не запускалась: файл превышает безопасный предел 25 МБ или 90 секунд.",
+    unavailable: "Запрос транскрипции не дал подтверждённого результата и автоматически не повторялся.",
+  }[analysis.status] || "Автоматическая сверка речи недоступна.";
+  return `
+    <section class="card content-review-comparison is-neutral">
+      <span aria-hidden="true">◇</span>
+      <div><p class="eyebrow">Сверка речи со сценарием</p><h3>Нужно прослушивание человеком</h3><p>${escapeHtml(copy)}</p></div>
     </section>`;
 }
 
@@ -699,7 +733,7 @@ function rulesetMarkup(run) {
     <details class="card content-review-ruleset">
       <summary><span><strong>Версия правил и пределы проверки</strong><small>${escapeHtml(run.rulesetVersion || "Версия не указана сервером")}</small></span><i aria-hidden="true">+</i></summary>
       <div>
-        <p>Проверка ищет признаки риска по кадрам и введённому тексту. Она не слышит звук ролика, не подтверждает факты вместо документов и не заменяет юриста или решение площадки.</p>
+        <p>Проверка ищет признаки риска по кадрам и введённому тексту. При явном разрешении она может передать ограниченный MP4 в OpenAI Transcriptions и сравнить распознанную речь со сценарием, но ASR не подтверждает музыку, интонацию, факты и юридический смысл, не заменяет юриста и полного прослушивания человеком.</p>
         ${sourceKeys.length ? `<ul>${sourceKeys.map((key) => `<li>${escapeHtml(SOURCE_LABELS[key] || key)}</li>`).join("")}</ul>` : "<p>Источники конкретных правил отображаются у замечаний, когда сервер их указал.</p>"}
       </div>
     </details>`;
@@ -743,7 +777,7 @@ function reviewMediaOptionMarkup(item, index) {
     : `<span aria-hidden="true">${item.isVideo ? "▶" : "▧"}</span>`;
   return `
     <label class="content-review-media-option">
-      <input type="radio" name="media_id" value="${escapeHtml(item.id)}" ${index === 0 ? "required" : ""} />
+      <input type="radio" name="media_id" value="${escapeHtml(item.id)}" data-media-type="${item.isVideo ? "video" : "image"}" ${index === 0 ? "required" : ""} />
       <span class="content-review-media-option__preview">${preview}</span>
       <span><strong>${escapeHtml(item.name)}</strong><small>${item.isVideo ? "MP4-видео" : "Изображение"} · ${formatBytes(item.sizeBytes)}</small></span>
       <b aria-hidden="true">✓</b>
@@ -857,6 +891,7 @@ async function captureVideoEvidence(media, onProgress) {
         vertical_9_16_delta: round(Math.abs(width / height - 9 / 16), 4),
         sampling_strategy: "early_0_2_1_2_plus_late_distribution",
         raw_video_sent: false,
+        speech_transcription_notice_version: "openai_mp4_v1",
         ...temporalMetrics,
         ...audioMetrics,
       },
@@ -1368,6 +1403,7 @@ function normalizeResult(raw) {
     findings: arrayValue(source.findings).slice(0, MAX_FINDINGS).map(normalizeFinding),
     recommendations: arrayValue(source.recommendations).slice(0, MAX_RECOMMENDATIONS).map(normalizeRecommendation),
     comparison: normalizeComparison(source.comparison),
+    speechAnalysis: normalizeSpeechAnalysis(source.speech_analysis || source.speechAnalysis),
     rulesetVersion: text(source.ruleset_version || source.rulesetVersion, 180),
   };
 }
@@ -1448,6 +1484,36 @@ function normalizeComparison(raw) {
   };
 }
 
+function normalizeSpeechAnalysis(raw) {
+  const source = objectFrom(raw);
+  if (!source) return null;
+  const allowedStatuses = new Set([
+    "not_applicable",
+    "not_requested",
+    "skipped_no_script",
+    "skipped_audio_unavailable",
+    "skipped_file_too_large",
+    "unavailable",
+    "completed",
+  ]);
+  const status = text(source.status, 80).toLowerCase();
+  return {
+    status: allowedStatuses.has(status) ? status : "unavailable",
+    consentConfirmed: Boolean(source.consent_confirmed ?? source.consentConfirmed),
+    model: text(source.model, 120),
+    transcriptSha256: text(source.transcript_sha256 || source.transcriptSha256, 64),
+    transcriptExcerpt: text(source.transcript_excerpt || source.transcriptExcerpt, 1200),
+    expectedWordCount: nonNegativeInteger(source.expected_word_count ?? source.expectedWordCount),
+    transcriptWordCount: nonNegativeInteger(source.transcript_word_count ?? source.transcriptWordCount),
+    matchedWordCount: finiteOrNull(source.matched_word_count ?? source.matchedWordCount),
+    coverageRatio: finiteOrNull(source.coverage_ratio ?? source.coverageRatio),
+    precisionRatio: finiteOrNull(source.precision_ratio ?? source.precisionRatio),
+    similarityRatio: finiteOrNull(source.similarity_ratio ?? source.similarityRatio),
+    wordErrorRate: finiteOrNull(source.word_error_rate ?? source.wordErrorRate),
+    transcriptionConfidence: finiteOrNull(source.transcription_confidence ?? source.transcriptionConfidence),
+  };
+}
+
 function normalizeDecision(raw) {
   return {
     decision: text(raw.decision || raw.status, 40),
@@ -1486,6 +1552,10 @@ function normalizeMedia(raw) {
     sizeBytes: nonNegativeInteger(raw.size_bytes),
     generationModel: model,
     audioExpected,
+    spokenScript: text(
+      raw.spoken_script || metadata.spoken_script || metadata.review_script_text,
+      6000,
+    ),
   };
 }
 

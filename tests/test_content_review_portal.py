@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260726.4' in APP
+    assert './content-review-view.js?v=20260726.5' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.8' in INDEX
+    assert './app.js?v=20260726.9' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -117,7 +117,8 @@ def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video()
     assert "1," in VIEW
     assert "2," in VIEW
     assert "differences.filter((value) => value < 0.015).length / differences.length" in VIEW
-    assert "Исходный MP4 и его звук в ИИ-сервис не отправляются" in VIEW
+    assert "Исходный MP4 передаётся в OpenAI Transcriptions только" in VIEW
+    assert 'speech_transcription_notice_version: "openai_mp4_v1"' in VIEW
     assert "readResponseArrayBufferBounded" in VIEW
     assert "decodeAudioData" in VIEW
     assert "input_audio" not in VIEW
@@ -169,8 +170,8 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 4" in APP
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 3" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 5" in APP
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 4" in APP
     assert "upsert: false" in API
 
 
@@ -271,10 +272,11 @@ if (prepared.evidenceId !== evidenceId || prepared.frameObjectNames.length !== 4
 await api.commitContentReviewEvidence({{
   evidenceId,
   technicalMetrics: {{
-    source_type: "video",
-    frame_count: 4,
-    duration_seconds: 8,
-    audio_expected: null,
+        source_type: "video",
+        frame_count: 4,
+        duration_seconds: 8,
+        speech_transcription_notice_version: "openai_mp4_v1",
+        audio_expected: null,
     audio_analyzed: false,
     audio_analysis_status: "unavailable",
     temporal_scan_status: "completed",
@@ -299,10 +301,11 @@ const started = await api.startContentReview({{
   product_category: "other",
   people_present: "no",
   technical_metrics: {{
-    source_type: "video",
-    frame_count: 4,
-    duration_seconds: 8,
-    audio_expected: null,
+        source_type: "video",
+        frame_count: 4,
+        duration_seconds: 8,
+        speech_transcription_notice_version: "openai_mp4_v1",
+        audio_expected: null,
     audio_analyzed: false,
     audio_analysis_status: "unavailable",
     temporal_scan_status: "completed",

@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.2";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.3";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -72,7 +72,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260726.4";
+} from "./content-review-view.js?v=20260726.5";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -203,9 +203,9 @@ const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 4;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 5;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
-const GENERATED_VIDEO_QA_STORAGE_VERSION = 3;
+const GENERATED_VIDEO_QA_STORAGE_VERSION = 4;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -8719,6 +8719,13 @@ function applyGeneratedMediaReviewDefaults(form, media) {
   if (!(form instanceof HTMLFormElement) || media?.kind !== "generated_video") return;
   if (form.elements.content_kind) form.elements.content_kind.value = "advertising";
   if (form.elements.ai_generated) form.elements.ai_generated.checked = true;
+  if (
+    form.elements.script_text instanceof HTMLTextAreaElement
+    && !String(form.elements.script_text.value || "").trim()
+    && media.spokenScript
+  ) {
+    form.elements.script_text.value = media.spokenScript;
+  }
   syncContentReviewFormVisibility(form);
 }
 

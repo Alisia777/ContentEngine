@@ -108,7 +108,7 @@ def test_local_audio_analyzer_detects_clipping_and_clean_signal() -> None:
     assert clean["audio_clipping_ratio"] == 0
 
 
-def test_audio_evidence_is_bounded_local_and_never_sent_as_raw_media() -> None:
+def test_audio_measurement_is_bounded_local_and_separate_from_transcription() -> None:
     view = VIEW.read_text(encoding="utf-8")
     api = API.read_text(encoding="utf-8")
     for marker in (
@@ -120,7 +120,7 @@ def test_audio_evidence_is_bounded_local_and_never_sent_as_raw_media() -> None:
         "audio_silence_ratio",
         "audio_clipping_ratio",
         "raw_video_sent: false",
-        "Исходный MP4 и его звук в ИИ-сервис не отправляются",
+        'speech_transcription_notice_version: "openai_mp4_v1"',
     ):
         assert marker in view
     assert "validContentReviewTechnicalMetrics" in api
@@ -141,8 +141,8 @@ def test_edge_adds_deterministic_audio_findings_but_keeps_human_speech_gate() ->
         "SCOPE.AUDIO_MANUAL_REVIEW",
     ):
         assert finding_code in edge
-    assert "это не транскрипция" in edge
-    assert "не расшифровывал произнесённые слова" in edge
+    assert "Не выдавай эти числа за транскрипцию" in edge
+    assert "подтверждённой расшифровки произнесённых слов нет" in edge
     assert "audioSilenceRatio >= 0.95" in edge
     assert "audioClippingRatio >= 0.05 ? \"blocker\" : \"high\"" in edge
     assert "measuredTechnicalFindingCodes" in edge

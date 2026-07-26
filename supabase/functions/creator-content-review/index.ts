@@ -8,11 +8,19 @@ import {
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODERATIONS_URL = "https://api.openai.com/v1/moderations";
+const OPENAI_TRANSCRIPTIONS_URL =
+  "https://api.openai.com/v1/audio/transcriptions";
 const STORAGE_BUCKET = "contentengine-private";
 const RULESET_VERSION = "ru-content-compliance-2026-07-16.1";
 const MAX_BODY_BYTES = 4_096;
 const MAX_PROVIDER_JSON_BYTES = 1_572_864;
 const OPENAI_TIMEOUT_MS = 110_000;
+const OPENAI_TRANSCRIPTION_TIMEOUT_MS = 110_000;
+const MAX_TRANSCRIPTION_MEDIA_BYTES = 25_000_000;
+const MAX_TRANSCRIPTION_DURATION_SECONDS = 90;
+const MAX_TRANSCRIPT_CHARACTERS = 12_000;
+const MAX_TRANSCRIPT_EXCERPT_CHARACTERS = 1_200;
+const MAX_SPEECH_COMPARISON_WORDS = 600;
 const SIGNED_IMAGE_TTL_SECONDS = 900;
 const MIN_VIDEO_FRAMES = 4;
 const MAX_VIDEO_FRAMES = 5;
@@ -187,6 +195,37 @@ type Finding = {
   source_key: string;
   stage: string;
   timecode: string | null;
+};
+
+type SpeechAnalysisStatus =
+  | "not_applicable"
+  | "not_requested"
+  | "skipped_no_script"
+  | "skipped_audio_unavailable"
+  | "skipped_file_too_large"
+  | "unavailable"
+  | "completed";
+
+type SpeechAnalysis = {
+  status: SpeechAnalysisStatus;
+  consentConfirmed: boolean;
+  model: string | null;
+  providerRequestId: string | null;
+  transcriptSha256: string | null;
+  transcriptExcerpt: string | null;
+  expectedWordCount: number;
+  transcriptWordCount: number;
+  matchedWordCount: number | null;
+  coverageRatio: number | null;
+  precisionRatio: number | null;
+  similarityRatio: number | null;
+  wordErrorRate: number | null;
+  transcriptionConfidence: number | null;
+};
+
+type SpeechPreparation = {
+  analysis: SpeechAnalysis;
+  eligible: boolean;
 };
 
 function responseHeaders(request: Request): Headers {
@@ -478,6 +517,241 @@ function openAiModel(): string {
     : "gpt-5.5";
 }
 
+function openAiTranscriptionModel(): string {
+  const configured = Deno.env.get("OPENAI_TRANSCRIPTION_MODEL") ?? "";
+  return configured === "gpt-4o-mini-transcribe"
+    ? configured
+    : "gpt-4o-transcribe";
+}
+
+function normalizedSpeechWords(value: string): string[] {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("ru-RU")
+    .replaceAll("ё", "е")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean)
+    .slice(0, MAX_SPEECH_COMPARISON_WORDS);
+}
+
+function tokenEditDistance(left: string[], right: string[]): number {
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length] ?? left.length;
+}
+
+function tokenLcsLength(left: string[], right: string[]): number {
+  let previous = new Array(right.length + 1).fill(0);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = new Array(right.length + 1).fill(0);
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = left[leftIndex - 1] === right[rightIndex - 1]
+        ? previous[rightIndex - 1] + 1
+        : Math.max(previous[rightIndex], current[rightIndex - 1]);
+    }
+    previous = current;
+  }
+  return previous[right.length] ?? 0;
+}
+
+function boundedRatio(value: number, maximum = 1): number {
+  return Math.round(Math.max(0, Math.min(maximum, value)) * 10_000) / 10_000;
+}
+
+function baseSpeechAnalysis(
+  run: ReviewRun,
+  status: SpeechAnalysisStatus,
+): SpeechAnalysis {
+  return {
+    status,
+    consentConfirmed: boolInput(
+      run.input,
+      "external_ai_processing_confirmed",
+    ),
+    model: null,
+    providerRequestId: null,
+    transcriptSha256: null,
+    transcriptExcerpt: null,
+    expectedWordCount: normalizedSpeechWords(
+      stringInput(run.input, "script_text"),
+    ).length,
+    transcriptWordCount: 0,
+    matchedWordCount: null,
+    coverageRatio: null,
+    precisionRatio: null,
+    similarityRatio: null,
+    wordErrorRate: null,
+    transcriptionConfidence: null,
+  };
+}
+
+function prepareSpeechAnalysis(run: ReviewRun): SpeechPreparation {
+  if (run.media.mimeType !== "video/mp4") {
+    return {
+      analysis: baseSpeechAnalysis(run, "not_applicable"),
+      eligible: false,
+    };
+  }
+  if (!boolInput(run.input, "external_ai_processing_confirmed")) {
+    return {
+      analysis: baseSpeechAnalysis(run, "not_requested"),
+      eligible: false,
+    };
+  }
+  const analysis = baseSpeechAnalysis(run, "skipped_no_script");
+  if (analysis.expectedWordCount < 3) {
+    return { analysis, eligible: false };
+  }
+  const metrics = isRecord(run.input.technical_metrics)
+    ? run.input.technical_metrics
+    : {};
+  if (metrics.speech_transcription_notice_version !== "openai_mp4_v1") {
+    return {
+      analysis: baseSpeechAnalysis(run, "not_requested"),
+      eligible: false,
+    };
+  }
+  const duration = numericMetric(
+    metrics as Record<string, Json>,
+    "duration_seconds",
+  );
+  if (
+    run.media.sizeBytes > MAX_TRANSCRIPTION_MEDIA_BYTES ||
+    duration === null ||
+    duration <= 0 ||
+    duration > MAX_TRANSCRIPTION_DURATION_SECONDS
+  ) {
+    return {
+      analysis: baseSpeechAnalysis(run, "skipped_file_too_large"),
+      eligible: false,
+    };
+  }
+  const audioSilenceRatio = numericMetric(
+    metrics as Record<string, Json>,
+    "audio_silence_ratio",
+  );
+  if (
+    metrics.audio_expected === false ||
+    metrics.audio_analyzed !== true ||
+    metrics.audio_analysis_status !== "completed" ||
+    audioSilenceRatio === null ||
+    audioSilenceRatio >= 0.95
+  ) {
+    return {
+      analysis: baseSpeechAnalysis(run, "skipped_audio_unavailable"),
+      eligible: false,
+    };
+  }
+  return {
+    analysis: baseSpeechAnalysis(run, "unavailable"),
+    eligible: true,
+  };
+}
+
+function speechAnalysisJson(analysis: SpeechAnalysis): Record<string, Json> {
+  return {
+    status: analysis.status,
+    consent_confirmed: analysis.consentConfirmed,
+    model: analysis.model,
+    provider_request_id: analysis.providerRequestId,
+    transcript_sha256: analysis.transcriptSha256,
+    transcript_excerpt: analysis.transcriptExcerpt,
+    expected_word_count: analysis.expectedWordCount,
+    transcript_word_count: analysis.transcriptWordCount,
+    matched_word_count: analysis.matchedWordCount,
+    coverage_ratio: analysis.coverageRatio,
+    precision_ratio: analysis.precisionRatio,
+    similarity_ratio: analysis.similarityRatio,
+    word_error_rate: analysis.wordErrorRate,
+    transcription_confidence: analysis.transcriptionConfidence,
+  };
+}
+
+function transcriptionConfidence(value: unknown): number | null {
+  if (!isRecord(value) || !Array.isArray(value.logprobs)) return null;
+  const logprobs = value.logprobs.slice(0, 3_000).flatMap((item) =>
+    isRecord(item) && typeof item.logprob === "number" &&
+      Number.isFinite(item.logprob) && item.logprob >= -100 &&
+      item.logprob <= 0
+      ? [item.logprob]
+      : []
+  );
+  if (!logprobs.length) return null;
+  const mean = logprobs.reduce((sum, item) => sum + item, 0) / logprobs.length;
+  return boundedRatio(Math.exp(mean));
+}
+
+function readTranscriptionResponse(
+  value: unknown,
+): { text: string; confidence: number | null } | null {
+  if (
+    !isRecord(value) || typeof value.text !== "string" ||
+    value.text.length > MAX_TRANSCRIPT_CHARACTERS ||
+    hasForbiddenControl(value.text)
+  ) return null;
+  return {
+    text: value.text.trim(),
+    confidence: transcriptionConfidence(value),
+  };
+}
+
+async function completedSpeechAnalysis(
+  run: ReviewRun,
+  transcript: string,
+  model: string,
+  requestId: string | null,
+  confidence: number | null,
+): Promise<SpeechAnalysis> {
+  const expectedWords = normalizedSpeechWords(
+    stringInput(run.input, "script_text"),
+  );
+  const transcriptWords = normalizedSpeechWords(transcript);
+  const matchedWords = tokenLcsLength(expectedWords, transcriptWords);
+  const coverage = expectedWords.length
+    ? matchedWords / expectedWords.length
+    : 0;
+  const precision = transcriptWords.length
+    ? matchedWords / transcriptWords.length
+    : 0;
+  const similarity = coverage + precision
+    ? 2 * coverage * precision / (coverage + precision)
+    : 0;
+  const editDistance = tokenEditDistance(expectedWords, transcriptWords);
+  const transcriptBytes = new TextEncoder().encode(transcript);
+  return {
+    status: "completed",
+    consentConfirmed: true,
+    model,
+    providerRequestId: requestId,
+    transcriptSha256: await sha256Hex(transcriptBytes),
+    transcriptExcerpt: transcript.slice(0, MAX_TRANSCRIPT_EXCERPT_CHARACTERS),
+    expectedWordCount: expectedWords.length,
+    transcriptWordCount: transcriptWords.length,
+    matchedWordCount: matchedWords,
+    coverageRatio: boundedRatio(coverage),
+    precisionRatio: boundedRatio(precision),
+    similarityRatio: boundedRatio(similarity),
+    wordErrorRate: boundedRatio(
+      expectedWords.length ? editDistance / expectedWords.length : 2,
+      2,
+    ),
+    transcriptionConfidence: confidence,
+  };
+}
+
 function validateSignedStorageUrl(value: unknown): string | null {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   if (typeof value !== "string" || value.length > 4_096) return null;
@@ -509,6 +783,14 @@ function isJpeg(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 &&
     bytes[2] === 0xff && bytes[bytes.length - 2] === 0xff &&
     bytes[bytes.length - 1] === 0xd9;
+}
+
+function isMp4(bytes: Uint8Array): boolean {
+  return bytes.length >= 12 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70;
 }
 
 function jpegDataUrl(bytes: Uint8Array): string {
@@ -718,11 +1000,14 @@ source_key выбирай только из заданного enum. Если к
 не нужна или не установлена по кадрам, используй none. AI-обнаружение
 правового риска с confidence ниже 0.9 должно требовать человека.
 
-Из видео переданы выборочные кадры, а не полный поток. Браузер может передать
-только локально измеренные уровни звука, долю тишины, клиппинг и длительность:
-это не транскрипция. Оценивай смысл речи только по script_text/caption_text и
-всегда указывай ограничение. Не утверждай, что проверил произнесённые слова,
-музыку, весь звук или каждый кадр.
+Из видео в этот визуальный запрос переданы выборочные кадры, а не полный поток.
+Браузер передаёт локально измеренные уровни звука, долю тишины, клиппинг и
+длительность. Не выдавай эти числа за транскрипцию. Отдельная серверная
+транскрипция, если пользователь явно разрешил передачу исходного MP4, будет
+сверена с script_text детерминированно уже после твоего ответа. Поэтому здесь
+оценивай смысл речи только по script_text/caption_text и всегда указывай
+ограничение. Не утверждай, что сам проверил произнесённые слова, музыку, весь
+звук или каждый кадр.
 `;
 
 function promptForRun(run: ReviewRun): string {
@@ -1032,7 +1317,144 @@ function makeFinding(
   };
 }
 
-function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
+function speechFindings(
+  run: ReviewRun,
+  analysis: SpeechAnalysis,
+): Finding[] {
+  if (run.media.mimeType !== "video/mp4") return [];
+  const findings: Finding[] = [];
+  const evidence = {
+    status: analysis.status,
+    model: analysis.model,
+    transcript_sha256: analysis.transcriptSha256,
+    expected_word_count: analysis.expectedWordCount,
+    transcript_word_count: analysis.transcriptWordCount,
+    matched_word_count: analysis.matchedWordCount,
+    coverage_ratio: analysis.coverageRatio,
+    precision_ratio: analysis.precisionRatio,
+    similarity_ratio: analysis.similarityRatio,
+    word_error_rate: analysis.wordErrorRate,
+    transcription_confidence: analysis.transcriptionConfidence,
+  };
+  if (analysis.status === "completed") {
+    if (
+      analysis.transcriptionConfidence !== null &&
+      analysis.transcriptionConfidence < 0.35
+    ) {
+      findings.push(makeFinding(
+        "SPEECH.TRANSCRIPTION_LOW_CONFIDENCE",
+        "quality",
+        "high",
+        "Автоматическая расшифровка недостаточно уверенная",
+        `Средняя уверенность распознавания составила ${
+          Math.round(analysis.transcriptionConfidence * 100)
+        }%. На такой расшифровке нельзя основывать публикацию.`,
+        "Полностью прослушайте точный MP4 и вручную сверьте каждую фразу со сценарием и субтитрами.",
+        { evidence, human: true, stage: "script" },
+      ));
+    }
+    if (
+      analysis.transcriptWordCount === 0 ||
+      (analysis.similarityRatio ?? 0) < 0.45 ||
+      (analysis.coverageRatio ?? 0) < 0.5 ||
+      (analysis.wordErrorRate ?? 2) > 0.9
+    ) {
+      findings.push(makeFinding(
+        "SPEECH.SCRIPT_MISMATCH",
+        "quality",
+        "high",
+        "Произнесённая реплика существенно расходится со сценарием",
+        `Автоматическая сверка нашла ${
+          Math.round((analysis.similarityRatio ?? 0) * 100)
+        }% сходства и ${
+          Math.round((analysis.coverageRatio ?? 0) * 100)
+        }% покрытия ожидаемых слов.`,
+        "Не публикуйте без прослушивания. Зафиксируйте неверные или пропущенные слова и перегенерируйте либо перемонтируйте ролик.",
+        { evidence, human: true, stage: "script" },
+      ));
+    } else if (
+      (analysis.similarityRatio ?? 0) < 0.75 ||
+      (analysis.coverageRatio ?? 0) < 0.8 ||
+      (analysis.wordErrorRate ?? 2) > 0.45
+    ) {
+      findings.push(makeFinding(
+        "SPEECH.SCRIPT_VARIATION",
+        "quality",
+        "medium",
+        "Реплика совпадает со сценарием только частично",
+        `Сходство распознанной речи со сценарием — ${
+          Math.round((analysis.similarityRatio ?? 0) * 100)
+        }%, покрытие ожидаемых слов — ${
+          Math.round((analysis.coverageRatio ?? 0) * 100)
+        }%.`,
+        "Прослушайте ролик целиком и вручную подтвердите, что различия не меняют смысл, свойства товара и обязательные предупреждения.",
+        { evidence, human: true, stage: "script" },
+      ));
+    } else {
+      findings.push(makeFinding(
+        "SPEECH.SCRIPT_MATCH",
+        "quality",
+        "info",
+        "Автоматическая расшифровка близка к сценарию",
+        `Сходство составило ${
+          Math.round((analysis.similarityRatio ?? 0) * 100)
+        }%, покрытие ожидаемых слов — ${
+          Math.round((analysis.coverageRatio ?? 0) * 100)
+        }%. Это вспомогательная ASR-проверка, а не доказательство точности.`,
+        "Прослушайте точный MP4 и отдельно подтвердите интонацию, музыку, смысл и синхронизацию субтитров.",
+        { evidence, human: true, stage: "script" },
+      ));
+    }
+  } else if (
+    analysis.status === "unavailable" &&
+    analysis.consentConfirmed &&
+    analysis.expectedWordCount >= 3
+  ) {
+    findings.push(makeFinding(
+      "SPEECH.TRANSCRIPTION_UNAVAILABLE",
+      "quality",
+      "high",
+      "Сверка речи со сценарием не завершена",
+      "Исходный MP4 был разрешён для транскрипции, но провайдер не вернул подтверждённую расшифровку. Автоматического платного повтора нет.",
+      "Полностью прослушайте точный файл вручную. Новую автоматическую проверку запускайте только после сверки истории запросов.",
+      { evidence, human: true, stage: "script" },
+    ));
+  } else if (
+    analysis.status === "skipped_file_too_large" &&
+    analysis.expectedWordCount >= 3
+  ) {
+    findings.push(makeFinding(
+      "SPEECH.TRANSCRIPTION_BOUNDS_EXCEEDED",
+      "quality",
+      "medium",
+      "MP4 не помещается в безопасный лимит транскрипции",
+      "Автоматическая сверка не отправляла файл: размер или длительность превышают установленный предел 25 МБ / 90 секунд.",
+      "Прослушайте точный файл вручную или подготовьте отдельный разрешённый аудиофрагмент в следующей версии процесса.",
+      { evidence, human: true, stage: "script" },
+    ));
+  } else if (
+    analysis.status === "skipped_no_script" &&
+    isRecord(run.input.technical_metrics) &&
+    run.input.technical_metrics.audio_expected === true
+  ) {
+    findings.push(makeFinding(
+      "SPEECH.SCRIPT_MISSING",
+      "quality",
+      "high",
+      "Для ожидаемой речи не задана точная реплика",
+      "Без эталонного текста автоматическая транскрипция не может доказательно проверить смысл и пропуски.",
+      "Вставьте дословную реплику из задания и запустите новую проверку либо вручную зафиксируйте весь произнесённый текст.",
+      { evidence, human: true, stage: "script" },
+    ));
+  }
+  return findings;
+}
+
+function deterministicFindings(
+  run: ReviewRun,
+  frameCount: number,
+  speechAnalysis: SpeechAnalysis,
+): Finding[] {
   const input = run.input;
   const metrics = isRecord(input.technical_metrics)
     ? input.technical_metrics as Record<string, Json>
@@ -1649,14 +2071,21 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
       "SCOPE.AUDIO_MANUAL_REVIEW",
       "quality",
       "info",
-      "Слова и музыку нужно проверить прослушиванием",
-      audioAnalyzed
-        ? "Портал измерил уровни, тишину, клиппинг и длительность локально, но не расшифровывал произнесённые слова."
-        : "Автоматическая проверка анализирует кадры и введённый текст, но не расшифровывает звук MP4.",
+      speechAnalysis.status === "completed"
+        ? "Автоматическую сверку речи нужно подтвердить прослушиванием"
+        : "Слова и музыку нужно проверить прослушиванием",
+      speechAnalysis.status === "completed"
+        ? `Портал расшифровал речь с явного разрешения и детерминированно сравнил её со сценарием: сходство ${
+          Math.round((speechAnalysis.similarityRatio ?? 0) * 100)
+        }%. ASR может ошибаться и не подтверждает музыку, интонацию или юридический смысл.`
+        : audioAnalyzed
+        ? "Портал измерил уровни, тишину, клиппинг и длительность локально, но подтверждённой расшифровки произнесённых слов нет."
+        : "Автоматическая проверка анализирует кадры и введённый текст, но подтверждённой расшифровки звука MP4 нет.",
       "Полностью прослушайте реплику и музыку, сверьте слова со сценарием и субтитрами перед решением.",
       { human: true, confidence: 1, stage: "video" },
     ));
   }
+  speechFindings(run, speechAnalysis).forEach(add);
   return findings;
 }
 
@@ -1688,9 +2117,10 @@ function mergeReviewResult(
   modelResult: Record<string, Json>,
   moderation: Record<string, Json>,
   frameCount: number,
+  speechAnalysis: SpeechAnalysis,
 ): Record<string, Json> {
   const findings = [
-    ...deterministicFindings(run, frameCount),
+    ...deterministicFindings(run, frameCount, speechAnalysis),
     ...((modelResult.findings as unknown as Finding[]) ?? []),
   ];
   const adProbability = Number(modelResult.ad_probability);
@@ -1806,15 +2236,34 @@ function mergeReviewResult(
   const measuredTechnicalHigh = measuredTechnicalFindings.some((finding) =>
     finding.severity === "high"
   );
+  const speechMismatch = finalFindings.find((finding) =>
+    finding.code === "SPEECH.SCRIPT_MISMATCH"
+  );
+  const speechVariation = finalFindings.find((finding) =>
+    finding.code === "SPEECH.SCRIPT_VARIATION"
+  );
   const technicalScoreCap = measuredTechnicalBlocker
     ? 35
     : measuredTechnicalHigh
     ? 65
     : null;
-  const overallScoreCap = measuredTechnicalBlocker
+  const clarityScoreCap = speechMismatch ? 60 : speechVariation ? 78 : null;
+  const technicalOverallScoreCap = measuredTechnicalBlocker
     ? 49
     : measuredTechnicalHigh
     ? 74
+    : null;
+  const speechOverallScoreCap = speechMismatch
+    ? 69
+    : speechVariation
+    ? 84
+    : null;
+  const overallScoreCaps = [
+    technicalOverallScoreCap,
+    speechOverallScoreCap,
+  ].filter((value): value is number => value !== null);
+  const overallScoreCap = overallScoreCaps.length
+    ? Math.min(...overallScoreCaps)
     : null;
   const finalScores = {
     ...(modelResult.scores as Record<string, Json>),
@@ -1823,6 +2272,12 @@ function mergeReviewResult(
       : Math.min(
         technicalScoreCap,
         Number((modelResult.scores as Record<string, Json>).technical),
+      ),
+    hook_clarity: clarityScoreCap === null
+      ? Number((modelResult.scores as Record<string, Json>).hook_clarity)
+      : Math.min(
+        clarityScoreCap,
+        Number((modelResult.scores as Record<string, Json>).hook_clarity),
       ),
   };
   const previousScore = run.parentResult &&
@@ -1863,6 +2318,7 @@ function mergeReviewResult(
     recommendations: recommendations.slice(0, 24),
     comparison,
     limitations: modelResult.limitations as string[],
+    speech_analysis: speechAnalysisJson(speechAnalysis),
   };
 }
 
@@ -2294,7 +2750,48 @@ async function handleCreatorContentReview(
     );
   }
 
+  const speechPreparation = prepareSpeechAnalysis(claim.run);
+  let speechAnalysis = speechPreparation.analysis;
+  let transcriptionBlob: Blob | null = null;
+  if (speechPreparation.eligible) {
+    if (
+      !claim.run.media.objectName.startsWith(`${claim.run.organizationId}/`)
+    ) {
+      speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
+    } else {
+      try {
+        const { data: mediaBlob, error: mediaDownloadError } =
+          await supabaseAdmin.storage.from(STORAGE_BUCKET).download(
+            claim.run.media.objectName,
+          );
+        const normalizedMime = mediaBlob?.type.toLowerCase().trim() ?? "";
+        if (
+          mediaDownloadError || mediaBlob === null ||
+          normalizedMime !== "video/mp4" ||
+          mediaBlob.size !== claim.run.media.sizeBytes ||
+          mediaBlob.size < 12 ||
+          mediaBlob.size > MAX_TRANSCRIPTION_MEDIA_BYTES
+        ) {
+          speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
+        } else {
+          const mediaBytes = new Uint8Array(await mediaBlob.arrayBuffer());
+          if (
+            !isMp4(mediaBytes) ||
+            (await sha256Hex(mediaBytes)) !== claim.run.media.sha256
+          ) {
+            speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
+          } else {
+            transcriptionBlob = new Blob([mediaBytes], { type: "video/mp4" });
+          }
+        }
+      } catch {
+        speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
+      }
+    }
+  }
+
   const model = openAiModel();
+  const transcriptionModel = openAiTranscriptionModel();
   let providerBody: string;
   let moderationBody: string;
   try {
@@ -2350,16 +2847,44 @@ async function handleCreatorContentReview(
     },
     OPENAI_TIMEOUT_MS,
   );
+  let transcriptionPromise: Promise<Response> | null = null;
+  if (transcriptionBlob !== null) {
+    const transcriptionBody = new FormData();
+    transcriptionBody.append(
+      "file",
+      transcriptionBlob,
+      `${claim.run.id}.mp4`,
+    );
+    transcriptionBody.append("model", transcriptionModel);
+    transcriptionBody.append("response_format", "json");
+    transcriptionBody.append("include[]", "logprobs");
+    transcriptionPromise = fetchWithTimeout(
+      OPENAI_TRANSCRIPTIONS_URL,
+      {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "idempotency-key": `${attempt.providerIdempotencyKey}:transcription`,
+          "X-Client-Request-Id": `${attempt.id}-transcription`,
+        },
+        body: transcriptionBody,
+      },
+      OPENAI_TRANSCRIPTION_TIMEOUT_MS,
+    );
+  }
 
   let moderation: Record<string, Json> = {
     status: "unavailable",
     flagged: false,
     categories: [],
   };
-  const [providerSettled, moderationSettled] = await Promise.allSettled([
-    providerPromise,
-    moderationPromise,
-  ]);
+  const [providerSettled, moderationSettled, transcriptionSettled] =
+    await Promise.allSettled([
+      providerPromise,
+      moderationPromise,
+      transcriptionPromise ?? Promise.resolve(null),
+    ]);
   if (providerSettled.status === "rejected") {
     return await fail(
       "provider_outcome_unknown",
@@ -2385,6 +2910,36 @@ async function handleCreatorContentReview(
     } else {
       await moderationResponse.body?.cancel();
     }
+  }
+  if (
+    transcriptionSettled.status === "fulfilled" &&
+    transcriptionSettled.value instanceof Response
+  ) {
+    const transcriptionResponse = transcriptionSettled.value;
+    if (transcriptionResponse.ok) {
+      try {
+        const transcriptionValue = await readProviderJson(
+          transcriptionResponse,
+        );
+        const transcript = readTranscriptionResponse(transcriptionValue);
+        if (transcript !== null) {
+          speechAnalysis = await completedSpeechAnalysis(
+            claim.run,
+            transcript.text,
+            transcriptionModel,
+            providerRequestId(transcriptionResponse, transcriptionValue),
+            transcript.confidence,
+          );
+        }
+      } catch {
+        speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
+      }
+    } else {
+      await transcriptionResponse.body?.cancel();
+      speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
+    }
+  } else if (transcriptionPromise !== null) {
+    speechAnalysis = baseSpeechAnalysis(claim.run, "unavailable");
   }
 
   if (!providerResponse.ok) {
@@ -2438,6 +2993,7 @@ async function handleCreatorContentReview(
     modelResult,
     moderation,
     imageUrls.length,
+    speechAnalysis,
   );
   const completionPayload: Record<string, Json> = {
     review_id: claim.run.id,

@@ -204,7 +204,8 @@ Current state:
 
 - generated MP4 evidence includes bounded frames, motion/black-frame metrics,
   and immutable browser-local audio RMS/peak, silence, clipping and duration
-  measurements without sending the raw MP4 or audio to the external AI;
+  measurements; the raw MP4 is sent only to OpenAI Transcriptions after an
+  explicit legal-basis confirmation and a versioned notice;
 - the browser additionally scans 12–24 evenly distributed low-resolution
   timeline points across at least 90% of the video without retaining or
   uploading those extra frames, so brief black sections and long freezes are
@@ -212,12 +213,16 @@ Current state:
 - expected but effectively silent Seedance audio, unexpected Gen4 audio,
   clipping, track-duration mismatch, measured black sections and freezes
   produce deterministic findings and cap the structured technical score;
+- a generated Seedance spoken line is derived from the immutable generation
+  prompt, prefilled in review, and compared with a one-shot bounded transcript;
+  only a short excerpt, hash, counts and similarity metrics are retained;
 - only independently decided QA observations can turn repeated weak structured
   scores into bounded prompt guards; raw reviewer or model prose is not learned.
 
 Still required:
 
-- speech/script agreement and audio intelligibility beyond signal levels;
+- production evidence for speech/script agreement accuracy and intelligibility
+  across accents, music beds and noisy product scenes;
 - full-stream product/label persistence, safe-zone violations and duplication
   beyond the bounded timeline sample;
 - brand-claim evidence and platform-specific disclosure verification;
