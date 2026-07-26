@@ -282,7 +282,14 @@ set commit_result = public.creator_commit_content_review_evidence(
     'idempotency_key', 'durable-evidence-commit-0001',
     'evidence_id', prepare_result ->> 'evidence_id',
     'technical_metrics', jsonb_build_object(
-      'duration_seconds', 8, 'width', 1080, 'height', 1920
+      'source_type', 'video',
+      'frame_count', 4,
+      'duration_seconds', 8,
+      'width', 1080,
+      'height', 1920,
+      'audio_expected', null,
+      'audio_analyzed', false,
+      'audio_analysis_status', 'unavailable'
     ),
     'frames', (
       select jsonb_agg(jsonb_build_object(
