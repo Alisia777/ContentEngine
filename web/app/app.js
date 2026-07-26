@@ -53,6 +53,10 @@ import {
   generationReadinessMarkup,
 } from "./generation-form-readiness.js?v=20260725.1";
 import {
+  chooseInitialGenerationMedia,
+  resolveGenerationPlatform,
+} from "./generation-autopilot.js?v=20260725.1";
+import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
   contentReviewHasBlockers,
@@ -5299,6 +5303,8 @@ function captureDirtyWorkspaceForms(container) {
     dirty: form.dataset.dirty === "true",
     busy: form.dataset.busy === "true",
     busyLabel: form.querySelector('button[type="submit"]')?.textContent || "",
+    generationMediaSelectionTouched: form.dataset.generationMediaSelectionTouched === "true",
+    autoGenerationPlatform: String(form.dataset.autoGenerationPlatform || ""),
     fields: Array.from(form.elements).map((field) => {
       const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
       return {
@@ -5343,6 +5349,12 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
       }
     });
     if (snapshot.dirty) form.dataset.dirty = "true";
+    if (snapshot.generationMediaSelectionTouched) {
+      form.dataset.generationMediaSelectionTouched = "true";
+    }
+    if (snapshot.autoGenerationPlatform) {
+      form.dataset.autoGenerationPlatform = snapshot.autoGenerationPlatform;
+    }
     if (form.id === "mock-batch-form") syncGenerationModeForm(form);
     if (form.id === "media-upload-form") {
       showSelectedFile(form.elements.file?.files?.[0]);
@@ -6948,7 +6960,7 @@ function generationMediaIdentity(item = {}) {
   };
 }
 
-function generationMediaOptionMarkup(item, real) {
+function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
   const identity = generationMediaIdentity(item);
   const mediaId = String(item.public_id || item.id || "");
   const filename = item.original_filename || item.name || "Файл";
@@ -6972,6 +6984,7 @@ function generationMediaOptionMarkup(item, real) {
         data-media-sku="${escapeHtml(identity.sku)}"
         data-media-product-name="${escapeHtml(identity.productName)}"
         ${real && !identity.paidReady ? "disabled" : ""}
+        ${mediaId && mediaId === selectedMediaId && (!real || identity.paidReady) ? "checked" : ""}
       />
       <span>
         <strong>${escapeHtml(filename)}</strong><br />
@@ -7032,6 +7045,19 @@ function renderGenerationSection(sectionState) {
         : seedanceCampaign?.id || gen4Campaign?.id || photoCampaign?.id || generationCampaigns[0]?.id || "";
   const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
+  const automaticMediaId = chooseInitialGenerationMedia(exactMedia, {
+    real: defaultIsReal,
+  });
+  const visibleExactMedia = automaticMediaId
+    ? [
+        exactMedia.find((item) =>
+          String(item.public_id || item.id || "") === automaticMediaId
+        ),
+        ...exactMedia.filter((item) =>
+          String(item.public_id || item.id || "") !== automaticMediaId
+        ),
+      ].filter(Boolean).slice(0, 8)
+    : exactMedia.slice(0, 8);
   if (state.generationSpend.status === "idle") {
     window.queueMicrotask(() => loadGenerationSpendOverview({ silent: true }));
   }
@@ -7054,7 +7080,7 @@ function renderGenerationSection(sectionState) {
     : null;
   const initialGenerationReadiness = evaluateGenerationFormReadiness({
     mode: defaultMode,
-    mediaCount: 0,
+    mediaCount: automaticMediaId ? 1 : 0,
     campaignId: defaultCampaignId,
     spendAllowed: !defaultIsReal || realGenerationSpendAllowed(
       defaultMode,
@@ -7190,10 +7216,11 @@ function renderGenerationSection(sectionState) {
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
                 <legend class="field-label">Фото выбранного товара *</legend>
-                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для тестового режима можно выбрать один или несколько исходников."}</p>
+                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для dry-run можно выбрать один или несколько исходников."}</p>
+                ${automaticMediaId ? `<p class="muted tiny generation-media-autoselected" role="status">${defaultIsReal ? "Единственный проверенный исходник выбран автоматически." : "Единственный исходник выбран автоматически."} При необходимости выбор можно изменить.</p>` : ""}
                 <div class="option-list" style="margin-top:8px">
-                  ${exactMedia.slice(0, 8).map((item) =>
-                    generationMediaOptionMarkup(item, defaultIsReal)
+                  ${visibleExactMedia.map((item) =>
+                    generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)
                   ).join("")}
                 </div>
               </fieldset>
@@ -10563,6 +10590,7 @@ function handleChange(event) {
   const generationForm = event.target.closest("#mock-batch-form");
   if (generationForm && ["generation_mode", "campaign_id", "platform"].includes(event.target.name)) {
     if (event.target.name === "platform") {
+      delete generationForm.dataset.autoGenerationPlatform;
       syncGenerationProductIdentity(generationForm);
     } else {
       syncGenerationModeForm(generationForm);
@@ -10571,6 +10599,7 @@ function handleChange(event) {
       rebuildPrompt: event.target.name === "generation_mode",
     });
   } else if (generationForm && event.target.name === "media_id") {
+    generationForm.dataset.generationMediaSelectionTouched = "true";
     syncGenerationProductIdentity(generationForm);
     syncGenerationFormReadiness(generationForm);
   }
@@ -11139,6 +11168,27 @@ function syncGenerationProductIdentity(form) {
   return identity;
 }
 
+function syncGenerationAutomaticMedia(form) {
+  if (!form || form.dataset.generationMediaSelectionTouched === "true") return "";
+  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const inputs = Array.from(form.querySelectorAll('input[name="media_id"]'));
+  const checked = inputs.find((input) => input.checked && !input.disabled);
+  if (checked) return checked.value;
+  const mediaId = chooseInitialGenerationMedia(
+    inputs.map((input) => ({
+      public_id: input.value,
+      identity_verified: input.dataset.mediaIdentityVerified === "true",
+      rights_confirmed: input.dataset.mediaRightsConfirmed === "true",
+      sku: input.dataset.mediaSku,
+      product_name: input.dataset.mediaProductName,
+    })),
+    { real },
+  );
+  const target = inputs.find((input) => input.value === mediaId && !input.disabled);
+  if (target) target.checked = true;
+  return target?.value || "";
+}
+
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
   const sku = realGenerationSku(mode);
@@ -11186,7 +11236,19 @@ function syncGenerationModeForm(form) {
   }
   const instagramOption = platform?.querySelector('option[value="instagram"]');
   if (instagramOption) instagramOption.disabled = real;
-  if (real && platform?.value === "instagram") platform.value = "tiktok";
+  if (real && platform) {
+    const platformResolution = resolveGenerationPlatform({
+      mode,
+      currentPlatform: platform.value,
+      automaticPlatform: form.dataset.autoGenerationPlatform,
+    });
+    platform.value = platformResolution.value;
+    if (platformResolution.automatic) {
+      form.dataset.autoGenerationPlatform = platformResolution.value;
+    } else {
+      delete form.dataset.autoGenerationPlatform;
+    }
+  }
   if (format) {
     format.disabled = Boolean(sku?.format);
     if (sku?.format) format.value = sku.format;
@@ -11214,6 +11276,7 @@ function syncGenerationModeForm(form) {
     input.disabled = real && !paidReady;
     if (input.disabled) input.checked = false;
   });
+  syncGenerationAutomaticMedia(form);
   syncGenerationProductIdentity(form);
   if (countHint) {
     countHint.textContent = real
@@ -11226,7 +11289,7 @@ function syncGenerationModeForm(form) {
   if (mediaHint) {
     mediaHint.textContent = real
       ? "Для платного запуска выберите ровно один исходник."
-      : "Для тестовых вариантов можно выбрать один или несколько исходников.";
+      : "Для dry-run можно выбрать один или несколько исходников.";
   }
   if (price && sku) {
     price.textContent = `Ориентировочная стоимость: $${sku.estimatedUsd} (${sku.estimatedCredits} кредитов). Итоговая сумма зависит от тарифа сервиса.`;
