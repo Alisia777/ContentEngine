@@ -241,8 +241,39 @@ def test_destination_autopilot_never_guesses_and_preserves_manual_override() -> 
     ]
 
 
+def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading() -> None:
+    expression = """
+    [
+      subject.generationPreflightDecision({ status: "loading" }, { now: 5000 }),
+      subject.generationPreflightDecision(
+        { status: "ready", checkedAt: 4000 },
+        { now: 5000, readyTtlMs: 2000 }
+      ),
+      subject.generationPreflightDecision(
+        { status: "ready", checkedAt: 3000 },
+        { now: 5000, readyTtlMs: 2000 }
+      ),
+      subject.generationPreflightDecision(
+        { status: "error", checkedAt: 4500 },
+        { now: 5000, errorCooldownMs: 1000 }
+      ),
+      subject.generationPreflightDecision(
+        { status: "error", checkedAt: 4500 },
+        { force: true, now: 5000, errorCooldownMs: 1000 }
+      ),
+    ]
+    """
+    assert _evaluate(expression) == [
+        "join",
+        "reuse_ready",
+        "request",
+        "reuse_error",
+        "request",
+    ]
+
+
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260726.1"' in APP
+    assert 'from "./generation-autopilot.js?v=20260726.2"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
@@ -267,6 +298,8 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
         in APP
     )
     assert "В истории несколько назначений для этой площадки" in APP
+    assert "generationPreflightDecision(previous" in APP
+    assert "scheduleAutomaticGenerationPreflight(form)" in APP
     initial_sync = (
         'const generationForm = document.querySelector("#mock-batch-form");\n'
         "    applyContentGenerationHandoffToForm();\n"
@@ -276,4 +309,4 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
         "    }"
     )
     assert initial_sync in APP
-    assert './app.js?v=20260726.2' in INDEX
+    assert './app.js?v=20260726.3' in INDEX

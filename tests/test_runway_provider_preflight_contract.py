@@ -101,16 +101,38 @@ def test_client_performs_free_preflight_before_starting_paid_generation() -> Non
 def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
     assert 'data-action="check-runway-readiness"' in APP
     assert "Проверить Runway бесплатно" in APP
-    handler = _between(
+    runner = _between(
         APP,
+        "async function runGenerationPreflight(form",
         "async function checkRunwayReadiness(control)",
-        "async function submitRealGenerationReconciliation",
     )
-    assert "state.api.realGenerationPreflight(sku.model)" in handler
-    assert "real_spend_confirmation" not in handler
-    assert "startRealGeneration" not in handler
-    assert "preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION" in handler
-    assert "Проверка бесплатная; списаний нет." in handler
+    assert "state.api.realGenerationPreflight(sku.model)" in runner
+    assert "real_spend_confirmation" not in runner
+    assert "startRealGeneration" not in runner
+    assert "generationPreflightDecision(previous" in runner
+    assert "return previous.promise" in runner
+    validator = _between(
+        APP,
+        "function validateGenerationPreflight",
+        "function syncGenerationPreflightUi",
+    )
+    assert "preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION" in validator
+    assert "Проверка не создаёт задачу и ничего не списывает." in APP
+
+
+def test_real_mode_automatically_runs_one_free_deduplicated_preflight() -> None:
+    scheduler = _between(
+        APP,
+        "function scheduleAutomaticGenerationPreflight",
+        "async function runGenerationPreflight",
+    )
+    assert "form.dataset.autoGenerationPreflightModel === sku.model" in scheduler
+    assert "window.queueMicrotask" in scheduler
+    assert "void runGenerationPreflight(form)" in scheduler
+    assert "startRealGeneration" not in scheduler
+    assert "real_spend_confirmation" not in scheduler
+    assert "scheduleAutomaticGenerationPreflight(form)" in APP
+    assert "if (real && spendAllowed)" in APP
 
 
 def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None:

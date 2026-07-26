@@ -102,3 +102,22 @@ export function resolveGenerationDestination({
     candidateCount: destinations.size,
   };
 }
+
+export function generationPreflightDecision(entry = {}, {
+  force = false,
+  now = Date.now(),
+  readyTtlMs = 2 * 60 * 1_000,
+  errorCooldownMs = 30_000,
+} = {}) {
+  const status = String(entry?.status || "idle");
+  if (status === "loading") return "join";
+  const checkedAt = Number(entry?.checkedAt) || 0;
+  const age = Math.max(0, Number(now) - checkedAt);
+  if (!force && status === "ready" && checkedAt > 0 && age < readyTtlMs) {
+    return "reuse_ready";
+  }
+  if (!force && status === "error" && checkedAt > 0 && age < errorCooldownMs) {
+    return "reuse_error";
+  }
+  return "request";
+}

@@ -54,9 +54,10 @@ import {
 } from "./generation-form-readiness.js?v=20260725.1";
 import {
   chooseInitialGenerationMedia,
+  generationPreflightDecision,
   resolveGenerationDestination,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260726.1";
+} from "./generation-autopilot.js?v=20260726.2";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -196,6 +197,8 @@ const LEGACY_PASSWORD_CHANGE_MARKERS = Object.freeze([
 const REAL_GENERATION_POLL_INTERVAL_MS = 7_000;
 const REAL_GENERATION_SOFT_TIMEOUT_MS = 20_000;
 const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
+const GENERATION_PREFLIGHT_READY_TTL_MS = 2 * 60 * 1_000;
+const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
@@ -910,6 +913,10 @@ const state = {
     key: "",
     disabledKey: "",
     promise: null,
+  },
+  generationPreflight: {
+    entries: new Map(),
+    requestId: 0,
   },
   accessCenter: {
     status: "idle",
@@ -7168,7 +7175,7 @@ function renderGenerationSection(sectionState) {
               <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией." : defaultMode === REAL_PHOTO_MODE ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст." : "Этот режим создаёт видео без сгенерированной речи."}</p>
               <div class="inline-actions" style="align-items:center; margin-top:10px">
                 <button class="btn btn-secondary btn-small" type="button" data-action="check-runway-readiness" data-runway-model="${defaultRealSku.model}">Проверить Runway бесплатно</button>
-                <small id="runway-readiness-status" class="muted" role="status" aria-live="polite">Проверка не создаёт задачу и ничего не списывает.</small>
+                <small id="runway-readiness-status" class="muted" role="status" aria-live="polite">Портал проверит Runway автоматически. Проверка не создаёт задачу и ничего не списывает.</small>
               </div>
               <label class="option" style="margin-top:10px">
                 <input type="checkbox" name="real_spend_confirmation" value="${defaultRealSku.confirmation}" ${defaultIsReal ? "required" : ""} />
@@ -11271,7 +11278,6 @@ function syncGenerationModeForm(form) {
   const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
   const confirmationTitle = form.querySelector("#real-generation-confirmation-title");
   const preflightButton = form.querySelector('[data-action="check-runway-readiness"]');
-  const preflightStatus = form.querySelector("#runway-readiness-status");
   const briefHint = form.querySelector("#generation-brief-hint");
   const briefLabel = form.querySelector("#generation-brief-label");
   const spendAllowed = !real || realGenerationSpendAllowed(mode, campaignSelect?.value || "");
@@ -11367,15 +11373,8 @@ function syncGenerationModeForm(form) {
     confirmationCopy.textContent = `${photo ? "квадрат 2K · одно фото" : `${sku.durationSeconds} секунд · одно видео`} · около $${sku.estimatedUsd}`;
   }
   if (preflightButton) {
-    const previousModel = String(preflightButton.dataset.runwayModel || "");
-    preflightButton.disabled = !real;
     preflightButton.dataset.runwayModel = sku?.model || "";
-    if (preflightStatus && previousModel !== (sku?.model || "")) {
-      preflightStatus.textContent = real
-        ? "Проверка не создаёт задачу и ничего не списывает."
-        : "";
-      preflightStatus.removeAttribute("data-status");
-    }
+    syncGenerationPreflightUi(form, sku, { automaticAllowed: spendAllowed });
   }
   if (briefHint) {
     briefHint.textContent = seedance
@@ -11401,6 +11400,7 @@ function syncGenerationModeForm(form) {
   if (submit) {
     syncGenerationFormReadiness(form);
   }
+  if (real && spendAllowed) scheduleAutomaticGenerationPreflight(form);
 }
 
 
@@ -11775,12 +11775,165 @@ async function submitGenerationBatch(form) {
   await submitMockBatch(form, values);
 }
 
+function validateGenerationPreflight(result, sku) {
+  const preflight = result?.preflight;
+  if (
+    preflight?.ready !== true
+    || preflight.model !== sku.model
+    || preflight.estimated_credits !== sku.estimatedCredits
+    || preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION
+  ) {
+    throw new Error("Runway preflight response invalid");
+  }
+  return preflight;
+}
+
+function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) {
+  const control = form?.querySelector('[data-action="check-runway-readiness"]');
+  const status = form?.querySelector("#runway-readiness-status");
+  if (!control || !status) return;
+  if (!sku) {
+    control.disabled = true;
+    control.textContent = "Проверить Runway бесплатно";
+    status.textContent = "";
+    status.removeAttribute("data-status");
+    return;
+  }
+
+  const entry = state.generationPreflight.entries.get(sku.model) || {
+    status: "idle",
+  };
+  control.dataset.runwayModel = sku.model;
+  control.disabled = state.realGenerationStartInFlight || entry.status === "loading";
+  status.removeAttribute("data-status");
+  if (entry.status === "loading") {
+    control.textContent = "Проверяем Runway…";
+    status.textContent = "Автоматически проверяем ключ, кредиты, модель и дневной лимит. Списаний нет…";
+  } else if (entry.status === "ready") {
+    control.textContent = "Проверить снова бесплатно";
+    status.dataset.status = "ready";
+    status.textContent = "Runway предварительно готов: модель, кредиты и дневной лимит подтверждены. Перед оплатой сервер проверит всё ещё раз.";
+  } else if (entry.status === "error") {
+    control.textContent = "Повторить бесплатную проверку";
+    status.dataset.status = "error";
+    status.textContent = `Платный запуск не создан. ${entry.errorMessage || "Runway пока не подтвердил готовность."}`;
+  } else {
+    control.textContent = "Проверить Runway бесплатно";
+    status.textContent = automaticAllowed
+      ? "Портал проверит Runway автоматически. Проверка не создаёт задачу и ничего не списывает."
+      : "Автопроверка начнётся после выбора активной кампании; вручную её можно запустить бесплатно.";
+  }
+}
+
+function syncCurrentGenerationPreflightUi(model) {
+  const form = document.querySelector("#mock-batch-form");
+  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  if (!form || !sku || sku.model !== model) return;
+  const spendAllowed = realGenerationSpendAllowed(
+    String(form.elements.generation_mode?.value || ""),
+    form.elements.campaign_id?.value || "",
+  );
+  syncGenerationPreflightUi(form, sku, { automaticAllowed: spendAllowed });
+}
+
+function scheduleAutomaticGenerationPreflight(form) {
+  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  if (!form || !sku || !state.api || state.realGenerationStartInFlight) return;
+  if (form.dataset.autoGenerationPreflightModel === sku.model) return;
+  form.dataset.autoGenerationPreflightModel = sku.model;
+  window.queueMicrotask(() => {
+    const currentSku = realGenerationSku(form.elements.generation_mode?.value);
+    if (!form.isConnected || currentSku?.model !== sku.model) return;
+    void runGenerationPreflight(form);
+  });
+}
+
+async function runGenerationPreflight(form, { force = false } = {}) {
+  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  if (!form || !sku || !state.api) {
+    return {
+      ok: false,
+      errorMessage: "Выберите платный режим, который нужно проверить.",
+    };
+  }
+  const previous = state.generationPreflight.entries.get(sku.model) || {
+    status: "idle",
+  };
+  const decision = generationPreflightDecision(previous, {
+    force,
+    readyTtlMs: GENERATION_PREFLIGHT_READY_TTL_MS,
+    errorCooldownMs: GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS,
+  });
+  if (decision === "join" && previous.promise) return previous.promise;
+  if (decision === "reuse_ready") {
+    syncGenerationPreflightUi(form, sku);
+    return { ok: true, preflight: previous.preflight, cached: true };
+  }
+  if (decision === "reuse_error") {
+    syncGenerationPreflightUi(form, sku);
+    return {
+      ok: false,
+      errorMessage: previous.errorMessage,
+      cached: true,
+    };
+  }
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const entry = {
+    status: "loading",
+    checkedAt: 0,
+    preflight: null,
+    errorMessage: "",
+    requestId: state.generationPreflight.requestId + 1,
+    promise: null,
+  };
+  state.generationPreflight.requestId = entry.requestId;
+  state.generationPreflight.entries.set(sku.model, entry);
+  syncGenerationPreflightUi(form, sku);
+  const request = (async () => {
+    try {
+      const result = await withUiTimeout(
+        state.api.realGenerationPreflight(sku.model),
+        REAL_GENERATION_SOFT_TIMEOUT_MS,
+        "Runway preflight timeout",
+      );
+      const preflight = validateGenerationPreflight(result, sku);
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+      ) return { ok: false, stale: true };
+      entry.status = "ready";
+      entry.checkedAt = Date.now();
+      entry.preflight = preflight;
+      return { ok: true, preflight, cached: false };
+    } catch (error) {
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+      ) return { ok: false, stale: true };
+      entry.status = "error";
+      entry.checkedAt = Date.now();
+      entry.errorMessage = actionErrorMessage(error);
+      return {
+        ok: false,
+        errorMessage: entry.errorMessage,
+        cached: false,
+      };
+    } finally {
+      entry.promise = null;
+      syncCurrentGenerationPreflightUi(sku.model);
+    }
+  })();
+  entry.promise = request;
+  return request;
+}
+
 async function checkRunwayReadiness(control) {
   const form = control.closest("#mock-batch-form");
   const mode = String(form?.elements?.generation_mode?.value || "");
   const sku = realGenerationSku(mode);
-  const status = form?.querySelector("#runway-readiness-status");
-  if (!form || !sku || !status) {
+  if (!form || !sku) {
     toast("Выберите платный режим, который нужно проверить.", "error");
     return;
   }
@@ -11788,39 +11941,12 @@ async function checkRunwayReadiness(control) {
     toast("Сначала дождитесь результата текущего платного запуска.", "info");
     return;
   }
-
-  const originalLabel = control.textContent;
-  control.disabled = true;
-  control.textContent = "Проверяем…";
-  status.removeAttribute("data-status");
-  status.textContent = "Проверяем ключ, кредиты, модель и дневной лимит. Списаний нет…";
-  try {
-    const result = await withUiTimeout(
-      state.api.realGenerationPreflight(sku.model),
-      REAL_GENERATION_SOFT_TIMEOUT_MS,
-      "Runway preflight timeout",
-    );
-    const preflight = result?.preflight;
-    if (
-      preflight?.ready !== true
-      || preflight.model !== sku.model
-      || preflight.estimated_credits !== sku.estimatedCredits
-      || preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION
-    ) {
-      throw new Error("Runway preflight response invalid");
-    }
-    status.dataset.status = "ready";
-    status.textContent = `Runway готов: модель доступна, кредитов и дневного лимита хватает. Проверка бесплатная; списаний нет.`;
+  const outcome = await runGenerationPreflight(form, { force: true });
+  if (outcome.stale) return;
+  if (outcome.ok) {
     toast("Runway готов к запуску. Эта проверка ничего не списала.", "success");
-  } catch (error) {
-    status.dataset.status = "error";
-    status.textContent = `Платный запуск не создан. ${actionErrorMessage(error)}`;
-    toast(status.textContent, "error");
-  } finally {
-    if (control.isConnected) {
-      control.disabled = false;
-      control.textContent = originalLabel;
-    }
+  } else {
+    toast(`Платный запуск не создан. ${outcome.errorMessage}`, "error");
   }
 }
 
@@ -13597,6 +13723,8 @@ function clearAuthenticatedState() {
   state.generationLearning.key = "";
   state.generationLearning.disabledKey = "";
   state.generationLearning.promise = null;
+  state.generationPreflight.requestId += 1;
+  state.generationPreflight.entries.clear();
   state.accessCenter.requestId += 1;
   state.accessCenter.status = "idle";
   state.accessCenter.email = "";
