@@ -421,7 +421,7 @@ select ok(
 select is(
   (select claim_result -> 'evidence' ->> 'frame_count'
    from durable_review_context),
-  '4',
+  '5',
   'claim returns the committed evidence manifest'
 );
 select ok(
