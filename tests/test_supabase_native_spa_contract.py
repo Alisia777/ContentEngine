@@ -378,8 +378,8 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert "exact_product_media_required" in adapter
     assert "state.sections.placement.status" in app
     assert "state.sections.tasks.status" in app
-    assert "Тестовые варианты · без списаний" in app
-    assert "Создано ${count} тестовых вариантов без списаний" in app
+    assert "Dry-run задач · без файлов и списаний" in app
+    assert "Создано ${count} dry-run задач без списаний" in app
     assert "Реальная ИИ-генерация выключена: provider=mock" not in app
 
     assert 'REAL_GENERATION_FUNCTION = "creator-generate"' in adapter
@@ -451,7 +451,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260725.24' in index
+    assert './app.js?v=20260725.25' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

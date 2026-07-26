@@ -186,7 +186,7 @@ export function generationSpendSnapshotMarkup(state = {}, { requestMinor = null,
     const failed = state?.status === "error";
     return `
       <aside class="generation-spend-snapshot generation-spend-snapshot-${failed ? "warning" : "neutral"}" aria-busy="${loading ? "true" : "false"}" role="status">
-        <div><strong>${failed ? "Остаток не загрузился" : "Проверяем денежный лимит"}</strong><span>${failed ? "Сервер всё равно проверит бюджет до платного запроса; тестовый режим работает без списаний." : "Тестовые варианты доступны сразу и не расходуют бюджет."}</span></div>
+        <div><strong>${failed ? "Остаток не загрузился" : "Проверяем денежный лимит"}</strong><span>${failed ? "Сервер всё равно проверит бюджет до платного запроса; dry-run задач работает без файлов и списаний." : "Dry-run задач доступен сразу, не создаёт медиафайлы и не расходует бюджет."}</span></div>
         ${failed ? `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-generation-spend">Повторить</button>` : ""}
       </aside>
     `;
@@ -210,7 +210,7 @@ export function generationSpendSnapshotMarkup(state = {}, { requestMinor = null,
     || campaignMessage
     || (allowed
       ? "Сумма будет сначала зарезервирована, а затем предварительно учтена после приёма запроса провайдером."
-      : "Для выбранной цены не хватает дневного, месячного или разового остатка. Тестовый режим остаётся доступен.");
+      : "Для выбранной цены не хватает дневного, месячного или разового остатка. Dry-run задач без файлов остаётся доступен.");
   return `
     <aside class="generation-spend-snapshot generation-spend-snapshot-${allowed ? "success" : "danger"}" role="status">
       <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(message)}</span></div>

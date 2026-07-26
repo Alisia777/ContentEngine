@@ -144,5 +144,5 @@ def test_generation_form_autofills_and_locks_exact_product_for_paid_runs() -> No
     assert ".generation-product-identity" in STYLES
     assert ".generation-media-option:has(input:disabled)" in STYLES
     assert './styles.css?v=20260724.5' in INDEX
-    assert './app.js?v=20260725.24' in INDEX
-    assert './supabase-api.js?v=20260725.7' in APP
+    assert './app.js?v=20260725.25' in INDEX
+    assert './supabase-api.js?v=20260725.8' in APP

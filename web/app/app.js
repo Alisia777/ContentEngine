@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260725.7";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260725.8";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -23,7 +23,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260717.2";
+} from "./generation-spend-view.js?v=20260725.1";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -51,7 +51,7 @@ import {
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260724.2";
+} from "./generation-form-readiness.js?v=20260725.1";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -6874,7 +6874,7 @@ function syncGenerationFormReadiness(form) {
     submit.textContent = busy
       ? sku
         ? "Проверяем платный запуск — не повторяйте"
-        : "Создаём тестовые варианты…"
+        : "Создаём dry-run задачи…"
       : learningLoading
         ? "Проверяем обученное ТЗ без списания…"
       : sku && !learningReady
@@ -6889,7 +6889,7 @@ function syncGenerationFormReadiness(form) {
           ? "Восстановите безопасное ТЗ"
         : sku
           ? `Создать одно платное ${sku.contentKind === "photo" ? "фото" : "видео"} · около $${sku.estimatedUsd}`
-          : "Создать тестовые варианты";
+          : "Создать dry-run задач";
   }
   return readiness;
 }
@@ -7068,16 +7068,16 @@ function renderGenerationSection(sectionState) {
     <div class="page-wrap">
       ${pageHeader(
         "Создание контента",
-        "Создайте тестовые варианты без списаний, готовое видео или товарное фото по точному исходнику.",
+        "Проверьте процесс без рендера либо создайте готовое видео или товарное фото по точному исходнику.",
         REAL_GENERATION_ENABLED && (seedanceSpendAllowed || gen4SpendAllowed || photoSpendAllowed)
-          ? `<span class="badge badge-info">ТЕСТОВЫЙ + ПЛАТНЫЙ</span>`
-          : `<span class="badge badge-mock">ТЕСТОВЫЙ · БЕЗ СПИСАНИЙ</span>`,
+          ? `<span class="badge badge-info">DRY-RUN + ПЛАТНЫЙ</span>`
+          : `<span class="badge badge-mock">DRY-RUN · БЕЗ ФАЙЛОВ</span>`,
       )}
       <div class="split-grid">
         <section class="card card-pad">
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
-          <p class="muted tiny">Тестовый режим создаёт до ${MAX_MOCK_BATCH_SIZE} вариантов без списаний. Платные режимы создают ровно один результат: квадратное фото 2K, 5-секундную анимацию или 8-секундного блогера с озвучкой.</p>
+          <p class="muted tiny">Dry-run создаёт задачи и места публикации, но не рендерит фото или видео. Платные режимы создают ровно один медиафайл: квадратное фото 2K, 5-секундную анимацию или 8-секундного блогера с озвучкой.</p>
           ${contentGenerationHandoffMarkup(handoff, handoffEvaluation)}
           ${generationSpendSnapshotMarkup(state.generationSpend, {
             requestMinor: Math.min(
@@ -7095,7 +7095,7 @@ function renderGenerationSection(sectionState) {
             <label class="field">
               <span>Режим генерации *</span>
               <select id="generation-mode" name="generation_mode" required>
-                ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Тестовые варианты · без списаний</option>` : ""}
+                ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Dry-run задач · без файлов и списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
                   <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""} ${photoSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_PHOTO_MODE].label}${photoSpendAllowed ? "" : " · лимит"}</option>
                   <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""} ${seedanceSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}${seedanceSpendAllowed ? "" : " · лимит"}</option>
@@ -7103,6 +7103,10 @@ function renderGenerationSection(sectionState) {
                 ` : ""}
               </select>
             </label>
+            <div id="generation-mock-explanation" class="alert alert-info" role="status" ${defaultIsReal ? "hidden" : ""}>
+              <strong aria-hidden="true">i</strong>
+              <span><strong>Что получится:</strong> до ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите один из платных режимов выше.</span>
+            </div>
             <label class="field" id="generation-campaign-field" ${defaultIsReal ? "" : "hidden"}>
               <span>Кампания и её бюджет *</span>
               <select name="campaign_id" ${defaultIsReal ? "required" : "disabled"}>
@@ -7164,9 +7168,9 @@ function renderGenerationSection(sectionState) {
             ` : ""}
             <div class="form-grid-2">
               <label class="field">
-                <span>Количество вариантов</span>
+                <span id="generation-count-label">${defaultIsReal ? "Количество результатов" : "Количество dry-run задач"}</span>
                 <input name="count" type="number" min="1" max="${defaultIsReal ? 1 : MAX_MOCK_BATCH_SIZE}" value="${defaultIsReal ? 1 : 5}" ${defaultIsReal ? "readonly" : ""} required />
-                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? `Платный режим всегда создаёт ровно одно ${defaultRealSku.contentKind === "photo" ? "фото" : "видео"}.` : `Тестовый режим: от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`}</small>
+                <small id="generation-count-hint" class="field-hint">${defaultIsReal ? `Платный режим всегда создаёт ровно одно ${defaultRealSku.contentKind === "photo" ? "фото" : "видео"}.` : `Dry-run: от 1 до ${MAX_MOCK_BATCH_SIZE} задач без медиафайлов.`}</small>
               </label>
               <label class="field">
                 <span>Формат</span>
@@ -7174,7 +7178,7 @@ function renderGenerationSection(sectionState) {
               </label>
             </div>
             <label class="field">
-              <span>Сценарий и главная мысль</span>
+              <span id="generation-brief-label">${defaultIsReal ? "Сценарий и главная мысль" : "Заметка для dry-run задачи"}</span>
               <textarea name="brief" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Кто в кадре, где происходит действие, как показан товар и какую фразу произносит герой"></textarea>
               <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Авто-ТЗ добавит короткую дословную реплику; перед оплатой её можно уточнить." : defaultMode === REAL_PHOTO_MODE ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар." : "Авто-ТЗ соберёт один 5-секундный проход камеры без речи и новых надписей."}</small>
             </label>
@@ -7447,7 +7451,7 @@ function generationTable(items) {
         if (!details.real) {
           return `${weekHeading}
             <tr>
-              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Тестовые варианты · без списаний</small></td>
+              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small></td>
               <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
               <td>${statusBadge(details.status)}<br /><small class="muted">Готово ${formatNumber(item.total_accepted ?? item.completed ?? 0)} из ${formatNumber(item.total_requested ?? item.count ?? 0)}</small></td>
               <td>0 ₽</td>
@@ -11151,7 +11155,9 @@ function syncGenerationModeForm(form) {
   const confirmationInput = form.elements.real_spend_confirmation;
   const submit = form.querySelector("#generation-submit");
   const countHint = form.querySelector("#generation-count-hint");
+  const countLabel = form.querySelector("#generation-count-label");
   const mediaHint = form.querySelector("#generation-media-hint");
+  const mockExplanation = form.querySelector("#generation-mock-explanation");
   const price = form.querySelector("#real-generation-price");
   const note = form.querySelector("#real-generation-note");
   const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
@@ -11159,6 +11165,7 @@ function syncGenerationModeForm(form) {
   const preflightButton = form.querySelector('[data-action="check-runway-readiness"]');
   const preflightStatus = form.querySelector("#runway-readiness-status");
   const briefHint = form.querySelector("#generation-brief-hint");
+  const briefLabel = form.querySelector("#generation-brief-label");
   const spendAllowed = !real || realGenerationSpendAllowed(mode, campaignSelect?.value || "");
 
   if (count) {
@@ -11185,6 +11192,7 @@ function syncGenerationModeForm(form) {
     if (sku?.format) format.value = sku.format;
   }
   if (confirmation) confirmation.hidden = !real;
+  if (mockExplanation) mockExplanation.hidden = real;
   if (campaignField) campaignField.hidden = !real;
   if (campaignSelect) {
     campaignSelect.disabled = !real;
@@ -11210,7 +11218,10 @@ function syncGenerationModeForm(form) {
   if (countHint) {
     countHint.textContent = real
       ? `Платный режим всегда создаёт ровно одно ${photo ? "фото" : "видео"}.`
-      : `Можно подготовить от 1 до ${MAX_MOCK_BATCH_SIZE} тестовых вариантов.`;
+      : `Dry-run создаст от 1 до ${MAX_MOCK_BATCH_SIZE} задач без фото или видео.`;
+  }
+  if (countLabel) {
+    countLabel.textContent = real ? "Количество результатов" : "Количество dry-run задач";
   }
   if (mediaHint) {
     mediaHint.textContent = real
@@ -11251,7 +11262,10 @@ function syncGenerationModeForm(form) {
         ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар."
         : real
           ? "Авто-ТЗ соберёт один 5-секундный проход камеры без речи и новых надписей."
-          : "Для тестовых вариантов кратко опишите идею и нужный результат.";
+          : "Необязательно: добавьте инструкцию исполнителю. Этот текст не запускает рендер.";
+  }
+  if (briefLabel) {
+    briefLabel.textContent = real ? "Сценарий и главная мысль" : "Заметка для dry-run задачи";
   }
   const spendSnapshot = form.closest(".card")?.querySelector(".generation-spend-snapshot");
   if (spendSnapshot) {
@@ -11774,7 +11788,7 @@ async function submitRealGeneration(form, values, mode) {
   }
   if (!realGenerationSpendAllowed(mode, campaignId)) {
     const overview = normalizeGenerationSpendOverview(state.generationSpend.data || {});
-    toast(overview.blockerMessage || "Для выбранной цены не хватает утверждённого денежного остатка. Тестовый режим остаётся доступен.", "error");
+    toast(overview.blockerMessage || "Для выбранной цены не хватает утверждённого денежного остатка. Dry-run задач без файлов остаётся доступен.", "error");
     await loadGenerationSpendOverview({ silent: true, force: true });
     if (state.route.path === "/workspace/generation") renderWorkspace("generation");
     return;
@@ -11990,13 +12004,13 @@ async function submitRealGeneration(form, values, mode) {
 
 async function submitMockBatch(form, values = new FormData(form)) {
   if (!MOCK_GENERATION_ENABLED) {
-    toast("Тестовый режим сейчас недоступен.", "error");
+    toast("Dry-run сейчас недоступен.", "error");
     return;
   }
   const count = Number(values.get("count"));
   const mediaIds = values.getAll("media_id").map(String);
   if (!Number.isInteger(count) || count < 1 || count > MAX_MOCK_BATCH_SIZE) {
-    toast(`Укажите от 1 до ${MAX_MOCK_BATCH_SIZE} вариантов.`, "error");
+    toast(`Укажите от 1 до ${MAX_MOCK_BATCH_SIZE} dry-run задач.`, "error");
     return;
   }
   if (!mediaIds.length) {
@@ -12008,7 +12022,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
     toast("Вознаграждение должно быть от 0 до 10 000 ₽ за задачу.", "error");
     return;
   }
-  setFormBusy(form, true, "Создаём тестовые варианты…");
+  setFormBusy(form, true, "Создаём dry-run задачи…");
   try {
     const payload = {
       sku: String(values.get("sku") || "").trim(),
@@ -12046,7 +12060,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
-    toast(`Создано ${count} тестовых вариантов без списаний. Задачи и публикации готовы.`, "success");
+    toast(`Создано ${count} dry-run задач без списаний. Фото и видео не генерировались.`, "success");
     render();
   } catch (error) {
     setFormBusy(form, false);

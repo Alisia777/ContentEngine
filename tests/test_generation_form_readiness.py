@@ -132,7 +132,7 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
 
 
 def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None:
-    assert 'from "./generation-form-readiness.js?v=20260724.2"' in APP
+    assert 'from "./generation-form-readiness.js?v=20260725.1"' in APP
     assert "function syncGenerationFormReadiness(form)" in APP
     assert "syncGenerationFormReadiness(form);" in APP
     assert 'id="generation-readiness"' in MODULE_TEXT
@@ -141,7 +141,7 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert 'id="generation-submit" class="btn btn-block" type="submit" disabled' in APP
     assert "Заполните обязательные шаги" in APP
     assert '? "Проверяем платный запуск — не повторяйте"' in APP
-    assert ': "Создаём тестовые варианты…"' in APP
+    assert ': "Создаём dry-run задачи…"' in APP
     mock_submit = APP[
         APP.index("async function submitMockBatch")
         : APP.index("async function submitManualMetric")
@@ -151,4 +151,29 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
     assert './styles.css?v=20260724.5' in INDEX
-    assert './app.js?v=20260725.24' in INDEX
+    assert './app.js?v=20260725.25' in INDEX
+
+
+def test_mock_mode_truthfully_describes_tasks_without_media_rendering() -> None:
+    ready = _evaluate(
+        {
+            "mode": "mock",
+            "sku": "WB-123",
+            "productName": "Точный товар",
+            "platform": "instagram",
+            "destinationRef": "@brand",
+            "mediaCount": 1,
+            "count": 5,
+            "maxMockCount": 50,
+        }
+    )
+    assert ready["ready"] is True
+
+    assert "Dry-run задач · без файлов и списаний" in APP
+    assert "Изображение и видео в dry-run не создаются" in APP
+    assert "Количество dry-run задач" in APP
+    assert "Этот текст не запускает рендер" in APP
+    assert "Создать dry-run задач" in APP
+    assert "Фото и видео не генерировались" in APP
+    assert "Dry-run задач · медиафайлы не создавались" in APP
+    assert "Будут созданы задачи без фото или видео" in MODULE_TEXT

@@ -63,9 +63,9 @@ export function evaluateGenerationFormReadiness(value = {}) {
     steps.push(
       step(
         "count",
-        "Количество вариантов",
+        "Количество dry-run задач",
         Number.isInteger(count) && count >= 1 && count <= maxMockCount,
-        `Укажите от 1 до ${maxMockCount} вариантов.`,
+        `Укажите от 1 до ${maxMockCount} задач без медиафайлов.`,
       ),
     );
   }
@@ -96,8 +96,8 @@ export function generationReadinessMarkup(evaluation = {}) {
       <div class="generation-readiness__header">
         <div>
           <p class="eyebrow">Готовность запуска</p>
-          <strong data-generation-readiness-title>${ready ? "Можно запускать" : `Следующий шаг: ${next?.label || "заполните форму"}`}</strong>
-          <small data-generation-readiness-next>${ready ? "Все обязательные данные проверены." : (next?.hint || "Заполните обязательные поля.")}</small>
+          <strong data-generation-readiness-title>${ready ? (evaluation.real ? "Можно запускать" : "Можно создать dry-run") : `Следующий шаг: ${next?.label || "заполните форму"}`}</strong>
+          <small data-generation-readiness-next>${ready ? (evaluation.real ? "Все обязательные данные проверены." : "Будут созданы задачи без фото или видео.") : (next?.hint || "Заполните обязательные поля.")}</small>
         </div>
         <span class="generation-readiness__count">${completed} из ${total}</span>
       </div>

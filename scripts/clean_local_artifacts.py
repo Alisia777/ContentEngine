@@ -38,7 +38,10 @@ class CleanupTarget:
 
 
 def relative(path: Path) -> Path:
-    return path.resolve().relative_to(REPO_ROOT)
+    # Keep the repository path lexical here. Virtual environments commonly
+    # contain symlinks to an interpreter outside the checkout; resolving such
+    # a file before the containment guard would make a safe dry-run crash.
+    return path.absolute().relative_to(REPO_ROOT)
 
 
 def is_under_protected_source(path: Path) -> bool:

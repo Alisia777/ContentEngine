@@ -138,7 +138,7 @@ def test_spend_snapshot_fails_closed_for_policy_blocker_and_escapes_campaign_cop
     assert "&lt;img" in result["manager"]
     assert "<img" not in result["manager"]
     assert "Проверяем денежный лимит" in result["loading"]
-    assert "Тестовые варианты доступны" in result["loading"]
+    assert "Dry-run задач доступен" in result["loading"]
     assert "Не удалось подтвердить свежий остаток" in result["stale"]
     assert "Денежный лимит подтверждён" not in result["stale"]
     assert "Платные запуски разрешены" not in result["staleManager"]
@@ -151,14 +151,14 @@ def test_spend_snapshot_fails_closed_for_policy_blocker_and_escapes_campaign_cop
 
 
 def test_live_generation_form_is_fail_closed_but_keeps_mock_available() -> None:
-    assert 'from "./generation-spend-view.js?v=20260717.2"' in APP
+    assert 'from "./generation-spend-view.js?v=20260725.1"' in APP
     assert "generationSpend: {" in APP
     assert "async function loadGenerationSpendOverview" in APP
     assert "state.api.generationSpendOverview()" in APP
     assert "if (!state.generationSpend.data || state.generationSpend.status !== \"ready\") return false" in APP
     assert "seedanceSpendAllowed ? \"\" : \"disabled\"" in APP
     assert "gen4SpendAllowed ? \"\" : \"disabled\"" in APP
-    assert "Тестовые варианты · без списаний" in APP
+    assert "Dry-run задач · без файлов и списаний" in APP
     assert "Платный запуск остановлен лимитом" in APP
     assert "async function submitGenerationSpendPolicy" in APP
     assert "canManageGenerationSpendPolicy()" in APP
@@ -189,5 +189,5 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260725.24' in INDEX
-    assert './supabase-api.js?v=20260725.7' in APP
+    assert './app.js?v=20260725.25' in INDEX
+    assert './supabase-api.js?v=20260725.8' in APP
