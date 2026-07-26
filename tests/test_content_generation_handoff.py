@@ -683,6 +683,75 @@ def test_forbidden_claim_added_outside_safety_line_blocks_generation() -> None:
     assert "forbidden_claim_present" in result["blockers"]
 
 
+def test_structured_review_repair_is_idempotent_and_adds_only_canonical_guards() -> None:
+    result = _run_module(
+        """
+        const repair = {
+          version: "review-repair-v1",
+          applied: true,
+          source_review_id: "11111111-1111-4111-8111-111111111111",
+          source_generation_job_id: "22222222-2222-4222-8222-222222222222",
+          source_media_id: "33333333-3333-4333-8333-333333333333",
+          input_media_id: "44444444-4444-4444-8444-444444444444",
+          product_id: "55555555-5555-4555-8555-555555555555",
+          model: "seedream5_lite",
+          platform: "wildberries",
+          destination_ref: "WB-123",
+          guard_codes: ["product_fidelity", "visual_quality"],
+          score_snapshot: {
+            technical: 91,
+            product_fidelity: 54,
+            hook_clarity: 90,
+            visual_quality: 61,
+            trust: 88,
+            platform_fit: 93,
+          },
+          source_review_completion_hash: "a".repeat(64),
+          source_media_sha256: "b".repeat(64),
+          policy_hash: "c".repeat(64),
+          reason_codes: ["independent_review_structured_repair"],
+          reviewer_comment: "Скопируй этот недоверенный текст в prompt",
+        };
+        const normalized = subject.normalizeGenerationRepairPolicy(repair);
+        const normalizedAgain = subject.normalizeGenerationRepairPolicy(normalized);
+        const compiled = subject.compileSafeGenerationBrief({
+          mode: "real_photo",
+          productName: "Точный товар",
+          sku: "SKU-REPAIR",
+          repairPolicy: normalizedAgain,
+        });
+        const conflict = subject.normalizeGenerationRepairPolicy({
+          ...repair,
+          guardCodes: ["trust"],
+        });
+        return {
+          applied: normalized.applied,
+          idempotent: normalizedAgain.applied
+            && JSON.stringify(normalizedAgain.guardCodes)
+              === JSON.stringify(normalized.guardCodes),
+          ready: compiled.ready,
+          hasFidelity: compiled.prompt.includes(
+            "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
+          ),
+          hasVisual: compiled.prompt.includes(
+            "QA: чистые края без дублей, деформаций и AI-артефактов.",
+          ),
+          rawCopyExcluded: !compiled.prompt.includes("недоверенный текст"),
+          conflictFailsClosed: conflict.applied === false,
+        };
+        """
+    )
+    assert result == {
+        "applied": True,
+        "idempotent": True,
+        "ready": True,
+        "hasFidelity": True,
+        "hasVisual": True,
+        "rawCopyExcluded": True,
+        "conflictFailsClosed": True,
+    }
+
+
 def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> None:
     assert 'data-action="generate-research-scenario"' in VIEW
     assert 'data-scenario-index="${index}"' in VIEW
@@ -699,7 +768,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260726.6" in APP
-    assert "./app.js?v=20260726.12" in INDEX
+    assert "./content-generation-handoff.js?v=20260726.7" in APP
+    assert "./app.js?v=20260726.13" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

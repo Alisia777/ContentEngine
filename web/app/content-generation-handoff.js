@@ -3,6 +3,7 @@ export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
 export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v4";
+export const GENERATION_REPAIR_COMPILER_VERSION = "review-repair-v1";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const REAL_GEN4_MODE = "real_gen4";
@@ -83,7 +84,12 @@ export function parseContentGenerationHandoff(serialized, now = Date.now()) {
   return value;
 }
 
-export function compileContentGenerationPrompt(handoff, mode, learningPolicy = null) {
+export function compileContentGenerationPrompt(
+  handoff,
+  mode,
+  learningPolicy = null,
+  repairPolicy = null,
+) {
   if (!validHandoff(handoff, handoff?.createdAt)) {
     return result("", [{
       code: "handoff_invalid",
@@ -100,6 +106,7 @@ export function compileContentGenerationPrompt(handoff, mode, learningPolicy = n
       visualDirection: handoff.creativeBrief?.visualDirection,
       avoidClaims: handoff.creativeBrief?.avoidClaims,
       learningPolicy,
+      repairPolicy,
     });
   }
   const seedance = normalizedMode === REAL_SEEDANCE_MODE;
@@ -180,7 +187,11 @@ export function compileContentGenerationPrompt(handoff, mode, learningPolicy = n
     required("С первого кадра показывай именно этот товар. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений."),
     required("Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара."),
     optional(brief.avoidClaims.length ? `Не использовать: ${brief.avoidClaims.join("; ")}.` : ""),
-    required(generationLearningDirection(learningPolicy, normalizedMode)),
+    required(generationLearningDirection(
+      learningPolicy,
+      normalizedMode,
+      repairPolicy,
+    )),
   ];
   const prompt = fitPrompt(promptLines, CONTENT_GENERATION_PROMPT_LIMIT);
   if (!prompt) {
@@ -214,6 +225,7 @@ export function compileSafeGenerationBrief({
   visualDirection = "",
   avoidClaims = [],
   learningPolicy = null,
+  repairPolicy = null,
 } = {}) {
   const normalizedMode = normalizeMode(mode);
   const exactProductName = cleanText(productName);
@@ -223,6 +235,7 @@ export function compileSafeGenerationBrief({
   const learningDirection = generationLearningDirection(
     learningPolicy,
     normalizedMode,
+    repairPolicy,
   );
   const blockers = [];
   const warnings = [];
@@ -502,6 +515,141 @@ export function normalizeGenerationLearningPolicy(value) {
   };
 }
 
+export function normalizeGenerationRepairPolicy(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+  const hashPattern = /^[0-9a-f]{64}$/u;
+  const allowedModels = new Set([
+    "gen4_turbo",
+    "seedance2_fast",
+    "seedream5_lite",
+  ]);
+  const allowedPlatforms = new Set([
+    "tiktok",
+    "youtube",
+    "vk",
+    "telegram",
+    "wildberries",
+  ]);
+  const allowedGuardCodes = new Set([
+    "product_fidelity",
+    "technical_stability",
+    "hook_clarity",
+    "visual_quality",
+    "trust",
+    "platform_fit",
+  ]);
+  const version = cleanText(value.version);
+  const sourceReviewId = cleanText(policyField(
+    value,
+    "source_review_id",
+    "sourceReviewId",
+  ));
+  const sourceGenerationJobId = cleanText(policyField(
+    value,
+    "source_generation_job_id",
+    "sourceGenerationJobId",
+  ));
+  const sourceMediaId = cleanText(policyField(
+    value,
+    "source_media_id",
+    "sourceMediaId",
+  ));
+  const inputMediaId = cleanText(policyField(
+    value,
+    "input_media_id",
+    "inputMediaId",
+  ));
+  const productId = cleanText(policyField(
+    value,
+    "product_id",
+    "productId",
+  ));
+  const model = cleanText(value.model);
+  const platform = cleanText(value.platform).toLowerCase();
+  const destinationRef = cleanText(policyField(
+    value,
+    "destination_ref",
+    "destinationRef",
+  ));
+  const policyHash = cleanText(policyField(
+    value,
+    "policy_hash",
+    "policyHash",
+  ));
+  const sourceReviewCompletionHash = cleanText(policyField(
+    value,
+    "source_review_completion_hash",
+    "sourceReviewCompletionHash",
+  ));
+  const sourceMediaSha256 = cleanText(policyField(
+    value,
+    "source_media_sha256",
+    "sourceMediaSha256",
+  ));
+  const guardCodes = uniqueStrings(policyField(
+    value,
+    "guard_codes",
+    "guardCodes",
+  ), 3).filter((code) => allowedGuardCodes.has(code));
+  const scoreSource = policyField(value, "score_snapshot", "scoreSnapshot");
+  const scoreSnapshot = {};
+  for (const code of [
+    "technical",
+    "product_fidelity",
+    "hook_clarity",
+    "visual_quality",
+    "trust",
+    "platform_fit",
+  ]) {
+    const score = Number(scoreSource?.[code]);
+    if (Number.isInteger(score) && score >= 0 && score <= 100) {
+      scoreSnapshot[code] = score;
+    }
+  }
+  const applied = value.applied === true
+    && version === GENERATION_REPAIR_COMPILER_VERSION
+    && [
+      sourceReviewId,
+      sourceGenerationJobId,
+      sourceMediaId,
+      inputMediaId,
+      productId,
+    ].every((id) => uuidPattern.test(id))
+    && allowedModels.has(model)
+    && allowedPlatforms.has(platform)
+    && destinationRef.length >= 2
+    && destinationRef.length <= 240
+    && guardCodes.length >= 1
+    && guardCodes.length <= 3
+    && Object.keys(scoreSnapshot).length === 6
+    && hashPattern.test(policyHash)
+    && hashPattern.test(sourceReviewCompletionHash)
+    && hashPattern.test(sourceMediaSha256);
+  return {
+    version,
+    applied,
+    sourceReviewId: applied ? sourceReviewId : "",
+    sourceGenerationJobId: applied ? sourceGenerationJobId : "",
+    sourceMediaId: applied ? sourceMediaId : "",
+    inputMediaId: applied ? inputMediaId : "",
+    productId: applied ? productId : "",
+    model: applied ? model : "",
+    platform: applied ? platform : "",
+    destinationRef: applied ? destinationRef : "",
+    guardCodes: applied ? guardCodes : [],
+    scoreSnapshot: applied ? scoreSnapshot : {},
+    sourceReviewCompletionHash: applied ? sourceReviewCompletionHash : "",
+    sourceMediaSha256: applied ? sourceMediaSha256 : "",
+    policyHash: applied ? policyHash : "",
+    reasonCodes: uniqueStrings(policyField(
+      value,
+      "reason_codes",
+      "reasonCodes",
+    ), 8),
+  };
+}
+
 function policyField(value, wireName, normalizedName) {
   const hasWireValue = Object.hasOwn(value, wireName);
   const hasNormalizedValue = Object.hasOwn(value, normalizedName);
@@ -516,9 +664,10 @@ function policyField(value, wireName, normalizedName) {
   return hasNormalizedValue ? value[normalizedName] : undefined;
 }
 
-function generationLearningDirection(value, mode) {
+function generationLearningDirection(value, mode, repairValue = null) {
   const policy = normalizeGenerationLearningPolicy(value);
-  if (!policy?.applied) return "";
+  const repairPolicy = normalizeGenerationRepairPolicy(repairValue);
+  if (!policy?.applied && !repairPolicy?.applied) return "";
   const photoDirections = {
     product_focus: "Обученный ракурс: товар целиком, строгий фокус.",
     trust_builder: "Обученный ракурс: естественная предметная подача.",
@@ -535,7 +684,9 @@ function generationLearningDirection(value, mode) {
     objection_handling: "Обученное направление: одна проверяемая деталь товара.",
     curiosity_gap: "Обученное направление: заметная деталь, затем товар целиком.",
   };
-  const angleDirection = mode === REAL_PHOTO_MODE
+  const angleDirection = !policy?.applied
+    ? ""
+    : mode === REAL_PHOTO_MODE
     ? photoDirections[policy.preferredAngle] || ""
     : videoDirections[policy.preferredAngle] || "";
   const hookDirections = {
@@ -548,7 +699,7 @@ function generationLearningDirection(value, mode) {
     numbered: "Структурный hook: один понятный шаг без цифр и надписей.",
     concise: "Структурный hook: простой первый кадр сразу показывает товар.",
   };
-  const hookDirection = mode === REAL_PHOTO_MODE
+  const hookDirection = !policy?.applied || mode === REAL_PHOTO_MODE
     ? ""
     : hookDirections[policy.preferredHookPatterns[0]] || "";
   const photoQualityGuards = {
@@ -567,7 +718,11 @@ function generationLearningDirection(value, mode) {
     trust: "QA: естественная подача без гиперболы и новых обещаний.",
     platform_fit: "QA: мастер 9:16; товар и лицо в безопасных полях.",
   };
-  const qualityDirections = policy.qualityGuardCodes.map((code) => (
+  const qualityGuardCodes = [...new Set([
+    ...(policy?.applied ? policy.qualityGuardCodes : []),
+    ...(repairPolicy?.applied ? repairPolicy.guardCodes : []),
+  ])];
+  const qualityDirections = qualityGuardCodes.map((code) => (
     mode === REAL_PHOTO_MODE
       ? photoQualityGuards[code]
       : videoQualityGuards[code]

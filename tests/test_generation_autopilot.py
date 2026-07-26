@@ -300,13 +300,8 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "В истории несколько назначений для этой площадки" in APP
     assert "generationPreflightDecision(previous" in APP
     assert "scheduleAutomaticGenerationPreflight(form)" in APP
-    initial_sync = (
-        'const generationForm = document.querySelector("#mock-batch-form");\n'
-        "    applyContentGenerationHandoffToForm();\n"
-        "    if (generationForm) {\n"
-        "      syncGenerationModeForm(generationForm);\n"
-        "      syncGenerationFormReadiness(generationForm);\n"
-        "    }"
-    )
-    assert initial_sync in APP
-    assert './app.js?v=20260726.12' in INDEX
+    assert 'const generationForm = document.querySelector("#mock-batch-form");' in APP
+    assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
+    assert "syncGenerationModeForm(generationForm);" in APP
+    assert "syncGenerationFormReadiness(generationForm);" in APP
+    assert './app.js?v=20260726.13' in INDEX

@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v2";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
@@ -156,6 +156,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      creator_generation_repair_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_update_real_generation: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -237,6 +241,7 @@ type CommonStartPayload = {
   allow_real_spend: true;
   learning_context: GenerationLearningContext;
   learning_opt_out?: true;
+  repair_context?: GenerationRepairContext;
 };
 
 type GenerationLearningContext = {
@@ -262,6 +267,21 @@ type GenerationLearningContext = {
   applied_policy_hash?: string;
   creative_brief_draft_id?: string;
   scenario_position?: 1 | 2 | 3;
+};
+
+type GenerationRepairContext = {
+  source_review_id: string;
+  source_generation_job_id: string;
+  guard_codes: (
+    | "product_fidelity"
+    | "technical_stability"
+    | "hook_clarity"
+    | "visual_quality"
+    | "trust"
+    | "platform_fit"
+  )[];
+  policy_hash: string;
+  compiler_version: "review-repair-v1";
 };
 
 type StartPayload =
@@ -575,6 +595,7 @@ function readStartPayload(value: unknown): StartPayload | null {
     "assignee_id",
     "payout_minor",
     "learning_opt_out",
+    "repair_context",
   ]);
   if (!hasOnlyKeys(value, allowed)) return null;
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
@@ -650,6 +671,12 @@ function readStartPayload(value: unknown): StartPayload | null {
       value.learning_opt_out !== true ||
       learningContext.source === "performance_learning"
     )
+  ) {
+    return null;
+  }
+  if (
+    Object.hasOwn(value, "repair_context") &&
+    readGenerationRepairContext(value.repair_context) === null
   ) {
     return null;
   }
@@ -784,6 +811,47 @@ function readGenerationLearningContext(
   return value as GenerationLearningContext;
 }
 
+function readGenerationRepairContext(
+  value: unknown,
+): GenerationRepairContext | null {
+  if (!isRecord(value)) return null;
+  const allowed = new Set([
+    "source_review_id",
+    "source_generation_job_id",
+    "guard_codes",
+    "policy_hash",
+    "compiler_version",
+  ]);
+  const guardCodes = value.guard_codes;
+  const validGuardCodes = new Set([
+    "product_fidelity",
+    "technical_stability",
+    "hook_clarity",
+    "visual_quality",
+    "trust",
+    "platform_fit",
+  ]);
+  if (
+    !hasOnlyKeys(value, allowed) ||
+    Object.keys(value).length !== allowed.size ||
+    !isUuid(value.source_review_id) ||
+    !isUuid(value.source_generation_job_id) ||
+    !Array.isArray(guardCodes) ||
+    guardCodes.length < 1 ||
+    guardCodes.length > 3 ||
+    guardCodes.some((code) =>
+      typeof code !== "string" || !validGuardCodes.has(code)
+    ) ||
+    new Set(guardCodes).size !== guardCodes.length ||
+    typeof value.policy_hash !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(value.policy_hash) ||
+    value.compiler_version !== "review-repair-v1"
+  ) {
+    return null;
+  }
+  return value as GenerationRepairContext;
+}
+
 function generationLearningPromptRequirements(
   value: unknown,
   model: RunwayModel,
@@ -892,6 +960,65 @@ function generationLearningPromptIsBound(
 ): boolean {
   const requirements = generationLearningPromptRequirements(
     policy,
+    payload.model,
+  );
+  return requirements !== null &&
+    requirements.every((requirement) => payload.brief.includes(requirement));
+}
+
+function generationRepairPromptRequirements(
+  guardCodes: unknown,
+  model: RunwayModel,
+): string[] | null {
+  if (
+    !Array.isArray(guardCodes) ||
+    guardCodes.length < 1 ||
+    guardCodes.length > 3 ||
+    new Set(guardCodes).size !== guardCodes.length
+  ) {
+    return null;
+  }
+  const photo = model === "seedream5_lite";
+  const requirements = photo
+    ? {
+      product_fidelity:
+        "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
+      technical_stability:
+        "QA: резкий товар, ровный свет, без пересвета и размытия.",
+      hook_clarity: "QA: товар считывается первым.",
+      visual_quality: "QA: чистые края без дублей, деформаций и AI-артефактов.",
+      trust: "QA: естественные материалы, свет и масштаб.",
+      platform_fit: "QA: мастер 1:1, безопасные поля.",
+    }
+    : {
+      product_fidelity:
+        "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
+      technical_stability:
+        "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+      hook_clarity:
+        "QA: точный товар и одно действие видны в первые 2 секунды.",
+      visual_quality:
+        "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
+      trust: "QA: естественная подача без гиперболы и новых обещаний.",
+      platform_fit: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+    };
+  const result: string[] = [];
+  for (const code of guardCodes) {
+    if (typeof code !== "string") return null;
+    const requirement = requirements[code as keyof typeof requirements];
+    if (typeof requirement !== "string") return null;
+    result.push(requirement);
+  }
+  return result;
+}
+
+function generationRepairPromptIsBound(
+  policy: unknown,
+  payload: StartPayload,
+): boolean {
+  if (!isRecord(policy) || policy.applied !== true) return false;
+  const requirements = generationRepairPromptRequirements(
+    policy.guard_codes,
     payload.model,
   );
   return requirements !== null &&
@@ -2566,6 +2693,59 @@ async function handleCreatorGenerate(
       422,
     );
   }
+  if (startPayload.repair_context !== undefined) {
+    let repairPolicy: Record<string, unknown> | null = null;
+    try {
+      const { data, error } = await context.supabase.rpc(
+        "creator_generation_repair_policy",
+        {
+          p_payload: {
+            organization_id: startPayload.organization_id,
+            review_id: startPayload.repair_context.source_review_id,
+          },
+        },
+      );
+      if (error !== null || !isRecord(data)) {
+        return json(
+          request,
+          { ok: false, code: "generation_repair_unavailable" },
+          503,
+        );
+      }
+      repairPolicy = data;
+    } catch {
+      return json(
+        request,
+        { ok: false, code: "generation_repair_unavailable" },
+        503,
+      );
+    }
+    if (
+      repairPolicy.applied !== true ||
+      repairPolicy.policy_hash !== startPayload.repair_context.policy_hash ||
+      repairPolicy.source_generation_job_id !==
+        startPayload.repair_context.source_generation_job_id ||
+      JSON.stringify(repairPolicy.guard_codes) !==
+        JSON.stringify(startPayload.repair_context.guard_codes) ||
+      repairPolicy.input_media_id !== startPayload.media_ids[0] ||
+      repairPolicy.model !== startPayload.model ||
+      repairPolicy.platform !== startPayload.platform ||
+      repairPolicy.destination_ref !== startPayload.destination_ref
+    ) {
+      return json(
+        request,
+        { ok: false, code: "generation_repair_policy_stale" },
+        409,
+      );
+    }
+    if (!generationRepairPromptIsBound(repairPolicy, startPayload)) {
+      return json(
+        request,
+        { ok: false, code: "generation_repair_prompt_binding_invalid" },
+        422,
+      );
+    }
+  }
   const { data: startData, error: startError } = await context.supabase.rpc(
     "creator_start_real_generation",
     { p_payload: rpcPayload(startPayload) },
@@ -2580,16 +2760,27 @@ async function handleCreatorGenerate(
       ].includes(startError.message)
       ? startError.message
       : null;
+    const repairCode = [
+        "generation_repair_context_invalid",
+        "generation_repair_policy_stale",
+        "generation_repair_prompt_binding_invalid",
+        "generation_repair_job_binding_invalid",
+        "generation_repair_signal_conflict",
+      ].includes(startError.message)
+      ? startError.message
+      : null;
     const code = budgetCode ??
       (startError.message === "real_generation_reconciliation_required"
         ? "real_generation_reconciliation_required"
-        : learningCode ?? "generation_rejected");
+        : repairCode ?? learningCode ?? "generation_rejected");
     const status = budgetCode !== null
       ? budgetErrorHttpStatus(budgetCode)
       : code === "generation_rejected"
       ? 403
       : code === "generation_learning_context_invalid" ||
-          code === "generation_learning_prompt_binding_invalid"
+          code === "generation_learning_prompt_binding_invalid" ||
+          code === "generation_repair_context_invalid" ||
+          code === "generation_repair_prompt_binding_invalid"
       ? 422
       : 409;
     return json(

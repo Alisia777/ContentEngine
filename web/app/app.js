@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.6";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.7";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -43,11 +43,13 @@ import {
   compileSafeGenerationBrief,
   createContentGenerationHandoff,
   GENERATION_LEARNING_COMPILER_VERSION,
+  GENERATION_REPAIR_COMPILER_VERSION,
   inferGenerationCreativeSignals,
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
+  normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260726.6";
+} from "./content-generation-handoff.js?v=20260726.7";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -211,6 +213,7 @@ const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
 const CONTENT_GENERATION_HANDOFF_STORAGE_KEY = "contentengine.content-generation-handoff.v1";
+const GENERATION_REPAIR_STORAGE_KEY = "contentengine.generation-repair.v1";
 const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "owner",
   "admin",
@@ -369,7 +372,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v2";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -922,6 +925,7 @@ const state = {
     disabledKey: "",
     promise: null,
   },
+  generationRepair: readStoredGenerationRepair(),
   generationPreflight: {
     entries: new Map(),
     requestId: 0,
@@ -1127,6 +1131,53 @@ function clearContentGenerationHandoff() {
   state.contentGenerationHandoff = null;
   try {
     safeStorageRemove(window.sessionStorage, CONTENT_GENERATION_HANDOFF_STORAGE_KEY);
+  } catch {
+    // Cleanup is best effort.
+  }
+}
+
+function readStoredGenerationRepair() {
+  const empty = { status: "idle", data: null, error: null };
+  try {
+    const serialized = safeStorageGet(
+      window.sessionStorage,
+      GENERATION_REPAIR_STORAGE_KEY,
+    );
+    if (!serialized || serialized.length > 12_000) return empty;
+    const envelope = JSON.parse(serialized);
+    const savedAt = Number(envelope?.saved_at);
+    const policy = normalizeGenerationRepairPolicy(envelope?.policy);
+    if (
+      !Number.isFinite(savedAt)
+      || savedAt <= 0
+      || Date.now() - savedAt > 24 * 60 * 60 * 1_000
+      || !policy?.applied
+    ) return empty;
+    return { status: "ready", data: envelope.policy, error: null };
+  } catch {
+    return empty;
+  }
+}
+
+function persistGenerationRepair(policy) {
+  const normalized = normalizeGenerationRepairPolicy(policy);
+  if (!normalized?.applied) return false;
+  return safeStorageSet(
+    window.sessionStorage,
+    GENERATION_REPAIR_STORAGE_KEY,
+    JSON.stringify({
+      saved_at: Date.now(),
+      policy,
+    }),
+  );
+}
+
+function clearGenerationRepair() {
+  state.generationRepair.status = "idle";
+  state.generationRepair.data = null;
+  state.generationRepair.error = null;
+  try {
+    safeStorageRemove(window.sessionStorage, GENERATION_REPAIR_STORAGE_KEY);
   } catch {
     // Cleanup is best effort.
   }
@@ -7066,6 +7117,22 @@ function renderGenerationSection(sectionState) {
   const gen4SpendAllowed = Boolean(gen4Campaign);
   const photoSpendAllowed = Boolean(photoCampaign);
   const handoff = state.contentGenerationHandoff;
+  const repairPolicy = normalizeGenerationRepairPolicy(
+    state.generationRepair.data,
+  );
+  const repairMode = generationRepairMode(repairPolicy?.model);
+  const repairMedia = repairPolicy?.applied
+    ? exactMedia.find((item) =>
+      String(item.public_id || item.id || "") === repairPolicy.inputMediaId
+      && generationMediaIdentity(item).paidReady
+    )
+    : null;
+  const repairModeAvailable = (
+    (repairMode === REAL_PHOTO_MODE && photoSpendAllowed)
+    || (repairMode === REAL_SEEDANCE_MODE && seedanceSpendAllowed)
+    || (repairMode === REAL_GEN4_MODE && gen4SpendAllowed)
+  );
+  const repairReady = Boolean(repairMedia && repairModeAvailable);
   const handoffModeResolution = handoff
     ? resolveHandoffGenerationMode({
       handoff,
@@ -7077,7 +7144,9 @@ function renderGenerationSection(sectionState) {
       mockEnabled: MOCK_GENERATION_ENABLED,
     })
     : null;
-  const defaultMode = handoff
+  const defaultMode = repairReady
+    ? repairMode
+    : handoff
     ? handoffModeResolution.value
     : MOCK_GENERATION_ENABLED
       ? "mock"
@@ -7097,9 +7166,15 @@ function renderGenerationSection(sectionState) {
         : seedanceCampaign?.id || gen4Campaign?.id || photoCampaign?.id || generationCampaigns[0]?.id || "";
   const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
-  const automaticMediaId = chooseInitialGenerationMedia(exactMedia, {
-    real: defaultIsReal,
-  });
+  const automaticMediaId = repairReady
+    ? repairPolicy.inputMediaId
+    : chooseInitialGenerationMedia(exactMedia, {
+      real: defaultIsReal,
+    });
+  const defaultPlatform = repairReady ? repairPolicy.platform : "instagram";
+  const defaultDestinationRef = repairReady
+    ? repairPolicy.destinationRef
+    : "";
   const visibleExactMedia = automaticMediaId
     ? [
         exactMedia.find((item) =>
@@ -7126,7 +7201,7 @@ function renderGenerationSection(sectionState) {
     scheduleRealGenerationPolling();
     resumeGeneratedVideoTechnicalQa();
     const generationForm = document.querySelector("#mock-batch-form");
-    applyContentGenerationHandoffToForm();
+    if (!repairReady) applyContentGenerationHandoffToForm();
     if (generationForm) {
       syncGenerationModeForm(generationForm);
       syncGenerationFormReadiness(generationForm);
@@ -7230,11 +7305,11 @@ function renderGenerationSection(sectionState) {
             <div class="form-grid-2">
               <label class="field">
                 <span>Площадка *</span>
-                <select name="platform" required><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option><option value="vk">VK</option><option value="telegram">Telegram</option><option value="wildberries">Wildberries</option></select>
+                <select name="platform" required><option value="instagram" ${defaultPlatform === "instagram" ? "selected" : ""}>Instagram</option><option value="tiktok" ${defaultPlatform === "tiktok" ? "selected" : ""}>TikTok</option><option value="youtube" ${defaultPlatform === "youtube" ? "selected" : ""}>YouTube</option><option value="vk" ${defaultPlatform === "vk" ? "selected" : ""}>VK</option><option value="telegram" ${defaultPlatform === "telegram" ? "selected" : ""}>Telegram</option><option value="wildberries" ${defaultPlatform === "wildberries" ? "selected" : ""}>Wildberries</option></select>
               </label>
               <label class="field">
                 <span>Аккаунт или карточка для публикации *</span>
-                <input name="destination_ref" required minlength="2" maxlength="240" placeholder="Точный @аккаунт, канал или карточка" autocomplete="off" />
+                <input name="destination_ref" required minlength="2" maxlength="240" value="${escapeHtml(defaultDestinationRef)}" placeholder="Точный @аккаунт, канал или карточка" autocomplete="off" />
                 <small id="generation-destination-hint" class="field-hint">Если в прошлых запусках для площадки было одно назначение, портал подставит его сам.</small>
               </label>
             </div>
@@ -7275,6 +7350,7 @@ function renderGenerationSection(sectionState) {
               <small id="generation-auto-brief-status" class="field-hint" role="status">Выберите проверенное фото товара — ТЗ заполнится само.</small>
             </div>
             ${generationLearningMarkup()}
+            ${generationRepairMarkup()}
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
                 <legend class="field-label">Фото выбранного товара *</legend>
@@ -11170,6 +11246,8 @@ function handleFormActivity(event) {
         if (hint) {
           hint.textContent = "Указано вручную. Перед запуском проверьте точный аккаунт, канал или карточку.";
         }
+        syncAutomaticGenerationBrief(form, { force: true });
+        syncGenerationRepairStatus(form);
       }
       if (event.target.name === "brief") {
         syncGenerationModeForm(form);
@@ -11303,6 +11381,39 @@ function generationLearningKey(form, identity = selectedGenerationProductIdentit
   return [identity.mediaId, sku.model, platform].join(":");
 }
 
+function generationRepairMode(model) {
+  return {
+    seedream5_lite: REAL_PHOTO_MODE,
+    seedance2_fast: REAL_SEEDANCE_MODE,
+    gen4_turbo: REAL_GEN4_MODE,
+  }[String(model || "")] || "";
+}
+
+function activeGenerationRepairPolicy(
+  form,
+  identity = selectedGenerationProductIdentity(form),
+) {
+  const policy = normalizeGenerationRepairPolicy(state.generationRepair.data);
+  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  const platform = String(
+    form?.elements?.platform?.value || "",
+  ).trim().toLowerCase();
+  const destinationRef = String(
+    form?.elements?.destination_ref?.value || "",
+  ).trim();
+  if (
+    state.generationRepair.status !== "ready"
+    || !policy?.applied
+    || !form
+    || !identity
+    || identity.mediaId !== policy.inputMediaId
+    || sku?.model !== policy.model
+    || platform !== policy.platform
+    || destinationRef !== policy.destinationRef
+  ) return null;
+  return policy;
+}
+
 function activeGenerationLearningPolicy(
   form,
   identity = selectedGenerationProductIdentity(form),
@@ -11337,6 +11448,27 @@ function generationQualityGuardLabel(value) {
     trust: "естественность подачи",
     platform_fit: "формат площадки",
   }[String(value || "")] || "";
+}
+
+function generationRepairMarkup(form = null) {
+  const policy = normalizeGenerationRepairPolicy(state.generationRepair.data);
+  if (!policy?.applied) return "";
+  const active = form ? activeGenerationRepairPolicy(form) : policy;
+  const labels = policy.guardCodes
+    .map(generationQualityGuardLabel)
+    .filter(Boolean);
+  const source = policy.sourceReviewId.slice(0, 8);
+  const title = active
+    ? "Исправление после QA применено"
+    : "Контекст исправления изменён";
+  const copy = active
+    ? `Проверка ${source} выявила слабые оценки: ${labels.join(", ")}. Авто-ТЗ усиливает только эти фиксированные QA-ограничения; комментарий проверяющего не копируется.`
+    : "Исходник, режим, площадка или назначение отличаются от проверенного запуска. Исправляющие ограничения не будут отправлены.";
+  return `
+    <div id="generation-repair-status" class="generation-learning-status" data-state="${active ? "applied" : "warning"}" role="status">
+      <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span></div>
+    </div>
+  `;
 }
 
 function generationHookPatternLabel(value) {
@@ -11437,6 +11569,15 @@ function syncGenerationLearningStatus(form) {
   if (!current) return;
   const wrapper = document.createElement("div");
   wrapper.innerHTML = generationLearningMarkup(form).trim();
+  if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
+}
+
+function syncGenerationRepairStatus(form) {
+  const current = form?.querySelector("#generation-repair-status");
+  const markup = generationRepairMarkup(form).trim();
+  if (!current || !markup) return;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = markup;
   if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
 }
 
@@ -11546,14 +11687,21 @@ function automaticGenerationBriefCandidate(form, identity) {
     && handoff.sku === identity.sku
     && handoff.productName === identity.productName;
   const learningPolicy = activeGenerationLearningPolicy(form, identity);
+  const repairPolicy = activeGenerationRepairPolicy(form, identity);
   if (handoffMatchesIdentity) {
-    return compileContentGenerationPrompt(handoff, mode, learningPolicy);
+    return compileContentGenerationPrompt(
+      handoff,
+      mode,
+      learningPolicy,
+      repairPolicy,
+    );
   }
   return compileSafeGenerationBrief({
     mode,
     sku: identity.sku,
     productName: identity.productName,
     learningPolicy,
+    repairPolicy,
   });
 }
 
@@ -11600,6 +11748,22 @@ function generationLearningContext(form) {
     hook_patterns: [],
     source: "baseline",
     compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+  };
+}
+
+function generationRepairContext(form) {
+  const identity = selectedGenerationProductIdentity(form);
+  const autoPrompt = String(form?.dataset?.autoGenerationBrief || "");
+  const currentPrompt = String(form?.elements?.brief?.value || "");
+  if (!identity || !autoPrompt || currentPrompt !== autoPrompt) return null;
+  const policy = activeGenerationRepairPolicy(form, identity);
+  if (!policy?.applied) return null;
+  return {
+    source_review_id: policy.sourceReviewId,
+    source_generation_job_id: policy.sourceGenerationJobId,
+    guard_codes: policy.guardCodes,
+    policy_hash: policy.policyHash,
+    compiler_version: GENERATION_REPAIR_COMPILER_VERSION,
   };
 }
 
@@ -11694,6 +11858,7 @@ function syncGenerationProductIdentity(form) {
     }
     syncAutomaticGenerationBrief(form);
     syncGenerationLearningStatus(form);
+    syncGenerationRepairStatus(form);
     return null;
   }
 
@@ -11718,6 +11883,7 @@ function syncGenerationProductIdentity(form) {
   }
   const identity = { mediaId: selected.value, sku, productName };
   syncAutomaticGenerationBrief(form, { identity });
+  syncGenerationRepairStatus(form);
   window.queueMicrotask(() => {
     if (form.isConnected) loadGenerationLearningPolicy(form, identity);
   });
@@ -11919,6 +12085,7 @@ function syncGenerationModeForm(form) {
   if (submit) {
     syncGenerationFormReadiness(form);
   }
+  syncGenerationRepairStatus(form);
   if (real && spendAllowed) scheduleAutomaticGenerationPreflight(form);
 }
 
@@ -12623,6 +12790,7 @@ async function submitRealGeneration(form, values, mode) {
     form.elements.brief?.focus({ preventScroll: true });
     return;
   }
+  const repairContext = generationRepairContext(form);
   if (values.get("real_spend_confirmation") !== generationSku.confirmation) {
     toast(`Подтвердите создание одного платного ${contentLabel} примерно за $${generationSku.estimatedUsd}.`, "error");
     return;
@@ -12648,6 +12816,7 @@ async function submitRealGeneration(form, values, mode) {
     audio: generationSku.audio,
     spend_confirmation: String(values.get("real_spend_confirmation") || ""),
     learning_context: learningContext,
+    ...(repairContext ? { repair_context: repairContext } : {}),
     ...(generationLearningOptOut(form) ? { learning_opt_out: true } : {}),
     ...(canManageTeam()
       ? {
@@ -12718,6 +12887,8 @@ async function submitRealGeneration(form, values, mode) {
       research_id: generationHandoff?.researchId || null,
       creative_brief_draft_id: generationHandoff?.draftId || null,
       scenario_position: generationHandoff?.scenario?.position || null,
+      repair_source_review_id: repairContext?.source_review_id || null,
+      repair_guard_codes: repairContext?.guard_codes || [],
     });
     state.realGenerationStartNotice = "";
     setFormBusy(form, false);
@@ -12732,6 +12903,7 @@ async function submitRealGeneration(form, values, mode) {
       toast(generationFailureMessage(result.job.failure_code), "error");
     } else {
       clearContentGenerationHandoff();
+      clearGenerationRepair();
       toast(
         photo
           ? `Платный запуск принят: одно фото 2K, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`
@@ -14010,6 +14182,36 @@ async function submitContentReviewDecision(form, submitter) {
       risk_acknowledgement_count: decision.riskAcknowledgements.length,
       media_watched_confirmed: true,
     });
+    if (decision.decision === "needs_changes") {
+      try {
+        const repairRaw = await state.api.generationRepairPolicy(reviewId);
+        const repairPolicy = normalizeGenerationRepairPolicy(
+          repairRaw?.data ?? repairRaw,
+        );
+        if (repairPolicy?.applied) {
+          state.generationRepair.status = "ready";
+          state.generationRepair.data = repairRaw?.data ?? repairRaw;
+          state.generationRepair.error = null;
+          persistGenerationRepair(state.generationRepair.data);
+          state.sections.generation.status = "idle";
+          review.notice = "Решение сохранено. Безопасное исправление подготовлено: исходник, режим и площадка уже выбраны; стоимость нужно подтвердить отдельно.";
+          if (["owner", "admin", "producer", "operator"].includes(
+            state.bootstrap?.membership?.role,
+          )) {
+            navigate("/workspace/generation");
+          }
+        } else {
+          clearGenerationRepair();
+          review.notice = "Решение сохранено. Числовые оценки не выявили безопасного структурного исправления — нужен новый материал или ручное решение без копирования текста проверки.";
+        }
+      } catch (repairError) {
+        clearGenerationRepair();
+        state.generationRepair.status = "error";
+        state.generationRepair.error = repairError;
+        review.notice = "Решение сохранено, но автоматическое исправление временно не подготовилось. Повторно решение не отправляйте.";
+        review.error = actionErrorMessage(repairError);
+      }
+    }
   } catch (error) {
     review.phase = "idle";
     review.error = actionErrorMessage(error);
@@ -14290,6 +14492,7 @@ function clearAuthenticatedState() {
   state.generationLearning.key = "";
   state.generationLearning.disabledKey = "";
   state.generationLearning.promise = null;
+  clearGenerationRepair();
   state.generationPreflight.requestId += 1;
   state.generationPreflight.entries.clear();
   state.accessCenter.requestId += 1;

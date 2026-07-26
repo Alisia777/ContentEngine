@@ -16,6 +16,7 @@ export const RPC = Object.freeze({
   workspaceSection: "creator_workspace_section",
   generationMediaIdentity: "creator_generation_media_identity",
   generationLearningPolicy: "creator_generation_learning_policy",
+  generationRepairPolicy: "creator_generation_repair_policy",
   generationArchive: "creator_generation_archive",
   workspaceBrowser: "creator_workspace_browser",
   createWorkspaceFolder: "creator_create_workspace_folder",
@@ -295,6 +296,18 @@ export class CreatorApi {
       media_id: normalizedMediaId,
       platform: normalizedPlatform,
       model: normalizedModel,
+    }));
+  }
+
+  generationRepairPolicy(reviewId) {
+    const normalizedReviewId = String(reviewId || "").trim();
+    if (!isUuid(normalizedReviewId)) {
+      throw new CreatorApiError("Не удалось определить проверку для исправления.", {
+        code: "generation_repair_review_invalid",
+      });
+    }
+    return this.call(RPC.generationRepairPolicy, this.withOrganization({
+      review_id: normalizedReviewId,
     }));
   }
 
@@ -1506,6 +1519,45 @@ export class CreatorApi {
         "Не удалось подтвердить осознанное отключение обученного ракурса.",
         { code: "generation_learning_opt_out_invalid" },
       );
+    }
+    const repairContext = batch?.repair_context;
+    if (repairContext !== undefined) {
+      const allowedRepairCodes = new Set([
+        "product_fidelity",
+        "technical_stability",
+        "hook_clarity",
+        "visual_quality",
+        "trust",
+        "platform_fit",
+      ]);
+      const guardCodes = repairContext?.guard_codes;
+      if (
+        !repairContext
+        || typeof repairContext !== "object"
+        || Array.isArray(repairContext)
+        || repairContext.compiler_version !== "review-repair-v1"
+        || !isUuid(String(repairContext.source_review_id || ""))
+        || !isUuid(String(repairContext.source_generation_job_id || ""))
+        || !/^[0-9a-f]{64}$/u.test(String(repairContext.policy_hash || ""))
+        || !Array.isArray(guardCodes)
+        || guardCodes.length < 1
+        || guardCodes.length > 3
+        || new Set(guardCodes).size !== guardCodes.length
+        || guardCodes.some((code) => !allowedRepairCodes.has(code))
+        || Object.keys(repairContext).some((key) => ![
+          "source_review_id",
+          "source_generation_job_id",
+          "guard_codes",
+          "policy_hash",
+          "compiler_version",
+        ].includes(key))
+        || Object.keys(repairContext).length !== 5
+      ) {
+        throw new CreatorApiError(
+          "Исправление после QA устарело. Вернитесь в проверку и подготовьте его снова.",
+          { code: "generation_repair_context_invalid" },
+        );
+      }
     }
 
     return this.invokeRealGeneration("start", {

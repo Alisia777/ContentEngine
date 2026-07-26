@@ -287,7 +287,8 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
         "resolveHandoffGenerationMode({",
         "[REAL_GEN4_MODE]: gen4SpendAllowed",
         "[REAL_SEEDANCE_MODE]: seedanceSpendAllowed",
-        "const defaultMode = handoff",
+            "const defaultMode = repairReady",
+            ": handoff",
         "? handoffModeResolution.value",
         "Режим выбран автоматически",
         "Стоимость и права всё равно подтверждаются отдельно",
@@ -307,8 +308,8 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260726.6"'
+        'from "./content-generation-handoff.js?v=20260726.7"'
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260726.3"' in APP
-    assert './app.js?v=20260726.12' in INDEX
+    assert './app.js?v=20260726.13' in INDEX
