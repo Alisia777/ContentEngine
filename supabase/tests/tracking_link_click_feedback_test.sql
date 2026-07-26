@@ -61,6 +61,29 @@ select
   'a4a4a4a4-a4a4-44a4-84a4-a4a4a4a4a4a4'::uuid
 from (select public.creator_bootstrap('{}'::jsonb) as bootstrap) response;
 
+-- This contract exercises publication telemetry, not training. Use the
+-- explicit, auditable production waiver instead of fabricating exam answers.
+update content_factory.memberships membership
+set role = 'operator'
+from tracking_test_context context
+where membership.organization_id = context.organization_id
+  and membership.profile_id = context.profile_id;
+
+insert into content_factory.training_access_waivers (
+  organization_id, profile_id, scope, status, previous_role, granted_role,
+  grant_reason, granted_by
+)
+select
+  context.organization_id,
+  context.profile_id,
+  'workspace_generation',
+  'active',
+  'trainee',
+  'operator',
+  'TEST-ONLY waiver for publication tracking pgTAP coverage.',
+  context.profile_id
+from tracking_test_context context;
+
 insert into content_factory.products (
   id, organization_id, sku, title, status, metadata, created_by
 )

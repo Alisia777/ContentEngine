@@ -160,6 +160,7 @@ def test_database_contract_covers_real_redirect_feedback() -> None:
         "'false'",
         "'tracking-v1'",
         "'0.50'",
+        "training_access_waivers",
         "tracking_link_target_immutable",
         "has_function_privilege(",
     ):
