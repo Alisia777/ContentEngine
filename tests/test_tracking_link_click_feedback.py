@@ -144,10 +144,12 @@ def test_public_redirect_is_linted_checked_and_deployed() -> None:
         "deno fmt --check supabase/functions/creator-click",
         "deno lint supabase/functions/creator-click/index.ts",
         "deno check supabase/functions/creator-click/index.ts",
+        'SUPABASE_TELEMETRY_DISABLED: "1"',
     ):
         assert token in CI
     assert "supabase functions deploy creator-click" in DEPLOY
     assert "--no-verify-jwt" in DEPLOY
+    assert 'SUPABASE_TELEMETRY_DISABLED: "1"' in DEPLOY
 
 
 def test_database_contract_covers_real_redirect_feedback() -> None:
