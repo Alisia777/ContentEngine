@@ -16,6 +16,7 @@ class SocialMetricObservation:
     period_start: date
     period_end: date
     metrics: dict[str, int | float | None]
+    reporting_timezone: str = "UTC"
     final_url: str | None = None
     external_post_id: str | None = None
     publishing_task_id: int | None = None

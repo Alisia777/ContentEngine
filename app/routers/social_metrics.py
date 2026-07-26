@@ -73,6 +73,12 @@ class SocialMetricIngestRequest(BaseModel):
     observed_at: datetime
     period_start: date
     period_end: date
+    reporting_timezone: str = Field(
+        default="UTC",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_+./-]*$",
+    )
     idempotency_key: str | None = Field(
         default=None,
         min_length=1,
@@ -207,6 +213,7 @@ def ingest_social_metric(
                 observed_at=payload.observed_at,
                 period_start=payload.period_start,
                 period_end=payload.period_end,
+                reporting_timezone=payload.reporting_timezone,
                 idempotency_key=payload.idempotency_key,
                 metrics=payload.metrics.model_dump(exclude_unset=True),
             )

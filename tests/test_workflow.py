@@ -932,7 +932,13 @@ def test_warmup_scheduler_allows_valid_schedule():
 def test_warmup_scheduler_blocks_over_limit_posts():
     with client() as api:
         package_id, account_id = create_approved_package(api)
-        scheduled_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)
+        scheduled_at = datetime.now(UTC).replace(
+            hour=12,
+            minute=0,
+            second=0,
+            microsecond=0,
+            tzinfo=None,
+        ) + timedelta(days=1)
         first = api.post(
             "/api/publishing-jobs/schedule",
             json={
@@ -1150,7 +1156,13 @@ def test_scheduler_blocks_inactive_destination():
 def test_scheduler_blocks_daily_limit():
     with client() as api:
         package_id, destination_id = create_safe_approved_package_and_destination(api, daily_limit=1)
-        scheduled_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)
+        scheduled_at = datetime.now(UTC).replace(
+            hour=12,
+            minute=0,
+            second=0,
+            microsecond=0,
+            tzinfo=None,
+        ) + timedelta(days=1)
         first = api.post(
             "/api/publishing/tasks/schedule",
             json={

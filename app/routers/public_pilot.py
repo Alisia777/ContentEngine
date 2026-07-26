@@ -2045,6 +2045,7 @@ def sync_official_connector_from_workbench(
             period_start=period_start_value,
             period_end=period_end_value,
             observed_at=observed_at,
+            reporting_timezone="Europe/Moscow",
             sync_key=sync_key,
         )
     except HTTPException:
@@ -2127,6 +2128,7 @@ def ingest_social_metrics_from_workbench(
                 observed_at=observed_at,
                 period_start=date.fromisoformat(period_start),
                 period_end=date.fromisoformat(period_end),
+                reporting_timezone="Europe/Moscow",
                 metrics=metrics,
             )
         )

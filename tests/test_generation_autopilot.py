@@ -143,6 +143,17 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "function syncGenerationAutomaticMedia(form)" in APP
     assert 'generationForm.dataset.generationMediaSelectionTouched = "true"' in APP
     assert "snapshot.generationMediaSelectionTouched" in APP
+    assert "autoGenerationBrief: String(form.dataset.autoGenerationBrief" in APP
+    assert "form.dataset.autoGenerationBrief = snapshot.autoGenerationBrief" in APP
     assert "resolveGenerationPlatform({" in APP
     assert "delete generationForm.dataset.autoGenerationPlatform" in APP
-    assert './app.js?v=20260725.26' in INDEX
+    initial_sync = (
+        'const generationForm = document.querySelector("#mock-batch-form");\n'
+        "    applyContentGenerationHandoffToForm();\n"
+        "    if (generationForm) {\n"
+        "      syncGenerationModeForm(generationForm);\n"
+        "      syncGenerationFormReadiness(generationForm);\n"
+        "    }"
+    )
+    assert initial_sync in APP
+    assert './app.js?v=20260726.1' in INDEX

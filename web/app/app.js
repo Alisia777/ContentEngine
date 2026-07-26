@@ -5305,6 +5305,7 @@ function captureDirtyWorkspaceForms(container) {
     busyLabel: form.querySelector('button[type="submit"]')?.textContent || "",
     generationMediaSelectionTouched: form.dataset.generationMediaSelectionTouched === "true",
     autoGenerationPlatform: String(form.dataset.autoGenerationPlatform || ""),
+    autoGenerationBrief: String(form.dataset.autoGenerationBrief || ""),
     fields: Array.from(form.elements).map((field) => {
       const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
       return {
@@ -5354,6 +5355,9 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     }
     if (snapshot.autoGenerationPlatform) {
       form.dataset.autoGenerationPlatform = snapshot.autoGenerationPlatform;
+    }
+    if (snapshot.autoGenerationBrief) {
+      form.dataset.autoGenerationBrief = snapshot.autoGenerationBrief;
     }
     if (form.id === "mock-batch-form") syncGenerationModeForm(form);
     if (form.id === "media-upload-form") {
@@ -7072,8 +7076,12 @@ function renderGenerationSection(sectionState) {
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
+    const generationForm = document.querySelector("#mock-batch-form");
     applyContentGenerationHandoffToForm();
-    syncGenerationFormReadiness(document.querySelector("#mock-batch-form"));
+    if (generationForm) {
+      syncGenerationModeForm(generationForm);
+      syncGenerationFormReadiness(generationForm);
+    }
   });
   const handoffEvaluation = handoff
     ? compileContentGenerationPrompt(handoff, defaultMode)

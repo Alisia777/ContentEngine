@@ -9,6 +9,7 @@ from threading import RLock
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
@@ -325,10 +326,18 @@ class SocialMetricIngestionService:
         if idempotency_key and not SAFE_IDEMPOTENCY_RE.fullmatch(idempotency_key):
             raise SocialMetricValidationError("idempotency_key has an invalid format")
 
-        observed_at = observation.observed_at
-        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        observed_at_source = observation.observed_at
+        if observed_at_source.tzinfo is None or observed_at_source.utcoffset() is None:
             raise SocialMetricValidationError("observed_at must include a timezone")
-        observed_at = observed_at.astimezone(UTC).replace(tzinfo=None)
+        reporting_timezone = str(observation.reporting_timezone or "UTC").strip()
+        if not reporting_timezone or len(reporting_timezone) > 64:
+            raise SocialMetricValidationError("reporting_timezone is invalid")
+        try:
+            reporting_zone = ZoneInfo(reporting_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise SocialMetricValidationError("reporting_timezone is invalid") from exc
+        observed_reporting_date = observed_at_source.astimezone(reporting_zone).date()
+        observed_at = observed_at_source.astimezone(UTC).replace(tzinfo=None)
         now = datetime.now(UTC).replace(tzinfo=None)
         if observed_at > now + timedelta(minutes=5):
             raise SocialMetricValidationError("observed_at cannot be in the future")
@@ -336,8 +345,10 @@ class SocialMetricIngestionService:
             raise SocialMetricValidationError("period_end must be on or after period_start")
         if (observation.period_end - observation.period_start).days > 366:
             raise SocialMetricValidationError("metric period cannot exceed 366 days")
-        if observation.period_end > observed_at.date():
-            raise SocialMetricValidationError("period_end cannot be later than observed_at")
+        if observation.period_end > observed_reporting_date:
+            raise SocialMetricValidationError(
+                "period_end cannot be later than observed_at in reporting_timezone"
+            )
 
         metrics = self._validated_metrics(observation.metrics)
         return SocialMetricObservation(
@@ -350,6 +361,7 @@ class SocialMetricIngestionService:
             period_start=observation.period_start,
             period_end=observation.period_end,
             metrics=metrics,
+            reporting_timezone=reporting_timezone,
             final_url=final_url,
             external_post_id=external_post_id,
             publishing_task_id=publishing_task_id,
@@ -803,6 +815,7 @@ class SocialMetricIngestionService:
                 "final_url": self._safe_public_url(metric.posted_url),
                 "period_start": observation.period_start.isoformat(),
                 "period_end": observation.period_end.isoformat(),
+                "reporting_timezone": observation.reporting_timezone,
                 "snapshot_semantics": "cumulative_replace_not_sum",
                 "source_verification": "declared_by_authenticated_actor",
                 "unscoped_dimensions_omitted": ["campaign_id", "connection_id"],
@@ -841,6 +854,7 @@ class SocialMetricIngestionService:
                     "observed_at": observation.observed_at.isoformat() + "Z",
                     "period_start": observation.period_start.isoformat(),
                     "period_end": observation.period_end.isoformat(),
+                    "reporting_timezone": observation.reporting_timezone,
                     "result": result,
                 },
             )
@@ -880,6 +894,7 @@ class SocialMetricIngestionService:
                 "observed_at": observation.observed_at.isoformat() + "Z",
                 "period_start": observation.period_start.isoformat(),
                 "period_end": observation.period_end.isoformat(),
+                "reporting_timezone": observation.reporting_timezone,
                 "metrics": observation.metrics,
             }
             if candidate_count is not None:
@@ -1158,6 +1173,7 @@ class SocialMetricIngestionService:
                 "period_start": observation.period_start.isoformat(),
                 "period_end": observation.period_end.isoformat(),
                 "observed_at": observation.observed_at.isoformat(),
+                "reporting_timezone": observation.reporting_timezone,
             }
         return "smi:" + cls._hash_json(identity)
 
@@ -1186,6 +1202,7 @@ class SocialMetricIngestionService:
                 "observed_at": observation.observed_at.isoformat(),
                 "period_start": observation.period_start.isoformat(),
                 "period_end": observation.period_end.isoformat(),
+                "reporting_timezone": observation.reporting_timezone,
                 "metrics": observation.metrics,
             }
         )

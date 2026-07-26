@@ -4,6 +4,7 @@ import hashlib
 import re
 from datetime import UTC, date, datetime
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -56,6 +57,7 @@ class DestinationConnectorSyncService:
         period_start: date | None = None,
         period_end: date | None = None,
         observed_at: datetime | None = None,
+        reporting_timezone: str = "UTC",
         sync_key: str | None = None,
     ) -> OfficialConnectorSyncResult:
         organization_id = self._positive_id(organization_id, "organization_id")
@@ -68,9 +70,16 @@ class DestinationConnectorSyncService:
             raise DestinationConnectorDataError("period_end_must_not_precede_period_start")
         if observed_at is None or observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise DestinationConnectorDataError("observed_at_must_include_timezone")
-        observed_at = observed_at.astimezone(UTC)
-        if period_end > observed_at.date():
+        reporting_timezone = str(reporting_timezone or "UTC").strip()
+        if not reporting_timezone or len(reporting_timezone) > 64:
+            raise DestinationConnectorDataError("reporting_timezone_is_invalid")
+        try:
+            reporting_zone = ZoneInfo(reporting_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise DestinationConnectorDataError("reporting_timezone_is_invalid") from exc
+        if period_end > observed_at.astimezone(reporting_zone).date():
             raise DestinationConnectorDataError("period_end_must_not_follow_observed_at")
+        observed_at = observed_at.astimezone(UTC)
         sync_key = str(sync_key or "").strip()
         if not sync_key or len(sync_key) > 200:
             raise DestinationConnectorDataError("sync_key_is_required_and_must_be_at_most_200_characters")
@@ -136,6 +145,7 @@ class DestinationConnectorSyncService:
                         observed_at=observed_at,
                         period_start=period_start,
                         period_end=period_end,
+                        reporting_timezone=reporting_timezone,
                         metrics=snapshot.metrics,
                         final_url=snapshot.final_url,
                         external_post_id=external_post_id,

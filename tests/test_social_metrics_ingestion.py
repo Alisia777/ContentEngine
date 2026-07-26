@@ -20,7 +20,11 @@ from app.database import Base, SessionLocal, engine
 from app.public_pilot.auth import PublicPilotUser, get_current_public_user
 from app.routers.api import router as legacy_api_router
 from app.routers.social_metrics import router
-from app.social_metrics_ingestion import SocialMetricIngestionService, SocialMetricObservation
+from app.social_metrics_ingestion import (
+    SocialMetricIngestionService,
+    SocialMetricObservation,
+    SocialMetricValidationError,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -266,6 +270,47 @@ def test_cumulative_snapshots_are_idempotent_and_replace_instead_of_sum():
             .select_from(models.AuditLog)
             .where(models.AuditLog.action == "social_metric_observation")
         ) == 4
+
+
+def test_reporting_timezone_accepts_current_local_day_without_treating_it_as_future_utc():
+    observed_at = datetime(2026, 7, 25, 21, 30, tzinfo=UTC)
+    with SessionLocal() as db:
+        user = make_user(db, slug="metric-reporting-timezone")
+        _product, task = make_published_task(
+            db,
+            user,
+            suffix="TIMEZONE",
+            final_url="https://instagram.com/reel/TIMEZONE-1001",
+        )
+        service = SocialMetricIngestionService(db)
+        utc_snapshot = replace(
+            observation(
+                user,
+                task,
+                observed_at=observed_at,
+                views=100,
+                idempotency_key="metric-timezone-utc",
+            ),
+            period_start=date(2026, 7, 26),
+            period_end=date(2026, 7, 26),
+            reporting_timezone="UTC",
+        )
+        with pytest.raises(
+            SocialMetricValidationError,
+            match="reporting_timezone",
+        ):
+            service.ingest(utc_snapshot)
+
+        local_snapshot = replace(
+            utc_snapshot,
+            idempotency_key="metric-timezone-moscow",
+            reporting_timezone="Europe/Moscow",
+        )
+        created = service.ingest(local_snapshot)
+
+        assert created.status == "created"
+        metric = db.get(models.DestinationPostMetric, created.metric_id)
+        assert metric.raw_json["ingestion_v1"]["reporting_timezone"] == "Europe/Moscow"
 
 
 def test_concurrent_in_process_retries_create_one_canonical_row():
