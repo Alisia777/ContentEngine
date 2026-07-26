@@ -116,7 +116,7 @@ def test_temporal_scan_rejects_sparse_or_narrow_coverage() -> None:
     )
 
 
-def test_temporal_scan_is_bounded_local_and_not_added_to_external_frames() -> None:
+def test_temporal_scan_is_bounded_and_materialized_as_one_external_atlas() -> None:
     view = VIEW.read_text(encoding="utf-8")
     api = API.read_text(encoding="utf-8")
     app = APP.read_text(encoding="utf-8")
@@ -125,7 +125,7 @@ def test_temporal_scan_is_bounded_local_and_not_added_to_external_frames() -> No
         "MAX_TEMPORAL_SCAN_FRAMES = 24",
         "TEMPORAL_SCAN_FRAMES_PER_SECOND = 4",
         "TEMPORAL_SCAN_TIMEOUT_MS = 30_000",
-        "captureVideoTemporalMetrics",
+        "captureVideoTemporalEvidence",
         "analyzeTemporalVideoSamples",
         'temporal_scan_status: "completed"',
         'temporal_scan_strategy: "uniform_full_duration_v1"',
@@ -135,16 +135,17 @@ def test_temporal_scan_is_bounded_local_and_not_added_to_external_frames() -> No
     ):
         assert marker in view
     temporal_capture = view[
-        view.index("async function captureVideoTemporalMetrics") :
+        view.index("async function captureVideoTemporalEvidence") :
         view.index("async function captureVideoAudioMetrics")
     ]
-    assert "encodeCanvasBounded" not in temporal_capture
-    assert "frames.push" not in temporal_capture
+    assert "encodeCanvasBounded(atlasCanvas)" in temporal_capture
+    assert "atlasContext.drawImage" in temporal_capture
+    assert "frames.push(temporalEvidence.atlas)" in view
     assert 'value.temporal_scan_status === "completed"' in api
     assert "value.temporal_scan_frame_count >= 12" in api
     assert "value.temporal_scan_frame_count <= 24" in api
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 5" in app
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 4" in app
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 6" in app
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in app
 
 
 def test_edge_uses_temporal_scan_for_findings_and_quality_score_caps() -> None:

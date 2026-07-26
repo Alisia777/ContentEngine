@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.3";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.4";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -72,7 +72,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260726.5";
+} from "./content-review-view.js?v=20260726.6";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -203,9 +203,9 @@ const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 5;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 6;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
-const GENERATED_VIDEO_QA_STORAGE_VERSION = 4;
+const GENERATED_VIDEO_QA_STORAGE_VERSION = 5;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -7672,7 +7672,7 @@ function generatedVideoTechnicalQaMarkup(details) {
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Видео передано в обязательную проверку</strong>
-        <span>Контрольные кадры сохранены и привязаны к проверке. Автоматическое одобрение отключено — финальное решение принимает человек после полного просмотра MP4 со звуком.</span>
+        <span>Четыре контрольных кадра и атлас таймлайна сохранены и привязаны к проверке. Автоматическое одобрение отключено — финальное решение принимает человек после полного просмотра MP4 со звуком.</span>
         <a class="btn btn-secondary btn-small" href="#/workspace/review">Открыть статус проверки</a>
       </div>
     `;
@@ -7686,13 +7686,14 @@ function generatedVideoTechnicalQaMarkup(details) {
     const metrics = prepared?.technicalMetrics || entry?.evidence?.technicalMetrics || {};
     const frameCount = Number(metrics.frame_count || 0);
     const temporalCount = Number(metrics.temporal_scan_frame_count || 0);
+    const atlasReady = metrics.timeline_atlas_status === "completed";
     const audioCopy = metrics.audio_analysis_status === "completed"
       ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
       : " Звук автоматически не декодирован — его нужно прослушать вручную.";
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Технический скан готов автоматически</strong>
-        <span>${frameCount ? `${frameCount} контрольных кадров сохранены.` : ""}${temporalCount ? ` ${temporalCount} точек таймлайна проверены локально.` : ""}${escapeHtml(audioCopy)} Внешний AI ещё не запускался; заполните рекламные реквизиты и примите решение человеком.</span>
+        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(audioCopy)} Внешний AI ещё не запускался; заполните рекламные реквизиты и примите решение человеком.</span>
         ${reviewButton}
       </div>
     `;
@@ -7713,11 +7714,11 @@ function generatedVideoTechnicalQaMarkup(details) {
   const total = Number(entry?.totalFrames || 5);
   const message = entry?.status === "capturing"
     ? total > 5
-      ? `Локально сканируем таймлайн: ${Math.min(completed, total)} из ${total} точек; дополнительные кадры не отправляются во внешний AI.`
+      ? `Локально сканируем таймлайн и собираем атлас: ${Math.min(completed, total)} из ${total} точек.`
       : `Считываем контрольные кадры: ${Math.min(completed, total)} из ${total}; звук измеряется локально.`
     : entry?.status === "saving"
       ? "Сохраняем кадры и технические метрики в защищённое evidence."
-      : "Проверяем точный MP4 и готовим контрольные кадры без внешнего AI.";
+      : "Проверяем точный MP4 и готовим четыре кадра с атласом без внешнего AI.";
   return `
     <div class="generation-technical-qa is-progress" role="status" aria-live="polite">
       <strong>Автоматическая техническая проверка</strong>

@@ -1000,7 +1000,13 @@ source_key выбирай только из заданного enum. Если к
 не нужна или не установлена по кадрам, используй none. AI-обнаружение
 правового риска с confidence ниже 0.9 должно требовать человека.
 
-Из видео в этот визуальный запрос переданы выборочные кадры, а не полный поток.
+Из видео в этот визуальный запрос переданы четыре отдельных контрольных кадра.
+Если technical_metrics.timeline_atlas_status=completed, пятое изображение —
+хронологический атлас таймлайна: читай его мини-кадры слева направо и сверху
+вниз. Проверяй по атласу исчезновение/подмену товара, упаковки, логотипа,
+надписей, предупреждений, человека и визуальные сбои между контрольными
+кадрами. Атлас покрывает длительность равномерными точками, но не является
+полным видеопотоком или декодированием каждого исходного кадра.
 Браузер передаёт локально измеренные уровни звука, долю тишины, клиппинг и
 длительность. Не выдавай эти числа за транскрипцию. Отдельная серверная
 транскрипция, если пользователь явно разрешил передачу исходного MP4, будет
@@ -1768,6 +1774,43 @@ function deterministicFindings(
     temporalFrozenRatio !== null &&
     temporalFrozenRatio >= 0 &&
     temporalFrozenRatio <= 1;
+  const timelineAtlasStatus = stringInput(
+    metrics,
+    "timeline_atlas_status",
+  );
+  const timelineAtlasFrameCount = numericMetric(
+    metrics,
+    "timeline_atlas_frame_count",
+  );
+  const timelineAtlasCoverage = numericMetric(
+    metrics,
+    "timeline_atlas_coverage_ratio",
+  );
+  const timelineAtlasMaxGap = numericMetric(
+    metrics,
+    "timeline_atlas_max_gap_seconds",
+  );
+  const timelineAtlasCompleted = timelineAtlasStatus === "completed" &&
+    stringInput(metrics, "timeline_atlas_version") ===
+      "dense_full_duration_v1" &&
+    numericMetric(metrics, "timeline_atlas_frame_ordinal") === 5 &&
+    timelineAtlasFrameCount !== null &&
+    timelineAtlasFrameCount >= 12 &&
+    timelineAtlasFrameCount <= 24 &&
+    timelineAtlasFrameCount === temporalScanFrameCount &&
+    timelineAtlasCoverage !== null &&
+    timelineAtlasCoverage >= 0.9 &&
+    timelineAtlasCoverage <= 1 &&
+    timelineAtlasMaxGap !== null &&
+    timelineAtlasMaxGap > 0 &&
+    timelineAtlasMaxGap <= (duration ?? 3_600) &&
+    stringInput(metrics, "timeline_atlas_order") ===
+      "row_major_chronological";
+  const denseShortVideoAtlas = timelineAtlasCompleted &&
+    metrics.timeline_atlas_dense_short_video === true &&
+    duration !== null &&
+    duration <= 10 &&
+    timelineAtlasMaxGap! <= 0.5;
   const blackRatio = temporalScanCompleted
     ? temporalBlackRatio
     : numericMetric(metrics, "black_frame_ratio");
@@ -1794,13 +1837,15 @@ function deterministicFindings(
       "SCOPE.BROWSER_FRAMES_ADVISORY",
       "quality",
       "info",
-      "Контрольные кадры являются вспомогательной выборкой",
-      temporalScanCompleted
-        ? `Внешний AI видит до пяти сохранённых кадров. Браузер дополнительно локально проверил ${
-          Math.round(temporalScanFrameCount!)
-        } равномерных точек по ${
-          Math.round(temporalScanCoverage! * 100)
-        }% длительности, но это всё ещё не покадровое декодирование.`
+      "Атлас таймлайна уменьшает слепые зоны, но не заменяет просмотр",
+      timelineAtlasCompleted
+        ? `Внешний AI видит четыре контрольных кадра и пятый атлас из ${
+          Math.round(timelineAtlasFrameCount!)
+        } точек по ${
+          Math.round(timelineAtlasCoverage! * 100)
+        }% длительности. Максимальный промежуток между точками — ${
+          timelineAtlasMaxGap!.toFixed(2)
+        } сек.; это всё ещё не декодирование каждого кадра.`
         : "Автоматический анализ видит ограниченную выборку кадров из браузера, а не декодирует весь точный MP4 на сервере.",
       "Перед решением полностью воспроизведите защищённый исходник, проверьте монтаж, звук, титры и отсутствие подмены файла.",
       { human: true, confidence: 1, stage: "video" },
@@ -1825,6 +1870,38 @@ function deterministicFindings(
         "Портал не получил достаточную равномерную выборку по длительности MP4.",
         "Повторите подготовку evidence и полностью просмотрите ролик до любого решения.",
         { human: true, stage: "video" },
+      ));
+    }
+    if (!timelineAtlasCompleted || frameCount !== 5) {
+      add(makeFinding(
+        "TECH.TIMELINE_ATLAS_INCOMPLETE",
+        "technical",
+        "high",
+        "Атлас таймлайна не подтверждён",
+        "Пятая evidence-картинка не связана с валидным хронологическим атласом из 12–24 точек.",
+        "Повторите подготовку evidence и не принимайте визуальную оценку по четырём отдельным кадрам.",
+        { human: true, stage: "video" },
+      ));
+    } else if (
+      run.media.metadata.kind === "generated_video" &&
+      duration !== null &&
+      duration <= 10 &&
+      !denseShortVideoAtlas
+    ) {
+      add(makeFinding(
+        "TECH.TIMELINE_ATLAS_SPARSE",
+        "technical",
+        "high",
+        "Атлас короткого ролика недостаточно плотный",
+        "Для сгенерированного ролика до 10 секунд промежуток между точками атласа превышает 0,5 секунды.",
+        "Повторите подготовку evidence, затем проверьте товар, надписи и человека на всём атласе.",
+        {
+          evidence: {
+            timeline_atlas_max_gap_seconds: timelineAtlasMaxGap,
+          },
+          human: true,
+          stage: "video",
+        },
       ));
     }
     if (width === null || height === null || duration === null) {
@@ -2226,6 +2303,8 @@ function mergeReviewResult(
     "TECH.BLACK_FRAMES",
     "TECH.BLACK_FRAME_TRANSIENT",
     "TECH.FROZEN_VIDEO",
+    "TECH.TIMELINE_ATLAS_INCOMPLETE",
+    "TECH.TIMELINE_ATLAS_SPARSE",
   ]);
   const measuredTechnicalFindings = finalFindings.filter((finding) =>
     measuredTechnicalFindingCodes.has(finding.code)

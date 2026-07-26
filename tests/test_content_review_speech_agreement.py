@@ -39,8 +39,8 @@ def test_transcription_is_explicit_bounded_and_versioned() -> None:
     assert "Исходный MP4 передаётся в OpenAI Transcriptions только" in view
     assert "полный текст расшифровки не сохраняется" in view
     assert 'speech_transcription_notice_version: "openai_mp4_v1"' in view
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 5" in app
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 4" in app
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 6" in app
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in app
 
 
 def test_transcription_shares_the_irreversible_dispatch_fence() -> None:

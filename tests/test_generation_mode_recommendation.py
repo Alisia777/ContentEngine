@@ -311,4 +311,4 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260726.3"' in APP
-    assert './app.js?v=20260726.9' in INDEX
+    assert './app.js?v=20260726.10' in INDEX

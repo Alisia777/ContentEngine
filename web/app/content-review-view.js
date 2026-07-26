@@ -18,6 +18,11 @@ const TEMPORAL_SCAN_MIN_COVERAGE = 0.9;
 const TEMPORAL_SCAN_TIMEOUT_MS = 30_000;
 const TEMPORAL_BLACK_LUMA = 16;
 const TEMPORAL_FROZEN_DIFFERENCE = 0.015;
+const TIMELINE_ATLAS_MAX_DIMENSION = 1_280;
+const TIMELINE_ATLAS_GAP = 2;
+const TIMELINE_ATLAS_LABEL_HEIGHT = 18;
+const TIMELINE_ATLAS_DENSE_MAX_DURATION_SECONDS = 10;
+const TIMELINE_ATLAS_DENSE_MAX_GAP_SECONDS = 0.5;
 
 const PLATFORM_LABELS = Object.freeze({
   instagram: "Instagram",
@@ -356,7 +361,7 @@ export async function buildContentReviewFrameFiles(evidence) {
   const metrics = evidence?.technical_metrics;
   const sourceType = String(metrics?.source_type || "").toLowerCase();
   const expectedCount = sourceType === "video"
-    ? frames.length >= 4 && frames.length <= 5
+    ? frames.length === 5
     : sourceType === "image"
       ? frames.length === 1
       : false;
@@ -471,7 +476,7 @@ function reviewFormMarkup(media, busy) {
         </div>
       </fieldset>
       <div class="content-review-submit">
-        <div><strong>Что будет отправлено</strong><p>Всегда: текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 передаётся в OpenAI Transcriptions только при отмеченном подтверждении выше, наличии сценария, нормальной локальной аудиодорожки и размере до 25 МБ; полный текст расшифровки не сохраняется.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
+        <div><strong>Что будет отправлено</strong><p>Всегда: текст формы, технические числа, четыре сжатых контрольных кадра и один хронологический атлас таймлайна из 12–24 мини-кадров. Исходный MP4 передаётся в OpenAI Transcriptions только при отмеченном подтверждении выше, наличии сценария, нормальной локальной аудиодорожки и размере до 25 МБ; полный текст расшифровки не сохраняется.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
         <button class="btn" type="submit" ${supported.length && !busy ? "" : "disabled"}>${busy ? "Проверка уже выполняется…" : "Проверить качество и риски"}</button>
       </div>
     </form>
@@ -480,7 +485,7 @@ function reviewFormMarkup(media, busy) {
 
 function reviewCurrentMarkup(run, { phase, canDecide }) {
   if (phase === "preparing") {
-    return progressMarkup("Готовим техническое evidence", "Сохраняем 4–5 кадров, локально сканируем до 24 точек таймлайна и измеряем уровни звука. На этом шаге MP4 не передаётся; транскрипция возможна позже только по явному подтверждению формы.", 1);
+    return progressMarkup("Готовим техническое evidence", "Сохраняем четыре контрольных кадра и атлас из 12–24 точек таймлайна, затем измеряем уровни звука. На этом шаге MP4 не передаётся; транскрипция возможна позже только по явному подтверждению формы.", 1);
   }
   if (phase === "saving_evidence") {
     return progressMarkup("Сохраняем evidence", "Кадры загружаются в защищённую папку и фиксируются до запуска проверки.", 2);
@@ -837,8 +842,8 @@ async function captureVideoEvidence(media, onProgress) {
     const width = Number(video.videoWidth);
     const height = Number(video.videoHeight);
     const duration = Number(video.duration);
-    if (!width || !height || !Number.isFinite(duration) || duration <= 0 || duration > 3_600) {
-      throw userError("MP4 имеет неподдерживаемые параметры. Проверьте, что файл открывается и не длиннее одного часа.");
+    if (!width || !height || !Number.isFinite(duration) || duration < 0.01 || duration > 3_600) {
+      throw userError("MP4 имеет неподдерживаемые параметры. Проверьте, что файл открывается, длиннее 0,01 секунды и не длиннее одного часа.");
     }
     const audioMetricsPromise = captureVideoAudioMetrics(media, duration);
     const targets = sampleTimes(duration);
@@ -851,10 +856,6 @@ async function captureVideoEvidence(media, onProgress) {
       frames.push(encodeCanvasBounded(canvas));
       samples.push(sampleCanvas(canvas));
     }
-    const totalCharacters = frames.reduce((sum, frame) => sum + frame.length, 0);
-    if (frames.length < 4 || frames.length > 5 || totalCharacters > MAX_TOTAL_FRAME_CHARACTERS) {
-      throw userError("Не удалось подготовить безопасную выборку кадров. Обновите страницу и повторите проверку.");
-    }
     const differences = [];
     for (let index = 1; index < samples.length; index += 1) {
       differences.push(frameDifference(samples[index - 1].pixels, samples[index].pixels));
@@ -862,11 +863,22 @@ async function captureVideoEvidence(media, onProgress) {
     const frozenFrameRatio = differences.length
       ? round(differences.filter((value) => value < 0.015).length / differences.length, 3)
       : 0;
-    const temporalMetrics = await captureVideoTemporalMetrics(
+    const temporalEvidence = await captureVideoTemporalEvidence(
       video,
       duration,
+      width,
+      height,
       onProgress,
     );
+    frames.push(temporalEvidence.atlas);
+    const sampledAtSeconds = [
+      ...targets,
+      temporalEvidence.metrics.timeline_atlas_last_second,
+    ];
+    const totalCharacters = frames.reduce((sum, frame) => sum + frame.length, 0);
+    if (frames.length !== 5 || totalCharacters > MAX_TOTAL_FRAME_CHARACTERS) {
+      throw userError("Не удалось подготовить безопасную выборку кадров и атлас. Обновите страницу и повторите проверку.");
+    }
     const audioMetrics = await audioMetricsPromise;
     onProgress?.({ stage: "video", completed: targets.length, total: targets.length });
     return {
@@ -881,7 +893,7 @@ async function captureVideoEvidence(media, onProgress) {
         aspect_ratio: roundedRatio(width, height),
         orientation: orientation(width, height),
         frame_count: frames.length,
-        sampled_at_seconds: targets.map((value) => round(value, 3)),
+        sampled_at_seconds: sampledAtSeconds.map((value) => round(value, 3)),
         frame_luminance: samples.map((sample) => sample.mean),
         frame_contrast: samples.map((sample) => sample.contrast),
         adjacent_frame_difference: differences,
@@ -889,10 +901,10 @@ async function captureVideoEvidence(media, onProgress) {
         frozen_frame_ratio: frozenFrameRatio,
         frozen_frame_suspected: frozenFrameRatio >= 0.8,
         vertical_9_16_delta: round(Math.abs(width / height - 9 / 16), 4),
-        sampling_strategy: "early_0_2_1_2_plus_late_distribution",
+        sampling_strategy: "four_control_frames_plus_timeline_atlas_v1",
         raw_video_sent: false,
         speech_transcription_notice_version: "openai_mp4_v1",
-        ...temporalMetrics,
+        ...temporalEvidence.metrics,
         ...audioMetrics,
       },
     };
@@ -903,7 +915,13 @@ async function captureVideoEvidence(media, onProgress) {
   }
 }
 
-async function captureVideoTemporalMetrics(video, duration, onProgress) {
+async function captureVideoTemporalEvidence(
+  video,
+  duration,
+  sourceWidth,
+  sourceHeight,
+  onProgress,
+) {
   const targets = temporalScanTimes(duration);
   const canvas = document.createElement("canvas");
   canvas.width = FRAME_SAMPLE_SIZE;
@@ -915,6 +933,22 @@ async function captureVideoTemporalMetrics(video, duration, onProgress) {
   if (!context) {
     throw userError("Браузер не поддерживает локальный скан таймлайна.");
   }
+  const layout = timelineAtlasLayout(
+    targets.length,
+    sourceWidth,
+    sourceHeight,
+  );
+  const atlasCanvas = document.createElement("canvas");
+  atlasCanvas.width = layout.width;
+  atlasCanvas.height = layout.height;
+  const atlasContext = atlasCanvas.getContext("2d", { alpha: false });
+  if (!atlasContext) {
+    throw userError("Браузер не поддерживает подготовку атласа таймлайна.");
+  }
+  atlasContext.fillStyle = "#111827";
+  atlasContext.fillRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+  atlasContext.font = "12px system-ui, sans-serif";
+  atlasContext.textBaseline = "middle";
   const deadline = Date.now() + TEMPORAL_SCAN_TIMEOUT_MS;
   const samples = [];
   for (let index = 0; index < targets.length; index += 1) {
@@ -936,13 +970,50 @@ async function captureVideoTemporalMetrics(video, duration, onProgress) {
       FRAME_SAMPLE_SIZE,
     );
     samples.push(sampleCanvas(canvas));
+    const column = index % layout.columns;
+    const row = Math.floor(index / layout.columns);
+    const x = column * (layout.tileWidth + TIMELINE_ATLAS_GAP);
+    const y = row * (layout.tileHeight + TIMELINE_ATLAS_GAP);
+    const imageHeight = layout.tileHeight - TIMELINE_ATLAS_LABEL_HEIGHT;
+    atlasContext.drawImage(
+      video,
+      x,
+      y,
+      layout.tileWidth,
+      imageHeight,
+    );
+    atlasContext.fillStyle = "#111827";
+    atlasContext.fillRect(
+      x,
+      y + imageHeight,
+      layout.tileWidth,
+      TIMELINE_ATLAS_LABEL_HEIGHT,
+    );
+    atlasContext.fillStyle = "#ffffff";
+    atlasContext.fillText(
+      `${index + 1} · ${round(targets[index], 2)}s`,
+      x + 4,
+      y + imageHeight + TIMELINE_ATLAS_LABEL_HEIGHT / 2,
+      Math.max(1, layout.tileWidth - 8),
+    );
   }
   onProgress?.({
     stage: "temporal_scan",
     completed: targets.length,
     total: targets.length,
   });
-  return analyzeTemporalVideoSamples(samples, targets, duration);
+  return {
+    atlas: encodeCanvasBounded(atlasCanvas),
+    metrics: {
+      ...analyzeTemporalVideoSamples(samples, targets, duration),
+      ...analyzeTimelineAtlas(
+        targets,
+        duration,
+        layout.columns,
+        layout.rows,
+      ),
+    },
+  };
 }
 
 export function analyzeTemporalVideoSamples(
@@ -1030,6 +1101,113 @@ function temporalScanTimes(duration) {
     { length: count },
     (_, index) => first + (last - first) * index / (count - 1),
   );
+}
+
+export function analyzeTimelineAtlas(
+  sampledAtSeconds,
+  durationSeconds,
+  columns,
+  rows,
+) {
+  const duration = Number(durationSeconds);
+  const times = Array.isArray(sampledAtSeconds)
+    ? sampledAtSeconds.map(Number)
+    : [];
+  const columnCount = Number(columns);
+  const rowCount = Number(rows);
+  const validTimes = times.length >= MIN_TEMPORAL_SCAN_FRAMES
+    && times.length <= MAX_TEMPORAL_SCAN_FRAMES
+    && times.every((value, index) =>
+      Number.isFinite(value)
+      && value >= 0
+      && value <= duration
+      && (index === 0 || value > times[index - 1])
+    );
+  if (
+    !Number.isFinite(duration)
+    || duration <= 0
+    || duration > 3_600
+    || !validTimes
+    || !Number.isInteger(columnCount)
+    || !Number.isInteger(rowCount)
+    || columnCount < 2
+    || columnCount > 8
+    || rowCount < 2
+    || rowCount > 8
+    || columnCount * rowCount < times.length
+    || columnCount * (rowCount - 1) >= times.length
+  ) {
+    throw userError("Атлас таймлайна имеет неверный контракт.");
+  }
+  const gaps = [
+    times[0],
+    duration - times.at(-1),
+    ...times.slice(1).map((value, index) => value - times[index]),
+  ];
+  const coverage = (times.at(-1) - times[0]) / duration;
+  const maxGap = Math.max(...gaps);
+  return {
+    timeline_atlas_status: "completed",
+    timeline_atlas_version: "dense_full_duration_v1",
+    timeline_atlas_frame_ordinal: 5,
+    timeline_atlas_frame_count: times.length,
+    timeline_atlas_first_second: round(times[0], 3),
+    timeline_atlas_last_second: round(times.at(-1), 3),
+    timeline_atlas_coverage_ratio: round(coverage, 4),
+    timeline_atlas_max_gap_seconds: round(maxGap, 4),
+    timeline_atlas_sample_rate_fps: round(times.length / duration, 4),
+    timeline_atlas_columns: columnCount,
+    timeline_atlas_rows: rowCount,
+    timeline_atlas_order: "row_major_chronological",
+    timeline_atlas_dense_short_video:
+      duration <= TIMELINE_ATLAS_DENSE_MAX_DURATION_SECONDS
+      && coverage >= TEMPORAL_SCAN_MIN_COVERAGE
+      && maxGap <= TIMELINE_ATLAS_DENSE_MAX_GAP_SECONDS,
+  };
+}
+
+function timelineAtlasLayout(frameCount, sourceWidth, sourceHeight) {
+  const aspectRatio = sourceWidth / sourceHeight;
+  const columns = Math.max(
+    2,
+    Math.ceil(frameCount / 8),
+    Math.min(
+      8,
+      Math.ceil(Math.sqrt(1.2 * frameCount / aspectRatio)),
+    ),
+  );
+  const rows = Math.ceil(frameCount / columns);
+  const widthBound = Math.floor(
+    (
+      TIMELINE_ATLAS_MAX_DIMENSION -
+      TIMELINE_ATLAS_GAP * (columns - 1)
+    ) / columns,
+  );
+  const tileHeightBound = Math.floor(
+    (
+      TIMELINE_ATLAS_MAX_DIMENSION -
+      TIMELINE_ATLAS_GAP * (rows - 1)
+    ) / rows,
+  );
+  const imageHeightBound = tileHeightBound - TIMELINE_ATLAS_LABEL_HEIGHT;
+  const tileWidth = Math.min(
+    240,
+    widthBound,
+    Math.floor(imageHeightBound * aspectRatio),
+  );
+  if (tileWidth < 16 || imageHeightBound < 16) {
+    throw userError("Пропорции MP4 не позволяют безопасно собрать атлас таймлайна.");
+  }
+  const tileHeight = Math.round(tileWidth / aspectRatio) +
+    TIMELINE_ATLAS_LABEL_HEIGHT;
+  return {
+    columns,
+    rows,
+    tileWidth,
+    tileHeight,
+    width: columns * tileWidth + (columns - 1) * TIMELINE_ATLAS_GAP,
+    height: rows * tileHeight + (rows - 1) * TIMELINE_ATLAS_GAP,
+  };
 }
 
 async function captureVideoAudioMetrics(media, videoDurationSeconds) {
@@ -1254,15 +1432,14 @@ function amplitudeDbfs(value) {
 function sampleTimes(duration) {
   const safeEnd = Math.max(0, duration - Math.min(0.05, duration / 20));
   if (safeEnd < 2.05) {
-    return [0.05, 0.25, 0.5, 0.75, 0.95]
+    return [0.05, 0.3, 0.58, 0.82]
       .map((fraction) => Math.min(safeEnd, Math.max(0, duration * fraction)));
   }
   return [
     0.2,
     1,
     2,
-    Math.max(2.2, duration * 0.62),
-    Math.max(2.4, duration * 0.9),
+    Math.max(2.2, duration * 0.72),
   ].map((seconds) => Math.min(safeEnd, Math.max(0, seconds)));
 }
 

@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260726.5' in APP
+    assert './content-review-view.js?v=20260726.6' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.9' in INDEX
+    assert './app.js?v=20260726.10' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -89,7 +89,7 @@ def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video()
         "MAX_FRAME_CHARACTERS = 330_000",
         "MAX_TOTAL_FRAME_CHARACTERS = 1_650_000",
         "sampleTimes(duration)",
-        "early_0_2_1_2_plus_late_distribution",
+        "four_control_frames_plus_timeline_atlas_v1",
         "adjacent_frame_difference",
         "black_frame_ratio",
         "frozen_frame_ratio",
@@ -104,7 +104,7 @@ def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video()
     assert "buildContentReviewFrameFiles" in VIEW
     assert "jpegDataUriToBlob" in VIEW
     assert 'crypto.subtle.digest("SHA-256"' in VIEW
-    assert "normalizedFrameCount < 4 || normalizedFrameCount > 5" in API
+    assert "normalizedFrameCount !== 5" in API
     assert 'prepareContentReviewEvidence: "creator_prepare_content_review_evidence"' in API
     assert 'commitContentReviewEvidence: "creator_commit_content_review_evidence"' in API
     start = API[API.index("async startContentReview(") : API.index("contentReviewStatus(")]
@@ -170,8 +170,8 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 5" in APP
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 4" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 6" in APP
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in APP
     assert "upsert: false" in API
 
 
@@ -201,21 +201,21 @@ def test_frame_materialization_produces_exact_jpeg_blobs_hashes_and_timecodes() 
 import {{ buildContentReviewFrameFiles }} from {json.dumps(module_url)};
 const bytes = new Uint8Array(160).fill(127);
 const encoded = btoa(String.fromCharCode(...bytes));
-const frames = Array.from({{ length: 4 }}, () => `data:image/jpeg;base64,${{encoded}}`);
+const frames = Array.from({{ length: 5 }}, () => `data:image/jpeg;base64,${{encoded}}`);
 const files = await buildContentReviewFrameFiles({{
   frames,
   technical_metrics: {{
     source_type: "video",
-    sampled_at_seconds: [0.2, 1, 2, 7.125]
+    sampled_at_seconds: [0.2, 1, 2, 5.76, 7.98]
   }}
 }});
-if (files.length !== 4) throw new Error("frame count");
+if (files.length !== 5) throw new Error("frame count");
 for (const file of files) {{
   if (!(file.blob instanceof Blob) || file.blob.type !== "image/jpeg") throw new Error("blob");
   if (!/^[0-9a-f]{{64}}$/.test(file.sha256)) throw new Error("sha256");
   if (file.sizeBytes !== 160) throw new Error("size");
 }}
-if (files[3].timecodeSeconds !== 7.125) throw new Error("timecode");
+if (files[4].timecodeSeconds !== 7.98) throw new Error("timecode");
 """
     result = subprocess.run(
         ["node", "--input-type=module", "--eval", script],
@@ -243,7 +243,7 @@ const evidenceId = "44444444-4444-4444-8444-444444444444";
 const reviewId = "55555555-5555-4555-8555-555555555555";
 const commitKey = "66666666-6666-4666-8666-666666666666";
 const prefix = `${{organizationId}}/${{userId}}/`;
-const objectNames = Array.from({{ length: 4 }}, (_, index) => `${{prefix}}review-evidence/${{evidenceId}}/${{index}}.jpg`);
+const objectNames = Array.from({{ length: 5 }}, (_, index) => `${{prefix}}review-evidence/${{evidenceId}}/${{index}}.jpg`);
 const calls = [];
 const rpc = async (name, {{ p_payload }}) => {{
   calls.push([name, p_payload]);
@@ -267,14 +267,15 @@ api.commitBootstrapContext({{
   organization: {{ id: organizationId }},
   storage: {{ bucket: "contentengine-private", path_prefix: prefix }}
 }});
-const prepared = await api.prepareContentReviewEvidence({{ mediaId, frameCount: 4 }});
-if (prepared.evidenceId !== evidenceId || prepared.frameObjectNames.length !== 4) throw new Error("prepare");
+const prepared = await api.prepareContentReviewEvidence({{ mediaId, frameCount: 5 }});
+if (prepared.evidenceId !== evidenceId || prepared.frameObjectNames.length !== 5) throw new Error("prepare");
 await api.commitContentReviewEvidence({{
   evidenceId,
   technicalMetrics: {{
         source_type: "video",
-        frame_count: 4,
+        frame_count: 5,
         duration_seconds: 8,
+        sampled_at_seconds: [0.2, 1, 2, 5.76, 7.98],
         speech_transcription_notice_version: "openai_mp4_v1",
         audio_expected: null,
     audio_analyzed: false,
@@ -287,7 +288,20 @@ await api.commitContentReviewEvidence({{
     temporal_scan_coverage_ratio: 0.995,
     temporal_black_frame_ratio: 0,
     temporal_frozen_transition_ratio: 0.1,
-    temporal_mean_frame_difference: 0.12
+    temporal_mean_frame_difference: 0.12,
+    timeline_atlas_status: "completed",
+    timeline_atlas_version: "dense_full_duration_v1",
+    timeline_atlas_frame_ordinal: 5,
+    timeline_atlas_frame_count: 24,
+    timeline_atlas_first_second: 0.02,
+    timeline_atlas_last_second: 7.98,
+    timeline_atlas_coverage_ratio: 0.995,
+    timeline_atlas_max_gap_seconds: 0.3461,
+    timeline_atlas_sample_rate_fps: 3,
+    timeline_atlas_columns: 8,
+    timeline_atlas_rows: 3,
+    timeline_atlas_order: "row_major_chronological",
+    timeline_atlas_dense_short_video: true
   }},
   idempotencyKey: commitKey,
   frames: objectNames.map((object_name, index) => ({{
@@ -302,8 +316,9 @@ const started = await api.startContentReview({{
   people_present: "no",
   technical_metrics: {{
         source_type: "video",
-        frame_count: 4,
+        frame_count: 5,
         duration_seconds: 8,
+        sampled_at_seconds: [0.2, 1, 2, 5.76, 7.98],
         speech_transcription_notice_version: "openai_mp4_v1",
         audio_expected: null,
     audio_analyzed: false,
@@ -316,7 +331,20 @@ const started = await api.startContentReview({{
     temporal_scan_coverage_ratio: 0.995,
     temporal_black_frame_ratio: 0,
     temporal_frozen_transition_ratio: 0.1,
-    temporal_mean_frame_difference: 0.12
+    temporal_mean_frame_difference: 0.12,
+    timeline_atlas_status: "completed",
+    timeline_atlas_version: "dense_full_duration_v1",
+    timeline_atlas_frame_ordinal: 5,
+    timeline_atlas_frame_count: 24,
+    timeline_atlas_first_second: 0.02,
+    timeline_atlas_last_second: 7.98,
+    timeline_atlas_coverage_ratio: 0.995,
+    timeline_atlas_max_gap_seconds: 0.3461,
+    timeline_atlas_sample_rate_fps: 3,
+    timeline_atlas_columns: 8,
+    timeline_atlas_rows: 3,
+    timeline_atlas_order: "row_major_chronological",
+    timeline_atlas_dense_short_video: true
   }},
   evidence_id: evidenceId
 }});
@@ -511,7 +539,7 @@ def test_generated_video_qa_is_serial_recoverable_and_never_auto_approves() -> N
         APP.index("function generationActionsMarkup")
     ]
     assert "Технический скан готов автоматически" in markup
-    assert "точек таймлайна проверены локально" in markup
+    assert "Пятое изображение — хронологический атлас" in markup
     assert "Внешний AI ещё не запускался" in markup
     assert "Автоматическое одобрение отключено" in markup
     assert 'data-action="retry-generated-video-qa"' in markup

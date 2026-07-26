@@ -1082,8 +1082,8 @@ export class CreatorApi {
         code: "content_review_media_required",
       });
     }
-    if (!Number.isInteger(normalizedFrameCount) || normalizedFrameCount < 4 || normalizedFrameCount > 5) {
-      throw new CreatorApiError("Для MP4 нужно подготовить от четырёх до пяти кадров.", {
+    if (!Number.isInteger(normalizedFrameCount) || normalizedFrameCount !== 5) {
+      throw new CreatorApiError("Для MP4 нужно подготовить четыре кадра и пятый JPEG-атлас.", {
         code: "content_review_frames_invalid",
       });
     }
@@ -1124,8 +1124,7 @@ export class CreatorApi {
     if (
       !isUuid(normalizedEvidenceId)
       || !Array.isArray(frames)
-      || frames.length < 4
-      || frames.length > 5
+      || frames.length !== 5
       || !technicalMetrics
       || typeof technicalMetrics !== "object"
       || Array.isArray(technicalMetrics)
@@ -2120,11 +2119,70 @@ function validContentReviewTechnicalMetrics(value) {
     && finiteInRange("temporal_black_frame_ratio", 0, 1)
     && finiteInRange("temporal_frozen_transition_ratio", 0, 1)
     && finiteInRange("temporal_mean_frame_difference", 0, 1);
+  const sampledAt = Array.isArray(value.sampled_at_seconds)
+    ? value.sampled_at_seconds
+    : [];
+  const sampledAtValid = sampledAt.length === 5
+    && sampledAt.every((item, index) =>
+      typeof item === "number"
+      && Number.isFinite(item)
+      && item >= 0
+      && item <= value.duration_seconds
+      && (index === 0 || item > sampledAt[index - 1])
+    );
+  const timelineAtlasValid = value.timeline_atlas_status === "completed"
+    && value.timeline_atlas_version === "dense_full_duration_v1"
+    && value.timeline_atlas_frame_ordinal === 5
+    && Number.isInteger(value.timeline_atlas_frame_count)
+    && value.timeline_atlas_frame_count >= 12
+    && value.timeline_atlas_frame_count <= 24
+    && value.timeline_atlas_frame_count === value.temporal_scan_frame_count
+    && finiteInRange("timeline_atlas_first_second", 0, 3_600)
+    && finiteInRange("timeline_atlas_last_second", 0, 3_600)
+    && value.timeline_atlas_last_second > value.timeline_atlas_first_second
+    && value.timeline_atlas_last_second <= value.duration_seconds
+    && Math.abs(
+      value.timeline_atlas_first_second - value.temporal_scan_first_second,
+    ) <= 0.002
+    && Math.abs(
+      value.timeline_atlas_last_second - value.temporal_scan_last_second,
+    ) <= 0.002
+    && finiteInRange("timeline_atlas_coverage_ratio", 0.9, 1)
+    && Math.abs(
+      value.timeline_atlas_coverage_ratio - value.temporal_scan_coverage_ratio,
+    ) <= 0.002
+    && finiteInRange("timeline_atlas_max_gap_seconds", 0.001, 3_600)
+    && value.timeline_atlas_max_gap_seconds <= value.duration_seconds
+    && finiteInRange("timeline_atlas_sample_rate_fps", 0.003, 24_000)
+    && Math.abs(
+      value.timeline_atlas_sample_rate_fps -
+        value.timeline_atlas_frame_count / value.duration_seconds,
+    ) <= 0.02
+    && Number.isInteger(value.timeline_atlas_columns)
+    && value.timeline_atlas_columns >= 2
+    && value.timeline_atlas_columns <= 8
+    && Number.isInteger(value.timeline_atlas_rows)
+    && value.timeline_atlas_rows >= 2
+    && value.timeline_atlas_rows <= 8
+    && value.timeline_atlas_columns * value.timeline_atlas_rows >=
+      value.timeline_atlas_frame_count
+    && value.timeline_atlas_columns * (value.timeline_atlas_rows - 1) <
+      value.timeline_atlas_frame_count
+    && value.timeline_atlas_order === "row_major_chronological"
+    && typeof value.timeline_atlas_dense_short_video === "boolean"
+    && value.timeline_atlas_dense_short_video === (
+      value.duration_seconds <= 10
+      && value.timeline_atlas_coverage_ratio >= 0.9
+      && value.timeline_atlas_max_gap_seconds <= 0.5
+    )
+    && sampledAtValid
+    && Math.abs(
+      sampledAt.at(-1) - value.timeline_atlas_last_second,
+    ) <= 0.002;
   if (
     sourceType !== "video"
     || !Number.isInteger(Number(value.frame_count))
-    || Number(value.frame_count) < 4
-    || Number(value.frame_count) > 5
+    || Number(value.frame_count) !== 5
     || typeof value.audio_analyzed !== "boolean"
     || !["completed", "unavailable"].includes(
       String(value.audio_analysis_status || ""),
@@ -2135,6 +2193,7 @@ function validContentReviewTechnicalMetrics(value) {
     )
     || value.speech_transcription_notice_version !== "openai_mp4_v1"
     || !temporalScanValid
+    || !timelineAtlasValid
   ) return false;
   if (value.audio_analysis_status === "unavailable") {
     return value.audio_analyzed === false;
@@ -2503,7 +2562,7 @@ function toFriendlyMessage(error) {
     content_review_video_evidence_required: "Для MP4 сначала сохраните контрольные кадры в защищённой папке.",
     content_review_video_evidence_not_ready: "Контрольные кадры MP4 ещё не подтверждены. Безопасно повторите подтверждение.",
     content_review_evidence_prepare_payload_invalid: "Не удалось подготовить безопасный запрос для кадров.",
-    content_review_evidence_frame_count_invalid: "Для MP4 нужно подготовить от четырёх до пяти кадров.",
+    content_review_evidence_frame_count_invalid: "Для MP4 нужно подготовить четыре кадра и пятый JPEG-атлас.",
     content_review_evidence_audio_metrics_invalid: "Локальные аудиометрики неполны. Подготовьте evidence заново и обязательно прослушайте точный MP4.",
     content_review_evidence_temporal_metrics_invalid: "Локальный скан таймлайна неполон. Обновите страницу и подготовьте evidence заново без нового рендера.",
     content_review_evidence_media_not_accessible: "Видео недоступно вашей роли или уже изменилось. Обновите материалы.",
