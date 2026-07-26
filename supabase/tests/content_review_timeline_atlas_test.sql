@@ -143,7 +143,7 @@ select ok(
 
 select ok(
   to_regprocedure(
-    'content_factory_private.creator_commit_content_review_evidence_without_timeline_atlas_gate_v3(jsonb)'
+    'content_factory_private.creator_commit_content_review_evidence_without_atlas_gate_v3(jsonb)'
   ) is not null,
   'the previous evidence implementation is private behind the atlas gate'
 );
@@ -160,7 +160,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'content_factory_private.creator_commit_content_review_evidence_without_timeline_atlas_gate_v3(jsonb)',
+    'content_factory_private.creator_commit_content_review_evidence_without_atlas_gate_v3(jsonb)',
     'execute'
   ),
   'browser sessions cannot bypass the timeline atlas evidence gate'

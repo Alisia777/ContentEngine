@@ -242,7 +242,7 @@ select public.creator_prepare_content_review_evidence(jsonb_build_object(
   'organization_id', 'a1100000-0000-4000-8000-000000000001',
   'idempotency_key', 'durable-evidence-prepare-0001',
   'media_id', 'a1200000-0000-4000-8000-000000000001',
-  'frame_count', 4
+  'frame_count', 5
 ));
 
 select is(
@@ -253,7 +253,7 @@ select is(
 select is(
   (select jsonb_array_length(prepare_result -> 'frame_object_names')
    from durable_review_context),
-  4,
+  5,
   'prepare returns the exact requested frame count'
 );
 select ok(
@@ -283,8 +283,11 @@ set commit_result = public.creator_commit_content_review_evidence(
     'evidence_id', prepare_result ->> 'evidence_id',
     'technical_metrics', jsonb_build_object(
       'source_type', 'video',
-      'frame_count', 4,
+      'frame_count', 5,
       'duration_seconds', 8,
+      'sampled_at_seconds', jsonb_build_array(
+        0.2, 1, 2, 5.76, 7.98
+      ),
       'width', 1080,
       'height', 1920,
       'audio_expected', null,
@@ -298,14 +301,30 @@ set commit_result = public.creator_commit_content_review_evidence(
       'temporal_scan_coverage_ratio', 0.995,
       'temporal_black_frame_ratio', 0,
       'temporal_frozen_transition_ratio', 0.087,
-      'temporal_mean_frame_difference', 0.112
+      'temporal_mean_frame_difference', 0.112,
+      'timeline_atlas_status', 'completed',
+      'timeline_atlas_version', 'dense_full_duration_v1',
+      'timeline_atlas_frame_ordinal', 5,
+      'timeline_atlas_frame_count', 24,
+      'timeline_atlas_first_second', 0.02,
+      'timeline_atlas_last_second', 7.98,
+      'timeline_atlas_coverage_ratio', 0.995,
+      'timeline_atlas_max_gap_seconds', 0.3461,
+      'timeline_atlas_sample_rate_fps', 3,
+      'timeline_atlas_columns', 8,
+      'timeline_atlas_rows', 3,
+      'timeline_atlas_order', 'row_major_chronological',
+      'timeline_atlas_dense_short_video', true
     ),
     'frames', (
       select jsonb_agg(jsonb_build_object(
         'object_name', object_name.name,
         'sha256', repeat(object_name.ordinal::text, 64),
         'size_bytes', 512,
-        'timecode_seconds', object_name.ordinal - 1
+        'timecode_seconds', (
+          jsonb_build_array(0.2, 1, 2, 5.76, 7.98)
+            ->> (object_name.ordinal - 1)::integer
+        )::numeric
       ) order by object_name.ordinal)
       from jsonb_array_elements_text(
         prepare_result -> 'frame_object_names'
@@ -326,7 +345,7 @@ select is(
      select (prepare_result ->> 'evidence_id')::uuid
      from durable_review_context
    )),
-  4,
+  5,
   'the immutable evidence manifest stores all frames'
 );
 select throws_ok(

@@ -223,10 +223,10 @@ alter function content_factory_private.creator_commit_content_review_evidence(
   jsonb
 )
   rename to
-    creator_commit_content_review_evidence_without_timeline_atlas_gate_v3;
+    creator_commit_content_review_evidence_without_atlas_gate_v3;
 revoke all on function
   content_factory_private
-    .creator_commit_content_review_evidence_without_timeline_atlas_gate_v3(
+    .creator_commit_content_review_evidence_without_atlas_gate_v3(
       jsonb
     )
   from public, anon, authenticated, service_role;
@@ -261,7 +261,7 @@ begin
       message = 'content_review_evidence_timeline_atlas_metrics_invalid';
   end if;
   return content_factory_private
-    .creator_commit_content_review_evidence_without_timeline_atlas_gate_v3(
+    .creator_commit_content_review_evidence_without_atlas_gate_v3(
       p_payload
     );
 end;

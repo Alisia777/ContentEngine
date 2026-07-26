@@ -160,7 +160,7 @@ def test_browser_and_database_fail_closed_on_atlas_contract() -> None:
     for marker in (
         "valid_content_review_timeline_atlas_metrics",
         "content_review_evidence_timeline_atlas_metrics_valid",
-        "creator_commit_content_review_evidence_without_timeline_atlas_gate_v3",
+        "creator_commit_content_review_evidence_without_atlas_gate_v3",
         "content_review_evidence_timeline_atlas_metrics_invalid",
         "browser sessions cannot bypass the timeline atlas evidence gate",
         "timeline_atlas_payload",
