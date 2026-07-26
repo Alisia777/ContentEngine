@@ -139,6 +139,7 @@ declare
   transcript_words integer;
   matched_words integer;
   numeric_key text;
+  numeric_max numeric;
   numeric_value numeric;
 begin
   if value is null or jsonb_typeof(value) <> 'object' then
@@ -246,12 +247,12 @@ begin
           message = 'content_review_speech_analysis_invalid';
       end if;
       numeric_value := (speech_value ->> numeric_key)::numeric;
-      if numeric_value < 0
-         or numeric_value > case
-           when numeric_key = 'word_error_rate' then 2
-           else 1
-         end
-      then
+      if numeric_key = 'word_error_rate' then
+        numeric_max := 2;
+      else
+        numeric_max := 1;
+      end if;
+      if numeric_value < 0 or numeric_value > numeric_max then
         raise exception using
           errcode = '22023',
           message = 'content_review_speech_analysis_invalid';
