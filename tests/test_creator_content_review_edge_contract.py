@@ -108,8 +108,9 @@ def test_video_review_is_bounded_and_discloses_frame_audio_limitations() -> None
     assert "!isJpeg(frameBytes)" in source
     assert "await sha256Hex(frameBytes)" in source
     assert "payload.frames" not in source
-    assert "Аудио не распознано" in source
-    assert "не расшифровывает весь звук MP4" in source
+    assert "это не транскрипция" in source
+    assert "Не утверждай, что проверил произнесённые слова" in source
+    assert "не расшифровывает звук MP4" in source
     assert "media.sha256" in source
     assert "SCOPE.BROWSER_FRAMES_ADVISORY" in source
 

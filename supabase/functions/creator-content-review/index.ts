@@ -718,9 +718,11 @@ source_key выбирай только из заданного enum. Если к
 не нужна или не установлена по кадрам, используй none. AI-обнаружение
 правового риска с confidence ниже 0.9 должно требовать человека.
 
-Из видео переданы выборочные кадры, а не полный поток. Аудио не распознано:
-оценивай речь только по script_text/caption_text и всегда указывай это
-ограничение. Не утверждай, что проверил музыку, весь звук или каждый кадр.
+Из видео переданы выборочные кадры, а не полный поток. Браузер может передать
+только локально измеренные уровни звука, долю тишины, клиппинг и длительность:
+это не транскрипция. Оценивай смысл речи только по script_text/caption_text и
+всегда указывай ограничение. Не утверждай, что проверил произнесённые слова,
+музыку, весь звук или каждый кадр.
 `;
 
 function promptForRun(run: ReviewRun): string {
@@ -1316,6 +1318,21 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
   const duration = numericMetric(metrics, "duration_seconds");
   const blackRatio = numericMetric(metrics, "black_frame_ratio");
   const frozenRatio = numericMetric(metrics, "frozen_frame_ratio");
+  const audioStatus = stringInput(metrics, "audio_analysis_status");
+  const audioExpected = typeof metrics.audio_expected === "boolean"
+    ? metrics.audio_expected
+    : null;
+  const audioAnalyzed = metrics.audio_analyzed === true &&
+    audioStatus === "completed";
+  const audioDuration = numericMetric(metrics, "audio_duration_seconds");
+  const audioDurationDelta = numericMetric(
+    metrics,
+    "audio_video_duration_delta_seconds",
+  );
+  const audioPeak = numericMetric(metrics, "audio_peak_dbfs");
+  const audioRms = numericMetric(metrics, "audio_rms_dbfs");
+  const audioSilenceRatio = numericMetric(metrics, "audio_silence_ratio");
+  const audioClippingRatio = numericMetric(metrics, "audio_clipping_ratio");
   if (run.media.mimeType === "video/mp4") {
     add(makeFinding(
       "SCOPE.BROWSER_FRAMES_ADVISORY",
@@ -1417,13 +1434,150 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
         },
       ));
     }
+    if (audioExpected === true && !audioAnalyzed) {
+      add(makeFinding(
+        "TECH.AUDIO_ANALYSIS_UNAVAILABLE",
+        "technical",
+        "high",
+        "Звук ролика не удалось измерить автоматически",
+        "Для этого режима ожидается звуковая дорожка, но браузер не смог локально декодировать её технические параметры.",
+        "Полностью прослушайте точный MP4. Если речи или звука нет, верните результат на перегенерацию.",
+        { human: true, stage: "video" },
+      ));
+    }
+    if (audioAnalyzed) {
+      if (
+        audioDuration === null ||
+        audioPeak === null ||
+        audioRms === null ||
+        audioSilenceRatio === null ||
+        audioClippingRatio === null
+      ) {
+        add(makeFinding(
+          "TECH.AUDIO_METADATA_MISSING",
+          "technical",
+          "high",
+          "Аудиометрики неполны",
+          "Локальный анализ отмечен завершённым, но обязательные уровни звука отсутствуют.",
+          "Повторите подготовку evidence и обязательно прослушайте точный MP4.",
+          { human: true, stage: "video" },
+        ));
+      } else {
+        if (
+          audioExpected === true &&
+          (audioRms <= -50 || audioSilenceRatio >= 0.95)
+        ) {
+          add(makeFinding(
+            "TECH.AUDIO_SILENT",
+            "technical",
+            "blocker",
+            "Ожидаемая звуковая дорожка практически немая",
+            `Средний уровень ${audioRms.toFixed(1)} dBFS, тишина ${
+              Math.round(audioSilenceRatio * 100)
+            }% длительности.`,
+            "Не публикуйте результат. Прослушайте MP4 и создайте новый вариант со слышимой репликой.",
+            {
+              evidence: {
+                audio_rms_dbfs: audioRms,
+                audio_silence_ratio: audioSilenceRatio,
+              },
+              human: true,
+              stage: "video",
+            },
+          ));
+        } else if (
+          audioExpected === true && audioSilenceRatio >= 0.8
+        ) {
+          add(makeFinding(
+            "TECH.AUDIO_MOSTLY_SILENT",
+            "technical",
+            "high",
+            "Большая часть звуковой дорожки тише рабочего уровня",
+            `Локальный анализ определил тишину в ${
+              Math.round(audioSilenceRatio * 100)
+            }% дорожки.`,
+            "Прослушайте всю реплику и проверьте, что начало, окончание и ключевые слова не пропали.",
+            {
+              evidence: { audio_silence_ratio: audioSilenceRatio },
+              human: true,
+              stage: "video",
+            },
+          ));
+        }
+        if (
+          audioExpected === false &&
+          audioRms > -45 &&
+          audioSilenceRatio < 0.95
+        ) {
+          add(makeFinding(
+            "TECH.UNEXPECTED_AUDIO",
+            "technical",
+            "high",
+            "В беззвучном режиме обнаружен слышимый сигнал",
+            `Средний уровень ${
+              audioRms.toFixed(1)
+            } dBFS не соответствует заявленному ролику без звука.`,
+            "Прослушайте точный MP4 и удалите неожиданную речь, музыку или шум до публикации.",
+            {
+              evidence: {
+                audio_rms_dbfs: audioRms,
+                audio_silence_ratio: audioSilenceRatio,
+              },
+              human: true,
+              stage: "video",
+            },
+          ));
+        }
+        if (audioClippingRatio >= 0.01) {
+          add(makeFinding(
+            "TECH.AUDIO_CLIPPING",
+            "technical",
+            audioClippingRatio >= 0.05 ? "blocker" : "high",
+            "В звуковой дорожке обнаружен клиппинг",
+            `Около ${
+              Math.round(audioClippingRatio * 10_000) / 100
+            }% измеренных отсчётов достигают предельного уровня.`,
+            "Прослушайте громкие фрагменты и пересоберите звук без перегруза и искажений.",
+            {
+              evidence: {
+                audio_peak_dbfs: audioPeak,
+                audio_clipping_ratio: audioClippingRatio,
+              },
+              human: true,
+              stage: "video",
+            },
+          ));
+        }
+      }
+      if (audioDurationDelta !== null && audioDurationDelta > 0.35) {
+        add(makeFinding(
+          "TECH.AUDIO_DURATION_MISMATCH",
+          "technical",
+          "high",
+          "Длительность звука не совпадает с видео",
+          `Разница дорожек составляет ${audioDurationDelta.toFixed(2)} сек.`,
+          "Проверьте начало и окончание ролика: речь или музыка могли обрезаться либо закончиться раньше.",
+          {
+            evidence: {
+              audio_duration_seconds: audioDuration,
+              video_duration_seconds: duration,
+              delta_seconds: audioDurationDelta,
+            },
+            human: true,
+            stage: "video",
+          },
+        ));
+      }
+    }
     add(makeFinding(
       "SCOPE.AUDIO_MANUAL_REVIEW",
       "quality",
       "info",
-      "Звук нужно прослушать вручную",
-      "Автоматическая проверка анализирует контрольные кадры и введённый текст, но не расшифровывает весь звук MP4.",
-      "Прослушайте реплику, музыку, клиппинг и совпадение субтитров перед решением.",
+      "Слова и музыку нужно проверить прослушиванием",
+      audioAnalyzed
+        ? "Портал измерил уровни, тишину, клиппинг и длительность локально, но не расшифровывал произнесённые слова."
+        : "Автоматическая проверка анализирует кадры и введённый текст, но не расшифровывает звук MP4.",
+      "Полностью прослушайте реплику и музыку, сверьте слова со сценарием и субтитрами перед решением.",
       { human: true, confidence: 1, stage: "video" },
     ));
   }
@@ -1557,11 +1711,49 @@ function mergeReviewResult(
     });
   }
 
+  const measuredAudioFindingCodes = new Set([
+    "TECH.AUDIO_SILENT",
+    "TECH.AUDIO_MOSTLY_SILENT",
+    "TECH.UNEXPECTED_AUDIO",
+    "TECH.AUDIO_CLIPPING",
+    "TECH.AUDIO_DURATION_MISMATCH",
+  ]);
+  const measuredAudioFindings = finalFindings.filter((finding) =>
+    measuredAudioFindingCodes.has(finding.code)
+  );
+  const measuredAudioBlocker = measuredAudioFindings.some((finding) =>
+    finding.severity === "blocker"
+  );
+  const measuredAudioHigh = measuredAudioFindings.some((finding) =>
+    finding.severity === "high"
+  );
+  const technicalScoreCap = measuredAudioBlocker
+    ? 35
+    : measuredAudioHigh
+    ? 65
+    : null;
+  const overallScoreCap = measuredAudioBlocker
+    ? 49
+    : measuredAudioHigh
+    ? 74
+    : null;
+  const finalScores = {
+    ...(modelResult.scores as Record<string, Json>),
+    technical: technicalScoreCap === null
+      ? Number((modelResult.scores as Record<string, Json>).technical)
+      : Math.min(
+        technicalScoreCap,
+        Number((modelResult.scores as Record<string, Json>).technical),
+      ),
+  };
   const previousScore = run.parentResult &&
       finiteInteger(run.parentResult.overall_score, 0, 100)
     ? Number(run.parentResult.overall_score)
     : null;
-  const currentScore = Number(modelResult.overall_score);
+  const modelOverallScore = Number(modelResult.overall_score);
+  const currentScore = overallScoreCap === null
+    ? modelOverallScore
+    : Math.min(overallScoreCap, modelOverallScore);
   const comparison = previousScore === null
     ? {
       previous_score: null,
@@ -1581,7 +1773,7 @@ function mergeReviewResult(
 
   return {
     overall_score: currentScore,
-    scores: modelResult.scores as Record<string, Json>,
+    scores: finalScores,
     ad_probability: adProbability,
     ad_classification_summary: String(modelResult.ad_classification_summary),
     compliance_status: complianceStatus,

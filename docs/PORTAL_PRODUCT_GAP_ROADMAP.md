@@ -1,6 +1,6 @@
 # Portal product gap roadmap
 
-Updated: 2026-07-17
+Updated: 2026-07-26
 
 This roadmap separates shipped software from production readiness. A feature is
 not considered ready merely because a form, RPC, or provider call exists.
@@ -200,11 +200,24 @@ calculation, and payout.
 
 ### 11. Deeper content QA and recommendation feedback loop
 
-Add measurable checks for audio intelligibility, speech/script agreement,
-product/label persistence, safe-zone violations, duplication, brand claims,
-mandatory advertising/synthetic-content disclosures, and evidence-backed legal
-review. Recommendations must learn from approved outcomes and imported platform
-metrics, while retaining the human decision and its reason.
+Current state:
+
+- generated MP4 evidence includes bounded frames, motion/black-frame metrics,
+  and immutable browser-local audio RMS/peak, silence, clipping and duration
+  measurements without sending the raw MP4 or audio to the external AI;
+- expected but effectively silent Seedance audio, unexpected Gen4 audio,
+  clipping and track-duration mismatch produce deterministic findings and cap
+  the structured technical score;
+- only independently decided QA observations can turn repeated weak structured
+  scores into bounded prompt guards; raw reviewer or model prose is not learned.
+
+Still required:
+
+- speech/script agreement and audio intelligibility beyond signal levels;
+- full-stream product/label persistence, safe-zone violations and duplication;
+- brand-claim evidence and platform-specific disclosure verification;
+- production evidence that learned recommendations improve approved outcomes
+  without suppressing the retained human decision and reason.
 
 ## Recommended execution order
 

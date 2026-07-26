@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260725.8";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.1";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -72,7 +72,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260725.2";
+} from "./content-review-view.js?v=20260726.3";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -203,9 +203,9 @@ const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 3;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
-const GENERATED_VIDEO_QA_STORAGE_VERSION = 1;
+const GENERATED_VIDEO_QA_STORAGE_VERSION = 2;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -7685,10 +7685,13 @@ function generatedVideoTechnicalQaMarkup(details) {
   if (prepared?.status === "ready" || entry?.status === "ready") {
     const metrics = prepared?.technicalMetrics || entry?.evidence?.technicalMetrics || {};
     const frameCount = Number(metrics.frame_count || 0);
+    const audioCopy = metrics.audio_analysis_status === "completed"
+      ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
+      : " Звук автоматически не декодирован — его нужно прослушать вручную.";
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Технические кадры готовы автоматически</strong>
-        <span>${frameCount ? `${frameCount} контрольных кадров и метрики MP4 сохранены. ` : ""}Внешний AI ещё не запускался; заполните рекламные реквизиты и примите решение человеком.</span>
+        <span>${frameCount ? `${frameCount} контрольных кадров и метрики MP4 сохранены.` : ""}${escapeHtml(audioCopy)} Внешний AI ещё не запускался; заполните рекламные реквизиты и примите решение человеком.</span>
         ${reviewButton}
       </div>
     `;
@@ -7708,7 +7711,7 @@ function generatedVideoTechnicalQaMarkup(details) {
   const completed = Number(entry?.completedFrames || 0);
   const total = Number(entry?.totalFrames || 5);
   const message = entry?.status === "capturing"
-    ? `Считываем контрольные кадры: ${Math.min(completed, total)} из ${total}.`
+    ? `Считываем контрольные кадры: ${Math.min(completed, total)} из ${total}; звук измеряется локально.`
     : entry?.status === "saving"
       ? "Сохраняем кадры и технические метрики в защищённое evidence."
       : "Проверяем точный MP4 и готовим контрольные кадры без внешнего AI.";
@@ -8398,7 +8401,7 @@ async function prepareGeneratedVideoTechnicalQa(entry) {
       evidence: durableEvidence,
       error: "",
     });
-    toast("Видео готово к быстрой проверке: контрольные кадры и технические метрики уже сохранены.", "success");
+    toast("Видео готово к быстрой проверке: кадры, MP4-метрики и доступные аудиометрики уже сохранены.", "success");
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
     console.warn("Generated video technical QA preparation failed", error);

@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260725.2' in APP
+    assert './content-review-view.js?v=20260726.3' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.6' in INDEX
+    assert './app.js?v=20260726.7' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -95,7 +95,9 @@ def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video()
         "frozen_frame_ratio",
         "frozen_frame_suspected",
         "raw_video_sent: false",
-        "audio_analyzed: false",
+        "audio_analysis_status",
+        "audio_silence_ratio",
+        "audio_clipping_ratio",
         'canvas.toDataURL("image/jpeg", quality)',
     ):
         assert marker in VIEW
@@ -116,7 +118,9 @@ def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video()
     assert "2," in VIEW
     assert "differences.filter((value) => value < 0.015).length / differences.length" in VIEW
     assert "Исходный MP4 и его звук в ИИ-сервис не отправляются" in VIEW
-    assert "fetch(media.url" not in VIEW
+    assert "readResponseArrayBufferBounded" in VIEW
+    assert "decodeAudioData" in VIEW
+    assert "input_audio" not in VIEW
     assert 'new Blob([bytes], { type: "image/jpeg" })' in VIEW
 
 
@@ -165,7 +169,8 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 3" in APP
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 2" in APP
     assert "upsert: false" in API
 
 
@@ -265,7 +270,13 @@ const prepared = await api.prepareContentReviewEvidence({{ mediaId, frameCount: 
 if (prepared.evidenceId !== evidenceId || prepared.frameObjectNames.length !== 4) throw new Error("prepare");
 await api.commitContentReviewEvidence({{
   evidenceId,
-  technicalMetrics: {{ source_type: "video", frame_count: 4 }},
+  technicalMetrics: {{
+    source_type: "video",
+    frame_count: 4,
+    audio_expected: null,
+    audio_analyzed: false,
+    audio_analysis_status: "unavailable"
+  }},
   idempotencyKey: commitKey,
   frames: objectNames.map((object_name, index) => ({{
     object_name, sha256: "a".repeat(64), size_bytes: 160, timecode_seconds: index
@@ -277,7 +288,13 @@ const started = await api.startContentReview({{
   content_kind: "informational",
   product_category: "other",
   people_present: "no",
-  technical_metrics: {{ source_type: "video", frame_count: 4 }},
+  technical_metrics: {{
+    source_type: "video",
+    frame_count: 4,
+    audio_expected: null,
+    audio_analyzed: false,
+    audio_analysis_status: "unavailable"
+  }},
   evidence_id: evidenceId
 }});
 await new Promise((resolve) => setTimeout(resolve, 0));

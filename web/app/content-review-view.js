@@ -6,6 +6,11 @@ const MAX_RECOMMENDATIONS = 40;
 const MAX_FRAME_CHARACTERS = 330_000;
 const MAX_TOTAL_FRAME_CHARACTERS = 1_650_000;
 const FRAME_SAMPLE_SIZE = 48;
+const MAX_AUDIO_SOURCE_BYTES = 52_428_800;
+const AUDIO_ANALYSIS_TIMEOUT_MS = 20_000;
+const AUDIO_SILENCE_DBFS = -50;
+const MAX_AUDIO_ANALYSIS_SAMPLES = 480_000;
+const MAX_AUDIO_SILENCE_WINDOWS = 2_000;
 
 const PLATFORM_LABELS = Object.freeze({
   instagram: "Instagram",
@@ -416,7 +421,7 @@ function reviewFormMarkup(media, busy) {
           <label class="field"><span>Статус материала</span><select name="content_kind" required>${Object.entries(CONTENT_KIND_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}</select><small class="field-hint">«Неизвестно» — безопасный выбор, если руководитель ещё не решил.</small></label>
           <label class="field field-wide"><span>Категория товара</span><select name="product_category" required>${Object.entries(PRODUCT_CATEGORY_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}</select></label>
           <label class="field field-wide"><span>Подпись к публикации</span><textarea name="caption_text" maxlength="6000" rows="4" placeholder="Текст поста, CTA, хэштеги и обязательные пометки"></textarea></label>
-          <label class="field field-wide"><span>Реплика / сценарий ролика</span><textarea name="script_text" maxlength="6000" rows="5" placeholder="Что произносит блогер или что написано крупным текстом в кадре"></textarea><small class="field-hint">Для видео с речью вставьте точную реплику: браузер не отправляет звук и не заменяет прослушивание человеком.</small></label>
+          <label class="field field-wide"><span>Реплика / сценарий ролика</span><textarea name="script_text" maxlength="6000" rows="5" placeholder="Что произносит блогер или что написано крупным текстом в кадре"></textarea><small class="field-hint">Для видео с речью вставьте точную реплику: браузер измеряет уровни звука, но не расшифровывает слова и не заменяет прослушивание человеком.</small></label>
         </div>
       </fieldset>
       <fieldset class="content-review-fieldset">
@@ -454,7 +459,7 @@ function reviewFormMarkup(media, busy) {
         </div>
       </fieldset>
       <div class="content-review-submit">
-        <div><strong>Что будет отправлено</strong><p>Текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 и его звук в ИИ-сервис не отправляются.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
+        <div><strong>Что будет отправлено</strong><p>Текст формы, технические числа и до пяти сжатых кадров. Исходный MP4 и его звук в ИИ-сервис не отправляются; уровни звука измеряются только локально.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
         <button class="btn" type="submit" ${supported.length && !busy ? "" : "disabled"}>${busy ? "Проверка уже выполняется…" : "Проверить качество и риски"}</button>
       </div>
     </form>
@@ -463,7 +468,7 @@ function reviewFormMarkup(media, busy) {
 
 function reviewCurrentMarkup(run, { phase, canDecide }) {
   if (phase === "preparing") {
-    return progressMarkup("Готовим контрольные кадры", "Считываем формат, длительность и 4–5 точек видео. Сам MP4 никуда не отправляется.", 1);
+    return progressMarkup("Готовим техническое evidence", "Считываем формат, длительность, 4–5 точек видео и доступные уровни звука. Сам MP4 во внешний AI не отправляется.", 1);
   }
   if (phase === "saving_evidence") {
     return progressMarkup("Сохраняем evidence", "Кадры загружаются в защищённую папку и фиксируются до запуска проверки.", 2);
@@ -794,6 +799,7 @@ async function captureVideoEvidence(media, onProgress) {
     if (!width || !height || !Number.isFinite(duration) || duration <= 0 || duration > 3_600) {
       throw userError("MP4 имеет неподдерживаемые параметры. Проверьте, что файл открывается и не длиннее одного часа.");
     }
+    const audioMetricsPromise = captureVideoAudioMetrics(media, duration);
     const targets = sampleTimes(duration);
     const frames = [];
     const samples = [];
@@ -815,6 +821,7 @@ async function captureVideoEvidence(media, onProgress) {
     const frozenFrameRatio = differences.length
       ? round(differences.filter((value) => value < 0.015).length / differences.length, 3)
       : 0;
+    const audioMetrics = await audioMetricsPromise;
     onProgress?.({ stage: "video", completed: targets.length, total: targets.length });
     return {
       frames,
@@ -838,7 +845,7 @@ async function captureVideoEvidence(media, onProgress) {
         vertical_9_16_delta: round(Math.abs(width / height - 9 / 16), 4),
         sampling_strategy: "early_0_2_1_2_plus_late_distribution",
         raw_video_sent: false,
-        audio_analyzed: false,
+        ...audioMetrics,
       },
     };
   } finally {
@@ -846,6 +853,225 @@ async function captureVideoEvidence(media, onProgress) {
     video.removeAttribute("src");
     video.load();
   }
+}
+
+async function captureVideoAudioMetrics(media, videoDurationSeconds) {
+  const unavailable = {
+    audio_expected: typeof media.audioExpected === "boolean"
+      ? media.audioExpected
+      : null,
+    audio_analyzed: false,
+    audio_analysis_status: "unavailable",
+  };
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (typeof AudioContextClass !== "function") return unavailable;
+
+  const controller = new AbortController();
+  let rejectTimeout;
+  const timeout = new Promise((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = window.setTimeout(() => {
+    controller.abort();
+    rejectTimeout(userError("Локальная проверка звука превысила лимит времени."));
+  }, AUDIO_ANALYSIS_TIMEOUT_MS);
+  let context;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(media.url, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          signal: controller.signal,
+        });
+        const mimeType = String(response.headers.get("content-type") || "")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase();
+        if (!response.ok || mimeType !== "video/mp4") {
+          await response.body?.cancel();
+          return unavailable;
+        }
+        const bytes = await readResponseArrayBufferBounded(
+          response,
+          MAX_AUDIO_SOURCE_BYTES,
+        );
+        context = new AudioContextClass();
+        const decoded = await context.decodeAudioData(bytes);
+        return analyzeDecodedAudioBuffer(decoded, {
+          expectedAudio: media.audioExpected,
+          videoDurationSeconds,
+        });
+      })(),
+      timeout,
+    ]);
+  } catch {
+    return unavailable;
+  } finally {
+    window.clearTimeout(timer);
+    if (context && typeof context.close === "function") {
+      await context.close().catch(() => {});
+    }
+  }
+}
+
+async function readResponseArrayBufferBounded(response, maxBytes) {
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw userError("MP4 слишком большой для локальной проверки звука.");
+  }
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > maxBytes) {
+      throw userError("MP4 слишком большой для локальной проверки звука.");
+    }
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) {
+        throw userError("Не удалось безопасно прочитать звук MP4.");
+      }
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw userError("MP4 слишком большой для локальной проверки звука.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined.buffer;
+}
+
+export function analyzeDecodedAudioBuffer(
+  audioBuffer,
+  { expectedAudio = null, videoDurationSeconds = null } = {},
+) {
+  const channelCount = Number(audioBuffer?.numberOfChannels);
+  const sampleRate = Number(audioBuffer?.sampleRate);
+  const frameCount = Number(audioBuffer?.length);
+  const duration = Number(audioBuffer?.duration);
+  if (
+    !Number.isInteger(channelCount)
+    || channelCount < 1
+    || channelCount > 32
+    || !Number.isFinite(sampleRate)
+    || sampleRate < 8_000
+    || sampleRate > 384_000
+    || !Number.isInteger(frameCount)
+    || frameCount < 1
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > 3_600
+    || typeof audioBuffer?.getChannelData !== "function"
+  ) {
+    throw userError("Звуковая дорожка имеет неподдерживаемые параметры.");
+  }
+
+  const channels = [];
+  for (let channel = 0; channel < channelCount; channel += 1) {
+    const samples = audioBuffer.getChannelData(channel);
+    if (!(samples instanceof Float32Array) || samples.length !== frameCount) {
+      throw userError("Не удалось прочитать звуковую дорожку MP4.");
+    }
+    channels.push(samples);
+  }
+
+  const sampleStride = Math.max(
+    1,
+    Math.ceil(frameCount / MAX_AUDIO_ANALYSIS_SAMPLES),
+  );
+  let sumSquares = 0;
+  let peak = 0;
+  let clipped = 0;
+  let analyzedSamples = 0;
+  for (let frame = 0; frame < frameCount; frame += sampleStride) {
+    for (const channel of channels) {
+      const value = Math.max(-1, Math.min(1, Number(channel[frame]) || 0));
+      const absolute = Math.abs(value);
+      sumSquares += value * value;
+      peak = Math.max(peak, absolute);
+      if (absolute >= 0.99) clipped += 1;
+      analyzedSamples += 1;
+    }
+  }
+  const rms = analyzedSamples ? Math.sqrt(sumSquares / analyzedSamples) : 0;
+
+  const silenceWindowFrames = Math.max(
+    1,
+    Math.ceil(sampleRate * 0.02),
+    Math.ceil(frameCount / MAX_AUDIO_SILENCE_WINDOWS),
+  );
+  let silentWindows = 0;
+  let totalWindows = 0;
+  for (
+    let start = 0;
+    start < frameCount;
+    start += silenceWindowFrames
+  ) {
+    const end = Math.min(frameCount, start + silenceWindowFrames);
+    const windowStride = Math.max(1, Math.ceil((end - start) / 256));
+    let windowSquares = 0;
+    let windowSamples = 0;
+    for (let frame = start; frame < end; frame += windowStride) {
+      for (const channel of channels) {
+        const value = Math.max(-1, Math.min(1, Number(channel[frame]) || 0));
+        windowSquares += value * value;
+        windowSamples += 1;
+      }
+    }
+    const windowRms = windowSamples
+      ? Math.sqrt(windowSquares / windowSamples)
+      : 0;
+    if (amplitudeDbfs(windowRms) <= AUDIO_SILENCE_DBFS) silentWindows += 1;
+    totalWindows += 1;
+  }
+
+  const safeVideoDuration = Number(videoDurationSeconds);
+  return {
+    audio_expected: typeof expectedAudio === "boolean" ? expectedAudio : null,
+    audio_analyzed: true,
+    audio_analysis_status: "completed",
+    audio_channel_count: channelCount,
+    audio_sample_rate_hz: Math.round(sampleRate),
+    audio_duration_seconds: round(duration, 3),
+    audio_video_duration_delta_seconds: Number.isFinite(safeVideoDuration)
+      ? round(Math.abs(duration - safeVideoDuration), 3)
+      : null,
+    audio_peak_dbfs: round(amplitudeDbfs(peak), 2),
+    audio_rms_dbfs: round(amplitudeDbfs(rms), 2),
+    audio_silence_ratio: round(
+      totalWindows ? silentWindows / totalWindows : 1,
+      4,
+    ),
+    audio_clipping_ratio: round(
+      analyzedSamples ? clipped / analyzedSamples : 0,
+      6,
+    ),
+  };
+}
+
+function amplitudeDbfs(value) {
+  const amplitude = Math.max(0, Number(value) || 0);
+  return Math.max(-160, Math.min(0, 20 * Math.log10(Math.max(amplitude, 1e-8))));
 }
 
 function sampleTimes(duration) {
@@ -1096,6 +1322,12 @@ function normalizeMedia(raw) {
   const isVideo = mimeType === "video/mp4" || kind === "source_video" || kind === "generated_video";
   const isImage = mimeType.startsWith("image/") || ["product_photo", "packshot", "creator_reference"].includes(kind);
   const url = safeMediaUrl(raw.signed_url || raw.access_url || raw.preview_url);
+  const model = text(metadata.model, 120).toLowerCase();
+  const audioExpected = typeof metadata.audio === "boolean"
+    ? metadata.audio
+    : model === "gen4_turbo"
+      ? false
+      : null;
   return {
     id: text(raw.public_id || raw.id || raw.media_id, 180),
     productId: text(raw.product_id || metadata.product_id, 180),
@@ -1110,6 +1342,8 @@ function normalizeMedia(raw) {
     status: text(raw.status, 40).toLowerCase(),
     sha256: text(raw.sha256, 180),
     sizeBytes: nonNegativeInteger(raw.size_bytes),
+    generationModel: model,
+    audioExpected,
   };
 }
 

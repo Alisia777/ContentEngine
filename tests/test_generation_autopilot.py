@@ -309,4 +309,4 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
         "    }"
     )
     assert initial_sync in APP
-    assert './app.js?v=20260726.6' in INDEX
+    assert './app.js?v=20260726.7' in INDEX

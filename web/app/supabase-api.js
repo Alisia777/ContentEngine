@@ -1130,6 +1130,7 @@ export class CreatorApi {
       || typeof technicalMetrics !== "object"
       || Array.isArray(technicalMetrics)
       || String(technicalMetrics.source_type || "").toLowerCase() !== "video"
+      || !validContentReviewTechnicalMetrics(technicalMetrics)
       || (normalizedIdempotencyKey && !isUuid(normalizedIdempotencyKey))
     ) {
       throw new CreatorApiError("Не удалось подтвердить полный набор контрольных кадров.", {
@@ -1234,6 +1235,11 @@ export class CreatorApi {
       });
     }
     const sourceType = String(technicalMetrics.source_type || "").toLowerCase();
+    if (!validContentReviewTechnicalMetrics(technicalMetrics)) {
+      throw new CreatorApiError("Технические параметры файла неполны или повреждены.", {
+        code: "content_review_metrics_invalid",
+      });
+    }
     const evidenceId = String(input?.evidence_id || "").trim();
     if (sourceType === "video" && !isUuid(evidenceId)) {
       throw new CreatorApiError("Сначала сохраните контрольные кадры MP4.", {
@@ -2083,6 +2089,53 @@ function isUuid(value) {
   );
 }
 
+function validContentReviewTechnicalMetrics(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const sourceType = String(value.source_type || "").trim().toLowerCase();
+  if (sourceType === "image") {
+    return Number.isInteger(Number(value.frame_count))
+      && Number(value.frame_count) === 1;
+  }
+  if (
+    sourceType !== "video"
+    || !Number.isInteger(Number(value.frame_count))
+    || Number(value.frame_count) < 4
+    || Number(value.frame_count) > 5
+    || typeof value.audio_analyzed !== "boolean"
+    || !["completed", "unavailable"].includes(
+      String(value.audio_analysis_status || ""),
+    )
+    || !(
+      value.audio_expected === null
+      || typeof value.audio_expected === "boolean"
+    )
+  ) return false;
+  if (value.audio_analysis_status === "unavailable") {
+    return value.audio_analyzed === false;
+  }
+  const finiteInRange = (field, minimum, maximum) =>
+    typeof value[field] === "number"
+    && Number.isFinite(value[field])
+    && value[field] >= minimum
+    && value[field] <= maximum;
+  return value.audio_analyzed === true
+    && Number.isInteger(value.audio_channel_count)
+    && value.audio_channel_count >= 1
+    && value.audio_channel_count <= 32
+    && Number.isInteger(value.audio_sample_rate_hz)
+    && value.audio_sample_rate_hz >= 8_000
+    && value.audio_sample_rate_hz <= 384_000
+    && finiteInRange("audio_duration_seconds", 0.001, 3_600)
+    && (
+      value.audio_video_duration_delta_seconds === null
+      || finiteInRange("audio_video_duration_delta_seconds", 0, 3_600)
+    )
+    && finiteInRange("audio_peak_dbfs", -160, 0)
+    && finiteInRange("audio_rms_dbfs", -160, 0)
+    && finiteInRange("audio_silence_ratio", 0, 1)
+    && finiteInRange("audio_clipping_ratio", 0, 1);
+}
+
 function normalizePublicRecoveryToken(value) {
   const token = String(value || "").trim();
   if (token.length < 16 || token.length > 512 || !/^[a-z0-9._~-]+$/iu.test(token)) return "";
@@ -2430,6 +2483,7 @@ function toFriendlyMessage(error) {
     content_review_video_evidence_not_ready: "Контрольные кадры MP4 ещё не подтверждены. Безопасно повторите подтверждение.",
     content_review_evidence_prepare_payload_invalid: "Не удалось подготовить безопасный запрос для кадров.",
     content_review_evidence_frame_count_invalid: "Для MP4 нужно подготовить от четырёх до пяти кадров.",
+    content_review_evidence_audio_metrics_invalid: "Локальные аудиометрики неполны. Подготовьте evidence заново и обязательно прослушайте точный MP4.",
     content_review_evidence_media_not_accessible: "Видео недоступно вашей роли или уже изменилось. Обновите материалы.",
     content_review_evidence_media_type_invalid: "Для этого evidence выбран неподдерживаемый тип исходного файла.",
     content_review_evidence_active_limit: "Для этого видео уже сохраняется набор кадров. Подождите и повторите запуск.",
