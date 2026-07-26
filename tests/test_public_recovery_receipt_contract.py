@@ -201,7 +201,8 @@ def test_public_recovery_is_deployed_unauthenticated_but_ci_checked() -> None:
     recovery_steps = [
         step
         for step in steps
-        if str(step.get("name", "")).startswith("Deploy public")
+        if step.get("name")
+        == "Deploy public idempotent password recovery function"
     ]
     assert len(recovery_steps) == 1
     assert "--no-verify-jwt" in recovery_steps[0]["run"]

@@ -264,6 +264,14 @@ jobs:
           --project-ref "$SUPABASE_PROJECT_REF"
           --no-verify-jwt
 
+      - name: Deploy public privacy-minimized click redirect
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          supabase functions deploy creator-click
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --no-verify-jwt
+
       - name: Deploy signed email delivery webhook
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

@@ -23,6 +23,7 @@ export const RPC = Object.freeze({
   moveWorkspaceItems: "creator_move_workspace_items",
   createMockBatch: "creator_create_mock_batch",
   recordMetric: "creator_record_metric",
+  configureTrackingLink: "creator_configure_tracking_link",
   setWbAlias: "creator_set_wb_alias",
   decidePayout: "creator_decide_payout",
   confirmPlacement: "creator_confirm_placement",
@@ -1693,6 +1694,13 @@ export class CreatorApi {
     });
   }
 
+  configureTrackingLink(placementId, targetUrl) {
+    return this.mutate(RPC.configureTrackingLink, {
+      placement_id: placementId,
+      target_url: targetUrl,
+    });
+  }
+
   setWbAlias(alias) {
     return this.mutate(RPC.setWbAlias, alias);
   }
@@ -2537,6 +2545,13 @@ function toFriendlyMessage(error) {
     observed_at_before_publication: "Снимок метрик должен быть сделан после публикации.",
     cumulative_metric_regression: "Накопительные метрики не могут быть меньше предыдущего снимка.",
     metric_payload_invalid: "Проверьте значения ручного снимка метрик.",
+    tracking_link_payload_invalid: "Не удалось подготовить ссылку учёта.",
+    tracking_target_invalid: "Укажите прямую HTTPS-ссылку на товар или лендинг.",
+    tracking_placement_not_found: "Публикационная задача для ссылки не найдена.",
+    tracking_link_access_denied: "Эта публикация назначена другому участнику.",
+    tracking_placement_not_configurable: "Для закрытой публикации нельзя создать новую ссылку.",
+    tracking_link_target_immutable: "У этой публикации уже есть ссылка на другой адрес. Создайте новую публикационную задачу.",
+    tracking_slug_generation_failed: "Не удалось выпустить безопасную короткую ссылку. Повторите ещё раз.",
     storage_access_denied: "Нет доступа к этой папке раздела «Материалы».",
     storage_object_not_found: "Загруженный файл не найден в защищённом хранилище. Повторите загрузку.",
     media_metadata_invalid: "Проверьте тип, размер и формат файла.",

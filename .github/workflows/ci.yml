@@ -136,9 +136,10 @@ jobs:
                       f"{function_name} must set verify_jwt = true"
                   )
           for function_name in (
-              "creator-background-worker",
-               "creator-recovery",
-              "auth-email-webhook",
+            "creator-background-worker",
+            "creator-recovery",
+            "creator-click",
+            "auth-email-webhook",
           ):
               entrypoint = (
                   Path("supabase/functions") / function_name / "index.ts"
@@ -165,7 +166,8 @@ jobs:
           deno fmt --check supabase/functions/creator-content-review
           deno fmt --check supabase/functions/creator-background-worker
           deno fmt --check supabase/functions/creator-access
-           deno fmt --check supabase/functions/creator-recovery
+          deno fmt --check supabase/functions/creator-recovery
+          deno fmt --check supabase/functions/creator-click
           deno fmt --check supabase/functions/auth-email-webhook
           deno fmt --check supabase/functions/_shared/internal-worker-auth.ts
 
@@ -178,7 +180,8 @@ jobs:
           deno lint supabase/functions/creator-content-review/index.ts
           deno lint supabase/functions/creator-background-worker/index.ts
           deno lint supabase/functions/creator-access/index.ts
-           deno lint supabase/functions/creator-recovery/index.ts
+          deno lint supabase/functions/creator-recovery/index.ts
+          deno lint supabase/functions/creator-click/index.ts
           deno lint supabase/functions/auth-email-webhook/index.ts
           deno lint supabase/functions/_shared/internal-worker-auth.ts
 
@@ -191,7 +194,8 @@ jobs:
           deno check supabase/functions/creator-content-review/index.ts
           deno check supabase/functions/creator-background-worker/index.ts
           deno check supabase/functions/creator-access/index.ts
-           deno check supabase/functions/creator-recovery/index.ts
+          deno check supabase/functions/creator-recovery/index.ts
+          deno check supabase/functions/creator-click/index.ts
           deno check supabase/functions/auth-email-webhook/index.ts
           deno check supabase/functions/_shared/internal-worker-auth.ts
 

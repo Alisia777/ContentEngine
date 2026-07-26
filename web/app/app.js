@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260724.6";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260725.7";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -8448,6 +8448,19 @@ function renderPlacementSection(sectionState) {
 function placementCard(item) {
   const complete = isCompletedPlacement(item);
   const actionable = isActionablePlacement(item);
+  const trackingSlug = String(item.tracking_slug || "");
+  const trackingUrl = trackingSlug
+    ? trackingRedirectUrl(trackingSlug)
+    : isHttpsUrl(String(item.tracking_url || ""))
+      ? new URL(String(item.tracking_url)).href
+      : "#";
+  const trackingTargetUrl = isHttpsUrl(String(item.tracking_target_url || ""))
+    ? new URL(String(item.tracking_target_url)).href
+    : "#";
+  const trackingReady = trackingUrl !== "#";
+  const canConfigureTracking = !["failed", "cancelled"].includes(
+    String(item.status || "").toLowerCase(),
+  );
   return `
     <article class="card placement-card" data-placement-id="${escapeHtml(item.id || item.placement_id || "")}" tabindex="-1">
       <div class="placement-top">
@@ -8458,6 +8471,29 @@ function placementCard(item) {
         </div>
         ${statusBadge(item.status || "todo")}
       </div>
+      ${trackingReady ? `
+        <div class="callout callout-success">
+          <strong>Ссылка для публикации готова</strong>
+          <p class="tiny">Вставьте её в описание, закреплённый комментарий или поле ссылки. Переходы людей считаются автоматически; боты и быстрые повторы не входят в результат.</p>
+          <div class="inline-actions">
+            <input type="url" readonly value="${escapeHtml(trackingUrl)}" aria-label="Ссылка с автоматическим учётом переходов" style="flex:1;min-width:240px" />
+            <button class="btn btn-secondary btn-small" type="button" data-action="copy-tracking-link" data-tracking-url="${escapeHtml(trackingUrl)}">Скопировать</button>
+            ${trackingTargetUrl !== "#" ? `<a class="btn btn-ghost btn-small" href="${escapeHtml(trackingTargetUrl)}" target="_blank" rel="noopener noreferrer">Открыть товар без учёта</a>` : ""}
+          </div>
+          <small class="muted">Засчитано человеческих переходов: ${formatNumber(item.tracked_clicks || 0)}</small>
+        </div>
+      ` : canConfigureTracking ? `
+        <form class="form-stack tracking-link-form" data-placement-id="${escapeHtml(item.id || item.placement_id || "")}" novalidate>
+          <div>
+            <strong>Ссылка на товар для автоматического учёта</strong>
+            <p class="tiny muted">Один раз укажите HTTPS-адрес товара или лендинга. Портал выпустит безопасную ссылку и дальше сам посчитает переходы.</p>
+          </div>
+          <div class="inline-actions">
+            <label class="field" style="flex:1;min-width:250px"><span>Куда вести покупателя *</span><input name="target_url" type="url" required inputmode="url" placeholder="https://…/карточка-товара" /></label>
+            <button class="btn btn-secondary" type="submit" style="align-self:end">Создать ссылку</button>
+          </div>
+        </form>
+      ` : ""}
       <ul class="checklist">
         <li>Сверить назначенный аккаунт и площадку</li>
         <li>Открыть «Проверку контента» и убедиться, что по этой версии нет нерешённых блокеров</li>
@@ -8468,7 +8504,6 @@ function placementCard(item) {
       </ul>
       ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её руководителю. Бирка соцсети не заменяет правовую проверку.", "warning")}
       <p class="tiny"><a href="#/workspace/review">Открыть историю проверки контента →</a></p>
-      ${item.tracking_url ? `<p class="tiny"><strong>Ссылка из задачи:</strong> <a href="${safeExternalUrl(item.tracking_url)}" target="_blank" rel="noopener noreferrer">открыть</a></p>` : ""}
       ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable ? `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
           <label class="field" style="flex:1; min-width:250px"><span>Ссылка на опубликованный пост</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
@@ -8507,14 +8542,14 @@ function renderStatsSection(sectionState) {
             <p class="eyebrow">Ручной снимок</p>
             <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Зафиксировать цифры на сейчас</h2>
             <p class="muted tiny">Введите <strong>накопительные итоги</strong> публикации, а не прирост за день. Например, если вчера было 900 просмотров, а сегодня 1200 — укажите 1200.</p>
-            ${alertMarkup("Результат будет помечен как введённый вручную. Будущие автоматические подключения не сотрут историю.", "info")}
+            ${alertMarkup("Просмотры, заказы и выручка остаются ручным подтверждённым снимком. Переходы портал подставит сам, если в публикации использована его ссылка.", "info")}
           </div>
           ${publicationOptions.length ? `
             <form id="manual-metric-form" class="form-stack" novalidate>
-              <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => `<option value="${escapeHtml(item.id || item.placement_id)}">${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`).join("")}</select></label>
+              <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => `<option value="${escapeHtml(item.id || item.placement_id)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}">${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`).join("")}</select></label>
               <div class="form-grid-2">
                 <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="0" required /></label>
-                <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="0" required /></label>
+                <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="0" required /><small class="muted" data-metric-click-source>Без tracking link укажите накопительное число вручную.</small></label>
                 <label class="field"><span>Заказы *</span><input name="orders" type="number" min="0" step="1" value="0" required /></label>
                 <label class="field"><span>Выручка, ₽ *</span><input name="revenue_rub" type="number" min="0" step="0.01" value="0" required /></label>
               </div>
@@ -9243,6 +9278,21 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "copy-tracking-link") {
+    const value = String(control.dataset.trackingUrl || "");
+    if (!isHttpsUrl(value)) {
+      toast("Ссылка учёта недоступна. Обновите раздел публикаций.", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      toast("Ссылка для публикации скопирована.", "success");
+    } catch {
+      toast(value, "info");
+    }
+    return;
+  }
 
   if (action === "use-local-media-fixture") {
     const form = control.closest("#media-upload-form");
@@ -10192,6 +10242,7 @@ async function handleSubmit(event) {
   else if (form.classList.contains("generation-reconciliation-form")) await submitRealGenerationReconciliation(form, event.submitter);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
+  else if (form.classList.contains("tracking-link-form")) await submitTrackingLink(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
   else if (form.id === "media-upload-form") await submitMedia(form);
   else if (form.id === "feedback-form") await submitFeedback(form);
@@ -10530,6 +10581,11 @@ function handleChange(event) {
     }
     syncContentReviewFormVisibility(contentReviewForm);
     persistContentReviewDraft(contentReviewForm);
+  }
+
+  const metricForm = event.target.closest("#manual-metric-form");
+  if (metricForm && event.target.name === "placement_id") {
+    syncManualMetricClicks(metricForm);
   }
 }
 
@@ -12043,6 +12099,60 @@ async function submitManualMetric(form) {
   } catch (error) {
     setFormBusy(form, false);
       toast(actionErrorMessage(error), "error");
+  }
+}
+
+async function submitTrackingLink(form) {
+  const values = new FormData(form);
+  const placementId = String(form.dataset.placementId || "");
+  const targetUrl = String(values.get("target_url") || "").trim();
+  if (!placementId || !isHttpsUrl(targetUrl)) {
+    toast("Укажите полный HTTPS-адрес товара или лендинга.", "error");
+    return;
+  }
+  setFormBusy(form, true, "Создаём ссылку…");
+  try {
+    const result = await state.api.configureTrackingLink(
+      placementId,
+      targetUrl,
+    );
+    const trackingUrl = trackingRedirectUrl(result?.tracking_slug);
+    if (!isHttpsUrl(trackingUrl)) {
+      throw new Error("Сервер не вернул безопасную ссылку учёта.");
+    }
+    await track("tracking_link_configured", {
+      placement_id: placementId,
+      target_hostname: new URL(targetUrl).hostname,
+    });
+    delete form.dataset.dirty;
+    state.sections.placement.status = "idle";
+    state.sections.stats.status = "idle";
+    toast("Ссылка готова. Вставьте её в публикацию — переходы будут считаться автоматически.", "success");
+    render();
+  } catch (error) {
+    setFormBusy(form, false);
+    toast(actionErrorMessage(error), "error");
+  }
+}
+
+function syncManualMetricClicks(form) {
+  const select = form.elements?.placement_id;
+  const input = form.elements?.clicks;
+  const hint = form.querySelector("[data-metric-click-source]");
+  if (!(select instanceof HTMLSelectElement) || !(input instanceof HTMLInputElement)) return;
+  const option = select.selectedOptions?.[0];
+  const trackingEnabled = option?.dataset.trackingEnabled === "true";
+  const trackedClicks = nonnegativeInteger(option?.dataset.trackedClicks) ?? 0;
+  if (trackingEnabled) {
+    input.value = String(trackedClicks);
+    input.readOnly = true;
+    input.setAttribute("aria-readonly", "true");
+    if (hint) hint.textContent = `Подставлено автоматически: ${formatNumber(trackedClicks)} человеческих переходов.`;
+  } else {
+    input.value = "0";
+    input.readOnly = false;
+    input.removeAttribute("aria-readonly");
+    if (hint) hint.textContent = "Без tracking link укажите накопительное число вручную.";
   }
 }
 
@@ -13645,6 +13755,8 @@ function humanMetricSource(source) {
     import: "Из файла",
     api: "Автоматически",
     official_api: "Автоматически",
+    tracking_link: "Ссылка",
+    mixed: "Ссылка + снимок",
     instagram: "Instagram",
     youtube: "YouTube",
     vk: "VK",
@@ -13987,6 +14099,18 @@ function safeExternalUrl(value) {
       ? new URL(value, CONFIG.SUPABASE_URL)
       : new URL(String(value));
     return url.protocol === "https:" || url.protocol === "blob:" ? escapeHtml(url.href) : "#";
+  } catch {
+    return "#";
+  }
+}
+
+function trackingRedirectUrl(slug) {
+  const value = String(slug || "").trim();
+  if (!/^ce1_[0-9a-f]{24}$/.test(value)) return "#";
+  try {
+    const url = new URL("/functions/v1/creator-click", CONFIG.SUPABASE_URL);
+    url.searchParams.set("slug", value);
+    return url.href;
   } catch {
     return "#";
   }
