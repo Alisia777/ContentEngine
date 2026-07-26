@@ -132,8 +132,117 @@ def test_platform_autopilot_uses_content_specific_defaults_and_respects_manual_c
     ]
 
 
+def test_destination_autopilot_reuses_only_one_unambiguous_safe_history_value() -> None:
+    batches = json.dumps(
+        [
+            {
+                "status": "succeeded",
+                "parameters": {
+                    "platform": "tiktok",
+                    "destination_ref": "@exact-account",
+                },
+            },
+            {
+                "status": "processing",
+                "input": {
+                    "platform": "tiktok",
+                    "destination_ref": "@exact-account",
+                },
+            },
+            {
+                "status": "failed",
+                "parameters": {
+                    "platform": "tiktok",
+                    "destination_ref": "@ignored-failure",
+                },
+            },
+            {
+                "status": "succeeded",
+                "parameters": {
+                    "platform": "wildberries",
+                    "destination_ref": "WB-123",
+                },
+            },
+        ],
+        ensure_ascii=False,
+    )
+    result = _evaluate(
+        "subject.resolveGenerationDestination({"
+        f"batches: {batches}, platform: 'tiktok'"
+        "})"
+    )
+    assert result == {
+        "value": "@exact-account",
+        "preferred": "@exact-account",
+        "automatic": True,
+        "candidateCount": 1,
+    }
+
+
+def test_destination_autopilot_never_guesses_and_preserves_manual_override() -> None:
+    batches = json.dumps(
+        [
+            {
+                "status": "mock_ready",
+                "parameters": {
+                    "platform": "vk",
+                    "destination_ref": "@first",
+                },
+            },
+            {
+                "status": "succeeded",
+                "parameters": {
+                    "platform": "vk",
+                    "destination_ref": "@second",
+                },
+            },
+        ],
+        ensure_ascii=False,
+    )
+    expression = f"""
+    [
+      subject.resolveGenerationDestination({{
+        batches: {batches},
+        platform: "vk",
+      }}),
+      subject.resolveGenerationDestination({{
+        batches: {batches},
+        platform: "vk",
+        currentDestination: "@manual",
+        automaticDestination: "@old-auto",
+      }}),
+      subject.resolveGenerationDestination({{
+        batches: {batches},
+        platform: "telegram",
+        currentDestination: "@old-auto",
+        automaticDestination: "@old-auto",
+      }}),
+    ]
+    """
+    assert _evaluate(expression) == [
+        {
+            "value": "",
+            "preferred": "",
+            "automatic": False,
+            "candidateCount": 2,
+        },
+        {
+            "value": "@manual",
+            "preferred": "",
+            "automatic": False,
+            "candidateCount": 2,
+        },
+        {
+            "value": "",
+            "preferred": "",
+            "automatic": False,
+            "candidateCount": 0,
+        },
+    ]
+
+
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260725.1"' in APP
+    assert 'from "./generation-autopilot.js?v=20260726.1"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
@@ -147,6 +256,17 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "form.dataset.autoGenerationBrief = snapshot.autoGenerationBrief" in APP
     assert "resolveGenerationPlatform({" in APP
     assert "delete generationForm.dataset.autoGenerationPlatform" in APP
+    assert "resolveGenerationDestination({" in APP
+    assert "function syncGenerationDestination(form)" in APP
+    assert (
+        "autoGenerationDestination: String(form.dataset.autoGenerationDestination"
+        in APP
+    )
+    assert (
+        "form.dataset.autoGenerationDestination = snapshot.autoGenerationDestination"
+        in APP
+    )
+    assert "В истории несколько назначений для этой площадки" in APP
     initial_sync = (
         'const generationForm = document.querySelector("#mock-batch-form");\n'
         "    applyContentGenerationHandoffToForm();\n"
@@ -156,4 +276,4 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
         "    }"
     )
     assert initial_sync in APP
-    assert './app.js?v=20260726.1' in INDEX
+    assert './app.js?v=20260726.2' in INDEX

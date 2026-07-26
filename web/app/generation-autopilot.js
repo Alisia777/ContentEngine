@@ -45,3 +45,60 @@ export function resolveGenerationPlatform({
     automatic: canApply,
   };
 }
+
+export function resolveGenerationDestination({
+  batches = [],
+  platform = "",
+  currentDestination = "",
+  automaticDestination = "",
+} = {}) {
+  const selectedPlatform = String(platform || "").trim().toLowerCase();
+  const current = String(currentDestination || "").trim();
+  const previousAutomatic = String(automaticDestination || "").trim();
+  const destinations = new Map();
+
+  for (const batch of Array.isArray(batches) ? batches : []) {
+    const status = String(batch?.status || "").trim().toLowerCase();
+    if (["failed", "cancelled"].includes(status)) continue;
+    const parameters = batch?.parameters && typeof batch.parameters === "object"
+      ? batch.parameters
+      : batch?.input && typeof batch.input === "object"
+        ? batch.input
+        : {};
+    const candidatePlatform = String(
+      parameters.platform || batch?.platform || "",
+    ).trim().toLowerCase();
+    const destination = String(
+      parameters.destination_ref || parameters.destination || "",
+    ).trim();
+    if (
+      !selectedPlatform
+      || candidatePlatform !== selectedPlatform
+      || destination.length < 2
+      || destination.length > 240
+    ) continue;
+    if (!destinations.has(destination)) destinations.set(destination, destination);
+  }
+
+  const preferred = destinations.size === 1
+    ? destinations.values().next().value
+    : "";
+  const currentIsAutomatic = Boolean(
+    previousAutomatic && current === previousAutomatic,
+  );
+  const canApply = !current || currentIsAutomatic;
+  if (preferred && canApply) {
+    return {
+      value: preferred,
+      preferred,
+      automatic: true,
+      candidateCount: 1,
+    };
+  }
+  return {
+    value: currentIsAutomatic && !preferred ? "" : current,
+    preferred,
+    automatic: false,
+    candidateCount: destinations.size,
+  };
+}

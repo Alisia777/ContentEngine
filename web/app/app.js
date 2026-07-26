@@ -54,8 +54,9 @@ import {
 } from "./generation-form-readiness.js?v=20260725.1";
 import {
   chooseInitialGenerationMedia,
+  resolveGenerationDestination,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260725.1";
+} from "./generation-autopilot.js?v=20260726.1";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -5305,6 +5306,7 @@ function captureDirtyWorkspaceForms(container) {
     busyLabel: form.querySelector('button[type="submit"]')?.textContent || "",
     generationMediaSelectionTouched: form.dataset.generationMediaSelectionTouched === "true",
     autoGenerationPlatform: String(form.dataset.autoGenerationPlatform || ""),
+    autoGenerationDestination: String(form.dataset.autoGenerationDestination || ""),
     autoGenerationBrief: String(form.dataset.autoGenerationBrief || ""),
     fields: Array.from(form.elements).map((field) => {
       const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
@@ -5355,6 +5357,9 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     }
     if (snapshot.autoGenerationPlatform) {
       form.dataset.autoGenerationPlatform = snapshot.autoGenerationPlatform;
+    }
+    if (snapshot.autoGenerationDestination) {
+      form.dataset.autoGenerationDestination = snapshot.autoGenerationDestination;
     }
     if (snapshot.autoGenerationBrief) {
       form.dataset.autoGenerationBrief = snapshot.autoGenerationBrief;
@@ -6732,7 +6737,7 @@ function contentGenerationHandoffMarkup(handoff, evaluation) {
         </div>
         <span class="badge ${ready ? "badge-info" : "badge-warning"}" data-generation-handoff-status>${ready ? "ГОТОВО К ПРОВЕРКЕ" : "НУЖНА ПРАВКА"}</span>
       </div>
-      <p class="generation-handoff__copy">Поля перенесены без ручного копирования. Перед оплатой выберите точное фото товара, проверьте реплику и заполните площадку публикации.</p>
+      <p class="generation-handoff__copy">Поля перенесены без ручного копирования. Перед оплатой проверьте точное фото товара, реплику и назначение публикации.</p>
       <ul class="generation-handoff__issues" data-generation-handoff-issues>
         ${issues.length
           ? issues.map((item) => `<li data-kind="${(evaluation?.blockers || []).includes(item) ? "blocker" : "warning"}">${escapeHtml(item.message)}</li>`).join("")
@@ -6944,7 +6949,15 @@ function applyContentGenerationHandoffToForm() {
   if (firstApplication) {
     scrollElementIntoView(form, "start");
     window.setTimeout(
-      () => form.elements.destination_ref?.focus({ preventScroll: true }),
+      () => {
+        const destination = form.elements.destination_ref;
+        if (!String(destination?.value || "").trim()) {
+          destination?.focus({ preventScroll: true });
+          return;
+        }
+        form.querySelector('[data-action="check-runway-readiness"]')
+          ?.focus({ preventScroll: true });
+      },
       prefersReducedMotion() ? 0 : 350,
     );
   }
@@ -7182,6 +7195,7 @@ function renderGenerationSection(sectionState) {
               <label class="field">
                 <span>Аккаунт или карточка для публикации *</span>
                 <input name="destination_ref" required minlength="2" maxlength="240" placeholder="Точный @аккаунт, канал или карточка" autocomplete="off" />
+                <small id="generation-destination-hint" class="field-hint">Если в прошлых запусках для площадки было одно назначение, портал подставит его сам.</small>
               </label>
             </div>
             ${canAssignTeam ? `
@@ -10599,6 +10613,7 @@ function handleChange(event) {
   if (generationForm && ["generation_mode", "campaign_id", "platform"].includes(event.target.name)) {
     if (event.target.name === "platform") {
       delete generationForm.dataset.autoGenerationPlatform;
+      syncGenerationDestination(generationForm);
       syncGenerationProductIdentity(generationForm);
     } else {
       syncGenerationModeForm(generationForm);
@@ -10662,6 +10677,13 @@ function handleFormActivity(event) {
     form.dataset.dirty = "true";
     if (form.id === "content-review-form") persistContentReviewDraft(form);
     if (form.id === "mock-batch-form") {
+      if (event.target.name === "destination_ref") {
+        delete form.dataset.autoGenerationDestination;
+        const hint = form.querySelector("#generation-destination-hint");
+        if (hint) {
+          hint.textContent = "Указано вручную. Перед запуском проверьте точный аккаунт, канал или карточку.";
+        }
+      }
       if (event.target.name === "brief") {
         syncGenerationModeForm(form);
         syncContentGenerationHandoff(form);
@@ -11197,6 +11219,34 @@ function syncGenerationAutomaticMedia(form) {
   return target?.value || "";
 }
 
+function syncGenerationDestination(form) {
+  const destination = form?.elements?.destination_ref;
+  const platform = form?.elements?.platform;
+  if (!destination || !platform) return null;
+  const batches = listFrom(state.sections.generation.data || {}, "batches");
+  const resolution = resolveGenerationDestination({
+    batches,
+    platform: platform.value,
+    currentDestination: destination.value,
+    automaticDestination: form.dataset.autoGenerationDestination,
+  });
+  destination.value = resolution.value;
+  if (resolution.automatic) {
+    form.dataset.autoGenerationDestination = resolution.value;
+  } else {
+    delete form.dataset.autoGenerationDestination;
+  }
+  const hint = form.querySelector("#generation-destination-hint");
+  if (hint) {
+    hint.textContent = resolution.automatic
+      ? "Подставлено из прошлых запусков на этой площадке. Перед оплатой проверьте назначение."
+      : resolution.candidateCount > 1
+        ? "В истории несколько назначений для этой площадки — выберите точное вручную."
+        : "Укажите точный аккаунт, канал или карточку для публикации.";
+  }
+  return resolution;
+}
+
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
   const sku = realGenerationSku(mode);
@@ -11257,6 +11307,7 @@ function syncGenerationModeForm(form) {
       delete form.dataset.autoGenerationPlatform;
     }
   }
+  syncGenerationDestination(form);
   if (format) {
     format.disabled = Boolean(sku?.format);
     if (sku?.format) format.value = sku.format;
