@@ -1256,9 +1256,9 @@ function buildCompletionPayload(
     const instructions = [
       `Цель: ${String(scenario.goal)}`,
       `Угол подачи: ${String(scenario.angle)}`,
-      `Режим генерации: ${
-        String(scenario.recommended_generation_mode)
-      } — ${String(scenario.generation_mode_reason)}`,
+      `Режим генерации: ${String(scenario.recommended_generation_mode)} — ${
+        String(scenario.generation_mode_reason)
+      }`,
       `Хук: ${String(scenario.hook)}`,
       scenario.recommended_generation_mode === "real_seedance"
         ? `Текст блогера: ${String(scenario.spoken_script)}`
