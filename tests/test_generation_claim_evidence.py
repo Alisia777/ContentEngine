@@ -95,6 +95,8 @@ def test_database_contract_is_server_owned_hashed_and_fail_safe() -> None:
         "and draft.origin = 'ai'",
         "draft.status = 'approved'",
         "content_factory_private.json_hash(evidence_without_hash)",
+        "to_jsonb(job_row.input ->> 'prompt_text')",
+        "'null'::jsonb",
         "zz_generated_claim_evidence_guard",
         "media_row.metadata ->> 'kind' not in (",
         "'generated_video', 'generated_image'",

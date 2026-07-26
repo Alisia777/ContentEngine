@@ -470,6 +470,7 @@ declare
   draft_id_value uuid;
   draft_hash_value text;
   scenario_position_value integer;
+  prompt_hash_value text;
   evidence_without_hash jsonb;
 begin
   select media.* into media_row
@@ -517,6 +518,10 @@ begin
   if signal_row.id is not null then
     evidence_source := signal_row.source;
   end if;
+  prompt_hash_value := content_factory_private.json_hash(coalesce(
+    to_jsonb(job_row.input ->> 'prompt_text'),
+    'null'::jsonb
+  ));
 
   if evidence_source = 'approved_research' then
     select draft.* into draft_row
@@ -527,10 +532,7 @@ begin
       and draft.status = 'approved'
       and draft.origin = 'ai';
     if draft_row.id is not null
-       and signal_row.prompt_hash =
-          content_factory_private.json_hash(to_jsonb(
-            job_row.input ->> 'prompt_text'
-          ))
+       and signal_row.prompt_hash = prompt_hash_value
        and draft_row.content_hash =
           content_factory_private.json_hash(jsonb_build_object(
             'title', draft_row.title,
@@ -557,9 +559,7 @@ begin
     'status', evidence_status,
     'source', evidence_source,
     'generation_job_id', job_row.id,
-    'prompt_hash', content_factory_private.json_hash(to_jsonb(
-      job_row.input ->> 'prompt_text'
-    )),
+    'prompt_hash', prompt_hash_value,
     'creative_brief_draft_id', draft_id_value,
     'creative_brief_content_hash', draft_hash_value,
     'scenario_position', scenario_position_value,
