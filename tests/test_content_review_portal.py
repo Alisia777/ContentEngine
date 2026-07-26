@@ -25,7 +25,7 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
     assert './content-review-view.js?v=20260726.7' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.13' in INDEX
+    assert './app.js?v=20260727.14' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -660,7 +660,10 @@ def test_new_media_of_the_same_product_keeps_comparison_history() -> None:
     assert "const previous = previousSameMedia || previousSameProduct || null" in APP
     assert "parent_review_id: previous?.id || null" in APP
     assert "предыдущего файла того же товара" in APP
-    assert 'comparison_scope: previousSameMedia ? "same_media" : previousSameProduct ? "same_product" : "none"' in APP
+    assert 'comparison_scope: repairSourceReviewId' in APP
+    assert '? "repair_source"' in APP
+    assert '? "same_media"' in APP
+    assert '? "same_product"' in APP
 
 
 def test_legal_source_keys_have_human_readable_disclosure() -> None:

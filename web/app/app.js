@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.7";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.8";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -13969,7 +13969,12 @@ async function submitContentReview(form) {
     toast("У рекламы не заполнены рекламодатель или ERID. Проверка продолжится, но публикация, скорее всего, будет заблокирована.", "info");
   }
   persistContentReviewDraft(form);
-  const completedRuns = catalog.runs.filter((item) => contentReviewStatusKind(item.status) === "ready");
+  const completedRuns = catalog.runs.filter((item) => (
+    contentReviewStatusKind(item.status) === "ready"
+    && item.input?.platform === input.platform
+    && item.input?.productCategory === input.product_category
+    && item.input?.contentKind === input.content_kind
+  ));
   const previousSameMedia = completedRuns.find((item) => item.mediaId === media.id);
   const previousSameProduct = media.productId
     ? completedRuns.find((item) => item.media?.productId === media.productId)
@@ -14052,6 +14057,10 @@ async function submitContentReview(form) {
         },
       },
     );
+    const repairLineage = raw?.repair_lineage;
+    const repairSourceReviewId = contentReviewUuid(repairLineage?.source_review_id)
+      ? String(repairLineage.source_review_id).toLowerCase()
+      : "";
     review.record = normalizeContentReviewRun(raw, review.record || {
       mediaId: media.id,
       media,
@@ -14059,7 +14068,9 @@ async function submitContentReview(form) {
     upsertContentReviewRun(review.record);
     review.phase = contentReviewStatusKind(review.record.status) === "ready" ? "idle" : "processing";
     const durableSourceLabel = media.isVideo ? "Evidence сохранён" : "Исходник сохранён";
-    review.notice = previous
+    review.notice = repairSourceReviewId
+      ? `Проверка исправления связана с точным QA-решением ${repairSourceReviewId.slice(0, 8)}…. ${durableSourceLabel}: вкладку можно закрыть, сервер продолжит работу.`
+      : previous
       ? `Проверка создана и связана с ${comparisonScope}. ${durableSourceLabel}: вкладку можно закрыть, сервер продолжит работу.`
       : `Проверка поставлена в фоновую очередь. ${durableSourceLabel}: вкладку можно закрыть, сервер продолжит работу.`;
     form.removeAttribute("data-dirty");
@@ -14076,7 +14087,14 @@ async function submitContentReview(form) {
       evidence_id: durableEvidence?.evidenceId || null,
       evidence_persisted: Boolean(durableEvidence),
       raw_video_sent: false,
-      comparison_scope: previousSameMedia ? "same_media" : previousSameProduct ? "same_product" : "none",
+      comparison_scope: repairSourceReviewId
+        ? "repair_source"
+        : previousSameMedia
+          ? "same_media"
+          : previousSameProduct
+            ? "same_product"
+            : "none",
+      repair_source_review_id: repairSourceReviewId || null,
     });
   } catch (error) {
     review.record = null;
