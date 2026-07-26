@@ -11,6 +11,13 @@ const AUDIO_ANALYSIS_TIMEOUT_MS = 20_000;
 const AUDIO_SILENCE_DBFS = -50;
 const MAX_AUDIO_ANALYSIS_SAMPLES = 480_000;
 const MAX_AUDIO_SILENCE_WINDOWS = 2_000;
+const MIN_TEMPORAL_SCAN_FRAMES = 12;
+const MAX_TEMPORAL_SCAN_FRAMES = 24;
+const TEMPORAL_SCAN_FRAMES_PER_SECOND = 4;
+const TEMPORAL_SCAN_MIN_COVERAGE = 0.9;
+const TEMPORAL_SCAN_TIMEOUT_MS = 30_000;
+const TEMPORAL_BLACK_LUMA = 16;
+const TEMPORAL_FROZEN_DIFFERENCE = 0.015;
 
 const PLATFORM_LABELS = Object.freeze({
   instagram: "Instagram",
@@ -468,7 +475,7 @@ function reviewFormMarkup(media, busy) {
 
 function reviewCurrentMarkup(run, { phase, canDecide }) {
   if (phase === "preparing") {
-    return progressMarkup("Готовим техническое evidence", "Считываем формат, длительность, 4–5 точек видео и доступные уровни звука. Сам MP4 во внешний AI не отправляется.", 1);
+    return progressMarkup("Готовим техническое evidence", "Сохраняем 4–5 кадров, локально сканируем до 24 точек таймлайна и измеряем доступные уровни звука. Сам MP4 во внешний AI не отправляется.", 1);
   }
   if (phase === "saving_evidence") {
     return progressMarkup("Сохраняем evidence", "Кадры загружаются в защищённую папку и фиксируются до запуска проверки.", 2);
@@ -821,6 +828,11 @@ async function captureVideoEvidence(media, onProgress) {
     const frozenFrameRatio = differences.length
       ? round(differences.filter((value) => value < 0.015).length / differences.length, 3)
       : 0;
+    const temporalMetrics = await captureVideoTemporalMetrics(
+      video,
+      duration,
+      onProgress,
+    );
     const audioMetrics = await audioMetricsPromise;
     onProgress?.({ stage: "video", completed: targets.length, total: targets.length });
     return {
@@ -845,6 +857,7 @@ async function captureVideoEvidence(media, onProgress) {
         vertical_9_16_delta: round(Math.abs(width / height - 9 / 16), 4),
         sampling_strategy: "early_0_2_1_2_plus_late_distribution",
         raw_video_sent: false,
+        ...temporalMetrics,
         ...audioMetrics,
       },
     };
@@ -853,6 +866,135 @@ async function captureVideoEvidence(media, onProgress) {
     video.removeAttribute("src");
     video.load();
   }
+}
+
+async function captureVideoTemporalMetrics(video, duration, onProgress) {
+  const targets = temporalScanTimes(duration);
+  const canvas = document.createElement("canvas");
+  canvas.width = FRAME_SAMPLE_SIZE;
+  canvas.height = FRAME_SAMPLE_SIZE;
+  const context = canvas.getContext("2d", {
+    alpha: false,
+    willReadFrequently: true,
+  });
+  if (!context) {
+    throw userError("Браузер не поддерживает локальный скан таймлайна.");
+  }
+  const deadline = Date.now() + TEMPORAL_SCAN_TIMEOUT_MS;
+  const samples = [];
+  for (let index = 0; index < targets.length; index += 1) {
+    onProgress?.({
+      stage: "temporal_scan",
+      completed: index,
+      total: targets.length,
+    });
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw userError("Локальный скан таймлайна превысил лимит времени.");
+    }
+    await seekVideo(video, targets[index], Math.min(10_000, remainingMs));
+    context.drawImage(
+      video,
+      0,
+      0,
+      FRAME_SAMPLE_SIZE,
+      FRAME_SAMPLE_SIZE,
+    );
+    samples.push(sampleCanvas(canvas));
+  }
+  onProgress?.({
+    stage: "temporal_scan",
+    completed: targets.length,
+    total: targets.length,
+  });
+  return analyzeTemporalVideoSamples(samples, targets, duration);
+}
+
+export function analyzeTemporalVideoSamples(
+  samples,
+  sampledAtSeconds,
+  durationSeconds,
+) {
+  const duration = Number(durationSeconds);
+  if (
+    !Array.isArray(samples)
+    || !Array.isArray(sampledAtSeconds)
+    || samples.length !== sampledAtSeconds.length
+    || samples.length < MIN_TEMPORAL_SCAN_FRAMES
+    || samples.length > MAX_TEMPORAL_SCAN_FRAMES
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > 3_600
+  ) {
+    throw userError("Локальный скан таймлайна имеет неверный размер.");
+  }
+  const times = sampledAtSeconds.map(Number);
+  const validTimes = times.every((value, index) =>
+    Number.isFinite(value)
+    && value >= 0
+    && value <= duration
+    && (index === 0 || value > times[index - 1])
+  );
+  const validSamples = samples.every((sample) =>
+    Number.isFinite(Number(sample?.mean))
+    && Number(sample.mean) >= 0
+    && Number(sample.mean) <= 255
+    && sample?.pixels instanceof Uint8Array
+    && sample.pixels.length > 0
+  );
+  if (!validTimes || !validSamples) {
+    throw userError("Локальный скан таймлайна содержит повреждённые точки.");
+  }
+  const coverage = (times.at(-1) - times[0]) / duration;
+  if (coverage < TEMPORAL_SCAN_MIN_COVERAGE || coverage > 1) {
+    throw userError("Локальный скан не покрывает достаточную часть ролика.");
+  }
+  const differences = [];
+  for (let index = 1; index < samples.length; index += 1) {
+    differences.push(
+      frameDifference(samples[index - 1].pixels, samples[index].pixels),
+    );
+  }
+  const meanDifference = differences.length
+    ? differences.reduce((sum, value) => sum + value, 0) /
+      differences.length
+    : 0;
+  return {
+    temporal_scan_status: "completed",
+    temporal_scan_strategy: "uniform_full_duration_v1",
+    temporal_scan_frame_count: samples.length,
+    temporal_scan_first_second: round(times[0], 3),
+    temporal_scan_last_second: round(times.at(-1), 3),
+    temporal_scan_coverage_ratio: round(coverage, 4),
+    temporal_black_frame_ratio: round(
+      samples.filter((sample) => sample.mean < TEMPORAL_BLACK_LUMA).length /
+        samples.length,
+      4,
+    ),
+    temporal_frozen_transition_ratio: round(
+      differences.filter((value) => value < TEMPORAL_FROZEN_DIFFERENCE)
+        .length / differences.length,
+      4,
+    ),
+    temporal_mean_frame_difference: round(meanDifference, 4),
+  };
+}
+
+function temporalScanTimes(duration) {
+  const count = Math.max(
+    MIN_TEMPORAL_SCAN_FRAMES,
+    Math.min(
+      MAX_TEMPORAL_SCAN_FRAMES,
+      Math.ceil(duration * TEMPORAL_SCAN_FRAMES_PER_SECOND),
+    ),
+  );
+  const inset = Math.min(0.02, duration * 0.01);
+  const first = inset;
+  const last = Math.max(first, duration - inset);
+  return Array.from(
+    { length: count },
+    (_, index) => first + (last - first) * index / (count - 1),
+  );
 }
 
 async function captureVideoAudioMetrics(media, videoDurationSeconds) {
@@ -1089,9 +1231,9 @@ function sampleTimes(duration) {
   ].map((seconds) => Math.min(safeEnd, Math.max(0, seconds)));
 }
 
-async function seekVideo(video, seconds) {
+async function seekVideo(video, seconds, timeoutMs = 10_000) {
   if (Math.abs(Number(video.currentTime || 0) - seconds) < 0.01 && video.readyState >= 2) return;
-  const wait = waitForEvent(video, "seeked", 10_000, "Не удалось считать один из кадров MP4.");
+  const wait = waitForEvent(video, "seeked", timeoutMs, "Не удалось считать один из кадров MP4.");
   video.currentTime = seconds;
   await wait;
 }

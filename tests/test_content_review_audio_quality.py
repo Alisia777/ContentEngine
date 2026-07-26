@@ -145,13 +145,13 @@ def test_edge_adds_deterministic_audio_findings_but_keeps_human_speech_gate() ->
     assert "не расшифровывал произнесённые слова" in edge
     assert "audioSilenceRatio >= 0.95" in edge
     assert "audioClippingRatio >= 0.05 ? \"blocker\" : \"high\"" in edge
-    assert "measuredAudioFindingCodes" in edge
+    assert "measuredTechnicalFindingCodes" in edge
     assert "technicalScoreCap" in edge
     assert "overallScoreCap" in edge
     assert "scores: finalScores" in edge
     assert '"TECH.AUDIO_ANALYSIS_UNAVAILABLE"' not in edge[
-        edge.index("const measuredAudioFindingCodes") :
-        edge.index("const measuredAudioFindings")
+        edge.index("const measuredTechnicalFindingCodes") :
+        edge.index("const measuredTechnicalFindings")
     ]
 
 

@@ -205,16 +205,21 @@ Current state:
 - generated MP4 evidence includes bounded frames, motion/black-frame metrics,
   and immutable browser-local audio RMS/peak, silence, clipping and duration
   measurements without sending the raw MP4 or audio to the external AI;
+- the browser additionally scans 12–24 evenly distributed low-resolution
+  timeline points across at least 90% of the video without retaining or
+  uploading those extra frames, so brief black sections and long freezes are
+  less likely to hide between the five external-review frames;
 - expected but effectively silent Seedance audio, unexpected Gen4 audio,
-  clipping and track-duration mismatch produce deterministic findings and cap
-  the structured technical score;
+  clipping, track-duration mismatch, measured black sections and freezes
+  produce deterministic findings and cap the structured technical score;
 - only independently decided QA observations can turn repeated weak structured
   scores into bounded prompt guards; raw reviewer or model prose is not learned.
 
 Still required:
 
 - speech/script agreement and audio intelligibility beyond signal levels;
-- full-stream product/label persistence, safe-zone violations and duplication;
+- full-stream product/label persistence, safe-zone violations and duplication
+  beyond the bounded timeline sample;
 - brand-claim evidence and platform-specific disclosure verification;
 - production evidence that learned recommendations improve approved outcomes
   without suppressing the retained human decision and reason.

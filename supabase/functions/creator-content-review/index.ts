@@ -1316,8 +1316,42 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
   const width = numericMetric(metrics, "width");
   const height = numericMetric(metrics, "height");
   const duration = numericMetric(metrics, "duration_seconds");
-  const blackRatio = numericMetric(metrics, "black_frame_ratio");
-  const frozenRatio = numericMetric(metrics, "frozen_frame_ratio");
+  const temporalScanStatus = stringInput(metrics, "temporal_scan_status");
+  const temporalScanFrameCount = numericMetric(
+    metrics,
+    "temporal_scan_frame_count",
+  );
+  const temporalScanCoverage = numericMetric(
+    metrics,
+    "temporal_scan_coverage_ratio",
+  );
+  const temporalBlackRatio = numericMetric(
+    metrics,
+    "temporal_black_frame_ratio",
+  );
+  const temporalFrozenRatio = numericMetric(
+    metrics,
+    "temporal_frozen_transition_ratio",
+  );
+  const temporalScanCompleted = temporalScanStatus === "completed" &&
+    temporalScanFrameCount !== null &&
+    temporalScanFrameCount >= 12 &&
+    temporalScanFrameCount <= 24 &&
+    temporalScanCoverage !== null &&
+    temporalScanCoverage >= 0.9 &&
+    temporalScanCoverage <= 1 &&
+    temporalBlackRatio !== null &&
+    temporalBlackRatio >= 0 &&
+    temporalBlackRatio <= 1 &&
+    temporalFrozenRatio !== null &&
+    temporalFrozenRatio >= 0 &&
+    temporalFrozenRatio <= 1;
+  const blackRatio = temporalScanCompleted
+    ? temporalBlackRatio
+    : numericMetric(metrics, "black_frame_ratio");
+  const frozenRatio = temporalScanCompleted
+    ? temporalFrozenRatio
+    : numericMetric(metrics, "frozen_frame_ratio");
   const audioStatus = stringInput(metrics, "audio_analysis_status");
   const audioExpected = typeof metrics.audio_expected === "boolean"
     ? metrics.audio_expected
@@ -1339,7 +1373,13 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
       "quality",
       "info",
       "Контрольные кадры являются вспомогательной выборкой",
-      "Автоматический анализ видит ограниченную выборку кадров из браузера, а не декодирует весь точный MP4 на сервере.",
+      temporalScanCompleted
+        ? `Внешний AI видит до пяти сохранённых кадров. Браузер дополнительно локально проверил ${
+          Math.round(temporalScanFrameCount!)
+        } равномерных точек по ${
+          Math.round(temporalScanCoverage! * 100)
+        }% длительности, но это всё ещё не покадровое декодирование.`
+        : "Автоматический анализ видит ограниченную выборку кадров из браузера, а не декодирует весь точный MP4 на сервере.",
       "Перед решением полностью воспроизведите защищённый исходник, проверьте монтаж, звук, титры и отсутствие подмены файла.",
       { human: true, confidence: 1, stage: "video" },
     ));
@@ -1351,6 +1391,17 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
         "Не удалось получить достаточно контрольных кадров",
         "Выборка слишком мала для устойчивой визуальной проверки.",
         "Откройте исходный MP4, убедитесь, что он воспроизводится, и запустите новую проверку.",
+        { human: true, stage: "video" },
+      ));
+    }
+    if (!temporalScanCompleted) {
+      add(makeFinding(
+        "TECH.TEMPORAL_SCAN_INCOMPLETE",
+        "technical",
+        "high",
+        "Локальный скан таймлайна не подтверждён",
+        "Портал не получил достаточную равномерную выборку по длительности MP4.",
+        "Повторите подготовку evidence и полностью просмотрите ролик до любого решения.",
         { human: true, stage: "video" },
       ));
     }
@@ -1408,16 +1459,39 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
         ));
       }
     }
-    if (blackRatio !== null && blackRatio >= 0.25) {
-      add(makeFinding(
-        "TECH.BLACK_FRAMES",
-        "technical",
-        "blocker",
-        "Слишком много почти чёрных кадров",
-        `Доля проблемных контрольных кадров: ${Math.round(blackRatio * 100)}%.`,
-        "Пересоберите видео и проверьте декодирование всего файла.",
-        { evidence: { black_frame_ratio: blackRatio }, stage: "video" },
-      ));
+    if (blackRatio !== null) {
+      if (blackRatio >= 0.25) {
+        add(makeFinding(
+          "TECH.BLACK_FRAMES",
+          "technical",
+          "blocker",
+          "Слишком много почти чёрных кадров",
+          `Доля проблемных точек таймлайна: ${Math.round(blackRatio * 100)}%.`,
+          "Пересоберите видео и проверьте декодирование всего файла.",
+          {
+            evidence: temporalScanCompleted
+              ? { temporal_black_frame_ratio: blackRatio }
+              : { black_frame_ratio: blackRatio },
+            stage: "video",
+          },
+        ));
+      } else if (temporalScanCompleted && blackRatio >= 0.035) {
+        add(makeFinding(
+          "TECH.BLACK_FRAME_TRANSIENT",
+          "technical",
+          "high",
+          "В таймлайне найден краткий почти чёрный участок",
+          `Локальный скан обнаружил почти чёрное изображение в ${
+            Math.round(blackRatio * 100)
+          }% равномерных точек.`,
+          "Просмотрите соседние секунды, зафиксируйте таймкод и пересоберите ролик, если это не намеренный переход.",
+          {
+            evidence: { temporal_black_frame_ratio: blackRatio },
+            human: true,
+            stage: "video",
+          },
+        ));
+      }
     }
     if (frozenRatio !== null && frozenRatio >= 0.8) {
       add(makeFinding(
@@ -1428,7 +1502,9 @@ function deterministicFindings(run: ReviewRun, frameCount: number): Finding[] {
         `Сходство контрольных кадров: ${Math.round(frozenRatio * 100)}%.`,
         "Проверьте весь ролик и повторите экспорт, если движение потеряно.",
         {
-          evidence: { frozen_frame_ratio: frozenRatio },
+          evidence: temporalScanCompleted
+            ? { temporal_frozen_transition_ratio: frozenRatio }
+            : { frozen_frame_ratio: frozenRatio },
           human: true,
           stage: "video",
         },
@@ -1711,30 +1787,33 @@ function mergeReviewResult(
     });
   }
 
-  const measuredAudioFindingCodes = new Set([
+  const measuredTechnicalFindingCodes = new Set([
     "TECH.AUDIO_SILENT",
     "TECH.AUDIO_MOSTLY_SILENT",
     "TECH.UNEXPECTED_AUDIO",
     "TECH.AUDIO_CLIPPING",
     "TECH.AUDIO_DURATION_MISMATCH",
+    "TECH.BLACK_FRAMES",
+    "TECH.BLACK_FRAME_TRANSIENT",
+    "TECH.FROZEN_VIDEO",
   ]);
-  const measuredAudioFindings = finalFindings.filter((finding) =>
-    measuredAudioFindingCodes.has(finding.code)
+  const measuredTechnicalFindings = finalFindings.filter((finding) =>
+    measuredTechnicalFindingCodes.has(finding.code)
   );
-  const measuredAudioBlocker = measuredAudioFindings.some((finding) =>
+  const measuredTechnicalBlocker = measuredTechnicalFindings.some((finding) =>
     finding.severity === "blocker"
   );
-  const measuredAudioHigh = measuredAudioFindings.some((finding) =>
+  const measuredTechnicalHigh = measuredTechnicalFindings.some((finding) =>
     finding.severity === "high"
   );
-  const technicalScoreCap = measuredAudioBlocker
+  const technicalScoreCap = measuredTechnicalBlocker
     ? 35
-    : measuredAudioHigh
+    : measuredTechnicalHigh
     ? 65
     : null;
-  const overallScoreCap = measuredAudioBlocker
+  const overallScoreCap = measuredTechnicalBlocker
     ? 49
-    : measuredAudioHigh
+    : measuredTechnicalHigh
     ? 74
     : null;
   const finalScores = {

@@ -2092,10 +2092,34 @@ function isUuid(value) {
 function validContentReviewTechnicalMetrics(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const sourceType = String(value.source_type || "").trim().toLowerCase();
+  const finiteInRange = (field, minimum, maximum) =>
+    typeof value[field] === "number"
+    && Number.isFinite(value[field])
+    && value[field] >= minimum
+    && value[field] <= maximum;
   if (sourceType === "image") {
     return Number.isInteger(Number(value.frame_count))
       && Number(value.frame_count) === 1;
   }
+  const temporalScanValid = value.temporal_scan_status === "completed"
+    && value.temporal_scan_strategy === "uniform_full_duration_v1"
+    && Number.isInteger(value.temporal_scan_frame_count)
+    && value.temporal_scan_frame_count >= 12
+    && value.temporal_scan_frame_count <= 24
+    && finiteInRange("duration_seconds", 0.001, 3_600)
+    && finiteInRange("temporal_scan_first_second", 0, 3_600)
+    && finiteInRange("temporal_scan_last_second", 0, 3_600)
+    && value.temporal_scan_last_second > value.temporal_scan_first_second
+    && value.temporal_scan_last_second <= value.duration_seconds
+    && finiteInRange("temporal_scan_coverage_ratio", 0.9, 1)
+    && Math.abs(
+      (
+        value.temporal_scan_last_second - value.temporal_scan_first_second
+      ) / value.duration_seconds - value.temporal_scan_coverage_ratio,
+    ) <= 0.02
+    && finiteInRange("temporal_black_frame_ratio", 0, 1)
+    && finiteInRange("temporal_frozen_transition_ratio", 0, 1)
+    && finiteInRange("temporal_mean_frame_difference", 0, 1);
   if (
     sourceType !== "video"
     || !Number.isInteger(Number(value.frame_count))
@@ -2109,15 +2133,11 @@ function validContentReviewTechnicalMetrics(value) {
       value.audio_expected === null
       || typeof value.audio_expected === "boolean"
     )
+    || !temporalScanValid
   ) return false;
   if (value.audio_analysis_status === "unavailable") {
     return value.audio_analyzed === false;
   }
-  const finiteInRange = (field, minimum, maximum) =>
-    typeof value[field] === "number"
-    && Number.isFinite(value[field])
-    && value[field] >= minimum
-    && value[field] <= maximum;
   return value.audio_analyzed === true
     && Number.isInteger(value.audio_channel_count)
     && value.audio_channel_count >= 1
@@ -2484,6 +2504,7 @@ function toFriendlyMessage(error) {
     content_review_evidence_prepare_payload_invalid: "Не удалось подготовить безопасный запрос для кадров.",
     content_review_evidence_frame_count_invalid: "Для MP4 нужно подготовить от четырёх до пяти кадров.",
     content_review_evidence_audio_metrics_invalid: "Локальные аудиометрики неполны. Подготовьте evidence заново и обязательно прослушайте точный MP4.",
+    content_review_evidence_temporal_metrics_invalid: "Локальный скан таймлайна неполон. Обновите страницу и подготовьте evidence заново без нового рендера.",
     content_review_evidence_media_not_accessible: "Видео недоступно вашей роли или уже изменилось. Обновите материалы.",
     content_review_evidence_media_type_invalid: "Для этого evidence выбран неподдерживаемый тип исходного файла.",
     content_review_evidence_active_limit: "Для этого видео уже сохраняется набор кадров. Подождите и повторите запуск.",

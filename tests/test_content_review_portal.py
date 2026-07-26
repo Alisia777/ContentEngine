@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260726.3' in APP
+    assert './content-review-view.js?v=20260726.4' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.7' in INDEX
+    assert './app.js?v=20260726.8' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -169,8 +169,8 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 3" in APP
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 2" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 4" in APP
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 3" in APP
     assert "upsert: false" in API
 
 
@@ -273,9 +273,19 @@ await api.commitContentReviewEvidence({{
   technicalMetrics: {{
     source_type: "video",
     frame_count: 4,
+    duration_seconds: 8,
     audio_expected: null,
     audio_analyzed: false,
-    audio_analysis_status: "unavailable"
+    audio_analysis_status: "unavailable",
+    temporal_scan_status: "completed",
+    temporal_scan_strategy: "uniform_full_duration_v1",
+    temporal_scan_frame_count: 24,
+    temporal_scan_first_second: 0.02,
+    temporal_scan_last_second: 7.98,
+    temporal_scan_coverage_ratio: 0.995,
+    temporal_black_frame_ratio: 0,
+    temporal_frozen_transition_ratio: 0.1,
+    temporal_mean_frame_difference: 0.12
   }},
   idempotencyKey: commitKey,
   frames: objectNames.map((object_name, index) => ({{
@@ -291,9 +301,19 @@ const started = await api.startContentReview({{
   technical_metrics: {{
     source_type: "video",
     frame_count: 4,
+    duration_seconds: 8,
     audio_expected: null,
     audio_analyzed: false,
-    audio_analysis_status: "unavailable"
+    audio_analysis_status: "unavailable",
+    temporal_scan_status: "completed",
+    temporal_scan_strategy: "uniform_full_duration_v1",
+    temporal_scan_frame_count: 24,
+    temporal_scan_first_second: 0.02,
+    temporal_scan_last_second: 7.98,
+    temporal_scan_coverage_ratio: 0.995,
+    temporal_black_frame_ratio: 0,
+    temporal_frozen_transition_ratio: 0.1,
+    temporal_mean_frame_difference: 0.12
   }},
   evidence_id: evidenceId
 }});
@@ -487,7 +507,8 @@ def test_generated_video_qa_is_serial_recoverable_and_never_auto_approves() -> N
         APP.index("function generatedVideoTechnicalQaMarkup") :
         APP.index("function generationActionsMarkup")
     ]
-    assert "Технические кадры готовы автоматически" in markup
+    assert "Технический скан готов автоматически" in markup
+    assert "точек таймлайна проверены локально" in markup
     assert "Внешний AI ещё не запускался" in markup
     assert "Автоматическое одобрение отключено" in markup
     assert 'data-action="retry-generated-video-qa"' in markup

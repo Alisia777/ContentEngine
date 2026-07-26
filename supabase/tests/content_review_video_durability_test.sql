@@ -289,7 +289,16 @@ set commit_result = public.creator_commit_content_review_evidence(
       'height', 1920,
       'audio_expected', null,
       'audio_analyzed', false,
-      'audio_analysis_status', 'unavailable'
+      'audio_analysis_status', 'unavailable',
+      'temporal_scan_status', 'completed',
+      'temporal_scan_strategy', 'uniform_full_duration_v1',
+      'temporal_scan_frame_count', 24,
+      'temporal_scan_first_second', 0.02,
+      'temporal_scan_last_second', 7.98,
+      'temporal_scan_coverage_ratio', 0.995,
+      'temporal_black_frame_ratio', 0,
+      'temporal_frozen_transition_ratio', 0.087,
+      'temporal_mean_frame_difference', 0.112
     ),
     'frames', (
       select jsonb_agg(jsonb_build_object(
