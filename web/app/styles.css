@@ -5948,6 +5948,45 @@ html[data-portal-theme="altea-dark"] .generation-readiness {
   gap: 7px;
 }
 
+.generation-technical-qa {
+  display: grid;
+  max-width: 680px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  gap: 4px;
+}
+
+.generation-technical-qa.is-progress {
+  border-color: #cad9e2;
+  color: #31596d;
+  background: #f2f8fb;
+}
+
+.generation-technical-qa.is-ready {
+  border-color: rgba(38, 108, 83, 0.28);
+  color: var(--forest);
+  background: var(--forest-pale);
+}
+
+.generation-technical-qa.is-error {
+  border-color: #e4b7b2;
+  color: #7f2f28;
+  background: #fff4f2;
+}
+
+.generation-technical-qa > .btn {
+  width: fit-content;
+  margin-top: 5px;
+}
+
+.generation-technical-qa .generation-result-actions {
+  margin-top: 5px;
+}
+
 .generation-reconciliation-readonly,
 .generation-reconciliation-form {
   margin-top: 10px;

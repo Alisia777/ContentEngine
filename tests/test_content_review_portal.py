@@ -25,7 +25,7 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
     assert './content-review-view.js?v=20260725.2' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.3' in INDEX
+    assert './app.js?v=20260726.4' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -162,7 +162,7 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert 'status: "commit_pending"' in flow
     assert "commitIdempotencyKey: crypto.randomUUID()" in flow
     assert "frames: frameFiles.map" in flow
-    assert flow.index("persistContentReviewDraft(form, { durableEvidence: pending })") < flow.index("commitStarted = true")
+    assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2" in APP
@@ -407,11 +407,80 @@ def test_baa_is_distinct_from_protein_and_external_ai_processing_is_explicit() -
 
 
 def test_generated_paid_video_is_prefilled_as_advertising_before_paid_review() -> None:
-    assert 'String(media.metadata?.kind || "") === "generated_video"' in APP
+    assert 'media.kind === "generated_video"' in APP
+    assert "applyGeneratedMediaReviewDefaults" in APP
     assert 'input.content_kind = "advertising"' in APP
     assert "input.ai_generated = true" in APP
     assert "Готовый платный AI-ролик проверяется только как реклама" in APP
     assert "external_ai_processing_basis_required" in API
+
+
+def test_successful_generated_video_prepares_durable_technical_qa_automatically() -> None:
+    apply_result = APP[
+        APP.index("function applyRealGenerationResult") :
+        APP.index("function applyRealGenerationStatusError")
+    ]
+    assert "scheduleGeneratedVideoTechnicalQa(job" in apply_result
+    assert '["succeeded", "completed"].includes(nextStatus)' in apply_result
+    assert 'String(job.model || "") !== "seedream5_lite"' in apply_result
+    assert "contentReviewUuid(job.output_media_id)" in apply_result
+
+    prepare = APP[
+        APP.index("async function prepareGeneratedVideoTechnicalQa") :
+        APP.index("function resumeGeneratedVideoTechnicalQa")
+    ]
+    assert "loadGeneratedVideoQaMedia" in prepare
+    assert "captureContentReviewEvidence" in prepare
+    assert "persistContentReviewVideoEvidence" in prepare
+    assert "saveGeneratedVideoQaEvidence" in prepare
+    assert "startContentReview" not in prepare
+    assert "startRealGeneration" not in prepare
+    assert "external_ai_processing_confirmed" not in prepare
+
+    loader = APP[
+        APP.index("async function loadGeneratedVideoQaMedia") :
+        APP.index("async function prepareGeneratedVideoTechnicalQa")
+    ]
+    assert "state.api.contentReviewCatalog({ limit: 50 })" in loader
+    assert "refreshSignedUrls: true" in loader
+    assert 'media.kind !== "generated_video"' in loader
+    assert "/^[0-9a-f]{64}$/u.test(media.sha256)" in loader
+
+
+def test_generated_video_qa_is_serial_recoverable_and_never_auto_approves() -> None:
+    resume = APP[
+        APP.index("function resumeGeneratedVideoTechnicalQa") :
+        APP.index("function scheduleGeneratedVideoTechnicalQa")
+    ]
+    assert "state.generatedVideoQa.activePromise" in resume
+    assert 'entry.status === "queued"' in resume
+    assert 'state.route.path !== "/workspace/generation"' in resume
+    assert 'document.visibilityState !== "visible"' in resume
+
+    registry = APP[
+        APP.index("function generatedVideoQaStorageKey") :
+        APP.index("function setGeneratedVideoQaStatus")
+    ]
+    assert "organizationId}:${userId}" in registry
+    assert "GENERATED_VIDEO_QA_MAX_EVIDENCE" in registry
+    assert "usableContentReviewEvidence" in registry
+    assert 'status: "consumed"' in registry
+
+    markup = APP[
+        APP.index("function generatedVideoTechnicalQaMarkup") :
+        APP.index("function generationActionsMarkup")
+    ]
+    assert "Технические кадры готовы автоматически" in markup
+    assert "Внешний AI ещё не запускался" in markup
+    assert "Автоматическое одобрение отключено" in markup
+    assert 'data-action="retry-generated-video-qa"' in markup
+
+    submit = APP[
+        APP.index("async function submitContentReview(") :
+        APP.index("async function submitContentReviewDecision(")
+    ]
+    assert "markGeneratedVideoQaEvidenceConsumed(media.id, review.record.id)" in submit
+    assert "clearContentReviewDraft();" in submit
 
 
 def test_content_review_edge_errors_keep_safe_specific_user_guidance() -> None:

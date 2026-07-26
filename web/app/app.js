@@ -204,6 +204,8 @@ const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 2;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
+const GENERATED_VIDEO_QA_STORAGE_VERSION = 1;
+const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
@@ -885,6 +887,11 @@ const state = {
   realGenerationStatusRequests: new Map(),
   realGenerationResults: new Map(),
   realGenerationDrafts: new Map(),
+  generatedVideoQa: {
+    entries: new Map(),
+    activePromise: null,
+    restored: false,
+  },
   contentGenerationHandoff: readStoredContentGenerationHandoff(),
   lastRealGenerationJobId: null,
   examResult: null,
@@ -1347,6 +1354,7 @@ function bindGlobalEvents() {
       refreshManagerDashboardIfStale();
       void refreshTrainingPracticalReviews({ silent: true });
       scheduleRealGenerationPolling(250);
+      resumeGeneratedVideoTechnicalQa();
       scheduleContentReviewPolling(250);
     } else {
       stopRealGenerationPolling();
@@ -7096,6 +7104,7 @@ function renderGenerationSection(sectionState) {
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
+    resumeGeneratedVideoTechnicalQa();
     const generationForm = document.querySelector("#mock-batch-form");
     applyContentGenerationHandoffToForm();
     if (generationForm) {
@@ -7528,6 +7537,7 @@ function generationTable(items) {
           ? `<div class="generation-failure" role="alert"><strong>${contentLabel} не ${details.photo ? "создано" : "создан"}</strong><span>${escapeHtml(failure || "Сервис генерации завершил задачу с ошибкой.")}</span></div>`
           : "";
         const actions = generationActionsMarkup(details);
+        const technicalQa = generatedVideoTechnicalQaMarkup(details);
         const preview = previewUrl
           ? `<div class="generation-result-preview">${details.photo
             ? `<img src="${escapeHtml(previewUrl)}" loading="lazy" alt="Готовое товарное фото ${escapeHtml(item.sku || "")}" />`
@@ -7543,6 +7553,7 @@ function generationTable(items) {
               ${failureMarkup}
               ${details.transientError ? `<small class="generation-transient-error">${escapeHtml(details.transientError)}</small>` : ""}
               ${actions}
+              ${technicalQa}
               ${preview}
             </td>
             <td>${generationCostMarkup(details)}</td>
@@ -7574,6 +7585,7 @@ function generationBatchDetails(item) {
     status,
     model,
     photo,
+    outputMediaId: String(job.output_media_id || parameters.output_media_id || ""),
     duration: firstFiniteNumber(
       job.duration_seconds,
       item?.duration_seconds,
@@ -7614,6 +7626,72 @@ function generationStageMarkup(status) {
   return `
     <div class="generation-stage" role="group" aria-label="Этап платной генерации: ${escapeHtml(humanGenerationStatus(normalized))}">
       ${labels.map((label, index) => `<span class="${failed ? (index === current ? "is-error" : index < current ? "is-done" : "") : (index < current ? "is-done" : index === current ? "is-current" : "")}"><i aria-hidden="true">${failed && index === current ? "!" : (index < current ? "✓" : index + 1)}</i>${label}</span>`).join("")}
+    </div>
+  `;
+}
+
+function generatedVideoTechnicalQaMarkup(details) {
+  if (details.photo || !["succeeded", "completed"].includes(details.status)) return "";
+  const mediaId = String(details.outputMediaId || "").trim().toLowerCase();
+  if (!contentReviewUuid(mediaId)) {
+    return `
+      <div class="generation-technical-qa is-error" role="alert">
+        <strong>Техническая проверка ожидает точный MP4</strong>
+        <span>Обновите статус запуска. Публикация без привязанного защищённого файла недоступна.</span>
+      </div>
+    `;
+  }
+  restoreGeneratedVideoQaEvidence();
+  const entry = state.generatedVideoQa.entries.get(mediaId);
+  const prepared = generatedVideoQaEvidenceForMedia(mediaId);
+  if (entry?.status === "consumed") {
+    return `
+      <div class="generation-technical-qa is-ready" role="status">
+        <strong>Видео передано в обязательную проверку</strong>
+        <span>Контрольные кадры сохранены и привязаны к проверке. Автоматическое одобрение отключено — финальное решение принимает человек после полного просмотра MP4 со звуком.</span>
+        <a class="btn btn-secondary btn-small" href="#/workspace/review">Открыть статус проверки</a>
+      </div>
+    `;
+  }
+  const reviewButton = `
+    <button class="btn btn-secondary btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(mediaId)}">
+      ${prepared?.status === "ready" ? "Продолжить проверку контента" : "Открыть проверку контента"}
+    </button>
+  `;
+  if (prepared?.status === "ready" || entry?.status === "ready") {
+    const metrics = prepared?.technicalMetrics || entry?.evidence?.technicalMetrics || {};
+    const frameCount = Number(metrics.frame_count || 0);
+    return `
+      <div class="generation-technical-qa is-ready" role="status">
+        <strong>Технические кадры готовы автоматически</strong>
+        <span>${frameCount ? `${frameCount} контрольных кадров и метрики MP4 сохранены. ` : ""}Внешний AI ещё не запускался; заполните рекламные реквизиты и примите решение человеком.</span>
+        ${reviewButton}
+      </div>
+    `;
+  }
+  if (entry?.status === "error") {
+    return `
+      <div class="generation-technical-qa is-error" role="alert">
+        <strong>Автоподготовка кадров остановилась безопасно</strong>
+        <span>${escapeHtml(entry.error || "Готовый MP4 сохранён, но технические кадры пока не подготовлены.")}</span>
+        <div class="generation-result-actions">
+          <button class="btn btn-secondary btn-small" type="button" data-action="retry-generated-video-qa" data-job-id="${escapeHtml(details.jobId)}" data-media-id="${escapeHtml(mediaId)}">Повторить без нового рендера</button>
+          ${reviewButton}
+        </div>
+      </div>
+    `;
+  }
+  const completed = Number(entry?.completedFrames || 0);
+  const total = Number(entry?.totalFrames || 5);
+  const message = entry?.status === "capturing"
+    ? `Считываем контрольные кадры: ${Math.min(completed, total)} из ${total}.`
+    : entry?.status === "saving"
+      ? "Сохраняем кадры и технические метрики в защищённое evidence."
+      : "Проверяем точный MP4 и готовим контрольные кадры без внешнего AI.";
+  return `
+    <div class="generation-technical-qa is-progress" role="status" aria-live="polite">
+      <strong>Автоматическая техническая проверка</strong>
+      <span>${escapeHtml(message)}</span>
     </div>
   `;
 }
@@ -7660,12 +7738,15 @@ function generationActionsMarkup(details) {
     `;
   }
   if (["succeeded", "completed"].includes(details.status)) {
+    const reviewAction = details.photo
+      ? '<a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>'
+      : "";
     return `
       <div class="generation-result-actions">
         <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать ${details.photo ? "фото" : "видео"}</button>
         <button class="btn btn-small" type="button" data-action="check-real-generation" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать ${details.photo ? "PNG" : "MP4"}</button>
         <button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="open" data-job-id="${escapeHtml(details.jobId)}">Открыть отдельно</button>
-        <a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>
+        ${reviewAction}
       </div>
     `;
   }
@@ -7857,6 +7938,13 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   ) {
     toast("Автопроверка платного запуска остановлена безопасно. Нужна ручная сверка владельцем или администратором; новый запуск не создавайте.", "info");
   }
+  if (
+    ["succeeded", "completed"].includes(nextStatus)
+    && String(job.model || "") !== "seedream5_lite"
+    && contentReviewUuid(job.output_media_id)
+  ) {
+    scheduleGeneratedVideoTechnicalQa(job, safeSignedUrl || previous?.signedUrl || "");
+  }
   if (options.renderNow !== false && state.route.path === "/workspace/generation") render();
 }
 
@@ -7903,6 +7991,7 @@ function patchGenerationBatch(jobId, job) {
     reconciliation_reason_code: job.reconciliation_reason_code,
     reconciliation_resolution: job.reconciliation_resolution,
     can_reconcile: job.can_reconcile,
+    output_media_id: job.output_media_id,
   };
 }
 
@@ -8026,6 +8115,322 @@ function downloadGenerationOutput(url, jobId, photo = false) {
 
 function canDecideContentReview() {
   return ["owner", "admin", "producer", "reviewer"].includes(state.bootstrap?.membership?.role);
+}
+
+function generatedVideoQaStorageKey() {
+  const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
+  return `contentengine.generated-video-qa.v${GENERATED_VIDEO_QA_STORAGE_VERSION}:${organizationId}:${userId}`;
+}
+
+function restoreGeneratedVideoQaEvidence() {
+  if (state.generatedVideoQa.restored) return;
+  const key = generatedVideoQaStorageKey();
+  if (!key) return;
+  state.generatedVideoQa.restored = true;
+  let stored;
+  try {
+    stored = JSON.parse(window.localStorage.getItem(key) || "null");
+  } catch {
+    stored = null;
+  }
+  if (
+    stored?.version !== GENERATED_VIDEO_QA_STORAGE_VERSION
+    || !Array.isArray(stored.evidence)
+  ) return;
+  const now = Date.now();
+  for (const consumed of Array.isArray(stored.consumed) ? stored.consumed : []) {
+    const mediaId = String(consumed?.mediaId || "").trim().toLowerCase();
+    const updatedAt = Number(consumed?.updatedAt || 0);
+    if (
+      !contentReviewUuid(mediaId)
+      || !Number.isFinite(updatedAt)
+      || now - updatedAt > CONTENT_REVIEW_DRAFT_MAX_AGE_MS
+    ) continue;
+    state.generatedVideoQa.entries.set(mediaId, {
+      mediaId,
+      jobId: "",
+      status: "consumed",
+      evidence: null,
+      reviewId: String(consumed?.reviewId || ""),
+      error: "",
+      completedFrames: 0,
+      totalFrames: 0,
+      updatedAt,
+    });
+  }
+  for (const candidate of stored.evidence.slice(0, GENERATED_VIDEO_QA_MAX_EVIDENCE)) {
+    const evidence = usableContentReviewEvidence(candidate);
+    if (!evidence || state.generatedVideoQa.entries.has(evidence.mediaId)) continue;
+    state.generatedVideoQa.entries.set(evidence.mediaId, {
+      mediaId: evidence.mediaId,
+      jobId: "",
+      status: evidence.status === "ready" ? "ready" : "queued",
+      evidence,
+      error: "",
+      completedFrames: 0,
+      totalFrames: Number(evidence.technicalMetrics?.frame_count || 0),
+      updatedAt: Date.now(),
+    });
+  }
+}
+
+function persistGeneratedVideoQaEvidenceRegistry() {
+  const key = generatedVideoQaStorageKey();
+  if (!key) return false;
+  const evidence = [...state.generatedVideoQa.entries.values()]
+    .map((entry) => usableContentReviewEvidence(entry.evidence))
+    .filter(Boolean)
+    .sort((left, right) => Date.parse(right.expiresAt) - Date.parse(left.expiresAt))
+    .slice(0, GENERATED_VIDEO_QA_MAX_EVIDENCE);
+  const consumed = [...state.generatedVideoQa.entries.values()]
+    .filter((entry) =>
+      entry.status === "consumed"
+      && contentReviewUuid(entry.mediaId)
+      && Date.now() - Number(entry.updatedAt || 0) <= CONTENT_REVIEW_DRAFT_MAX_AGE_MS
+    )
+    .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+    .slice(0, GENERATED_VIDEO_QA_MAX_EVIDENCE)
+    .map((entry) => ({
+      mediaId: entry.mediaId,
+      reviewId: String(entry.reviewId || ""),
+      updatedAt: entry.updatedAt,
+    }));
+  try {
+    if (evidence.length || consumed.length) {
+      window.localStorage.setItem(key, JSON.stringify({
+        version: GENERATED_VIDEO_QA_STORAGE_VERSION,
+        updatedAt: new Date().toISOString(),
+        evidence,
+        consumed,
+      }));
+    } else {
+      window.localStorage.removeItem(key);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function generatedVideoQaEvidenceForMedia(media) {
+  restoreGeneratedVideoQaEvidence();
+  const mediaId = String(media?.id || media || "").trim().toLowerCase();
+  const mediaSha256 = typeof media === "object" ? String(media?.sha256 || "") : "";
+  const entry = state.generatedVideoQa.entries.get(mediaId);
+  return usableContentReviewEvidence(entry?.evidence, { mediaId, mediaSha256 });
+}
+
+function saveGeneratedVideoQaEvidence(media, evidence) {
+  const mediaId = String(media?.id || "").trim().toLowerCase();
+  const normalized = usableContentReviewEvidence(evidence, {
+    mediaId,
+    mediaSha256: media?.sha256,
+  });
+  if (!normalized) return false;
+  const previous = state.generatedVideoQa.entries.get(mediaId) || {};
+  state.generatedVideoQa.entries.set(mediaId, {
+    ...previous,
+    mediaId,
+    status: normalized.status === "ready" ? "ready" : "saving",
+    evidence: normalized,
+    error: "",
+    completedFrames: Number(normalized.technicalMetrics?.frame_count || 0),
+    totalFrames: Number(normalized.technicalMetrics?.frame_count || 0),
+    updatedAt: Date.now(),
+  });
+  return persistGeneratedVideoQaEvidenceRegistry();
+}
+
+function clearGeneratedVideoQaEvidence(mediaId) {
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const previous = state.generatedVideoQa.entries.get(normalizedMediaId);
+  if (previous) {
+    state.generatedVideoQa.entries.set(normalizedMediaId, {
+      ...previous,
+      evidence: null,
+      updatedAt: Date.now(),
+    });
+  }
+  persistGeneratedVideoQaEvidenceRegistry();
+}
+
+function markGeneratedVideoQaEvidenceConsumed(mediaId, reviewId = "") {
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const previous = state.generatedVideoQa.entries.get(normalizedMediaId) || {
+    mediaId: normalizedMediaId,
+    jobId: "",
+  };
+  state.generatedVideoQa.entries.set(normalizedMediaId, {
+    ...previous,
+    status: "consumed",
+    evidence: null,
+    reviewId: String(reviewId || ""),
+    error: "",
+    updatedAt: Date.now(),
+  });
+  persistGeneratedVideoQaEvidenceRegistry();
+}
+
+function setGeneratedVideoQaStatus(mediaId, patch) {
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const previous = state.generatedVideoQa.entries.get(normalizedMediaId) || {
+    mediaId: normalizedMediaId,
+    jobId: "",
+    evidence: null,
+    completedFrames: 0,
+    totalFrames: 0,
+  };
+  state.generatedVideoQa.entries.set(normalizedMediaId, {
+    ...previous,
+    ...patch,
+    mediaId: normalizedMediaId,
+    updatedAt: Date.now(),
+  });
+  if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+}
+
+async function loadGeneratedVideoQaMedia(mediaId, fallbackUrl = "") {
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const raw = await withUiTimeout(
+    state.api.contentReviewCatalog({ limit: 50 }),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "content_review_catalog_timeout",
+  );
+  const hydrated = await hydratePrivateMedia(raw?.data ?? raw ?? {}, {
+    refreshSignedUrls: true,
+  });
+  const catalog = normalizeContentReviewCatalog(hydrated);
+  const media = catalog.media.find((item) => item.id === normalizedMediaId);
+  if (
+    !media
+    || media.id !== normalizedMediaId
+    || !media.isVideo
+    || media.kind !== "generated_video"
+    || !/^[0-9a-f]{64}$/u.test(media.sha256)
+  ) {
+    throw new Error("Готовый MP4 не прошёл сверку с защищённым каталогом.");
+  }
+  const safeFallbackUrl = fallbackUrl && isTrustedGenerationDownload(fallbackUrl)
+    ? fallbackUrl
+    : "";
+  const url = media.url || safeFallbackUrl;
+  if (!url) throw new Error("Для готового MP4 не удалось получить защищённую ссылку.");
+  return { ...media, url };
+}
+
+async function prepareGeneratedVideoTechnicalQa(entry) {
+  const mediaId = String(entry?.mediaId || "").trim().toLowerCase();
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  try {
+    setGeneratedVideoQaStatus(mediaId, {
+      status: "loading",
+      error: "",
+      completedFrames: 0,
+      totalFrames: 0,
+    });
+    const media = await loadGeneratedVideoQaMedia(mediaId, entry?.signedUrl);
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    let durableEvidence = generatedVideoQaEvidenceForMedia(media);
+    let capturedEvidence = null;
+    if (!durableEvidence) {
+      setGeneratedVideoQaStatus(mediaId, {
+        status: "capturing",
+        completedFrames: 0,
+        totalFrames: 5,
+      });
+      capturedEvidence = await captureContentReviewEvidence(media, {
+        onProgress: (progress) => {
+          if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+          setGeneratedVideoQaStatus(mediaId, {
+            status: "capturing",
+            completedFrames: Number(progress?.completed || 0),
+            totalFrames: Number(progress?.total || 5),
+          });
+        },
+      });
+    }
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    setGeneratedVideoQaStatus(mediaId, { status: "saving", error: "" });
+    durableEvidence = await persistContentReviewVideoEvidence(
+      media,
+      capturedEvidence || {
+        frames: [],
+        technical_metrics: durableEvidence?.technicalMetrics || {},
+      },
+      null,
+      {
+        existingEvidence: durableEvidence,
+        persistEvidence: (value) => saveGeneratedVideoQaEvidence(media, value),
+        clearEvidence: () => clearGeneratedVideoQaEvidence(media.id),
+      },
+    );
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    saveGeneratedVideoQaEvidence(media, durableEvidence);
+    setGeneratedVideoQaStatus(mediaId, {
+      status: "ready",
+      evidence: durableEvidence,
+      error: "",
+    });
+    toast("Видео готово к быстрой проверке: контрольные кадры и технические метрики уже сохранены.", "success");
+  } catch (error) {
+    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+    console.warn("Generated video technical QA preparation failed", error);
+    setGeneratedVideoQaStatus(mediaId, {
+      status: "error",
+      error: "Автоподготовка кадров не завершилась. Платный результат сохранён; повтор не создаёт новое видео и не запускает внешний AI.",
+    });
+  }
+}
+
+function resumeGeneratedVideoTechnicalQa() {
+  if (
+    state.generatedVideoQa.activePromise
+    || state.route.path !== "/workspace/generation"
+    || document.visibilityState !== "visible"
+    || !state.session
+  ) return;
+  restoreGeneratedVideoQaEvidence();
+  const next = [...state.generatedVideoQa.entries.values()]
+    .find((entry) => entry.status === "queued");
+  if (!next) return;
+  const operation = prepareGeneratedVideoTechnicalQa(next);
+  state.generatedVideoQa.activePromise = operation;
+  operation.finally(() => {
+    if (state.generatedVideoQa.activePromise === operation) {
+      state.generatedVideoQa.activePromise = null;
+    }
+    resumeGeneratedVideoTechnicalQa();
+  });
+}
+
+function scheduleGeneratedVideoTechnicalQa(job, signedUrl = "", { force = false } = {}) {
+  const status = String(job?.status || "").trim().toLowerCase();
+  const mediaId = String(job?.output_media_id || "").trim().toLowerCase();
+  if (
+    String(job?.model || "") === "seedream5_lite"
+    || !["succeeded", "completed"].includes(status)
+    || !contentReviewUuid(mediaId)
+  ) return;
+  restoreGeneratedVideoQaEvidence();
+  const previous = state.generatedVideoQa.entries.get(mediaId);
+  const evidence = generatedVideoQaEvidenceForMedia(mediaId);
+  if (!force && ["consumed", "error"].includes(previous?.status)) return;
+  if (!force && (evidence?.status === "ready" || ["queued", "loading", "capturing", "saving"].includes(previous?.status))) {
+    if (evidence?.status === "ready" && previous?.status !== "ready") {
+      setGeneratedVideoQaStatus(mediaId, { status: "ready", evidence, error: "" });
+    }
+    return;
+  }
+  setGeneratedVideoQaStatus(mediaId, {
+    jobId: String(job?.id || previous?.jobId || ""),
+    status: "queued",
+    signedUrl: String(signedUrl || previous?.signedUrl || ""),
+    error: "",
+  });
+  window.queueMicrotask(resumeGeneratedVideoTechnicalQa);
 }
 
 function contentReviewDraftStorageKey() {
@@ -8262,14 +8667,29 @@ function selectPendingContentReviewMedia() {
   const target = controls.find((control) => String(control.value || "") === mediaId);
   if (!target) return;
   target.checked = true;
-  if (String(state.contentReview.durableEvidence?.mediaId || "") !== mediaId) {
-    state.contentReview.durableEvidence = null;
-  }
+  const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+  const media = catalog.media.find((item) => item.id === mediaId);
+  applyGeneratedMediaReviewDefaults(target.form, media);
+  const preparedEvidence = generatedVideoQaEvidenceForMedia(media || mediaId);
+  state.contentReview.durableEvidence = preparedEvidence
+    || (String(state.contentReview.durableEvidence?.mediaId || "") === mediaId
+      ? state.contentReview.durableEvidence
+      : null);
   target.form?.setAttribute("data-dirty", "true");
   persistContentReviewDraft(target.form);
   state.contentReview.pendingMediaId = "";
+  state.contentReview.notice = preparedEvidence?.status === "ready"
+    ? "Контрольные кадры и технические метрики уже подготовлены. Заполните рекламные реквизиты — повторно считывать MP4 не потребуется."
+    : state.contentReview.notice;
   target.closest(".content-review-media-option")?.scrollIntoView({ block: "center", behavior: "smooth" });
   target.focus({ preventScroll: true });
+}
+
+function applyGeneratedMediaReviewDefaults(form, media) {
+  if (!(form instanceof HTMLFormElement) || media?.kind !== "generated_video") return;
+  if (form.elements.content_kind) form.elements.content_kind.value = "advertising";
+  if (form.elements.ai_generated) form.elements.ai_generated.checked = true;
+  syncContentReviewFormVisibility(form);
 }
 
 function bindContentReviewDecisionMedia() {
@@ -8779,8 +9199,10 @@ function taskActionsMarkup(item) {
     && String(result.generation_status || "").toLowerCase() === "succeeded"
     && String(result.output_media_id || "").trim();
   if (generatedVideoReady && ["submitted", "review"].includes(status)) {
+    restoreGeneratedVideoQaEvidence();
+    const preparedEvidence = generatedVideoQaEvidenceForMedia(String(result.output_media_id || ""));
     return `
-      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}">Открыть проверку контента</button>
+      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}">${preparedEvidence?.status === "ready" ? "Продолжить готовую проверку" : "Открыть проверку контента"}</button>
       ${manager ? action("blocked", "Вернуть с блокером", true) : ""}
     `;
   }
@@ -10186,6 +10608,22 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "retry-generated-video-qa") {
+    const jobId = String(control.dataset.jobId || "").trim();
+    const mediaId = String(control.dataset.mediaId || "").trim().toLowerCase();
+    if (!jobId || !contentReviewUuid(mediaId)) {
+      toast("Не удалось сверить готовый MP4 с запуском. Обновите раздел генерации.", "error");
+      return;
+    }
+    scheduleGeneratedVideoTechnicalQa({
+      id: jobId,
+      status: "succeeded",
+      model: "video",
+      output_media_id: mediaId,
+    }, trustedCachedGenerationUrl(jobId), { force: true });
+    return;
+  }
+
   if (action === "check-real-generation") {
     const jobId = String(control.dataset.jobId || "");
     const outputAction = String(control.dataset.outputAction || "status");
@@ -10636,11 +11074,15 @@ function handleChange(event) {
 
   const contentReviewForm = event.target.closest("#content-review-form");
   if (contentReviewForm) {
-    if (
-      event.target.name === "media_id"
-      && String(state.contentReview.durableEvidence?.mediaId || "") !== String(event.target.value || "")
-    ) {
-      state.contentReview.durableEvidence = null;
+    if (event.target.name === "media_id") {
+      const mediaId = String(event.target.value || "");
+      const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+      const media = catalog.media.find((item) => item.id === mediaId);
+      applyGeneratedMediaReviewDefaults(contentReviewForm, media);
+      state.contentReview.durableEvidence = generatedVideoQaEvidenceForMedia(media || mediaId)
+        || (String(state.contentReview.durableEvidence?.mediaId || "") === mediaId
+          ? state.contentReview.durableEvidence
+          : null);
     }
     syncContentReviewFormVisibility(contentReviewForm);
     persistContentReviewDraft(contentReviewForm);
@@ -13103,11 +13545,28 @@ function splitResearchLines(value) {
   return String(value || "").split(/\r?\n/u).map((item) => item.trim()).filter(Boolean);
 }
 
-async function persistContentReviewVideoEvidence(media, capturedEvidence, form) {
-  const existing = usableContentReviewEvidence(state.contentReview.durableEvidence, {
-    mediaId: media.id,
-    mediaSha256: media.sha256,
-  });
+async function persistContentReviewVideoEvidence(media, capturedEvidence, form, options = {}) {
+  const customPersistence = typeof options.persistEvidence === "function";
+  const persistEvidence = (value) => {
+    if (customPersistence) return options.persistEvidence(value);
+    state.contentReview.durableEvidence = value;
+    return persistContentReviewDraft(form, { durableEvidence: value });
+  };
+  const clearEvidence = () => {
+    if (typeof options.clearEvidence === "function") {
+      options.clearEvidence();
+      return;
+    }
+    state.contentReview.durableEvidence = null;
+    persistContentReviewDraft(form, { durableEvidence: null });
+  };
+  const existing = usableContentReviewEvidence(
+    options.existingEvidence ?? state.contentReview.durableEvidence,
+    {
+      mediaId: media.id,
+      mediaSha256: media.sha256,
+    },
+  );
   if (existing?.status === "ready") return existing;
   const promoteReady = (pending) => {
     const ready = {
@@ -13118,8 +13577,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form) 
       expiresAt: pending.expiresAt,
       technicalMetrics: pending.technicalMetrics,
     };
-    state.contentReview.durableEvidence = ready;
-    persistContentReviewDraft(form, { durableEvidence: ready });
+    persistEvidence(ready);
     return ready;
   };
   if (existing?.status === "commit_pending") {
@@ -13167,8 +13625,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form) 
       await state.api.uploadPrivateObject(objectName, frameFiles[index].blob);
       uploadedObjectNames.push(objectName);
     }
-    state.contentReview.durableEvidence = pending;
-    if (!persistContentReviewDraft(form, { durableEvidence: pending })) {
+    if (!persistEvidence(pending)) {
       throw new Error("Браузер не сохранил recovery-черновик. Кадры не будут подтверждены до безопасного локального сохранения.");
     }
     commitStarted = true;
@@ -13184,8 +13641,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form) 
     // committed/ambiguous evidence is left for server reconciliation/sweeping.
     if (!commitStarted && uploadedObjectNames.length) {
       await state.api.removePrivateObjects(uploadedObjectNames).catch(() => {});
-      state.contentReview.durableEvidence = null;
-      persistContentReviewDraft(form, { durableEvidence: null });
+      clearEvidence();
     }
     throw error;
   }
@@ -13205,7 +13661,18 @@ async function submitContentReview(form) {
     toast("Выбранный материал не найден. Обновите раздел и выберите файл снова.", "error");
     return;
   }
-  if (String(media.metadata?.kind || "") === "generated_video") {
+  const automaticQaEntry = state.generatedVideoQa.entries.get(String(media.id || "").toLowerCase());
+  const automaticEvidence = generatedVideoQaEvidenceForMedia(media);
+  if (
+    media.kind === "generated_video"
+    && !automaticEvidence
+    && ["queued", "loading", "capturing", "saving"].includes(automaticQaEntry?.status)
+  ) {
+    toast("Контрольные кадры этого MP4 уже готовятся автоматически. Дождитесь завершения, чтобы не создавать дубликат evidence.", "info");
+    return;
+  }
+  if (automaticEvidence) state.contentReview.durableEvidence = automaticEvidence;
+  if (media.kind === "generated_video") {
     input.content_kind = "advertising";
     input.ai_generated = true;
     if (form.elements.content_kind) form.elements.content_kind.value = "advertising";
@@ -13331,6 +13798,9 @@ async function submitContentReview(form) {
       : `Проверка поставлена в фоновую очередь. ${durableSourceLabel}: вкладку можно закрыть, сервер продолжит работу.`;
     form.removeAttribute("data-dirty");
     clearContentReviewDraft();
+    if (media.kind === "generated_video") {
+      markGeneratedVideoQaEvidenceConsumed(media.id, review.record.id);
+    }
     await track("content_review_started", {
       review_id: review.record.id,
       media_id: media.id,
@@ -13675,6 +14145,9 @@ function clearAuthenticatedState() {
   state.realGenerationStatusRequests.clear();
   state.realGenerationResults.clear();
   state.realGenerationDrafts.clear();
+  state.generatedVideoQa.entries.clear();
+  state.generatedVideoQa.activePromise = null;
+  state.generatedVideoQa.restored = false;
   clearContentGenerationHandoff();
   state.lastRealGenerationJobId = null;
   state.bootstrap = null;
