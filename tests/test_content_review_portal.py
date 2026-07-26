@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260726.6' in APP
+    assert './content-review-view.js?v=20260726.7' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260726.10' in INDEX
+    assert './app.js?v=20260726.11' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -170,7 +170,7 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 6" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7" in APP
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in APP
     assert "upsert: false" in API
 

@@ -2531,6 +2531,7 @@ function toFriendlyMessage(error) {
     generation_learning_unavailable: "Обученное ТЗ временно не проверено. Платный запуск не создан.",
     generation_learning_policy_required: "Для товара уже есть подтверждённое обучение. Обновите авто-ТЗ перед запуском.",
     generation_learning_policy_stale: "Обученное ТЗ обновилось. Восстановите авто-ТЗ и повторите запуск.",
+    generation_research_claim_evidence_invalid: "Одобренное исследование не содержит проверяемую immutable-базу safe/forbidden claims. Платный запуск не создан: обновите AI-исследование и одобрите его без ручной подмены.",
     auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
     authentication_required: "Сессия истекла. Войдите снова перед платным запуском.",
     invalid_payload: "Проверьте поля платного запуска и выбранный исходник.",

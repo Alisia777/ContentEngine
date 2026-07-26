@@ -216,6 +216,7 @@ export function contentReviewHasBlockers(run) {
 export function generatedImageApprovalContextReady(run) {
   if (run?.media?.kind !== "generated_image") return true;
   const input = run.input || {};
+  const researchClaimsBound = input.generationClaimEvidence?.status === "bound";
   return Boolean(
     input.generationJobId
     && ["tiktok", "youtube", "vk", "telegram", "wildberries"].includes(input.platform)
@@ -227,7 +228,7 @@ export function generatedImageApprovalContextReady(run) {
     && input.advertiserName.length >= 2
     && input.erid.length >= 6
     && input.rightsConfirmed
-    && input.claimsVerified
+    && (input.claimsVerified || researchClaimsBound)
     && input.productCategoryVerified
     && input.productCategorySource === "product_metadata"
     && (input.platform !== "youtube" || input.aiDisclosureConfirmed)
@@ -443,7 +444,7 @@ function reviewFormMarkup(media, busy) {
         <legend>3. Права, люди и доказательства *</legend>
         <div class="content-review-confirmations">
           ${checkMarkup("rights_confirmed", "У команды есть право использовать файл, музыку, логотипы и графику", "Без подтверждения прав проверка не должна вести к публикации.")}
-          ${checkMarkup("claims_verified", "Свойства, цены, скидки и результаты подтверждены документом или карточкой товара", "ИИ не превращает предположение в доказанный факт.")}
+          ${checkMarkup("claims_verified", "Я вручную сверил(а) свойства, цены, скидки и результаты с документом или карточкой товара", "Для генерации из approved research сервер автоматически привяжет safe/forbidden claims. Эта галочка остаётся ручным подтверждением именно итогового файла.")}
           ${checkMarkup("captions_confirmed", "Титры и крупный текст проверены вручную", "Нет обрезанных слов, ошибок, чужого бренда и нечитаемых обещаний.")}
           <label class="field content-review-select-row"><span>Есть узнаваемые люди?</span><select name="people_present" required><option value="unknown">Не проверено</option><option value="no">Нет</option><option value="yes">Да</option></select></label>
           <div data-review-person-consent hidden>
@@ -551,6 +552,7 @@ function reviewResultMarkup(run, canDecide) {
       </div>
       ${scoreBreakdownMarkup(result.scores)}
       ${comparisonMarkup(result.comparison)}
+      ${claimEvidenceMarkup(run.input.generationClaimEvidence)}
       ${speechAnalysisMarkup(result.speechAnalysis)}
       ${result.strengths.length ? `<section class="card content-review-strengths"><p class="eyebrow">Что уже работает</p><ul>${result.strengths.map((item) => `<li><span aria-hidden="true">✓</span>${escapeHtml(item)}</li>`).join("")}</ul></section>` : ""}
       ${findingsMarkup(result.findings)}
@@ -581,6 +583,24 @@ function comparisonMarkup(comparison) {
     <section class="card content-review-comparison is-${tone}">
       <span aria-hidden="true">${delta === null ? "↔" : delta > 0 ? "↗" : delta < 0 ? "↘" : "→"}</span>
       <div><p class="eyebrow">Сравнение с прошлой проверкой</p><h3>${delta === null ? "История собирается" : `${delta > 0 ? "+" : ""}${delta} баллов`}</h3><p>${escapeHtml(comparison.summary || "Сравниваются проверки этого же материала и контекста.")}</p></div>
+    </section>`;
+}
+
+function claimEvidenceMarkup(evidence) {
+  if (!evidence) return "";
+  const bound = evidence.status === "bound";
+  const title = bound
+    ? `${evidence.safeClaimCount} разрешённых · ${evidence.forbiddenClaimCount} запрещённых`
+    : evidence.status === "invalid"
+      ? "Связь исследования отклонена"
+      : "Подтверждённое исследование не привязано";
+  const copy = bound
+    ? "Сервер сохранил immutable snapshot approved AI research для этого generation job. Он подтверждает базу задания, но итоговый файл всё равно нужно осмотреть и прослушать."
+    : "Ручная галочка не заменяет server-bound источники. Сверьте claims самостоятельно либо создайте новую генерацию из одобренного AI research.";
+  return `
+    <section class="card content-review-comparison is-${bound ? "positive" : "neutral"}">
+      <span aria-hidden="true">${bound ? "✓" : "◇"}</span>
+      <div><p class="eyebrow">Claims и исследование товара</p><h3>${escapeHtml(title)}</h3><p>${escapeHtml(copy)}</p>${evidence.evidenceHash ? `<small>Evidence ${escapeHtml(evidence.evidenceHash.slice(0, 12))}… · источник ${escapeHtml(evidence.source)}</small>` : ""}</div>
     </section>`;
 }
 
@@ -1606,10 +1626,38 @@ function normalizeInput(raw) {
     ordConfirmed: Boolean(source.ord_confirmed ?? source.ordConfirmed),
     rightsConfirmed: Boolean(source.rights_confirmed ?? source.rightsConfirmed),
     claimsVerified: Boolean(source.claims_verified ?? source.claimsVerified),
+    generationClaimEvidence: normalizeGenerationClaimEvidence(
+      source.generation_claim_evidence || source.generationClaimEvidence,
+    ),
     aiDisclosureConfirmed: Boolean(source.ai_disclosure_confirmed ?? source.aiDisclosureConfirmed),
     mandatoryWarningConfirmed: Boolean(source.mandatory_warning_confirmed ?? source.mandatoryWarningConfirmed),
     audienceOver10000: Boolean(source.audience_over_10000 ?? source.audienceOver10000),
     rknRegistered: Boolean(source.rkn_registered ?? source.rknRegistered),
+  };
+}
+
+function normalizeGenerationClaimEvidence(raw) {
+  const source = objectFrom(raw);
+  if (!source) return null;
+  const status = text(source.status, 40).toLowerCase();
+  const evidenceSource = text(source.source, 80).toLowerCase();
+  if (
+    !["bound", "unavailable", "invalid"].includes(status)
+    || ![
+      "approved_research",
+      "baseline",
+      "performance_learning",
+      "untracked",
+    ].includes(evidenceSource)
+  ) return null;
+  return {
+    status,
+    source: evidenceSource,
+    generationJobId: text(source.generation_job_id || source.generationJobId, 180),
+    creativeBriefDraftId: text(source.creative_brief_draft_id || source.creativeBriefDraftId, 180),
+    safeClaimCount: nonNegativeInteger(source.safe_claim_count ?? source.safeClaimCount),
+    forbiddenClaimCount: nonNegativeInteger(source.forbidden_claim_count ?? source.forbiddenClaimCount),
+    evidenceHash: text(source.evidence_hash || source.evidenceHash, 64),
   };
 }
 

@@ -182,6 +182,20 @@ type ReviewRun = {
   parentResult: Record<string, Json> | null;
 };
 
+type GenerationClaimEvidence = {
+  status: "bound" | "unavailable" | "invalid";
+  source:
+    | "approved_research"
+    | "baseline"
+    | "performance_learning"
+    | "untracked";
+  generationJobId: string;
+  evidenceHash: string;
+  creativeBriefDraftId: string | null;
+  safeClaims: Record<string, Json>[];
+  forbiddenClaims: Record<string, Json>[];
+};
+
 type Finding = {
   code: string;
   category: string;
@@ -996,6 +1010,16 @@ const REVIEW_INSTRUCTIONS = `
 и соответствие инструкции. Для протеина сверяй вкус/SKU, белок, BCAA, массу
 и число порций; не принимай «быстрый рост мышц» и «гарантированное восстановление».
 
+generation_claim_evidence — серверный неизменяемый снимок исследования,
+связанного с конкретным generation job. При status=bound список safe_claims —
+единственные утверждения, для которых исследование сохранило источники, но он
+не доказывает, что итоговый файл произносит или показывает их корректно.
+forbidden_claims — запреты: если итоговый caption/script утверждает такую
+формулировку как факт, это blocker. Не считай нарушением само присутствие
+запрета в задании («не использовать», «запрещено», avoid/do not). Список
+evidence не является текстом публикации и не должен оцениваться как контент.
+При status=unavailable/invalid не выдавай claims за подтверждённые.
+
 source_key выбирай только из заданного enum. Если конкретная правовая норма
 не нужна или не установлена по кадрам, используй none. AI-обнаружение
 правового риска с confidence ниже 0.9 должно требовать человека.
@@ -1276,6 +1300,70 @@ function stringInput(input: Record<string, Json>, key: string): string {
   return typeof input[key] === "string" ? String(input[key]).trim() : "";
 }
 
+function readGenerationClaimEvidence(
+  input: Record<string, Json>,
+): GenerationClaimEvidence | null {
+  const value = input.generation_claim_evidence;
+  if (
+    !isRecord(value) ||
+    !["bound", "unavailable", "invalid"].includes(String(value.status)) ||
+    ![
+      "approved_research",
+      "baseline",
+      "performance_learning",
+      "untracked",
+    ].includes(String(value.source)) ||
+    !isUuid(value.generation_job_id) ||
+    typeof value.evidence_hash !== "string" ||
+    !SHA256_PATTERN.test(value.evidence_hash) ||
+    value.generation_job_id !== input.generation_job_id ||
+    !Array.isArray(value.safe_claims) ||
+    !Array.isArray(value.forbidden_claims) ||
+    !Number.isSafeInteger(value.safe_claim_count) ||
+    !Number.isSafeInteger(value.forbidden_claim_count) ||
+    value.safe_claim_count !== value.safe_claims.length ||
+    value.forbidden_claim_count !== value.forbidden_claims.length ||
+    value.safe_claims.some((claim) => !isRecord(claim)) ||
+    value.forbidden_claims.some((claim) => !isRecord(claim))
+  ) return null;
+  const draftId = value.creative_brief_draft_id;
+  if (draftId !== null && !isUuid(draftId)) return null;
+  if (
+    value.status === "bound" &&
+    (value.source !== "approved_research" || draftId === null ||
+      value.safe_claims.length < 1 || value.forbidden_claims.length < 1)
+  ) return null;
+  return {
+    status: value.status as GenerationClaimEvidence["status"],
+    source: value.source as GenerationClaimEvidence["source"],
+    generationJobId: value.generation_job_id,
+    evidenceHash: value.evidence_hash,
+    creativeBriefDraftId: draftId,
+    safeClaims: value.safe_claims as Record<string, Json>[],
+    forbiddenClaims: value.forbidden_claims as Record<string, Json>[],
+  };
+}
+
+function normalizedClaimText(value: string): string {
+  return value.toLocaleLowerCase("ru-RU")
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}%]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function positiveClaimSurface(script: string, caption: string): string {
+  const prohibition =
+    /^(?:не\b|нельзя\b|запрещен\w*\b|не\s+использ\w*\b|не\s+говор\w*\b|избег\w*\b|без\s+обещан\w*\b|do\s+not\b|don['’]?t\b|avoid\b|forbidden\b|never\b)/iu;
+  return `${script}\n${caption}`
+    .split(/[\n.!?;]+/u)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !prohibition.test(part))
+    .map(normalizedClaimText)
+    .filter(Boolean)
+    .join(" ");
+}
+
 function numericMetric(
   metrics: Record<string, Json>,
   key: string,
@@ -1476,10 +1564,14 @@ function deterministicFindings(
   const category = stringInput(input, "product_category");
   const script = stringInput(input, "script_text");
   const caption = stringInput(input, "caption_text");
-  const combinedText = `${script}\n${caption}`.toLocaleLowerCase("ru-RU");
+  const positiveCombinedText = positiveClaimSurface(script, caption);
+  const generatedMedia = ["generated_video", "generated_image"].includes(
+    String(run.media.metadata.kind),
+  );
+  const claimEvidence = readGenerationClaimEvidence(input);
 
   if (
-    run.media.metadata.kind === "generated_video" && (
+    generatedMedia && (
       input.product_category_verified !== true ||
       stringInput(input, "product_category_source") !== "product_metadata" ||
       contentKind !== "advertising" ||
@@ -1491,9 +1583,9 @@ function deterministicFindings(
       "CONTEXT.GENERATED_PROVENANCE",
       "legal",
       "blocker",
-      "Контекст сгенерированного ролика не подтверждён сервером",
+      "Контекст сгенерированного материала не подтверждён сервером",
       "Площадка, категория товара, рекламный статус или AI-происхождение не связаны с исходным заданием генерации.",
-      "Не публикуйте ролик. Создайте новую проверку из карточки точного задания и товара.",
+      "Не публикуйте файл. Создайте новую проверку из карточки точного задания и товара.",
       { human: true, stage: "publish" },
     ));
   }
@@ -1651,7 +1743,89 @@ function deterministicFindings(
     ));
   }
 
-  if (!boolInput(input, "claims_verified")) {
+  if (generatedMedia && claimEvidence?.status === "bound") {
+    add(makeFinding(
+      "CLAIM.RESEARCH_EVIDENCE_BOUND",
+      "claim",
+      "info",
+      "Claims связаны с одобренным исследованием",
+      `Сервер привязал к этому generation job ${claimEvidence.safeClaims.length} разрешённых и ${claimEvidence.forbiddenClaims.length} запрещённых формулировок.`,
+      "Сверьте итоговый файл с разрешёнными формулировками и лично подтвердите, что товар, цифры и смысл не искажены.",
+      {
+        evidence: {
+          evidence_hash: claimEvidence.evidenceHash,
+          creative_brief_draft_id: claimEvidence.creativeBriefDraftId,
+          safe_claim_count: claimEvidence.safeClaims.length,
+          forbidden_claim_count: claimEvidence.forbiddenClaims.length,
+        },
+        stage: "script",
+      },
+    ));
+    if (!boolInput(input, "claims_verified")) {
+      add(makeFinding(
+        "CLAIM.OUTPUT_NOT_CONFIRMED",
+        "claim",
+        "medium",
+        "Итоговая реализация claims не подтверждена человеком",
+        "Исследование подтверждает допустимую базу задания, но не доказывает, что сгенерированное изображение, речь и титры сохранили точный смысл.",
+        "Просмотрите итоговый файл, сверьте товар и все утверждения; отметьте риск как проверенный перед одобрением.",
+        {
+          evidence: { evidence_hash: claimEvidence.evidenceHash },
+          human: true,
+          stage: "script",
+        },
+      ));
+    }
+    const positiveSurface = ` ${positiveCombinedText} `;
+    const matchedForbidden = claimEvidence.forbiddenClaims.find((claim) => {
+      const phrase = typeof claim.claim === "string"
+        ? normalizedClaimText(claim.claim)
+        : "";
+      return phrase.length >= 3 && positiveSurface.includes(` ${phrase} `);
+    });
+    if (matchedForbidden) {
+      add(makeFinding(
+        "CLAIM.RESEARCH_FORBIDDEN_EXACT",
+        "claim",
+        "blocker",
+        "Итоговый текст содержит запрещённое исследованием утверждение",
+        `Как положительное обещание найдено: «${
+          String(matchedForbidden.claim).slice(0, 500)
+        }».`,
+        "Удалите запрещённую формулировку, используйте safer alternative из исследования и запустите новую проверку.",
+        {
+          evidence: {
+            evidence_hash: claimEvidence.evidenceHash,
+            matched_claim: String(matchedForbidden.claim).slice(0, 500),
+          },
+          human: true,
+          stage: script ? "script" : "caption",
+        },
+      ));
+    }
+  } else if (generatedMedia) {
+    add(makeFinding(
+      "CLAIM.SOURCE_NOT_CONFIRMED",
+      "claim",
+      "high",
+      "К generation job не привязана подтверждённая база claims",
+      claimEvidence?.status === "invalid"
+        ? "Связанный research brief не прошёл серверную проверку происхождения, структуры или hash."
+        : "Генерация выполнена без approved AI research с неизменяемыми safe/forbidden claims.",
+      "Не считайте ручную галочку доказательством. Сверьте утверждения с первичными источниками или создайте новую генерацию из одобренного исследования.",
+      {
+        evidence: claimEvidence
+          ? {
+            evidence_hash: claimEvidence.evidenceHash,
+            evidence_status: claimEvidence.status,
+            evidence_source: claimEvidence.source,
+          }
+          : {},
+        human: true,
+        stage: "script",
+      },
+    ));
+  } else if (!boolInput(input, "claims_verified")) {
     add(makeFinding(
       "CLAIM.SOURCE_NOT_CONFIRMED",
       "claim",
@@ -1712,7 +1886,8 @@ function deterministicFindings(
   const musclePattern =
     /\b(быстр(ый|ого) рост мышц|гарантированн\w* восстановлен|сжигает жир|заменяет полноценное питание)\b/iu;
   if (
-    therapeuticPattern.test(combinedText) || musclePattern.test(combinedText)
+    therapeuticPattern.test(positiveCombinedText) ||
+    musclePattern.test(positiveCombinedText)
   ) {
     add(makeFinding(
       "CLAIM.THERAPEUTIC_NONMEDICAL",
@@ -1729,7 +1904,7 @@ function deterministicFindings(
       },
     ));
   }
-  if (guaranteePattern.test(combinedText)) {
+  if (guaranteePattern.test(positiveCombinedText)) {
     add(makeFinding(
       "CLAIM.GUARANTEE",
       "claim",
@@ -2321,6 +2496,12 @@ function mergeReviewResult(
   const speechVariation = finalFindings.find((finding) =>
     finding.code === "SPEECH.SCRIPT_VARIATION"
   );
+  const forbiddenResearchClaim = finalFindings.find((finding) =>
+    finding.code === "CLAIM.RESEARCH_FORBIDDEN_EXACT"
+  );
+  const missingClaimEvidence = finalFindings.find((finding) =>
+    finding.code === "CLAIM.SOURCE_NOT_CONFIRMED"
+  );
   const technicalScoreCap = measuredTechnicalBlocker
     ? 35
     : measuredTechnicalHigh
@@ -2337,9 +2518,20 @@ function mergeReviewResult(
     : speechVariation
     ? 84
     : null;
+  const trustScoreCap = forbiddenResearchClaim
+    ? 35
+    : missingClaimEvidence
+    ? 65
+    : null;
+  const claimOverallScoreCap = forbiddenResearchClaim
+    ? 49
+    : missingClaimEvidence
+    ? 74
+    : null;
   const overallScoreCaps = [
     technicalOverallScoreCap,
     speechOverallScoreCap,
+    claimOverallScoreCap,
   ].filter((value): value is number => value !== null);
   const overallScoreCap = overallScoreCaps.length
     ? Math.min(...overallScoreCaps)
@@ -2357,6 +2549,12 @@ function mergeReviewResult(
       : Math.min(
         clarityScoreCap,
         Number((modelResult.scores as Record<string, Json>).hook_clarity),
+      ),
+    trust: trustScoreCap === null
+      ? Number((modelResult.scores as Record<string, Json>).trust)
+      : Math.min(
+        trustScoreCap,
+        Number((modelResult.scores as Record<string, Json>).trust),
       ),
   };
   const previousScore = run.parentResult &&

@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.4";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260726.5";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -72,7 +72,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260726.6";
+} from "./content-review-view.js?v=20260726.7";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -203,7 +203,7 @@ const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 6;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const GENERATED_VIDEO_QA_STORAGE_VERSION = 5;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
@@ -13778,10 +13778,9 @@ async function submitContentReview(form) {
       !input.erid ||
       !input.ad_label_confirmed ||
       !input.ord_confirmed ||
-      !input.rights_confirmed ||
-      !input.claims_verified
+      !input.rights_confirmed
     ) {
-      toast("Готовый платный AI-ролик проверяется только как реклама. Заполните рекламодателя и ERID, подтвердите маркировку, ОРД, права и факты о товаре.", "error");
+      toast("Готовый платный AI-ролик проверяется только как реклама. Заполните рекламодателя и ERID, подтвердите маркировку, ОРД и права. Claims из approved research сервер свяжет автоматически; итог всё равно проверяет человек.", "error");
       form.elements.advertiser_name?.focus();
       return;
     }
