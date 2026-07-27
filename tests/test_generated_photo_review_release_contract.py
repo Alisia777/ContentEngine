@@ -117,7 +117,8 @@ const unsafeHtml = contentReviewWorkspaceMarkup({{
   canDecide: true
 }});
 if (unsafeHtml.includes('name="decision" value="approved"')) throw new Error("unsafe approval shown");
-if (!unsafeHtml.includes("Сначала подтвердите рекламный контекст")) throw new Error("recovery guidance missing");
+if (!unsafeHtml.includes('value="approve_with_context"')) throw new Error("context approval missing");
+if (!unsafeHtml.includes("без повторного AI")) throw new Error("recovery guidance missing");
 
 const safeRaw = {{
   ...base,

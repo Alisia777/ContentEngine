@@ -125,7 +125,7 @@ def test_browser_prefills_repair_but_keeps_price_confirmation_separate() -> None
     ):
         assert token in ADAPTER or token in HANDOFF or token in APP
     repair_decision = APP.index(
-        'if (decision.decision === "needs_changes")'
+        'if (!contextApproval && decision.decision === "needs_changes")'
     )
     policy_fetch = APP.index(
         "state.api.generationRepairPolicy(reviewId)",

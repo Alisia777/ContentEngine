@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.8";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.9";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -69,12 +69,14 @@ import {
   contentReviewRequiredRiskCodes,
   contentReviewStatusKind,
   contentReviewWorkspaceMarkup,
+  generatedImageContextCanApprove,
+  generatedImagePostContextRequiredRiskCodes,
   normalizeContentReviewCatalog,
   normalizeContentReviewRun,
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260726.7";
+} from "./content-review-view.js?v=20260727.8";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -14132,7 +14134,52 @@ async function submitContentReviewDecision(form, submitter) {
     return;
   }
   const decision = readContentReviewDecision(form, submitter);
-  if (decision.decision === "approved" && contentReviewHasBlockers(review.record)) {
+  const contextApproval = decision.decision === "approve_with_context";
+  if (contextApproval && !generatedImageContextCanApprove(review.record)) {
+    toast("Контекст не может скрыть замечания к самому фото. Используйте «На доработку».", "error");
+    return;
+  }
+  if (contextApproval) {
+    const context = decision.generatedPhotoContext;
+    const platform = String(review.record?.input?.platform || "").toLowerCase();
+    const allowedCategories = new Set([
+      "cosmetics", "baa", "sports_food", "food", "household",
+      "apparel", "electronics", "other",
+    ]);
+    const invalidControl = (
+      !allowedCategories.has(context.productCategory)
+        ? form.elements.release_product_category
+        : context.advertiserName.length < 2 || context.advertiserName.length > 240
+          ? form.elements.release_advertiser_name
+          : context.erid.length < 6 || context.erid.length > 180
+            ? form.elements.release_erid
+            : !["yes", "no"].includes(context.peoplePresent)
+              ? form.elements.release_people_present
+              : !context.adLabelConfirmed
+                ? form.elements.release_ad_label_confirmed
+                : !context.ordConfirmed
+                  ? form.elements.release_ord_confirmed
+                  : !context.rightsConfirmed
+                    ? form.elements.release_rights_confirmed
+                    : !context.claimsVerified
+                      ? form.elements.release_claims_verified
+                      : context.peoplePresent === "yes" && !context.personConsentConfirmed
+                        ? form.elements.release_person_consent_confirmed
+                        : platform === "youtube" && !context.aiDisclosureConfirmed
+                          ? form.elements.release_ai_disclosure_confirmed
+                          : context.productCategory === "baa" && !context.mandatoryWarningConfirmed
+                            ? form.elements.release_mandatory_warning_confirmed
+                            : context.audienceOver10000 && !context.rknRegistered
+                              ? form.elements.release_rkn_registered
+                              : null
+    );
+    if (invalidControl) {
+      toast("Для одобрения заполните реквизиты и подтвердите каждый применимый пункт для этого PNG.", "error");
+      invalidControl.focus();
+      return;
+    }
+  }
+  if (!contextApproval && decision.decision === "approved" && contentReviewHasBlockers(review.record)) {
     toast("Одобрение недоступно: в этой версии остаются критические блокеры.", "error");
     return;
   }
@@ -14146,10 +14193,12 @@ async function submitContentReviewDecision(form, submitter) {
     form.elements.media_watched_confirmed?.focus();
     return;
   }
-  const requiredRiskCodes = contentReviewRequiredRiskCodes(review.record);
+  const requiredRiskCodes = contextApproval
+    ? generatedImagePostContextRequiredRiskCodes(review.record)
+    : contentReviewRequiredRiskCodes(review.record);
   const acknowledgedRiskCodes = new Set(decision.riskAcknowledgements);
   const missingRiskCodes = requiredRiskCodes.filter((code) => !acknowledgedRiskCodes.has(code));
-  if (decision.decision === "approved" && missingRiskCodes.length) {
+  if ((decision.decision === "approved" || contextApproval) && missingRiskCodes.length) {
     toast(`Для одобрения подтвердите каждый высокий или обязательный риск: осталось ${missingRiskCodes.length}.`, "error");
     Array.from(form.querySelectorAll('input[name="risk_acknowledgements"]'))
       .find((control) => control.value === missingRiskCodes[0])
@@ -14161,23 +14210,44 @@ async function submitContentReviewDecision(form, submitter) {
   review.notice = "";
   renderWorkspace("review");
   try {
-    const raw = await state.api.decideContentReview(
-      reviewId,
-      decision.decision,
-      decision.reason,
-      {
-        resolvedRecommendationCodes: decision.resolvedRecommendationCodes,
-        riskAcknowledgements: decision.riskAcknowledgements,
-        mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
-      },
-    );
-    review.record = normalizeContentReviewRun(raw, review.record);
-    upsertContentReviewRun(review.record);
+    const raw = contextApproval
+      ? await state.api.approveGeneratedPhotoReviewWithContext(
+        reviewId,
+        decision.reason,
+        decision.generatedPhotoContext,
+        {
+          resolvedRecommendationCodes: decision.resolvedRecommendationCodes,
+          riskAcknowledgements: decision.riskAcknowledgements,
+          mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
+        },
+      )
+      : await state.api.decideContentReview(
+        reviewId,
+        decision.decision,
+        decision.reason,
+        {
+          resolvedRecommendationCodes: decision.resolvedRecommendationCodes,
+          riskAcknowledgements: decision.riskAcknowledgements,
+          mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
+        },
+      );
+    const decidedReviewId = contextApproval
+      ? String(raw?.review_id || "")
+      : reviewId;
+    if (!contentReviewUuid(decidedReviewId)) {
+      throw new Error("content_review_run_missing");
+    }
+    if (!contextApproval) {
+      review.record = normalizeContentReviewRun(raw, review.record);
+      upsertContentReviewRun(review.record);
+    }
     review.phase = "idle";
-    review.notice = "Неизменяемое решение сохранено. Для исправленного файла создайте новую проверку.";
+    review.notice = contextApproval
+      ? "Фото одобрено: визуальный AI-результат использован повторно без нового внешнего вызова, рекламный контекст и решение сохранены неизменяемо."
+      : "Неизменяемое решение сохранено. Для исправленного файла создайте новую проверку.";
     try {
       const [freshStatus, freshCatalog] = await Promise.all([
-        state.api.contentReviewStatus(reviewId),
+        state.api.contentReviewStatus(decidedReviewId),
         state.api.contentReviewCatalog({ limit: 50 }),
       ]);
       const [hydratedStatus, hydratedCatalog] = await Promise.all([
@@ -14194,13 +14264,18 @@ async function submitContentReviewDecision(form, submitter) {
       review.error = "Решение сохранено, но свежий статус не загрузился. Нажмите «Обновить» — повторно решение не отправляйте.";
     }
     await track("content_review_decided", {
-      review_id: reviewId,
-      decision: decision.decision,
+      review_id: decidedReviewId,
+      source_review_id: contextApproval ? reviewId : null,
+      decision: contextApproval ? "approved" : decision.decision,
       resolved_recommendation_count: decision.resolvedRecommendationCodes.length,
       risk_acknowledgement_count: decision.riskAcknowledgements.length,
       media_watched_confirmed: true,
+      context_amendment_version: contextApproval
+        ? "generated-photo-context-v1"
+        : null,
+      external_ai_invoked: contextApproval ? false : null,
     });
-    if (decision.decision === "needs_changes") {
+    if (!contextApproval && decision.decision === "needs_changes") {
       try {
         const repairRaw = await state.api.generationRepairPolicy(reviewId);
         const repairPolicy = normalizeGenerationRepairPolicy(

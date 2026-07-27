@@ -57,6 +57,8 @@ export const RPC = Object.freeze({
   startContentReview: "creator_start_content_review",
   contentReviewStatus: "creator_content_review_status",
   decideContentReview: "creator_decide_content_review",
+  approveGeneratedPhotoWithContext:
+    "creator_approve_generated_photo_review_with_context",
 });
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
@@ -1362,6 +1364,70 @@ export class CreatorApi {
       resolved_recommendation_codes: safeResolvedCodes,
       risk_acknowledgements: safeRiskAcknowledgements,
       media_watched_confirmed: true,
+    });
+  }
+
+  approveGeneratedPhotoReviewWithContext(reviewId, comment, context, {
+    riskAcknowledgements = [],
+    resolvedRecommendationCodes = [],
+    mediaWatchedConfirmed = false,
+  } = {}) {
+    const normalizedComment = String(comment || "").trim();
+    const productCategory = String(context?.productCategory || "").trim().toLowerCase();
+    const advertiserName = String(context?.advertiserName || "").trim();
+    const erid = String(context?.erid || "").trim();
+    const peoplePresent = String(context?.peoplePresent || "").trim().toLowerCase();
+    if (normalizedComment.length < 10 || normalizedComment.length > 2_000) {
+      throw new CreatorApiError("Объясните решение текстом от 10 до 2000 символов.", {
+        code: "content_review_decision_reason_invalid",
+      });
+    }
+    if (
+      !["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"]
+        .includes(productCategory)
+      || advertiserName.length < 2
+      || advertiserName.length > 240
+      || erid.length < 6
+      || erid.length > 180
+      || !["yes", "no"].includes(peoplePresent)
+    ) {
+      throw new CreatorApiError("Заполните категорию, рекламодателя, ERID и наличие людей для точного PNG.", {
+        code: "generated_photo_context_approval_invalid",
+      });
+    }
+    if (
+      context?.adLabelConfirmed !== true
+      || context?.ordConfirmed !== true
+      || context?.rightsConfirmed !== true
+      || context?.claimsVerified !== true
+      || (peoplePresent === "yes" && context?.personConsentConfirmed !== true)
+      || mediaWatchedConfirmed !== true
+    ) {
+      throw new CreatorApiError("Подтвердите осмотр PNG, маркировку, ОРД, права, claims и согласия людей.", {
+        code: "generated_photo_context_approval_invalid",
+      });
+    }
+    const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
+    const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
+    return this.mutate(RPC.approveGeneratedPhotoWithContext, {
+      review_id: this.requireContentReviewId(reviewId),
+      reason: normalizedComment,
+      product_category: productCategory,
+      advertiser_name: advertiserName,
+      erid,
+      people_present: peoplePresent,
+      media_watched_confirmed: true,
+      ad_label_confirmed: true,
+      ord_confirmed: true,
+      rights_confirmed: true,
+      claims_verified: true,
+      person_consent_confirmed: context?.personConsentConfirmed === true,
+      ai_disclosure_confirmed: context?.aiDisclosureConfirmed === true,
+      mandatory_warning_confirmed: context?.mandatoryWarningConfirmed === true,
+      audience_over_10000: context?.audienceOver10000 === true,
+      rkn_registered: context?.rknRegistered === true,
+      risk_acknowledgements: safeRiskAcknowledgements,
+      resolved_recommendation_codes: safeResolvedCodes,
     });
   }
 
@@ -2689,6 +2755,13 @@ function toFriendlyMessage(error) {
     generated_image_review_requester_invalid: "Проверку сгенерированного фото нужно начать заново из текущего аккаунта.",
     generated_image_independent_review_required: "Сгенерированное фото должен принять другой руководитель или проверяющий, не участвовавший в платном запуске.",
     generated_image_review_context_invalid: "Фото нельзя выпускать по автоматическому черновику. Запустите новую проверку PNG и подтвердите категорию товара, маркировку рекламы, ОРД, ERID, права и обещания.",
+    generated_photo_context_approval_payload_invalid: "Форма одобрения фото устарела. Обновите проверку и заполните реквизиты заново.",
+    generated_photo_context_approval_boolean_invalid: "Одно из подтверждений фото имеет неверный формат. Обновите страницу.",
+    generated_photo_context_approval_invalid: "Заполните категорию, рекламодателя, ERID, наличие людей и все обязательные подтверждения.",
+    generated_photo_context_source_invalid: "Автоматическая проверка фото уже обработана или больше не совпадает с платным PNG. Обновите раздел.",
+    generated_photo_context_platform_invalid: "Для этой площадки или категории не хватает обязательного раскрытия, предупреждения либо регистрации канала.",
+    generated_photo_context_non_context_blockers: "У фото остались замечания к самому содержанию. Используйте «На доработку» — контекст не может скрыть визуальный или смысловой блокер.",
+    generated_photo_context_review_not_bound: "Сервер не смог неизменяемо связать рекламный контекст с точным PNG. Решение не сохранено.",
     generation_repair_review_lineage_invalid: "Связь исправления с исходной QA-проверкой изменилась. Новый анализ не запущен: обновите генерацию и проверку контента.",
     generation_repair_review_job_mismatch: "Исправленный файл больше не совпадает с защищённым заданием генерации. Новый анализ не запущен.",
     generation_repair_review_lineage_not_bound: "Сервер не смог связать исправление с точным исходным QA-решением. Новый анализ не запущен.",

@@ -23,6 +23,20 @@ const TIMELINE_ATLAS_GAP = 2;
 const TIMELINE_ATLAS_LABEL_HEIGHT = 18;
 const TIMELINE_ATLAS_DENSE_MAX_DURATION_SECONDS = 10;
 const TIMELINE_ATLAS_DENSE_MAX_GAP_SECONDS = 0.5;
+const GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES = new Set([
+  "CONTEXT.GENERATED_PROVENANCE",
+  "AD.MARKING.LABEL",
+  "AD.MARKING.ADVERTISER",
+  "AD.MARKING.ERID",
+  "AD.ORD_ACK",
+  "PUBLISHER.RKN_10K",
+  "RIGHTS.MEDIA",
+  "PERSON.IMAGE_RELEASE",
+  "PERSON.PRESENCE_UNRESOLVED",
+  "CLAIM.OUTPUT_NOT_CONFIRMED",
+  "YOUTUBE.AI_DISCLOSURE",
+  "BAA.DISCLAIMER",
+]);
 
 const PLATFORM_LABELS = Object.freeze({
   instagram: "Instagram",
@@ -237,6 +251,35 @@ export function generatedImageApprovalContextReady(run) {
   );
 }
 
+export function generatedImageContextCanApprove(run) {
+  if (
+    run?.media?.kind !== "generated_image"
+    || generatedImageApprovalContextReady(run)
+    || !run?.result
+  ) return false;
+  const blockers = run.result.findings.filter((item) => item.severity === "blocker");
+  return blockers.length === run.result.blockersCount
+    && blockers.every((item) => GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES.has(item.code));
+}
+
+export function generatedImagePostContextRequiredRiskCodes(run) {
+  const remaining = (run?.result?.findings || []).filter(
+    (item) => !GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES.has(item.code),
+  );
+  const required = [...new Set(
+    remaining
+      .filter((item) => item.code && (item.severity === "blocker" || item.severity === "high" || item.humanReviewRequired))
+      .map((item) => item.code),
+  )];
+  if (
+    !required.length
+    && remaining.some((item) => item.severity === "medium")
+  ) {
+    return ["general_human_review"];
+  }
+  return required;
+}
+
 export function contentReviewRequiredRiskCodes(run) {
   if (!run?.result) return [];
   const required = [...new Set(
@@ -326,6 +369,21 @@ export function readContentReviewDecision(form, submitter) {
     resolvedRecommendationCodes: values.getAll("resolved_recommendation_codes").map((value) => text(value, 120)).filter(Boolean),
     riskAcknowledgements: values.getAll("risk_acknowledgements").map((value) => text(value, 120)).filter(Boolean),
     mediaWatchedConfirmed: values.get("media_watched_confirmed") === "yes",
+    generatedPhotoContext: {
+      productCategory: stringValue(values, "release_product_category"),
+      advertiserName: stringValue(values, "release_advertiser_name"),
+      erid: stringValue(values, "release_erid"),
+      peoplePresent: stringValue(values, "release_people_present"),
+      adLabelConfirmed: values.get("release_ad_label_confirmed") === "yes",
+      ordConfirmed: values.get("release_ord_confirmed") === "yes",
+      rightsConfirmed: values.get("release_rights_confirmed") === "yes",
+      claimsVerified: values.get("release_claims_verified") === "yes",
+      personConsentConfirmed: values.get("release_person_consent_confirmed") === "yes",
+      aiDisclosureConfirmed: values.get("release_ai_disclosure_confirmed") === "yes",
+      mandatoryWarningConfirmed: values.get("release_mandatory_warning_confirmed") === "yes",
+      audienceOver10000: values.get("release_audience_over_10000") === "yes",
+      rknRegistered: values.get("release_rkn_registered") === "yes",
+    },
   };
 }
 
@@ -676,6 +734,37 @@ function recommendationsMarkup(items) {
     </section>`;
 }
 
+function generatedPhotoContextApprovalMarkup(run) {
+  const selectedCategory = PRODUCT_CATEGORY_LABELS[run.input.productCategory]
+    ? run.input.productCategory
+    : "other";
+  const categoryOptions = Object.entries(PRODUCT_CATEGORY_LABELS)
+    .map(([value, label]) => `<option value="${value}" ${value === selectedCategory ? "selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+  return `
+    <fieldset class="content-review-fieldset content-review-context-approval" data-generated-photo-context>
+      <legend>Реквизиты для этого точного PNG</legend>
+      <p>Изображение повторно не отправляется внешнему AI. Сервер наследует уже готовую визуальную оценку и неизменяемо добавляет только эти подтверждения.</p>
+      <div class="content-review-form-grid">
+        <label class="field field-wide"><span>Категория товара *</span><select name="release_product_category">${categoryOptions}</select></label>
+        <label class="field"><span>Рекламодатель *</span><input name="release_advertiser_name" minlength="2" maxlength="240" placeholder="Юрлицо / ИП из задачи" /></label>
+        <label class="field"><span>ERID *</span><input name="release_erid" minlength="6" maxlength="180" autocomplete="off" placeholder="Идентификатор именно этого креатива" /></label>
+        <label class="field field-wide"><span>Есть узнаваемые люди?</span><select name="release_people_present"><option value="">Выберите после осмотра</option><option value="no">Нет</option><option value="yes">Да</option></select></label>
+      </div>
+      <div class="content-review-confirmations">
+        ${checkMarkup("release_ad_label_confirmed", "Пометка «Реклама» и сведения о рекламодателе предусмотрены", "Подтверждение относится к этому точному креативу.")}
+        ${checkMarkup("release_ord_confirmed", "ERID и передача сведений через ОРД проверены", "Портал не регистрирует рекламу автоматически.")}
+        ${checkMarkup("release_rights_confirmed", "Права на товар, логотипы, исходник и графику подтверждены", "Без прав автоматическое одобрение контекста невозможно.")}
+        ${checkMarkup("release_claims_verified", "Все надписи и обещания на итоговом PNG сверены с товаром и approved research", "Это подтверждение итогового файла, а не только задания генерации.")}
+        ${checkMarkup("release_person_consent_confirmed", "Если в кадре есть узнаваемые люди, их согласие подтверждено", "Для варианта «Нет» сервер не требует эту отметку.")}
+        ${checkMarkup("release_ai_disclosure_confirmed", "Для YouTube проверена необходимая пометка синтетического контента", "Для других площадок отметка сохраняется как дополнительное подтверждение.")}
+        ${checkMarkup("release_mandatory_warning_confirmed", "Для БАД предусмотрено обязательное предупреждение", "Для других категорий отметка не обязательна.")}
+        ${checkMarkup("release_audience_over_10000", "Аудитория канала превышает 10 000", "Отметьте только если это действительно так.")}
+        ${checkMarkup("release_rkn_registered", "Если аудитория больше 10 000, канал проверен в перечне Роскомнадзора", "Для меньшей аудитории отметка не обязательна.")}
+      </div>
+    </fieldset>`;
+}
+
 function reviewDecisionMarkup(run, { canDecide, blockers }) {
   if (run.decision) {
     return `
@@ -687,17 +776,32 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
   if (!canDecide) {
     return messageMarkup("Результат готов. Зафиксировать финальное решение может руководитель, продюсер или проверяющий.", "info");
   }
+  const generatedImageContextReady = generatedImageApprovalContextReady(run);
+  const contextApprovalAvailable = generatedImageContextCanApprove(run);
+  const decisionFindings = contextApprovalAvailable
+    ? run.result.findings.filter((item) => !GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES.has(item.code))
+    : run.result.findings;
   const riskItems = [...new Map(
-    run.result.findings
+    decisionFindings
       .filter((item) => item.code && (item.humanReviewRequired || ["high", "medium"].includes(item.severity)))
       .map((item) => [item.code, item]),
   ).values()];
-  const requiredRiskCodes = new Set(contentReviewRequiredRiskCodes(run));
+  const requiredRiskCodes = new Set(
+    contextApprovalAvailable
+      ? generatedImagePostContextRequiredRiskCodes(run)
+      : contentReviewRequiredRiskCodes(run),
+  );
   const fallbackRisk = requiredRiskCodes.has("general_human_review") && !riskItems.length
     ? [{ code: "general_human_review", title: "Результат требует отдельного решения человека" }]
     : [];
-  const recommendationItems = run.result.recommendations.filter((item) => item.code);
-  const generatedImageContextReady = generatedImageApprovalContextReady(run);
+  const recommendationItems = run.result.recommendations.filter((item) => (
+    item.code
+    && (
+      !contextApprovalAvailable
+      || !item.code.startsWith("FIX.")
+      || !GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES.has(item.code.slice(4))
+    )
+  ));
   const approvalBlocked = blockers || !generatedImageContextReady;
   const mediaAvailable = Boolean(run.media?.url)
     && run.mediaIsStale !== true
@@ -723,14 +827,15 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
     ? "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после загрузки метаданных и события окончания без смены файла."
     : "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после успешной загрузки неизменённого изображения.";
   return `
-    <form class="card content-review-decision-form" data-review-id="${escapeHtml(run.id)}" data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}" data-release-context-ready="${generatedImageContextReady ? "true" : "false"}" novalidate>
-      <div><p class="eyebrow">Финальное решение человека</p><h3>${approvalBlocked ? (blockers ? "Одобрение недоступно из-за блокеров" : "Сначала подтвердите рекламный контекст") : "Зафиксируйте результат проверки"}</h3><p>${!generatedImageContextReady ? "Автоматическая проверка фото не содержит подтверждённые реквизиты рекламы. Выберите этот PNG в форме выше, заполните площадку, маркировку, ОРД, ERID и запустите новую проверку — портал свяжет её с тем же платным результатом." : "После сохранения решение нельзя переписать. Для исправленной версии запустите новую проверку."}</p></div>
+    <form class="card content-review-decision-form" data-review-id="${escapeHtml(run.id)}" data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}" data-release-context-ready="${generatedImageContextReady ? "true" : "false"}" data-context-approval-ready="${contextApprovalAvailable ? "true" : "false"}" novalidate>
+      <div><p class="eyebrow">Финальное решение человека</p><h3>${contextApprovalAvailable ? "Добавьте контекст и одобрите без повторного AI" : approvalBlocked ? (blockers ? "Одобрение недоступно из-за замечаний к материалу" : "Сначала подтвердите рекламный контекст") : "Зафиксируйте результат проверки"}</h3><p>${contextApprovalAvailable ? "Автоматическая визуальная проверка уже готова. Заполните реквизиты один раз: сервер создаст неизменяемое дополнение, сохранит решение и публикационную задачу без повторной отправки PNG провайдеру." : !generatedImageContextReady ? "Кроме отсутствующего рекламного контекста остались замечания к самому материалу. Исправьте контент через «На доработку»; повторная AI-проверка понадобится только для нового файла." : "После сохранения решение нельзя переписать. Для исправленной версии запустите новую проверку."}</p></div>
       <section class="content-review-decision-preview">
         <div><strong>${previewTitle}</strong><small>${previewCopy}</small></div>
         ${exactPreview}
         <p class="content-review-decision-preview__state ${mediaAvailable ? "" : "is-error"}" data-content-review-media-state role="status">${mediaAvailable ? (run.media.isVideo ? "Загружаем метаданные MP4. Затем воспроизведите файл до события окончания." : "Проверяем доступность изображения.") : escapeHtml(unavailableMessage)}</p>
       </section>
       <label class="content-review-check content-review-watch-confirmation"><input type="checkbox" name="media_watched_confirmed" value="yes" required disabled /><span><strong>${confirmationTitle}</strong><small>${confirmationCopy}</small></span></label>
+      ${contextApprovalAvailable ? generatedPhotoContextApprovalMarkup(run) : ""}
       ${riskItems.length || fallbackRisk.length ? `
         <fieldset class="content-review-decision-checks">
           <legend>Риски, которые проверены лично</legend>
@@ -746,6 +851,7 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
       <label class="field"><span>Почему принято такое решение *</span><textarea name="reason" required minlength="10" maxlength="2000" rows="3" placeholder="Что проверено, что нужно исправить или почему материал отклонён"></textarea></label>
       <div class="content-review-decision-actions">
         ${approvalBlocked ? "" : `<button class="btn" type="submit" name="decision" value="approved" data-review-decision-submit disabled>Одобрить</button>`}
+        ${contextApprovalAvailable ? `<button class="btn" type="submit" name="decision" value="approve_with_context" data-review-decision-submit disabled>Подтвердить контекст и одобрить</button>` : ""}
         <button class="btn btn-secondary" type="submit" name="decision" value="needs_changes" data-review-decision-submit disabled>На доработку</button>
         <button class="btn btn-ghost" type="submit" name="decision" value="rejected" data-review-decision-submit disabled>Отклонить</button>
       </div>
