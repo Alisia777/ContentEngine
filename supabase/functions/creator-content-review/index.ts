@@ -619,6 +619,12 @@ function prepareSpeechAnalysis(run: ReviewRun): SpeechPreparation {
       eligible: false,
     };
   }
+  if (run.input.transcription_requested === false) {
+    return {
+      analysis: baseSpeechAnalysis(run, "not_requested"),
+      eligible: false,
+    };
+  }
   if (!boolInput(run.input, "external_ai_processing_confirmed")) {
     return {
       analysis: baseSpeechAnalysis(run, "not_requested"),

@@ -74,6 +74,7 @@ def test_paid_readiness_requires_one_photo_scenario_budget_and_confirmation() ->
         "mode": "real_seedance",
         "sku": "WB-123",
         "productName": "Точный товар",
+        "productCategory": "cosmetics",
         "platform": "instagram",
         "destinationRef": "@brand",
         "mediaCount": 2,
@@ -91,7 +92,7 @@ def test_paid_readiness_requires_one_photo_scenario_budget_and_confirmation() ->
     value["mediaCount"] = 1
     ready = _evaluate(value)
     assert ready["ready"] is True
-    assert ready["total"] == 6
+    assert ready["total"] == 7
 
 
 def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> None:
@@ -99,6 +100,7 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
         "mode": "real_photo",
         "sku": "WB-123",
         "productName": "Точный товар",
+        "productCategory": "cosmetics",
         "platform": "tiktok",
         "destinationRef": "@brand",
         "mediaCount": 2,
@@ -110,7 +112,7 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
     }
     too_many = _evaluate(value)
     assert too_many["real"] is True
-    assert too_many["total"] == 6
+    assert too_many["total"] == 7
     assert too_many["next"]["key"] == "media"
     assert "платного фото" in too_many["next"]["hint"]
 
@@ -128,11 +130,11 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
     value["confirmationMatches"] = True
     ready = _evaluate(value)
     assert ready["ready"] is True
-    assert ready["completed"] == ready["total"] == 6
+    assert ready["completed"] == ready["total"] == 7
 
 
 def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None:
-    assert 'from "./generation-form-readiness.js?v=20260725.1"' in APP
+    assert 'from "./generation-form-readiness.js?v=20260727.1"' in APP
     assert "function syncGenerationFormReadiness(form)" in APP
     assert "syncGenerationFormReadiness(form);" in APP
     assert 'id="generation-readiness"' in MODULE_TEXT
@@ -151,7 +153,7 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
     assert './styles.css?v=20260726.6' in INDEX
-    assert './app.js?v=20260727.15' in INDEX
+    assert './app.js?v=20260727.16' in INDEX
 
 
 def test_mock_mode_truthfully_describes_tasks_without_media_rendering() -> None:

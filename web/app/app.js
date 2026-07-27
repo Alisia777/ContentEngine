@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.9";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.10";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -53,7 +53,7 @@ import {
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260725.1";
+} from "./generation-form-readiness.js?v=20260727.1";
 import {
   chooseInitialGenerationMedia,
   generationPreflightDecision,
@@ -69,14 +69,14 @@ import {
   contentReviewRequiredRiskCodes,
   contentReviewStatusKind,
   contentReviewWorkspaceMarkup,
-  generatedImageContextCanApprove,
-  generatedImagePostContextRequiredRiskCodes,
+  generatedMediaContextCanApprove,
+  generatedMediaPostContextRequiredRiskCodes,
   normalizeContentReviewCatalog,
   normalizeContentReviewRun,
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260727.8";
+} from "./content-review-view.js?v=20260727.9";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -6899,6 +6899,7 @@ function generationFormReadiness(form) {
     mode,
     sku: form?.elements?.sku?.value,
     productName: form?.elements?.product_name?.value,
+    productCategory: form?.elements?.product_category?.value,
     platform: form?.elements?.platform?.value,
     destinationRef: form?.elements?.destination_ref?.value,
     mediaCount,
@@ -7300,6 +7301,21 @@ function renderGenerationSection(sectionState) {
             <label class="field">
               <span>Название товара *</span>
               <input name="product_name" required maxlength="180" placeholder="Точное название и вариант" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>Категория товара для QA *</span>
+              <select name="product_category" required>
+                <option value="">Выберите один раз</option>
+                <option value="cosmetics">Косметика и уход</option>
+                <option value="baa">БАД — зарегистрированный БАД</option>
+                <option value="sports_food">Протеин и спортивное питание</option>
+                <option value="food">Еда и напитки</option>
+                <option value="household">Товары для дома</option>
+                <option value="apparel">Одежда и аксессуары</option>
+                <option value="electronics">Электроника</option>
+                <option value="other">Другая категория</option>
+              </select>
+              <small class="field-hint">Сервер сохранит выбор у товара и подставит его в AI-проверку готового результата. Для БАД включатся дополнительные предупреждения.</small>
             </label>
             <p id="generation-product-identity-note" class="generation-product-identity" role="status">
               Выберите проверенное фото ниже — артикул и название подставятся автоматически.
@@ -7755,6 +7771,14 @@ function generatedVideoTechnicalQaMarkup(details) {
       </div>
     `;
   }
+  if (entry?.status === "starting_review") {
+    return `
+      <div class="generation-technical-qa is-running" role="status">
+        <strong>Ставим AI-проверку в фоновую очередь</strong>
+        <span>Площадка, категория, сценарий и evidence берутся с сервера. Транскрипция и повторная генерация не запускаются.</span>
+      </div>
+    `;
+  }
   const reviewButton = `
     <button class="btn btn-secondary btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(mediaId)}">
       ${prepared?.status === "ready" ? "Продолжить проверку контента" : "Открыть проверку контента"}
@@ -7771,8 +7795,12 @@ function generatedVideoTechnicalQaMarkup(details) {
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Технический скан готов автоматически</strong>
-        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(audioCopy)} Внешний AI ещё не запускался; заполните рекламные реквизиты и примите решение человеком.</span>
-        ${reviewButton}
+        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(audioCopy)} Внешний AI ещё не запускался. Можно запустить визуальный AI-QA одним действием; транскрипция останется выключенной.</span>
+        ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
+        <div class="generation-result-actions">
+          <button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>
+          ${reviewButton}
+        </div>
       </div>
     `;
   }
@@ -8151,6 +8179,7 @@ function realGenerationDraftFromPayload(payload, mode) {
     campaign_id: payload.campaign_id,
     sku: payload.sku,
     product_name: payload.product_name,
+    product_category: payload.product_category,
     count: "1",
     format: payload.format,
     brief: payload.brief,
@@ -8175,7 +8204,7 @@ function restoreRealGenerationDraft(jobId) {
   };
   setValue("generation_mode", draft.generation_mode);
   setValue("campaign_id", draft.campaign_id);
-  for (const name of ["sku", "product_name", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
+  for (const name of ["sku", "product_name", "product_category", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
     setValue(name, draft[name]);
   }
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
@@ -10357,6 +10386,41 @@ async function handleClick(event) {
     state.contentReview.error = "";
     state.contentReview.notice = "Выберите контекст публикации и запустите обязательную проверку готового фото или видео.";
     navigate("/workspace/review");
+    return;
+  }
+
+  if (action === "start-generated-video-review") {
+    const mediaId = String(control.dataset.mediaId || "").trim().toLowerCase();
+    const evidence = generatedVideoQaEvidenceForMedia(mediaId);
+    if (!contentReviewUuid(mediaId) || evidence?.status !== "ready") {
+      toast("Сначала дождитесь сохранения контрольных кадров точного MP4.", "error");
+      return;
+    }
+    setGeneratedVideoQaStatus(mediaId, {
+      status: "starting_review",
+      error: "",
+    });
+    try {
+      const raw = await state.api.startGeneratedVideoReview({
+        mediaId,
+        evidenceId: evidence.evidenceId,
+      });
+      const reviewId = String(raw?.review_id || raw?.run?.id || "").toLowerCase();
+      if (!contentReviewUuid(reviewId) || raw?.transcription_requested !== false) {
+        throw new Error("generated_video_review_start_invalid");
+      }
+      markGeneratedVideoQaEvidenceConsumed(mediaId, reviewId);
+      state.contentReview.notice = "AI-проверка ролика запущена без транскрипции. После результата независимый проверяющий добавит реквизиты один раз и полностью просмотрит MP4.";
+      state.sections.review.status = "idle";
+      toast("AI-проверка запущена. MP4 и звук не отправляются на транскрипцию.", "success");
+    } catch (error) {
+      setGeneratedVideoQaStatus(mediaId, {
+        status: "ready",
+        evidence,
+        error: actionErrorMessage(error),
+      });
+      toast(actionErrorMessage(error), "error");
+    }
     return;
   }
 
@@ -12771,6 +12835,12 @@ async function submitRealGeneration(form, values, mode) {
     form.elements.brief?.focus();
     return;
   }
+  const productCategory = String(values.get("product_category") || "").trim();
+  if (!["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"].includes(productCategory)) {
+    toast("Выберите категорию товара для правил QA и обязательных предупреждений.", "error");
+    form.elements.product_category?.focus();
+    return;
+  }
   const generationHandoff = state.contentGenerationHandoff;
   const promptReadiness = generationPromptInspection(form);
   if (!promptReadiness?.ready) {
@@ -12807,6 +12877,7 @@ async function submitRealGeneration(form, values, mode) {
     campaign_id: campaignId,
     sku: String(values.get("sku") || "").trim(),
     product_name: String(values.get("product_name") || "").trim(),
+    product_category: productCategory,
     count: 1,
     format: generationSku.format || String(values.get("format") || "9:16"),
     brief,
@@ -14135,8 +14206,8 @@ async function submitContentReviewDecision(form, submitter) {
   }
   const decision = readContentReviewDecision(form, submitter);
   const contextApproval = decision.decision === "approve_with_context";
-  if (contextApproval && !generatedImageContextCanApprove(review.record)) {
-    toast("Контекст не может скрыть замечания к самому фото. Используйте «На доработку».", "error");
+  if (contextApproval && !generatedMediaContextCanApprove(review.record)) {
+    toast("Контекст не может скрыть замечания к самому материалу. Используйте «На доработку».", "error");
     return;
   }
   if (contextApproval) {
@@ -14162,8 +14233,10 @@ async function submitContentReviewDecision(form, submitter) {
                   : !context.rightsConfirmed
                     ? form.elements.release_rights_confirmed
                     : !context.claimsVerified
-                      ? form.elements.release_claims_verified
-                      : context.peoplePresent === "yes" && !context.personConsentConfirmed
+                    ? form.elements.release_claims_verified
+                    : context.captionsRequired && !context.captionsConfirmed
+                      ? form.elements.release_captions_confirmed
+                    : context.peoplePresent === "yes" && !context.personConsentConfirmed
                         ? form.elements.release_person_consent_confirmed
                         : platform === "youtube" && !context.aiDisclosureConfirmed
                           ? form.elements.release_ai_disclosure_confirmed
@@ -14174,7 +14247,7 @@ async function submitContentReviewDecision(form, submitter) {
                               : null
     );
     if (invalidControl) {
-      toast("Для одобрения заполните реквизиты и подтвердите каждый применимый пункт для этого PNG.", "error");
+      toast(`Для одобрения заполните реквизиты и подтвердите каждый применимый пункт для этого ${review.record?.media?.isVideo ? "MP4" : "PNG"}.`, "error");
       invalidControl.focus();
       return;
     }
@@ -14194,7 +14267,7 @@ async function submitContentReviewDecision(form, submitter) {
     return;
   }
   const requiredRiskCodes = contextApproval
-    ? generatedImagePostContextRequiredRiskCodes(review.record)
+    ? generatedMediaPostContextRequiredRiskCodes(review.record)
     : contentReviewRequiredRiskCodes(review.record);
   const acknowledgedRiskCodes = new Set(decision.riskAcknowledgements);
   const missingRiskCodes = requiredRiskCodes.filter((code) => !acknowledgedRiskCodes.has(code));
@@ -14211,7 +14284,11 @@ async function submitContentReviewDecision(form, submitter) {
   renderWorkspace("review");
   try {
     const raw = contextApproval
-      ? await state.api.approveGeneratedPhotoReviewWithContext(
+      ? await (
+        review.record?.media?.kind === "generated_video"
+          ? state.api.approveGeneratedVideoReviewWithContext.bind(state.api)
+          : state.api.approveGeneratedPhotoReviewWithContext.bind(state.api)
+      )(
         reviewId,
         decision.reason,
         decision.generatedPhotoContext,
@@ -14243,7 +14320,7 @@ async function submitContentReviewDecision(form, submitter) {
     }
     review.phase = "idle";
     review.notice = contextApproval
-      ? "Фото одобрено: визуальный AI-результат использован повторно без нового внешнего вызова, рекламный контекст и решение сохранены неизменяемо."
+      ? `${review.record?.media?.isVideo ? "Видео" : "Фото"} одобрено: AI-результат использован повторно без нового внешнего вызова, рекламный контекст и решение сохранены неизменяемо.`
       : "Неизменяемое решение сохранено. Для исправленного файла создайте новую проверку.";
     try {
       const [freshStatus, freshCatalog] = await Promise.all([
@@ -14271,7 +14348,9 @@ async function submitContentReviewDecision(form, submitter) {
       risk_acknowledgement_count: decision.riskAcknowledgements.length,
       media_watched_confirmed: true,
       context_amendment_version: contextApproval
-        ? "generated-photo-context-v1"
+        ? review.record?.media?.kind === "generated_video"
+          ? "generated-video-context-v1"
+          : "generated-photo-context-v1"
         : null,
       external_ai_invoked: contextApproval ? false : null,
     });

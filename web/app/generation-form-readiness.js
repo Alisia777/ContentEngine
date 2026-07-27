@@ -35,6 +35,12 @@ export function evaluateGenerationFormReadiness(value = {}) {
   if (real) {
     steps.push(
       step(
+        "category",
+        "Категория товара",
+        Boolean(clean(value.productCategory)),
+        "Один раз выберите категорию товара для правил QA и обязательных предупреждений.",
+      ),
+      step(
         "brief",
         photo ? "Композиция" : "Сценарий",
         Boolean(clean(value.brief)),

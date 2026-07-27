@@ -55,10 +55,13 @@ export const RPC = Object.freeze({
   prepareContentReviewEvidence: "creator_prepare_content_review_evidence",
   commitContentReviewEvidence: "creator_commit_content_review_evidence",
   startContentReview: "creator_start_content_review",
+  startGeneratedVideoReview: "creator_start_generated_video_review",
   contentReviewStatus: "creator_content_review_status",
   decideContentReview: "creator_decide_content_review",
   approveGeneratedPhotoWithContext:
     "creator_approve_generated_photo_review_with_context",
+  approveGeneratedVideoWithContext:
+    "creator_approve_generated_video_review_with_context",
 });
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
@@ -1327,6 +1330,63 @@ export class CreatorApi {
     };
   }
 
+  async startGeneratedVideoReview({ mediaId, evidenceId } = {}, {
+    onRunCreated,
+  } = {}) {
+    const normalizedMediaId = String(mediaId || "").trim();
+    const normalizedEvidenceId = String(evidenceId || "").trim();
+    if (!isUuid(normalizedMediaId) || !isUuid(normalizedEvidenceId)) {
+      throw new CreatorApiError("Сначала дождитесь сохранения точного MP4 и его контрольных кадров.", {
+        code: "generated_video_review_evidence_required",
+      });
+    }
+    const created = await this.mutate(RPC.startGeneratedVideoReview, {
+      media_id: normalizedMediaId,
+      evidence_id: normalizedEvidenceId,
+    });
+    const source = created?.data && typeof created.data === "object"
+      ? created.data
+      : created;
+    const run = source?.run || source?.review || {};
+    const reviewId = String(
+      run?.id || source?.review_id || source?.id || "",
+    ).trim();
+    if (!isUuid(reviewId)) {
+      throw new CreatorApiError("Сервер не вернул номер проверки готового ролика.", {
+        code: "content_review_run_missing",
+      });
+    }
+    if (source?.transcription_requested !== false) {
+      throw new CreatorApiError("Без отдельного разрешения транскрипция ролика должна оставаться выключенной.", {
+        code: "generated_video_transcription_guard_failed",
+      });
+    }
+    if (typeof onRunCreated === "function") {
+      try {
+        onRunCreated({
+          ...run,
+          id: reviewId,
+          status: String(run?.status || "queued"),
+        });
+      } catch {
+        // UI recovery is best effort; the durable run remains authoritative.
+      }
+    }
+    void this.invokeContentReview({
+      action: "analyze",
+      review_id: reviewId,
+    }).catch(() => {});
+    return {
+      ...source,
+      run: { ...run, id: reviewId },
+      analysis_request: {
+        ok: true,
+        status: "background_queued",
+        transcription_requested: false,
+      },
+    };
+  }
+
   contentReviewStatus(reviewId) {
     return this.call(RPC.contentReviewStatus, this.withOrganization({
       review_id: this.requireContentReviewId(reviewId),
@@ -1421,6 +1481,72 @@ export class CreatorApi {
       ord_confirmed: true,
       rights_confirmed: true,
       claims_verified: true,
+      person_consent_confirmed: context?.personConsentConfirmed === true,
+      ai_disclosure_confirmed: context?.aiDisclosureConfirmed === true,
+      mandatory_warning_confirmed: context?.mandatoryWarningConfirmed === true,
+      audience_over_10000: context?.audienceOver10000 === true,
+      rkn_registered: context?.rknRegistered === true,
+      risk_acknowledgements: safeRiskAcknowledgements,
+      resolved_recommendation_codes: safeResolvedCodes,
+    });
+  }
+
+  approveGeneratedVideoReviewWithContext(reviewId, comment, context, {
+    riskAcknowledgements = [],
+    resolvedRecommendationCodes = [],
+    mediaWatchedConfirmed = false,
+  } = {}) {
+    const normalizedComment = String(comment || "").trim();
+    const productCategory = String(context?.productCategory || "").trim().toLowerCase();
+    const advertiserName = String(context?.advertiserName || "").trim();
+    const erid = String(context?.erid || "").trim();
+    const peoplePresent = String(context?.peoplePresent || "").trim().toLowerCase();
+    if (normalizedComment.length < 10 || normalizedComment.length > 2_000) {
+      throw new CreatorApiError("Объясните решение текстом от 10 до 2000 символов.", {
+        code: "content_review_decision_reason_invalid",
+      });
+    }
+    if (
+      !["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"]
+        .includes(productCategory)
+      || advertiserName.length < 2
+      || advertiserName.length > 240
+      || erid.length < 6
+      || erid.length > 180
+      || !["yes", "no"].includes(peoplePresent)
+    ) {
+      throw new CreatorApiError("Заполните категорию, рекламодателя, ERID и наличие людей для точного MP4.", {
+        code: "generated_video_context_approval_invalid",
+      });
+    }
+    if (
+      context?.adLabelConfirmed !== true
+      || context?.ordConfirmed !== true
+      || context?.rightsConfirmed !== true
+      || context?.claimsVerified !== true
+      || (context?.captionsRequired === true && context?.captionsConfirmed !== true)
+      || (peoplePresent === "yes" && context?.personConsentConfirmed !== true)
+      || mediaWatchedConfirmed !== true
+    ) {
+      throw new CreatorApiError("Подтвердите полный просмотр MP4, маркировку, ОРД, права, claims, субтитры и согласия людей.", {
+        code: "generated_video_context_approval_invalid",
+      });
+    }
+    const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
+    const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
+    return this.mutate(RPC.approveGeneratedVideoWithContext, {
+      review_id: this.requireContentReviewId(reviewId),
+      reason: normalizedComment,
+      product_category: productCategory,
+      advertiser_name: advertiserName,
+      erid,
+      people_present: peoplePresent,
+      media_watched_confirmed: true,
+      ad_label_confirmed: true,
+      ord_confirmed: true,
+      rights_confirmed: true,
+      claims_verified: true,
+      captions_confirmed: context?.captionsConfirmed === true,
       person_consent_confirmed: context?.personConsentConfirmed === true,
       ai_disclosure_confirmed: context?.aiDisclosureConfirmed === true,
       mandatory_warning_confirmed: context?.mandatoryWarningConfirmed === true,
@@ -1561,6 +1687,16 @@ export class CreatorApi {
       throw new CreatorApiError(
         `Сократите ТЗ для выбранной модели до ${sku.prompt_max_length} символов.`,
         { code: "brief_invalid" },
+      );
+    }
+    const productCategory = String(batch?.product_category || "").trim().toLowerCase();
+    if (
+      !["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"]
+        .includes(productCategory)
+    ) {
+      throw new CreatorApiError(
+        "Выберите категорию товара для правил QA и обязательных предупреждений.",
+        { code: "paid_generation_product_category_invalid" },
       );
     }
     const learningContext = batch?.learning_context;
@@ -2607,6 +2743,8 @@ function toFriendlyMessage(error) {
     generation_budget_timezone_invalid: "Не удалось определить часовой пояс денежного лимита.",
     paid_generation_campaign_required: "Выберите активную кампанию для платного запуска.",
     paid_generation_campaign_not_active: "Выбранная кампания не активна.",
+    paid_generation_product_category_invalid: "Выберите категорию товара для правил QA и обязательных предупреждений.",
+    paid_generation_product_category_binding_invalid: "Сервер не смог связать категорию с точным товаром платного запуска.",
     paid_generation_campaign_policy_missing: "Для кампании ещё не настроен денежный лимит.",
     paid_generation_campaign_paused: "Платные запуски в этой кампании приостановлены.",
     generation_campaign_per_request_budget_exceeded: "Цена ролика превышает разовый лимит кампании.",
@@ -2744,10 +2882,26 @@ function toFriendlyMessage(error) {
     content_review_approval_evidence_required: "Задачу готового ролика можно завершить только через сохранённое решение в разделе «Проверка контента».",
     generated_video_review_task_invalid: "Задача готового ролика изменилась или уже обработана. Обновите задачи и проверку контента.",
     generated_video_job_invalid: "Готовый файл больше не совпадает с подтверждённым платным запуском. Обновите генерацию и обратитесь к руководителю.",
+    generated_video_review_start_payload_invalid: "Запрос запуска AI-проверки ролика устарел. Обновите генерацию.",
+    generated_video_review_source_invalid: "Точный MP4 или его evidence изменились. Обновите генерацию и подготовьте кадры заново.",
+    generated_video_review_platform_invalid: "Площадка ролика не подходит для безопасного автоматического QA.",
+    generated_video_review_category_required: "Сначала один раз подтвердите категорию товара в полной форме проверки; дальше портал будет подставлять её сам.",
+    generated_video_review_evidence_required: "Сначала дождитесь сохранения пяти evidence-изображений точного MP4.",
+    generated_video_transcription_guard_failed: "Проверка остановлена: без отдельного разрешения транскрипция ролика должна оставаться выключенной.",
+    generated_video_autopilot_input_invalid: "Сервер не подтвердил происхождение ролика для ускоренного QA. Откройте полную форму проверки.",
+    generated_video_autopilot_input_not_bound: "Проверка остановлена: сервер не смог неизменяемо запретить транскрипцию и связать evidence.",
     generated_video_platform_prohibited: "Платную рекламную публикацию на выбранной площадке выпускать нельзя. Выберите разрешённый канал и создайте новое задание.",
     generated_video_review_context_invalid: "Контекст проверки не совпадает с платным заданием: площадка, рекламный статус или AI-происхождение изменились.",
     generated_video_product_context_invalid: "Категория или товар изменились после проверки. Запустите новую проверку из актуальной карточки товара.",
     generated_video_placement_input_invalid: "У платного запуска не подтверждены площадка или точный аккаунт размещения. Исправьте вводные до одобрения.",
+    generated_video_context_approval_payload_invalid: "Форма одобрения ролика устарела. Обновите проверку и заполните реквизиты заново.",
+    generated_video_context_approval_boolean_invalid: "Одно из подтверждений ролика имеет неверный формат. Обновите страницу.",
+    generated_video_context_approval_invalid: "Заполните рекламодателя, ERID, наличие людей и все обязательные подтверждения точного MP4.",
+    generated_video_context_source_invalid: "AI-проверка ролика уже обработана или больше не совпадает с точным MP4 и evidence.",
+    generated_video_context_platform_invalid: "Для этой площадки, категории или ролика не хватает раскрытия, предупреждения, субтитров либо регистрации канала.",
+    generated_video_context_non_context_blockers: "У ролика остались замечания к изображению, звуку или смыслу. Используйте «На доработку» — контекст их не скрывает.",
+    generated_video_context_review_not_bound: "Сервер не смог связать реквизиты с точным MP4 и evidence. Решение не сохранено.",
+    generated_video_independent_review_required: "Готовый ролик должен принять другой руководитель или проверяющий, не участвовавший в платном запуске.",
     generated_image_review_task_invalid: "Задача товарного фото изменилась или уже обработана. Обновите генерацию и проверку контента.",
     generated_image_job_invalid: "PNG больше не совпадает с подтверждённым платным запуском. Обновите генерацию и обратитесь к руководителю.",
     generated_image_platform_invalid: "Площадка товарного фото не совпадает с разрешённым каналом платного запуска.",

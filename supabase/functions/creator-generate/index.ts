@@ -222,6 +222,15 @@ type CommonStartPayload = {
   idempotency_key: string;
   sku: string;
   product_name: string;
+  product_category:
+    | "cosmetics"
+    | "baa"
+    | "sports_food"
+    | "food"
+    | "household"
+    | "apparel"
+    | "electronics"
+    | "other";
   count: 1;
   format: "9:16" | "1:1" | "16:9";
   brief: string;
@@ -575,6 +584,7 @@ function readStartPayload(value: unknown): StartPayload | null {
     "idempotency_key",
     "sku",
     "product_name",
+    "product_category",
     "count",
     "format",
     "brief",
@@ -633,6 +643,16 @@ function readStartPayload(value: unknown): StartPayload | null {
     "telegram",
     "wildberries",
   ]);
+  const productCategories = new Set([
+    "cosmetics",
+    "baa",
+    "sports_food",
+    "food",
+    "household",
+    "apparel",
+    "electronics",
+    "other",
+  ]);
   if (
     value.action !== "start" ||
     !isUuid(value.organization_id) ||
@@ -641,6 +661,8 @@ function readStartPayload(value: unknown): StartPayload | null {
     !IDEMPOTENCY_PATTERN.test(value.idempotency_key) ||
     !isBoundedText(value.sku, 1, 120) ||
     !isBoundedText(value.product_name, 2, 180) ||
+    typeof value.product_category !== "string" ||
+    !productCategories.has(value.product_category) ||
     value.count !== 1 ||
     typeof value.format !== "string" || !formats.has(value.format) ||
     !isBoundedText(value.brief, 1, promptLimit) ||
