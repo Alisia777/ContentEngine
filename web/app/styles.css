@@ -5600,6 +5600,14 @@ input[type="radio"] {
   line-height: 1.42;
 }
 
+.generation-model-acceptance__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
 @media (max-width: 760px) {
   .generation-model-acceptance__grid {
     grid-template-columns: 1fr;

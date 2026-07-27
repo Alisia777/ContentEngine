@@ -15,6 +15,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607270005_generation_model_acceptance.sql"
 ).read_text(encoding="utf-8")
+NEXT_ACTION_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607270006_generation_model_acceptance_next_action.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/generation_model_acceptance_test.sql"
 ).read_text(encoding="utf-8")
@@ -75,6 +79,7 @@ def _accepted_evidence() -> dict:
 
 def test_sql_and_pgtap_are_parseable() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(NEXT_ACTION_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -115,6 +120,34 @@ def test_sql_status_uses_latest_decision_and_fails_closed() -> None:
     assert "elsif not evidence_row.context_bound" in MIGRATION
     assert "elsif evidence_row.overall_score < 80" in MIGRATION
     assert "latest_decision_not_approved" in MIGRATION
+
+
+def test_pending_review_navigation_uses_only_exact_opaque_evidence() -> None:
+    for token in (
+        "generation_model_acceptance_pending",
+        "media.id::text = job.output ->> 'output_media_id'",
+        "media.sha256 = job.output ->> 'sha256'",
+        "candidate.media_sha256_snapshot = output.media_sha256",
+        "candidate.input ->> 'generation_job_id'",
+        "decision.review_completion_hash",
+        "decision.media_watched_confirmed",
+        "decision.decided_by <> output.requested_by",
+        "'pending_review'",
+        "'generation-model-acceptance-v2'",
+    ):
+        assert token in NEXT_ACTION_MIGRATION
+    for forbidden in (
+        "'output_object_name'",
+        "'signed_url'",
+        "'requested_by'",
+        "'assigned_to'",
+        "'owner_id'",
+        "'prompt'",
+    ):
+        assert forbidden not in NEXT_ACTION_MIGRATION[
+            NEXT_ACTION_MIGRATION.index("else jsonb_build_object("):
+            NEXT_ACTION_MIGRATION.index("end\n    );")
+        ]
 
 
 def test_browser_refuses_a_forged_accepted_status_without_evidence() -> None:
@@ -178,6 +211,86 @@ return {{
     }
 
 
+def test_browser_accepts_only_exact_pending_review_navigation() -> None:
+    result = _run_view(
+        """
+const valid = subject.normalizeGenerationModelAcceptance({
+  models: [{
+    model: "seedream5_lite",
+    status: "unproven",
+    successful_runs: 1,
+    pending_review_runs: 1,
+    pending_review: {
+      generation_job_id: "00000000-0000-4000-8000-000000000011",
+      media_id: "00000000-0000-4000-8000-000000000012",
+      review_id: "00000000-0000-4000-8000-000000000013",
+      review_status: "completed",
+      created_at: "2026-07-27T13:00:00Z",
+    },
+  }],
+});
+const forged = subject.normalizeGenerationModelAcceptance({
+  models: [{
+    model: "gen4_turbo",
+    status: "unproven",
+    successful_runs: 1,
+    pending_review: {
+      generation_job_id: "00000000-0000-4000-8000-000000000021",
+      media_id: "00000000-0000-4000-8000-000000000022",
+      review_id: "../../login",
+      review_status: "completed",
+    },
+  }],
+});
+return {
+  reviewId: valid.models[0].pendingReview?.reviewId || "",
+  forgedPending: forged.models[1].pendingReview,
+  validMarkup: subject.generationModelAcceptanceMarkup({
+    status: "ready",
+    data: {
+      models: [{
+        model: "seedream5_lite",
+        status: "unproven",
+        successful_runs: 1,
+        pending_review_runs: 1,
+        pending_review: {
+          generation_job_id: "00000000-0000-4000-8000-000000000011",
+          media_id: "00000000-0000-4000-8000-000000000012",
+          review_id: "00000000-0000-4000-8000-000000000013",
+          review_status: "completed",
+        },
+      }],
+    },
+  }),
+  forgedMarkup: subject.generationModelAcceptanceMarkup({
+    status: "ready",
+    data: {
+      models: [{
+        model: "gen4_turbo",
+        status: "unproven",
+        successful_runs: 1,
+        pending_review: {
+          generation_job_id: "00000000-0000-4000-8000-000000000021",
+          media_id: "00000000-0000-4000-8000-000000000022",
+          review_id: "../../login",
+          review_status: "completed",
+        },
+      }],
+    },
+  }),
+};
+"""
+    )
+    assert result["reviewId"] == "00000000-0000-4000-8000-000000000013"
+    assert result["forgedPending"] is None
+    assert (
+        "#/workspace/review/00000000-0000-4000-8000-000000000013"
+        in result["validMarkup"]
+    )
+    assert "../../login" not in result["forgedMarkup"]
+    assert 'data-action="prepare-generation-acceptance"' in result["forgedMarkup"]
+
+
 def test_browser_copy_never_confuses_provider_readiness_with_quality() -> None:
     result = _run_view(
         """
@@ -210,10 +323,22 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
         "state.api.generationModelAcceptance()",
         "generationModelAcceptanceMarkup(",
         "state.generationModelAcceptance.status = \"idle\"",
+        "function prepareGenerationAcceptance(model)",
+        'action === "prepare-generation-acceptance"',
+        "form.elements.real_spend_confirmation.checked = false",
+        "form.dataset.autoGenerationPreflightModel = sku.model",
+        "Платный запуск не выполнен",
     ):
         assert token in APP
-    assert "./generation-model-acceptance-view.js?v=20260727.1" in APP
+    prepare = APP[
+        APP.index("function prepareGenerationAcceptance(model)"):
+        APP.index("function activeGenerationRepairPolicy(")
+    ]
+    assert "runGenerationPreflight(" not in prepare
+    assert "realGenerationPreflight(" not in prepare
+    assert "submitRealGeneration(" not in prepare
+    assert "./generation-model-acceptance-view.js?v=20260727.2" in APP
     assert ".generation-model-acceptance__grid" in STYLES
-    assert "./styles.css?v=20260727.7" in INDEX
-    assert "./app.js?v=20260727.19" in INDEX
+    assert "./styles.css?v=20260727.8" in INDEX
+    assert "./app.js?v=20260727.20" in INDEX
     assert "./supabase-api.js?v=20260727.11" in APP

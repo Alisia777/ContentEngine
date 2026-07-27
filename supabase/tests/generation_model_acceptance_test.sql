@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(12);
+select plan(15);
 
 select ok(
   to_regprocedure(
@@ -17,6 +17,13 @@ select ok(
     'content_factory_private.generation_model_acceptance(uuid)'
   ) is not null,
   'private acceptance resolver exists'
+);
+
+select ok(
+  to_regprocedure(
+    'content_factory_private.generation_model_acceptance_pending(uuid)'
+  ) is not null,
+  'private pending-review resolver exists'
 );
 
 select ok(
@@ -57,6 +64,15 @@ select ok(
     'execute'
   ),
   'the private evidence resolver is not an application endpoint'
+);
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'content_factory_private.generation_model_acceptance_pending(uuid)',
+    'execute'
+  ),
+  'the private pending-review resolver is not an application endpoint'
 );
 
 select is(
@@ -102,6 +118,18 @@ select is(
   ),
   '["unproven", "unproven", "unproven"]'::jsonb,
   'every model is unproven without exact paid and reviewed output'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_pending(
+    '00000000-0000-4000-8000-000000000090'::uuid
+  ),
+  jsonb_build_object(
+    'seedream5_lite', null,
+    'gen4_turbo', null,
+    'seedance2_fast', null
+  ),
+  'an organization without an exact paid output exposes no pending target'
 );
 
 select throws_ok(

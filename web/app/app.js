@@ -26,7 +26,7 @@ import {
 } from "./generation-spend-view.js?v=20260725.1";
 import {
   generationModelAcceptanceMarkup,
-} from "./generation-model-acceptance-view.js?v=20260727.1";
+} from "./generation-model-acceptance-view.js?v=20260727.2";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -10792,6 +10792,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "prepare-generation-acceptance") {
+    prepareGenerationAcceptance(control.dataset.generationModel);
+    return;
+  }
+
   if (action === "check-runway-readiness") {
     await checkRunwayReadiness(control);
     return;
@@ -11904,6 +11909,62 @@ function generationRepairMode(model) {
     seedance2_fast: REAL_SEEDANCE_MODE,
     gen4_turbo: REAL_GEN4_MODE,
   }[String(model || "")] || "";
+}
+
+function prepareGenerationAcceptance(model) {
+  const mode = generationRepairMode(model);
+  const sku = realGenerationSku(mode);
+  const form = document.querySelector("#mock-batch-form");
+  const modeSelect = form?.elements?.generation_mode;
+  const option = modeSelect
+    ? Array.from(modeSelect.options).find((item) => item.value === mode)
+    : null;
+  if (!form || !modeSelect || !option || !sku) {
+    toast("Точный режим этой модели сейчас недоступен в форме.", "error");
+    return;
+  }
+
+  const campaign = activeGenerationCampaigns().find((item) =>
+    realGenerationSpendAllowed(mode, item.id)
+  );
+  modeSelect.value = mode;
+  if (campaign && form.elements.campaign_id) {
+    form.elements.campaign_id.value = campaign.id;
+  }
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+
+  // This action prepares fields only. Suppress the automatic provider
+  // preflight that a regular manual mode change would schedule.
+  form.dataset.autoGenerationPreflightModel = sku.model;
+  form.dataset.dirty = "true";
+  syncGenerationModeForm(form);
+  syncContentGenerationHandoff(form, { rebuildPrompt: true });
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  syncGenerationFormReadiness(form);
+  persistGenerationFormDraft(form);
+  form.scrollIntoView({
+    behavior: prefersReducedMotion() ? "auto" : "smooth",
+    block: "start",
+  });
+  window.setTimeout(
+    () => modeSelect.focus({ preventScroll: true }),
+    prefersReducedMotion() ? 0 : 350,
+  );
+
+  const spendAllowed = Boolean(
+    campaign
+    && realGenerationSpendAllowed(mode, campaign.id)
+  );
+  toast(
+    spendAllowed
+      ? `${sku.label} подготовлен. Проверьте исходник и ТЗ, затем отдельно подтвердите около $${sku.estimatedUsd}. Платный запуск не выполнен.`
+      : `${sku.label} подготовлен, но лимит кампании пока не разрешает запуск. Оплата не подтверждена и платный запуск не выполнен.`,
+    spendAllowed ? "success" : "info",
+  );
 }
 
 function activeGenerationRepairPolicy(

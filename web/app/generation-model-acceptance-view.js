@@ -19,6 +19,14 @@ const MODEL_CATALOG = Object.freeze([
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const REVIEW_STATUSES = new Set([
+  "not_started",
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 function safeInteger(value) {
   const parsed = Number(value);
@@ -68,6 +76,29 @@ function validEvidence(value) {
   });
 }
 
+function validPendingReview(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const generationJobId = safeText(value.generation_job_id);
+  const mediaId = safeText(value.media_id);
+  const reviewId = safeText(value.review_id);
+  const reviewStatus = safeText(value.review_status);
+  if (
+    !UUID_PATTERN.test(generationJobId)
+    || !UUID_PATTERN.test(mediaId)
+    || (reviewId && !UUID_PATTERN.test(reviewId))
+    || !REVIEW_STATUSES.has(reviewStatus)
+    || (reviewId && reviewStatus === "not_started")
+    || (!reviewId && reviewStatus !== "not_started")
+  ) return null;
+  return Object.freeze({
+    generationJobId,
+    mediaId,
+    reviewId,
+    reviewStatus,
+    createdAt: safeText(value.created_at),
+  });
+}
+
 export function normalizeGenerationModelAcceptance(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw
@@ -81,6 +112,7 @@ export function normalizeGenerationModelAcceptance(raw) {
   const models = MODEL_CATALOG.map((catalog) => {
     const item = byModel.get(catalog.model) || {};
     const evidence = validEvidence(item.evidence);
+    const pendingReview = validPendingReview(item.pending_review);
     const threshold = safeInteger(item.quality_threshold) || 80;
     const serverStatus = safeText(item.status);
     const accepted = Boolean(
@@ -109,6 +141,7 @@ export function normalizeGenerationModelAcceptance(raw) {
       acceptedRuns: safeInteger(item.accepted_runs),
       pendingReviewRuns: safeInteger(item.pending_review_runs),
       evidence,
+      pendingReview,
     });
   });
   const acceptedCount = models.filter((item) => item.status === "accepted").length;
@@ -180,6 +213,49 @@ function modelStatusCopy(model) {
   };
 }
 
+function modelNextActionMarkup(model) {
+  if (model.status === "accepted") return "";
+  if (model.pendingReview?.reviewId) {
+    return `
+      <a class="btn btn-secondary btn-small" href="#/workspace/review/${escapeHtml(model.pendingReview.reviewId)}">
+        Открыть точный QA
+      </a>
+    `;
+  }
+  if (model.pendingReview?.mediaId) {
+    return `
+      <button
+        class="btn btn-secondary btn-small"
+        type="button"
+        data-action="open-generated-content-review"
+        data-media-id="${escapeHtml(model.pendingReview.mediaId)}"
+      >
+        Открыть файл в QA
+      </button>
+    `;
+  }
+  if (
+    model.nextActionCode === "complete_context_approval"
+    && model.evidence?.reviewId
+  ) {
+    return `
+      <a class="btn btn-secondary btn-small" href="#/workspace/review/${escapeHtml(model.evidence.reviewId)}">
+        Завершить принятие
+      </a>
+    `;
+  }
+  return `
+    <button
+      class="btn btn-secondary btn-small"
+      type="button"
+      data-action="prepare-generation-acceptance"
+      data-generation-model="${escapeHtml(model.model)}"
+    >
+      ${model.status === "needs_revalidation" ? "Подготовить новый вариант" : "Подготовить проверку"}
+    </button>
+  `;
+}
+
 export function generationModelAcceptanceMarkup(state = {}) {
   const status = safeText(state.status) || "idle";
   if (["idle", "loading"].includes(status)) {
@@ -239,6 +315,9 @@ export function generationModelAcceptanceMarkup(state = {}) {
                   ? `Решение: ${escapeHtml(formatDate(model.evidence.decidedAt))} · SHA ${escapeHtml(model.evidence.mediaSha256.slice(0, 10))}…`
                   : `Успешных реальных файлов: ${model.successfulRuns}; ждут решения: ${model.pendingReviewRuns}.`}
               </small>
+              <div class="generation-model-acceptance__actions">
+                ${modelNextActionMarkup(model)}
+              </div>
             </article>
           `;
         }).join("")}
