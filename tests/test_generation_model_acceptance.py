@@ -430,5 +430,41 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "./generation-model-acceptance-view.js?v=20260727.3" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260727.8" in INDEX
-    assert "./app.js?v=20260727.29" in INDEX
+    assert "./app.js?v=20260728.1" in INDEX
     assert "./supabase-api.js?v=20260727.11" in APP
+
+
+def test_visible_generation_acceptance_refreshes_without_rebuilding_the_form() -> None:
+    refresher = APP[
+        APP.index("function generationModelAcceptanceIsStale()"):
+        APP.index("async function handleAuthStateChange(")
+    ]
+    targeted_ui = APP[
+        APP.index("function syncGenerationModelAcceptanceUi()"):
+        APP.index("async function loadGenerationModelAcceptance(")
+    ]
+    loader = APP[
+        APP.index("async function loadGenerationModelAcceptance("):
+        APP.index("async function hydratePrivateMedia(")
+    ]
+    for token in (
+        'state.route.path !== "/workspace/generation"',
+        'document.visibilityState !== "visible"',
+        "state.realGenerationStartInFlight",
+        "acceptance?.contains(document.activeElement)",
+        "generationModelAcceptanceIsStale()",
+        "MANAGER_DASHBOARD_MAX_AGE_MS",
+        "silent: true",
+        "force: true",
+    ):
+        assert token in refresher
+    assert "refreshGenerationModelAcceptanceIfStale," in APP
+    assert APP.count("refreshGenerationModelAcceptanceIfStale();") >= 1
+    assert '".generation-model-acceptance"' in targeted_ui
+    assert "generationModelAcceptanceMarkup(" in targeted_ui
+    assert "current.replaceWith(next)" in targeted_ui
+    assert "render(" not in targeted_ui
+    assert loader.count("syncGenerationModelAcceptanceUi()") == 2
+    assert "mock-batch-form" not in targeted_ui
+    assert "startRealGeneration" not in refresher
+    assert "realGenerationPreflight" not in refresher

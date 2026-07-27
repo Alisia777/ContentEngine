@@ -1670,6 +1670,10 @@ function bindGlobalEvents() {
     () => { void refreshTrainingPracticalReviews({ silent: true }); },
     MANAGER_DASHBOARD_MAX_AGE_MS,
   );
+  window.setInterval(
+    refreshGenerationModelAcceptanceIfStale,
+    MANAGER_DASHBOARD_MAX_AGE_MS,
+  );
   window.addEventListener("hashchange", () => {
     state.route = parseRoute();
     state.workspaceDeepLinkFocusKey = "";
@@ -1715,6 +1719,7 @@ function bindGlobalEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       refreshManagerDashboardIfStale();
+      refreshGenerationModelAcceptanceIfStale();
       void refreshTrainingPracticalReviews({ silent: true });
       scheduleRealGenerationPolling(250);
       resumeGeneratedVideoTechnicalQa();
@@ -1759,6 +1764,35 @@ function refreshManagerDashboardIfStale() {
     || ["loading", "refreshing"].includes(state.generationSpend.status)
   ) return;
   void loadManagerDashboard({ silent: true });
+}
+
+function generationModelAcceptanceIsStale() {
+  const updatedAt = Number(
+    state.generationModelAcceptance.updatedAt,
+  ) || 0;
+  return updatedAt === 0
+    || Date.now() - updatedAt > MANAGER_DASHBOARD_MAX_AGE_MS;
+}
+
+function refreshGenerationModelAcceptanceIfStale() {
+  const acceptance = document.querySelector(
+    ".generation-model-acceptance",
+  );
+  if (
+    document.visibilityState !== "visible"
+    || state.route.path !== "/workspace/generation"
+    || !hasWorkspaceAccess()
+    || state.realGenerationStartInFlight
+    || acceptance?.contains(document.activeElement)
+    || !generationModelAcceptanceIsStale()
+    || ["loading", "refreshing"].includes(
+      state.generationModelAcceptance.status,
+    )
+  ) return;
+  void loadGenerationModelAcceptance({
+    silent: true,
+    force: true,
+  });
 }
 
 async function handleAuthStateChange(event, session) {
@@ -6706,6 +6740,22 @@ async function loadGenerationSpendOverview({ silent = false, force = false } = {
   }
 }
 
+function syncGenerationModelAcceptanceUi() {
+  if (state.route.path !== "/workspace/generation") return false;
+  const current = document.querySelector(
+    ".generation-model-acceptance",
+  );
+  if (!current) return false;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = generationModelAcceptanceMarkup(
+    state.generationModelAcceptance,
+  ).trim();
+  const next = wrapper.firstElementChild;
+  if (!next) return false;
+  current.replaceWith(next);
+  return true;
+}
+
 async function loadGenerationModelAcceptance({
   silent = false,
   force = false,
@@ -6721,7 +6771,11 @@ async function loadGenerationModelAcceptance({
   target.requestId = requestId;
   target.status = target.data ? "refreshing" : "loading";
   target.error = null;
-  if (!silent && state.route.path === "/workspace/generation") render();
+  if (
+    !silent
+    && state.route.path === "/workspace/generation"
+    && !syncGenerationModelAcceptanceUi()
+  ) render();
   try {
     const raw = await withUiTimeout(
       state.api.generationModelAcceptance(),
@@ -6753,6 +6807,7 @@ async function loadGenerationModelAcceptance({
       && requestUserId === state.user?.id
       && requestId === target.requestId
       && state.route.path === "/workspace/generation"
+      && !syncGenerationModelAcceptanceUi()
     ) render();
   }
 }
