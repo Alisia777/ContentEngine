@@ -84,6 +84,7 @@ select is(
         'creator_update_workspace_folder', 'creator_move_workspace_items',
         'creator_content_review_catalog', 'creator_start_content_review',
         'creator_content_review_status', 'creator_decide_content_review',
+        'creator_approve_generated_photo_review_with_context',
         'creator_real_generation_reconciliation_context',
         'creator_my_work', 'creator_notifications',
         'creator_mark_notifications_read', 'creator_training_progress',
@@ -107,7 +108,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  53,
+  54,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -120,7 +121,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  53,
+  54,
   'authenticated can execute all creator RPCs'
 );
 
