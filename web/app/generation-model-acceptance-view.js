@@ -27,6 +27,13 @@ const REVIEW_STATUSES = new Set([
   "failed",
   "cancelled",
 ]);
+const NEXT_ACTION_CODES = new Set([
+  "none",
+  "run_paid_smoke_and_approve",
+  "review_succeeded_output",
+  "complete_context_approval",
+  "generate_replacement_and_approve",
+]);
 
 function safeInteger(value) {
   const parsed = Number(value);
@@ -114,6 +121,7 @@ export function normalizeGenerationModelAcceptance(raw) {
     const evidence = validEvidence(item.evidence);
     const pendingReview = validPendingReview(item.pending_review);
     const threshold = safeInteger(item.quality_threshold) || 80;
+    const successfulRuns = safeInteger(item.successful_runs);
     const serverStatus = safeText(item.status);
     const accepted = Boolean(
       serverStatus === "accepted"
@@ -129,14 +137,35 @@ export function normalizeGenerationModelAcceptance(raw) {
       : evidence
         ? "needs_revalidation"
         : "unproven";
+    const serverNextActionCode = safeText(item.next_action_code);
+    let nextActionCode;
+    if (accepted) {
+      nextActionCode = "none";
+    } else if (
+      NEXT_ACTION_CODES.has(serverNextActionCode)
+      && serverNextActionCode !== "none"
+      && !(
+        serverNextActionCode === "run_paid_smoke_and_approve"
+        && successfulRuns > 0
+      )
+    ) {
+      nextActionCode = serverNextActionCode;
+    } else if (serverNextActionCode) {
+      nextActionCode = "status_refresh_required";
+    } else if (evidence) {
+      nextActionCode = "generate_replacement_and_approve";
+    } else if (successfulRuns > 0) {
+      nextActionCode = "review_succeeded_output";
+    } else {
+      nextActionCode = "run_paid_smoke_and_approve";
+    }
     return Object.freeze({
       ...catalog,
       status,
       reasonCode: safeText(item.reason_code) || "evidence_missing",
-      nextActionCode: safeText(item.next_action_code)
-        || "run_paid_smoke_and_approve",
+      nextActionCode,
       qualityThreshold: threshold,
-      successfulRuns: safeInteger(item.successful_runs),
+      successfulRuns,
       reviewedRuns: safeInteger(item.reviewed_runs),
       acceptedRuns: safeInteger(item.accepted_runs),
       pendingReviewRuns: safeInteger(item.pending_review_runs),
@@ -213,47 +242,132 @@ function modelStatusCopy(model) {
   };
 }
 
-function modelNextActionMarkup(model) {
-  if (model.status === "accepted") return "";
+function modelNextAction(model) {
+  if (!model || model.status === "accepted") return null;
   if (model.pendingReview?.reviewId) {
-    return `
-      <a class="btn btn-secondary btn-small" href="#/workspace/review/${escapeHtml(model.pendingReview.reviewId)}">
-        Открыть точный QA
-      </a>
-    `;
+    return Object.freeze({
+      kind: "review",
+      label: "Открыть точный QA",
+      reviewId: model.pendingReview.reviewId,
+    });
   }
   if (model.pendingReview?.mediaId) {
-    return `
-      <button
-        class="btn btn-secondary btn-small"
-        type="button"
-        data-action="open-generated-content-review"
-        data-media-id="${escapeHtml(model.pendingReview.mediaId)}"
-      >
-        Открыть файл в QA
-      </button>
-    `;
+    return Object.freeze({
+      kind: "media",
+      label: "Открыть файл в QA",
+      mediaId: model.pendingReview.mediaId,
+    });
   }
   if (
     model.nextActionCode === "complete_context_approval"
     && model.evidence?.reviewId
   ) {
+    return Object.freeze({
+      kind: "review",
+      label: "Завершить принятие",
+      reviewId: model.evidence.reviewId,
+    });
+  }
+  if (
+    [
+      "review_succeeded_output",
+      "status_refresh_required",
+      "complete_context_approval",
+    ].includes(model.nextActionCode)
+  ) {
+    return Object.freeze({
+      kind: "refresh",
+      label: "Обновить безопасный статус",
+    });
+  }
+  if (
+    [
+      "run_paid_smoke_and_approve",
+      "generate_replacement_and_approve",
+    ].includes(model.nextActionCode)
+  ) {
+    return Object.freeze({
+      kind: "prepare",
+      label: model.status === "needs_revalidation"
+        ? "Подготовить новый вариант"
+        : "Подготовить проверку",
+    });
+  }
+  return Object.freeze({
+    kind: "refresh",
+    label: "Обновить безопасный статус",
+  });
+}
+
+function modelActionMarkup(model, action = modelNextAction(model)) {
+  if (!action) return "";
+  if (action.kind === "review") {
     return `
-      <a class="btn btn-secondary btn-small" href="#/workspace/review/${escapeHtml(model.evidence.reviewId)}">
-        Завершить принятие
+      <a class="btn btn-secondary btn-small" href="#/workspace/review/${escapeHtml(action.reviewId)}">
+        ${escapeHtml(action.label)}
       </a>
+    `;
+  }
+  if (action.kind === "media") {
+    return `
+      <button
+        class="btn btn-secondary btn-small"
+        type="button"
+        data-action="open-generated-content-review"
+        data-media-id="${escapeHtml(action.mediaId)}"
+      >
+        ${escapeHtml(action.label)}
+      </button>
+    `;
+  }
+  if (action.kind === "prepare") {
+    return `
+      <button
+        class="btn btn-secondary btn-small"
+        type="button"
+        data-action="prepare-generation-acceptance"
+        data-generation-model="${escapeHtml(model.model)}"
+      >
+        ${escapeHtml(action.label)}
+      </button>
     `;
   }
   return `
     <button
       class="btn btn-secondary btn-small"
       type="button"
-      data-action="prepare-generation-acceptance"
+      data-action="refresh-generation-model-acceptance"
       data-generation-model="${escapeHtml(model.model)}"
     >
-      ${model.status === "needs_revalidation" ? "Подготовить новый вариант" : "Подготовить проверку"}
+      ${escapeHtml(action.label)}
     </button>
   `;
+}
+
+export function nextGenerationModelAcceptanceAction(normalized = {}) {
+  const actions = Array.isArray(normalized.models)
+    ? normalized.models
+      .map((model) => ({
+        model,
+        action: modelNextAction(model),
+      }))
+      .filter((item) => item.action)
+    : [];
+  const exact = actions.find((item) =>
+    ["review", "media"].includes(item.action.kind)
+  );
+  const refresh = actions.find((item) => item.action.kind === "refresh");
+  const replacement = actions.find((item) =>
+    item.action.kind === "prepare"
+    && item.model.status === "needs_revalidation"
+  );
+  const selected = exact || refresh || replacement || actions[0] || null;
+  if (!selected) return null;
+  return Object.freeze({
+    ...selected.action,
+    model: selected.model.model,
+    modelLabel: selected.model.label,
+  });
 }
 
 export function generationModelAcceptanceMarkup(state = {}) {
@@ -285,6 +399,10 @@ export function generationModelAcceptanceMarkup(state = {}) {
   }
 
   const normalized = normalizeGenerationModelAcceptance(state.data);
+  const primaryAction = nextGenerationModelAcceptanceAction(normalized);
+  const primaryModel = primaryAction
+    ? normalized.models.find((model) => model.model === primaryAction.model)
+    : null;
   return `
     <section class="generation-model-acceptance" aria-label="Проверка production-качества моделей">
       <div class="generation-model-acceptance__header">
@@ -297,6 +415,12 @@ export function generationModelAcceptanceMarkup(state = {}) {
         </span>
       </div>
       <p class="muted tiny">«Проверено» появляется только после реального платного файла, завершённого AI-QA и принятия другим участником. Баланс Runway и успешный API-ответ этого не доказывают.</p>
+      ${primaryAction && primaryModel ? `
+        <div class="generation-model-acceptance__actions">
+          <strong>Следующий безопасный шаг: ${escapeHtml(primaryAction.modelLabel)}</strong>
+          ${modelActionMarkup(primaryModel, primaryAction)}
+        </div>
+      ` : ""}
       <div class="generation-model-acceptance__grid">
         ${normalized.models.map((model) => {
           const copy = modelStatusCopy(model);
@@ -316,7 +440,7 @@ export function generationModelAcceptanceMarkup(state = {}) {
                   : `Успешных реальных файлов: ${model.successfulRuns}; ждут решения: ${model.pendingReviewRuns}.`}
               </small>
               <div class="generation-model-acceptance__actions">
-                ${modelNextActionMarkup(model)}
+                ${modelActionMarkup(model)}
               </div>
             </article>
           `;

@@ -27,7 +27,7 @@ import {
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260727.2";
+} from "./generation-model-acceptance-view.js?v=20260727.3";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -10933,6 +10933,24 @@ async function handleClick(event) {
 
   if (action === "prepare-generation-acceptance") {
     prepareGenerationAcceptance(control.dataset.generationModel);
+    return;
+  }
+
+  if (action === "refresh-generation-model-acceptance") {
+    control.disabled = true;
+    try {
+      await loadGenerationModelAcceptance({ force: true });
+      toast(
+        state.generationModelAcceptance.status === "ready"
+          ? "Статус реальных файлов и QA обновлён без нового запуска."
+          : "Серверный статус пока не подтверждён. Новый платный запуск не создан.",
+        state.generationModelAcceptance.status === "ready"
+          ? "success"
+          : "info",
+      );
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
     return;
   }
 

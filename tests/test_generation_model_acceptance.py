@@ -288,7 +288,88 @@ return {
         in result["validMarkup"]
     )
     assert "../../login" not in result["forgedMarkup"]
-    assert 'data-action="prepare-generation-acceptance"' in result["forgedMarkup"]
+    assert (
+        'data-action="refresh-generation-model-acceptance"'
+        in result["forgedMarkup"]
+    )
+
+
+def test_browser_prioritizes_existing_outputs_and_never_guesses_a_new_paid_run() -> None:
+    result = _run_view(
+        """
+const stale = subject.normalizeGenerationModelAcceptance({
+  models: [{
+    model: "seedream5_lite",
+    status: "unproven",
+    successful_runs: 1,
+    next_action_code: "run_paid_smoke_and_approve",
+  }],
+});
+const pending = subject.normalizeGenerationModelAcceptance({
+  models: [{
+    model: "seedream5_lite",
+    status: "unproven",
+    successful_runs: 1,
+    next_action_code: "unknown_external_action",
+  }, {
+    model: "gen4_turbo",
+    status: "unproven",
+    successful_runs: 1,
+    next_action_code: "review_succeeded_output",
+    pending_review: {
+      generation_job_id: "00000000-0000-4000-8000-000000000021",
+      media_id: "00000000-0000-4000-8000-000000000022",
+      review_id: "00000000-0000-4000-8000-000000000023",
+      review_status: "completed",
+    },
+  }],
+});
+const replacement = subject.normalizeGenerationModelAcceptance({
+  models: [{
+    model: "seedream5_lite",
+    status: "needs_revalidation",
+    successful_runs: 1,
+    next_action_code: "generate_replacement_and_approve",
+  }],
+});
+const fresh = subject.normalizeGenerationModelAcceptance({ models: [] });
+return {
+  staleCode: stale.models[0].nextActionCode,
+  staleAction: subject.nextGenerationModelAcceptanceAction(stale),
+  pendingAction: subject.nextGenerationModelAcceptanceAction(pending),
+  replacementAction: subject.nextGenerationModelAcceptanceAction(replacement),
+  freshAction: subject.nextGenerationModelAcceptanceAction(fresh),
+  staleMarkup: subject.generationModelAcceptanceMarkup({
+    status: "ready",
+    data: {
+      models: [{
+        model: "seedream5_lite",
+        status: "unproven",
+        successful_runs: 1,
+        next_action_code: "run_paid_smoke_and_approve",
+      }],
+    },
+  }),
+};
+"""
+    )
+    assert result["staleCode"] == "status_refresh_required"
+    assert result["staleAction"]["kind"] == "refresh"
+    assert result["staleAction"]["model"] == "seedream5_lite"
+    assert result["pendingAction"]["kind"] == "review"
+    assert result["pendingAction"]["model"] == "gen4_turbo"
+    assert (
+        result["pendingAction"]["reviewId"]
+        == "00000000-0000-4000-8000-000000000023"
+    )
+    assert result["replacementAction"]["kind"] == "prepare"
+    assert result["replacementAction"]["model"] == "seedream5_lite"
+    assert result["freshAction"]["kind"] == "prepare"
+    assert result["freshAction"]["model"] == "seedream5_lite"
+    assert "Следующий безопасный шаг: Seedream 5 Lite" in result["staleMarkup"]
+    assert 'data-action="refresh-generation-model-acceptance"' in result[
+        "staleMarkup"
+    ]
 
 
 def test_browser_copy_never_confuses_provider_readiness_with_quality() -> None:
@@ -325,6 +406,8 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
         "state.generationModelAcceptance.status = \"idle\"",
         "function prepareGenerationAcceptance(model)",
         'action === "prepare-generation-acceptance"',
+        'action === "refresh-generation-model-acceptance"',
+        "loadGenerationModelAcceptance({ force: true })",
         "form.elements.real_spend_confirmation.checked = false",
         "form.dataset.autoGenerationPreflightModel = sku.model",
         "Платный запуск не выполнен",
@@ -337,8 +420,15 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "runGenerationPreflight(" not in prepare
     assert "realGenerationPreflight(" not in prepare
     assert "submitRealGeneration(" not in prepare
-    assert "./generation-model-acceptance-view.js?v=20260727.2" in APP
+    refresh = APP[
+        APP.index('if (action === "refresh-generation-model-acceptance")'):
+        APP.index('if (action === "check-runway-readiness")')
+    ]
+    assert "loadGenerationModelAcceptance({ force: true })" in refresh
+    assert "startRealGeneration" not in refresh
+    assert "realGenerationPreflight" not in refresh
+    assert "./generation-model-acceptance-view.js?v=20260727.3" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260727.8" in INDEX
-    assert "./app.js?v=20260727.28" in INDEX
+    assert "./app.js?v=20260727.29" in INDEX
     assert "./supabase-api.js?v=20260727.11" in APP
