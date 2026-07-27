@@ -241,6 +241,153 @@ def test_destination_autopilot_never_guesses_and_preserves_manual_override() -> 
     ]
 
 
+def test_learning_fallback_preserves_content_kind_before_cost() -> None:
+    expression = """
+    [
+      subject.resolveGenerationLearningFallback({
+        currentMode: "real_seedance",
+        candidates: [
+          {
+            mode: "real_photo",
+            available: true,
+            generationAllowed: true,
+            estimatedMinor: 4,
+          },
+          {
+            mode: "real_gen4",
+            available: true,
+            generationAllowed: true,
+            estimatedMinor: 25,
+          },
+        ],
+      }),
+      subject.resolveGenerationLearningFallback({
+        currentMode: "real_gen4",
+        candidates: [
+          {
+            mode: "real_photo",
+            available: true,
+            generationAllowed: true,
+            estimatedMinor: 4,
+          },
+          {
+            mode: "real_seedance",
+            available: true,
+            generationAllowed: true,
+            estimatedMinor: 232,
+          },
+        ],
+      }),
+    ]
+    """
+    assert _evaluate(expression) == [
+        {
+            "mode": "real_gen4",
+            "reasonCode": "same_content_kind",
+            "accepted": False,
+            "estimatedMinor": 25,
+        },
+        {
+            "mode": "real_seedance",
+            "reasonCode": "same_content_kind",
+            "accepted": False,
+            "estimatedMinor": 232,
+        },
+    ]
+
+
+def test_learning_fallback_prefers_accepted_then_cheaper_safe_modality() -> None:
+    expression = """
+    [
+      subject.resolveGenerationLearningFallback({
+        currentMode: "real_photo",
+        candidates: [
+          {
+            mode: "real_gen4",
+            available: true,
+            generationAllowed: true,
+            accepted: false,
+            estimatedMinor: 25,
+          },
+          {
+            mode: "real_seedance",
+            available: true,
+            generationAllowed: true,
+            accepted: true,
+            estimatedMinor: 232,
+          },
+        ],
+      }),
+      subject.resolveGenerationLearningFallback({
+        currentMode: "real_photo",
+        candidates: [
+          {
+            mode: "real_gen4",
+            available: true,
+            generationAllowed: true,
+            estimatedMinor: 25,
+          },
+          {
+            mode: "real_seedance",
+            available: true,
+            generationAllowed: true,
+            estimatedMinor: 232,
+          },
+        ],
+      }),
+    ]
+    """
+    assert _evaluate(expression) == [
+        {
+            "mode": "real_seedance",
+            "reasonCode": "safe_modality_fallback",
+            "accepted": True,
+            "estimatedMinor": 232,
+        },
+        {
+            "mode": "real_gen4",
+            "reasonCode": "safe_modality_fallback",
+            "accepted": False,
+            "estimatedMinor": 25,
+        },
+    ]
+
+
+def test_learning_fallback_fails_closed_for_repair_or_unsafe_candidates() -> None:
+    expression = """
+    [
+      subject.resolveGenerationLearningFallback({
+        currentMode: "real_seedance",
+        repairActive: true,
+        candidates: [{
+          mode: "real_gen4",
+          available: true,
+          generationAllowed: true,
+          estimatedMinor: 25,
+        }],
+      }),
+      subject.resolveGenerationLearningFallback({
+        currentMode: "real_seedance",
+        candidates: [
+          {
+            mode: "real_gen4",
+            available: false,
+            generationAllowed: true,
+            estimatedMinor: 25,
+          },
+          {
+            mode: "real_photo",
+            available: true,
+            generationAllowed: false,
+            estimatedMinor: 4,
+          },
+        ],
+      }),
+    ]
+    """
+    assert _evaluate(expression) == [None, None]
+
+
 def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading() -> None:
     expression = """
     [
@@ -273,7 +420,7 @@ def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading(
 
 
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260726.3"' in APP
+    assert 'from "./generation-autopilot.js?v=20260727.4"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
@@ -304,4 +451,46 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260727.24' in INDEX
+    assert './app.js?v=20260727.25' in INDEX
+
+
+def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:
+    fallback = APP[
+        APP.index("async function prepareGenerationLearningFallback("):
+        APP.index("async function loadGenerationLearningPolicy(")
+    ]
+    loader = APP[
+        APP.index("async function loadGenerationLearningPolicy("):
+        APP.index("async function ensureGenerationLearningPolicy(")
+    ]
+    for token in (
+        "activeGenerationRepairPolicy(form, identity)",
+        "normalizeGenerationModelAcceptance(",
+        "activeGenerationCampaigns().find",
+        "realGenerationSpendAllowed(mode, item.id)",
+        "resolveGenerationPlatform({",
+        "state.api.generationLearningPolicy({",
+        "normalizeGenerationLearningPolicy(rawPolicy)",
+        "resolveGenerationLearningFallback({",
+        "form.dataset.autoGenerationPreflightModel = candidate.sku.model",
+        "syncAutomaticGenerationBrief(form, { force: true, identity })",
+        "state.generationLearning",
+        "learning.recovery = {",
+        "persistGenerationFormDraft(form)",
+        "Проверки Runway и списания не было",
+    ):
+        assert token in fallback
+    assert fallback.count(
+        "form.elements.real_spend_confirmation.checked = false"
+    ) >= 2
+    for forbidden in (
+        "realGenerationPreflight",
+        "runGenerationPreflight",
+        "startRealGeneration",
+        "submitRealGeneration",
+    ):
+        assert forbidden not in fallback
+    assert "?.generationAllowed === false" in loader
+    assert "await prepareGenerationLearningFallback(" in loader
+    assert "Модель заменена автоматически" in APP
+    assert "Runway не вызывался, списания не было" in APP

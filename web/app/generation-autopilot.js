@@ -7,6 +7,16 @@ const VIDEO_GENERATION_MODES = new Set([
   "real_gen4",
   "real_seedance",
 ]);
+const GENERATION_MODE_CONTENT_KIND = Object.freeze({
+  real_photo: "photo",
+  real_gen4: "video",
+  real_seedance: "video",
+});
+const GENERATION_FALLBACK_PRIORITY = Object.freeze({
+  real_gen4: 0,
+  real_seedance: 1,
+  real_photo: 2,
+});
 const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 
 export function chooseInitialGenerationMedia(items, { real = false } = {}) {
@@ -171,6 +181,58 @@ export function resolveGenerationDestination({
     preferred,
     automatic: false,
     candidateCount: destinations.size,
+  };
+}
+
+export function resolveGenerationLearningFallback({
+  currentMode = "",
+  candidates = [],
+  repairActive = false,
+} = {}) {
+  const normalizedCurrentMode = String(currentMode || "").trim();
+  if (repairActive || !REAL_GENERATION_MODES.has(normalizedCurrentMode)) {
+    return null;
+  }
+  const currentContentKind = GENERATION_MODE_CONTENT_KIND[
+    normalizedCurrentMode
+  ];
+  const ranked = (Array.isArray(candidates) ? candidates : [])
+    .map((candidate) => {
+      const mode = String(candidate?.mode || "").trim();
+      const estimatedMinor = Number(candidate?.estimatedMinor);
+      if (
+        !REAL_GENERATION_MODES.has(mode)
+        || mode === normalizedCurrentMode
+        || candidate?.available !== true
+        || candidate?.generationAllowed !== true
+        || !Number.isSafeInteger(estimatedMinor)
+        || estimatedMinor < 0
+      ) return null;
+      return {
+        mode,
+        sameContentKind:
+          GENERATION_MODE_CONTENT_KIND[mode] === currentContentKind,
+        accepted: candidate?.accepted === true,
+        estimatedMinor,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) =>
+      Number(right.sameContentKind) - Number(left.sameContentKind)
+      || Number(right.accepted) - Number(left.accepted)
+      || left.estimatedMinor - right.estimatedMinor
+      || GENERATION_FALLBACK_PRIORITY[left.mode]
+        - GENERATION_FALLBACK_PRIORITY[right.mode]
+    );
+  const selected = ranked[0];
+  if (!selected) return null;
+  return {
+    mode: selected.mode,
+    reasonCode: selected.sameContentKind
+      ? "same_content_kind"
+      : "safe_modality_fallback",
+    accepted: selected.accepted,
+    estimatedMinor: selected.estimatedMinor,
   };
 }
 

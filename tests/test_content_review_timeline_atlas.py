@@ -208,4 +208,4 @@ def test_atlas_release_invalidates_old_local_evidence_and_bumps_modules() -> Non
     assert "./supabase-api.js?v=20260727.11" in app
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7" in app
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in app
-    assert "./app.js?v=20260727.24" in index
+    assert "./app.js?v=20260727.25" in index

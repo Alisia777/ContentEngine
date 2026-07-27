@@ -26,6 +26,7 @@ import {
 } from "./generation-spend-view.js?v=20260725.1";
 import {
   generationModelAcceptanceMarkup,
+  normalizeGenerationModelAcceptance,
 } from "./generation-model-acceptance-view.js?v=20260727.2";
 import {
   accessCenterMarkup,
@@ -68,8 +69,9 @@ import {
   generationPreflightDecision,
   resolveGenerationDestination,
   resolveHandoffGenerationMode,
+  resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260726.3";
+} from "./generation-autopilot.js?v=20260727.4";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -946,6 +948,7 @@ const state = {
     key: "",
     disabledKey: "",
     promise: null,
+    recovery: null,
   },
   generationRepair: readStoredGenerationRepair(),
   generationPreflight: {
@@ -12238,7 +12241,18 @@ function generationLearningMarkup(form = null) {
   let copy = "Выберите проверенный исходник — портал проверит только одобренные публикации этого товара с достаточными метриками.";
   let stateName = "idle";
   let action = "";
-  if (current.status === "loading") {
+  const recovery = current.recovery?.key === key
+    ? current.recovery
+    : null;
+  if (
+    current.status === "ready"
+    && recovery
+    && policy?.generationAllowed !== false
+  ) {
+    title = "Модель заменена автоматически";
+    copy = `${recovery.fromLabel} исчерпал безопасные структуры. Портал бесплатно проверил learning-policy и бюджет, подготовил ${recovery.toLabel} и заново собрал ТЗ. Runway не вызывался, списания не было; цену всё равно нужно подтвердить отдельно.`;
+    stateName = "applied";
+  } else if (current.status === "loading") {
     copy = "Сверяем одобренные публикации и метрики. Платный запуск дождётся этой бесплатной проверки.";
     stateName = "loading";
   } else if (current.status === "error") {
@@ -12255,7 +12269,7 @@ function generationLearningMarkup(form = null) {
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
   } else if (current.status === "ready" && policy?.generationAllowed === false) {
     title = "Автогенерация остановлена";
-    copy = "Все безопасные структуры для этого товара, площадки и модели уже были независимо отклонены. Портал не повторит их и не перейдёт к оплате; выберите другой режим, площадку или товар.";
+    copy = "Все безопасные структуры для этого товара, площадки и модели уже были независимо отклонены, а доступной серверно-проверенной альтернативы сейчас нет. Портал не повторит их и не перейдёт к оплате.";
     stateName = "warning";
   } else if (disabled && policy?.applied) {
     copy = policy.selectionMode === "bounded_exploration"
@@ -12319,6 +12333,186 @@ function syncGenerationRepairStatus(form) {
   if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
 }
 
+async function prepareGenerationLearningFallback(
+  form,
+  identity,
+  { blockedKey = "", requestId = 0 } = {},
+) {
+  const learning = state.generationLearning;
+  const currentMode = String(
+    form?.elements?.generation_mode?.value || "",
+  ).trim();
+  const currentSku = realGenerationSku(currentMode);
+  const modeSelect = form?.elements?.generation_mode;
+  const platformInput = form?.elements?.platform;
+  if (
+    !form?.isConnected
+    || !identity
+    || !currentSku
+    || !modeSelect
+    || !platformInput
+    || !blockedKey
+    || requestId !== learning.requestId
+    || learning.key !== blockedKey
+    || generationLearningKey(form, identity) !== blockedKey
+    || activeGenerationRepairPolicy(form, identity)
+  ) return null;
+
+  const acceptedModels = new Set(
+    normalizeGenerationModelAcceptance(
+      state.generationModelAcceptance.data,
+    ).models
+      .filter((item) => item.status === "accepted")
+      .map((item) => item.model),
+  );
+  const candidates = [
+    REAL_PHOTO_MODE,
+    REAL_GEN4_MODE,
+    REAL_SEEDANCE_MODE,
+  ]
+    .filter((mode) => mode !== currentMode)
+    .map((mode) => {
+      const sku = realGenerationSku(mode);
+      const option = Array.from(modeSelect.options)
+        .find((item) => item.value === mode);
+      const campaign = activeGenerationCampaigns().find((item) =>
+        realGenerationSpendAllowed(mode, item.id)
+      );
+      const platformResolution = resolveGenerationPlatform({
+        mode,
+        currentPlatform: platformInput.value,
+        automaticPlatform: form.dataset.autoGenerationPlatform,
+      });
+      const candidateKey = [
+        identity.mediaId,
+        sku?.model || "",
+        platformResolution.value,
+      ].join(":");
+      return {
+        mode,
+        sku,
+        campaign,
+        key: candidateKey,
+        platform: platformResolution.value,
+        automaticPlatform: platformResolution.automatic,
+        available: Boolean(
+          sku
+          && option
+          && !option.disabled
+          && campaign
+          && platformResolution.value
+          && learning.disabledKey !== candidateKey
+        ),
+        accepted: Boolean(sku && acceptedModels.has(sku.model)),
+      };
+    });
+
+  const checkedCandidates = await Promise.all(candidates.map(
+    async (candidate) => {
+      if (!candidate.available) {
+        return {
+          ...candidate,
+          generationAllowed: false,
+          estimatedMinor: candidate.sku?.estimatedMinor,
+          rawPolicy: null,
+        };
+      }
+      try {
+        const raw = await withUiTimeout(
+          state.api.generationLearningPolicy({
+            mediaId: identity.mediaId,
+            platform: candidate.platform,
+            model: candidate.sku.model,
+          }),
+          WORKSPACE_REQUEST_TIMEOUT_MS,
+          "generation_learning_fallback_timeout",
+        );
+        const rawPolicy = raw?.data ?? raw ?? {};
+        return {
+          ...candidate,
+          generationAllowed:
+            normalizeGenerationLearningPolicy(rawPolicy)
+              ?.generationAllowed === true,
+          estimatedMinor: candidate.sku.estimatedMinor,
+          rawPolicy,
+        };
+      } catch (_error) {
+        return {
+          ...candidate,
+          generationAllowed: false,
+          estimatedMinor: candidate.sku.estimatedMinor,
+          rawPolicy: null,
+        };
+      }
+    },
+  ));
+
+  if (
+    !form.isConnected
+    || requestId !== learning.requestId
+    || learning.key !== blockedKey
+    || generationLearningKey(form, identity) !== blockedKey
+    || activeGenerationRepairPolicy(form, identity)
+  ) return null;
+  const fallback = resolveGenerationLearningFallback({
+    currentMode,
+    candidates: checkedCandidates,
+  });
+  const candidate = checkedCandidates.find(
+    (item) => item.mode === fallback?.mode,
+  );
+  if (!fallback || !candidate?.rawPolicy) return null;
+
+  modeSelect.value = candidate.mode;
+  platformInput.value = candidate.platform;
+  if (candidate.automaticPlatform) {
+    form.dataset.autoGenerationPlatform = candidate.platform;
+  } else {
+    delete form.dataset.autoGenerationPlatform;
+  }
+  if (form.elements.campaign_id) {
+    form.elements.campaign_id.value = candidate.campaign.id;
+  }
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  // Fallback only prepares another server-checked policy. It must never
+  // contact the paid provider or carry price confirmation across models.
+  form.dataset.autoGenerationPreflightModel = candidate.sku.model;
+  form.dataset.dirty = "true";
+  const candidateKey = generationLearningKey(form, identity);
+  if (!candidateKey || candidateKey !== candidate.key) return null;
+  learning.key = candidateKey;
+  learning.data = candidate.rawPolicy;
+  learning.status = "ready";
+  learning.error = null;
+  learning.recovery = {
+    key: candidateKey,
+    fromMode: currentMode,
+    fromModel: currentSku.model,
+    fromLabel: currentSku.label,
+    toMode: candidate.mode,
+    toModel: candidate.sku.model,
+    toLabel: candidate.sku.label,
+    reasonCode: fallback.reasonCode,
+    accepted: fallback.accepted,
+  };
+  syncGenerationModeForm(form);
+  syncAutomaticGenerationBrief(form, { force: true, identity });
+  syncContentGenerationHandoff(form, { rebuildPrompt: true });
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  syncGenerationLearningStatus(form);
+  syncGenerationFormReadiness(form);
+  persistGenerationFormDraft(form);
+  toast(
+    `${candidate.sku.label} подготовлен автоматически. Проверки Runway и списания не было.`,
+    "info",
+  );
+  return learning.data;
+}
+
 async function loadGenerationLearningPolicy(
   form,
   identity = selectedGenerationProductIdentity(form),
@@ -12349,6 +12543,7 @@ async function loadGenerationLearningPolicy(
   learning.status = "loading";
   learning.data = null;
   learning.error = null;
+  learning.recovery = null;
   syncGenerationLearningStatus(form);
   syncGenerationFormReadiness(form);
   const pending = (async () => {
@@ -12373,7 +12568,24 @@ async function loadGenerationLearningPolicy(
       syncGenerationFormReadiness(form);
       return null;
     }
-    learning.data = raw?.data ?? raw ?? {};
+    const rawPolicy = raw?.data ?? raw ?? {};
+    if (
+      normalizeGenerationLearningPolicy(rawPolicy)
+        ?.generationAllowed === false
+    ) {
+      const fallbackPolicy = await prepareGenerationLearningFallback(
+        form,
+        identity,
+        { blockedKey: key, requestId },
+      );
+      if (fallbackPolicy) return fallbackPolicy;
+      if (
+        requestId !== learning.requestId
+        || learning.key !== key
+        || generationLearningKey(form) !== key
+      ) return null;
+    }
+    learning.data = rawPolicy;
     learning.status = "ready";
     learning.error = null;
     syncAutomaticGenerationBrief(form, { identity });
@@ -13483,15 +13695,22 @@ async function submitRealGeneration(form, values, mode) {
     const learningBlocked = normalizeGenerationLearningPolicy(
       state.generationLearning.data,
     )?.generationAllowed === false;
+    const fallbackPrepared = Boolean(
+      state.generationLearning.recovery?.key
+      && state.generationLearning.recovery.key
+        === generationLearningKey(form, identity)
+    );
     if (form.isConnected) {
       setFormBusy(form, false);
       syncGenerationFormReadiness(form);
     }
     toast(
-      learningBlocked
+      fallbackPrepared
+        ? "Исходный режим исчерпал безопасные структуры. Портал уже подготовил серверно-проверенную альтернативу без Runway и списания; проверьте новую цену и подтвердите её отдельно."
+        : learningBlocked
         ? "Платный запуск не создан: независимый QA уже отклонил все безопасные структуры для этого товара и режима. Выберите другой режим, площадку или товар."
         : "Платный запуск не создан: не удалось безопасно проверить обученное ТЗ. Повторите бесплатную проверку.",
-      "error",
+      fallbackPrepared ? "info" : "error",
     );
     return;
   }
@@ -15362,6 +15581,7 @@ function clearAuthenticatedState() {
   state.generationLearning.key = "";
   state.generationLearning.disabledKey = "";
   state.generationLearning.promise = null;
+  state.generationLearning.recovery = null;
   clearGenerationRepair();
   state.generationPreflight.requestId += 1;
   state.generationPreflight.entries.clear();
