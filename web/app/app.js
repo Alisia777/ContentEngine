@@ -13627,8 +13627,13 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
   const entry = state.generationPreflight.entries.get(sku.model) || {
     status: "idle",
   };
+  const retryScheduled = entry.retryAt > Date.now();
   control.dataset.runwayModel = sku.model;
-  control.disabled = state.realGenerationStartInFlight || entry.status === "loading";
+  control.disabled = Boolean(
+    state.realGenerationStartInFlight
+    || entry.status === "loading"
+    || retryScheduled
+  );
   status.removeAttribute("data-status");
   if (entry.status === "loading") {
     control.textContent = "Проверяем Runway…";
@@ -13638,9 +13643,11 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
     status.dataset.status = "ready";
     status.textContent = "Runway предварительно готов: модель, кредиты и дневной лимит подтверждены. Перед оплатой сервер проверит всё ещё раз.";
   } else if (entry.status === "error") {
-    control.textContent = "Повторить бесплатную проверку";
+    control.textContent = retryScheduled
+      ? `Автоповтор ${entry.retryAttempt} из 2…`
+      : "Повторить бесплатную проверку";
     status.dataset.status = "error";
-    status.textContent = entry.retryAt > Date.now()
+    status.textContent = retryScheduled
       ? `Runway временно не ответил. Портал сам повторит бесплатную проверку; задача не создаётся и списания нет.`
       : `Платный запуск не создан. ${entry.errorMessage || "Runway пока не подтвердил готовность."}`;
   } else {

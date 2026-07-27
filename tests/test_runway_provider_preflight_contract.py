@@ -176,6 +176,9 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
     assert "startRealGeneration" not in recovery
     assert "real_spend_confirmation" not in recovery
     assert "сам повторит бесплатную проверку" in APP
+    assert "const retryScheduled = entry.retryAt > Date.now()" in APP
+    assert "|| retryScheduled" in APP
+    assert "Автоповтор ${entry.retryAttempt} из 2…" in APP
     submit = _between(
         APP,
         "async function submitRealGeneration(form, values, mode)",

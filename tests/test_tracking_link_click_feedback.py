@@ -129,7 +129,7 @@ def test_portal_creates_copies_and_autofills_tracking_clicks() -> None:
     ):
         assert token in APP or token in API
     assert "./supabase-api.js?v=20260727.11" in APP
-    assert "./app.js?v=20260727.27" in INDEX
+    assert "./app.js?v=20260727.28" in INDEX
 
 
 def test_public_redirect_is_linted_checked_and_deployed() -> None:
