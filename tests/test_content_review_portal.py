@@ -25,7 +25,7 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
     assert './content-review-view.js?v=20260727.9' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260727.17' in INDEX
+    assert './app.js?v=20260727.18' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -540,7 +540,8 @@ def test_generated_video_qa_is_serial_recoverable_and_never_auto_approves() -> N
     ]
     assert "Технический скан готов автоматически" in markup
     assert "Пятое изображение — хронологический атлас" in markup
-    assert "Внешний AI ещё не запускался" in markup
+    assert "Визуальный AI-QA ставится в фоновую очередь автоматически" in markup
+    assert "транскрипция остаётся выключенной" in markup
     assert "Автоматическое одобрение отключено" in markup
     assert 'data-action="retry-generated-video-qa"' in markup
 

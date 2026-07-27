@@ -55,6 +55,12 @@ import {
   generationReadinessMarkup,
 } from "./generation-form-readiness.js?v=20260727.1";
 import {
+  buildGenerationFormDraft,
+  GENERATION_FORM_DRAFT_MAX_AGE_MS,
+  GENERATION_FORM_DRAFT_VERSION,
+  normalizeGenerationFormDraft,
+} from "./generation-form-draft.js?v=20260727.1";
+import {
   chooseInitialGenerationMedia,
   generationPreflightDecision,
   resolveGenerationDestination,
@@ -211,6 +217,8 @@ const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const GENERATED_VIDEO_QA_STORAGE_VERSION = 5;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
+const GENERATION_REVIEW_AUTOSTART_VERSION = 1;
+const GENERATION_REVIEW_AUTOSTART_MAX_JOBS = 20;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
@@ -887,6 +895,7 @@ const state = {
   mobileNavOpen: false,
   realGenerationStartInFlight: false,
   realGenerationStartNotice: "",
+  generationDraftSaveTimer: null,
   realGenerationPollTimer: null,
   realGenerationPollInFlight: false,
   realGenerationPollCursor: 0,
@@ -896,6 +905,7 @@ const state = {
   generatedVideoQa: {
     entries: new Map(),
     activePromise: null,
+    activeReviewPromise: null,
     restored: false,
   },
   contentGenerationHandoff: readStoredContentGenerationHandoff(),
@@ -1185,6 +1195,250 @@ function clearGenerationRepair() {
   }
 }
 
+function generationFormDraftStorageKey() {
+  const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
+  return `contentengine.generation-form-draft.v${GENERATION_FORM_DRAFT_VERSION}:${organizationId}:${userId}`;
+}
+
+function generationFormDraftContext({ manual = false } = {}) {
+  if (manual) {
+    return {
+      handoffDraftId: "",
+      handoffResearchId: "",
+      repairSourceReviewId: "",
+    };
+  }
+  const handoff = state.contentGenerationHandoff;
+  const repair = normalizeGenerationRepairPolicy(state.generationRepair.data);
+  return {
+    handoffDraftId: String(handoff?.draftId || ""),
+    handoffResearchId: String(handoff?.researchId || ""),
+    repairSourceReviewId: repair?.applied ? String(repair.sourceReviewId || "") : "",
+  };
+}
+
+function generationFormDraftValues(form) {
+  if (!form) return null;
+  return {
+    generation_mode: String(form.elements.generation_mode?.value || "mock"),
+    campaign_id: String(form.elements.campaign_id?.value || ""),
+    sku: String(form.elements.sku?.value || ""),
+    product_name: String(form.elements.product_name?.value || ""),
+    product_category: String(form.elements.product_category?.value || ""),
+    platform: String(form.elements.platform?.value || ""),
+    destination_ref: String(form.elements.destination_ref?.value || ""),
+    assignee_id: String(form.elements.assignee_id?.value || ""),
+    payout_rub: String(form.elements.payout_rub?.value || ""),
+    count: Number(form.elements.count?.value || 0),
+    format: String(form.elements.format?.value || ""),
+    brief: String(form.elements.brief?.value || ""),
+    media_ids: Array.from(
+      form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)'),
+    ).map((input) => String(input.value || "")).filter(Boolean),
+  };
+}
+
+function persistGenerationFormDraft(form, { manual = false } = {}) {
+  const key = generationFormDraftStorageKey();
+  const values = generationFormDraftValues(form);
+  if (!key || !values) return false;
+  const draft = buildGenerationFormDraft(values, {
+    context: generationFormDraftContext({ manual }),
+  });
+  const saved = safeStorageSet(
+    window.sessionStorage,
+    key,
+    JSON.stringify(draft),
+  );
+  const status = form.querySelector("#generation-draft-status");
+  if (status) {
+    status.textContent = saved
+      ? "Черновик сохраняется в этой вкладке. Подтверждение оплаты никогда не сохраняется."
+      : "Браузер не сохранил черновик. Не закрывайте вкладку до запуска.";
+  }
+  return saved;
+}
+
+function scheduleGenerationFormDraftSave(form, options = {}) {
+  if (!form) return;
+  if (state.generationDraftSaveTimer) {
+    window.clearTimeout(state.generationDraftSaveTimer);
+  }
+  state.generationDraftSaveTimer = window.setTimeout(() => {
+    state.generationDraftSaveTimer = null;
+    if (form.isConnected) persistGenerationFormDraft(form, options);
+  }, 180);
+}
+
+function restoreGenerationFormDraft(form) {
+  const key = generationFormDraftStorageKey();
+  if (!key || !form || form.dataset.generationDraftRestored === "true") return false;
+  form.dataset.generationDraftRestored = "true";
+  let raw;
+  try {
+    const serialized = safeStorageGet(window.sessionStorage, key);
+    if (!serialized || serialized.length > 12_000) return false;
+    raw = JSON.parse(serialized);
+  } catch {
+    safeStorageRemove(window.sessionStorage, key);
+    return false;
+  }
+  const draft = normalizeGenerationFormDraft(raw, {
+    maxAgeMs: GENERATION_FORM_DRAFT_MAX_AGE_MS,
+    activeContext: generationFormDraftContext(),
+  });
+  if (!draft) {
+    safeStorageRemove(window.sessionStorage, key);
+    return false;
+  }
+  const values = draft.values;
+  const mode = form.elements.generation_mode;
+  const modeOption = Array.from(mode?.options || []).find((option) => (
+    option.value === values.generation_mode && !option.disabled
+  ));
+  if (modeOption) mode.value = modeOption.value;
+  const campaign = form.elements.campaign_id;
+  const campaignOption = Array.from(campaign?.options || []).find((option) => (
+    option.value === values.campaign_id && !option.disabled
+  ));
+  if (campaignOption) campaign.value = campaignOption.value;
+
+  const selectedMedia = new Set(values.media_ids);
+  let restoredMediaCount = 0;
+  form.querySelectorAll('input[name="media_id"]').forEach((input) => {
+    input.checked = !input.disabled && selectedMedia.has(input.value);
+    if (input.checked) restoredMediaCount += 1;
+  });
+  if (restoredMediaCount) {
+    form.dataset.generationMediaSelectionTouched = "true";
+  }
+  syncGenerationModeForm(form);
+
+  const setValue = (name, value) => {
+    const field = form.elements[name];
+    if (!field || value === "" || value === null || value === undefined) return;
+    if (field instanceof HTMLSelectElement) {
+      const option = Array.from(field.options).find((candidate) => (
+        candidate.value === String(value) && !candidate.disabled
+      ));
+      if (!option) return;
+    }
+    field.value = String(value);
+  };
+  for (const name of [
+    "product_category",
+    "platform",
+    "destination_ref",
+    "assignee_id",
+    "payout_rub",
+    "count",
+    "format",
+    "brief",
+  ]) {
+    setValue(name, values[name]);
+  }
+  if (!restoredMediaCount) {
+    setValue("sku", values.sku);
+    setValue("product_name", values.product_name);
+  } else {
+    syncGenerationProductIdentity(form);
+  }
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  form.dataset.dirty = "true";
+  syncGenerationModeForm(form);
+  syncContentGenerationHandoff(form);
+  syncGenerationFormReadiness(form);
+  const status = form.querySelector("#generation-draft-status");
+  if (status) {
+    status.textContent = "Черновик восстановлен. Проверьте ТЗ; подтверждение оплаты нужно поставить заново.";
+  }
+  return true;
+}
+
+function clearGenerationFormDraft() {
+  const key = generationFormDraftStorageKey();
+  if (key) safeStorageRemove(window.sessionStorage, key);
+}
+
+function generationReviewAutostartStorageKey() {
+  const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
+  return `contentengine.generation-review-autostart.v${GENERATION_REVIEW_AUTOSTART_VERSION}:${organizationId}:${userId}`;
+}
+
+function generationReviewAutostartJobs() {
+  const key = generationReviewAutostartStorageKey();
+  if (!key) return [];
+  try {
+    const serialized = safeStorageGet(window.sessionStorage, key);
+    if (!serialized || serialized.length > 4_000) return [];
+    const stored = JSON.parse(serialized);
+    if (
+      stored?.version !== GENERATION_REVIEW_AUTOSTART_VERSION
+      || !Array.isArray(stored.jobs)
+    ) return [];
+    return [...new Set(
+      stored.jobs.map((jobId) => String(jobId || "").trim().toLowerCase())
+        .filter(contentReviewUuid),
+    )].slice(-GENERATION_REVIEW_AUTOSTART_MAX_JOBS);
+  } catch {
+    safeStorageRemove(window.sessionStorage, key);
+    return [];
+  }
+}
+
+function setGenerationReviewAutostartJobs(jobIds) {
+  const key = generationReviewAutostartStorageKey();
+  if (!key) return false;
+  const jobs = [...new Set(
+    (Array.isArray(jobIds) ? jobIds : [])
+      .map((jobId) => String(jobId || "").trim().toLowerCase())
+      .filter(contentReviewUuid),
+  )].slice(-GENERATION_REVIEW_AUTOSTART_MAX_JOBS);
+  if (!jobs.length) {
+    safeStorageRemove(window.sessionStorage, key);
+    return true;
+  }
+  return safeStorageSet(
+    window.sessionStorage,
+    key,
+    JSON.stringify({
+      version: GENERATION_REVIEW_AUTOSTART_VERSION,
+      jobs,
+    }),
+  );
+}
+
+function registerGenerationReviewAutostart(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedJobId)) return false;
+  return setGenerationReviewAutostartJobs([
+    ...generationReviewAutostartJobs(),
+    normalizedJobId,
+  ]);
+}
+
+function generationReviewAutostartApproved(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  return contentReviewUuid(normalizedJobId)
+    && generationReviewAutostartJobs().includes(normalizedJobId);
+}
+
+function consumeGenerationReviewAutostart(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedJobId)) return;
+  setGenerationReviewAutostartJobs(
+    generationReviewAutostartJobs().filter((candidate) => (
+      candidate !== normalizedJobId
+    )),
+  );
+}
+
 function navigationPreferenceStorage() {
   try {
     return window.localStorage;
@@ -1409,6 +1663,7 @@ function bindGlobalEvents() {
       void refreshTrainingPracticalReviews({ silent: true });
       scheduleRealGenerationPolling(250);
       resumeGeneratedVideoTechnicalQa();
+      resumeGeneratedVideoReviewAutopilot();
       scheduleContentReviewPolling(250);
     } else {
       stopRealGenerationPolling();
@@ -5433,7 +5688,10 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     if (snapshot.autoGenerationBrief) {
       form.dataset.autoGenerationBrief = snapshot.autoGenerationBrief;
     }
-    if (form.id === "mock-batch-form") syncGenerationModeForm(form);
+    if (form.id === "mock-batch-form") {
+      form.dataset.workspaceSnapshotRestored = "true";
+      syncGenerationModeForm(form);
+    }
     if (form.id === "media-upload-form") {
       showSelectedFile(form.elements.file?.files?.[0]);
       syncMediaProductFields(form);
@@ -7203,11 +7461,20 @@ function renderGenerationSection(sectionState) {
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
     resumeGeneratedVideoTechnicalQa();
+    resumeGeneratedVideoReviewAutopilot();
     const generationForm = document.querySelector("#mock-batch-form");
+    const liveSnapshotRestored =
+      generationForm?.dataset.workspaceSnapshotRestored === "true";
     if (!repairReady) applyContentGenerationHandoffToForm();
     if (generationForm) {
-      syncGenerationModeForm(generationForm);
-      syncGenerationFormReadiness(generationForm);
+      const restored = liveSnapshotRestored
+        ? false
+        : restoreGenerationFormDraft(generationForm);
+      delete generationForm.dataset.workspaceSnapshotRestored;
+      if (!restored) {
+        syncGenerationModeForm(generationForm);
+        syncGenerationFormReadiness(generationForm);
+      }
     }
   });
   const handoffEvaluation = handoff
@@ -7256,6 +7523,7 @@ function renderGenerationSection(sectionState) {
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
+            <p id="generation-draft-status" class="muted tiny" role="status">Черновик сохраняется в этой вкладке. Подтверждение оплаты никогда не сохраняется.</p>
             ${generationReadinessMarkup(initialGenerationReadiness)}
             <label class="field">
               <span>Режим генерации *</span>
@@ -7290,7 +7558,7 @@ function renderGenerationSection(sectionState) {
               </div>
               <label class="option" style="margin-top:10px">
                 <input type="checkbox" name="real_spend_confirmation" value="${defaultRealSku.confirmation}" ${defaultIsReal ? "required" : ""} />
-                <span><strong id="real-generation-confirmation-title">Подтверждаю создание одного платного ${defaultRealSku.contentKind === "photo" ? "фото" : "видео"}</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.contentKind === "photo" ? "квадрат 2K · одно фото" : `${defaultRealSku.durationSeconds} секунд · одно видео`} · около $${defaultRealSku.estimatedUsd}</small></span>
+                <span><strong id="real-generation-confirmation-title">Подтверждаю создание одного платного ${defaultRealSku.contentKind === "photo" ? "фото" : "видео"}</strong><br /><small id="real-generation-confirmation-copy" class="muted">${defaultRealSku.contentKind === "photo" ? "квадрат 2K · одно фото" : `${defaultRealSku.durationSeconds} секунд · одно видео`} · около $${defaultRealSku.estimatedUsd} · обязательная AI-проверка запустится автоматически${defaultRealSku.contentKind === "photo" ? "" : ", без транскрипции"}</small></span>
               </label>
             </div>
             <label class="field">
@@ -7792,13 +8060,22 @@ function generatedVideoTechnicalQaMarkup(details) {
     const audioCopy = metrics.audio_analysis_status === "completed"
       ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
       : " Звук автоматически не декодирован — его нужно прослушать вручную.";
+    const automaticReviewApproved = entry?.reviewAutostartApproved === true;
+    const reviewStartControl = entry?.error
+      ? `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Повторить AI-проверку</button>`
+      : automaticReviewApproved
+        ? '<span class="muted tiny" role="status">AI-проверка запускается автоматически; транскрипция выключена.</span>'
+        : `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>`;
+    const reviewStartCopy = automaticReviewApproved
+      ? " Визуальный AI-QA ставится в фоновую очередь автоматически; транскрипция остаётся выключенной."
+      : " Это старый запуск без сохранённого согласия на автоматическую передачу в AI-QA; проверку можно запустить явно, транскрипция останется выключенной.";
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Технический скан готов автоматически</strong>
-        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(audioCopy)} Внешний AI ещё не запускался. Можно запустить визуальный AI-QA одним действием; транскрипция останется выключенной.</span>
+        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
         ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
         <div class="generation-result-actions">
-          <button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>
+          ${reviewStartControl}
           ${reviewButton}
         </div>
       </div>
@@ -8213,6 +8490,7 @@ function restoreRealGenerationDraft(jobId) {
   if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
   form.dataset.dirty = "true";
   syncGenerationModeForm(form);
+  persistGenerationFormDraft(form);
   form.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   window.setTimeout(() => form.elements.brief?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 350);
   toast("Поля восстановлены. Измените сценарий и заново подтвердите стоимость перед новым запуском.", "success");
@@ -8292,6 +8570,7 @@ function restoreGeneratedVideoQaEvidence() {
       status: "consumed",
       evidence: null,
       reviewId: String(consumed?.reviewId || ""),
+      reviewAutostartApproved: false,
       error: "",
       completedFrames: 0,
       totalFrames: 0,
@@ -8306,6 +8585,7 @@ function restoreGeneratedVideoQaEvidence() {
       jobId: "",
       status: evidence.status === "ready" ? "ready" : "queued",
       evidence,
+      reviewAutostartApproved: false,
       error: "",
       completedFrames: 0,
       totalFrames: Number(evidence.technicalMetrics?.frame_count || 0),
@@ -8408,6 +8688,7 @@ function markGeneratedVideoQaEvidenceConsumed(mediaId, reviewId = "") {
     error: "",
     updatedAt: Date.now(),
   });
+  consumeGenerationReviewAutostart(previous.jobId);
   persistGeneratedVideoQaEvidenceRegistry();
 }
 
@@ -8427,6 +8708,91 @@ function setGeneratedVideoQaStatus(mediaId, patch) {
     updatedAt: Date.now(),
   });
   if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+}
+
+async function startGeneratedVideoReviewFromEvidence(mediaId, {
+  automatic = false,
+} = {}) {
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const previous = state.generatedVideoQa.entries.get(normalizedMediaId);
+  if (previous?.status === "consumed") return true;
+  if (previous?.status === "starting_review") return false;
+  const evidence = generatedVideoQaEvidenceForMedia(normalizedMediaId);
+  if (!contentReviewUuid(normalizedMediaId) || evidence?.status !== "ready") {
+    if (!automatic) {
+      toast("Сначала дождитесь сохранения контрольных кадров точного MP4.", "error");
+    }
+    return false;
+  }
+  setGeneratedVideoQaStatus(normalizedMediaId, {
+    status: "starting_review",
+    evidence,
+    reviewAutostartAttempted: automatic || previous?.reviewAutostartAttempted === true,
+    error: "",
+  });
+  try {
+    const raw = await state.api.startGeneratedVideoReview({
+      mediaId: normalizedMediaId,
+      evidenceId: evidence.evidenceId,
+    });
+    const reviewId = String(raw?.review_id || raw?.run?.id || "").toLowerCase();
+    if (!contentReviewUuid(reviewId) || raw?.transcription_requested !== false) {
+      throw new Error("generated_video_review_start_invalid");
+    }
+    markGeneratedVideoQaEvidenceConsumed(normalizedMediaId, reviewId);
+    state.contentReview.notice = "AI-проверка ролика запущена автоматически без транскрипции. После результата независимый проверяющий добавит реквизиты один раз и полностью просмотрит MP4.";
+    state.sections.review.status = "idle";
+    toast(
+      automatic
+        ? "Технический скан готов, AI-проверка запущена автоматически без транскрипции."
+        : "AI-проверка запущена. MP4 и звук не отправляются на транскрипцию.",
+      "success",
+    );
+    return true;
+  } catch (error) {
+    setGeneratedVideoQaStatus(normalizedMediaId, {
+      status: "ready",
+      evidence,
+      reviewAutostartAttempted: automatic || previous?.reviewAutostartAttempted === true,
+      error: automatic
+        ? `Автозапуск AI-проверки не завершился: ${actionErrorMessage(error)}`
+        : actionErrorMessage(error),
+    });
+    toast(
+      automatic
+        ? "Готовый MP4 и evidence сохранены, но AI-проверку нужно повторить одной кнопкой."
+        : actionErrorMessage(error),
+      "error",
+    );
+    return false;
+  }
+}
+
+function resumeGeneratedVideoReviewAutopilot() {
+  if (
+    state.generatedVideoQa.activeReviewPromise
+    || state.route.path !== "/workspace/generation"
+    || document.visibilityState !== "visible"
+    || !state.session
+  ) return;
+  restoreGeneratedVideoQaEvidence();
+  const next = [...state.generatedVideoQa.entries.values()].find((entry) => (
+    entry.status === "ready"
+    && entry.reviewAutostartApproved === true
+    && entry.reviewAutostartAttempted !== true
+    && generatedVideoQaEvidenceForMedia(entry.mediaId)?.status === "ready"
+  ));
+  if (!next) return;
+  const operation = startGeneratedVideoReviewFromEvidence(next.mediaId, {
+    automatic: true,
+  });
+  state.generatedVideoQa.activeReviewPromise = operation;
+  operation.finally(() => {
+    if (state.generatedVideoQa.activeReviewPromise === operation) {
+      state.generatedVideoQa.activeReviewPromise = null;
+    }
+    resumeGeneratedVideoReviewAutopilot();
+  });
 }
 
 async function loadGeneratedVideoQaMedia(mediaId, fallbackUrl = "") {
@@ -8512,7 +8878,8 @@ async function prepareGeneratedVideoTechnicalQa(entry) {
       evidence: durableEvidence,
       error: "",
     });
-    toast("Видео готово к проверке: evidence-кадры, локальный таймлайн-скан и доступные аудиометрики сохранены.", "success");
+    toast("Технический скан готов. AI-проверка ролика запускается автоматически без транскрипции.", "success");
+    window.queueMicrotask(resumeGeneratedVideoReviewAutopilot);
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
     console.warn("Generated video technical QA preparation failed", error);
@@ -8555,10 +8922,27 @@ function scheduleGeneratedVideoTechnicalQa(job, signedUrl = "", { force = false 
   restoreGeneratedVideoQaEvidence();
   const previous = state.generatedVideoQa.entries.get(mediaId);
   const evidence = generatedVideoQaEvidenceForMedia(mediaId);
+  const reviewAutostartApproved = generationReviewAutostartApproved(job?.id);
   if (!force && ["consumed", "error"].includes(previous?.status)) return;
   if (!force && (evidence?.status === "ready" || ["queued", "loading", "capturing", "saving"].includes(previous?.status))) {
-    if (evidence?.status === "ready" && previous?.status !== "ready") {
-      setGeneratedVideoQaStatus(mediaId, { status: "ready", evidence, error: "" });
+    if (evidence?.status === "ready") {
+      const jobId = String(job?.id || previous?.jobId || "");
+      if (
+        previous?.status !== "ready"
+        || previous?.jobId !== jobId
+        || previous?.reviewAutostartApproved !== reviewAutostartApproved
+      ) {
+        setGeneratedVideoQaStatus(mediaId, {
+          jobId,
+          status: "ready",
+          evidence,
+          reviewAutostartApproved,
+          error: previous?.error || "",
+        });
+      }
+    }
+    if (evidence?.status === "ready" && reviewAutostartApproved) {
+      window.queueMicrotask(resumeGeneratedVideoReviewAutopilot);
     }
     return;
   }
@@ -8566,6 +8950,7 @@ function scheduleGeneratedVideoTechnicalQa(job, signedUrl = "", { force = false 
     jobId: String(job?.id || previous?.jobId || ""),
     status: "queued",
     signedUrl: String(signedUrl || previous?.signedUrl || ""),
+    reviewAutostartApproved,
     error: "",
   });
   window.queueMicrotask(resumeGeneratedVideoTechnicalQa);
@@ -10295,6 +10680,8 @@ async function handleClick(event) {
   }
 
   if (action === "dismiss-generation-handoff") {
+    const form = control.closest("#mock-batch-form");
+    if (form) persistGenerationFormDraft(form, { manual: true });
     clearContentGenerationHandoff();
     if (state.route.path === "/workspace/generation") renderWorkspace("generation");
     toast("Связь со сценарием убрана. Форму можно заполнить вручную.", "info");
@@ -10312,6 +10699,7 @@ async function handleClick(event) {
     form.dataset.dirty = "true";
     syncContentGenerationHandoff(form);
     syncGenerationFormReadiness(form);
+    persistGenerationFormDraft(form);
     form.elements.brief?.focus({ preventScroll: true });
     toast("Безопасное ТЗ восстановлено по выбранному товару и режиму.", "success");
     return;
@@ -10365,6 +10753,7 @@ async function handleClick(event) {
       return;
     }
     form.dataset.dirty = "true";
+    persistGenerationFormDraft(form);
     toast(
       action === "disable-generation-learning"
         ? "Обученный ракурс отключён. Восстановлено базовое безопасное ТЗ."
@@ -10391,36 +10780,7 @@ async function handleClick(event) {
 
   if (action === "start-generated-video-review") {
     const mediaId = String(control.dataset.mediaId || "").trim().toLowerCase();
-    const evidence = generatedVideoQaEvidenceForMedia(mediaId);
-    if (!contentReviewUuid(mediaId) || evidence?.status !== "ready") {
-      toast("Сначала дождитесь сохранения контрольных кадров точного MP4.", "error");
-      return;
-    }
-    setGeneratedVideoQaStatus(mediaId, {
-      status: "starting_review",
-      error: "",
-    });
-    try {
-      const raw = await state.api.startGeneratedVideoReview({
-        mediaId,
-        evidenceId: evidence.evidenceId,
-      });
-      const reviewId = String(raw?.review_id || raw?.run?.id || "").toLowerCase();
-      if (!contentReviewUuid(reviewId) || raw?.transcription_requested !== false) {
-        throw new Error("generated_video_review_start_invalid");
-      }
-      markGeneratedVideoQaEvidenceConsumed(mediaId, reviewId);
-      state.contentReview.notice = "AI-проверка ролика запущена без транскрипции. После результата независимый проверяющий добавит реквизиты один раз и полностью просмотрит MP4.";
-      state.sections.review.status = "idle";
-      toast("AI-проверка запущена. MP4 и звук не отправляются на транскрипцию.", "success");
-    } catch (error) {
-      setGeneratedVideoQaStatus(mediaId, {
-        status: "ready",
-        evidence,
-        error: actionErrorMessage(error),
-      });
-      toast(actionErrorMessage(error), "error");
-    }
+    await startGeneratedVideoReviewFromEvidence(mediaId);
     return;
   }
 
@@ -11321,6 +11681,7 @@ function handleFormActivity(event) {
       } else {
         syncGenerationFormReadiness(form);
       }
+      scheduleGenerationFormDraftSave(form);
     }
   }
 }
@@ -12121,7 +12482,7 @@ function syncGenerationModeForm(form) {
     confirmationTitle.textContent = `Подтверждаю создание одного платного ${photo ? "фото" : "видео"}`;
   }
   if (confirmationCopy && sku) {
-    confirmationCopy.textContent = `${photo ? "квадрат 2K · одно фото" : `${sku.durationSeconds} секунд · одно видео`} · около $${sku.estimatedUsd}`;
+    confirmationCopy.textContent = `${photo ? "квадрат 2K · одно фото" : `${sku.durationSeconds} секунд · одно видео`} · около $${sku.estimatedUsd} · обязательная AI-проверка запустится автоматически${photo ? "" : ", без транскрипции"}`;
   }
   if (preflightButton) {
     preflightButton.dataset.runwayModel = sku?.model || "";
@@ -12944,6 +13305,9 @@ async function submitRealGeneration(form, values, mode) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
     if (!result?.job?.id) throw new Error("Runway принял запрос без номера задачи. Обновите очередь.");
     const jobId = String(result.job.id);
+    const reviewAutostartRegistered = photo
+      ? true
+      : registerGenerationReviewAutostart(jobId);
     state.realGenerationDrafts.set(jobId, draft);
     state.lastRealGenerationJobId = jobId;
     applyRealGenerationResult(jobId, result, { renderNow: false });
@@ -12977,10 +13341,13 @@ async function submitRealGeneration(form, values, mode) {
     } else {
       clearContentGenerationHandoff();
       clearGenerationRepair();
+      persistGenerationFormDraft(form, { manual: true });
       toast(
         photo
           ? `Платный запуск принят: одно фото 2K, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`
-          : `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`,
+          : reviewAutostartRegistered
+            ? `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Технический скан и AI-QA запустятся автоматически.`
+            : `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Браузер не сохранил авто-QA: после готовности запустите проверку одной кнопкой.`,
         "success",
       );
     }
@@ -13065,6 +13432,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
       scenario_position: state.contentGenerationHandoff?.scenario?.position || null,
     });
     clearContentGenerationHandoff();
+    clearGenerationFormDraft();
     delete form.dataset.dirty;
     setFormBusy(form, false);
     form.reset();

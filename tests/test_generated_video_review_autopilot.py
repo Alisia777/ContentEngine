@@ -140,7 +140,8 @@ def test_pgtap_covers_context_filter_and_rpc_security() -> None:
 def test_portal_exposes_one_action_qa_and_video_context_approval() -> None:
     for token in (
         'data-action="start-generated-video-review"',
-        "Запустить AI-проверку",
+        "Повторить AI-проверку",
+        "resumeGeneratedVideoReviewAutopilot",
         "startGeneratedVideoReview",
         "transcription_requested !== false",
         "approveGeneratedVideoReviewWithContext",
