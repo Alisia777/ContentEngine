@@ -67,12 +67,13 @@ import {
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
+  generationPreflightRetryDelay,
   generationPreflightDecision,
   resolveGenerationDestination,
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260727.5";
+} from "./generation-autopilot.js?v=20260727.6";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -1983,6 +1984,9 @@ async function loadBootstrap() {
       state.generationLearning.disabledKey = "";
       state.generationLearning.promise = null;
       state.generationLearning.recovery = null;
+      state.generationPreflight.requestId += 1;
+      clearAllGenerationPreflightRetries();
+      state.generationPreflight.entries.clear();
       state.accessCenter.requestId += 1;
       state.accessCenter.status = "idle";
       state.accessCenter.email = "";
@@ -12974,6 +12978,7 @@ function syncGenerationDestination(form) {
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
   const sku = realGenerationSku(mode);
+  cancelInactiveGenerationPreflightRetries(sku);
   const real = sku !== null;
   const seedance = mode === REAL_SEEDANCE_MODE;
   const photo = mode === REAL_PHOTO_MODE;
@@ -13501,9 +13506,110 @@ function validateGenerationPreflight(result, sku) {
     || preflight.estimated_credits !== sku.estimatedCredits
     || preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION
   ) {
-    throw new Error("Runway preflight response invalid");
+    const failure = new Error("Runway preflight response invalid");
+    failure.code = "provider_preflight_invalid";
+    throw failure;
   }
   return preflight;
+}
+
+function generationPreflightErrorCode(error) {
+  const code = String(
+    error?.serverCode || error?.code || "",
+  ).trim();
+  return /^[a-z0-9_]{3,96}$/u.test(code)
+    ? code
+    : "real_generation_request_failed";
+}
+
+function clearGenerationPreflightRetry(entry) {
+  if (!entry || typeof entry !== "object") return;
+  if (entry.retryTimer !== null && entry.retryTimer !== undefined) {
+    window.clearTimeout(entry.retryTimer);
+  }
+  const resolve = entry.retryResolve;
+  entry.retryTimer = null;
+  entry.retryResolve = null;
+  entry.retryAt = 0;
+  if (typeof resolve === "function") resolve(false);
+}
+
+function cancelInactiveGenerationPreflightRetries(activeSku = null) {
+  for (const [model, entry] of state.generationPreflight.entries) {
+    if (entry?.retryTimer === null || entry?.retryTimer === undefined) continue;
+    if (activeSku?.model === model) continue;
+    clearGenerationPreflightRetry(entry);
+  }
+}
+
+function clearAllGenerationPreflightRetries() {
+  for (const entry of state.generationPreflight.entries.values()) {
+    clearGenerationPreflightRetry(entry);
+  }
+}
+
+function queueGenerationPreflightRetry(
+  sku,
+  entry,
+  { awaitRetry = false } = {},
+) {
+  const delay = generationPreflightRetryDelay({
+    attempt: entry?.retryAttempt,
+    errorCode: entry?.errorCode,
+  });
+  if (delay === null || !sku || !entry) {
+    return Promise.resolve({
+      ok: false,
+      errorMessage: entry?.errorMessage || "",
+      errorCode: entry?.errorCode || "",
+      retryExhausted: true,
+    });
+  }
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  entry.retryAt = Date.now() + delay;
+  const wait = new Promise((resolve) => {
+    entry.retryResolve = resolve;
+    entry.retryTimer = window.setTimeout(() => {
+      entry.retryTimer = null;
+      entry.retryResolve = null;
+      entry.retryAt = 0;
+      const form = document.querySelector("#mock-batch-form");
+      const currentSku = realGenerationSku(
+        form?.elements?.generation_mode?.value,
+      );
+      const currentEntry = state.generationPreflight.entries.get(
+        sku.model,
+      );
+      const spendAllowed = Boolean(
+        form
+        && realGenerationSpendAllowed(
+          String(form.elements.generation_mode?.value || ""),
+          form.elements.campaign_id?.value || "",
+        )
+      );
+      resolve(Boolean(
+        requestEpoch === state.dataEpoch
+        && requestUserId === state.user?.id
+        && form?.isConnected
+        && currentSku?.model === sku.model
+        && currentEntry === entry
+        && spendAllowed
+      ));
+    }, delay);
+  });
+  syncCurrentGenerationPreflightUi(sku.model);
+  const recovery = wait.then((current) => {
+    if (!current) return { ok: false, stale: true };
+    const form = document.querySelector("#mock-batch-form");
+    return runGenerationPreflight(form, {
+      force: true,
+      automaticRetry: true,
+      awaitRetry,
+    });
+  });
+  if (!awaitRetry) void recovery;
+  return recovery;
 }
 
 function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) {
@@ -13534,7 +13640,9 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
   } else if (entry.status === "error") {
     control.textContent = "Повторить бесплатную проверку";
     status.dataset.status = "error";
-    status.textContent = `Платный запуск не создан. ${entry.errorMessage || "Runway пока не подтвердил готовность."}`;
+    status.textContent = entry.retryAt > Date.now()
+      ? `Runway временно не ответил. Портал сам повторит бесплатную проверку; задача не создаётся и списания нет.`
+      : `Платный запуск не создан. ${entry.errorMessage || "Runway пока не подтвердил готовность."}`;
   } else {
     control.textContent = "Проверить Runway бесплатно";
     status.textContent = automaticAllowed
@@ -13566,7 +13674,14 @@ function scheduleAutomaticGenerationPreflight(form) {
   });
 }
 
-async function runGenerationPreflight(form, { force = false } = {}) {
+async function runGenerationPreflight(
+  form,
+  {
+    force = false,
+    automaticRetry = false,
+    awaitRetry = false,
+  } = {},
+) {
   const sku = realGenerationSku(form?.elements?.generation_mode?.value);
   if (!form || !sku || !state.api) {
     return {
@@ -13596,6 +13711,12 @@ async function runGenerationPreflight(form, { force = false } = {}) {
     };
   }
 
+  const continueRetrySeries = Boolean(
+    automaticRetry
+    && previous.retryKey === sku.model
+    && Number.isSafeInteger(previous.retryAttempt),
+  );
+  clearGenerationPreflightRetry(previous);
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   const entry = {
@@ -13603,8 +13724,16 @@ async function runGenerationPreflight(form, { force = false } = {}) {
     checkedAt: 0,
     preflight: null,
     errorMessage: "",
+    errorCode: "",
     requestId: state.generationPreflight.requestId + 1,
     promise: null,
+    retryKey: sku.model,
+    retryAttempt: continueRetrySeries
+      ? previous.retryAttempt + 1
+      : 1,
+    retryTimer: null,
+    retryResolve: null,
+    retryAt: 0,
   };
   state.generationPreflight.requestId = entry.requestId;
   state.generationPreflight.entries.set(sku.model, entry);
@@ -13617,26 +13746,44 @@ async function runGenerationPreflight(form, { force = false } = {}) {
         "Runway preflight timeout",
       );
       const preflight = validateGenerationPreflight(result, sku);
+      const currentForm = document.querySelector("#mock-batch-form");
       if (
         requestEpoch !== state.dataEpoch
         || requestUserId !== state.user?.id
+        || !currentForm?.isConnected
+        || realGenerationSku(
+          currentForm.elements.generation_mode?.value,
+        )?.model !== sku.model
       ) return { ok: false, stale: true };
       entry.status = "ready";
       entry.checkedAt = Date.now();
       entry.preflight = preflight;
+      entry.errorCode = "";
       return { ok: true, preflight, cached: false };
     } catch (error) {
+      const currentForm = document.querySelector("#mock-batch-form");
       if (
         requestEpoch !== state.dataEpoch
         || requestUserId !== state.user?.id
+        || !currentForm?.isConnected
+        || realGenerationSku(
+          currentForm.elements.generation_mode?.value,
+        )?.model !== sku.model
       ) return { ok: false, stale: true };
       entry.status = "error";
       entry.checkedAt = Date.now();
       entry.errorMessage = actionErrorMessage(error);
+      entry.errorCode = generationPreflightErrorCode(error);
+      const retryDelay = generationPreflightRetryDelay({
+        attempt: entry.retryAttempt,
+        errorCode: entry.errorCode,
+      });
       return {
         ok: false,
         errorMessage: entry.errorMessage,
+        errorCode: entry.errorCode,
         cached: false,
+        retryable: retryDelay !== null,
       };
     } finally {
       entry.promise = null;
@@ -13644,7 +13791,15 @@ async function runGenerationPreflight(form, { force = false } = {}) {
     }
   })();
   entry.promise = request;
-  return request;
+  const outcome = await request;
+  if (outcome.retryable) {
+    const recovery = queueGenerationPreflightRetry(sku, entry, {
+      awaitRetry,
+    });
+    if (awaitRetry) return await recovery;
+    return { ...outcome, retryScheduled: true };
+  }
+  return outcome;
 }
 
 async function checkRunwayReadiness(control) {
@@ -13659,13 +13814,32 @@ async function checkRunwayReadiness(control) {
     toast("Сначала дождитесь результата текущего платного запуска.", "info");
     return;
   }
-  const outcome = await runGenerationPreflight(form, { force: true });
+  const outcome = await runGenerationPreflight(form, {
+    force: true,
+    awaitRetry: true,
+  });
   if (outcome.stale) return;
   if (outcome.ok) {
     toast("Runway готов к запуску. Эта проверка ничего не списала.", "success");
   } else {
     toast(`Платный запуск не создан. ${outcome.errorMessage}`, "error");
   }
+}
+
+async function runGenerationPreflightForPaidStart(form) {
+  const sku = realGenerationSku(
+    form?.elements?.generation_mode?.value,
+  );
+  const existing = sku
+    ? state.generationPreflight.entries.get(sku.model)
+    : null;
+  if (existing?.status === "loading" && existing.promise) {
+    await existing.promise;
+  }
+  return await runGenerationPreflight(form, {
+    force: true,
+    awaitRetry: true,
+  });
 }
 
 async function submitRealGenerationReconciliation(form, submitter) {
@@ -13888,25 +14062,24 @@ async function submitRealGeneration(form, values, mode) {
   const requestUserId = state.user?.id;
   let providerStartAttempted = false;
   try {
-    const preflightResult = await withUiTimeout(
-      state.api.realGenerationPreflight(generationSku.model),
-      REAL_GENERATION_SOFT_TIMEOUT_MS,
-      "Runway preflight timeout",
+    const preflightOutcome = await runGenerationPreflightForPaidStart(
+      form,
     );
     if (
       requestEpoch !== state.dataEpoch ||
       requestUserId !== state.user?.id
     ) return;
-    if (
-      preflightResult?.preflight?.ready !== true ||
-      preflightResult.preflight.model !== generationSku.model ||
-      preflightResult.preflight.estimated_credits !==
-        generationSku.estimatedCredits ||
-      preflightResult.preflight.learning_gate_version !==
-        GENERATION_LEARNING_GATE_VERSION
-    ) {
-      throw new Error("Runway preflight response invalid");
+    if (preflightOutcome?.stale) return;
+    if (!preflightOutcome?.ok) {
+      const failure = new Error(
+        preflightOutcome?.errorMessage
+        || "Runway не подтвердил бесплатную проверку готовности.",
+      );
+      failure.code = preflightOutcome?.errorCode
+        || "provider_preflight_invalid";
+      throw failure;
     }
+    validateGenerationPreflight(preflightOutcome, generationSku);
     setFormBusy(form, true, "Отправляем платный запуск…");
     providerStartAttempted = true;
     const startRequest = state.api.startRealGeneration(payload);
@@ -15661,6 +15834,7 @@ function clearAuthenticatedState() {
   state.generationLearning.recovery = null;
   clearGenerationRepair();
   state.generationPreflight.requestId += 1;
+  clearAllGenerationPreflightRetries();
   state.generationPreflight.entries.clear();
   state.accessCenter.requestId += 1;
   state.accessCenter.status = "idle";

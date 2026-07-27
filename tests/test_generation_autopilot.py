@@ -402,6 +402,50 @@ def test_learning_retry_is_bounded_to_two_automatic_retries() -> None:
     assert _evaluate(expression) == [None, 1000, 3000, None, None, 3000]
 
 
+def test_preflight_retry_only_recovers_transient_readiness_failures() -> None:
+    expression = """
+    [
+      subject.generationPreflightRetryDelay({
+        attempt: 1,
+        errorCode: "provider_request_failed",
+      }),
+      subject.generationPreflightRetryDelay({
+        attempt: 2,
+        errorCode: "ui_timeout",
+      }),
+      subject.generationPreflightRetryDelay({
+        attempt: 3,
+        errorCode: "provider_request_failed",
+      }),
+      subject.generationPreflightRetryDelay({
+        attempt: 1,
+        errorCode: "provider_authentication_failed",
+      }),
+      subject.generationPreflightRetryDelay({
+        attempt: 1,
+        errorCode: "provider_credits_unavailable",
+      }),
+      subject.generationPreflightRetryDelay({
+        attempt: 1,
+        errorCode: "provider_rate_limited",
+      }),
+      subject.generationPreflightRetryDelay({
+        attempt: 1,
+        errorCode: "provider_request_rejected",
+      }),
+    ]
+    """
+    assert _evaluate(expression) == [
+        1500,
+        4000,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+
+
 def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading() -> None:
     expression = """
     [
@@ -434,7 +478,7 @@ def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading(
 
 
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260727.5"' in APP
+    assert 'from "./generation-autopilot.js?v=20260727.6"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
@@ -465,7 +509,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260727.26' in INDEX
+    assert './app.js?v=20260727.27' in INDEX
 
 
 def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:

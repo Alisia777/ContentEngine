@@ -74,17 +74,19 @@ def test_client_performs_free_preflight_before_starting_paid_generation() -> Non
         "async function submitMockBatch",
     )
     preflight = submit.index(
-        "state.api.realGenerationPreflight(generationSku.model)"
+        "await runGenerationPreflightForPaidStart("
     )
     paid_start = submit.index("state.api.startRealGeneration(payload)")
     assert preflight < paid_start
+    paid_preflight = _between(
+        APP,
+        "async function runGenerationPreflightForPaidStart(",
+        "async function submitRealGenerationReconciliation(",
+    )
+    assert "awaitRetry: true" in paid_preflight
     assert 'setFormBusy(form, true, "Проверяем Runway без списания…")' in submit
     assert "providerStartAttempted = true" in submit
-    assert (
-        "preflightResult.preflight.learning_gate_version !=="
-        in submit
-    )
-    assert "GENERATION_LEARNING_GATE_VERSION" in submit
+    assert "validateGenerationPreflight(preflightOutcome, generationSku)" in submit
     assert "Платный запуск не создан: бесплатная проверка Runway не пройдена" in submit
 
     assert "realGenerationPreflight(model)" in ADAPTER
@@ -103,7 +105,7 @@ def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
     assert "Проверить Runway бесплатно" in APP
     runner = _between(
         APP,
-        "async function runGenerationPreflight(form",
+        "async function runGenerationPreflight(",
         "async function checkRunwayReadiness(control)",
     )
     assert "state.api.realGenerationPreflight(sku.model)" in runner
@@ -111,6 +113,7 @@ def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
     assert "startRealGeneration" not in runner
     assert "generationPreflightDecision(previous" in runner
     assert "return previous.promise" in runner
+    assert "generationPreflightRetryDelay({" in runner
     validator = _between(
         APP,
         "function validateGenerationPreflight",
@@ -133,6 +136,64 @@ def test_real_mode_automatically_runs_one_free_deduplicated_preflight() -> None:
     assert "real_spend_confirmation" not in scheduler
     assert "scheduleAutomaticGenerationPreflight(form)" in APP
     assert "if (real && spendAllowed)" in APP
+
+
+def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -> None:
+    recovery = _between(
+        APP,
+        "function generationPreflightErrorCode",
+        "function syncGenerationPreflightUi",
+    )
+    runner = _between(
+        APP,
+        "async function runGenerationPreflight(",
+        "async function checkRunwayReadiness(control)",
+    )
+    for token in (
+        "generationPreflightRetryDelay({",
+        "requestEpoch === state.dataEpoch",
+        "requestUserId === state.user?.id",
+        'document.querySelector("#mock-batch-form")',
+        "currentSku?.model === sku.model",
+        "currentEntry === entry",
+        "realGenerationSpendAllowed(",
+        "window.setTimeout(() =>",
+        "clearGenerationPreflightRetry(entry)",
+    ):
+        assert token in recovery
+    assert "currentForm?.isConnected" in runner
+    assert "currentForm.elements.generation_mode?.value" in runner
+    assert "form.isConnected" not in runner
+    for token in (
+        "automaticRetry = false",
+        "awaitRetry = false",
+        "continueRetrySeries",
+        "previous.retryAttempt + 1",
+        "queueGenerationPreflightRetry(sku, entry",
+        "retryScheduled: true",
+    ):
+        assert token in runner
+    assert "startRealGeneration" not in recovery
+    assert "real_spend_confirmation" not in recovery
+    assert "сам повторит бесплатную проверку" in APP
+    submit = _between(
+        APP,
+        "async function submitRealGeneration(form, values, mode)",
+        "async function submitMockBatch",
+    )
+    paid_preflight = _between(
+        APP,
+        "async function runGenerationPreflightForPaidStart(",
+        "async function submitRealGenerationReconciliation(",
+    )
+    assert 'existing?.status === "loading" && existing.promise' in paid_preflight
+    assert "await existing.promise" in paid_preflight
+    assert "await runGenerationPreflight(form" in paid_preflight
+    assert "awaitRetry: true" in paid_preflight
+    assert "await runGenerationPreflightForPaidStart(" in submit
+    assert submit.index("await runGenerationPreflightForPaidStart(") < submit.index(
+        "state.api.startRealGeneration(payload)"
+    )
 
 
 def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None:

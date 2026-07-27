@@ -213,7 +213,7 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         assert token in APP
     assert ".generation-learning-status" in STYLES
     assert "./styles.css?v=20260727.8" in INDEX
-    assert "./app.js?v=20260727.26" in INDEX
+    assert "./app.js?v=20260727.27" in INDEX
     assert "./supabase-api.js?v=20260727.11" in APP
 
 
@@ -232,7 +232,7 @@ def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call
     ensure = submit.index("await ensureGenerationLearningPolicy(form, identity)")
     refresh = submit.index("values = new FormData(form)", ensure)
     preflight = submit.index(
-        "state.api.realGenerationPreflight(generationSku.model)",
+        "await runGenerationPreflightForPaidStart(",
         refresh,
     )
     paid_start = submit.index("state.api.startRealGeneration(payload)", preflight)

@@ -21,6 +21,19 @@ const GENERATION_LEARNING_RETRY_DELAYS_MS = Object.freeze([
   1_000,
   3_000,
 ]);
+const GENERATION_PREFLIGHT_TRANSIENT_ERROR_CODES = new Set([
+  "ui_timeout",
+  "generation_unavailable",
+  "real_generation_request_failed",
+  "real_generation_response_invalid",
+  "provider_request_failed",
+  "provider_response_invalid",
+  "provider_preflight_invalid",
+]);
+const GENERATION_PREFLIGHT_RETRY_DELAYS_MS = Object.freeze([
+  1_500,
+  4_000,
+]);
 const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 
 export function chooseInitialGenerationMedia(items, { real = false } = {}) {
@@ -247,6 +260,24 @@ export function generationLearningRetryDelay(attempt) {
     || normalizedAttempt < 1
   ) return null;
   return GENERATION_LEARNING_RETRY_DELAYS_MS[
+    normalizedAttempt - 1
+  ] ?? null;
+}
+
+export function generationPreflightRetryDelay({
+  attempt = 0,
+  errorCode = "",
+} = {}) {
+  const normalizedAttempt = Number(attempt);
+  const normalizedErrorCode = String(errorCode || "").trim();
+  if (
+    !Number.isSafeInteger(normalizedAttempt)
+    || normalizedAttempt < 1
+    || !GENERATION_PREFLIGHT_TRANSIENT_ERROR_CODES.has(
+      normalizedErrorCode,
+    )
+  ) return null;
+  return GENERATION_PREFLIGHT_RETRY_DELAYS_MS[
     normalizedAttempt - 1
   ] ?? null;
 }
