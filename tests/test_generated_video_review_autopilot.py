@@ -14,6 +14,9 @@ MIGRATION = (
 PGTAP = (
     ROOT / "supabase/tests/generated_video_review_autopilot_test.sql"
 ).read_text(encoding="utf-8")
+CREATOR_FACTORY_PGTAP = (
+    ROOT / "supabase/tests/creator_factory_test.sql"
+).read_text(encoding="utf-8")
 VIEW = (APP_DIR / "content-review-view.js").read_text(encoding="utf-8")
 APP = (APP_DIR / "app.js").read_text(encoding="utf-8")
 API = (APP_DIR / "supabase-api.js").read_text(encoding="utf-8")
@@ -127,6 +130,11 @@ def test_pgtap_covers_context_filter_and_rpc_security() -> None:
         "public generation gate binds product category before returning",
     ):
         assert token in PGTAP
+    for rpc_name in (
+        "creator_start_generated_video_review",
+        "creator_approve_generated_video_review_with_context",
+    ):
+        assert rpc_name in CREATOR_FACTORY_PGTAP
 
 
 def test_portal_exposes_one_action_qa_and_video_context_approval() -> None:

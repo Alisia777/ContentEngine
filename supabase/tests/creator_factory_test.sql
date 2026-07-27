@@ -85,6 +85,8 @@ select is(
         'creator_content_review_catalog', 'creator_start_content_review',
         'creator_content_review_status', 'creator_decide_content_review',
         'creator_approve_generated_photo_review_with_context',
+        'creator_start_generated_video_review',
+        'creator_approve_generated_video_review_with_context',
         'creator_real_generation_reconciliation_context',
         'creator_my_work', 'creator_notifications',
         'creator_mark_notifications_read', 'creator_training_progress',
