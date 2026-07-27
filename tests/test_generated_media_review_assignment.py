@@ -135,9 +135,14 @@ def test_home_prioritizes_exact_assigned_review() -> None:
         "item.independentAssignment.decisionEligible",
         "`#/workspace/review/${assignedReview.id}`",
         "Назначен независимый QA",
+        "const unassignedReview",
+        "QA ожидает проверяющего",
+        "Добавьте или восстановите независимого проверяющего",
+        "Не создавайте замену и не публикуйте этот файл",
     ):
         assert token in home
     assert home.index("const assignedReview") < home.index("const activeTask")
+    assert home.index("const unassignedReview") < home.index("const activeTask")
 
 
 def test_review_ui_hides_self_review_and_other_reviewer_assignment() -> None:

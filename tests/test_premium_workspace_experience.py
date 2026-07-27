@@ -205,6 +205,40 @@ def test_home_action_routes_from_publication_to_metrics_then_payout() -> None:
     assert _run_home_next_action(with_metric_and_payout)["href"] == "#/workspace/payouts"
 
 
+def test_home_action_surfaces_unassigned_generated_media_qa() -> None:
+    base = {
+        "media": [{"id": "media-1"}],
+        "batches": [],
+        "reviews": [
+            {
+                "id": "review-1",
+                "status": "completed",
+                "media": {"name": "seedance-result.mp4"},
+                "decision": None,
+                "independentAssignment": {
+                    "status": "unassigned",
+                    "assignedToMe": False,
+                    "decisionEligible": False,
+                },
+            }
+        ],
+        "tasks": [],
+        "placements": [],
+        "publications": [],
+        "payouts": [],
+    }
+
+    manager = _run_home_next_action({**base, "role": "owner"})
+    assert manager["step"] == "QA ожидает проверяющего"
+    assert manager["href"] == "#/workspace/team"
+    assert manager["cta"] == "Открыть команду"
+    assert "seedance-result.mp4" == manager["title"]
+
+    reviewer = _run_home_next_action({**base, "role": "reviewer"})
+    assert reviewer["href"] == "#/workspace/review/review-1"
+    assert reviewer["cta"] == "Открыть статус QA"
+
+
 def test_learning_home_has_one_explicit_mandatory_next_step() -> None:
     learning = _between(APP, "function renderLearningHome", "function renderAccountLaunch")
 

@@ -6833,6 +6833,7 @@ function homeNextAction({
   placements,
   publications,
   payouts,
+  role = "",
 }) {
   const blockedTask = tasks.find(
     (item) => String(item.status || "") === "blocked" && !isAutomaticGenerationWait(item),
@@ -6866,6 +6867,35 @@ function homeNextAction({
       cta: "Открыть точный QA",
       doneWhen: "Сохранено одобрение, возврат на доработку или отклонение.",
       nextHint: "После решения портал сам подготовит следующий шаг.",
+    };
+  }
+  const unassignedReview = reviews.find((item) => (
+    ["completed", "succeeded", "ready"].includes(
+      String(item.status || "").toLowerCase(),
+    )
+    && !item.decision
+    && ["unassigned", "cancelled"].includes(
+      String(item.independentAssignment?.status || "").toLowerCase(),
+    )
+  ));
+  if (unassignedReview) {
+    const canInviteReviewer = ["owner", "admin"].includes(
+      String(role || "").toLowerCase(),
+    );
+    return {
+      step: "QA ожидает проверяющего",
+      title: unassignedReview.media?.name || "Готовый результат нельзя оставлять без решения",
+      description: canInviteReviewer
+        ? "AI-проверка завершена, но в команде нет другого участника с действующим допуском. Добавьте или восстановите независимого проверяющего."
+        : "AI-проверка завершена, но подходящий независимый проверяющий пока не назначен. Результат безопасно заблокирован до решения руководителя.",
+      href: canInviteReviewer
+        ? "#/workspace/team"
+        : `#/workspace/review/${unassignedReview.id}`,
+      cta: canInviteReviewer
+        ? "Открыть команду"
+        : "Открыть статус QA",
+      doneWhen: "Другой допущенный участник назначен и сохранил решение по точному файлу.",
+      nextHint: "Не создавайте замену и не публикуйте этот файл до независимого QA.",
     };
   }
   const activeTask = tasks.find(
@@ -7014,6 +7044,7 @@ function renderHomeSection(homeState) {
     placements,
     publications,
     payouts,
+    role: state.bootstrap?.membership?.role,
   });
   const firstName = displayProfile().name.split(/\s+/).filter(Boolean)[0] || "Сергей";
   const flowValues = {
