@@ -2706,6 +2706,13 @@ async function handleCreatorGenerate(
       503,
     );
   }
+  if (learningPolicy.generation_allowed === false) {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_rejection_guard_blocked" },
+      409,
+    );
+  }
   const learningSource = startPayload.learning_context.source;
   if (
     learningPolicy.applied &&

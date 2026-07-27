@@ -426,6 +426,11 @@ export function normalizeGenerationLearningPolicy(value) {
     "policy_hash",
     "policyHash",
   ));
+  const generationAllowed = policyField(
+    value,
+    "generation_allowed",
+    "generationAllowed",
+  ) !== false;
   const selectionMode = [
     "performance",
     "quality",
@@ -436,12 +441,14 @@ export function normalizeGenerationLearningPolicy(value) {
     ? cleanText(policyField(value, "selection_mode", "selectionMode"))
     : "performance";
   const applied = value.applied === true
+    && generationAllowed
     && ["medium", "high"].includes(value.confidence)
     && allowedAngles.has(preferredAngle)
     && /^[0-9a-f]{64}$/u.test(policyHash);
   return {
     version: cleanText(value.version),
     applied,
+    generationAllowed,
     confidence: ["none", "low", "medium", "high"].includes(value.confidence)
       ? value.confidence
       : "none",

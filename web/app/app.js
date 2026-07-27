@@ -52,7 +52,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260727.8";
+} from "./content-generation-handoff.js?v=20260727.9";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -7402,6 +7402,10 @@ function syncGenerationFormReadiness(form) {
   const learningReady = !sku || (
     learningStateMatches && state.generationLearning.status === "ready"
   );
+  const learningGenerationAllowed = !sku
+    || normalizeGenerationLearningPolicy(
+      state.generationLearning.data,
+    )?.generationAllowed !== false;
   const learningLoading = Boolean(
     sku && learningStateMatches && state.generationLearning.status === "loading",
   );
@@ -7425,6 +7429,7 @@ function syncGenerationFormReadiness(form) {
       || !readiness.ready
       || !promptReady
       || !learningReady
+      || !learningGenerationAllowed
       || !learningContextBound;
     submit.textContent = busy
       ? sku
@@ -7432,6 +7437,8 @@ function syncGenerationFormReadiness(form) {
         : "Создаём dry-run задачи…"
       : learningLoading
         ? "Проверяем обученное ТЗ без списания…"
+      : sku && !learningGenerationAllowed
+        ? "Автогенерация остановлена после QA"
       : sku && !learningReady
         ? "Повторите проверку обученного ТЗ"
       : sku && !learningContextBound
@@ -12246,6 +12253,10 @@ function generationLearningMarkup(form = null) {
     copy = `Обученный сигнал временно недоступен. Платный запуск приостановлен до безопасной повторной проверки. Код: ${safeDiagnosticCode}.`;
     stateName = "warning";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
+  } else if (current.status === "ready" && policy?.generationAllowed === false) {
+    title = "Автогенерация остановлена";
+    copy = "Все безопасные структуры для этого товара, площадки и модели уже были независимо отклонены. Портал не повторит их и не перейдёт к оплате; выберите другой режим, площадку или товар.";
+    stateName = "warning";
   } else if (disabled && policy?.applied) {
     copy = policy.selectionMode === "bounded_exploration"
       ? `Автотест ракурса «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`
@@ -12255,8 +12266,15 @@ function generationLearningMarkup(form = null) {
     stateName = "baseline";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
   } else if (policy?.applied && policy.selectionMode === "bounded_exploration") {
-    title = "Автотест ракурса назначен";
-    copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.${learnedInstructionCopy}`;
+    const replacedRejectedStructure = policy.reasonCodes.includes(
+      "hard_rejected_structure_replaced",
+    );
+    title = replacedRejectedStructure
+      ? "Отклонённая структура заменена"
+      : "Автотест ракурса назначен";
+    copy = replacedRejectedStructure
+      ? `${generationCreativeAngleLabel(policy.preferredAngle)} · независимый QA окончательно отклонил прежнюю структуру, поэтому система выбрала следующий безопасный вариант и не копировала текст замечаний.${learnedInstructionCopy}`
+      : `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.${learnedInstructionCopy}`;
     stateName = "applied";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied && policy.selectionMode === "quality") {
@@ -12391,6 +12409,12 @@ async function ensureGenerationLearningPolicy(
     || learning.status !== "ready"
   ) {
     throw new Error("generation_learning_unavailable");
+  }
+  if (
+    normalizeGenerationLearningPolicy(learning.data)
+      ?.generationAllowed === false
+  ) {
+    throw new Error("generation_learning_rejection_guard_blocked");
   }
   syncAutomaticGenerationBrief(form, { identity });
   syncContentGenerationHandoff(form);
@@ -13456,11 +13480,19 @@ async function submitRealGeneration(form, values, mode) {
   try {
     await ensureGenerationLearningPolicy(form, identity);
   } catch {
+    const learningBlocked = normalizeGenerationLearningPolicy(
+      state.generationLearning.data,
+    )?.generationAllowed === false;
     if (form.isConnected) {
       setFormBusy(form, false);
       syncGenerationFormReadiness(form);
     }
-    toast("Платный запуск не создан: не удалось безопасно проверить обученное ТЗ. Повторите бесплатную проверку.", "error");
+    toast(
+      learningBlocked
+        ? "Платный запуск не создан: независимый QA уже отклонил все безопасные структуры для этого товара и режима. Выберите другой режим, площадку или товар."
+        : "Платный запуск не создан: не удалось безопасно проверить обученное ТЗ. Повторите бесплатную проверку.",
+      "error",
+    );
     return;
   }
   if (form.isConnected) {
