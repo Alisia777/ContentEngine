@@ -184,6 +184,10 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     || previous?.input
     || {};
   const decisionSource = objectFrom(envelope.decision) || objectFrom(source.decision) || previous?.decision || null;
+  const assignmentSource = objectFrom(
+    source.independent_assignment
+    || envelope.independent_assignment,
+  );
   const mediaSource = objectFrom(envelope.media) || objectFrom(source.media);
   const mediaId = text(
     source.media_id || input.media_id || mediaSource?.id || previous?.mediaId,
@@ -209,6 +213,9 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     summaryOnly: Boolean(!source.result && !envelope.result && (source.result_summary || envelope.result_summary)),
     moderation: objectFrom(source.moderation) || objectFrom(envelope.moderation) || previous?.moderation || null,
     decision: decisionSource ? normalizeDecision(decisionSource) : null,
+    independentAssignment: assignmentSource
+      ? normalizeIndependentAssignment(assignmentSource)
+      : previous?.independentAssignment || null,
     rulesetVersion: text(
       source.ruleset_version || envelope.ruleset_version || result.rulesetVersion || previous?.rulesetVersion,
       180,
@@ -221,6 +228,20 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     createdAt: source.created_at || previous?.createdAt || null,
     updatedAt: source.updated_at || previous?.updatedAt || null,
     completedAt: source.completed_at || source.finished_at || previous?.completedAt || null,
+  };
+}
+
+function normalizeIndependentAssignment(raw) {
+  const status = text(raw.status, 40).toLowerCase();
+  if (!["unassigned", "assigned", "completed", "cancelled"].includes(status)) {
+    return null;
+  }
+  return {
+    status,
+    assignedToMe: raw.assigned_to_me === true,
+    decisionEligible: raw.decision_eligible === true,
+    assignedAt: raw.assigned_at || null,
+    completedAt: raw.completed_at || null,
   };
 }
 
@@ -664,8 +685,22 @@ function reviewResultMarkup(run, canDecide) {
   const result = run.result;
   const compliance = COMPLIANCE_META[result.complianceStatus] || COMPLIANCE_META.human_review;
   const blockers = contentReviewHasBlockers(run);
+  const assignment = run.independentAssignment;
+  const assignmentBlockReason = assignment && !assignment.decisionEligible
+    ? "independent_reviewer_required"
+      : assignment?.status === "assigned" && !assignment.assignedToMe
+        ? "assigned_to_another_reviewer"
+      : assignment && ["unassigned", "cancelled"].includes(assignment.status)
+        ? "independent_reviewer_assignment_required"
+        : assignment?.status === "completed" && !run.decision
+          ? "independent_review_completed"
+      : "";
+  const routedCanDecide = canDecide && !assignmentBlockReason;
   return `
     <article class="content-review-result" data-review-result-id="${escapeHtml(run.id)}">
+      ${assignment?.status === "assigned" && assignment.assignedToMe
+        ? messageMarkup("Эта независимая проверка назначена вам. Просмотрите точный файл и сохраните одно финальное решение.", "success")
+        : ""}
       <header class="card content-review-result__header">
         <div><p class="eyebrow">Проверка завершена</p><h2>${escapeHtml(run.media?.name || "Материал")}</h2><p>${escapeHtml(PLATFORM_LABELS[run.input.platform] || run.input.platform || "Площадка не указана")} · ${escapeHtml(CONTENT_KIND_LABELS[run.input.contentKind] || run.input.contentKind || "Статус не указан")}</p></div>
         <span class="content-review-result__date">${formatDate(run.completedAt || run.updatedAt || run.createdAt)}</span>
@@ -687,7 +722,11 @@ function reviewResultMarkup(run, canDecide) {
       ${result.strengths.length ? `<section class="card content-review-strengths"><p class="eyebrow">Что уже работает</p><ul>${result.strengths.map((item) => `<li><span aria-hidden="true">✓</span>${escapeHtml(item)}</li>`).join("")}</ul></section>` : ""}
       ${findingsMarkup(result.findings)}
       ${recommendationsMarkup(result.recommendations)}
-      ${reviewDecisionMarkup(run, { canDecide, blockers })}
+      ${reviewDecisionMarkup(run, {
+        canDecide: routedCanDecide,
+        blockers,
+        assignmentBlockReason,
+      })}
       ${rulesetMarkup(run)}
     </article>
   `;
@@ -839,7 +878,10 @@ function generatedContextApprovalMarkup(run) {
     </fieldset>`;
 }
 
-function reviewDecisionMarkup(run, { canDecide, blockers }) {
+function reviewDecisionMarkup(
+  run,
+  { canDecide, blockers, assignmentBlockReason = "" },
+) {
   if (run.decision) {
     return `
       <section class="card content-review-decision is-recorded">
@@ -848,6 +890,30 @@ function reviewDecisionMarkup(run, { canDecide, blockers }) {
       </section>`;
   }
   if (!canDecide) {
+    if (assignmentBlockReason === "independent_reviewer_required") {
+      return messageMarkup(
+        "Вы участвовали в создании этого результата. Финальное решение назначается другому руководителю, продюсеру или проверяющему.",
+        "info",
+      );
+    }
+    if (assignmentBlockReason === "assigned_to_another_reviewer") {
+      return messageMarkup(
+        "Независимый QA уже назначен другому участнику. После его решения статус обновится автоматически.",
+        "info",
+      );
+    }
+    if (assignmentBlockReason === "independent_reviewer_assignment_required") {
+      return messageMarkup(
+        "Пока нет другого участника с действующим допуском для независимого QA. Решение безопасно заблокировано; после появления подходящего проверяющего назначение создастся автоматически.",
+        "info",
+      );
+    }
+    if (assignmentBlockReason === "independent_review_completed") {
+      return messageMarkup(
+        "Независимый QA уже завершён через подтверждение точного контекста результата. Повторное решение не требуется.",
+        "success",
+      );
+    }
     return messageMarkup("Результат готов. Зафиксировать финальное решение может руководитель, продюсер или проверяющий.", "info");
   }
   const generatedContextReady = generatedMediaApprovalContextReady(run);

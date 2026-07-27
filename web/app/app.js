@@ -85,7 +85,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260727.9";
+} from "./content-review-view.js?v=20260727.10";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -6825,7 +6825,15 @@ function isAutomaticGenerationWait(task) {
   );
 }
 
-function homeNextAction({ media, batches, tasks, placements, publications, payouts }) {
+function homeNextAction({
+  media,
+  batches,
+  reviews = [],
+  tasks,
+  placements,
+  publications,
+  payouts,
+}) {
   const blockedTask = tasks.find(
     (item) => String(item.status || "") === "blocked" && !isAutomaticGenerationWait(item),
   );
@@ -6838,6 +6846,26 @@ function homeNextAction({ media, batches, tasks, placements, publications, payou
       cta: "Открыть задачи",
       doneWhen: "Причина понятна и решение руководителя сохранено в задаче.",
       nextHint: "Вернитесь к тому же шагу, не начинайте новую работу.",
+    };
+  }
+  const assignedReview = reviews.find((item) => (
+    ["completed", "succeeded", "ready"].includes(
+      String(item.status || "").toLowerCase(),
+    )
+    && !item.decision
+    && item.independentAssignment?.status === "assigned"
+    && item.independentAssignment.assignedToMe
+    && item.independentAssignment.decisionEligible
+  ));
+  if (assignedReview) {
+    return {
+      step: "Назначен независимый QA",
+      title: assignedReview.media?.name || "Примите готовый результат",
+      description: "AI-проверка завершена. Полностью просмотрите точный файл и сохраните одно независимое решение.",
+      href: `#/workspace/review/${assignedReview.id}`,
+      cta: "Открыть точный QA",
+      doneWhen: "Сохранено одобрение, возврат на доработку или отклонение.",
+      nextHint: "После решения портал сам подготовит следующий шаг.",
     };
   }
   const activeTask = tasks.find(
@@ -6978,7 +7006,15 @@ function renderHomeSection(homeState) {
   const activeReviews = reviewRuns.filter((item) => contentReviewStatusKind(item.status) === "active").length;
   const openPlacements = placements.filter(isActionablePlacement).length;
   const waitingPayoutMinor = sumMinor(payouts.filter((item) => ["pending", "approved"].includes(String(item.status || ""))));
-  const action = homeNextAction({ media, batches, tasks, placements, publications, payouts });
+  const action = homeNextAction({
+    media,
+    batches,
+    reviews: reviewRuns,
+    tasks,
+    placements,
+    publications,
+    payouts,
+  });
   const firstName = displayProfile().name.split(/\s+/).filter(Boolean)[0] || "Сергей";
   const flowValues = {
     media: `${media.length}`,
