@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.10";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.11";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -24,6 +24,9 @@ import {
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
 } from "./generation-spend-view.js?v=20260725.1";
+import {
+  generationModelAcceptanceMarkup,
+} from "./generation-model-acceptance-view.js?v=20260727.1";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -928,6 +931,13 @@ const state = {
     updatedAt: 0,
     saving: false,
   },
+  generationModelAcceptance: {
+    status: "idle",
+    data: null,
+    error: null,
+    requestId: 0,
+    updatedAt: 0,
+  },
   generationLearning: {
     status: "idle",
     data: null,
@@ -1632,6 +1642,19 @@ function bindGlobalEvents() {
     state.route = parseRoute();
     state.workspaceDeepLinkFocusKey = "";
     if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
+    if (
+      state.route.path === "/workspace/generation"
+      && (
+        !state.generationModelAcceptance.updatedAt
+        || Date.now() - state.generationModelAcceptance.updatedAt
+          > MANAGER_DASHBOARD_MAX_AGE_MS
+      )
+      && !["loading", "refreshing"].includes(
+        state.generationModelAcceptance.status,
+      )
+    ) {
+      state.generationModelAcceptance.status = "idle";
+    }
     if (state.route.path !== "/workspace/research") stopProductResearchPolling();
     if (state.route.path !== "/workspace/review") stopContentReviewPolling();
     if (
@@ -1915,6 +1938,11 @@ async function loadBootstrap() {
       state.generationSpend.notice = "";
       state.generationSpend.updatedAt = 0;
       state.generationSpend.saving = false;
+      state.generationModelAcceptance.requestId += 1;
+      state.generationModelAcceptance.status = "idle";
+      state.generationModelAcceptance.data = null;
+      state.generationModelAcceptance.error = null;
+      state.generationModelAcceptance.updatedAt = 0;
       state.accessCenter.requestId += 1;
       state.accessCenter.status = "idle";
       state.accessCenter.email = "";
@@ -6634,6 +6662,57 @@ async function loadGenerationSpendOverview({ silent = false, force = false } = {
   }
 }
 
+async function loadGenerationModelAcceptance({
+  silent = false,
+  force = false,
+} = {}) {
+  const target = state.generationModelAcceptance;
+  if (
+    !hasWorkspaceAccess()
+    || (!force && ["loading", "refreshing"].includes(target.status))
+  ) return target.data;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data ? "refreshing" : "loading";
+  target.error = null;
+  if (!silent && state.route.path === "/workspace/generation") render();
+  try {
+    const raw = await withUiTimeout(
+      state.api.generationModelAcceptance(),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "generation_model_acceptance_timeout",
+    );
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestId !== target.requestId
+    ) return target.data;
+    target.data = raw?.data ?? raw ?? {};
+    target.status = "ready";
+    target.error = null;
+    target.updatedAt = Date.now();
+    return target.data;
+  } catch (error) {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestId !== target.requestId
+    ) return target.data;
+    target.error = error;
+    target.status = "error";
+    return target.data;
+  } finally {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && requestId === target.requestId
+      && state.route.path === "/workspace/generation"
+    ) render();
+  }
+}
+
 async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
   if (!data || typeof data !== "object") return data;
   const listKeys = ["media", "media_items", "items", "artifacts"];
@@ -7449,6 +7528,11 @@ function renderGenerationSection(sectionState) {
   if (state.generationSpend.status === "idle") {
     window.queueMicrotask(() => loadGenerationSpendOverview({ silent: true }));
   }
+  if (state.generationModelAcceptance.status === "idle") {
+    window.queueMicrotask(() =>
+      loadGenerationModelAcceptance({ silent: true })
+    );
+  }
   const canManageAliases = ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
@@ -7510,6 +7594,9 @@ function renderGenerationSection(sectionState) {
             handoff,
             handoffEvaluation,
             handoffModeResolution,
+          )}
+          ${generationModelAcceptanceMarkup(
+            state.generationModelAcceptance,
           )}
           ${generationSpendSnapshotMarkup(state.generationSpend, {
             requestMinor: Math.min(
@@ -11128,6 +11215,9 @@ async function handleClick(event) {
         state.generationArchive.error = "";
         state.generationArchive.nextCursor = null;
         state.generationArchive.serverLoaded = false;
+        state.generationModelAcceptance.requestId += 1;
+        state.generationModelAcceptance.status = "idle";
+        state.generationModelAcceptance.error = null;
       }
       state.sections[section].requestId += 1;
       state.sections[section].status = "idle";
@@ -14690,6 +14780,14 @@ async function submitContentReviewDecision(form, submitter) {
     review.notice = contextApproval
       ? `${review.record?.media?.isVideo ? "Видео" : "Фото"} одобрено: AI-результат использован повторно без нового внешнего вызова, рекламный контекст и решение сохранены неизменяемо.`
       : "Неизменяемое решение сохранено. Для исправленного файла создайте новую проверку.";
+    if (["generated_video", "generated_image"].includes(
+      String(review.record?.media?.kind || ""),
+    )) {
+      state.generationModelAcceptance.requestId += 1;
+      state.generationModelAcceptance.status = "idle";
+      state.generationModelAcceptance.error = null;
+      state.generationModelAcceptance.updatedAt = 0;
+    }
     try {
       const [freshStatus, freshCatalog] = await Promise.all([
         state.api.contentReviewStatus(decidedReviewId),
@@ -15025,6 +15123,11 @@ function clearAuthenticatedState() {
   state.generationSpend.notice = "";
   state.generationSpend.updatedAt = 0;
   state.generationSpend.saving = false;
+  state.generationModelAcceptance.requestId += 1;
+  state.generationModelAcceptance.status = "idle";
+  state.generationModelAcceptance.data = null;
+  state.generationModelAcceptance.error = null;
+  state.generationModelAcceptance.updatedAt = 0;
   state.generationLearning.requestId += 1;
   state.generationLearning.status = "idle";
   state.generationLearning.data = null;

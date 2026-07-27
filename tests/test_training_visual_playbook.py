@@ -539,8 +539,8 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
     assert 'aria-current="page"' in APP
     assert 'aria-controls="mobile-navigation"' in APP
 
-    assert './styles.css?v=20260726.6' in INDEX
+    assert './styles.css?v=20260727.7' in INDEX
     assert './config.js?v=20260716.2' in INDEX
-    assert './app.js?v=20260727.18' in INDEX
-    assert './supabase-api.js?v=20260727.10' in APP
+    assert './app.js?v=20260727.19' in INDEX
+    assert './supabase-api.js?v=20260727.11' in APP
     assert './catalog.js?v=20260724.1' in APP

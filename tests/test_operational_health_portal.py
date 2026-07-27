@@ -119,7 +119,10 @@ def test_refreshing_card_has_precise_copy_busy_state_and_disabled_retry() -> Non
 
 
 def test_dashboard_and_health_fail_independently_and_refresh_together() -> None:
-    loader = APP[APP.index("async function loadManagerDashboard") : APP.index("async function hydratePrivateMedia")]
+    loader = APP[
+        APP.index("async function loadManagerDashboard"):
+        APP.index("async function loadGenerationModelAcceptance")
+    ]
     assert "Promise.allSettled" in loader
     assert "const dashboardRequest" in loader
     assert "const healthRequest" in loader
@@ -157,6 +160,6 @@ def test_operational_card_is_responsive_theme_aware_and_cache_busted() -> None:
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260727.18' in INDEX
-    assert './supabase-api.js?v=20260727.10' in APP
+    assert './app.js?v=20260727.19' in INDEX
+    assert './supabase-api.js?v=20260727.11' in APP
     assert 'from "./manager-dashboard-view.js?v=20260718.1"' in APP

@@ -36,6 +36,7 @@ export const RPC = Object.freeze({
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
+  generationModelAcceptance: "creator_generation_model_acceptance",
   updateGenerationSpendPolicy: "creator_update_generation_spend_policy",
   createGenerationCampaign: "creator_create_generation_campaign",
   updateGenerationCampaignSpendPolicy: "creator_update_generation_campaign_spend_policy",
@@ -522,6 +523,13 @@ export class CreatorApi {
 
   generationSpendOverview() {
     return this.call(RPC.generationSpendOverview, this.withOrganization({}));
+  }
+
+  generationModelAcceptance() {
+    return this.call(
+      RPC.generationModelAcceptance,
+      this.withOrganization({}),
+    );
   }
 
   updateGenerationSpendPolicy(policy = {}) {
