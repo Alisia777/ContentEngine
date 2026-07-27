@@ -63,13 +63,10 @@ begin
     lower(btrim(coalesce(p_payload ->> 'model', '')));
   requested_model_value := base_policy ->> 'requested_model';
   selected_angle_value := base_policy ->> 'preferred_angle';
-  selected_patterns_value := case
-    when model_value = 'seedream5_lite' then '[]'::jsonb
-    else coalesce(
-      base_policy -> 'preferred_hook_patterns',
-      '[]'::jsonb
-    )
-  end;
+  selected_patterns_value := coalesce(
+    base_policy -> 'preferred_hook_patterns',
+    '[]'::jsonb
+  );
 
   select media.product_id into product_id_value
   from content_factory.media_objects media
@@ -151,26 +148,17 @@ begin
         ('product_focus'::text, '[]'::jsonb, 1),
         (
           'demonstration'::text,
-          case
-            when model_value = 'seedream5_lite' then '[]'::jsonb
-            else '["demonstration"]'::jsonb
-          end,
+          '["demonstration"]'::jsonb,
           2
         ),
         (
           'trust_builder'::text,
-          case
-            when model_value = 'seedream5_lite' then '[]'::jsonb
-            else '["first_person"]'::jsonb
-          end,
+          '["first_person"]'::jsonb,
           3
         ),
         (
           'objection_handling'::text,
-          case
-            when model_value = 'seedream5_lite' then '[]'::jsonb
-            else '["before_buying"]'::jsonb
-          end,
+          '["before_buying"]'::jsonb,
           4
         )
     ),
@@ -427,47 +415,59 @@ revoke all on function public.creator_generation_learning_policy(jsonb)
 grant execute on function public.creator_generation_learning_policy(jsonb)
   to authenticated;
 
--- Edge checks the same flag, but the database is the final paid-state
--- boundary.  Recompute the policy here for every start, including an opt-out,
--- so a stale or malicious browser cannot spend after all safe structures were
--- independently rejected.
-alter function public.creator_start_real_generation(jsonb)
-  set schema content_factory_private;
-alter function content_factory_private.creator_start_real_generation(jsonb)
-  rename to creator_start_real_generation_pre_rejection_guard_v9;
-
-revoke all on function
-  content_factory_private
-    .creator_start_real_generation_pre_rejection_guard_v9(jsonb)
-  from public, anon, authenticated, service_role;
-
-create or replace function public.creator_start_real_generation(
-  p_payload jsonb default '{}'::jsonb
-)
-returns jsonb
+-- Edge checks the same flag, but PostgreSQL is the final paid-state boundary.
+-- Run the same resolver in a BEFORE INSERT trigger after the existing command
+-- has completed all payload, identity, rights, training and budget checks.
+-- Raising here rolls back the batch, task and spend reservation in the same
+-- transaction, and the Edge function has not contacted the provider yet.
+create or replace function
+  content_factory_private.guard_generation_rejection_before_paid_job()
+returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
 #variable_conflict use_variable
 declare
-  organization_id uuid;
   server_policy jsonb;
+  input_media_id_value text;
+  model_value text;
+  platform_value text;
 begin
-  p_payload := content_factory_private.require_payload(p_payload);
-  organization_id :=
-    content_factory_private.resolve_organization(p_payload);
-  perform content_factory_private.membership_role(
-    organization_id,
-    true,
-    array['owner', 'admin', 'producer', 'operator']
-  );
+  if new.mode <> 'real'
+     or new.provider <> 'runway'
+     or not new.allow_real_spend
+     or auth.uid() is null
+     or new.requested_by is distinct from auth.uid() then
+    return new;
+  end if;
+
+  input_media_id_value := btrim(coalesce(
+    new.input ->> 'input_media_id',
+    ''
+  ));
+  model_value := lower(btrim(coalesce(new.input ->> 'model', '')));
+  platform_value := lower(btrim(coalesce(
+    new.input ->> 'platform',
+    ''
+  )));
+  if input_media_id_value !~
+       '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+     or model_value not in (
+       'gen4_turbo', 'seedance2_fast', 'seedream5_lite'
+     )
+     or platform_value not in (
+       'tiktok', 'youtube', 'vk', 'telegram', 'wildberries'
+     ) then
+    return new;
+  end if;
+
   server_policy := public.creator_generation_learning_policy(
     jsonb_build_object(
-      'organization_id', organization_id,
-      'media_id', p_payload #>> '{media_ids,0}',
-      'platform', p_payload ->> 'platform',
-      'model', p_payload ->> 'model'
+      'organization_id', new.organization_id,
+      'media_id', input_media_id_value,
+      'platform', platform_value,
+      'model', model_value
     )
   );
   if server_policy -> 'generation_allowed' = 'false'::jsonb then
@@ -475,15 +475,20 @@ begin
       errcode = '55000',
       message = 'generation_learning_rejection_guard_blocked';
   end if;
-  return content_factory_private
-    .creator_start_real_generation_pre_rejection_guard_v9(p_payload);
+  return new;
 end;
 $$;
 
-revoke all on function public.creator_start_real_generation(jsonb)
-  from public, anon;
-grant execute on function public.creator_start_real_generation(jsonb)
-  to authenticated;
+revoke all on function
+  content_factory_private.guard_generation_rejection_before_paid_job()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists zz_generation_rejection_paid_guard
+  on content_factory.generation_jobs;
+create trigger zz_generation_rejection_paid_guard
+before insert on content_factory.generation_jobs
+for each row execute function
+  content_factory_private.guard_generation_rejection_before_paid_job();
 
 notify pgrst, 'reload schema';
 

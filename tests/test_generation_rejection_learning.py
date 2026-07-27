@@ -160,7 +160,12 @@ def test_exhaustion_is_blocked_in_browser_edge_and_database_before_spend() -> No
     assert edge_guard < edge_provider_state
 
     for token in (
-        "creator_start_real_generation_pre_rejection_guard_v9",
+        "guard_generation_rejection_before_paid_job",
+        "before insert on content_factory.generation_jobs",
+        "new.mode <> 'real'",
+        "new.provider <> 'runway'",
+        "not new.allow_real_spend",
+        "new.input ->> 'input_media_id'",
         "server_policy -> 'generation_allowed' = 'false'::jsonb",
         "message = 'generation_learning_rejection_guard_blocked'",
         "'paid_start_fails_closed_when_structures_exhausted', true",

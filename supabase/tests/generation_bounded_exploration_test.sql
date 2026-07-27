@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(22);
+select plan(24);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -286,6 +286,31 @@ select ok(
     'execute'
   ),
   'authenticated users retain the single audited public policy RPC'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    join pg_catalog.pg_class table_row
+      on table_row.oid = trigger_row.tgrelid
+    join pg_catalog.pg_namespace namespace_row
+      on namespace_row.oid = table_row.relnamespace
+    where namespace_row.nspname = 'content_factory'
+      and table_row.relname = 'generation_jobs'
+      and trigger_row.tgname = 'zz_generation_rejection_paid_guard'
+      and not trigger_row.tgisinternal
+  ),
+  'paid generation inserts retain the database rejection guard'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'content_factory_private.guard_generation_rejection_before_paid_job()',
+    'execute'
+  ),
+  'the paid rejection trigger implementation remains private'
 );
 
 insert into auth.users (
@@ -573,8 +598,8 @@ select is(
 
 select is(
   (select policy ->> 'version' from quality_learning_policy),
-  'generation-learning-v4',
-  'recurring structured weaknesses activate the guard-learning policy'
+  'generation-learning-v6',
+  'recurring structured weaknesses also pass the rejection-learning layer'
 );
 
 select is(
