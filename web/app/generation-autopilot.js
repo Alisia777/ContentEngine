@@ -17,6 +17,10 @@ const GENERATION_FALLBACK_PRIORITY = Object.freeze({
   real_seedance: 1,
   real_photo: 2,
 });
+const GENERATION_LEARNING_RETRY_DELAYS_MS = Object.freeze([
+  1_000,
+  3_000,
+]);
 const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 
 export function chooseInitialGenerationMedia(items, { real = false } = {}) {
@@ -234,6 +238,17 @@ export function resolveGenerationLearningFallback({
     accepted: selected.accepted,
     estimatedMinor: selected.estimatedMinor,
   };
+}
+
+export function generationLearningRetryDelay(attempt) {
+  const normalizedAttempt = Number(attempt);
+  if (
+    !Number.isSafeInteger(normalizedAttempt)
+    || normalizedAttempt < 1
+  ) return null;
+  return GENERATION_LEARNING_RETRY_DELAYS_MS[
+    normalizedAttempt - 1
+  ] ?? null;
 }
 
 export function generationPreflightDecision(entry = {}, {

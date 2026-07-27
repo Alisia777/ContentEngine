@@ -66,12 +66,13 @@ import {
 } from "./generation-form-draft.js?v=20260727.1";
 import {
   chooseInitialGenerationMedia,
+  generationLearningRetryDelay,
   generationPreflightDecision,
   resolveGenerationDestination,
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260727.4";
+} from "./generation-autopilot.js?v=20260727.5";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -949,6 +950,10 @@ const state = {
     disabledKey: "",
     promise: null,
     recovery: null,
+    retryTimer: null,
+    retryKey: "",
+    retryAttempt: 0,
+    retryAt: 0,
   },
   generationRepair: readStoredGenerationRepair(),
   generationPreflight: {
@@ -1969,6 +1974,15 @@ async function loadBootstrap() {
       state.generationModelAcceptance.data = null;
       state.generationModelAcceptance.error = null;
       state.generationModelAcceptance.updatedAt = 0;
+      state.generationLearning.requestId += 1;
+      clearGenerationLearningRetry();
+      state.generationLearning.status = "idle";
+      state.generationLearning.data = null;
+      state.generationLearning.error = null;
+      state.generationLearning.key = "";
+      state.generationLearning.disabledKey = "";
+      state.generationLearning.promise = null;
+      state.generationLearning.recovery = null;
       state.accessCenter.requestId += 1;
       state.accessCenter.status = "idle";
       state.accessCenter.email = "";
@@ -12264,7 +12278,9 @@ function generationLearningMarkup(form = null) {
     const safeDiagnosticCode = /^[a-z0-9_]{3,96}$/iu.test(diagnosticCode)
       ? diagnosticCode
       : "generation_learning_unavailable";
-    copy = `Обученный сигнал временно недоступен. Платный запуск приостановлен до безопасной повторной проверки. Код: ${safeDiagnosticCode}.`;
+    copy = current.retryAt > Date.now()
+      ? `Обученный сигнал временно недоступен. Портал сам повторит бесплатную проверку; платный запуск остаётся приостановлен. Код: ${safeDiagnosticCode}.`
+      : `Обученный сигнал временно недоступен после трёх безопасных попыток. Платный запуск приостановлен; повторите бесплатную проверку вручную. Код: ${safeDiagnosticCode}.`;
     stateName = "warning";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
   } else if (current.status === "ready" && policy?.generationAllowed === false) {
@@ -12331,6 +12347,49 @@ function syncGenerationRepairStatus(form) {
   const wrapper = document.createElement("div");
   wrapper.innerHTML = markup;
   if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
+}
+
+function clearGenerationLearningRetry({ resetAttempt = true } = {}) {
+  const learning = state.generationLearning;
+  if (learning.retryTimer !== null) {
+    window.clearTimeout(learning.retryTimer);
+  }
+  learning.retryTimer = null;
+  learning.retryAt = 0;
+  if (resetAttempt) {
+    learning.retryKey = "";
+    learning.retryAttempt = 0;
+  }
+}
+
+function scheduleGenerationLearningRetry(key) {
+  const learning = state.generationLearning;
+  const delay = generationLearningRetryDelay(learning.retryAttempt);
+  if (delay === null || learning.key !== key) return false;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  learning.retryAt = Date.now() + delay;
+  learning.retryTimer = window.setTimeout(() => {
+    learning.retryTimer = null;
+    learning.retryAt = 0;
+    const form = document.querySelector("#mock-batch-form");
+    const identity = selectedGenerationProductIdentity(form);
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || !form?.isConnected
+      || generationLearningKey(form, identity) !== key
+      || learning.key !== key
+    ) {
+      clearGenerationLearningRetry();
+      return;
+    }
+    void loadGenerationLearningPolicy(form, identity, {
+      force: true,
+      automaticRetry: true,
+    });
+  }, delay);
+  return true;
 }
 
 async function prepareGenerationLearningFallback(
@@ -12516,7 +12575,7 @@ async function prepareGenerationLearningFallback(
 async function loadGenerationLearningPolicy(
   form,
   identity = selectedGenerationProductIdentity(form),
-  { force = false } = {},
+  { force = false, automaticRetry = false } = {},
 ) {
   const key = generationLearningKey(form, identity);
   const sku = realGenerationSku(form?.elements?.generation_mode?.value);
@@ -12529,14 +12588,25 @@ async function loadGenerationLearningPolicy(
   if (
     !force
     && learning.key === key
-    && ["loading", "ready"].includes(learning.status)
+    && ["loading", "ready", "error"].includes(learning.status)
   ) {
     syncGenerationLearningStatus(form);
     if (learning.status === "loading" && learning.promise) {
       return await learning.promise;
     }
-    return learning.data;
+    return learning.status === "ready" ? learning.data : null;
   }
+  const continueRetrySeries = Boolean(
+    automaticRetry && learning.retryKey === key,
+  );
+  clearGenerationLearningRetry({
+    resetAttempt: !continueRetrySeries,
+  });
+  if (!continueRetrySeries) {
+    learning.retryKey = key;
+    learning.retryAttempt = 0;
+  }
+  learning.retryAttempt += 1;
   const requestId = learning.requestId + 1;
   learning.requestId = requestId;
   learning.key = key;
@@ -12549,11 +12619,15 @@ async function loadGenerationLearningPolicy(
   const pending = (async () => {
     let raw;
     try {
-      raw = await state.api.generationLearningPolicy({
-        mediaId: identity.mediaId,
-        platform,
-        model: sku.model,
-      });
+      raw = await withUiTimeout(
+        state.api.generationLearningPolicy({
+          mediaId: identity.mediaId,
+          platform,
+          model: sku.model,
+        }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "generation_learning_policy_timeout",
+      );
       if (
         requestId !== learning.requestId
         || learning.key !== key
@@ -12564,10 +12638,12 @@ async function loadGenerationLearningPolicy(
       learning.status = "error";
       learning.error = error;
       learning.data = null;
+      scheduleGenerationLearningRetry(key);
       syncGenerationLearningStatus(form);
       syncGenerationFormReadiness(form);
       return null;
     }
+    clearGenerationLearningRetry();
     const rawPolicy = raw?.data ?? raw ?? {};
     if (
       normalizeGenerationLearningPolicy(rawPolicy)
@@ -15575,6 +15651,7 @@ function clearAuthenticatedState() {
   state.generationModelAcceptance.error = null;
   state.generationModelAcceptance.updatedAt = 0;
   state.generationLearning.requestId += 1;
+  clearGenerationLearningRetry();
   state.generationLearning.status = "idle";
   state.generationLearning.data = null;
   state.generationLearning.error = null;
