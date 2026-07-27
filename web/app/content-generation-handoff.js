@@ -409,6 +409,8 @@ export function normalizeGenerationLearningPolicy(value) {
   const allowedQualityGuards = new Set([
     "product_fidelity",
     "technical_stability",
+    "audio_quality",
+    "speech_fidelity",
     "hook_clarity",
     "visual_quality",
     "trust",
@@ -534,6 +536,8 @@ export function normalizeGenerationRepairPolicy(value) {
   const allowedGuardCodes = new Set([
     "product_fidelity",
     "technical_stability",
+    "audio_quality",
+    "speech_fidelity",
     "hook_clarity",
     "visual_quality",
     "trust",
@@ -622,6 +626,13 @@ export function normalizeGenerationRepairPolicy(value) {
     && destinationRef.length <= 240
     && guardCodes.length >= 1
     && guardCodes.length <= 3
+    && (
+      model === "seedance2_fast"
+      || !guardCodes.some((code) => [
+        "audio_quality",
+        "speech_fidelity",
+      ].includes(code))
+    )
     && Object.keys(scoreSnapshot).length === 6
     && hashPattern.test(policyHash)
     && hashPattern.test(sourceReviewCompletionHash)
@@ -713,6 +724,8 @@ function generationLearningDirection(value, mode, repairValue = null) {
   const videoQualityGuards = {
     product_fidelity: "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
     technical_stability: "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+    audio_quality: "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
+    speech_fidelity: "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
     hook_clarity: "QA: точный товар и одно действие видны в первые 2 секунды.",
     visual_quality: "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
     trust: "QA: естественная подача без гиперболы и новых обещаний.",
@@ -725,6 +738,9 @@ function generationLearningDirection(value, mode, repairValue = null) {
   const qualityDirections = qualityGuardCodes.map((code) => (
     mode === REAL_PHOTO_MODE
       ? photoQualityGuards[code]
+      : ["audio_quality", "speech_fidelity"].includes(code)
+        && mode !== REAL_SEEDANCE_MODE
+      ? undefined
       : videoQualityGuards[code]
   )).filter(Boolean);
   return [angleDirection, hookDirection, ...qualityDirections]

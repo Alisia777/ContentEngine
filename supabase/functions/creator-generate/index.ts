@@ -284,6 +284,8 @@ type GenerationRepairContext = {
   guard_codes: (
     | "product_fidelity"
     | "technical_stability"
+    | "audio_quality"
+    | "speech_fidelity"
     | "hook_clarity"
     | "visual_quality"
     | "trust"
@@ -848,6 +850,8 @@ function readGenerationRepairContext(
   const validGuardCodes = new Set([
     "product_fidelity",
     "technical_stability",
+    "audio_quality",
+    "speech_fidelity",
     "hook_clarity",
     "visual_quality",
     "trust",
@@ -959,6 +963,10 @@ function generationLearningPromptRequirements(
         "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
       technical_stability:
         "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+      audio_quality:
+        "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
+      speech_fidelity:
+        "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
       hook_clarity:
         "QA: точный товар и одно действие видны в первые 2 секунды.",
       visual_quality:
@@ -968,6 +976,10 @@ function generationLearningPromptRequirements(
     };
   for (const guardCode of guardCodes) {
     if (typeof guardCode !== "string") return null;
+    if (
+      ["audio_quality", "speech_fidelity"].includes(guardCode) &&
+      model !== "seedance2_fast"
+    ) return null;
     const requirement =
       guardRequirements[guardCode as keyof typeof guardRequirements];
     if (typeof requirement !== "string") return null;
@@ -1017,6 +1029,10 @@ function generationRepairPromptRequirements(
         "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
       technical_stability:
         "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+      audio_quality:
+        "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
+      speech_fidelity:
+        "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
       hook_clarity:
         "QA: точный товар и одно действие видны в первые 2 секунды.",
       visual_quality:
@@ -1027,6 +1043,10 @@ function generationRepairPromptRequirements(
   const result: string[] = [];
   for (const code of guardCodes) {
     if (typeof code !== "string") return null;
+    if (
+      ["audio_quality", "speech_fidelity"].includes(code) &&
+      model !== "seedance2_fast"
+    ) return null;
     const requirement = requirements[code as keyof typeof requirements];
     if (typeof requirement !== "string") return null;
     result.push(requirement);

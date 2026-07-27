@@ -49,7 +49,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260726.7";
+} from "./content-generation-handoff.js?v=20260727.8";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
