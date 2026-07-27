@@ -392,13 +392,14 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
         ROOT / "supabase/test-fixtures/training_assessment_v5_keys.sql"
     ).read_text(encoding="utf-8").casefold()
     assert "'creator_submit_course_check'" in creator
-    assert creator.count("\n  56,\n") >= 2
+    assert creator.count("\n  57,\n") >= 2
     assert "'creator_save_practical_project'" in creator
     assert "'creator_decide_practical_project'" in creator
     assert "'creator_submit_platform_simulator'" in creator
     assert "'creator_generation_media_identity'" in creator
     assert "'creator_generation_learning_policy'" in creator
     assert "'creator_generation_repair_policy'" in creator
+    assert "'creator_generation_model_acceptance'" in creator
     assert "perform public.creator_submit_course_check" in creator
     assert "perform public.creator_submit_platform_simulator" in creator
     assert "'pgtap-course-check-' || module_row.code" in creator
