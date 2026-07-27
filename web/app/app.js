@@ -85,7 +85,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260727.10";
+} from "./content-review-view.js?v=20260727.11";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -1192,6 +1192,29 @@ function persistGenerationRepair(policy) {
       policy,
     }),
   );
+}
+
+async function loadGenerationRepairForReview(reviewId) {
+  const normalizedReviewId = String(reviewId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedReviewId)) {
+    throw new Error("generation_repair_review_invalid");
+  }
+  const repairRaw = await state.api.generationRepairPolicy(
+    normalizedReviewId,
+  );
+  const repairPolicy = normalizeGenerationRepairPolicy(
+    repairRaw?.data ?? repairRaw,
+  );
+  if (!repairPolicy?.applied) {
+    clearGenerationRepair();
+    return null;
+  }
+  state.generationRepair.status = "ready";
+  state.generationRepair.data = repairRaw?.data ?? repairRaw;
+  state.generationRepair.error = null;
+  persistGenerationRepair(state.generationRepair.data);
+  state.sections.generation.status = "idle";
+  return repairPolicy;
 }
 
 function clearGenerationRepair() {
@@ -6898,6 +6921,25 @@ function homeNextAction({
       nextHint: "Не создавайте замену и не публикуйте этот файл до независимого QA.",
     };
   }
+  const availableRepair = reviews.find((item) => (
+    item.repairNextAction?.status === "available"
+  ));
+  if (availableRepair) {
+    const canPrepare = availableRepair.repairNextAction.canPrepare;
+    return {
+      step: "QA вернул на доработку",
+      title: availableRepair.media?.name || "Подготовьте исправленную версию",
+      description: canPrepare
+        ? "Сервер восстановит точный исходник, модель, площадку и безопасные QA-ограничения. Платный запуск не произойдёт без нового подтверждения цены."
+        : "Решение сохранено. Исправление должен подготовить создатель результата или руководитель; комментарий проверяющего не переносится в промпт.",
+      href: `#/workspace/review/${availableRepair.id}`,
+      controlAction: canPrepare ? "prepare-generation-repair" : "",
+      reviewId: availableRepair.id,
+      cta: canPrepare ? "Подготовить исправление" : "Открыть решение QA",
+      doneWhen: "Repair-форма открыта с точным исходником и пустым подтверждением цены.",
+      nextHint: "Проверьте авто-ТЗ и подтвердите стоимость только для одного исправления.",
+    };
+  }
   const activeTask = tasks.find(
     (item) => !["done", "cancelled", "blocked"].includes(String(item.status || "")) && !isAutomaticGenerationWait(item),
   );
@@ -7073,7 +7115,9 @@ function renderHomeSection(homeState) {
                 <h2>${escapeHtml(action.title)}</h2>
                 <p>${escapeHtml(action.description)}</p>
               </div>
-              <a class="btn btn-light" href="${action.href}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>
+              ${action.controlAction
+                ? `<button class="btn btn-light" type="button" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
+                : `<a class="btn btn-light" href="${action.href}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>`}
             </div>
             <div class="home-next-action-proof">
               <span><small>Готово, когда</small><strong>${escapeHtml(action.doneWhen)}</strong></span>
@@ -10919,6 +10963,37 @@ async function handleClick(event) {
         : "Обученный ракурс снова применён к безопасному ТЗ.",
       "success",
     );
+    return;
+  }
+
+  if (action === "prepare-generation-repair") {
+    const reviewId = String(control.dataset.reviewId || "").trim().toLowerCase();
+    if (!contentReviewUuid(reviewId)) {
+      toast("Не удалось определить исходное QA-решение. Обновите страницу.", "error");
+      return;
+    }
+    control.disabled = true;
+    try {
+      const repairPolicy = await loadGenerationRepairForReview(reviewId);
+      if (!repairPolicy?.applied) {
+        toast(
+          "Для этого решения нет безопасного структурного исправления. Нужен новый материал или отдельное решение руководителя.",
+          "info",
+        );
+        return;
+      }
+      navigate("/workspace/generation");
+      toast(
+        "Исправление восстановлено. Проверьте авто-ТЗ и отдельно подтвердите цену одного запуска.",
+        "success",
+      );
+    } catch (error) {
+      state.generationRepair.status = "error";
+      state.generationRepair.error = error;
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
     return;
   }
 
@@ -14950,16 +15025,8 @@ async function submitContentReviewDecision(form, submitter) {
     });
     if (!contextApproval && decision.decision === "needs_changes") {
       try {
-        const repairRaw = await state.api.generationRepairPolicy(reviewId);
-        const repairPolicy = normalizeGenerationRepairPolicy(
-          repairRaw?.data ?? repairRaw,
-        );
+        const repairPolicy = await loadGenerationRepairForReview(reviewId);
         if (repairPolicy?.applied) {
-          state.generationRepair.status = "ready";
-          state.generationRepair.data = repairRaw?.data ?? repairRaw;
-          state.generationRepair.error = null;
-          persistGenerationRepair(state.generationRepair.data);
-          state.sections.generation.status = "idle";
           review.notice = "Решение сохранено. Безопасное исправление подготовлено: исходник, режим и площадка уже выбраны; стоимость нужно подтвердить отдельно.";
           if (["owner", "admin", "producer", "operator"].includes(
             state.bootstrap?.membership?.role,

@@ -239,6 +239,55 @@ def test_home_action_surfaces_unassigned_generated_media_qa() -> None:
     assert reviewer["cta"] == "Открыть статус QA"
 
 
+def test_home_action_restores_exact_generation_repair() -> None:
+    base = {
+        "media": [{"id": "media-1"}],
+        "batches": [],
+        "reviews": [
+            {
+                "id": "review-2",
+                "status": "completed",
+                "media": {"name": "seedream-result.png"},
+                "decision": {"decision": "needs_changes"},
+                "repairNextAction": {
+                    "status": "available",
+                    "canPrepare": True,
+                    "startedAt": None,
+                },
+            }
+        ],
+        "tasks": [],
+        "placements": [],
+        "publications": [],
+        "payouts": [],
+        "role": "producer",
+    }
+
+    repair = _run_home_next_action(base)
+    assert repair["step"] == "QA вернул на доработку"
+    assert repair["controlAction"] == "prepare-generation-repair"
+    assert repair["reviewId"] == "review-2"
+    assert repair["cta"] == "Подготовить исправление"
+    assert "пустым подтверждением цены" in repair["doneWhen"]
+
+    waiting = _run_home_next_action({
+        **base,
+        "reviews": [
+            {
+                **base["reviews"][0],
+                "repairNextAction": {
+                    "status": "available",
+                    "canPrepare": False,
+                    "startedAt": None,
+                },
+            }
+        ],
+        "role": "reviewer",
+    })
+    assert waiting["controlAction"] == ""
+    assert waiting["href"] == "#/workspace/review/review-2"
+
+
 def test_learning_home_has_one_explicit_mandatory_next_step() -> None:
     learning = _between(APP, "function renderLearningHome", "function renderAccountLaunch")
 

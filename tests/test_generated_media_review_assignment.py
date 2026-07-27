@@ -139,6 +139,10 @@ def test_home_prioritizes_exact_assigned_review() -> None:
         "QA ожидает проверяющего",
         "Добавьте или восстановите независимого проверяющего",
         "Не создавайте замену и не публикуйте этот файл",
+        "const availableRepair",
+        "QA вернул на доработку",
+        "prepare-generation-repair",
+        "Платный запуск не произойдёт без нового подтверждения цены",
     ):
         assert token in home
     assert home.index("const assignedReview") < home.index("const activeTask")

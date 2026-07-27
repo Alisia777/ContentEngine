@@ -188,6 +188,10 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     source.independent_assignment
     || envelope.independent_assignment,
   );
+  const repairNextActionSource = objectFrom(
+    source.repair_next_action
+    || envelope.repair_next_action,
+  );
   const mediaSource = objectFrom(envelope.media) || objectFrom(source.media);
   const mediaId = text(
     source.media_id || input.media_id || mediaSource?.id || previous?.mediaId,
@@ -216,6 +220,9 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     independentAssignment: assignmentSource
       ? normalizeIndependentAssignment(assignmentSource)
       : previous?.independentAssignment || null,
+    repairNextAction: repairNextActionSource
+      ? normalizeGenerationRepairNextAction(repairNextActionSource)
+      : previous?.repairNextAction || null,
     rulesetVersion: text(
       source.ruleset_version || envelope.ruleset_version || result.rulesetVersion || previous?.rulesetVersion,
       180,
@@ -242,6 +249,18 @@ function normalizeIndependentAssignment(raw) {
     decisionEligible: raw.decision_eligible === true,
     assignedAt: raw.assigned_at || null,
     completedAt: raw.completed_at || null,
+  };
+}
+
+function normalizeGenerationRepairNextAction(raw) {
+  const status = text(raw.status, 40).toLowerCase();
+  if (!["available", "started", "in_progress", "succeeded", "failed"].includes(status)) {
+    return null;
+  }
+  return {
+    status,
+    canPrepare: raw.can_prepare === true,
+    startedAt: raw.started_at || null,
   };
 }
 
@@ -887,7 +906,8 @@ function reviewDecisionMarkup(
       <section class="card content-review-decision is-recorded">
         <span aria-hidden="true">⌁</span>
         <div><p class="eyebrow">Неизменяемое решение человека</p><h3>${escapeHtml(decisionLabel(run.decision.decision))}</h3><p>${escapeHtml(run.decision.reason || "Причина не указана.")}</p><small>${escapeHtml(run.decision.decidedBy || "Ответственный участник")} · ${formatDate(run.decision.decidedAt)}</small></div>
-      </section>`;
+      </section>
+      ${generationRepairNextActionMarkup(run)}`;
   }
   if (!canDecide) {
     if (assignmentBlockReason === "independent_reviewer_required") {
@@ -1000,6 +1020,43 @@ function reviewDecisionMarkup(
         <button class="btn btn-ghost" type="submit" name="decision" value="rejected" data-review-decision-submit disabled>Отклонить</button>
       </div>
     </form>`;
+}
+
+function generationRepairNextActionMarkup(run) {
+  const action = run?.repairNextAction;
+  if (!action) return "";
+  if (action.status === "available") {
+    return `
+      <section class="card content-review-decision">
+        <span aria-hidden="true">↻</span>
+        <div>
+          <p class="eyebrow">Точное исправление</p>
+          <h3>Доработка после QA готова</h3>
+          <p>${action.canPrepare
+            ? "Сервер заново соберёт безопасное repair-ТЗ из числовых оценок этого решения. Исходник, модель и площадка будут восстановлены; цену всё равно нужно подтвердить отдельно."
+            : "Исправление доступно создателю результата или руководителю. Текст комментария проверяющего в промпт не копируется."}</p>
+          ${action.canPrepare
+            ? `<button class="btn btn-secondary btn-small" type="button" data-action="prepare-generation-repair" data-review-id="${escapeHtml(run.id)}">Подготовить исправление</button>`
+            : ""}
+        </div>
+      </section>`;
+  }
+  if (["started", "in_progress"].includes(action.status)) {
+    return messageMarkup(
+      "Исправление уже запущено. Не создавайте повторный платный запуск — дождитесь готового файла или точной ошибки.",
+      "info",
+    );
+  }
+  if (action.status === "succeeded") {
+    return messageMarkup(
+      "Исправленный файл уже создан и проходит собственный независимый QA.",
+      "success",
+    );
+  }
+  return messageMarkup(
+    "Исправляющий запуск завершился ошибкой. Откройте создание контента и разберите точный статус; не повторяйте оплату автоматически.",
+    "danger",
+  );
 }
 
 function rulesetMarkup(run) {

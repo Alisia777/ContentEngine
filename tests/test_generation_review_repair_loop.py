@@ -128,7 +128,7 @@ def test_browser_prefills_repair_but_keeps_price_confirmation_separate() -> None
         'if (!contextApproval && decision.decision === "needs_changes")'
     )
     policy_fetch = APP.index(
-        "state.api.generationRepairPolicy(reviewId)",
+        "loadGenerationRepairForReview(reviewId)",
         repair_decision,
     )
     navigate = APP.index(
