@@ -248,28 +248,10 @@ declare
   result_value jsonb;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
-  user_id := content_factory_private.current_profile_id();
-  organization_id :=
-    content_factory_private.resolve_organization(p_payload);
-  actor_role := content_factory_private.membership_role(
-    organization_id,
-    true,
-    array['owner', 'admin', 'producer', 'operator']
-  );
   requested_category_value := lower(btrim(coalesce(
     p_payload ->> 'product_category',
     ''
   )));
-  if requested_category_value <> ''
-     and requested_category_value not in (
-       'cosmetics', 'baa', 'sports_food', 'food', 'household',
-       'apparel', 'electronics', 'other'
-     ) then
-    raise exception using
-      errcode = '22023',
-      message = 'paid_generation_product_category_invalid';
-  end if;
-
   result_value :=
     content_factory_private
       .creator_start_real_generation_pre_review_category_v1(
@@ -278,6 +260,23 @@ begin
   if requested_category_value = '' then
     return result_value;
   end if;
+
+  if requested_category_value not in (
+       'cosmetics', 'baa', 'sports_food', 'food', 'household',
+       'apparel', 'electronics', 'other'
+     ) then
+    raise exception using
+      errcode = '22023',
+      message = 'paid_generation_product_category_invalid';
+  end if;
+  user_id := content_factory_private.current_profile_id();
+  organization_id :=
+    content_factory_private.resolve_organization(p_payload);
+  actor_role := content_factory_private.membership_role(
+    organization_id,
+    true,
+    array['owner', 'admin', 'producer', 'operator']
+  );
 
   job_id_value := content_factory_private.require_uuid(
     coalesce(result_value -> 'job', '{}'::jsonb),

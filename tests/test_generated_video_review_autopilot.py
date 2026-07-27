@@ -52,6 +52,14 @@ def test_server_starts_exact_video_review_without_transcription() -> None:
 
 
 def test_paid_generation_binds_product_category_before_provider_request() -> None:
+    wrapper_start = MIGRATION.index(
+        "create or replace function public.creator_start_real_generation("
+    )
+    wrapper_end = MIGRATION.index(
+        "revoke all on function public.creator_start_real_generation(jsonb)",
+        wrapper_start,
+    )
+    wrapper = MIGRATION[wrapper_start:wrapper_end]
     for token in (
         "creator_start_real_generation_pre_review_category_v1",
         "paid_generation_product_category_invalid",
@@ -73,6 +81,9 @@ def test_paid_generation_binds_product_category_before_provider_request() -> Non
         "paid_generation_product_category_invalid",
     ):
         assert token in APP or token in API
+    assert wrapper.index(
+        "creator_start_real_generation_pre_review_category_v1"
+    ) < wrapper.index("current_profile_id")
 
 
 def test_context_approval_reuses_analysis_and_keeps_video_blockers() -> None:

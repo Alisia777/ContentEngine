@@ -108,7 +108,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  54,
+  56,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -121,7 +121,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  54,
+  56,
   'authenticated can execute all creator RPCs'
 );
 
