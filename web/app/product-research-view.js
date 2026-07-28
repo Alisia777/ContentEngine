@@ -135,7 +135,7 @@ export function productResearchInputMarkup({ media = [], mediaLoading = false, e
         <h2>Не «магия», а проверяемый рабочий черновик</h2>
         <ol>
           <li><span>1</span><div><strong>Источники и факты</strong><p>У каждой находки будет ссылка и пометка, откуда она взялась.</p></div></li>
-          <li><span>2</span><div><strong>ТЗ и три сценария</strong><p>Хуки, реплики, кадры, доказательства и стоп-формулировки можно исправить.</p></div></li>
+          <li><span>2</span><div><strong>ТЗ и три сценария</strong><p>Хуки, композиции фото, реплики и кадры видео, доказательства и стоп-формулировки можно исправить.</p></div></li>
           <li><span>3</span><div><strong>Оценка потенциала</strong><p>Сильные стороны и риски — без обещания «вирусности».</p></div></li>
           <li><span>4</span><div><strong>Задачи одним нажатием</strong><p>Только после вашего финального подтверждения.</p></div></li>
         </ol>
@@ -374,19 +374,29 @@ function sourceMarkupItem(source) {
 }
 
 function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", disabled = false } = {}) {
-  const options = [["instagram", "Instagram Reels"], ["youtube", "YouTube Shorts"], ["vk", "VK Клипы"]];
+  const options = [["instagram", "Instagram Reels"], ["youtube", "YouTube Shorts"], ["vk", "VK Клипы"], ["wildberries", "Wildberries"]];
   const selectedAssigneeId = String(item.assigneeId || defaultAssigneeId || members[0]?.profileId || "");
-  const generationModeLabel = item.generationMode === "real_gen4"
-    ? "5 секунд · товарный ролик без речи"
-    : item.generationMode === "real_seedance"
-      ? "8 секунд · UGC с репликой"
-      : "будет подобран по ограничениям сценария";
-  const scriptLabel = item.generationMode === "real_gen4"
-    ? "Реплика не нужна"
-    : "Реплика блогера";
-  const scriptPlaceholder = item.generationMode === "real_gen4"
-    ? "Для рекомендованного Gen4 поле остаётся пустым"
+  const photo = item.generationMode === "real_photo";
+  const silent = photo || item.generationMode === "real_gen4";
+  const generationModeLabel = photo
+    ? "квадратное товарное фото · Seedream"
+    : item.generationMode === "real_gen4"
+      ? "5 секунд · товарный ролик без речи"
+      : item.generationMode === "real_seedance"
+        ? "8 секунд · UGC с репликой"
+        : "будет подобран по ограничениям сценария";
+  const scriptLabel = silent ? "Реплика не нужна" : "Реплика блогера";
+  const scriptPlaceholder = silent
+    ? photo
+      ? "Для статичного фото поле остаётся пустым"
+      : "Для рекомендованного Gen4 поле остаётся пустым"
     : "Короткая разговорная реплика без неподтверждённых обещаний";
+  const approvedExplanation = photo
+    ? "Перенесём точный товар и композицию одного кадра в генератор квадратного фото."
+    : "Перенесём товар, хук, реплику и кадры в генератор и проверим их под 5 или 8 секунд.";
+  const generationButtonLabel = photo
+    ? "Создать фото по сценарию →"
+    : "Создать ролик по сценарию →";
   const assigneeOptions = members.length
     ? members.map((member) => `<option value="${escapeHtml(member.profileId)}" ${member.profileId === selectedAssigneeId ? "selected" : ""}>${escapeHtml(member.label)}</option>`).join("")
     : '<option value="">Нет активных участников</option>';
@@ -402,15 +412,15 @@ function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", dis
       <strong>Автовыбор генератора:</strong>
       <span>${escapeHtml(generationModeLabel)}${item.generationModeReason ? ` · ${escapeHtml(item.generationModeReason)}` : ""}. Стоимость всё равно подтверждается отдельно перед рендером.</span>
     </div>
-    ${textArea(`scenario_${index}_hook`, "Хук первых секунд", item.hook, "Что зритель увидит и услышит сразу", 800, disabled)}
+    ${textArea(`scenario_${index}_hook`, photo ? "Визуальный хук" : "Хук первых секунд", item.hook, photo ? "Что сразу выделит товар в одном статичном кадре" : "Что зритель увидит и услышит сразу", 800, disabled)}
     ${textArea(`scenario_${index}_script`, scriptLabel, item.script, scriptPlaceholder, 2400, disabled)}
-    ${textArea(`scenario_${index}_shots`, "Кадры по порядку", item.shotList, "Один кадр на строку", 2400, disabled)}
+    ${textArea(`scenario_${index}_shots`, photo ? "Композиция одного кадра" : "Кадры по порядку", item.shotList, photo ? "Композиция, свет и фон — по одному ограничению на строку" : "Один кадр на строку", 2400, disabled)}
     ${textField(`scenario_${index}_task_title`, "Название задачи", item.taskTitle, 180, disabled)}
     <label class="field"><span>Исполнитель задачи</span><select name="scenario_${index}_assignee_id" required ${disabled ? "disabled" : ""}>${assigneeOptions}</select><small class="field-hint">При утверждении эта задача будет назначена выбранному участнику.</small></label>
     ${disabled ? `
       <div class="product-research-generation-action">
-        <div><strong>Сценарий утверждён</strong><small>Перенесём товар, хук, реплику и кадры в генератор и проверим их под 5 или 8 секунд.</small></div>
-        <button class="btn btn-secondary btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}">Создать ролик по сценарию →</button>
+        <div><strong>Сценарий утверждён</strong><small>${approvedExplanation}</small></div>
+        <button class="btn btn-secondary btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}">${generationButtonLabel}</button>
       </div>
     ` : ""}
   </fieldset>`;
@@ -442,7 +452,7 @@ function normalizeResearchMembers(value, defaultAssigneeId = "") {
 
 function normalizeGenerationMode(value) {
   const normalized = String(value || "").trim();
-  return ["real_gen4", "real_seedance"].includes(normalized)
+  return ["real_photo", "real_gen4", "real_seedance"].includes(normalized)
     ? normalized
     : "";
 }
@@ -468,6 +478,7 @@ function normalizeConfidence(value) {
 
 function normalizePlatform(value) {
   const normalized = String(value || "instagram").toLowerCase();
+  if (normalized.includes("wildberries") || normalized.includes("вайлдберриз") || normalized === "wb") return "wildberries";
   if (normalized.includes("youtube")) return "youtube";
   if (normalized.includes("vk") || normalized.includes("вк")) return "vk";
   return "instagram";

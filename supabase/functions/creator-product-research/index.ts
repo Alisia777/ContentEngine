@@ -188,6 +188,10 @@ function isBoundedText(
     !hasForbiddenControl(value);
 }
 
+function countWords(value: string): number {
+  return value.match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)?.length || 0;
+}
+
 function readRequestPayload(value: unknown): AnalyzePayload | null {
   if (!isRecord(value)) return null;
   const allowed = new Set(["action", "research_id"]);
@@ -578,7 +582,7 @@ const PRODUCT_RESEARCH_SCHEMA: Json = strictObject({
       goal: { type: "string", minLength: 2, maxLength: 240 },
       recommended_generation_mode: {
         type: "string",
-        enum: ["real_gen4", "real_seedance"],
+        enum: ["real_photo", "real_gen4", "real_seedance"],
       },
       generation_mode_reason: {
         type: "string",
@@ -950,15 +954,17 @@ function readResearchResult(
       !isBoundedText(scenario.target_segment, 2, 180) ||
       !isBoundedText(scenario.platform, 2, 80) ||
       !isBoundedText(scenario.goal, 2, 240) ||
-      !new Set(["real_gen4", "real_seedance"]).has(
+      !new Set(["real_photo", "real_gen4", "real_seedance"]).has(
         String(scenario.recommended_generation_mode),
       ) ||
       !isBoundedText(scenario.generation_mode_reason, 10, 400) ||
       !isBoundedText(scenario.hook, 3, 500) ||
       !(
-        scenario.recommended_generation_mode === "real_gen4"
-          ? isBoundedText(scenario.spoken_script, 0, 4_000)
-          : isBoundedText(scenario.spoken_script, 20, 4_000)
+        scenario.recommended_generation_mode === "real_seedance"
+          ? isBoundedText(scenario.spoken_script, 3, 4_000) &&
+            countWords(scenario.spoken_script) >= 1 &&
+            countWords(scenario.spoken_script) <= 22
+          : scenario.spoken_script === ""
       ) ||
       !isBoundedText(scenario.cta, 3, 400) ||
       !isTextArray(scenario.proof_points, 1, 8) ||
@@ -974,6 +980,17 @@ function readResearchResult(
         !isBoundedText(shot.visual, 3, 700) ||
         !isBoundedText(shot.voiceover, 1, 700) ||
         !isBoundedText(shot.on_screen_text, 1, 300)
+      ) ||
+      (
+        scenario.recommended_generation_mode === "real_photo" &&
+        (
+          scenario.shot_list.length !== 3 ||
+          scenario.shot_list.some((shot) =>
+            !isRecord(shot) || shot.seconds !== "один кадр" ||
+            shot.voiceover !== "без голоса" ||
+            shot.on_screen_text !== "без текста"
+          )
+        )
       )
     ) {
       return null;
@@ -1072,12 +1089,19 @@ const RESEARCH_INSTRUCTIONS = `
 6. Для косметики, еды, добавок и других чувствительных категорий не обещай лечение,
    гарантированный результат или недоказанную безопасность. В forbidden перечисли
    рискованные формулировки и безопасные альтернативы.
-7. Дай ровно три заметно разных, выполнимых UGC-сценария. Не копируй чужие тексты.
+7. Дай ровно три заметно разных, выполнимых сценария фото или UGC-видео.
+   Не копируй чужие тексты. Если приложен точный фото-референс и замыслу не нужны
+   движение, человек или речь, включи среди трёх вариантов хотя бы один real_photo.
    Для каждого сценария выбери recommended_generation_mode:
+   real_photo — одно квадратное статичное товарное фото: товар целиком по центру,
+   нейтральный или минималистичный фон, без людей, рук, реквизита и надписей;
    real_gen4 — товарный ролик 5 секунд без речи с одним простым действием;
    real_seedance — UGC 8 секунд, только когда человек и слышимая реплика нужны
    замыслу. Для real_seedance spoken_script должен содержать не более 22 слов.
-   Для real_gen4 верни spoken_script как пустую строку, а voiceover и
+   Для real_photo и real_gen4 верни spoken_script как пустую строку.
+   Для real_photo верни ровно три ограничения одной статичной композиции
+   (композиция, свет, фон): seconds — «один кадр», voiceover — «без голоса»,
+   on_screen_text — «без текста». Для real_gen4 voiceover и
    on_screen_text обозначь как «без голоса» и «без текста».
    В generation_mode_reason кратко объясни выбор через структуру сценария, не цену.
 8. creative_potential — эвристическая оценка качества замысла до публикации, а не
@@ -1108,7 +1132,7 @@ function openAiRequestBody(run: ResearchRun, signedImageUrls: string[]): Json {
         type: "json_schema",
         name: "creator_product_research",
         description:
-          "Source-aware product research, editable UGC scenarios and a non-probabilistic creative potential score.",
+          "Source-aware product research, editable photo/video scenarios and a non-probabilistic creative potential score.",
         strict: true,
         schema: schemaForResponsesApi(),
       },
@@ -1263,7 +1287,9 @@ function buildCompletionPayload(
       scenario.recommended_generation_mode === "real_seedance"
         ? `Текст блогера: ${String(scenario.spoken_script)}`
         : "Без речи, дикторского текста и сгенерированных надписей.",
-      "Кадры:",
+      scenario.recommended_generation_mode === "real_photo"
+        ? "Композиция одного статичного квадратного фото:"
+        : "Кадры:",
       ...shotLines,
       `CTA: ${String(scenario.cta)}`,
       `Доказательства: ${

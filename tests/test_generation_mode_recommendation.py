@@ -75,19 +75,48 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
             brief: {
               scenarios: [0, 1, 2].map((index) => ({
                 title: `Сценарий ${index + 1}`,
-                platform: "YouTube Shorts",
+                platform: index === 0 ? "Wildberries" : "YouTube Shorts",
                 recommended_generation_mode:
-                  index === 0 ? "real_gen4" : "real_seedance",
+                  index === 0
+                    ? "real_photo"
+                    : index === 1
+                      ? "real_gen4"
+                      : "real_seedance",
                 generation_mode_reason:
                   index === 0
-                    ? "Товарный кадр строится без обязательной речи"
-                    : "В кадре нужен человек и короткая слышимая реплика",
-                hook: "Товар сразу в кадре",
+                    ? "Замысел раскрывается одним статичным товарным кадром"
+                    : index === 1
+                      ? "Товарный ролик строится без обязательной речи"
+                      : "В кадре нужен человек и короткая слышимая реплика",
+                hook: index === 0
+                  ? "Товар сразу выделяется на светлом фоне"
+                  : "Товар сразу в кадре",
                 spoken_script:
-                  index === 0
+                  index < 2
                     ? ""
                     : "Показываю точный товар и упаковку крупным планом.",
-                shot_list: [{ visual: "Товар крупно" }],
+                shot_list: index === 0
+                  ? [
+                    {
+                      seconds: "один кадр",
+                      visual: "Товар целиком по центру",
+                      voiceover: "без голоса",
+                      on_screen_text: "без текста",
+                    },
+                    {
+                      seconds: "один кадр",
+                      visual: "Мягкий боковой свет подчёркивает упаковку",
+                      voiceover: "без голоса",
+                      on_screen_text: "без текста",
+                    },
+                    {
+                      seconds: "один кадр",
+                      visual: "Светлый минималистичный фон",
+                      voiceover: "без голоса",
+                      on_screen_text: "без текста",
+                    },
+                  ]
+                  : [{ visual: "Товар крупно" }],
               })),
             },
           },
@@ -112,7 +141,7 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
         );
         const compiled = handoffSubject.compileContentGenerationPrompt(
           handoff,
-          "real_gen4",
+          "real_photo",
         );
         return {
           normalizedMode: normalized.scenarios[0].generationMode,
@@ -121,9 +150,15 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
           handoffReason: handoff.scenario.generationModeReason,
           promptReady: compiled.ready,
           promptWarnings: compiled.warnings.map((item) => item.code),
-          silentPrompt: compiled.prompt.includes(
-            "Без речи, дикторского текста и сгенерированных надписей",
+          photoPrompt: compiled.prompt.includes(
+            "Создай одно квадратное товарное фото 2048 × 2048",
           ),
+          scenarioComposition: compiled.prompt.includes(
+            "Мягкий боковой свет подчёркивает упаковку",
+          ),
+          strippedMetadata: !compiled.prompt.includes("Голос:")
+            && !compiled.prompt.includes("Текст:"),
+          normalizedPlatform: normalized.scenarios[0].platform,
           serializedReady: Boolean(
             handoffSubject.parseContentGenerationHandoff(
               JSON.stringify(handoff),
@@ -134,17 +169,20 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
         """
     )
     assert result == {
-        "normalizedMode": "real_gen4",
+        "normalizedMode": "real_photo",
         "normalizedReason": (
-            "Товарный кадр строится без обязательной речи"
+            "Замысел раскрывается одним статичным товарным кадром"
         ),
-        "handoffMode": "real_gen4",
+        "handoffMode": "real_photo",
         "handoffReason": (
-            "Товарный кадр строится без обязательной речи"
+            "Замысел раскрывается одним статичным товарным кадром"
         ),
         "promptReady": True,
         "promptWarnings": [],
-        "silentPrompt": True,
+        "photoPrompt": True,
+        "scenarioComposition": True,
+        "strippedMetadata": True,
+        "normalizedPlatform": "wildberries",
         "serializedReady": True,
     }
 
@@ -170,6 +208,10 @@ def test_mode_autopilot_honors_research_and_provider_duration_constraints() -> N
             mockEnabled: true,
           });
         return {
+          explicitPhoto: resolve(
+            "real_photo",
+            "",
+          ),
           explicitSilent: resolve(
             "real_gen4",
             "Короткая реплика существует, но для замысла не обязательна.",
@@ -192,6 +234,8 @@ def test_mode_autopilot_honors_research_and_provider_duration_constraints() -> N
         };
         """
     )
+    assert result["explicitPhoto"]["value"] == "real_photo"
+    assert result["explicitPhoto"]["source"] == "research_recommendation"
     assert result["explicitSilent"]["value"] == "real_gen4"
     assert result["explicitSilent"]["source"] == "research_recommendation"
     assert result["explicitUgc"]["value"] == "real_seedance"
@@ -243,40 +287,56 @@ def test_research_view_exposes_duration_fallback_before_handoff() -> None:
 def test_unavailable_recommended_sku_falls_back_to_dry_run_not_paid_guess() -> None:
     result = _run_contract(
         """
-        return autopilot.resolveHandoffGenerationMode({
-          handoff: {
-            scenario: {
-              recommendedGenerationMode: "real_seedance",
-              spokenScript: "Показываю товар рядом с лицом.",
+        const resolve = (recommendedGenerationMode, spokenScript) =>
+          autopilot.resolveHandoffGenerationMode({
+            handoff: {
+              scenario: {
+                recommendedGenerationMode,
+                spokenScript,
+              },
             },
-          },
-          availability: {
-            real_photo: true,
-            real_gen4: true,
-            real_seedance: false,
-          },
-          mockEnabled: true,
-        });
+            availability: {
+              real_photo: false,
+              real_gen4: true,
+              real_seedance: false,
+            },
+            mockEnabled: true,
+          });
+        return {
+          photo: resolve("real_photo", ""),
+          seedance: resolve(
+            "real_seedance",
+            "Показываю товар рядом с лицом.",
+          ),
+        };
         """
     )
-    assert result["value"] == "mock"
-    assert result["recommendedMode"] == "real_seedance"
-    assert result["automatic"] is False
-    assert result["blocked"] is True
+    assert result["photo"]["value"] == "mock"
+    assert result["photo"]["recommendedMode"] == "real_photo"
+    assert result["seedance"]["value"] == "mock"
+    assert result["seedance"]["recommendedMode"] == "real_seedance"
+    assert all(
+        item["automatic"] is False and item["blocked"] is True
+        for item in result.values()
+    )
 
 
 def test_research_edge_returns_only_server_validated_generation_modes() -> None:
     for token in (
         "recommended_generation_mode: {",
-        'enum: ["real_gen4", "real_seedance"]',
+        'enum: ["real_photo", "real_gen4", "real_seedance"]',
         "generation_mode_reason: {",
         '"recommended_generation_mode",',
         '"generation_mode_reason",',
-        'new Set(["real_gen4", "real_seedance"]).has(',
+        'new Set(["real_photo", "real_gen4", "real_seedance"]).has(',
         "Для каждого сценария выбери recommended_generation_mode",
+        "real_photo — одно квадратное статичное товарное фото",
         "Для real_seedance spoken_script должен содержать не более 22 слов",
-        'Для real_gen4 верни spoken_script как пустую строку',
-        'scenario.recommended_generation_mode === "real_gen4"',
+        "Для real_photo и real_gen4 верни spoken_script как пустую строку",
+        'scenario.recommended_generation_mode === "real_seedance"',
+        'scenario.recommended_generation_mode === "real_photo"',
+        "countWords(scenario.spoken_script) <= 22",
+        'shot.seconds !== "один кадр"',
         "`Режим генерации: ${",
     ):
         assert token in EDGE
@@ -285,6 +345,7 @@ def test_research_edge_returns_only_server_validated_generation_modes() -> None:
 def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     for token in (
         "resolveHandoffGenerationMode({",
+        "[REAL_PHOTO_MODE]: photoSpendAllowed",
         "[REAL_GEN4_MODE]: gen4SpendAllowed",
         "[REAL_SEEDANCE_MODE]: seedanceSpendAllowed",
             "const defaultMode = repairReady",
@@ -293,7 +354,9 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
         "Режим выбран автоматически",
         "Стоимость и права всё равно подтверждаются отдельно",
         'name="real_spend_confirmation"',
-        "scenario.generation_mode !== REAL_GEN4_MODE",
+        "scenario.generation_mode === REAL_SEEDANCE_MODE",
+        "|| !scenario.shot_list",
+        "Композиция одного статичного квадратного фото:",
         "Без речи, дикторского текста и сгенерированных надписей.",
     ):
         assert token in APP
@@ -304,12 +367,12 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     assert "checked" not in confirmation
     assert "required" in confirmation
     assert (
-        'from "./product-research-view.js?v=20260726.2"'
+        'from "./product-research-view.js?v=20260726.3"'
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260728.1"'
+        'from "./content-generation-handoff.js?v=20260728.2"'
         in APP
     )
-    assert 'from "./generation-autopilot.js?v=20260727.6"' in APP
-    assert './app.js?v=20260728.4' in INDEX
+    assert 'from "./generation-autopilot.js?v=20260727.7"' in APP
+    assert './app.js?v=20260728.5' in INDEX

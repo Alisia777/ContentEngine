@@ -195,11 +195,12 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
             avoidClaims: "лечит\\nгарантирует результат",
           },
           scenarios: [{
-            title: "Видео-сценарий из исследования",
-            platform: "instagram",
-            hook: "Показываем товар",
-            script: "Это длинная реплика, которая нужна видео, но не должна попасть в фото.",
-            shotList: "Герой показывает упаковку\\nПоворачивает товар",
+            title: "Статичное фото из исследования",
+            platform: "wildberries",
+            recommendedGenerationMode: "real_photo",
+            hook: "Товар сразу выделяется на светлом фоне",
+            script: "",
+            shotList: "один кадр: Товар целиком по центру. Голос: без голоса. Текст: без текста.\\nодин кадр: Мягкий боковой свет подчёркивает упаковку. Голос: без голоса. Текст: без текста.\\nодин кадр: Светлый минималистичный фон. Голос: без голоса. Текст: без текста.",
           }],
         };
         const handoff = subject.createContentGenerationHandoff(record, 0, 4000);
@@ -217,6 +218,12 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
           ).blockers.map((item) => item.code),
           hasVideoDuration: compiled.prompt.includes("8 секунд"),
           hasSpokenLine: compiled.prompt.includes("Реплика героя дословно"),
+          scenarioComposition: compiled.prompt.includes(
+            "Мягкий боковой свет подчёркивает упаковку",
+          ),
+          strippedMetadata: !compiled.prompt.includes("Голос:")
+            && !compiled.prompt.includes("Текст:"),
+          recommendedMode: handoff.scenario.recommendedGenerationMode,
           blockers: compiled.blockers.map((item) => item.code),
         };
         """
@@ -230,6 +237,9 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
         "tamperedBlockers": ["photo_reference_guard_missing"],
         "hasVideoDuration": False,
         "hasSpokenLine": False,
+        "scenarioComposition": True,
+        "strippedMetadata": True,
+        "recommendedMode": "real_photo",
         "blockers": [],
     }
 
@@ -768,7 +778,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260728.1" in APP
-    assert "./app.js?v=20260728.4" in INDEX
+    assert "./content-generation-handoff.js?v=20260728.2" in APP
+    assert "./app.js?v=20260728.5" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

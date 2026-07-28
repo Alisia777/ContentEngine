@@ -268,8 +268,8 @@ def test_release_binds_new_compiler_gate_and_cache_versions() -> None:
     assert 'GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v5"' in HANDOFF
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5"' in EDGE
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5"' in APP
-    assert "./content-generation-handoff.js?v=20260728.1" in APP
+    assert "./content-generation-handoff.js?v=20260728.2" in APP
     assert "./supabase-api.js?v=20260728.2" in APP
-    assert "./app.js?v=20260728.4" in INDEX
+    assert "./app.js?v=20260728.5" in INDEX
     assert "select plan(19);" in PGTAP
     assert PGTAP.rstrip().endswith("rollback;")

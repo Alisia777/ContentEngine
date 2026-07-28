@@ -3,10 +3,6 @@ const REAL_GENERATION_MODES = new Set([
   "real_gen4",
   "real_seedance",
 ]);
-const VIDEO_GENERATION_MODES = new Set([
-  "real_gen4",
-  "real_seedance",
-]);
 const GENERATION_MODE_CONTENT_KIND = Object.freeze({
   real_photo: "photo",
   real_gen4: "video",
@@ -86,7 +82,7 @@ export function resolveHandoffGenerationMode({
   const scenario = handoff?.scenario && typeof handoff.scenario === "object"
     ? handoff.scenario
     : {};
-  const requestedMode = VIDEO_GENERATION_MODES.has(
+  const requestedMode = REAL_GENERATION_MODES.has(
       String(scenario.recommendedGenerationMode || ""),
     )
     ? String(scenario.recommendedGenerationMode)
@@ -95,13 +91,15 @@ export function resolveHandoffGenerationMode({
     .match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)?.length || 0;
   const seedanceSpeechFits = spokenWords > 0
     && spokenWords <= SEEDANCE_SPOKEN_WORD_LIMIT;
-  const recommendedMode = requestedMode === "real_gen4"
-    ? "real_gen4"
-    : requestedMode === "real_seedance" && seedanceSpeechFits
-      ? "real_seedance"
-      : seedanceSpeechFits
+  const recommendedMode = requestedMode === "real_photo"
+    ? "real_photo"
+    : requestedMode === "real_gen4"
+      ? "real_gen4"
+      : requestedMode === "real_seedance" && seedanceSpeechFits
         ? "real_seedance"
-        : "real_gen4";
+        : seedanceSpeechFits
+          ? "real_seedance"
+          : "real_gen4";
   const source = requestedMode
     ? requestedMode === recommendedMode
       ? "research_recommendation"
@@ -114,7 +112,9 @@ export function resolveHandoffGenerationMode({
   const reason = source === "duration_constraint"
     ? `Реплика содержит ${spokenWords} слов и не помещается в лимит ${SEEDANCE_SPOKEN_WORD_LIMIT} слов для 8 секунд; выбран визуальный ролик без речи.`
     : suppliedReason || (
-      recommendedMode === "real_seedance"
+      recommendedMode === "real_photo"
+        ? "Сценарий состоит из одного статичного товарного кадра без человека и речи."
+        : recommendedMode === "real_seedance"
         ? "Короткая реплика помещается в 8 секунд."
         : "Сценарий безопасно собирается как короткий визуальный ролик без речи."
     );

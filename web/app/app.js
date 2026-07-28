@@ -45,7 +45,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260726.2";
+} from "./product-research-view.js?v=20260726.3";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -57,7 +57,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260728.1";
+} from "./content-generation-handoff.js?v=20260728.2";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -77,7 +77,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260727.6";
+} from "./generation-autopilot.js?v=20260727.7";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -15044,13 +15044,14 @@ async function submitProductResearchBrief(form, submitter) {
   const draft = readProductResearchBrief(form);
   if (draft.scenarios.some((scenario) =>
     !scenario.hook
+    || !scenario.shot_list
     || (
-      scenario.generation_mode !== REAL_GEN4_MODE
+      scenario.generation_mode === REAL_SEEDANCE_MODE
       && !scenario.script
     )
     || !scenario.task_title
   )) {
-    toast("В каждом сценарии заполните хук и название задачи, а для 8-секундного UGC — реплику.", "error");
+    toast("В каждом сценарии заполните хук, композицию или кадры и название задачи, а для 8-секундного UGC — реплику.", "error");
     return;
   }
   const sourceIds = Array.from(new Set(research.record.sourceIds || [])).filter(Boolean);
@@ -15175,10 +15176,12 @@ function productResearchTaskBlueprint(draft) {
         }`
         : "",
       `Хук: ${scenario.hook}`,
-      scenario.generation_mode === REAL_GEN4_MODE
-        ? "Без речи, дикторского текста и сгенерированных надписей."
-        : `Реплика блогера: ${scenario.script}`,
-      `Кадры:\n${scenario.shot_list}`,
+      scenario.generation_mode === REAL_SEEDANCE_MODE
+        ? `Реплика блогера: ${scenario.script}`
+        : "Без речи, дикторского текста и сгенерированных надписей.",
+      scenario.generation_mode === REAL_PHOTO_MODE
+        ? `Композиция одного статичного квадратного фото:\n${scenario.shot_list}`
+        : `Кадры:\n${scenario.shot_list}`,
       ...sharedInstructions,
     ].filter(Boolean).join("\n"),
     priority: 3,

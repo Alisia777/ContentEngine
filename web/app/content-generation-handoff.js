@@ -99,11 +99,12 @@ export function compileContentGenerationPrompt(
 
   const normalizedMode = normalizeMode(mode);
   if (normalizedMode === REAL_PHOTO_MODE) {
+    const visualDirection = photoScenarioVisualDirection(handoff);
     return compileSafeGenerationBrief({
       mode: normalizedMode,
       productName: handoff.productName,
       sku: handoff.sku,
-      visualDirection: handoff.creativeBrief?.visualDirection,
+      visualDirection,
       avoidClaims: handoff.creativeBrief?.avoidClaims,
       learningPolicy,
       repairPolicy,
@@ -1042,13 +1043,41 @@ function cleanMultiline(value) {
     .join("\n");
 }
 
+function photoScenarioVisualDirection(handoff) {
+  const sharedDirection = cleanText(
+    handoff?.creativeBrief?.visualDirection,
+  ).slice(0, 240);
+  const composition = lines(handoff?.scenario?.shotList, 3)
+    .map((line) => cleanPhotoCompositionLine(line))
+    .filter(Boolean);
+  const scenarioDirection = composition.length
+    ? `Композиция одного кадра: ${composition.map((line, index) =>
+      `${index + 1}) ${line}`
+    ).join("; ")}`
+    : "";
+  return [sharedDirection, scenarioDirection]
+    .filter(Boolean)
+    .join(". ")
+    .slice(0, 620);
+}
+
+function cleanPhotoCompositionLine(value) {
+  return cleanText(value)
+    .replace(/^(?:один кадр|\d+(?:[.,]\d+)?(?:\s*[-–—]\s*\d+(?:[.,]\d+)?)?\s*(?:с|секунд[а-я]*)?)\s*:\s*/iu, "")
+    .replace(/\s+Голос:\s*[^.]*\.?/giu, " ")
+    .replace(/\s+Текст:\s*[^.]*\.?/giu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function normalizeMode(value) {
   if (value === REAL_PHOTO_MODE) return REAL_PHOTO_MODE;
   return value === REAL_GEN4_MODE ? REAL_GEN4_MODE : REAL_SEEDANCE_MODE;
 }
 
 function normalizeRecommendedGenerationMode(value) {
-  return [REAL_GEN4_MODE, REAL_SEEDANCE_MODE].includes(value)
+  return [REAL_PHOTO_MODE, REAL_GEN4_MODE, REAL_SEEDANCE_MODE].includes(value)
     ? value
     : "";
 }
