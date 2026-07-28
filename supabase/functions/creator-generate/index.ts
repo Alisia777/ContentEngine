@@ -13,8 +13,10 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
+const GENERATED_TEXT_GUARD =
+  "Без сгенерированных надписей, субтитров и декоративного текста.";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
@@ -587,6 +589,49 @@ function readRunwayModel(value: unknown): RunwayModel | null {
       value === "seedream5_lite"
     ? value
     : null;
+}
+
+function countPromptWords(value: string): number {
+  return value.match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)?.length || 0;
+}
+
+function generationModePromptIsBound(payload: StartPayload): boolean {
+  const commonRequirements = [
+    `Точный товар: ${payload.product_name}, артикул ${payload.sku}.`,
+    "Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений.",
+    "Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.",
+  ];
+  const modelRequirements: Record<RunwayModel, string[]> = {
+    seedream5_lite: [
+      "Создай одно квадратное товарное фото 2048 × 2048.",
+      `Используй @${RUNWAY_PRODUCT_REFERENCE_TAG} как единственный точный референс товара.`,
+      "Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса.",
+    ],
+    gen4_turbo: [
+      "Создай один непрерывный вертикальный ролик длительностью 5 секунд.",
+      "Без речи, дикторского текста и сгенерированных надписей.",
+    ],
+    seedance2_fast: [
+      "Создай один непрерывный вертикальный UGC-ролик длительностью 8 секунд.",
+      GENERATED_TEXT_GUARD,
+    ],
+  };
+  if (
+    [...commonRequirements, ...modelRequirements[payload.model]].some(
+      (requirement) => !payload.brief.includes(requirement),
+    )
+  ) return false;
+  const spokenMatch = /Реплика героя дословно:\s*«([^»]+)»/u.exec(
+    payload.brief,
+  );
+  if (payload.model === "seedance2_fast") {
+    if (spokenMatch === null || spokenMatch[1].includes("[СОКРАТИТЕ")) {
+      return false;
+    }
+    const spokenWords = countPromptWords(spokenMatch[1]);
+    return spokenWords >= 1 && spokenWords <= 22;
+  }
+  return spokenMatch === null;
 }
 
 function readStartPayload(value: unknown): StartPayload | null {
@@ -2867,6 +2912,13 @@ async function handleCreatorGenerate(
   if (startPayload === null) {
     return json(request, { ok: false, code: "invalid_payload" }, 400);
   }
+  if (!generationModePromptIsBound(startPayload)) {
+    return json(
+      request,
+      { ok: false, code: "generation_mode_prompt_binding_invalid" },
+      409,
+    );
+  }
   let learningPolicy: Record<string, unknown> | null = null;
   try {
     const { data, error } = await context.supabase.rpc(
@@ -3014,6 +3066,7 @@ async function handleCreatorGenerate(
         "generation_learning_policy_stale",
         "generation_learning_prompt_binding_invalid",
         "generation_learning_research_provenance_invalid",
+        "generation_mode_prompt_binding_invalid",
       ].includes(startError.message)
       ? startError.message
       : null;
@@ -3036,6 +3089,7 @@ async function handleCreatorGenerate(
       ? 403
       : code === "generation_learning_context_invalid" ||
           code === "generation_learning_prompt_binding_invalid" ||
+          code === "generation_mode_prompt_binding_invalid" ||
           code === "generation_repair_context_invalid" ||
           code === "generation_repair_prompt_binding_invalid"
       ? 422

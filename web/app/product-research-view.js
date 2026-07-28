@@ -297,6 +297,89 @@ export function readProductResearchBrief(form) {
   };
 }
 
+export function inspectResearchScenarioGenerationReadiness(scenario) {
+  const mode = String(
+    scenario?.generation_mode
+      || scenario?.generationMode
+      || scenario?.recommended_generation_mode
+      || "",
+  ).trim();
+  const script = String(
+    scenario?.script
+      || scenario?.spokenScript
+      || scenario?.spoken_script
+      || "",
+  ).replace(/\s+/gu, " ").trim();
+  const shotList = String(
+    scenario?.shot_list
+      || scenario?.shotList
+      || "",
+  );
+  const shotLines = shotList.split(/\r?\n/u)
+    .map((line) => line.replace(/\s+/gu, " ").trim())
+    .filter(Boolean);
+  const spokenWords = script.match(
+    /[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu,
+  )?.length || 0;
+  const generatedTextInstruction = shotLines.find((line) =>
+    /(?:^|[^\p{L}\p{N}_])текст\s*:\s*(?!без текста(?:$|[.!]))/iu.test(line)
+  );
+  if (!["real_photo", "real_gen4", "real_seedance"].includes(mode)) {
+    return {
+      ready: false,
+      code: "generation_mode_missing",
+      message: "Не удалось определить технический режим генерации.",
+    };
+  }
+  if (generatedTextInstruction) {
+    return {
+      ready: false,
+      code: "generated_text_not_supported",
+      message: "Уберите сгенерированные надписи: титры и маркировка добавляются после QA.",
+    };
+  }
+  if (mode === "real_photo") {
+    if (script || shotLines.length !== 3) {
+      return {
+        ready: false,
+        code: "photo_scenario_not_ready",
+        message: "Для фото оставьте пустую реплику и ровно три строки: композиция, свет и фон.",
+      };
+    }
+    return {
+      ready: true,
+      code: "photo_scenario_ready",
+      message: "Готово для квадратного Seedream-фото: один кадр, без речи и надписей.",
+    };
+  }
+  if (mode === "real_gen4") {
+    if (script || shotLines.length !== 1) {
+      return {
+        ready: false,
+        code: "gen4_scenario_not_ready",
+        message: "Для Gen‑4 оставьте пустую реплику и ровно одно действие на 5 секунд.",
+      };
+    }
+    return {
+      ready: true,
+      code: "gen4_scenario_ready",
+      message: "Готово для Gen‑4: одно 5‑секундное действие без речи и надписей.",
+    };
+  }
+  if (spokenWords < 1 || spokenWords > 22 || shotLines.length < 2 || shotLines.length > 3) {
+    return {
+      ready: false,
+      code: "seedance_scenario_not_ready",
+      message: `Для Seedance нужны реплика 1–22 слова и 2–3 кадра; сейчас ${spokenWords} слов и ${shotLines.length} строк.`,
+    };
+  }
+  return {
+    ready: true,
+    code: "seedance_scenario_ready",
+    message: `Готово для Seedance: ${spokenWords} слов, ${shotLines.length} кадра, без сгенерированных надписей.`,
+  };
+}
+
 function normalizeBrief(value) {
   const source = objectValue(value) || {};
   return {
@@ -422,6 +505,7 @@ function scenarioEditor(item, index, {
   const selectedAssigneeId = String(item.assigneeId || defaultAssigneeId || members[0]?.profileId || "");
   const photo = item.generationMode === "real_photo";
   const silent = photo || item.generationMode === "real_gen4";
+  const readiness = inspectResearchScenarioGenerationReadiness(item);
   const generationModeLabel = photo
     ? "квадратное товарное фото · Seedream"
     : item.generationMode === "real_gen4"
@@ -455,6 +539,10 @@ function scenarioEditor(item, index, {
     <div class="alert alert-info product-research-mode-recommendation" role="note">
       <strong>Автовыбор генератора:</strong>
       <span>${escapeHtml(generationModeLabel)}${item.generationModeReason ? ` · ${escapeHtml(item.generationModeReason)}` : ""}. Стоимость всё равно подтверждается отдельно перед рендером.</span>
+    </div>
+    <div class="alert ${readiness.ready ? "alert-success" : "alert-warning"} product-research-generation-readiness" role="status">
+      <strong>${readiness.ready ? "Технически готово" : "Нужна правка до утверждения"}:</strong>
+      <span>${escapeHtml(readiness.message)}</span>
     </div>
     ${textArea(`scenario_${index}_hook`, photo ? "Визуальный хук" : "Хук первых секунд", item.hook, photo ? "Что сразу выделит товар в одном статичном кадре" : "Что зритель увидит и услышит сразу", 800, disabled)}
     ${textArea(`scenario_${index}_script`, scriptLabel, item.script, scriptPlaceholder, 2400, disabled)}

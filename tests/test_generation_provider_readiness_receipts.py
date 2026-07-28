@@ -160,7 +160,7 @@ const receipt = {
   balance_sufficient: true,
   model_available: true,
   daily_quota_available: true,
-  learning_gate_version: "2026-07-28.v5",
+  learning_gate_version: "2026-07-28.v6",
   checked_at: "2026-07-28T12:00:00.000Z",
   expires_at: "2026-07-28T12:15:00.000Z",
   receipt_id: "fa000000-0000-4000-8000-000000000001",
@@ -170,27 +170,27 @@ const receipt = {
 return {
   valid: subject.normalizeGenerationProviderPreflight(
     receipt,
-    { gateVersion: "2026-07-28.v5", nowMs },
+    { gateVersion: "2026-07-28.v6", nowMs },
   )?.model || null,
   stale: subject.normalizeGenerationProviderPreflight(
     { ...receipt, expires_at: "2026-07-28T12:05:00.000Z" },
-    { gateVersion: "2026-07-28.v5", nowMs },
+    { gateVersion: "2026-07-28.v6", nowMs },
   ),
   wrongGate: subject.normalizeGenerationProviderPreflight(
     { ...receipt, learning_gate_version: "2026-07-27.v9" },
-    { gateVersion: "2026-07-28.v5", nowMs },
+    { gateVersion: "2026-07-28.v6", nowMs },
   ),
   badHash: subject.normalizeGenerationProviderPreflight(
     { ...receipt, receipt_hash: "unsafe" },
-    { gateVersion: "2026-07-28.v5", nowMs },
+    { gateVersion: "2026-07-28.v6", nowMs },
   ),
   contradictoryFailure: subject.normalizeGenerationProviderPreflight(
     { ...receipt, failure_code: "provider_rate_limited" },
-    { gateVersion: "2026-07-28.v5", nowMs },
+    { gateVersion: "2026-07-28.v6", nowMs },
   ),
   duplicateCount: subject.generationProviderReadinessPreflights(
     { provider_readiness: [receipt, { ...receipt }] },
-    { gateVersion: "2026-07-28.v5", nowMs },
+    { gateVersion: "2026-07-28.v6", nowMs },
   ).length,
 };
 """
@@ -250,17 +250,17 @@ def test_api_boundary_revalidates_receipt_before_app_state() -> None:
 
 
 def test_release_versions_include_the_readiness_module_and_gate() -> None:
-    assert "./app.js?v=20260728.6" in INDEX
-    assert "./supabase-api.js?v=20260728.2" in APP
+    assert "./app.js?v=20260728.7" in INDEX
+    assert "./supabase-api.js?v=20260728.3" in APP
     assert (
         "./generation-provider-readiness.js?v=20260728.1"
         in APP
     )
     assert (
-        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5"'
+        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"'
         in APP
     )
     assert (
-        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5"'
+        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"'
         in EDGE
     )

@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260728.2";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260728.3";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -40,12 +40,13 @@ import {
 } from "./access-center-view.js?v=20260717.1";
 import {
   normalizeProductResearch,
+  inspectResearchScenarioGenerationReadiness,
   productResearchInputMarkup,
   productResearchProgressMarkup,
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260728.4";
+} from "./product-research-view.js?v=20260728.5";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -57,7 +58,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260728.2";
+} from "./content-generation-handoff.js?v=20260728.3";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -393,7 +394,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -15108,6 +15109,20 @@ async function submitProductResearchBrief(form, submitter) {
     || !scenario.task_title
   )) {
     toast("В каждом сценарии заполните хук, композицию или кадры и название задачи, а для 8-секундного UGC — реплику.", "error");
+    return;
+  }
+  const unreadyScenarioIndex = draft.scenarios.findIndex((scenario) =>
+    !inspectResearchScenarioGenerationReadiness(scenario).ready
+  );
+  if (unreadyScenarioIndex >= 0) {
+    const readiness = inspectResearchScenarioGenerationReadiness(
+      draft.scenarios[unreadyScenarioIndex],
+    );
+    toast(
+      `Сценарий ${unreadyScenarioIndex + 1}: ${readiness.message}`,
+      "error",
+    );
+    form.elements[`scenario_${unreadyScenarioIndex}_shots`]?.focus();
     return;
   }
   const sourceIds = Array.from(new Set(research.record.sourceIds || [])).filter(Boolean);

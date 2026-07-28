@@ -9,6 +9,8 @@ const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
+const GENERATED_TEXT_GUARD =
+  "Без сгенерированных надписей, субтитров и декоративного текста.";
 
 export function createContentGenerationHandoff(record, scenarioIndex, now = Date.now()) {
   if (record?.approved !== true) {
@@ -181,6 +183,7 @@ export function compileContentGenerationPrompt(
     optional(`Хук: ${scenario.hook}.`),
     required(`Действие в кадре: ${action || "[ДОБАВЬТЕ ОДНО ПОНЯТНОЕ ДЕЙСТВИЕ]"}.`),
     required(spokenLine),
+    required(seedance ? GENERATED_TEXT_GUARD : ""),
     optional(brief.visualDirection ? `Визуальное направление: ${brief.visualDirection}.` : ""),
     optional(brief.keyMessage ? `Главная мысль: ${brief.keyMessage}.` : ""),
     optional(brief.proofPoints.length ? `Разрешённые доказательства: ${brief.proofPoints.join("; ")}.` : ""),
@@ -306,6 +309,7 @@ export function compileSafeGenerationBrief({
       required(identityLine),
       required("С первого кадра герой держит точный товар у лица, затем приближает упаковку к камере и возвращает в центр."),
       required(`Реплика героя дословно: «${spokenLine}»`),
+      required(GENERATED_TEXT_GUARD),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
       required(productLock),
@@ -928,6 +932,14 @@ export function inspectContentGenerationPrompt(
       });
     }
   } else if (normalizedMode === REAL_SEEDANCE_MODE) {
+    if (!normalized.includes(
+      "Создай один непрерывный вертикальный UGC-ролик длительностью 8 секунд",
+    )) {
+      blockers.push({
+        code: "seedance_output_guard_missing",
+        message: "Верните точный формат одного вертикального UGC-ролика на 8 секунд.",
+      });
+    }
     const match = /Реплика героя дословно:\s*«([^»]+)»/u.exec(normalized);
     if (!match) {
       blockers.push({
@@ -943,11 +955,27 @@ export function inspectContentGenerationPrompt(
         });
       }
     }
-  } else if (!normalized.includes("Без речи, дикторского текста и сгенерированных надписей")) {
-    blockers.push({
-      code: "silent_mode_guard_missing",
-      message: "Для 5-секундного Gen4 верните явный режим без речи и новых надписей.",
-    });
+    if (!normalized.includes(GENERATED_TEXT_GUARD)) {
+      blockers.push({
+        code: "generated_text_guard_missing",
+        message: "Для Seedance верните запрет на сгенерированные надписи и субтитры.",
+      });
+    }
+  } else {
+    if (!normalized.includes(
+      "Создай один непрерывный вертикальный ролик длительностью 5 секунд",
+    )) {
+      blockers.push({
+        code: "gen4_output_guard_missing",
+        message: "Верните точный формат одного вертикального ролика Gen4 на 5 секунд.",
+      });
+    }
+    if (!normalized.includes("Без речи, дикторского текста и сгенерированных надписей")) {
+      blockers.push({
+        code: "silent_mode_guard_missing",
+        message: "Для 5-секундного Gen4 верните явный режим без речи и новых надписей.",
+      });
+    }
   }
   return result(normalized, blockers, warnings, { mode: normalizedMode });
 }

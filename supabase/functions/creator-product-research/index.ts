@@ -192,6 +192,18 @@ function countWords(value: string): number {
   return value.match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)?.length || 0;
 }
 
+function wordSequence(value: string): string[] {
+  return (value.match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu) ?? [])
+    .map((word) => word.toLocaleLowerCase("ru-RU"));
+}
+
+function hasSameWordSequence(left: string, right: string): boolean {
+  const leftWords = wordSequence(left);
+  const rightWords = wordSequence(right);
+  return leftWords.length === rightWords.length &&
+    leftWords.every((word, index) => word === rightWords[index]);
+}
+
 function readRequestPayload(value: unknown): AnalyzePayload | null {
   if (!isRecord(value)) return null;
   const allowed = new Set(["action", "research_id"]);
@@ -596,8 +608,8 @@ const PRODUCT_RESEARCH_SCHEMA: Json = strictObject({
       spoken_script: { type: "string", minLength: 0, maxLength: 4_000 },
       shot_list: {
         type: "array",
-        minItems: 3,
-        maxItems: 10,
+        minItems: 1,
+        maxItems: 3,
         items: strictObject({
           seconds: { type: "string", minLength: 1, maxLength: 32 },
           visual: { type: "string", minLength: 3, maxLength: 700 },
@@ -981,18 +993,11 @@ function readResearchResult(
       ) ||
       !isBoundedText(scenario.generation_mode_reason, 10, 400) ||
       !isBoundedText(scenario.hook, 3, 500) ||
-      !(
-        scenario.recommended_generation_mode === "real_seedance"
-          ? isBoundedText(scenario.spoken_script, 3, 4_000) &&
-            countWords(scenario.spoken_script) >= 1 &&
-            countWords(scenario.spoken_script) <= 22
-          : scenario.spoken_script === ""
-      ) ||
       !isBoundedText(scenario.cta, 3, 400) ||
       !isTextArray(scenario.proof_points, 1, 8) ||
       !isTextArray(scenario.risks, 1, 8) ||
-      !Array.isArray(scenario.shot_list) || scenario.shot_list.length < 3 ||
-      scenario.shot_list.length > 10 || scenario.shot_list.some((shot) =>
+      !Array.isArray(scenario.shot_list) || scenario.shot_list.length < 1 ||
+      scenario.shot_list.length > 3 || scenario.shot_list.some((shot) =>
         !isRecord(shot) || !hasExactKeys(shot, [
           "seconds",
           "visual",
@@ -1001,22 +1006,51 @@ function readResearchResult(
         ]) || !isBoundedText(shot.seconds, 1, 32) ||
         !isBoundedText(shot.visual, 3, 700) ||
         !isBoundedText(shot.voiceover, 1, 700) ||
-        !isBoundedText(shot.on_screen_text, 1, 300)
-      ) ||
-      (
-        scenario.recommended_generation_mode === "real_photo" &&
-        (
-          scenario.shot_list.length !== 3 ||
-          scenario.shot_list.some((shot) =>
-            !isRecord(shot) || shot.seconds !== "один кадр" ||
-            shot.voiceover !== "без голоса" ||
-            shot.on_screen_text !== "без текста"
-          )
-        )
+        !isBoundedText(shot.on_screen_text, 1, 300) ||
+        shot.on_screen_text !== "без текста"
       )
     ) {
       return null;
     }
+    const mode = String(scenario.recommended_generation_mode);
+    const shots = scenario.shot_list;
+    if (mode === "real_photo") {
+      if (
+        scenario.spoken_script !== "" || shots.length !== 3 ||
+        shots.some((shot) =>
+          !isRecord(shot) || shot.seconds !== "один кадр" ||
+          shot.voiceover !== "без голоса"
+        )
+      ) {
+        return null;
+      }
+      continue;
+    }
+    if (mode === "real_gen4") {
+      const shot = shots[0];
+      if (
+        scenario.spoken_script !== "" || shots.length !== 1 ||
+        !isRecord(shot) || shot.seconds !== "0–5 секунд" ||
+        shot.voiceover !== "без голоса"
+      ) {
+        return null;
+      }
+      continue;
+    }
+    if (
+      !isBoundedText(scenario.spoken_script, 3, 4_000) ||
+      countWords(scenario.spoken_script) < 1 ||
+      countWords(scenario.spoken_script) > 22 ||
+      shots.length < 2 || shots.length > 3 ||
+      !hasSameWordSequence(
+        shots.map((shot) =>
+          isRecord(shot) ? String(shot.voiceover) : ""
+        ).join(
+          " ",
+        ),
+        scenario.spoken_script,
+      )
+    ) return null;
   }
 
   const blueprint = value.task_blueprint;
@@ -1123,14 +1157,20 @@ const RESEARCH_INSTRUCTIONS = `
    Для каждого сценария выбери recommended_generation_mode:
    real_photo — одно квадратное статичное товарное фото: товар целиком по центру,
    нейтральный или минималистичный фон, без людей, рук, реквизита и надписей;
-   real_gen4 — товарный ролик 5 секунд без речи с одним простым действием;
+   real_gen4 — товарный ролик 5 секунд без речи с одним простым действием и
+   ровно одной строкой shot_list: seconds — «0–5 секунд», voiceover —
+   «без голоса», on_screen_text — «без текста»;
    real_seedance — UGC 8 секунд, только когда человек и слышимая реплика нужны
-   замыслу. Для real_seedance spoken_script должен содержать не более 22 слов.
+   замыслу. Для real_seedance spoken_script должен содержать 1–22 слова,
+   shot_list — ровно 2–3 последовательных кадра, а voiceover этих кадров
+   вместе должен повторять spoken_script слово в слово без перестановок,
+   добавлений и пропусков.
    Для real_photo и real_gen4 верни spoken_script как пустую строку.
    Для real_photo верни ровно три ограничения одной статичной композиции
    (композиция, свет, фон): seconds — «один кадр», voiceover — «без голоса»,
-   on_screen_text — «без текста». Для real_gen4 voiceover и
-   on_screen_text обозначь как «без голоса» и «без текста».
+   on_screen_text — «без текста». Для всех трёх режимов on_screen_text должен
+   быть точной строкой «без текста»: титры и маркировка добавляются только
+   после генерации и проверки точного файла.
    platform верни только как одно из точных значений входного массива platforms:
    instagram, youtube, vk или wildberries.
    В generation_mode_reason кратко объясни выбор через структуру сценария, не цену.

@@ -351,12 +351,15 @@ def test_research_edge_returns_only_server_validated_generation_modes() -> None:
         "const normalizedPlatforms = new Set(",
         "!normalizedPlatforms.has(",
         "claim.run.platforms,",
-        "Для real_seedance spoken_script должен содержать не более 22 слов",
+        "Для real_seedance spoken_script должен содержать 1–22 слова",
         "Для real_photo и real_gen4 верни spoken_script как пустую строку",
         'scenario.recommended_generation_mode === "real_seedance"',
         'scenario.recommended_generation_mode === "real_photo"',
-        "countWords(scenario.spoken_script) <= 22",
+        "countWords(scenario.spoken_script) > 22",
         'shot.seconds !== "один кадр"',
+        'shot.seconds !== "0–5 секунд"',
+        'shot.on_screen_text !== "без текста"',
+        "hasSameWordSequence(",
         '"recommended_scenario_position",',
         '"recommended_scenario_reason",',
         "recommended_scenario_position: {",
@@ -396,12 +399,12 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     assert "checked" not in confirmation
     assert "required" in confirmation
     assert (
-        'from "./product-research-view.js?v=20260728.4"'
+        'from "./product-research-view.js?v=20260728.5"'
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260728.2"'
+        'from "./content-generation-handoff.js?v=20260728.3"'
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260727.7"' in APP
-    assert './app.js?v=20260728.6' in INDEX
+    assert './app.js?v=20260728.7' in INDEX

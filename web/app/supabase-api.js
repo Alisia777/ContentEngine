@@ -70,7 +70,7 @@ const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const ACCESS_FUNCTION = "creator-access";
 const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6";
 const REAL_GENERATION_CREDITS = Object.freeze({
   gen4_turbo: 25,
   seedance2_fast: 232,
@@ -2866,6 +2866,7 @@ function toFriendlyMessage(error) {
     generation_learning_policy_required: "Для товара уже есть подтверждённое обучение. Обновите авто-ТЗ перед запуском.",
     generation_learning_policy_stale: "Обученное ТЗ обновилось. Восстановите авто-ТЗ и повторите запуск.",
     generation_learning_prompt_binding_invalid: "Обученные инструкции не попали в фактическое ТЗ. Восстановите безопасное авто-ТЗ перед запуском.",
+    generation_mode_prompt_binding_invalid: "ТЗ не соответствует техническому контракту выбранной модели. Восстановите безопасное авто-ТЗ: точный товар, формат, длительность, реплика и запрет надписей будут проверены заново.",
     generation_learning_rejection_guard_blocked: "Эта модель временно остановлена серверным контуром качества. Портал подберёт безопасную альтернативу без запуска Runway.",
     generation_quality_guard_control_review_pending: "Контрольный результат уже создан и ждёт независимого QA. Новый платный контроль не нужен.",
     generation_research_claim_evidence_invalid: "Одобренное исследование не содержит проверяемую immutable-базу safe/forbidden claims. Платный запуск не создан: обновите AI-исследование и одобрите его без ручной подмены.",
