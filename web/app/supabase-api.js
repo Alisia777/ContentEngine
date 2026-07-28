@@ -65,6 +65,14 @@ export const RPC = Object.freeze({
     "creator_approve_generated_video_review_with_context",
 });
 
+export const PRODUCT_RESEARCH_PLATFORMS = Object.freeze([
+  "instagram",
+  "youtube",
+  "vk",
+  "wildberries",
+]);
+const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
+
 const REAL_GENERATION_FUNCTION = "creator-generate";
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
@@ -1050,11 +1058,12 @@ export class CreatorApi {
         code: "product_research_input_invalid",
       });
     }
-    const supportedPlatforms = new Set(["instagram", "youtube", "vk"]);
     if (
       !Array.isArray(input?.platforms)
       || input.platforms.length < 1
-      || input.platforms.some((platform) => !supportedPlatforms.has(String(platform)))
+      || input.platforms.some((platform) =>
+        !PRODUCT_RESEARCH_PLATFORM_SET.has(String(platform))
+      )
     ) {
       throw new CreatorApiError("Выберите хотя бы одну площадку для будущих роликов.", {
         code: "product_research_platform_required",

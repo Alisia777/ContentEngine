@@ -14,6 +14,12 @@ CATALOG = (ROOT / "web/app/catalog.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 VIEW = (ROOT / "web/app/product-research-view.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/app/product-research.css").read_text(encoding="utf-8")
+EDGE = (
+    ROOT / "supabase/functions/creator-product-research/index.ts"
+).read_text(encoding="utf-8")
+MIGRATION = (
+    ROOT / "supabase/migrations/202607150005_product_research_mvp.sql"
+).read_text(encoding="utf-8")
 
 
 def _between(source: str, start: str, end: str) -> str:
@@ -28,6 +34,32 @@ def _run_view_module(body: str) -> dict:
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory = Path(temporary_directory)
         (directory / "subject.mjs").write_text(VIEW, encoding="utf-8")
+        (directory / "contract.mjs").write_text(
+            "import * as subject from './subject.mjs';\n"
+            f"const result = await (async () => {{\n{body}\n}})();\n"
+            "process.stdout.write(JSON.stringify(result));\n",
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [node, "contract.mjs"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+            check=False,
+        )
+    assert result.returncode == 0, result.stderr or result.stdout
+    return json.loads(result.stdout)
+
+
+def _run_api_module(body: str) -> dict:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable API contracts")
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        directory = Path(temporary_directory)
+        (directory / "subject.mjs").write_text(API, encoding="utf-8")
         (directory / "contract.mjs").write_text(
             "import * as subject from './subject.mjs';\n"
             f"const result = await (async () => {{\n{body}\n}})();\n"
@@ -107,6 +139,70 @@ def test_start_form_is_source_aware_paid_and_requires_human_review() -> None:
     assert "ИИ готовит черновик" in start
     assert 'name="platforms" value="wildberries"' in start
     assert "Для каких площадок готовим контент" in start
+
+
+def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
+    result = _run_api_module(
+        """
+        const calls = [];
+        const api = Object.create(subject.CreatorApi.prototype);
+        api.mutate = async (rpc, payload) => {
+          calls.push({ kind: "rpc", rpc, platforms: payload.platforms });
+          return { run: { id: "research-run-1", status: "queued" } };
+        };
+        api.invokeProductResearch = async (payload) => {
+          calls.push({ kind: "edge", payload });
+          return { ok: true };
+        };
+        const accepted = await api.startProductResearch({
+          product_name: "Точный товар",
+          sku: "WB-100",
+          platforms: ["wildberries"],
+        });
+        let rejectedCode = "";
+        try {
+          await api.startProductResearch({
+            product_name: "Точный товар",
+            sku: "WB-100",
+            platforms: ["ozon"],
+          });
+        } catch (error) {
+          rejectedCode = String(error?.code || "");
+        }
+        return {
+          platforms: subject.PRODUCT_RESEARCH_PLATFORMS,
+          calls,
+          acceptedId: accepted.run.id,
+          rejectedCode,
+        };
+        """
+    )
+    assert result == {
+        "platforms": ["instagram", "youtube", "vk", "wildberries"],
+        "calls": [
+            {
+                "kind": "rpc",
+                "rpc": "creator_start_product_research",
+                "platforms": ["wildberries"],
+            },
+            {
+                "kind": "edge",
+                "payload": {
+                    "action": "analyze",
+                    "research_id": "research-run-1",
+                },
+            },
+        ],
+        "acceptedId": "research-run-1",
+        "rejectedCode": "product_research_platform_required",
+    }
+    assert "PRODUCT_RESEARCH_PLATFORM_SET.has(item)" in APP
+    assert 'name="platforms" value="wildberries"' in VIEW
+    assert '"wildberries",' in EDGE[
+        EDGE.index("const PLATFORMS = new Set([") :
+        EDGE.index("]);", EDGE.index("const PLATFORMS = new Set([")) + 3
+    ]
+    assert "'instagram', 'youtube', 'vk', 'wildberries', 'ozon'" in MIGRATION
 
 
 def test_status_normalization_reads_canonical_sources_draft_and_forecast() -> None:

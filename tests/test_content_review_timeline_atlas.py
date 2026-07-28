@@ -205,7 +205,7 @@ def test_atlas_release_invalidates_old_local_evidence_and_bumps_modules() -> Non
     app = APP.read_text(encoding="utf-8")
     index = INDEX.read_text(encoding="utf-8")
     assert "./content-review-view.js?v=20260727.11" in app
-    assert "./supabase-api.js?v=20260728.3" in app
+    assert "./supabase-api.js?v=20260728.4" in app
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7" in app
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in app
-    assert "./app.js?v=20260728.7" in index
+    assert "./app.js?v=20260728.8" in index

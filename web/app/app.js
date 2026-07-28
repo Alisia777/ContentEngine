@@ -1,4 +1,8 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260728.3";
+import {
+  CreatorApi,
+  mediaKindRequiresProduct,
+  PRODUCT_RESEARCH_PLATFORMS,
+} from "./supabase-api.js?v=20260728.4";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -224,6 +228,7 @@ const GENERATION_PREFLIGHT_READY_TTL_MS = 2 * 60 * 1_000;
 const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
+const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -15005,7 +15010,7 @@ async function submitProductResearchStart(form) {
   const marketplaceUrl = String(values.get("marketplace_url") || "").trim();
   const sourceMediaIds = values.getAll("source_media_ids").map(String).filter(Boolean);
   const platforms = values.getAll("platforms").map(String).filter((item) =>
-    ["instagram", "youtube", "vk", "wildberries"].includes(item)
+    PRODUCT_RESEARCH_PLATFORM_SET.has(item)
   );
   if (!platforms.length) {
     toast("Выберите хотя бы одну площадку: Instagram, YouTube, VK или Wildberries.", "error");
