@@ -236,6 +236,7 @@ const GENERATED_VIDEO_QA_STORAGE_VERSION = 5;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
 const GENERATION_REVIEW_AUTOSTART_VERSION = 1;
 const GENERATION_REVIEW_AUTOSTART_MAX_JOBS = 20;
+const GENERATED_VIDEO_QA_RECOVERY_LIMIT = 4;
 const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
@@ -923,6 +924,8 @@ const state = {
     entries: new Map(),
     activePromise: null,
     activeReviewPromise: null,
+    activeRecoveryPromise: null,
+    recoveryJobIds: new Set(),
     restored: false,
   },
   contentGenerationHandoff: readStoredContentGenerationHandoff(),
@@ -1508,8 +1511,14 @@ function registerGenerationReviewAutostart(jobId) {
   ]);
 }
 
-function generationReviewAutostartApproved(jobId) {
-  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+function generationReviewAutostartApproved(jobOrId) {
+  const job = jobOrId && typeof jobOrId === "object" ? jobOrId : null;
+  const normalizedJobId = String(job?.id || jobOrId || "").trim().toLowerCase();
+  if (
+    normalizeBoolean(job?.review_autostart_confirmed)
+    && job?.review_autostart_terms_version
+      === "generated-video-qa-autostart-v1"
+  ) return true;
   return contentReviewUuid(normalizedJobId)
     && generationReviewAutostartJobs().includes(normalizedJobId);
 }
@@ -1765,6 +1774,7 @@ function bindGlobalEvents() {
       refreshGenerationModelAcceptanceIfStale();
       void refreshTrainingPracticalReviews({ silent: true });
       scheduleRealGenerationPolling(250);
+      resumeGeneratedVideoQaRecovery();
       resumeGeneratedVideoTechnicalQa();
       resumeGeneratedVideoReviewAutopilot();
       scheduleContentReviewPolling(250);
@@ -7787,6 +7797,7 @@ function renderGenerationSection(sectionState) {
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
   window.queueMicrotask(() => {
     scheduleRealGenerationPolling();
+    resumeGeneratedVideoQaRecovery();
     resumeGeneratedVideoTechnicalQa();
     resumeGeneratedVideoReviewAutopilot();
     const generationForm = document.querySelector("#mock-batch-form");
@@ -8624,6 +8635,50 @@ function waitForRealGenerationStatus(jobId, timeoutMs, source = "manual") {
   return withSoftTimeoutResult(requestRealGenerationStatus(jobId, source), timeoutMs);
 }
 
+function resumeGeneratedVideoQaRecovery() {
+  if (
+    state.generatedVideoQa.activeRecoveryPromise
+    || state.route.path !== "/workspace/generation"
+    || document.visibilityState !== "visible"
+    || !state.session
+  ) return;
+  const candidates = listFrom(
+    state.sections.generation.data || {},
+    "batches",
+  ).map(generationBatchDetails).filter((details) => (
+    details.real
+    && !details.photo
+    && ["succeeded", "completed"].includes(details.status)
+    && contentReviewUuid(details.jobId)
+    && !state.realGenerationResults.has(details.jobId)
+    && !state.generatedVideoQa.recoveryJobIds.has(details.jobId)
+  )).slice(0, GENERATED_VIDEO_QA_RECOVERY_LIMIT);
+  if (!candidates.length) return;
+  for (const candidate of candidates) {
+    state.generatedVideoQa.recoveryJobIds.add(candidate.jobId);
+  }
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const operation = Promise.allSettled(candidates.map(({ jobId }) =>
+    waitForRealGenerationStatus(
+      jobId,
+      REAL_GENERATION_SOFT_TIMEOUT_MS,
+      "qa-recovery",
+    )
+  ));
+  state.generatedVideoQa.activeRecoveryPromise = operation;
+  operation.finally(() => {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+    ) return;
+    if (state.generatedVideoQa.activeRecoveryPromise === operation) {
+      state.generatedVideoQa.activeRecoveryPromise = null;
+    }
+    window.queueMicrotask(resumeGeneratedVideoQaRecovery);
+  });
+}
+
 function withSoftTimeoutResult(operation, timeoutMs) {
   let timerId;
   const timeout = new Promise((resolve) => {
@@ -9044,6 +9099,8 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
   automatic = false,
 } = {}) {
   const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
   const previous = state.generatedVideoQa.entries.get(normalizedMediaId);
   if (previous?.status === "consumed") return true;
   if (previous?.status === "starting_review") return false;
@@ -9065,6 +9122,10 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
       mediaId: normalizedMediaId,
       evidenceId: evidence.evidenceId,
     });
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+    ) return false;
     const reviewId = String(raw?.review_id || raw?.run?.id || "").toLowerCase();
     if (!contentReviewUuid(reviewId) || raw?.transcription_requested !== false) {
       throw new Error("generated_video_review_start_invalid");
@@ -9080,6 +9141,10 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
     );
     return true;
   } catch (error) {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+    ) return false;
     setGeneratedVideoQaStatus(normalizedMediaId, {
       status: "ready",
       evidence,
@@ -9252,7 +9317,7 @@ function scheduleGeneratedVideoTechnicalQa(job, signedUrl = "", { force = false 
   restoreGeneratedVideoQaEvidence();
   const previous = state.generatedVideoQa.entries.get(mediaId);
   const evidence = generatedVideoQaEvidenceForMedia(mediaId);
-  const reviewAutostartApproved = generationReviewAutostartApproved(job?.id);
+  const reviewAutostartApproved = generationReviewAutostartApproved(job);
   if (!force && ["consumed", "error"].includes(previous?.status)) return;
   if (!force && (evidence?.status === "ready" || ["queued", "loading", "capturing", "saving"].includes(previous?.status))) {
     if (evidence?.status === "ready") {
@@ -14247,6 +14312,13 @@ async function submitRealGeneration(form, values, mode) {
     duration_seconds: generationSku.durationSeconds,
     audio: generationSku.audio,
     spend_confirmation: String(values.get("real_spend_confirmation") || ""),
+    ...(!photo
+      ? {
+          review_autostart_confirmed: true,
+          review_autostart_terms_version:
+            "generated-video-qa-autostart-v1",
+        }
+      : {}),
     learning_context: learningContext,
     ...(repairContext ? { repair_context: repairContext } : {}),
     ...(generationLearningOptOut(form) ? { learning_opt_out: true } : {}),
@@ -16030,6 +16102,9 @@ function clearAuthenticatedState() {
   state.realGenerationDrafts.clear();
   state.generatedVideoQa.entries.clear();
   state.generatedVideoQa.activePromise = null;
+  state.generatedVideoQa.activeReviewPromise = null;
+  state.generatedVideoQa.activeRecoveryPromise = null;
+  state.generatedVideoQa.recoveryJobIds.clear();
   state.generatedVideoQa.restored = false;
   clearContentGenerationHandoff();
   state.lastRealGenerationJobId = null;

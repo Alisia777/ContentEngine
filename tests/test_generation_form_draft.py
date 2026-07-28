@@ -123,7 +123,7 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
     ):
         assert token in APP
     assert "generation-form-draft.js?v=20260727.1" in APP
-    assert "app.js?v=20260728.8" in INDEX
+    assert "app.js?v=20260728.9" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:
@@ -143,13 +143,15 @@ def test_generated_video_review_starts_automatically_after_durable_evidence() ->
     assert APP.count("await startGeneratedVideoReviewFromEvidence(mediaId)") == 1
 
 
-def test_video_review_autostart_consent_is_bound_to_the_new_job_in_session() -> None:
+def test_video_review_autostart_consent_is_bound_to_the_new_job_and_session_fallback() -> None:
     for token in (
         "generationReviewAutostartStorageKey",
         "GENERATION_REVIEW_AUTOSTART_MAX_JOBS",
         "window.sessionStorage",
         "registerGenerationReviewAutostart(jobId)",
-        "generationReviewAutostartApproved(job?.id)",
+        "generationReviewAutostartApproved(job)",
+        "job?.review_autostart_confirmed",
+        "generated-video-qa-autostart-v1",
         "consumeGenerationReviewAutostart(previous.jobId)",
     ):
         assert token in APP

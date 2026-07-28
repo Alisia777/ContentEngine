@@ -258,6 +258,8 @@ type CommonStartPayload = {
   learning_context: GenerationLearningContext;
   learning_opt_out?: true;
   repair_context?: GenerationRepairContext;
+  review_autostart_confirmed?: true;
+  review_autostart_terms_version?: "generated-video-qa-autostart-v1";
 };
 
 type GenerationLearningContext = {
@@ -412,6 +414,8 @@ type StartJob = {
   outputObjectName: string;
   estimatedCostMinor: number;
   estimatedCredits: number;
+  reviewAutostartConfirmed: boolean;
+  reviewAutostartTermsVersion: string | null;
 };
 
 type StatusJob = {
@@ -439,6 +443,8 @@ type StatusJob = {
   reconciliationReasonCode: string | null;
   reconciliationResolution: string | null;
   canReconcile: boolean;
+  reviewAutostartConfirmed: boolean;
+  reviewAutostartTermsVersion: string | null;
   updatedAt: string;
 };
 
@@ -467,6 +473,8 @@ type SafeJob = {
   reconciliation_reason_code: string | null;
   reconciliation_resolution: string | null;
   can_reconcile: boolean;
+  review_autostart_confirmed: boolean;
+  review_autostart_terms_version: string | null;
   updated_at: string;
 };
 
@@ -665,6 +673,8 @@ function readStartPayload(value: unknown): StartPayload | null {
     "payout_minor",
     "learning_opt_out",
     "repair_context",
+    "review_autostart_confirmed",
+    "review_autostart_terms_version",
   ]);
   if (!hasOnlyKeys(value, allowed)) return null;
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
@@ -686,6 +696,9 @@ function readStartPayload(value: unknown): StartPayload | null {
     value.spend_confirmation ===
       "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04";
   const model = readRunwayModel(value.model);
+  const reviewAutostartKeyPresent =
+    Object.hasOwn(value, "review_autostart_confirmed") ||
+    Object.hasOwn(value, "review_autostart_terms_version");
   const promptLimit = model === null ? 0 : RUNWAY_PROMPT_LIMITS[model];
   if (
     !Array.isArray(mediaIds) || mediaIds.length !== 1 ||
@@ -730,6 +743,17 @@ function readStartPayload(value: unknown): StartPayload | null {
     value.mode !== "real" || value.provider !== "runway" ||
     value.allow_real_spend !== true ||
     (!gen4Sku && !seedanceSku && !seedreamSku)
+  ) {
+    return null;
+  }
+  if (
+    reviewAutostartKeyPresent &&
+    (
+      seedreamSku ||
+      value.review_autostart_confirmed !== true ||
+      value.review_autostart_terms_version !==
+        "generated-video-qa-autostart-v1"
+    )
   ) {
     return null;
   }
@@ -1325,6 +1349,11 @@ function readStartJob(value: unknown): StartJob | null {
     !isUuid(batch.campaign_id)
   ) return null;
   const sku = readRunwaySku(job);
+  const reviewAutostartConfirmed = job.review_autostart_confirmed === true;
+  const reviewAutostartTermsVersion =
+    typeof job.review_autostart_terms_version === "string"
+      ? job.review_autostart_terms_version
+      : null;
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) || job.batch_id !== batch.id ||
     !isUuid(job.campaign_id) || !isBoundedText(job.campaign_name, 2, 160) ||
@@ -1335,7 +1364,17 @@ function readStartJob(value: unknown): StartJob | null {
     !isObjectName(job.input_object_name) ||
     !isObjectName(job.output_object_name) ||
     !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000) ||
-    !isIntegerInRange(job.estimated_credits, 0, 1_000_000)
+    !isIntegerInRange(job.estimated_credits, 0, 1_000_000) ||
+    typeof job.review_autostart_confirmed !== "boolean" ||
+    (
+      reviewAutostartConfirmed &&
+      reviewAutostartTermsVersion !==
+        "generated-video-qa-autostart-v1"
+    ) ||
+    (
+      !reviewAutostartConfirmed &&
+      reviewAutostartTermsVersion !== null
+    )
   ) {
     return null;
   }
@@ -1355,6 +1394,8 @@ function readStartJob(value: unknown): StartJob | null {
     outputObjectName: job.output_object_name,
     estimatedCostMinor: sku.estimatedCostMinor,
     estimatedCredits: sku.estimatedCredits,
+    reviewAutostartConfirmed,
+    reviewAutostartTermsVersion,
   };
 }
 
@@ -1372,6 +1413,11 @@ function readStatusJob(value: unknown): StatusJob | null {
   const reconciliationRequiredAt = job.reconciliation_required_at;
   const reconciliationReasonCode = job.reconciliation_reason_code;
   const reconciliationResolution = job.reconciliation_resolution;
+  const reviewAutostartConfirmed = job.review_autostart_confirmed === true;
+  const reviewAutostartTermsVersion =
+    typeof job.review_autostart_terms_version === "string"
+      ? job.review_autostart_terms_version
+      : null;
   const sku = readRunwaySku(job);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) ||
@@ -1406,6 +1452,16 @@ function readStatusJob(value: unknown): StatusJob | null {
           reconciliationResolution,
         ))) ||
     typeof job.can_reconcile !== "boolean" ||
+    typeof job.review_autostart_confirmed !== "boolean" ||
+    (
+      reviewAutostartConfirmed &&
+      reviewAutostartTermsVersion !==
+        "generated-video-qa-autostart-v1"
+    ) ||
+    (
+      !reviewAutostartConfirmed &&
+      reviewAutostartTermsVersion !== null
+    ) ||
     typeof job.updated_at !== "string" ||
     !Number.isFinite(Date.parse(job.updated_at))
   ) {
@@ -1436,6 +1492,8 @@ function readStatusJob(value: unknown): StatusJob | null {
     reconciliationReasonCode,
     reconciliationResolution,
     canReconcile: job.can_reconcile,
+    reviewAutostartConfirmed,
+    reviewAutostartTermsVersion,
     updatedAt: job.updated_at,
   };
 }
@@ -1495,6 +1553,8 @@ function readInternalStatusRow(value: unknown): StatusJob | null {
         "reconciliation_resolution",
       ),
       can_reconcile: false,
+      review_autostart_confirmed: false,
+      review_autostart_terms_version: null,
       updated_at: value.updated_at,
     },
   });
@@ -1557,6 +1617,8 @@ function safeJob(job: StatusJob): SafeJob {
     reconciliation_reason_code: job.reconciliationReasonCode,
     reconciliation_resolution: job.reconciliationResolution,
     can_reconcile: job.canReconcile,
+    review_autostart_confirmed: job.reviewAutostartConfirmed,
+    review_autostart_terms_version: job.reviewAutostartTermsVersion,
     updated_at: job.updatedAt,
   };
 }
@@ -3103,7 +3165,15 @@ async function handleCreatorGenerate(
   const startJob = readStartJob(startData);
   if (
     startJob === null ||
-    startJob.campaignId !== startPayload.campaign_id
+    startJob.campaignId !== startPayload.campaign_id ||
+    (
+      startPayload.review_autostart_confirmed === true &&
+      (
+        !startJob.reviewAutostartConfirmed ||
+        startJob.reviewAutostartTermsVersion !==
+          "generated-video-qa-autostart-v1"
+      )
+    )
   ) {
     return json(request, { ok: false, code: "generation_rejected" }, 403);
   }
