@@ -3,6 +3,36 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+create or replace function pg_temp.canonical_gen4_prompt(
+  p_product_name text,
+  p_sku text
+)
+returns text
+language sql
+immutable
+as $prompt$
+  select format(
+    'Точный товар: %s, артикул %s. Создай один непрерывный вертикальный ролик длительностью 5 секунд. Без речи, дикторского текста и сгенерированных надписей. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.',
+    p_product_name,
+    p_sku
+  )
+$prompt$;
+
+create or replace function pg_temp.canonical_seedance_prompt(
+  p_product_name text,
+  p_sku text
+)
+returns text
+language sql
+immutable
+as $prompt$
+  select format(
+    'Точный товар: %s, артикул %s. Создай один непрерывный вертикальный UGC-ролик длительностью 8 секунд. Без сгенерированных надписей, субтитров и декоративного текста. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара. Реплика героя дословно: «Показываю товар крупно и честно»',
+    p_product_name,
+    p_sku
+  )
+$prompt$;
+
 
 -- TEST-ONLY refreshed-course gate. Production authorization accepts only a
 -- completed server-style attempt whose question counts match the active module
@@ -443,7 +473,11 @@ values (public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-success-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
-  'count', 1, 'format', '9:16', 'brief', 'Show the exact product speaking clearly.',
+  'count', 1, 'format', '9:16',
+  'brief', pg_temp.canonical_seedance_prompt(
+    'Seedance product',
+    'SEEDANCE-SKU-1'
+  ),
   'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'seedance-test',
   'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
@@ -523,7 +557,11 @@ select is(
     'organization_id', '90000000-0000-4000-8000-000000000001',
     'idempotency_key', 'seedance-success-0001',
     'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
-    'count', 1, 'format', '9:16', 'brief', 'Show the exact product speaking clearly.',
+    'count', 1, 'format', '9:16',
+    'brief', pg_temp.canonical_seedance_prompt(
+      'Seedance product',
+      'SEEDANCE-SKU-1'
+    ),
     'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
     'platform', 'wildberries', 'destination_ref', 'seedance-test',
     'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
@@ -687,7 +725,11 @@ set failure_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-failure-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
-  'count', 1, 'format', '9:16', 'brief', 'A second exact speaking product video.',
+  'count', 1, 'format', '9:16',
+  'brief', pg_temp.canonical_seedance_prompt(
+    'Seedance product',
+    'SEEDANCE-SKU-1'
+  ),
   'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'seedance-test',
   'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
@@ -847,7 +889,11 @@ set nonrefund_response = public.creator_start_real_generation(jsonb_build_object
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-nonrefund-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
-  'count', 1, 'format', '9:16', 'brief', 'A moderated product video.',
+  'count', 1, 'format', '9:16',
+  'brief', pg_temp.canonical_seedance_prompt(
+    'Seedance product',
+    'SEEDANCE-SKU-1'
+  ),
   'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'seedance-test',
   'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
@@ -923,7 +969,11 @@ set gen4_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'gen4-after-seedance-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
-  'count', 1, 'format', '16:9', 'brief', 'Preserve the Gen-4 path.',
+  'count', 1, 'format', '16:9',
+  'brief', pg_temp.canonical_gen4_prompt(
+    'Seedance product',
+    'SEEDANCE-SKU-1'
+  ),
   'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'seedance-test',
   'mode', 'real', 'provider', 'runway', 'model', 'gen4_turbo',

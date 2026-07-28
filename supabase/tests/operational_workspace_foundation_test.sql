@@ -3,6 +3,21 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+create or replace function pg_temp.canonical_gen4_prompt(
+  p_product_name text,
+  p_sku text
+)
+returns text
+language sql
+immutable
+as $prompt$
+  select format(
+    'Точный товар: %s, артикул %s. Создай один непрерывный вертикальный ролик длительностью 5 секунд. Без речи, дикторского текста и сгенерированных надписей. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.',
+    p_product_name,
+    p_sku
+  )
+$prompt$;
+
 create or replace function pg_temp.grant_operational_workspace_gate(
   p_organization_id uuid,
   p_profile_id uuid,
@@ -591,7 +606,10 @@ values (
     'product_name', 'Operational product',
     'count', 1,
     'format', '9:16',
-    'brief', 'Operational workspace paid generation fixture.',
+    'brief', pg_temp.canonical_gen4_prompt(
+      'Operational product',
+      'OPS-SKU-1'
+    ),
     'media_ids',
       '["96300000-0000-4000-8000-000000000001"]'::jsonb,
     'platform', 'wildberries',

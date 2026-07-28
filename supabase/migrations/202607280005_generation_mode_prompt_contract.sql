@@ -19,6 +19,14 @@ declare
     'Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.'
   ]::text[];
 begin
+  if lower(btrim(coalesce(p_model, ''))) not in (
+    'seedream5_lite',
+    'gen4_turbo',
+    'seedance2_fast'
+  ) then
+    return null;
+  end if;
+
   return common_requirements || case lower(btrim(coalesce(p_model, '')))
     when 'seedream5_lite' then array[
       'Создай одно квадратное товарное фото 2048 × 2048.',
@@ -74,7 +82,15 @@ declare
   requirement_value text;
   spoken_value text;
   spoken_word_count integer;
+  result_value jsonb;
 begin
+  -- Preserve the complete legacy validation order.  When it succeeds, the
+  -- model prompt is checked in the same statement; raising below rolls back
+  -- every job, reservation and event written by the private function before
+  -- Edge code can submit anything to a paid provider.
+  result_value := content_factory_private
+    .creator_start_real_generation_pre_mode_prompt_v10(p_payload);
+
   p_payload := content_factory_private.require_payload(p_payload);
   model_value := lower(btrim(coalesce(p_payload ->> 'model', '')));
   brief_value := btrim(coalesce(p_payload ->> 'brief', ''));
@@ -134,8 +150,7 @@ begin
       message = 'generation_mode_prompt_binding_invalid';
   end if;
 
-  return content_factory_private
-    .creator_start_real_generation_pre_mode_prompt_v10(p_payload);
+  return result_value;
 end;
 $$;
 

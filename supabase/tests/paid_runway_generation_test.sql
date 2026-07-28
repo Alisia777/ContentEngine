@@ -3,6 +3,21 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+create or replace function pg_temp.canonical_gen4_prompt(
+  p_product_name text,
+  p_sku text
+)
+returns text
+language sql
+immutable
+as $prompt$
+  select format(
+    'Точный товар: %s, артикул %s. Создай один непрерывный вертикальный ролик длительностью 5 секунд. Без речи, дикторского текста и сгенерированных надписей. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.',
+    p_product_name,
+    p_sku
+  )
+$prompt$;
+
 
 -- TEST-ONLY refreshed-course gate. Production authorization accepts only a
 -- completed server-style attempt whose question counts match the active module
@@ -479,7 +494,8 @@ values (public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-success-path-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
-  'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
+  'count', 1, 'format', '9:16',
+  'brief', pg_temp.canonical_gen4_prompt('Runway product', 'REAL-SKU-1'),
   'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'wb-real-test',
   'mode', 'real', 'provider', 'runway', 'model', 'gen4_turbo',
@@ -551,7 +567,8 @@ select is(
     'organization_id', '80000000-0000-4000-8000-000000000001',
     'idempotency_key', 'real-success-path-0001',
     'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
-    'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
+    'count', 1, 'format', '9:16',
+    'brief', pg_temp.canonical_gen4_prompt('Runway product', 'REAL-SKU-1'),
     'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
     'platform', 'wildberries', 'destination_ref', 'wb-real-test',
     'mode', 'real', 'provider', 'runway', 'model', 'gen4_turbo',
@@ -585,7 +602,8 @@ set reviewer_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-reviewer-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
-  'count', 1, 'format', '1:1', 'brief', 'Reviewer-assigned job.',
+  'count', 1, 'format', '1:1',
+  'brief', pg_temp.canonical_gen4_prompt('Runway product', 'REAL-SKU-1'),
   'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'wb-real-test',
   'assignee_id', '81222222-2222-4222-8222-222222222222',
@@ -598,7 +616,8 @@ set operator_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-operator-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
-  'count', 1, 'format', '16:9', 'brief', 'Operator-assigned job.',
+  'count', 1, 'format', '16:9',
+  'brief', pg_temp.canonical_gen4_prompt('Runway product', 'REAL-SKU-1'),
   'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'wb-real-test',
   'assignee_id', '81333333-3333-4333-8333-333333333333',
@@ -849,7 +868,11 @@ begin
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-seed-' || lpad(ordinal::text, 4, '0'),
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
-      'count', 1, 'format', '1:1', 'brief', 'Daily quota seed.',
+      'count', 1, 'format', '1:1',
+      'brief', pg_temp.canonical_gen4_prompt(
+        'Runway product',
+        'REAL-SKU-1'
+      ),
       'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
       'platform', 'wildberries', 'destination_ref', 'wb-real-test',
       'mode', 'real', 'provider', 'runway', 'model', 'gen4_turbo',

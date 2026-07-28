@@ -234,11 +234,14 @@ def test_database_rechecks_identity_mode_and_spoken_word_limit() -> None:
         ".creator_start_real_generation_pre_mode_prompt_v10(p_payload)",
     ):
         assert token in wrapper
-    assert wrapper.index("foreach requirement_value in array requirements") < (
-        wrapper.index(
-            ".creator_start_real_generation_pre_mode_prompt_v10(p_payload)"
-        )
+    prior_call = wrapper.index(
+        ".creator_start_real_generation_pre_mode_prompt_v10(p_payload)"
     )
+    prompt_gate = wrapper.index(
+        "foreach requirement_value in array requirements"
+    )
+    assert prior_call < prompt_gate
+    assert "raising below rolls back" in wrapper
 
 
 def test_release_versions_bind_the_mode_prompt_contract() -> None:
