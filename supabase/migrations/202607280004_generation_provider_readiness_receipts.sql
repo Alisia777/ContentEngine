@@ -213,11 +213,18 @@ begin
      or model_value not in (
        'gen4_turbo', 'seedance2_fast', 'seedream5_lite'
      )
-     or estimated_credits_value <> case model_value
-       when 'gen4_turbo' then 25
-       when 'seedance2_fast' then 232
-       when 'seedream5_lite' then 4
-     end
+     or (
+       model_value = 'gen4_turbo'
+       and estimated_credits_value <> 25
+     )
+     or (
+       model_value = 'seedance2_fast'
+       and estimated_credits_value <> 232
+     )
+     or (
+       model_value = 'seedream5_lite'
+       and estimated_credits_value <> 4
+     )
      or learning_gate_version_value !~
        '^[0-9]{4}-[0-9]{2}-[0-9]{2}[.]v[0-9]+$'
      or ready_value is distinct from (
