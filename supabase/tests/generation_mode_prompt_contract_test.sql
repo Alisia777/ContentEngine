@@ -83,6 +83,8 @@ select ok(
 select matches(
   pg_get_functiondef(
     'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) || pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_review_autostart_v11(jsonb)'::regprocedure
   ),
   'generation_mode_prompt_binding_invalid',
   'the paid database boundary fails closed on a missing mode prompt fragment'

@@ -266,7 +266,10 @@ begin
     where consent.organization_id = organization_id
       and consent.generation_job_id = job_id_value;
     consent_confirmed :=
-      consent_terms_version = 'generated-video-qa-autostart-v1';
+      coalesce(
+        consent_terms_version = 'generated-video-qa-autostart-v1',
+        false
+      );
   end if;
 
   result_value := jsonb_set(

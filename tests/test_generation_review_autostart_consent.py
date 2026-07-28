@@ -43,6 +43,7 @@ def test_start_and_status_wrappers_preserve_prior_security_chain() -> None:
     for token in (
         "creator_start_real_generation_pre_review_autostart_v11",
         "creator_real_generation_status_pre_review_autostart_v2",
+        "coalesce(",
         "security definer",
         "grant execute on function public.creator_start_real_generation(jsonb)",
         "grant execute on function public.creator_real_generation_status(jsonb)",
