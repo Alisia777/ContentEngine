@@ -49,6 +49,16 @@ function validEvidence(value) {
   const decision = safeText(value.decision);
   const score = Number(value.overall_score);
   const blockers = Number(value.blockers_count);
+  const decidedAt = safeText(value.decided_at);
+  const expiresAt = safeText(value.expires_at);
+  const decidedAtMs = Date.parse(decidedAt);
+  const expiresAtMs = Date.parse(expiresAt);
+  const fresh = Boolean(
+    value.fresh === true
+    && Number.isFinite(decidedAtMs)
+    && Number.isFinite(expiresAtMs)
+    && expiresAtMs > decidedAtMs,
+  );
   if (
     !UUID_PATTERN.test(safeText(value.generation_job_id))
     || !UUID_PATTERN.test(safeText(value.media_id))
@@ -75,7 +85,9 @@ function validEvidence(value) {
     reviewModelVersion: safeText(value.review_model_version),
     decisionId: safeText(value.decision_id),
     decision,
-    decidedAt: safeText(value.decided_at),
+    decidedAt,
+    expiresAt,
+    fresh,
     overallScore: score,
     blockersCount: blockers,
     complianceStatus: safeText(value.compliance_status),
@@ -127,6 +139,7 @@ export function normalizeGenerationModelAcceptance(raw) {
       serverStatus === "accepted"
       && evidence?.decision === "approved"
       && evidence.contextBound
+      && evidence.fresh
       && evidence.overallScore >= threshold
       && evidence.blockersCount === 0
       && evidence.complianceStatus.length > 0
@@ -165,6 +178,8 @@ export function normalizeGenerationModelAcceptance(raw) {
       reasonCode: safeText(item.reason_code) || "evidence_missing",
       nextActionCode,
       qualityThreshold: threshold,
+      evidenceMaxAgeDays:
+        safeInteger(item.evidence_max_age_days) || 90,
       successfulRuns,
       reviewedRuns: safeInteger(item.reviewed_runs),
       acceptedRuns: safeInteger(item.accepted_runs),
@@ -217,9 +232,11 @@ function modelStatusCopy(model) {
     };
   }
   if (model.status === "needs_revalidation") {
-    const detail = model.evidence?.decision === "approved"
-      ? `Последнее принятие не прошло порог ${model.qualityThreshold}/100 или не связано с полным контекстом.`
-      : "Последнее независимое решение не приняло результат.";
+    const detail = model.reasonCode === "acceptance_evidence_stale"
+      ? `Контроль качества старше ${model.evidenceMaxAgeDays} дней. Нужен один новый независимо проверенный результат.`
+      : model.evidence?.decision === "approved"
+        ? `Последнее принятие не прошло порог ${model.qualityThreshold}/100 или не связано с полным контекстом.`
+        : "Последнее независимое решение не приняло результат.";
     return {
       badge: "ПОВТОРИТЬ QA",
       badgeClass: "badge-warning",
@@ -288,9 +305,11 @@ function modelNextAction(model) {
   ) {
     return Object.freeze({
       kind: "prepare",
-      label: model.status === "needs_revalidation"
-        ? "Подготовить новый вариант"
-        : "Подготовить проверку",
+      label: model.reasonCode === "acceptance_evidence_stale"
+        ? "Подготовить перепроверку"
+        : model.status === "needs_revalidation"
+          ? "Подготовить новый вариант"
+          : "Подготовить проверку",
     });
   }
   return Object.freeze({

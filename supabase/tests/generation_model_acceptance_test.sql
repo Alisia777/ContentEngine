@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(15);
+select plan(25);
 
 select ok(
   to_regprocedure(
@@ -141,6 +141,186 @@ select throws_ok(
   '22023',
   'generation_model_acceptance_organization_required',
   'missing organization fails closed'
+);
+
+select ok(
+  to_regprocedure(
+    'content_factory_private.generation_model_acceptance_freshness(jsonb,timestamp with time zone)'
+  ) is not null,
+  'private acceptance-freshness resolver exists'
+);
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'content_factory_private.generation_model_acceptance_freshness(jsonb,timestamp with time zone)',
+    'execute'
+  ),
+  'the private freshness resolver is not an application endpoint'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'reason_code', 'latest_independent_approval_accepted',
+          'next_action_code', 'none',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-07-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) ->> 'version',
+  'generation-model-acceptance-v3',
+  'freshness resolver returns a new explicit contract version'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-07-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) #>> '{models,0,status}',
+  'accepted',
+  'evidence newer than 90 days stays accepted'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-07-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) #>> '{models,0,evidence,fresh}',
+  'true',
+  'fresh evidence carries an authoritative freshness marker'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-01-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) #>> '{models,0,status}',
+  'needs_revalidation',
+  'evidence older than 90 days fails closed'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-01-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) #>> '{models,0,reason_code}',
+  'acceptance_evidence_stale',
+  'stale evidence has a dedicated reason code'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-01-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) #>> '{models,0,next_action_code}',
+  'generate_replacement_and_approve',
+  'stale evidence requests exactly one reviewed replacement'
+);
+
+select is(
+  content_factory_private.generation_model_acceptance_freshness(
+    jsonb_build_object(
+      'models',
+      jsonb_build_array(
+        jsonb_build_object(
+          'model', 'seedream5_lite',
+          'status', 'accepted',
+          'evidence', jsonb_build_object(
+            'decided_at', '2026-01-01T00:00:00Z'
+          )
+        )
+      )
+    ),
+    '2026-07-28T00:00:00Z'::timestamptz
+  ) ->> 'all_models_accepted',
+  'false',
+  'stale evidence cannot keep the aggregate accepted'
+);
+
+select is(
+  (
+    content_factory_private.generation_model_acceptance_freshness(
+      jsonb_build_object(
+        'models',
+        jsonb_build_array(
+          jsonb_build_object(
+            'model', 'seedream5_lite',
+            'status', 'accepted',
+            'evidence', jsonb_build_object(
+              'decided_at', '2026-07-01T00:00:00Z'
+            )
+          )
+        )
+      ),
+      '2026-07-28T00:00:00Z'::timestamptz
+    ) #>> '{models,0,evidence,expires_at}'
+  )::timestamptz,
+  '2026-09-29T00:00:00Z'::timestamptz,
+  'freshness resolver exposes the deterministic revalidation deadline'
 );
 
 select * from finish();

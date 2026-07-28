@@ -27,7 +27,7 @@ import {
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260727.3";
+} from "./generation-model-acceptance-view.js?v=20260728.1";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,

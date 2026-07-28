@@ -19,6 +19,10 @@ NEXT_ACTION_MIGRATION = (
     ROOT
     / "supabase/migrations/202607270006_generation_model_acceptance_next_action.sql"
 ).read_text(encoding="utf-8")
+FRESHNESS_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607280001_generation_model_acceptance_freshness.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/generation_model_acceptance_test.sql"
 ).read_text(encoding="utf-8")
@@ -74,13 +78,44 @@ def _accepted_evidence() -> dict:
         "media_watched_confirmed": True,
         "independent_reviewer": True,
         "context_bound": True,
+        "fresh": True,
+        "expires_at": "2026-10-25T12:00:00Z",
     }
 
 
 def test_sql_and_pgtap_are_parseable() -> None:
     assert parse_sql(MIGRATION)
     assert parse_sql(NEXT_ACTION_MIGRATION)
+    assert parse_sql(FRESHNESS_MIGRATION)
     assert parse_sql(PGTAP)
+
+
+def test_sql_acceptance_expires_provider_quality_evidence_after_90_days() -> None:
+    for token in (
+        "generation_model_acceptance_freshness",
+        "evidence_max_age_days constant integer := 90",
+        "expires_at_value > p_evaluated_at",
+        "'fresh', evidence_fresh_value",
+        "'expires_at', expires_at_value",
+        "'acceptance_evidence_stale'",
+        "'generate_replacement_and_approve'",
+        "'generation-model-acceptance-v3'",
+        "accepted_count_value = total_models_value",
+        "content_factory_private.generation_model_acceptance(",
+        "content_factory_private.generation_model_acceptance_pending(",
+    ):
+        assert token in FRESHNESS_MIGRATION
+    private_grant = FRESHNESS_MIGRATION[
+        FRESHNESS_MIGRATION.index(
+            "revoke all on function\n"
+            "  content_factory_private.generation_model_acceptance_freshness"
+        ):
+        FRESHNESS_MIGRATION.index(
+            "create or replace function public.creator_generation_model_acceptance"
+        )
+    ]
+    assert "authenticated, service_role" in private_grant
+    assert "grant execute" not in private_grant
 
 
 def test_sql_acceptance_is_derived_from_the_full_immutable_chain() -> None:
@@ -209,6 +244,72 @@ return {{
         "acceptedCount": 1,
         "downgraded": "needs_revalidation",
     }
+
+
+def test_browser_requires_authoritative_freshness_and_explains_expiry() -> None:
+    evidence = _accepted_evidence()
+    stale_evidence = {
+        **evidence,
+        "fresh": False,
+        "expires_at": "2026-04-01T12:00:00Z",
+    }
+    missing_freshness = dict(evidence)
+    missing_freshness.pop("fresh")
+    missing_freshness.pop("expires_at")
+    result = _run_view(
+        f"""
+const staleEvidence = {json.dumps(stale_evidence)};
+const missingFreshness = {json.dumps(missing_freshness)};
+const stale = subject.normalizeGenerationModelAcceptance({{
+  version: "generation-model-acceptance-v3",
+  models: [{{
+    model: "seedream5_lite",
+    status: "needs_revalidation",
+    reason_code: "acceptance_evidence_stale",
+    next_action_code: "generate_replacement_and_approve",
+    evidence_max_age_days: 90,
+    evidence: staleEvidence,
+  }}],
+}});
+const forged = subject.normalizeGenerationModelAcceptance({{
+  version: "generation-model-acceptance-v3",
+  models: [{{
+    model: "seedream5_lite",
+    status: "accepted",
+    evidence: missingFreshness,
+  }}],
+}});
+return {{
+  staleStatus: stale.models[0].status,
+  staleFresh: stale.models[0].evidence?.fresh,
+  staleAction: subject.nextGenerationModelAcceptanceAction(stale),
+  staleMarkup: subject.generationModelAcceptanceMarkup({{
+    status: "ready",
+    data: {{
+      version: "generation-model-acceptance-v3",
+      models: [{{
+        model: "seedream5_lite",
+        status: "needs_revalidation",
+        reason_code: "acceptance_evidence_stale",
+        next_action_code: "generate_replacement_and_approve",
+        evidence_max_age_days: 90,
+        evidence: staleEvidence,
+      }}],
+    }},
+  }}),
+  forgedStatus: forged.models[0].status,
+  forgedAcceptedCount: forged.acceptedCount,
+}};
+"""
+    )
+    assert result["staleStatus"] == "needs_revalidation"
+    assert result["staleFresh"] is False
+    assert result["staleAction"]["kind"] == "prepare"
+    assert result["staleAction"]["model"] == "seedream5_lite"
+    assert "90 дней" in result["staleMarkup"]
+    assert "Подготовить перепроверку" in result["staleMarkup"]
+    assert result["forgedStatus"] == "needs_revalidation"
+    assert result["forgedAcceptedCount"] == 0
 
 
 def test_browser_accepts_only_exact_pending_review_navigation() -> None:
@@ -427,10 +528,10 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "loadGenerationModelAcceptance({ force: true })" in refresh
     assert "startRealGeneration" not in refresh
     assert "realGenerationPreflight" not in refresh
-    assert "./generation-model-acceptance-view.js?v=20260727.3" in APP
+    assert "./generation-model-acceptance-view.js?v=20260728.1" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260727.8" in INDEX
-    assert "./app.js?v=20260728.1" in INDEX
+    assert "./app.js?v=20260728.2" in INDEX
     assert "./supabase-api.js?v=20260727.11" in APP
 
 
