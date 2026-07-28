@@ -578,7 +578,10 @@ const PRODUCT_RESEARCH_SCHEMA: Json = strictObject({
       title: { type: "string", minLength: 3, maxLength: 180 },
       angle: { type: "string", minLength: 3, maxLength: 400 },
       target_segment: { type: "string", minLength: 2, maxLength: 180 },
-      platform: { type: "string", minLength: 2, maxLength: 80 },
+      platform: {
+        type: "string",
+        enum: ["instagram", "youtube", "vk", "wildberries"],
+      },
       goal: { type: "string", minLength: 2, maxLength: 240 },
       recommended_generation_mode: {
         type: "string",
@@ -630,6 +633,16 @@ const PRODUCT_RESEARCH_SCHEMA: Json = strictObject({
     risks: stringArraySchema(1, 8),
     limitations: stringArraySchema(1, 10),
     assumptions: stringArraySchema(1, 8),
+    recommended_scenario_position: {
+      type: "integer",
+      minimum: 1,
+      maximum: 3,
+    },
+    recommended_scenario_reason: {
+      type: "string",
+      minLength: 10,
+      maxLength: 500,
+    },
   }),
 });
 
@@ -782,8 +795,15 @@ function readResearchResult(
   value: unknown,
   providerSources: ReadonlyMap<string, string>,
   photoCount: number,
+  allowedPlatforms: readonly string[],
 ): Json | null {
   if (!validateJsonBounds(value) || !isRecord(value)) return null;
+  const normalizedPlatforms = new Set(
+    allowedPlatforms.filter((platform) =>
+      new Set(["instagram", "youtube", "vk", "wildberries"]).has(platform)
+    ),
+  );
+  if (normalizedPlatforms.size < 1) return null;
   const rootKeys = [
     "summary",
     "sources",
@@ -952,7 +972,9 @@ function readResearchResult(
       ]) || !isBoundedText(scenario.title, 3, 180) ||
       !isBoundedText(scenario.angle, 3, 400) ||
       !isBoundedText(scenario.target_segment, 2, 180) ||
-      !isBoundedText(scenario.platform, 2, 80) ||
+      !normalizedPlatforms.has(
+        String(scenario.platform),
+      ) ||
       !isBoundedText(scenario.goal, 2, 240) ||
       !new Set(["real_photo", "real_gen4", "real_seedance"]).has(
         String(scenario.recommended_generation_mode),
@@ -1030,6 +1052,8 @@ function readResearchResult(
       "risks",
       "limitations",
       "assumptions",
+      "recommended_scenario_position",
+      "recommended_scenario_reason",
     ]) || potential.method !== "prepublication_heuristic_not_probability" ||
     !Number.isSafeInteger(potential.score) || Number(potential.score) < 0 ||
     Number(potential.score) > 100 || typeof potential.confidence !== "number" ||
@@ -1042,7 +1066,11 @@ function readResearchResult(
     !isTextArray(potential.strengths, 1, 8) ||
     !isTextArray(potential.risks, 1, 8) ||
     !isTextArray(potential.limitations, 1, 10) ||
-    !isTextArray(potential.assumptions, 1, 8)
+    !isTextArray(potential.assumptions, 1, 8) ||
+    !Number.isSafeInteger(potential.recommended_scenario_position) ||
+    Number(potential.recommended_scenario_position) < 1 ||
+    Number(potential.recommended_scenario_position) > 3 ||
+    !isBoundedText(potential.recommended_scenario_reason, 10, 500)
   ) return null;
 
   return value;
@@ -1103,10 +1131,16 @@ const RESEARCH_INSTRUCTIONS = `
    (композиция, свет, фон): seconds — «один кадр», voiceover — «без голоса»,
    on_screen_text — «без текста». Для real_gen4 voiceover и
    on_screen_text обозначь как «без голоса» и «без текста».
+   platform верни только как одно из точных значений входного массива platforms:
+   instagram, youtube, vk или wildberries.
    В generation_mode_reason кратко объясни выбор через структуру сценария, не цену.
 8. creative_potential — эвристическая оценка качества замысла до публикации, а не
    вероятность вирусности, просмотров или продаж. В assumptions и risks явно опиши
    ограничения прогноза: аккаунт, монтаж, подача, сезонность и дистрибуция неизвестны.
+   В recommended_scenario_position выбери один лучший первый безопасный эксперимент
+   среди трёх. Оценивай ясность хука, видимость точного товара, опору на источники,
+   простоту исполнения и минимум неоднозначности — не цену, обещанные просмотры или
+   продажи. recommended_scenario_reason должен кратко и предметно объяснять выбор.
 9. Не включай персональные данные авторов отзывов и не цитируй длинные фрагменты.
 `;
 
@@ -1269,8 +1303,12 @@ function buildCompletionPayload(
   }
   if (webSourceCount < 1) return null;
 
+  const potential = result.creative_potential;
+  const recommendedScenarioPosition = Number(
+    potential.recommended_scenario_position,
+  );
   const taskBlueprint: Json[] = [];
-  for (const scenario of result.scenarios) {
+  for (const [scenarioIndex, scenario] of result.scenarios.entries()) {
     if (!isRecord(scenario) || !Array.isArray(scenario.shot_list)) return null;
     const shotLines = scenario.shot_list.map((shot) => {
       if (!isRecord(shot)) return "";
@@ -1303,12 +1341,11 @@ function buildCompletionPayload(
       instructions: instructions.length <= 12_000
         ? instructions
         : `${instructions.slice(0, 11_940)}\n[Полная версия сохранена в ТЗ]`,
-      priority: 3,
+      priority: scenarioIndex + 1 === recommendedScenarioPosition ? 4 : 3,
       payout_minor: 0,
     });
   }
 
-  const potential = result.creative_potential;
   const summary: Record<string, Json> = {
     executive_summary: result.summary as Json,
     facts: result.facts,
@@ -1670,6 +1707,7 @@ async function handleCreatorProductResearch(
     outputValue,
     providerSources,
     claim.run.photos.length,
+    claim.run.platforms,
   );
   if (result === null) {
     return await fail(

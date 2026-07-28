@@ -73,6 +73,13 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
           latest_draft: {
             id: "draft-mode",
             brief: {
+              creative_potential: {
+                score: 78,
+                confidence_label: "medium",
+                recommended_scenario_position: 1,
+                recommended_scenario_reason:
+                  "Точный товар виден целиком, а статичный тест проще проверить",
+              },
               scenarios: [0, 1, 2].map((index) => ({
                 title: `Сценарий ${index + 1}`,
                 platform: index === 0 ? "Wildberries" : "YouTube Shorts",
@@ -159,6 +166,12 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
           strippedMetadata: !compiled.prompt.includes("Голос:")
             && !compiled.prompt.includes("Текст:"),
           normalizedPlatform: normalized.scenarios[0].platform,
+          recommendedPosition: normalized.recommendedScenarioPosition,
+          recommendedIndex: normalized.recommendedScenarioIndex,
+          recommendationVisible:
+            view.productResearchResultMarkup(record).includes(
+              "Лучший первый эксперимент — сценарий 1",
+            ),
           serializedReady: Boolean(
             handoffSubject.parseContentGenerationHandoff(
               JSON.stringify(handoff),
@@ -183,6 +196,9 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
         "scenarioComposition": True,
         "strippedMetadata": True,
         "normalizedPlatform": "wildberries",
+        "recommendedPosition": 1,
+        "recommendedIndex": 0,
+        "recommendationVisible": True,
         "serializedReady": True,
     }
 
@@ -331,12 +347,21 @@ def test_research_edge_returns_only_server_validated_generation_modes() -> None:
         'new Set(["real_photo", "real_gen4", "real_seedance"]).has(',
         "Для каждого сценария выбери recommended_generation_mode",
         "real_photo — одно квадратное статичное товарное фото",
+        'enum: ["instagram", "youtube", "vk", "wildberries"]',
+        "const normalizedPlatforms = new Set(",
+        "!normalizedPlatforms.has(",
+        "claim.run.platforms,",
         "Для real_seedance spoken_script должен содержать не более 22 слов",
         "Для real_photo и real_gen4 верни spoken_script как пустую строку",
         'scenario.recommended_generation_mode === "real_seedance"',
         'scenario.recommended_generation_mode === "real_photo"',
         "countWords(scenario.spoken_script) <= 22",
         'shot.seconds !== "один кадр"',
+        '"recommended_scenario_position",',
+        '"recommended_scenario_reason",',
+        "recommended_scenario_position: {",
+        "лучший первый безопасный эксперимент",
+        "scenarioIndex + 1 === recommendedScenarioPosition ? 4 : 3",
         "`Режим генерации: ${",
     ):
         assert token in EDGE
@@ -352,14 +377,18 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
             ": handoff",
         "? handoffModeResolution.value",
         "Режим выбран автоматически",
+        "квадратное товарное фото · Seedream",
         "Стоимость и права всё равно подтверждаются отдельно",
         'name="real_spend_confirmation"',
         "scenario.generation_mode === REAL_SEEDANCE_MODE",
         "|| !scenario.shot_list",
         "Композиция одного статичного квадратного фото:",
         "Без речи, дикторского текста и сгенерированных надписей.",
+        "prepareRecommendedResearchHandoff(research.record)",
+        'setValue("format", realGenerationSku(handoffMode)?.format || "9:16")',
     ):
         assert token in APP
+    assert "Оплата и рендер не запускались" in VIEW
     confirmation = APP[
         APP.index('name="real_spend_confirmation"') :
         APP.index('name="real_spend_confirmation"') + 320
@@ -367,7 +396,7 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     assert "checked" not in confirmation
     assert "required" in confirmation
     assert (
-        'from "./product-research-view.js?v=20260726.3"'
+        'from "./product-research-view.js?v=20260728.4"'
         in APP
     )
     assert (
@@ -375,4 +404,4 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260727.7"' in APP
-    assert './app.js?v=20260728.5' in INDEX
+    assert './app.js?v=20260728.6' in INDEX

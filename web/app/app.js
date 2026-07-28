@@ -45,7 +45,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260726.3";
+} from "./product-research-view.js?v=20260728.4";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -1159,6 +1159,39 @@ function persistContentGenerationHandoff(handoff) {
     );
   } catch {
     // The handoff remains usable in memory when session storage is unavailable.
+  }
+}
+
+function prepareRecommendedResearchHandoff(record) {
+  const recommendedIndex = Number(record?.recommendedScenarioIndex);
+  if (
+    record?.approved !== true
+    || !Number.isInteger(recommendedIndex)
+    || recommendedIndex < 0
+    || recommendedIndex >= 3
+    || normalizeGenerationRepairPolicy(state.generationRepair?.data)?.applied
+  ) {
+    return null;
+  }
+  const existing = state.contentGenerationHandoff;
+  if (
+    existing
+    && existing.researchId === record.id
+    && existing.draftId === record.draftId
+    && existing.scenario?.position === recommendedIndex + 1
+  ) {
+    return existing;
+  }
+  try {
+    const handoff = createContentGenerationHandoff(record, recommendedIndex);
+    state.contentGenerationHandoff = handoff;
+    persistContentGenerationHandoff(handoff);
+    state.sections.generation.status = "idle";
+    state.sections.generation.error = null;
+    state.generationSpend.status = "idle";
+    return handoff;
+  } catch {
+    return null;
   }
 }
 
@@ -7333,7 +7366,9 @@ function contentGenerationHandoffMarkup(
     ? "5 секунд · товарный ролик без речи"
     : modeResolution?.recommendedMode === REAL_SEEDANCE_MODE
       ? "8 секунд · UGC с репликой"
-      : "";
+      : modeResolution?.recommendedMode === REAL_PHOTO_MODE
+        ? "квадратное товарное фото · Seedream"
+        : "";
   const modeRecommendation = recommendedModeLabel
     ? modeResolution.blocked
       ? modeResolution.value === "mock"
@@ -7555,10 +7590,13 @@ function applyContentGenerationHandoffToForm() {
     setValue("sku", handoff.sku);
     setValue("product_name", handoff.productName);
     setValue("platform", handoff.scenario.platform);
-    setValue("format", "9:16");
+    const handoffMode = String(
+      form.elements.generation_mode?.value || "mock",
+    );
+    setValue("format", realGenerationSku(handoffMode)?.format || "9:16");
     const compiled = compileContentGenerationPrompt(
       handoff,
-      String(form.elements.generation_mode?.value || "mock"),
+      handoffMode,
       activeGenerationLearningPolicy(form),
     );
     if (form.elements.brief) form.elements.brief.value = compiled.prompt;
@@ -10066,6 +10104,10 @@ function renderProductResearchSection() {
   if (["starting", "processing"].includes(research.phase) || statusKind === "active") {
     content = productResearchProgressMarkup(research.record, research.error);
   } else if (research.record && ["ready", "approved"].includes(statusKind)) {
+    const recommendedPosition = Number(
+      research.record.recommendedScenarioPosition,
+    );
+    const activeHandoff = state.contentGenerationHandoff;
     content = productResearchResultMarkup(research.record, {
       saving: research.phase === "saving",
       approving: research.phase === "approving",
@@ -10073,6 +10115,13 @@ function renderProductResearchSection() {
       error: research.error,
       members: productResearchAssignableMembers(),
       defaultAssigneeId: state.user?.id || "",
+      recommendedPrepared: Boolean(
+        recommendedPosition >= 1
+        && activeHandoff
+        && activeHandoff.researchId === research.record.id
+        && activeHandoff.draftId === research.record.draftId
+        && activeHandoff.scenario?.position === recommendedPosition
+      ),
     });
   } else if (research.phase === "error" && research.record) {
     content = productResearchProgressMarkup(research.record, research.error);
@@ -10178,6 +10227,7 @@ async function pollProductResearchStatus({ silent = false } = {}) {
     );
     if (requestId !== research.requestId || runId !== String(research.record?.id || "")) return;
     research.record = normalizeProductResearch(raw, research.record);
+    prepareRecommendedResearchHandoff(research.record);
     const kind = productResearchStatusKind(research.record.status);
     research.phase = kind === "failed" ? "error" : kind === "active" ? "processing" : kind;
     research.error = kind === "failed"
@@ -10942,6 +10992,10 @@ async function handleClick(event) {
   }
 
   if (action === "generate-research-scenario") {
+    if (normalizeGenerationRepairPolicy(state.generationRepair?.data)?.applied) {
+      toast("Сначала завершите точное исправление после QA. Новый сценарий не должен подменять активный repair-контекст.", "error");
+      return;
+    }
     try {
       const handoff = createContentGenerationHandoff(
         state.productResearch.record,
@@ -14949,9 +15003,11 @@ async function submitProductResearchStart(form) {
   const sku = String(values.get("sku") || "").trim();
   const marketplaceUrl = String(values.get("marketplace_url") || "").trim();
   const sourceMediaIds = values.getAll("source_media_ids").map(String).filter(Boolean);
-  const platforms = values.getAll("platforms").map(String).filter((item) => ["instagram", "youtube", "vk"].includes(item));
+  const platforms = values.getAll("platforms").map(String).filter((item) =>
+    ["instagram", "youtube", "vk", "wildberries"].includes(item)
+  );
   if (!platforms.length) {
-    toast("Выберите хотя бы одну площадку: Instagram, YouTube или VK.", "error");
+    toast("Выберите хотя бы одну площадку: Instagram, YouTube, VK или Wildberries.", "error");
     form.querySelector(".product-research-platforms")?.scrollIntoView({ block: "center" });
     return;
   }
@@ -14969,8 +15025,8 @@ async function submitProductResearchStart(form) {
     return;
   }
   const objectiveLabels = {
-    conversion: "Подготовить нативные товарные ролики для переходов и заказов",
-    awareness: "Подготовить ролики для узнаваемости товара и бренда",
+    conversion: "Подготовить нативный фото- или видеоконтент для переходов и заказов",
+    awareness: "Подготовить контент для узнаваемости товара и бренда",
     ugc: "Подготовить естественный UGC-обзор от лица блогера",
     education: "Понятно показать применение товара и снять основные вопросы",
   };
@@ -15102,11 +15158,18 @@ async function submitProductResearchBrief(form, submitter) {
         status: "approved",
       });
       research.phase = "approved";
-      research.notice = "ТЗ утверждено. Портал создал три связанные задачи без повторного копирования текста.";
+      const recommendedHandoff = prepareRecommendedResearchHandoff(
+        research.record,
+      );
+      research.notice = recommendedHandoff
+        ? `ТЗ утверждено. Портал создал три задачи и уже подготовил сценарий ${recommendedHandoff.scenario.position} в генераторе без оплаты и рендера.`
+        : "ТЗ утверждено. Портал создал три связанные задачи без повторного копирования текста.";
       state.sections.tasks.status = "idle";
       await track("product_research_approved", {
         run_id: research.record.id,
         task_count: research.record.taskIds.length,
+        recommended_scenario_position:
+          recommendedHandoff?.scenario?.position || null,
       });
     } else {
       research.phase = "ready";
@@ -15123,6 +15186,17 @@ async function submitProductResearchBrief(form, submitter) {
 function mergeProductResearchBrief(base, draft) {
   const original = base && typeof base === "object" && !Array.isArray(base) ? base : {};
   const originalScenarios = Array.isArray(original.scenarios) ? original.scenarios : [];
+  const originalPotential = original.creative_potential
+    && typeof original.creative_potential === "object"
+    && !Array.isArray(original.creative_potential)
+    ? original.creative_potential
+    : null;
+  const recommendedScenarioPosition = Number(
+    draft.recommended_scenario_position,
+  );
+  const recommendedScenarioReason = String(
+    draft.recommended_scenario_reason || "",
+  ).trim();
   return {
     ...original,
     target_audience: draft.target_audience,
@@ -15131,6 +15205,16 @@ function mergeProductResearchBrief(base, draft) {
     avoid_claims: splitResearchLines(draft.avoid_claims),
     visual_direction: draft.visual_direction,
     cta: draft.cta,
+    ...(originalPotential && recommendedScenarioPosition >= 1
+      && recommendedScenarioPosition <= 3 && recommendedScenarioReason
+      ? {
+        creative_potential: {
+          ...originalPotential,
+          recommended_scenario_position: recommendedScenarioPosition,
+          recommended_scenario_reason: recommendedScenarioReason,
+        },
+      }
+      : {}),
     scenarios: draft.scenarios.map((scenario, index) => ({
       ...(originalScenarios[index] || {}),
       title: scenario.title,
@@ -15161,6 +15245,9 @@ function productResearchTaskBlueprint(draft) {
     draft.cta ? `Разрешённый призыв к действию: ${draft.cta}` : "",
     "Ручная проверка перед сдачей: сверить товар и упаковку, дословную реплику, доказательства, рекламный статус и запрещённые обещания.",
   ].filter(Boolean);
+  const recommendedScenarioPosition = Number(
+    draft.recommended_scenario_position,
+  );
   return draft.scenarios.map((scenario) => ({
     task_type: "general",
     assignee_id: scenario.assignee_id,
@@ -15184,7 +15271,7 @@ function productResearchTaskBlueprint(draft) {
         : `Кадры:\n${scenario.shot_list}`,
       ...sharedInstructions,
     ].filter(Boolean).join("\n"),
-    priority: 3,
+    priority: scenario.position === recommendedScenarioPosition ? 4 : 3,
     payout_minor: 0,
   }));
 }

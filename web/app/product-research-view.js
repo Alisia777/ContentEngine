@@ -56,6 +56,17 @@ export function normalizeProductResearch(raw, previous = null) {
   const runStatus = String(run.status || root.status || previous?.status || "queued").toLowerCase();
   const status = approved ? "approved" : runStatus;
   const id = String(run.id || root.run_id || root.research_id || root.id || previous?.id || "");
+  const recommendedScenarioPosition = normalizeRecommendedScenarioPosition(
+    prediction.recommended_scenario_position
+      ?? prediction.recommendedScenarioPosition
+      ?? previous?.recommendedScenarioPosition,
+  );
+  const recommendedScenarioReason = String(
+    prediction.recommended_scenario_reason
+      || prediction.recommendedScenarioReason
+      || previous?.recommendedScenarioReason
+      || "",
+  ).replace(/\s+/gu, " ").trim().slice(0, 500);
 
   return {
     id,
@@ -77,6 +88,11 @@ export function normalizeProductResearch(raw, previous = null) {
         ? normalizeSources(root.sources || run.sources).map((source) => source.id).filter(Boolean)
         : stringArray(previous?.sourceIds),
     scenarios,
+    recommendedScenarioPosition,
+    recommendedScenarioIndex: recommendedScenarioPosition
+      ? recommendedScenarioPosition - 1
+      : -1,
+    recommendedScenarioReason,
     approval,
     approved,
     taskIds,
@@ -114,10 +130,11 @@ export function productResearchInputMarkup({ media = [], mediaLoading = false, e
         </div>
         <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>
         <fieldset class="product-research-platforms">
-          <legend>Для каких площадок готовим ролики *</legend>
+          <legend>Для каких площадок готовим контент *</legend>
           <label><input type="checkbox" name="platforms" value="instagram" /> <span>Instagram Reels</span></label>
           <label><input type="checkbox" name="platforms" value="youtube" /> <span>YouTube Shorts</span></label>
           <label><input type="checkbox" name="platforms" value="vk" /> <span>VK Клипы</span></label>
+          <label><input type="checkbox" name="platforms" value="wildberries" /> <span>Wildberries</span></label>
         </fieldset>
         <label class="field"><span>Главная цель</span><select name="objective"><option value="conversion">Заказы и переходы</option><option value="awareness">Узнаваемость товара</option><option value="ugc">Нативный UGC-обзор</option><option value="education">Объяснить применение</option></select></label>
         <label class="field"><span>Подтверждённые вводные</span><textarea name="known_facts" maxlength="1200" placeholder="Состав, объём, комплектация, способ применения — только то, что подтверждено упаковкой или документами."></textarea><small class="field-hint">Каждый факт будет отделён от найденных источников и гипотез ИИ.</small></label>
@@ -165,6 +182,7 @@ export function productResearchResultMarkup(record, {
   error = "",
   members = [],
   defaultAssigneeId = "",
+  recommendedPrepared = false,
 } = {}) {
   const brief = normalizeBrief(record?.brief);
   const scenarios = normalizeScenarios(record?.scenarios);
@@ -177,11 +195,24 @@ export function productResearchResultMarkup(record, {
   const approved = record?.approved === true || taskIds.length > 0;
   const assignees = normalizeResearchMembers(members, defaultAssigneeId);
   const fallbackAssigneeId = String(defaultAssigneeId || assignees[0]?.profileId || "");
+  const recommendedScenarioIndex = Number.isInteger(record?.recommendedScenarioIndex)
+    && record.recommendedScenarioIndex >= 0
+    && record.recommendedScenarioIndex < scenarios.length
+    ? record.recommendedScenarioIndex
+    : -1;
+  const recommendedScenarioReason = String(
+    record?.recommendedScenarioReason || "",
+  ).trim();
+  const approvedActions = recommendedScenarioIndex >= 0
+    ? `<div class="inline-actions">${recommendedPrepared
+      ? '<a class="btn" href="#/workspace/generation">Открыть рекомендованный сценарий →</a>'
+      : `<button class="btn" type="button" data-action="generate-research-scenario" data-scenario-index="${recommendedScenarioIndex}">Подготовить рекомендованный сценарий →</button>`}<a class="btn btn-secondary" href="#/workspace/tasks">Все задачи</a></div>`
+    : `<a class="btn" href="#/workspace/tasks">Открыть задачи →</a>`;
   return `
     ${error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(error)}</span></div>` : ""}
     ${notice ? `<div class="alert alert-success" role="status"><strong aria-hidden="true">✓</strong><span>${escapeHtml(notice)}</span></div>` : ""}
-    ${approved ? `<section class="card card-pad product-research-approved" role="status"><span aria-hidden="true">✓</span><div><p class="eyebrow">ТЗ утверждено</p><h2>${taskIds.length ? `Задачи созданы: ${taskIds.length}` : "Задачи созданы"}</h2><p>Исполнители уже назначены. Повторное сохранение и утверждение заблокированы, чтобы ТЗ не разошлось с созданными задачами.</p></div><a class="btn" href="#/workspace/tasks">Открыть задачи →</a></section>` : ""}
-    <section class="product-research-scoreboard" aria-label="Предварительная оценка роликов">
+    ${approved ? `<section class="card card-pad product-research-approved" role="status"><span aria-hidden="true">✓</span><div><p class="eyebrow">ТЗ утверждено</p><h2>${taskIds.length ? `Задачи созданы: ${taskIds.length}` : "Задачи созданы"}</h2><p>${recommendedScenarioIndex >= 0 ? recommendedPrepared ? `Сценарий ${recommendedScenarioIndex + 1} уже подготовлен в генераторе как лучший первый безопасный эксперимент. Оплата и рендер не запускались.` : `Сценарий ${recommendedScenarioIndex + 1} рекомендован первым. Автоподготовка не заменила текущий рабочий контекст; при необходимости подготовьте его отдельной кнопкой.` : "Исполнители уже назначены. Повторное сохранение и утверждение заблокированы, чтобы ТЗ не разошлось с созданными задачами."}</p></div>${approvedActions}</section>` : ""}
+    <section class="product-research-scoreboard" aria-label="Предварительная оценка контента">
       <div class="card card-pad product-research-score" style="--research-score:${score}">
         <div class="product-research-score-ring"><strong>${score}</strong><small>из 100</small></div>
         <div><p class="eyebrow">Креативный потенциал</p><h2>${scoreLabel(score)}</h2><p>${escapeHtml(record?.forecastSummary || "Оценка показывает качество вводных и сценарной идеи.")}</p><small class="product-research-score-note">Это предпубликационная эвристика: она не гарантирует просмотры или продажи.</small></div>
@@ -199,13 +230,15 @@ export function productResearchResultMarkup(record, {
       </section>
     </div>
     <form id="product-research-brief-form" class="card product-research-brief" data-research-id="${escapeHtml(record?.id || "")}" novalidate>
+      <input type="hidden" name="recommended_scenario_position" value="${recommendedScenarioIndex >= 0 ? recommendedScenarioIndex + 1 : ""}" />
+      <input type="hidden" name="recommended_scenario_reason" value="${escapeHtml(recommendedScenarioReason)}" />
       <div class="card-header"><div><p class="eyebrow">${approved ? "Утверждённый результат" : "Редактируемый результат"}</p><h2>ТЗ для команды</h2><p>${approved ? "Это ТЗ уже превратилось в задачи. Чтобы не менять работу исполнителей незаметно, поля заблокированы." : "Исправьте всё, что звучит неточно. Сохранение не создаёт задачи."}</p></div><span class="badge">${approved ? "Утверждено" : "Черновик"}</span></div>
       <div class="product-research-brief-body">
         <div class="form-grid-2">
           ${textField("brief_title", "Название ТЗ", brief.title, 180, approved)}
-          ${textField("target_audience", "Для кого ролик", brief.targetAudience, 500, approved)}
+          ${textField("target_audience", "Для кого контент", brief.targetAudience, 500, approved)}
         </div>
-        ${textArea("key_message", "Главная мысль", brief.keyMessage, "Что зритель должен понять за первые секунды", 1200, approved)}
+        ${textArea("key_message", "Главная мысль", brief.keyMessage, "Что зритель должен понять по первому кадру или первым секундам", 1200, approved)}
         <div class="form-grid-2">
           ${textArea("proof_points", "Что показать как доказательство", brief.proofPoints, "По одному пункту на строку", 2500, approved)}
           ${textArea("avoid_claims", "Что нельзя обещать", brief.avoidClaims, "Неподтверждённые, медицинские или абсолютные обещания", 2500, approved)}
@@ -215,10 +248,12 @@ export function productResearchResultMarkup(record, {
           ${textArea("cta", "Безопасный CTA", brief.cta, "Что зритель делает после ролика", 800, approved)}
         </div>
         <div class="product-research-scenarios-heading"><div><p class="eyebrow">Три разные гипотезы</p><h2>Сценарии и будущие задачи</h2></div><p>Не делайте три копии одного хука — меняйте угол подачи.</p></div>
+        ${recommendedScenarioIndex >= 0 ? `<div class="alert alert-info product-research-scenario-choice" role="note"><strong>Лучший первый эксперимент — сценарий ${recommendedScenarioIndex + 1}.</strong><span>${escapeHtml(recommendedScenarioReason || "Он даёт наиболее ясную и безопасную проверку идеи при точном показе товара.")} Это эвристика качества замысла, а не обещание просмотров или продаж.</span></div>` : ""}
         <div class="product-research-scenarios">${scenarios.map((scenario, index) => scenarioEditor(scenario, index, {
           members: assignees,
           defaultAssigneeId: fallbackAssigneeId,
           disabled: approved,
+          recommended: index === recommendedScenarioIndex,
         })).join("")}</div>
         <label class="check-row product-research-approval"><input type="checkbox" name="approve_ack" ${approved ? "checked disabled" : ""} /><span><strong>Факты, формулировки и три сценария проверены человеком</strong><br /><small>${approved ? "Проверка завершена: задачи уже созданы и назначены выбранным участникам." : "При утверждении портал создаст задачи и назначит каждую выбранному выше исполнителю."}</small></span></label>
       </div>
@@ -254,6 +289,10 @@ export function readProductResearchBrief(form) {
     avoid_claims: value(data, "avoid_claims"),
     visual_direction: value(data, "visual_direction"),
     cta: value(data, "cta"),
+    recommended_scenario_position: normalizeRecommendedScenarioPosition(
+      value(data, "recommended_scenario_position"),
+    ),
+    recommended_scenario_reason: value(data, "recommended_scenario_reason"),
     scenarios,
   };
 }
@@ -261,7 +300,7 @@ export function readProductResearchBrief(form) {
 function normalizeBrief(value) {
   const source = objectValue(value) || {};
   return {
-    title: String(source.title || source.name || "ТЗ на три товарных ролика"),
+    title: String(source.title || source.name || "ТЗ на три варианта товарного контента"),
     targetAudience: String(source.target_audience || source.targetAudience || formatAudience(source.audience)),
     keyMessage: String(source.key_message || source.keyMessage || source.message || source.summary || ""),
     proofPoints: lines(source.proof_points || source.proofPoints || source.proofs || formatFacts(source.facts)),
@@ -373,7 +412,12 @@ function sourceMarkupItem(source) {
   </article>`;
 }
 
-function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", disabled = false } = {}) {
+function scenarioEditor(item, index, {
+  members = [],
+  defaultAssigneeId = "",
+  disabled = false,
+  recommended = false,
+} = {}) {
   const options = [["instagram", "Instagram Reels"], ["youtube", "YouTube Shorts"], ["vk", "VK Клипы"], ["wildberries", "Wildberries"]];
   const selectedAssigneeId = String(item.assigneeId || defaultAssigneeId || members[0]?.profileId || "");
   const photo = item.generationMode === "real_photo";
@@ -401,7 +445,7 @@ function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", dis
     ? members.map((member) => `<option value="${escapeHtml(member.profileId)}" ${member.profileId === selectedAssigneeId ? "selected" : ""}>${escapeHtml(member.label)}</option>`).join("")
     : '<option value="">Нет активных участников</option>';
   return `<fieldset class="product-research-scenario">
-    <legend><span>${String(index + 1).padStart(2, "0")}</span> Гипотеза ${index + 1}</legend>
+    <legend><span>${String(index + 1).padStart(2, "0")}</span> Гипотеза ${index + 1}${recommended ? ' <b class="badge badge-info">Рекомендуем начать</b>' : ""}</legend>
     <input type="hidden" name="scenario_${index}_generation_mode" value="${escapeHtml(item.generationMode)}" />
     <input type="hidden" name="scenario_${index}_generation_mode_reason" value="${escapeHtml(item.generationModeReason)}" />
     <div class="form-grid-2">
@@ -420,7 +464,7 @@ function scenarioEditor(item, index, { members = [], defaultAssigneeId = "", dis
     ${disabled ? `
       <div class="product-research-generation-action">
         <div><strong>Сценарий утверждён</strong><small>${approvedExplanation}</small></div>
-        <button class="btn btn-secondary btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}">${generationButtonLabel}</button>
+        <button class="btn ${recommended ? "" : "btn-secondary"} btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}">${recommended ? `Начать с рекомендованного ${photo ? "фото" : "ролика"} →` : generationButtonLabel}</button>
       </div>
     ` : ""}
   </fieldset>`;
@@ -474,6 +518,13 @@ function normalizeConfidence(value) {
   if (["high", "высокая", "высокий"].includes(normalized)) return "high";
   if (["medium", "средняя", "средний"].includes(normalized)) return "medium";
   return "low";
+}
+
+function normalizeRecommendedScenarioPosition(value) {
+  const position = Number(value);
+  return Number.isInteger(position) && position >= 1 && position <= 3
+    ? position
+    : 0;
 }
 
 function normalizePlatform(value) {
