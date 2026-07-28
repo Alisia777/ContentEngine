@@ -182,6 +182,6 @@ def test_release_versions_bind_the_fixed_client_edge_and_adapter() -> None:
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"' in EDGE
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"' in APP
     assert "./content-generation-handoff.js?v=20260728.3" in APP
-    assert "./supabase-api.js?v=20260728.4" in APP
-    assert "./app.js?v=20260728.10" in INDEX
+    assert "./supabase-api.js?v=20260728.5" in APP
+    assert "./app.js?v=20260728.11" in INDEX
     assert "generation_learning_prompt_binding_invalid" in ADAPTER

@@ -210,6 +210,12 @@ Current state:
   timeline points across at least 90% of the video without retaining or
   uploading those extra frames, so brief black sections and long freezes are
   less likely to hide between the five external-review frames;
+- for MP4 up to 10 seconds the browser now also plays the exact file at normal
+  speed and measures every frame reported as presented by the browser. Only
+  bounded counts, coverage, maximum gap, black-run and near-duplicate-run
+  aggregates are persisted; pixels from this scan are neither retained nor
+  sent to external AI. Missing support, narrow coverage or an inconsistent
+  presented-frame count fails the new evidence commit closed;
 - expected but effectively silent Seedance audio, unexpected Gen4 audio,
   clipping, track-duration mismatch, measured black sections and freezes
   produce deterministic findings and cap the structured technical score;
@@ -223,8 +229,10 @@ Still required:
 
 - production evidence for speech/script agreement accuracy and intelligibility
   across accents, music beds and noisy product scenes;
-- full-stream product/label persistence, safe-zone violations and duplication
-  beyond the bounded timeline sample;
+- full-stream semantic product/label persistence and safe-zone violations
+  beyond the external 12–24-point atlas (the new full-playback scan detects
+  technical black/freeze/duplication runs but does not understand product
+  identity or text on every frame);
 - brand-claim evidence and platform-specific disclosure verification;
 - production evidence that learned recommendations improve approved outcomes
   without suppressing the retained human decision and reason.

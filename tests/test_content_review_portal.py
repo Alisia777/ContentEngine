@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260727.11' in APP
+    assert './content-review-view.js?v=20260728.1' in APP
     assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260728.10' in INDEX
+    assert './app.js?v=20260728.11' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -170,8 +170,8 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7" in APP
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 8" in APP
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in APP
     assert "upsert: false" in API
 
 
@@ -301,7 +301,22 @@ await api.commitContentReviewEvidence({{
     timeline_atlas_columns: 8,
     timeline_atlas_rows: 3,
     timeline_atlas_order: "row_major_chronological",
-    timeline_atlas_dense_short_video: true
+    timeline_atlas_dense_short_video: true,
+    continuity_scan_status: "completed",
+    continuity_scan_strategy: "browser_presented_frames_v1",
+    continuity_scan_callback_count: 240,
+    continuity_scan_presented_frame_count: 240,
+    continuity_scan_missed_frame_count: 0,
+    continuity_scan_first_second: 0,
+    continuity_scan_last_second: 7.9667,
+    continuity_scan_coverage_ratio: 0.9958,
+    continuity_scan_max_gap_seconds: 0.0334,
+    continuity_black_frame_ratio: 0,
+    continuity_longest_black_run_seconds: 0,
+    continuity_duplicate_transition_ratio: 0.02,
+    continuity_longest_duplicate_run_seconds: 0.0667,
+    continuity_mean_frame_difference: 0.08,
+    continuity_raw_frames_persisted: false
   }},
   idempotencyKey: commitKey,
   frames: objectNames.map((object_name, index) => ({{
@@ -344,7 +359,22 @@ const started = await api.startContentReview({{
     timeline_atlas_columns: 8,
     timeline_atlas_rows: 3,
     timeline_atlas_order: "row_major_chronological",
-    timeline_atlas_dense_short_video: true
+    timeline_atlas_dense_short_video: true,
+    continuity_scan_status: "completed",
+    continuity_scan_strategy: "browser_presented_frames_v1",
+    continuity_scan_callback_count: 240,
+    continuity_scan_presented_frame_count: 240,
+    continuity_scan_missed_frame_count: 0,
+    continuity_scan_first_second: 0,
+    continuity_scan_last_second: 7.9667,
+    continuity_scan_coverage_ratio: 0.9958,
+    continuity_scan_max_gap_seconds: 0.0334,
+    continuity_black_frame_ratio: 0,
+    continuity_longest_black_run_seconds: 0,
+    continuity_duplicate_transition_ratio: 0.02,
+    continuity_longest_duplicate_run_seconds: 0.0667,
+    continuity_mean_frame_difference: 0.08,
+    continuity_raw_frames_persisted: false
   }},
   evidence_id: evidenceId
 }});

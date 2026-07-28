@@ -1992,10 +1992,81 @@ function deterministicFindings(
     duration !== null &&
     duration <= 10 &&
     timelineAtlasMaxGap! <= 0.5;
-  const blackRatio = temporalScanCompleted
+  const continuityStatus = stringInput(metrics, "continuity_scan_status");
+  const continuityCallbackCount = numericMetric(
+    metrics,
+    "continuity_scan_callback_count",
+  );
+  const continuityPresentedCount = numericMetric(
+    metrics,
+    "continuity_scan_presented_frame_count",
+  );
+  const continuityMissedCount = numericMetric(
+    metrics,
+    "continuity_scan_missed_frame_count",
+  );
+  const continuityCoverage = numericMetric(
+    metrics,
+    "continuity_scan_coverage_ratio",
+  );
+  const continuityMaxGap = numericMetric(
+    metrics,
+    "continuity_scan_max_gap_seconds",
+  );
+  const continuityBlackRatio = numericMetric(
+    metrics,
+    "continuity_black_frame_ratio",
+  );
+  const continuityLongestBlackRun = numericMetric(
+    metrics,
+    "continuity_longest_black_run_seconds",
+  );
+  const continuityDuplicateRatio = numericMetric(
+    metrics,
+    "continuity_duplicate_transition_ratio",
+  );
+  const continuityLongestDuplicateRun = numericMetric(
+    metrics,
+    "continuity_longest_duplicate_run_seconds",
+  );
+  const continuityScanCompleted = continuityStatus === "completed" &&
+    stringInput(metrics, "continuity_scan_strategy") ===
+      "browser_presented_frames_v1" &&
+    continuityCallbackCount !== null &&
+    continuityCallbackCount >= 2 &&
+    continuityCallbackCount <= 2_400 &&
+    continuityPresentedCount !== null &&
+    continuityPresentedCount === continuityCallbackCount &&
+    continuityPresentedCount <= 10_000 &&
+    continuityMissedCount !== null &&
+    continuityMissedCount === 0 &&
+    continuityCoverage !== null &&
+    continuityCoverage >= 0.8 &&
+    continuityCoverage <= 1 &&
+    continuityMaxGap !== null &&
+    continuityMaxGap >= 0 &&
+    continuityMaxGap <= 0.5 &&
+    continuityBlackRatio !== null &&
+    continuityBlackRatio >= 0 &&
+    continuityBlackRatio <= 1 &&
+    continuityLongestBlackRun !== null &&
+    continuityLongestBlackRun >= 0 &&
+    continuityLongestBlackRun <= (duration ?? 10) &&
+    continuityDuplicateRatio !== null &&
+    continuityDuplicateRatio >= 0 &&
+    continuityDuplicateRatio <= 1 &&
+    continuityLongestDuplicateRun !== null &&
+    continuityLongestDuplicateRun >= 0 &&
+    continuityLongestDuplicateRun <= (duration ?? 10) &&
+    metrics.continuity_raw_frames_persisted === false;
+  const blackRatio = continuityScanCompleted
+    ? continuityBlackRatio
+    : temporalScanCompleted
     ? temporalBlackRatio
     : numericMetric(metrics, "black_frame_ratio");
-  const frozenRatio = temporalScanCompleted
+  const frozenRatio = continuityScanCompleted
+    ? continuityDuplicateRatio
+    : temporalScanCompleted
     ? temporalFrozenRatio
     : numericMetric(metrics, "frozen_frame_ratio");
   const audioStatus = stringInput(metrics, "audio_analysis_status");
@@ -2018,8 +2089,14 @@ function deterministicFindings(
       "SCOPE.BROWSER_FRAMES_ADVISORY",
       "quality",
       "info",
-      "Атлас таймлайна уменьшает слепые зоны, но не заменяет просмотр",
-      timelineAtlasCompleted
+      "Локальный покадровый контроль не заменяет просмотр человеком",
+      continuityScanCompleted
+        ? `Браузер локально измерил ${
+          Math.round(continuityCallbackCount!)
+        } показанных кадров короткого MP4; эти дополнительные кадры не сохранялись и не отправлялись во внешний AI. Внешний AI видит четыре контрольных кадра и пятый атлас из ${
+          Math.round(timelineAtlasFrameCount!)
+        } точек.`
+        : timelineAtlasCompleted
         ? `Внешний AI видит четыре контрольных кадра и пятый атлас из ${
           Math.round(timelineAtlasFrameCount!)
         } точек по ${
@@ -2083,6 +2160,22 @@ function deterministicFindings(
           human: true,
           stage: "video",
         },
+      ));
+    }
+    if (
+      run.media.metadata.kind === "generated_video" &&
+      duration !== null &&
+      duration <= 10 &&
+      !continuityScanCompleted
+    ) {
+      add(makeFinding(
+        "TECH.CONTINUITY_SCAN_INCOMPLETE",
+        "technical",
+        "high",
+        "Покадровый локальный контроль короткого ролика не подтверждён",
+        "Для сгенерированного MP4 до 10 секунд нет валидных агрегатов по каждому показанному браузером кадру.",
+        "Повторите подготовку evidence в обновлённом браузере и полностью просмотрите точный MP4.",
+        { human: true, stage: "video" },
       ));
     }
     if (width === null || height === null || duration === null) {
@@ -2149,9 +2242,34 @@ function deterministicFindings(
           `Доля проблемных точек таймлайна: ${Math.round(blackRatio * 100)}%.`,
           "Пересоберите видео и проверьте декодирование всего файла.",
           {
-            evidence: temporalScanCompleted
+            evidence: continuityScanCompleted
+              ? { continuity_black_frame_ratio: blackRatio }
+              : temporalScanCompleted
               ? { temporal_black_frame_ratio: blackRatio }
               : { black_frame_ratio: blackRatio },
+            stage: "video",
+          },
+        ));
+      } else if (
+        continuityScanCompleted &&
+        continuityLongestBlackRun !== null &&
+        continuityLongestBlackRun >= 0.08
+      ) {
+        add(makeFinding(
+          "TECH.BLACK_FRAME_TRANSIENT",
+          "technical",
+          "high",
+          "В коротком ролике найден почти чёрный участок",
+          `Покадровый локальный контроль измерил непрерывный почти чёрный участок длительностью до ${
+            continuityLongestBlackRun.toFixed(2)
+          } сек.`,
+          "Проверьте переход на точном MP4 и пересоберите ролик, если чёрный участок не был намеренным.",
+          {
+            evidence: {
+              continuity_black_frame_ratio: blackRatio,
+              continuity_longest_black_run_seconds: continuityLongestBlackRun,
+            },
+            human: true,
             stage: "video",
           },
         ));
@@ -2182,9 +2300,41 @@ function deterministicFindings(
         `Сходство контрольных кадров: ${Math.round(frozenRatio * 100)}%.`,
         "Проверьте весь ролик и повторите экспорт, если движение потеряно.",
         {
-          evidence: temporalScanCompleted
+          evidence: continuityScanCompleted
+            ? {
+              continuity_duplicate_transition_ratio: frozenRatio,
+              continuity_longest_duplicate_run_seconds:
+                continuityLongestDuplicateRun,
+            }
+            : temporalScanCompleted
             ? { temporal_frozen_transition_ratio: frozenRatio }
             : { frozen_frame_ratio: frozenRatio },
+          human: true,
+          stage: "video",
+        },
+      ));
+    }
+    if (
+      continuityScanCompleted &&
+      continuityLongestDuplicateRun !== null &&
+      continuityLongestDuplicateRun >= 0.5 &&
+      (frozenRatio === null || frozenRatio < 0.8)
+    ) {
+      add(makeFinding(
+        "TECH.FROZEN_SEGMENT",
+        "technical",
+        "high",
+        "В коротком ролике найден зависший или повторяющийся участок",
+        `Почти одинаковые соседние кадры идут непрерывно до ${
+          continuityLongestDuplicateRun.toFixed(2)
+        } сек.`,
+        "Просмотрите найденный участок и повторите рендер, если это не намеренная статичная сцена.",
+        {
+          evidence: {
+            continuity_duplicate_transition_ratio: frozenRatio,
+            continuity_longest_duplicate_run_seconds:
+              continuityLongestDuplicateRun,
+          },
           human: true,
           stage: "video",
         },
@@ -2484,6 +2634,8 @@ function mergeReviewResult(
     "TECH.BLACK_FRAMES",
     "TECH.BLACK_FRAME_TRANSIENT",
     "TECH.FROZEN_VIDEO",
+    "TECH.FROZEN_SEGMENT",
+    "TECH.CONTINUITY_SCAN_INCOMPLETE",
     "TECH.TIMELINE_ATLAS_INCOMPLETE",
     "TECH.TIMELINE_ATLAS_SPARSE",
   ]);

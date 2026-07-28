@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260728.4";
+} from "./supabase-api.js?v=20260728.5";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -102,7 +102,7 @@ import {
   readContentReviewDecision,
   readContentReviewForm,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260727.11";
+} from "./content-review-view.js?v=20260728.1";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -234,9 +234,9 @@ const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitte
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 8;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
-const GENERATED_VIDEO_QA_STORAGE_VERSION = 5;
+const GENERATED_VIDEO_QA_STORAGE_VERSION = 6;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
 const GENERATION_REVIEW_AUTOSTART_VERSION = 1;
 const GENERATION_REVIEW_AUTOSTART_MAX_JOBS = 20;
@@ -8424,6 +8424,10 @@ function generatedVideoTechnicalQaMarkup(details) {
     const frameCount = Number(metrics.frame_count || 0);
     const temporalCount = Number(metrics.temporal_scan_frame_count || 0);
     const atlasReady = metrics.timeline_atlas_status === "completed";
+    const continuityCount = Number(
+      metrics.continuity_scan_callback_count || 0,
+    );
+    const continuityReady = metrics.continuity_scan_status === "completed";
     const audioCopy = metrics.audio_analysis_status === "completed"
       ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
       : " Звук автоматически не декодирован — его нужно прослушать вручную.";
@@ -8439,7 +8443,7 @@ function generatedVideoTechnicalQaMarkup(details) {
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Технический скан готов автоматически</strong>
-        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
+        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${continuityReady && continuityCount ? ` Дополнительно локально проверены ${continuityCount} показанных кадров; они не сохранялись и не отправлялись во внешний AI.` : ""}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
         ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
         <div class="generation-result-actions">
           ${reviewStartControl}
@@ -8464,7 +8468,9 @@ function generatedVideoTechnicalQaMarkup(details) {
   const total = Number(entry?.totalFrames || 5);
   const message = entry?.status === "capturing"
     ? total > 5
-      ? `Локально сканируем таймлайн и собираем атлас: ${Math.min(completed, total)} из ${total} точек.`
+      ? total > 24
+        ? `Локально проигрываем короткий MP4 по кадрам: ${Math.min(completed, total)} из ${total} долей таймлайна.`
+        : `Локально сканируем таймлайн и собираем атлас: ${Math.min(completed, total)} из ${total} точек.`
       : `Считываем контрольные кадры: ${Math.min(completed, total)} из ${total}; звук измеряется локально.`
     : entry?.status === "saving"
       ? "Сохраняем кадры и технические метрики в защищённое evidence."

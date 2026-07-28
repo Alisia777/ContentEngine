@@ -2520,6 +2520,51 @@ function validContentReviewTechnicalMetrics(value) {
     && Math.abs(
       sampledAt.at(-1) - value.timeline_atlas_last_second,
     ) <= 0.002;
+  const continuityScanValid = value.duration_seconds <= 10
+    ? value.continuity_scan_status === "completed"
+      && value.continuity_scan_strategy === "browser_presented_frames_v1"
+      && Number.isInteger(value.continuity_scan_callback_count)
+      && value.continuity_scan_callback_count >= 2
+      && value.continuity_scan_callback_count <= 2_400
+      && Number.isInteger(value.continuity_scan_presented_frame_count)
+      && value.continuity_scan_presented_frame_count ===
+        value.continuity_scan_callback_count
+      && value.continuity_scan_presented_frame_count <= 10_000
+      && Number.isInteger(value.continuity_scan_missed_frame_count)
+      && value.continuity_scan_missed_frame_count === 0
+      && finiteInRange("continuity_scan_first_second", 0, 10)
+      && finiteInRange("continuity_scan_last_second", 0, 10)
+      && value.continuity_scan_last_second >
+        value.continuity_scan_first_second
+      && value.continuity_scan_last_second <= value.duration_seconds
+      && finiteInRange("continuity_scan_coverage_ratio", 0.8, 1)
+      && Math.abs(
+        (
+          value.continuity_scan_last_second -
+          value.continuity_scan_first_second
+        ) / value.duration_seconds -
+          value.continuity_scan_coverage_ratio,
+      ) <= 0.02
+      && finiteInRange("continuity_scan_max_gap_seconds", 0, 0.5)
+      && finiteInRange("continuity_black_frame_ratio", 0, 1)
+      && finiteInRange(
+        "continuity_longest_black_run_seconds",
+        0,
+        value.duration_seconds,
+      )
+      && finiteInRange("continuity_duplicate_transition_ratio", 0, 1)
+      && finiteInRange(
+        "continuity_longest_duplicate_run_seconds",
+        0,
+        value.duration_seconds,
+      )
+      && finiteInRange("continuity_mean_frame_difference", 0, 1)
+      && value.continuity_raw_frames_persisted === false
+    : value.continuity_scan_status === "not_applicable"
+      && value.continuity_scan_strategy === "browser_presented_frames_v1"
+      && value.continuity_scan_not_applicable_reason ===
+        "duration_above_short_video_limit"
+      && value.continuity_scan_duration_limit_seconds === 10;
   if (
     sourceType !== "video"
     || !Number.isInteger(Number(value.frame_count))
@@ -2535,6 +2580,7 @@ function validContentReviewTechnicalMetrics(value) {
     || value.speech_transcription_notice_version !== "openai_mp4_v1"
     || !temporalScanValid
     || !timelineAtlasValid
+    || !continuityScanValid
   ) return false;
   if (value.audio_analysis_status === "unavailable") {
     return value.audio_analyzed === false;

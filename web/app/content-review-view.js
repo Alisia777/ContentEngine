@@ -23,6 +23,12 @@ const TIMELINE_ATLAS_GAP = 2;
 const TIMELINE_ATLAS_LABEL_HEIGHT = 18;
 const TIMELINE_ATLAS_DENSE_MAX_DURATION_SECONDS = 10;
 const TIMELINE_ATLAS_DENSE_MAX_GAP_SECONDS = 0.5;
+const CONTINUITY_SCAN_MAX_DURATION_SECONDS = 10;
+const CONTINUITY_SCAN_MAX_FRAMES = 2_400;
+const CONTINUITY_SCAN_TIMEOUT_PADDING_MS = 10_000;
+const CONTINUITY_SCAN_MIN_COVERAGE = 0.8;
+const CONTINUITY_SCAN_MAX_GAP_SECONDS = 0.5;
+const CONTINUITY_DUPLICATE_DIFFERENCE = 0.0015;
 const GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES = new Set([
   "CONTEXT.GENERATED_PROVENANCE",
   "AD.MARKING.LABEL",
@@ -1197,6 +1203,11 @@ async function captureVideoEvidence(media, onProgress) {
       height,
       onProgress,
     );
+    const continuityMetrics = await captureVideoContinuityMetrics(
+      video,
+      duration,
+      onProgress,
+    );
     frames.push(temporalEvidence.atlas);
     const sampledAtSeconds = [
       ...targets,
@@ -1232,6 +1243,7 @@ async function captureVideoEvidence(media, onProgress) {
         raw_video_sent: false,
         speech_transcription_notice_version: "openai_mp4_v1",
         ...temporalEvidence.metrics,
+        ...continuityMetrics,
         ...audioMetrics,
       },
     };
@@ -1411,6 +1423,263 @@ export function analyzeTemporalVideoSamples(
     ),
     temporal_mean_frame_difference: round(meanDifference, 4),
   };
+}
+
+async function captureVideoContinuityMetrics(video, duration, onProgress) {
+  if (round(duration, 3) > CONTINUITY_SCAN_MAX_DURATION_SECONDS) {
+    return {
+      continuity_scan_status: "not_applicable",
+      continuity_scan_strategy: "browser_presented_frames_v1",
+      continuity_scan_not_applicable_reason: "duration_above_short_video_limit",
+      continuity_scan_duration_limit_seconds:
+        CONTINUITY_SCAN_MAX_DURATION_SECONDS,
+    };
+  }
+  if (typeof video.requestVideoFrameCallback !== "function") {
+    throw userError(
+      "Браузер не поддерживает покадровый локальный контроль короткого MP4. Обновите браузер и повторите проверку.",
+    );
+  }
+  await seekVideo(video, 0);
+  const canvas = document.createElement("canvas");
+  canvas.width = FRAME_SAMPLE_SIZE;
+  canvas.height = FRAME_SAMPLE_SIZE;
+  const context = canvas.getContext("2d", {
+    alpha: false,
+    willReadFrequently: true,
+  });
+  if (!context) {
+    throw userError("Браузер не поддерживает локальный контроль кадров.");
+  }
+  const samples = [];
+  const mediaTimes = [];
+  const presentedFrames = [];
+  const timeoutMs = Math.ceil(duration * 1_000) +
+    CONTINUITY_SCAN_TIMEOUT_PADDING_MS;
+  const previousPlaybackRate = video.playbackRate;
+  video.playbackRate = 1;
+  try {
+    await new Promise((resolve, reject) => {
+      let callbackId = 0;
+      let settled = false;
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener("ended", onEnded);
+        video.removeEventListener("error", onError);
+        if (
+          callbackId &&
+          typeof video.cancelVideoFrameCallback === "function"
+        ) {
+          video.cancelVideoFrameCallback(callbackId);
+        }
+      };
+      const finish = (handler) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        handler();
+      };
+      const onEnded = () => finish(resolve);
+      const onError = () => finish(() => reject(
+        userError("Не удалось локально проиграть короткий MP4 по кадрам."),
+      ));
+      const timer = window.setTimeout(() => finish(() => reject(
+        userError("Покадровый локальный контроль MP4 превысил лимит времени."),
+      )), timeoutMs);
+      const onFrame = (_now, metadata) => {
+        if (settled) return;
+        try {
+          if (samples.length >= CONTINUITY_SCAN_MAX_FRAMES) {
+            finish(() => reject(
+              userError("Короткий MP4 содержит слишком много кадров для безопасного локального контроля."),
+            ));
+            return;
+          }
+          context.drawImage(
+            video,
+            0,
+            0,
+            FRAME_SAMPLE_SIZE,
+            FRAME_SAMPLE_SIZE,
+          );
+          samples.push(sampleCanvasContext(context));
+          mediaTimes.push(Number(metadata?.mediaTime));
+          presentedFrames.push(Number(metadata?.presentedFrames));
+          onProgress?.({
+            stage: "continuity_scan",
+            completed: Math.min(
+              Math.ceil(duration * 10),
+              Math.max(
+                1,
+                Math.ceil(Number(metadata?.mediaTime || 0) * 10),
+              ),
+            ),
+            total: Math.max(1, Math.ceil(duration * 10)),
+          });
+          callbackId = video.requestVideoFrameCallback(onFrame);
+        } catch (error) {
+          finish(() => reject(
+            error instanceof Error
+              ? error
+              : userError("Не удалось измерить один из кадров короткого MP4."),
+          ));
+        }
+      };
+      video.addEventListener("ended", onEnded, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      callbackId = video.requestVideoFrameCallback(onFrame);
+      video.play().catch(onError);
+    });
+  } finally {
+    video.pause();
+    video.playbackRate = previousPlaybackRate;
+  }
+  return analyzeVideoContinuitySamples(
+    samples,
+    mediaTimes,
+    presentedFrames,
+    duration,
+  );
+}
+
+export function analyzeVideoContinuitySamples(
+  samples,
+  mediaTimes,
+  presentedFrames,
+  durationSeconds,
+) {
+  const duration = Number(durationSeconds);
+  if (
+    !Array.isArray(samples)
+    || !Array.isArray(mediaTimes)
+    || !Array.isArray(presentedFrames)
+    || samples.length !== mediaTimes.length
+    || samples.length !== presentedFrames.length
+    || samples.length < 2
+    || samples.length > CONTINUITY_SCAN_MAX_FRAMES
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > CONTINUITY_SCAN_MAX_DURATION_SECONDS + 0.001
+  ) {
+    throw userError("Покадровый локальный контроль имеет неверный размер.");
+  }
+  const times = mediaTimes.map(Number);
+  const frameNumbers = presentedFrames.map(Number);
+  const validTimes = times.every((value, index) =>
+    Number.isFinite(value)
+    && value >= 0
+    && value <= duration
+    && (index === 0 || value > times[index - 1])
+  );
+  const validFrameNumbers = frameNumbers.every((value, index) =>
+    Number.isInteger(value)
+    && value >= 1
+    && (index === 0 || value > frameNumbers[index - 1])
+  );
+  const validSamples = samples.every((sample) =>
+    Number.isFinite(Number(sample?.mean))
+    && Number(sample.mean) >= 0
+    && Number(sample.mean) <= 255
+    && sample?.pixels instanceof Uint8Array
+    && sample.pixels.length > 0
+  );
+  if (!validTimes || !validFrameNumbers || !validSamples) {
+    throw userError("Покадровый локальный контроль содержит повреждённые данные.");
+  }
+  const coverage = (times.at(-1) - times[0]) / duration;
+  const gaps = [
+    times[0],
+    duration - times.at(-1),
+    ...times.slice(1).map((value, index) => value - times[index]),
+  ];
+  const maxGap = Math.max(...gaps);
+  if (
+    coverage < CONTINUITY_SCAN_MIN_COVERAGE
+    || coverage > 1
+    || maxGap > CONTINUITY_SCAN_MAX_GAP_SECONDS
+  ) {
+    throw userError(
+      "Покадровый локальный контроль не покрыл достаточную часть короткого ролика.",
+    );
+  }
+  const differences = samples.slice(1).map((sample, index) =>
+    frameDifference(samples[index].pixels, sample.pixels)
+  );
+  const blackFlags = samples.map(
+    (sample) => sample.mean < TEMPORAL_BLACK_LUMA,
+  );
+  const duplicateFlags = differences.map(
+    (value) => value < CONTINUITY_DUPLICATE_DIFFERENCE,
+  );
+  const callbackCount = samples.length;
+  const presentedFrameCount = frameNumbers.at(-1) - frameNumbers[0] + 1;
+  const missedFrameCount = Math.max(0, presentedFrameCount - callbackCount);
+  if (missedFrameCount !== 0) {
+    throw userError(
+      "Браузер пропустил показанный кадр во время локального контроля. Повторите проверку в активной вкладке.",
+    );
+  }
+  const meanDifference = differences.reduce(
+    (sum, value) => sum + value,
+    0,
+  ) / differences.length;
+  return {
+    continuity_scan_status: "completed",
+    continuity_scan_strategy: "browser_presented_frames_v1",
+    continuity_scan_callback_count: callbackCount,
+    continuity_scan_presented_frame_count: presentedFrameCount,
+    continuity_scan_missed_frame_count: missedFrameCount,
+    continuity_scan_first_second: round(times[0], 4),
+    continuity_scan_last_second: round(times.at(-1), 4),
+    continuity_scan_coverage_ratio: round(coverage, 4),
+    continuity_scan_max_gap_seconds: round(maxGap, 4),
+    continuity_black_frame_ratio: round(
+      blackFlags.filter(Boolean).length / blackFlags.length,
+      4,
+    ),
+    continuity_longest_black_run_seconds: round(
+      longestBooleanSampleRun(blackFlags, times, duration),
+      4,
+    ),
+    continuity_duplicate_transition_ratio: round(
+      duplicateFlags.filter(Boolean).length / duplicateFlags.length,
+      4,
+    ),
+    continuity_longest_duplicate_run_seconds: round(
+      longestBooleanTransitionRun(duplicateFlags, times, duration),
+      4,
+    ),
+    continuity_mean_frame_difference: round(meanDifference, 4),
+    continuity_raw_frames_persisted: false,
+  };
+}
+
+function longestBooleanSampleRun(flags, times, duration) {
+  let start = null;
+  let longest = 0;
+  for (let index = 0; index < flags.length; index += 1) {
+    if (flags[index] && start === null) start = times[index];
+    if (!flags[index] && start !== null) {
+      longest = Math.max(longest, times[index] - start);
+      start = null;
+    }
+  }
+  if (start !== null) longest = Math.max(longest, duration - start);
+  return longest;
+}
+
+function longestBooleanTransitionRun(flags, times, duration) {
+  let start = null;
+  let longest = 0;
+  for (let index = 0; index < flags.length; index += 1) {
+    if (flags[index] && start === null) start = times[index];
+    if (!flags[index] && start !== null) {
+      longest = Math.max(longest, times[index] - start);
+      start = null;
+    }
+  }
+  if (start !== null) longest = Math.max(longest, duration - start);
+  return longest;
 }
 
 function temporalScanTimes(duration) {
@@ -1861,13 +2130,21 @@ function sampleCanvas(sourceCanvas) {
   canvas.height = FRAME_SAMPLE_SIZE;
   const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
   if (!context) throw userError("Браузер не поддерживает техническую проверку кадров.");
-  let data;
   try {
     context.drawImage(sourceCanvas, 0, 0, FRAME_SAMPLE_SIZE, FRAME_SAMPLE_SIZE);
-    data = context.getImageData(0, 0, FRAME_SAMPLE_SIZE, FRAME_SAMPLE_SIZE).data;
+    return sampleCanvasContext(context);
   } catch {
     throw userError("Браузер заблокировал техническое чтение кадра. Обновите защищённую ссылку.");
   }
+}
+
+function sampleCanvasContext(context) {
+  const data = context.getImageData(
+    0,
+    0,
+    FRAME_SAMPLE_SIZE,
+    FRAME_SAMPLE_SIZE,
+  ).data;
   const pixels = new Uint8Array(FRAME_SAMPLE_SIZE * FRAME_SAMPLE_SIZE);
   let total = 0;
   for (let index = 0, pixel = 0; index < data.length; index += 4, pixel += 1) {

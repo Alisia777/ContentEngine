@@ -144,8 +144,8 @@ def test_temporal_scan_is_bounded_and_materialized_as_one_external_atlas() -> No
     assert 'value.temporal_scan_status === "completed"' in api
     assert "value.temporal_scan_frame_count >= 12" in api
     assert "value.temporal_scan_frame_count <= 24" in api
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 7" in app
-    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 5" in app
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 8" in app
+    assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in app
 
 
 def test_edge_uses_temporal_scan_for_findings_and_quality_score_caps() -> None:
