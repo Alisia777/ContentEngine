@@ -70,6 +70,19 @@ const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const ACCESS_FUNCTION = "creator-access";
 const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5";
+const REAL_GENERATION_CREDITS = Object.freeze({
+  gen4_turbo: 25,
+  seedance2_fast: 232,
+  seedream5_lite: 4,
+});
+const PROVIDER_READINESS_RECEIPT_VERSION =
+  "generation-provider-readiness-receipt-v1";
+const PROVIDER_READINESS_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const PROVIDER_READINESS_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const PROVIDER_READINESS_TTL_MS = 15 * 60 * 1_000;
+const PROVIDER_READINESS_FUTURE_SKEW_MS = 60 * 1_000;
 const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
     duration_seconds: 5,
@@ -95,6 +108,69 @@ const REAL_GENERATION_SKUS = Object.freeze({
     estimated_usd: "0.04",
   }),
 });
+
+function normalizeApiGenerationProviderPreflight(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const model = typeof value.model === "string"
+    ? value.model.trim()
+    : "";
+  const checkedAt = typeof value.checked_at === "string"
+    ? value.checked_at.trim()
+    : "";
+  const expiresAt = typeof value.expires_at === "string"
+    ? value.expires_at.trim()
+    : "";
+  const checkedAtMs = Date.parse(checkedAt);
+  const expiresAtMs = Date.parse(expiresAt);
+  const nowMs = Date.now();
+  if (
+    !Object.hasOwn(REAL_GENERATION_CREDITS, model) ||
+    value.provider !== "runway" ||
+    value.ready !== true ||
+    value.balance_sufficient !== true ||
+    value.model_available !== true ||
+    value.daily_quota_available !== true ||
+    value.estimated_credits !== REAL_GENERATION_CREDITS[model] ||
+    (
+      value.failure_code !== undefined
+      && value.failure_code !== null
+    ) ||
+    value.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION ||
+    value.receipt_version !== PROVIDER_READINESS_RECEIPT_VERSION ||
+    value.fresh !== true ||
+    !PROVIDER_READINESS_UUID_PATTERN.test(
+      String(value.receipt_id || "").trim(),
+    ) ||
+    !PROVIDER_READINESS_SHA256_PATTERN.test(
+      String(value.receipt_hash || "").trim(),
+    ) ||
+    !Number.isFinite(checkedAtMs) ||
+    !Number.isFinite(expiresAtMs) ||
+    checkedAtMs > nowMs + PROVIDER_READINESS_FUTURE_SKEW_MS ||
+    expiresAtMs <= nowMs ||
+    expiresAtMs - checkedAtMs !== PROVIDER_READINESS_TTL_MS
+  ) {
+    return null;
+  }
+  return Object.freeze({
+    provider: "runway",
+    model,
+    ready: true,
+    estimated_credits: REAL_GENERATION_CREDITS[model],
+    balance_sufficient: true,
+    model_available: true,
+    daily_quota_available: true,
+    learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
+    checked_at: checkedAt,
+    expires_at: expiresAt,
+    receipt_id: String(value.receipt_id).trim(),
+    receipt_hash: String(value.receipt_hash).trim(),
+    receipt_version: PROVIDER_READINESS_RECEIPT_VERSION,
+    fresh: true,
+  });
+}
 
 export function mediaKindRequiresProduct(kind) {
   return ["product_photo", "packshot"].includes(String(kind || "").trim());
@@ -1920,26 +1996,20 @@ export class CreatorApi {
       throw new CreatorApiError(safeGenerationMessage(details), details);
     }
     if (action === "preflight") {
-      const preflight = data.preflight;
+      const preflight = normalizeApiGenerationProviderPreflight(
+        data.preflight,
+      );
       if (
-        !preflight ||
-        typeof preflight !== "object" ||
-        Array.isArray(preflight) ||
-        preflight.provider !== "runway" ||
+        preflight === null ||
         preflight.model !== payload.model ||
-        preflight.ready !== true ||
-        preflight.balance_sufficient !== true ||
-        preflight.model_available !== true ||
-        preflight.daily_quota_available !== true ||
-        !Number.isSafeInteger(preflight.estimated_credits) ||
-        preflight.estimated_credits < 1
+        preflight.estimated_credits !== REAL_GENERATION_CREDITS[payload.model]
       ) {
         throw new CreatorApiError(
           "Runway не подтвердил готовность выбранной модели. Платный запуск не создан.",
           { code: "provider_preflight_invalid" },
         );
       }
-      return data;
+      return { ...data, preflight };
     }
     if (!data.job || typeof data.job !== "object" || !data.job.id || !data.job.status) {
       throw new CreatorApiError("Сервис генерации вернул некорректную задачу.", {

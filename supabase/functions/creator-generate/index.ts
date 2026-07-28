@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
@@ -30,6 +30,7 @@ const RECONCILIATION_TASK_LATE_SKEW_MS = 10 * 60_000;
 const OUTPUT_TIMEOUT_MS = 120_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
 const GEN4_RATIOS = new Set(["1280:720", "720:1280", "960:960"]);
@@ -157,6 +158,10 @@ type ContentEngineDatabase = {
         Returns: Json;
       };
       creator_generation_repair_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_generation_provider_readiness: {
         Args: { p_payload: Json };
         Returns: Json;
       };
@@ -381,6 +386,13 @@ type RunwayProviderReadiness =
     dailyQuotaAvailable: boolean;
     failureCode: string;
   };
+
+type ProviderReadinessReceipt = {
+  receiptId: string;
+  receiptHash: string;
+  checkedAt: string;
+  expiresAt: string;
+};
 
 type StartJob = {
   id: string;
@@ -1653,6 +1665,55 @@ async function checkRunwayProviderReadiness(
   };
 }
 
+function parseProviderReadinessReceipt(
+  value: unknown,
+  organizationId: string,
+  readiness: RunwayProviderReadiness,
+): ProviderReadinessReceipt | null {
+  if (!isRecord(value)) return null;
+  const checkedAt = typeof value.checked_at === "string"
+    ? value.checked_at
+    : "";
+  const expiresAt = typeof value.expires_at === "string"
+    ? value.expires_at
+    : "";
+  const checkedAtMs = Date.parse(checkedAt);
+  const expiresAtMs = Date.parse(expiresAt);
+  const expectedFailure = readiness.ready ? null : readiness.failureCode;
+  if (
+    value.version !== "generation-provider-readiness-receipt-v1" ||
+    value.organization_id !== organizationId ||
+    value.provider !== "runway" ||
+    value.model !== readiness.model ||
+    value.ready !== readiness.ready ||
+    value.estimated_credits !== readiness.estimatedCredits ||
+    value.balance_sufficient !== readiness.balanceSufficient ||
+    value.model_available !== readiness.modelAvailable ||
+    value.daily_quota_available !== readiness.dailyQuotaAvailable ||
+    value.failure_code !== expectedFailure ||
+    value.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION ||
+    value.status !== (readiness.ready ? "ready" : "blocked") ||
+    value.fresh !== true ||
+    !isUuid(value.receipt_id) ||
+    typeof value.receipt_hash !== "string" ||
+    !SHA256_PATTERN.test(value.receipt_hash) ||
+    !Number.isFinite(checkedAtMs) ||
+    !Number.isFinite(expiresAtMs) ||
+    checkedAtMs > Date.now() + 60_000 ||
+    expiresAtMs <= checkedAtMs ||
+    expiresAtMs - checkedAtMs !== 15 * 60_000 ||
+    expiresAtMs <= Date.now()
+  ) {
+    return null;
+  }
+  return {
+    receiptId: value.receipt_id,
+    receiptHash: value.receipt_hash,
+    checkedAt,
+    expiresAt,
+  };
+}
+
 async function fetchWithTimeout(
   input: string,
   init: RequestInit,
@@ -2651,6 +2712,42 @@ async function handleCreatorGenerate(
     );
   };
 
+  const recordProviderReadiness = async (
+    organizationId: string,
+    readiness: RunwayProviderReadiness,
+  ): Promise<ProviderReadinessReceipt | null> => {
+    const checkedBy = context.userClaims?.id;
+    if (typeof checkedBy !== "string" || !isUuid(checkedBy)) return null;
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_record_generation_provider_readiness",
+        {
+          p_payload: {
+            organization_id: organizationId,
+            checked_by: checkedBy,
+            provider: "runway",
+            model: readiness.model,
+            ready: readiness.ready,
+            estimated_credits: readiness.estimatedCredits,
+            balance_sufficient: readiness.balanceSufficient,
+            model_available: readiness.modelAvailable,
+            daily_quota_available: readiness.dailyQuotaAvailable,
+            failure_code: readiness.ready ? null : readiness.failureCode,
+            learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
+          },
+        },
+      );
+      if (error !== null) return null;
+      return parseProviderReadinessReceipt(
+        data,
+        organizationId,
+        readiness,
+      );
+    } catch {
+      return null;
+    }
+  };
+
   const handlePreflight = async (
     payload: PreflightPayload,
   ): Promise<Response> => {
@@ -2675,6 +2772,27 @@ async function handleCreatorGenerate(
     }
     const secret = runwaySecret();
     if (secret === null) {
+      const unavailable: RunwayProviderReadiness = {
+        ready: false,
+        model: payload.model,
+        estimatedCredits: RUNWAY_SKU_CREDITS[payload.model],
+        balanceSufficient: false,
+        modelAvailable: false,
+        dailyQuotaAvailable: false,
+        failureCode: "provider_configuration_error",
+      };
+      if (
+        await recordProviderReadiness(
+          payload.organization_id,
+          unavailable,
+        ) === null
+      ) {
+        return json(
+          request,
+          { ok: false, code: "generation_unavailable" },
+          503,
+        );
+      }
       return json(
         request,
         { ok: false, code: "provider_configuration_error" },
@@ -2685,6 +2803,17 @@ async function handleCreatorGenerate(
       secret,
       payload.model,
     );
+    const receipt = await recordProviderReadiness(
+      payload.organization_id,
+      readiness,
+    );
+    if (receipt === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
     if (!readiness.ready) {
       const status = readiness.failureCode === "provider_credits_unavailable" ||
           readiness.failureCode === "provider_rate_limited"
@@ -2707,7 +2836,12 @@ async function handleCreatorGenerate(
         model_available: readiness.modelAvailable,
         daily_quota_available: readiness.dailyQuotaAvailable,
         learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
-        checked_at: new Date().toISOString(),
+        checked_at: receipt.checkedAt,
+        expires_at: receipt.expiresAt,
+        receipt_id: receipt.receiptId,
+        receipt_hash: receipt.receiptHash,
+        receipt_version: "generation-provider-readiness-receipt-v1",
+        fresh: true,
       },
     });
   };

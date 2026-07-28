@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260728.1";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260728.2";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -24,6 +24,10 @@ import {
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
 } from "./generation-spend-view.js?v=20260725.1";
+import {
+  generationProviderReadinessPreflights,
+  normalizeGenerationProviderPreflight,
+} from "./generation-provider-readiness.js?v=20260728.1";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
@@ -389,7 +393,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -6717,6 +6721,7 @@ async function loadGenerationSpendOverview({ silent = false, force = false } = {
       || requestId !== target.requestId
     ) return target.data;
     target.data = raw?.data ?? raw ?? {};
+    hydrateGenerationProviderReadiness(target.data);
     target.status = "ready";
     target.error = null;
     target.updatedAt = Date.now();
@@ -13590,18 +13595,59 @@ async function submitGenerationBatch(form) {
 }
 
 function validateGenerationPreflight(result, sku) {
-  const preflight = result?.preflight;
+  const preflight = normalizeGenerationProviderPreflight(
+    result?.preflight,
+    { gateVersion: GENERATION_LEARNING_GATE_VERSION },
+  );
   if (
-    preflight?.ready !== true
+    preflight === null
     || preflight.model !== sku.model
     || preflight.estimated_credits !== sku.estimatedCredits
-    || preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION
   ) {
     const failure = new Error("Runway preflight response invalid");
     failure.code = "provider_preflight_invalid";
     throw failure;
   }
   return preflight;
+}
+
+function hydrateGenerationProviderReadiness(value) {
+  const nowMs = Date.now();
+  const receipts = generationProviderReadinessPreflights(value, {
+    gateVersion: GENERATION_LEARNING_GATE_VERSION,
+    nowMs,
+  });
+  for (const preflight of receipts) {
+    const previous = state.generationPreflight.entries.get(
+      preflight.model,
+    );
+    const serverCheckedAt = Date.parse(preflight.checked_at);
+    if (
+      previous?.status === "loading"
+      || previous?.retryAt > nowMs
+      || (
+        Number.isFinite(previous?.serverCheckedAt)
+        && previous.serverCheckedAt >= serverCheckedAt
+      )
+    ) continue;
+    state.generationPreflight.entries.set(preflight.model, {
+      status: "ready",
+      checkedAt: Math.min(serverCheckedAt, nowMs),
+      serverCheckedAt,
+      preflight,
+      errorMessage: "",
+      errorCode: "",
+      requestId: state.generationPreflight.requestId,
+      promise: null,
+      retryKey: preflight.model,
+      retryAttempt: 0,
+      retryTimer: null,
+      retryResolve: null,
+      retryAt: 0,
+      source: "server_receipt",
+    });
+  }
+  return receipts.length;
 }
 
 function generationPreflightErrorCode(error) {

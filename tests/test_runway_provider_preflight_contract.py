@@ -49,6 +49,10 @@ def test_preflight_is_membership_scoped_and_returns_only_safe_booleans() -> None
     assert "model_available: readiness.modelAvailable" in handler
     assert "daily_quota_available: readiness.dailyQuotaAvailable" in handler
     assert "learning_gate_version: GENERATION_LEARNING_GATE_VERSION" in handler
+    assert "await recordProviderReadiness(" in handler
+    assert "receipt_id: receipt.receiptId" in handler
+    assert "receipt_hash: receipt.receiptHash" in handler
+    assert 'receipt_version: "generation-provider-readiness-receipt-v1"' in handler
     assert "creditBalance" not in handler
     assert "maxDailyGenerations" not in handler
 
@@ -119,7 +123,10 @@ def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
         "function validateGenerationPreflight",
         "function syncGenerationPreflightUi",
     )
-    assert "preflight.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION" in validator
+    assert "normalizeGenerationProviderPreflight(" in validator
+    assert "gateVersion: GENERATION_LEARNING_GATE_VERSION" in validator
+    assert "preflight.model !== sku.model" in validator
+    assert "preflight.estimated_credits !== sku.estimatedCredits" in validator
     assert "Проверка не создаёт задачу и ничего не списывает." in APP
 
 
@@ -201,11 +208,11 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
 
 def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None:
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5"'
         in EDGE
     )
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v5"'
         in APP
     )
     assert (

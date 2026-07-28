@@ -34,14 +34,15 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
 ) -> None:
     output, manifest = _build(tmp_path)
 
-    assert manifest["app_script"] == "./app.js?v=20260728.3"
-    assert manifest["learning_gate_version"] == "2026-07-28.v4"
+    assert manifest["app_script"] == "./app.js?v=20260728.4"
+    assert manifest["learning_gate_version"] == "2026-07-28.v5"
     assert manifest["artifact_file_count"] == len(manifest["sha256"])
     assert "app.js" in manifest["sha256"]
     assert "content-generation-handoff.js" in manifest["sha256"]
     assert "generation-form-readiness.js" in manifest["sha256"]
     assert "generation-form-draft.js" in manifest["sha256"]
     assert "generation-model-acceptance-view.js" in manifest["sha256"]
+    assert "generation-provider-readiness.js" in manifest["sha256"]
     assert "config.example.js" not in manifest["sha256"]
     assert (output / ".nojekyll").is_file()
 
@@ -62,7 +63,7 @@ def test_pages_release_rejects_client_edge_gate_mismatch(tmp_path: Path) -> None
         ROOT / "supabase/functions/creator-generate/index.ts"
     ).read_text(encoding="utf-8")
     edge.write_text(
-        source.replace("2026-07-28.v4", "2026-07-25.v9", 1),
+        source.replace("2026-07-28.v5", "2026-07-25.v9", 1),
         encoding="utf-8",
     )
 
