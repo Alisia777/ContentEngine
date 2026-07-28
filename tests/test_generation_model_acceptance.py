@@ -530,8 +530,8 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "realGenerationPreflight" not in refresh
     assert "./generation-model-acceptance-view.js?v=20260728.1" in APP
     assert ".generation-model-acceptance__grid" in STYLES
-    assert "./styles.css?v=20260727.8" in INDEX
-    assert "./app.js?v=20260728.9" in INDEX
+    assert "./styles.css?v=20260728.1" in INDEX
+    assert "./app.js?v=20260728.10" in INDEX
     assert "./supabase-api.js?v=20260728.4" in APP
 
 

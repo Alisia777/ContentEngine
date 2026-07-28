@@ -34,7 +34,7 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
 ) -> None:
     output, manifest = _build(tmp_path)
 
-    assert manifest["app_script"] == "./app.js?v=20260728.9"
+    assert manifest["app_script"] == "./app.js?v=20260728.10"
     assert manifest["learning_gate_version"] == "2026-07-28.v6"
     assert manifest["artifact_file_count"] == len(manifest["sha256"])
     assert "app.js" in manifest["sha256"]
@@ -43,6 +43,7 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     assert "generation-form-draft.js" in manifest["sha256"]
     assert "generation-model-acceptance-view.js" in manifest["sha256"]
     assert "generation-provider-readiness.js" in manifest["sha256"]
+    assert "generation-quality-training.js" in manifest["sha256"]
     assert "config.example.js" not in manifest["sha256"]
     assert (output / ".nojekyll").is_file()
 

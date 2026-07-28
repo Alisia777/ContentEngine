@@ -64,6 +64,10 @@ import {
   parseContentGenerationHandoff,
 } from "./content-generation-handoff.js?v=20260728.3";
 import {
+  generationQualityTrainingRecommendation,
+  targetedGenerationQualityLesson,
+} from "./generation-quality-training.js?v=20260728.1";
+import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
 } from "./generation-form-readiness.js?v=20260727.1";
@@ -3587,7 +3591,17 @@ function renderCourse(code) {
   const courseIndex = Math.max(0, courses.findIndex((item) => item.code === course.code));
   const complete = state.bootstrap.training.completedModules.includes(course.code);
   const checkPassed = complete || state.courseCheckResults[course.code]?.passed === true;
-  const lessonJourney = restoreLessonJourney(course);
+  const targetedLesson = targetedGenerationQualityLesson(
+    course,
+    state.route.query,
+  );
+  const restoredLessonJourney = restoreLessonJourney(course);
+  const lessonJourney = targetedLesson
+    ? {
+        ...restoredLessonJourney,
+        activeIndex: targetedLesson.lessonIndex,
+      }
+    : restoredLessonJourney;
   const selectedTrack = LEARNING_TRACKS[restoreLearningTrack()];
   const completionChecklist = course.completionChecklist.length
     ? course.completionChecklist
@@ -3626,6 +3640,16 @@ function renderCourse(code) {
           <li><span>4</span><div><strong>Подтвердите готовность</strong><small>Сверьте финальный чек-лист — портал сохранит результат и выдаст ачивку.</small></div></li>
         </ol>
       </section>
+      ${targetedLesson ? `
+        <section class="card quality-training-arrival" role="status" aria-labelledby="quality-training-arrival-title">
+          <div>
+            <p class="eyebrow">Точечное повторение после QA</p>
+            <h2 id="quality-training-arrival-title">${escapeHtml(targetedLesson.lesson.title)}</h2>
+            <p>Портал открыл ровно тот урок, который относится к слабой структурной оценке последнего результата. Это рекомендация для следующего запуска, а не отзыв допуска.</p>
+          </div>
+          <a class="btn btn-secondary btn-small" href="#/workspace/generation">Вернуться к исправлению</a>
+        </section>
+      ` : ""}
       ${courseMasteryCoachMarkup(course)}
       <div class="course-layout">
         <div>
@@ -3677,7 +3701,9 @@ function renderCourse(code) {
   app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
   if (checkPassed) clearCourseAssessmentDraft(course.code);
   else restoreCourseAssessmentDraft(course.code);
-  syncCourseLessonJourney(course, lessonJourney);
+  syncCourseLessonJourney(course, lessonJourney, {
+    scroll: Boolean(targetedLesson),
+  });
   restoreTrainingWalkthroughState(course.code);
   restoreTrainingAudience(course.code);
   bindCoursePlatformSimulators(course);
@@ -12405,6 +12431,7 @@ function generationRepairMarkup(form = null) {
   const policy = normalizeGenerationRepairPolicy(state.generationRepair.data);
   if (!policy?.applied) return "";
   const active = form ? activeGenerationRepairPolicy(form) : policy;
+  const training = generationQualityTrainingRecommendation(policy);
   const labels = policy.guardCodes
     .map(generationQualityGuardLabel)
     .filter(Boolean);
@@ -12418,6 +12445,7 @@ function generationRepairMarkup(form = null) {
   return `
     <div id="generation-repair-status" class="generation-learning-status" data-state="${active ? "applied" : "warning"}" role="status">
       <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span></div>
+      ${training ? `<div class="generation-learning-status__actions"><a class="btn btn-secondary btn-small generation-quality-training-link" href="${escapeHtml(training.href)}" aria-label="${escapeHtml(`Открыть урок: ${training.title}`)}">${escapeHtml(training.title)} · 5 мин</a></div>` : ""}
     </div>
   `;
 }
@@ -12446,6 +12474,7 @@ function generationLearningMarkup(form = null) {
   const qualityGuardLabels = (policy?.qualityGuardCodes || [])
     .map(generationQualityGuardLabel)
     .filter(Boolean);
+  const training = generationQualityTrainingRecommendation(policy);
   const strongerGuardCount = (policy?.qualityGuardCodes || [])
     .filter((code) => policy?.qualityGuardVariants?.[code] === 2)
     .length;
@@ -12549,7 +12578,10 @@ function generationLearningMarkup(form = null) {
   return `
     <div id="generation-learning-status" class="generation-learning-status" data-state="${stateName}" role="status">
       <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span></div>
-      ${action}
+      <div class="generation-learning-status__actions">
+        ${training ? `<a class="btn btn-secondary btn-small generation-quality-training-link" href="${escapeHtml(training.href)}" aria-label="${escapeHtml(`Открыть урок: ${training.title}`)}">${escapeHtml(training.title)} · 5 мин</a>` : ""}
+        ${action}
+      </div>
     </div>
   `;
 }
