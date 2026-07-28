@@ -598,8 +598,8 @@ select is(
 
 select is(
   (select policy ->> 'version' from quality_learning_policy),
-  'generation-learning-v6',
-  'recurring structured weaknesses also pass the rejection-learning layer'
+  'generation-learning-v7',
+  'recurring structured weaknesses also pass the effectiveness layer'
 );
 
 select is(
