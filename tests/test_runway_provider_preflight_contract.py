@@ -201,11 +201,11 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
 
 def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None:
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4"'
         in EDGE
     )
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4"'
         in APP
     )
     assert (

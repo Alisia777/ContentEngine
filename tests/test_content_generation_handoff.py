@@ -572,7 +572,7 @@ def test_historical_hook_is_reduced_to_bounded_patterns_not_reused_as_copy() -> 
         "concise",
     }
     assert result["containsRawHook"] is False
-    assert result["compilerVersion"] == "safe-brief-v4"
+    assert result["compilerVersion"] == "safe-brief-v5"
 
 
 def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
@@ -768,7 +768,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260727.9" in APP
-    assert "./app.js?v=20260728.2" in INDEX
+    assert "./content-generation-handoff.js?v=20260728.1" in APP
+    assert "./app.js?v=20260728.3" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

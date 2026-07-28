@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
@@ -947,32 +947,96 @@ function generationLearningPromptRequirements(
   ) {
     return null;
   }
+  const guardVariantsValue = value.quality_guard_variants;
+  const guardVariants: Record<string, 1 | 2> = {};
+  if (guardVariantsValue === undefined) {
+    for (const guardCode of guardCodes) {
+      if (typeof guardCode !== "string") return null;
+      guardVariants[guardCode] = 1;
+    }
+  } else if (
+    !isRecord(guardVariantsValue) ||
+    Object.keys(guardVariantsValue).length !== guardCodes.length
+  ) {
+    return null;
+  } else {
+    for (const guardCode of guardCodes) {
+      if (
+        typeof guardCode !== "string" ||
+        ![1, 2].includes(Number(guardVariantsValue[guardCode]))
+      ) {
+        return null;
+      }
+      guardVariants[guardCode] = Number(
+        guardVariantsValue[guardCode],
+      ) as 1 | 2;
+    }
+    if (
+      Object.keys(guardVariantsValue).some((code) => !guardCodes.includes(code))
+    ) {
+      return null;
+    }
+  }
   const guardRequirements = photo
     ? {
-      product_fidelity:
-        "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
-      technical_stability:
-        "QA: резкий товар, ровный свет, без пересвета и размытия.",
-      hook_clarity: "QA: товар считывается первым.",
-      visual_quality: "QA: чистые края без дублей, деформаций и AI-артефактов.",
-      trust: "QA: естественные материалы, свет и масштаб.",
-      platform_fit: "QA: мастер 1:1, безопасные поля.",
+      product_fidelity: {
+        1: "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
+        2: "QA+: один товар строго по исходнику; не изменять ни одну букву, край, цвет или пропорцию упаковки.",
+      },
+      technical_stability: {
+        1: "QA: резкий товар, ровный свет, без пересвета и размытия.",
+        2: "QA+: нейтральный ровный свет; весь товар резкий, без бликов, шума и размытия.",
+      },
+      hook_clarity: {
+        1: "QA: товар считывается первым.",
+        2: "QA+: товар занимает главный визуальный акцент и считывается без второго объекта.",
+      },
+      visual_quality: {
+        1: "QA: чистые края без дублей, деформаций и AI-артефактов.",
+        2: "QA+: цельный чистый силуэт; никаких лишних деталей, дублей, швов и AI-артефактов.",
+      },
+      trust: {
+        1: "QA: естественные материалы, свет и масштаб.",
+        2: "QA+: реалистичные материалы, масштаб и тени как в предметной съёмке.",
+      },
+      platform_fit: {
+        1: "QA: мастер 1:1, безопасные поля.",
+        2: "QA+: квадрат 1:1; упаковка целиком внутри безопасных полей.",
+      },
     }
     : {
-      product_fidelity:
-        "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
-      technical_stability:
-        "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
-      audio_quality:
-        "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
-      speech_fidelity:
-        "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
-      hook_clarity:
-        "QA: точный товар и одно действие видны в первые 2 секунды.",
-      visual_quality:
-        "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
-      trust: "QA: естественная подача без гиперболы и новых обещаний.",
-      platform_fit: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+      product_fidelity: {
+        1: "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
+        2: "QA+: один точный товар по исходнику; упаковка, этикетка, текст, цвет и пропорции неизменны в каждом кадре.",
+      },
+      technical_stability: {
+        1: "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+        2: "QA+: один непрерывный стабильный проход; без скачков, чёрных кадров, морфинга и мерцания.",
+      },
+      audio_quality: {
+        1: "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
+        2: "QA+: непрерывная разборчивая дорожка; без тишины, клиппинга, шума и рассинхронизации.",
+      },
+      speech_fidelity: {
+        1: "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
+        2: "QA+: произнести только точную реплику дословно; без пропусков, замен, повторов и новых слов.",
+      },
+      hook_clarity: {
+        1: "QA: точный товар и одно действие видны в первые 2 секунды.",
+        2: "QA+: точный товар — главный объект первого кадра; одно действие начинается в первые 2 секунды.",
+      },
+      visual_quality: {
+        1: "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
+        2: "QA+: постоянные руки, лицо, упаковка и фактуры; без деформаций, дублей, швов и мерцания.",
+      },
+      trust: {
+        1: "QA: естественная подача без гиперболы и новых обещаний.",
+        2: "QA+: естественный свет, материалы и движение; без гиперболы, постановочного эффекта и новых обещаний.",
+      },
+      platform_fit: {
+        1: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+        2: "QA+: вертикальный мастер 9:16; товар и лицо целиком остаются в безопасных полях.",
+      },
     };
   for (const guardCode of guardCodes) {
     if (typeof guardCode !== "string") return null;
@@ -981,7 +1045,8 @@ function generationLearningPromptRequirements(
       model !== "seedance2_fast"
     ) return null;
     const requirement =
-      guardRequirements[guardCode as keyof typeof guardRequirements];
+      guardRequirements[guardCode as keyof typeof guardRequirements]
+        ?.[guardVariants[guardCode]];
     if (typeof requirement !== "string") return null;
     requirements.push(requirement);
   }
@@ -2707,9 +2772,18 @@ async function handleCreatorGenerate(
     );
   }
   if (learningPolicy.generation_allowed === false) {
+    const effectivenessStatus =
+      typeof learningPolicy.quality_guard_effectiveness_status === "string"
+        ? learningPolicy.quality_guard_effectiveness_status
+        : "";
     return json(
       request,
-      { ok: false, code: "generation_learning_rejection_guard_blocked" },
+      {
+        ok: false,
+        code: effectivenessStatus === "control_pending_review"
+          ? "generation_quality_guard_control_review_pending"
+          : "generation_learning_rejection_guard_blocked",
+      },
       409,
     );
   }

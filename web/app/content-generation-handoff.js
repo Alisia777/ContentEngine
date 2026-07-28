@@ -2,7 +2,7 @@ export const CONTENT_GENERATION_HANDOFF_VERSION = 1;
 export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
-export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v4";
+export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v5";
 export const GENERATION_REPAIR_COMPILER_VERSION = "review-repair-v1";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
@@ -416,6 +416,59 @@ export function normalizeGenerationLearningPolicy(value) {
     "trust",
     "platform_fit",
   ]);
+  const rawQualityGuardCodes = policyField(
+    value,
+    "quality_guard_codes",
+    "qualityGuardCodes",
+  ) ?? [];
+  const qualityGuardCodesValid = Array.isArray(rawQualityGuardCodes)
+    && rawQualityGuardCodes.length <= 3
+    && new Set(rawQualityGuardCodes).size === rawQualityGuardCodes.length
+    && rawQualityGuardCodes.every((code) => typeof code === "string");
+  const qualityGuardCodes = qualityGuardCodesValid
+    ? rawQualityGuardCodes.filter((code) => allowedQualityGuards.has(code))
+    : [];
+  const rawQualityGuardVariants = policyField(
+    value,
+    "quality_guard_variants",
+    "qualityGuardVariants",
+  );
+  const qualityGuardVariants = {};
+  let qualityGuardVariantsValid = qualityGuardCodesValid;
+  if (rawQualityGuardVariants === undefined) {
+    for (const code of qualityGuardCodes) qualityGuardVariants[code] = 1;
+  } else if (
+    rawQualityGuardVariants
+    && typeof rawQualityGuardVariants === "object"
+    && !Array.isArray(rawQualityGuardVariants)
+    && Object.keys(rawQualityGuardVariants).length
+      === qualityGuardCodes.length
+    && Object.keys(rawQualityGuardVariants).every((code) =>
+      qualityGuardCodes.includes(code)
+      && [1, 2].includes(rawQualityGuardVariants[code])
+    )
+  ) {
+    for (const code of qualityGuardCodes) {
+      qualityGuardVariants[code] = rawQualityGuardVariants[code];
+    }
+  } else {
+    qualityGuardVariantsValid = false;
+  }
+  const qualityGuardEffectivenessStatusValue = cleanText(policyField(
+    value,
+    "quality_guard_effectiveness_status",
+    "qualityGuardEffectivenessStatus",
+  ));
+  const qualityGuardEffectivenessStatus = new Set([
+    "clear",
+    "not_applicable",
+    "variant_2",
+    "cooldown",
+    "control_pending_review",
+    "control_revalidation",
+  ]).has(qualityGuardEffectivenessStatusValue)
+    ? qualityGuardEffectivenessStatusValue
+    : "clear";
   const preferredAngle = cleanText(policyField(
     value,
     "preferred_angle",
@@ -442,6 +495,7 @@ export function normalizeGenerationLearningPolicy(value) {
     : "performance";
   const applied = value.applied === true
     && generationAllowed
+    && qualityGuardVariantsValid
     && ["medium", "high"].includes(value.confidence)
     && allowedAngles.has(preferredAngle)
     && /^[0-9a-f]{64}$/u.test(policyHash);
@@ -479,14 +533,11 @@ export function normalizeGenerationLearningPolicy(value) {
       ),
       4,
     ).filter((pattern) => allowedPatterns.has(pattern)),
-    qualityGuardCodes: applied
-      ? uniqueStrings(policyField(
-        value,
-        "quality_guard_codes",
-        "qualityGuardCodes",
-      ), 3)
-        .filter((code) => allowedQualityGuards.has(code))
-      : [],
+    qualityGuardCodes: applied ? qualityGuardCodes : [],
+    qualityGuardVariants: qualityGuardVariantsValid
+      ? qualityGuardVariants
+      : {},
+    qualityGuardEffectivenessStatus,
     qualityGuardEvidenceCount: Number.isInteger(
       Number(policyField(
         value,
@@ -721,35 +772,81 @@ function generationLearningDirection(value, mode, repairValue = null) {
     ? ""
     : hookDirections[policy.preferredHookPatterns[0]] || "";
   const photoQualityGuards = {
-    product_fidelity: "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
-    technical_stability: "QA: резкий товар, ровный свет, без пересвета и размытия.",
-    hook_clarity: "QA: товар считывается первым.",
-    visual_quality: "QA: чистые края без дублей, деформаций и AI-артефактов.",
-    trust: "QA: естественные материалы, свет и масштаб.",
-    platform_fit: "QA: мастер 1:1, безопасные поля.",
+    product_fidelity: {
+      1: "QA: точная геометрия, этикетка, текст, цвет и пропорции.",
+      2: "QA+: один товар строго по исходнику; не изменять ни одну букву, край, цвет или пропорцию упаковки.",
+    },
+    technical_stability: {
+      1: "QA: резкий товар, ровный свет, без пересвета и размытия.",
+      2: "QA+: нейтральный ровный свет; весь товар резкий, без бликов, шума и размытия.",
+    },
+    hook_clarity: {
+      1: "QA: товар считывается первым.",
+      2: "QA+: товар занимает главный визуальный акцент и считывается без второго объекта.",
+    },
+    visual_quality: {
+      1: "QA: чистые края без дублей, деформаций и AI-артефактов.",
+      2: "QA+: цельный чистый силуэт; никаких лишних деталей, дублей, швов и AI-артефактов.",
+    },
+    trust: {
+      1: "QA: естественные материалы, свет и масштаб.",
+      2: "QA+: реалистичные материалы, масштаб и тени как в предметной съёмке.",
+    },
+    platform_fit: {
+      1: "QA: мастер 1:1, безопасные поля.",
+      2: "QA+: квадрат 1:1; упаковка целиком внутри безопасных полей.",
+    },
   };
   const videoQualityGuards = {
-    product_fidelity: "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
-    technical_stability: "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
-    audio_quality: "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
-    speech_fidelity: "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
-    hook_clarity: "QA: точный товар и одно действие видны в первые 2 секунды.",
-    visual_quality: "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
-    trust: "QA: естественная подача без гиперболы и новых обещаний.",
-    platform_fit: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+    product_fidelity: {
+      1: "QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.",
+      2: "QA+: один точный товар по исходнику; упаковка, этикетка, текст, цвет и пропорции неизменны в каждом кадре.",
+    },
+    technical_stability: {
+      1: "QA: стабильный проход без чёрных кадров, скачков и мерцания.",
+      2: "QA+: один непрерывный стабильный проход; без скачков, чёрных кадров, морфинга и мерцания.",
+    },
+    audio_quality: {
+      1: "QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.",
+      2: "QA+: непрерывная разборчивая дорожка; без тишины, клиппинга, шума и рассинхронизации.",
+    },
+    speech_fidelity: {
+      1: "QA: реплика произносится дословно, без пропусков, замен и новых слов.",
+      2: "QA+: произнести только точную реплику дословно; без пропусков, замен, повторов и новых слов.",
+    },
+    hook_clarity: {
+      1: "QA: точный товар и одно действие видны в первые 2 секунды.",
+      2: "QA+: точный товар — главный объект первого кадра; одно действие начинается в первые 2 секунды.",
+    },
+    visual_quality: {
+      1: "QA: руки, лицо и фактуры без деформаций, дублей и мерцания.",
+      2: "QA+: постоянные руки, лицо, упаковка и фактуры; без деформаций, дублей, швов и мерцания.",
+    },
+    trust: {
+      1: "QA: естественная подача без гиперболы и новых обещаний.",
+      2: "QA+: естественный свет, материалы и движение; без гиперболы, постановочного эффекта и новых обещаний.",
+    },
+    platform_fit: {
+      1: "QA: мастер 9:16; товар и лицо в безопасных полях.",
+      2: "QA+: вертикальный мастер 9:16; товар и лицо целиком остаются в безопасных полях.",
+    },
   };
   const qualityGuardCodes = [...new Set([
     ...(policy?.applied ? policy.qualityGuardCodes : []),
     ...(repairPolicy?.applied ? repairPolicy.guardCodes : []),
   ])];
-  const qualityDirections = qualityGuardCodes.map((code) => (
-    mode === REAL_PHOTO_MODE
-      ? photoQualityGuards[code]
+  const qualityDirections = qualityGuardCodes.map((code) => {
+    const guardVariant = policy?.applied
+      && policy.qualityGuardCodes.includes(code)
+      ? policy.qualityGuardVariants[code] || 1
+      : 1;
+    return mode === REAL_PHOTO_MODE
+      ? photoQualityGuards[code]?.[guardVariant]
       : ["audio_quality", "speech_fidelity"].includes(code)
         && mode !== REAL_SEEDANCE_MODE
       ? undefined
-      : videoQualityGuards[code]
-  )).filter(Boolean);
+      : videoQualityGuards[code]?.[guardVariant];
+  }).filter(Boolean);
   return [angleDirection, hookDirection, ...qualityDirections]
     .filter(Boolean)
     .join(" ");

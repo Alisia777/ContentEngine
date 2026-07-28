@@ -27,7 +27,8 @@ def test_browser_normalizer_accepts_wire_and_idempotent_app_shapes() -> None:
     for token in (
         '"preferred_angle",\n    "preferredAngle"',
         '"preferred_hook_patterns",\n        "preferredHookPatterns"',
-        '"quality_guard_codes",\n        "qualityGuardCodes"',
+        '"quality_guard_codes",\n    "qualityGuardCodes"',
+        '"quality_guard_variants",\n    "qualityGuardVariants"',
         '"policy_hash",\n    "policyHash"',
         "JSON.stringify(wireValue) !== JSON.stringify(normalizedValue)",
     ):
@@ -178,9 +179,9 @@ def test_runtime_sql_contract_covers_video_photo_and_tampering() -> None:
 
 
 def test_release_versions_bind_the_fixed_client_edge_and_adapter() -> None:
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3"' in EDGE
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3"' in APP
-    assert "./content-generation-handoff.js?v=20260727.9" in APP
-    assert "./supabase-api.js?v=20260727.11" in APP
-    assert "./app.js?v=20260728.2" in INDEX
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4"' in EDGE
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4"' in APP
+    assert "./content-generation-handoff.js?v=20260728.1" in APP
+    assert "./supabase-api.js?v=20260728.1" in APP
+    assert "./app.js?v=20260728.3" in INDEX
     assert "generation_learning_prompt_binding_invalid" in ADAPTER

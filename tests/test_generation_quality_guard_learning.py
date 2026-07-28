@@ -221,7 +221,7 @@ def test_applied_learning_cannot_be_silently_dropped_from_long_auto_prompt() -> 
         "generationQualityGuardLabel",
         "generationHookPatternLabel",
         "Следующее авто-ТЗ уже включает",
-        "QA-усиления:",
+        "QA-усиления${strongerGuardCount",
         "Тексты обещаний, права и параметры запуска не обучаются",
     ):
         assert token in APP

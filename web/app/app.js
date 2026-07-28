@@ -1,4 +1,4 @@
-import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260727.11";
+import { CreatorApi, mediaKindRequiresProduct } from "./supabase-api.js?v=20260728.1";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -53,7 +53,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260727.9";
+} from "./content-generation-handoff.js?v=20260728.1";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
@@ -389,7 +389,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-26.v3";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v4";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -12316,13 +12316,16 @@ function generationLearningMarkup(form = null) {
   const qualityGuardLabels = (policy?.qualityGuardCodes || [])
     .map(generationQualityGuardLabel)
     .filter(Boolean);
+  const strongerGuardCount = (policy?.qualityGuardCodes || [])
+    .filter((code) => policy?.qualityGuardVariants?.[code] === 2)
+    .length;
   const hookPatternLabel = generationHookPatternLabel(
     policy?.preferredHookPatterns?.[0],
   );
   const learnedInstructionParts = [
     hookPatternLabel ? `структурный hook «${hookPatternLabel}»` : "",
     qualityGuardLabels.length
-      ? `QA-усиления: ${qualityGuardLabels.join(", ")}`
+      ? `QA-усиления${strongerGuardCount ? " v2" : ""}: ${qualityGuardLabels.join(", ")}`
       : "",
   ].filter(Boolean);
   const learnedInstructionCopy = learnedInstructionParts.length
@@ -12361,8 +12364,20 @@ function generationLearningMarkup(form = null) {
     stateName = "warning";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
   } else if (current.status === "ready" && policy?.generationAllowed === false) {
-    title = "Автогенерация остановлена";
-    copy = "Все безопасные структуры для этого товара, площадки и модели уже были независимо отклонены, а доступной серверно-проверенной альтернативы сейчас нет. Портал не повторит их и не перейдёт к оплате.";
+    if (
+      policy.qualityGuardEffectivenessStatus === "control_pending_review"
+    ) {
+      title = "Контрольный результат ждёт QA";
+      copy = "Портал не создаст второй платный контроль, пока независимый участник не проверит уже готовый результат этой модели.";
+    } else if (
+      policy.qualityGuardEffectivenessStatus === "cooldown"
+    ) {
+      title = "Модель временно остановлена";
+      copy = "Два безопасных варианта QA-усиления не довели точное измерение до 78/100. Портал не повторит неэффективный запуск; через 30 дней разрешит один контроль для проверки drift.";
+    } else {
+      title = "Автогенерация остановлена";
+      copy = "Все безопасные структуры для этого товара, площадки и модели уже были независимо отклонены, а доступной серверно-проверенной альтернативы сейчас нет. Портал не повторит их и не перейдёт к оплате.";
+    }
     stateName = "warning";
   } else if (disabled && policy?.applied) {
     copy = policy.selectionMode === "bounded_exploration"
@@ -12722,9 +12737,12 @@ async function loadGenerationLearningPolicy(
     }
     clearGenerationLearningRetry();
     const rawPolicy = raw?.data ?? raw ?? {};
+    const normalizedRawPolicy =
+      normalizeGenerationLearningPolicy(rawPolicy);
     if (
-      normalizeGenerationLearningPolicy(rawPolicy)
-        ?.generationAllowed === false
+      normalizedRawPolicy?.generationAllowed === false
+      && normalizedRawPolicy.qualityGuardEffectivenessStatus
+        !== "control_pending_review"
     ) {
       const fallbackPolicy = await prepareGenerationLearningFallback(
         form,
