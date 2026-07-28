@@ -165,11 +165,11 @@ select ok(
   'the final spend overview remains SECURITY DEFINER'
 );
 
-select like(
+select matches(
   pg_get_functiondef(
     'public.creator_generation_spend_overview(jsonb)'::regprocedure
   ),
-  '%provider_readiness%',
+  'provider_readiness',
   'the membership-scoped spend overview includes safe readiness receipts'
 );
 
