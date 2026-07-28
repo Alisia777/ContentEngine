@@ -127,7 +127,7 @@ def test_pgtap_covers_context_filter_and_rpc_security() -> None:
         "video context removes only deterministic publication blockers",
         "actual video-content blocker survives context amendment",
         "transcription remains an explicit opt-in outside autopilot",
-        "public generation gate binds product category before returning",
+        "public generation chain preserves category binding before returning",
     ):
         assert token in PGTAP
     for rpc_name in (

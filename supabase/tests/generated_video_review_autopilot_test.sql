@@ -133,11 +133,14 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) like '%creator_start_real_generation_pre_guard_lineage_v8%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_guard_lineage_v8(jsonb)'::regprocedure
   ) like '%creator_start_real_generation_pre_review_category_v1%'
   and pg_get_functiondef(
-    'public.creator_start_real_generation(jsonb)'::regprocedure
+    'content_factory_private.creator_start_real_generation_pre_guard_lineage_v8(jsonb)'::regprocedure
   ) like '%product_category%',
-  'public generation gate binds product category before returning'
+  'public generation chain preserves category binding before returning'
 );
 
 select ok(

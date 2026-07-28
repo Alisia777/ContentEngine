@@ -83,15 +83,23 @@ def test_guard_code_validator_is_small_allowlisted_and_fail_closed() -> None:
 
 
 def test_server_policy_is_recomputed_before_any_paid_database_command() -> None:
+    missing_context_gate = MIGRATION.index(
+        "if learning_context is null"
+    )
+    identity_resolution = MIGRATION.index(
+        "organization_id :=\n    content_factory_private.resolve_organization("
+    )
     policy_call = MIGRATION.index(
         "server_policy := public.creator_generation_learning_policy("
     )
     paid_command = MIGRATION.index(
-        ".creator_start_real_generation_pre_guard_lineage_v8(p_payload)"
+        ".creator_start_real_generation_pre_guard_lineage_v8(p_payload)",
+        policy_call,
     )
     lineage_insert = MIGRATION.index(
         "insert into content_factory.generation_quality_guard_lineage"
     )
+    assert missing_context_gate < identity_resolution
     assert policy_call < paid_command < lineage_insert
     for token in (
         "server_policy -> 'quality_guard_codes'",
@@ -120,6 +128,27 @@ def test_lineage_is_bound_to_exact_job_creative_signal_and_prompt_hash() -> None
         "generation_quality_guard_lineage_conflict",
     ):
         assert token in MIGRATION
+
+
+def test_legacy_calls_keep_original_validation_and_error_ordering() -> None:
+    wrapper = MIGRATION[
+        MIGRATION.index(
+            "create or replace function public.creator_start_real_generation("
+        )
+        :
+    ]
+    context_gate = wrapper.index("if learning_context is null")
+    direct_return = wrapper.index(
+        ".creator_start_real_generation_pre_guard_lineage_v8(p_payload)",
+        context_gate,
+    )
+    organization_resolution = wrapper.index(
+        "content_factory_private.resolve_organization(p_payload)"
+    )
+    current_user = wrapper.index(
+        "content_factory_private.current_profile_id()"
+    )
+    assert context_gate < direct_return < organization_resolution < current_user
 
 
 def test_lineage_is_private_append_only_and_idempotent() -> None:

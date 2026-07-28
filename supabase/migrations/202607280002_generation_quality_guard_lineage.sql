@@ -184,56 +184,56 @@ declare
 begin
   p_payload := content_factory_private.require_payload(p_payload);
   learning_context := p_payload -> 'learning_context';
+  -- Keep backward-compatible database fixtures and old idempotent callers on
+  -- the complete existing command.  The production Edge contract requires a
+  -- learning context; malformed values are still rejected by that inner
+  -- command with its original error ordering.
+  if learning_context is null
+     or jsonb_typeof(learning_context) <> 'object' then
+    return content_factory_private
+      .creator_start_real_generation_pre_guard_lineage_v8(p_payload);
+  end if;
   organization_id :=
     content_factory_private.resolve_organization(p_payload);
   user_id := content_factory_private.current_profile_id();
 
-  if jsonb_typeof(learning_context) = 'object' then
-    learning_source_value := learning_context ->> 'source';
-    if learning_source_value = 'performance_learning' then
-      perform content_factory_private.membership_role(
-        organization_id,
-        true,
-        array['owner', 'admin', 'producer', 'operator']
-      );
-      server_policy := public.creator_generation_learning_policy(
-        jsonb_build_object(
-          'organization_id', organization_id,
-          'media_id', p_payload #>> '{media_ids,0}',
-          'platform', p_payload ->> 'platform',
-          'model', p_payload ->> 'model'
-        )
-      );
-      policy_hash_value := server_policy ->> 'policy_hash';
-      guard_codes_value := coalesce(
-        server_policy -> 'quality_guard_codes',
-        '[]'::jsonb
-      );
-      if server_policy -> 'applied' is distinct from 'true'::jsonb
-         or policy_hash_value
-              is distinct from learning_context ->> 'applied_policy_hash'
-         or policy_hash_value !~ '^[0-9a-f]{64}$'
-         or not content_factory_private
-           .valid_generation_quality_guard_codes(guard_codes_value) then
-        raise exception using
-          errcode = '55000',
-          message = 'generation_quality_guard_policy_stale';
-      end if;
-    elsif learning_source_value in ('baseline', 'approved_research') then
-      policy_hash_value := null;
-      guard_codes_value := '[]'::jsonb;
+  learning_source_value := learning_context ->> 'source';
+  if learning_source_value = 'performance_learning' then
+    perform content_factory_private.membership_role(
+      organization_id,
+      true,
+      array['owner', 'admin', 'producer', 'operator']
+    );
+    server_policy := public.creator_generation_learning_policy(
+      jsonb_build_object(
+        'organization_id', organization_id,
+        'media_id', p_payload #>> '{media_ids,0}',
+        'platform', p_payload ->> 'platform',
+        'model', p_payload ->> 'model'
+      )
+    );
+    policy_hash_value := server_policy ->> 'policy_hash';
+    guard_codes_value := coalesce(
+      server_policy -> 'quality_guard_codes',
+      '[]'::jsonb
+    );
+    if server_policy -> 'applied' is distinct from 'true'::jsonb
+       or policy_hash_value
+            is distinct from learning_context ->> 'applied_policy_hash'
+       or policy_hash_value !~ '^[0-9a-f]{64}$'
+       or not content_factory_private
+         .valid_generation_quality_guard_codes(guard_codes_value) then
+      raise exception using
+        errcode = '55000',
+        message = 'generation_quality_guard_policy_stale';
     end if;
+  elsif learning_source_value in ('baseline', 'approved_research') then
+    policy_hash_value := null;
+    guard_codes_value := '[]'::jsonb;
   end if;
 
   result_value := content_factory_private
     .creator_start_real_generation_pre_guard_lineage_v8(p_payload);
-
-  -- The inner learning wrapper owns validation of malformed or absent
-  -- contexts.  Jobs without a learning context predate this causal signal and
-  -- are deliberately not guessed into the lineage.
-  if jsonb_typeof(learning_context) <> 'object' then
-    return result_value;
-  end if;
 
   if coalesce(result_value #>> '{job,id}', '') !~
      '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
