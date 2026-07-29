@@ -224,6 +224,63 @@ def test_management_api_uses_exact_project_url_and_bearer_token() -> None:
     assert sent["read_only"] is True
 
 
+def test_read_only_management_query_retries_bounded_transient_544() -> None:
+    calls = 0
+    delays: list[float] = []
+
+    def flaky_http(api_request, *, timeout: int):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise error.HTTPError(
+                api_request.full_url,
+                544,
+                "gateway timeout",
+                {},
+                BytesIO(b"private database error"),
+            )
+        return FakeResponse([{"ready": True}])
+
+    client = ManagementApiClient(
+        project_ref=EXPECTED_PROJECT_REF,
+        access_token="test-access-token",
+        opener=flaky_http,
+        sleeper=delays.append,
+    )
+
+    assert client.execute("select 1", read_only=True) == [{"ready": True}]
+    assert calls == 3
+    assert delays == [2.0, 5.0]
+
+
+def test_ambiguous_management_write_is_never_retried_automatically() -> None:
+    calls = 0
+    delays: list[float] = []
+
+    def failing_http(api_request, *, timeout: int):
+        nonlocal calls
+        calls += 1
+        raise error.HTTPError(
+            api_request.full_url,
+            544,
+            "gateway timeout",
+            {},
+            BytesIO(b"private database error"),
+        )
+
+    client = ManagementApiClient(
+        project_ref=EXPECTED_PROJECT_REF,
+        access_token="test-access-token",
+        opener=failing_http,
+        sleeper=delays.append,
+    )
+
+    with pytest.raises(DeploymentError, match=r"HTTP 544"):
+        client.execute("insert into private_table values (1)")
+    assert calls == 1
+    assert delays == []
+
+
 def test_applied_migrations_are_idempotently_skipped(tmp_path: Path) -> None:
     migrations = _fixture_migrations(tmp_path)
     fake_http = FakeManagementApi(

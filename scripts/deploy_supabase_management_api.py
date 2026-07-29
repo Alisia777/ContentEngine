@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import sys
+import time
 from typing import Any, Callable, Iterable
 from urllib import error, request
 
@@ -38,6 +39,20 @@ TRANSACTION_WRAPPER = re.compile(
 )
 DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+TRANSIENT_MANAGEMENT_HTTP_STATUSES = frozenset({
+    408,
+    425,
+    429,
+    500,
+    502,
+    503,
+    504,
+    520,
+    522,
+    524,
+    544,
+})
+SAFE_RETRY_DELAYS_SECONDS = (2.0, 5.0)
 
 
 class DeploymentError(RuntimeError):
@@ -820,6 +835,8 @@ class ManagementApiClient:
         access_token: str,
         opener: Callable[..., Any] = request.urlopen,
         timeout_seconds: int = 60,
+        sleeper: Callable[[float], None] = time.sleep,
+        safe_retry_delays: tuple[float, ...] = SAFE_RETRY_DELAYS_SECONDS,
     ) -> None:
         if project_ref != EXPECTED_PROJECT_REF:
             raise ConfigurationError(
@@ -831,6 +848,8 @@ class ManagementApiClient:
         self._access_token = access_token.strip()
         self._opener = opener
         self._timeout_seconds = timeout_seconds
+        self._sleeper = sleeper
+        self._safe_retry_delays = tuple(safe_retry_delays)
 
     @property
     def endpoint(self) -> str:
@@ -839,7 +858,13 @@ class ManagementApiClient:
             f"{self._project_ref}/database/query"
         )
 
-    def execute(self, sql: str, *, read_only: bool = False) -> Any:
+    def execute(
+        self,
+        sql: str,
+        *,
+        read_only: bool = False,
+        retry_safe: bool = False,
+    ) -> Any:
         body = json.dumps(
             {"query": sql, "read_only": read_only},
             ensure_ascii=False,
@@ -856,28 +881,50 @@ class ManagementApiClient:
                 "User-Agent": "ContentEngine-Supabase-Deployer/1",
             },
         )
-        try:
-            with self._opener(
-                api_request,
-                timeout=self._timeout_seconds,
-            ) as response:
-                status = int(getattr(response, "status", 200))
-                response_body = response.read(MAX_RESPONSE_BYTES + 1)
-        except error.HTTPError as exc:
-            # Deliberately discard the response body: PostgreSQL errors can quote SQL.
+        delays = self._safe_retry_delays if (read_only or retry_safe) else ()
+        response_body = b""
+        for attempt in range(len(delays) + 1):
             try:
+                with self._opener(
+                    api_request,
+                    timeout=self._timeout_seconds,
+                ) as response:
+                    status = int(getattr(response, "status", 200))
+                    response_body = response.read(MAX_RESPONSE_BYTES + 1)
+            except error.HTTPError as exc:
+                # Deliberately discard the response body: PostgreSQL errors can
+                # quote SQL and private grading data.
+                status = int(exc.code)
                 exc.close()
-            finally:
+                if (
+                    attempt < len(delays)
+                    and status in TRANSIENT_MANAGEMENT_HTTP_STATUSES
+                ):
+                    self._sleeper(delays[attempt])
+                    continue
                 raise DeploymentError(
-                    f"Supabase Management API request failed (HTTP {exc.code})"
+                    f"Supabase Management API request failed (HTTP {status})"
                 ) from None
-        except (error.URLError, TimeoutError, OSError):
-            raise DeploymentError("Supabase Management API request failed") from None
+            except (error.URLError, TimeoutError, OSError):
+                if attempt < len(delays):
+                    self._sleeper(delays[attempt])
+                    continue
+                raise DeploymentError(
+                    "Supabase Management API request failed"
+                ) from None
 
-        if status < 200 or status >= 300:
+            if 200 <= status < 300:
+                break
+            if (
+                attempt < len(delays)
+                and status in TRANSIENT_MANAGEMENT_HTTP_STATUSES
+            ):
+                self._sleeper(delays[attempt])
+                continue
             raise DeploymentError(
                 f"Supabase Management API request failed (HTTP {status})"
             )
+
         if len(response_body) > MAX_RESPONSE_BYTES:
             raise DeploymentError("Supabase Management API response was too large")
         if not response_body:
@@ -1039,8 +1086,20 @@ def deploy(
     migrations: list[Migration],
     private_exam_sql_body: str,
 ) -> list[str]:
-    client.execute(HISTORY_BOOTSTRAP_SQL)
-    remote_history = read_remote_history(client)
+    # This transaction only creates/revokes the same history objects and is
+    # therefore safe to repeat after a gateway timeout with an unknown response.
+    try:
+        client.execute(HISTORY_BOOTSTRAP_SQL, retry_safe=True)
+    except DeploymentError as exc:
+        raise DeploymentError(
+            f"Supabase migration history bootstrap failed: {exc}"
+        ) from None
+    try:
+        remote_history = read_remote_history(client)
+    except DeploymentError as exc:
+        raise DeploymentError(
+            f"Supabase migration history read failed: {exc}"
+        ) from None
     _validate_history_prefix(migrations, remote_history)
 
     applied: list[str] = []
