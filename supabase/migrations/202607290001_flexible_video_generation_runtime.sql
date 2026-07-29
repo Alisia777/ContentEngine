@@ -4,6 +4,53 @@ begin;
 -- from the previous migration is the only source for duration, price and
 -- confirmation; legacy validation order remains intact for safe error handling.
 
+-- PostgreSQL's array concatenation keeps the non-null side when the other
+-- operand is null. Keep the unknown-model branch explicit so an unsupported
+-- paid model can never inherit only the common prompt requirements.
+create or replace function
+  content_factory_private.generation_mode_prompt_requirements(
+    p_model text
+  )
+returns text[]
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  model_value text := lower(btrim(coalesce(p_model, '')));
+  common_requirements text[] := array[
+    'Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений.',
+    'Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.'
+  ]::text[];
+begin
+  if model_value not in (
+    'seedream5_lite',
+    'gen4_turbo',
+    'seedance2_fast'
+  ) then
+    return null;
+  end if;
+
+  return common_requirements || case model_value
+    when 'seedream5_lite' then array[
+      'Создай одно квадратное товарное фото 2048 × 2048.',
+      'Используй @ProductReference как единственный точный референс товара.',
+      'Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса.'
+    ]::text[]
+    when 'gen4_turbo' then array[
+      'Без речи, дикторского текста и сгенерированных надписей.'
+    ]::text[]
+    when 'seedance2_fast' then array[
+      'Без сгенерированных надписей, субтитров и декоративного текста.'
+    ]::text[]
+  end;
+end;
+$$;
+
+revoke all on function
+  content_factory_private.generation_mode_prompt_requirements(text)
+  from public, anon, authenticated, service_role;
+
 create or replace function content_factory_private.creator_start_gen4_turbo_5s(
   p_payload jsonb default '{}'::jsonb
 )

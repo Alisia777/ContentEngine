@@ -62,6 +62,9 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) like '%creator_start_real_generation_pre_flexible_duration_v12%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
   ) like '%creator_start_real_generation_pre_review_autostart_v11%'
   and pg_get_functiondef(
     'content_factory_private.creator_start_real_generation_pre_review_autostart_v11(jsonb)'::regprocedure
@@ -71,13 +74,13 @@ select ok(
 
 select ok(
   pg_get_functiondef(
-    'public.creator_start_real_generation(jsonb)'::regprocedure
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
   ) like '%generation_review_autostart_consent_invalid%'
   and pg_get_functiondef(
-    'public.creator_start_real_generation(jsonb)'::regprocedure
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
   ) like '%generated-video-qa-autostart-v1%'
   and pg_get_functiondef(
-    'public.creator_start_real_generation(jsonb)'::regprocedure
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
   ) like '%''transcription_requested'', false%',
   'paid-start records only the exact no-transcription consent'
 );
