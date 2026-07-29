@@ -278,11 +278,12 @@ def test_steamer_prompt_preserves_real_scale_and_replaces_face_interaction() -> 
         return {
           ready: compiled.ready,
           countertop: compiled.prompt.includes(
-            "товар целиком стоит на устойчивой столешнице",
+            "товар показан целиком в естественном размере на устойчивой столешнице",
           ),
           safeAction: compiled.prompt.includes(
-            "Герой не поднимает корпус",
+            "Герой открывает крышку или рабочую часть",
           ),
+          irrelevantFaceRule: compiled.prompt.includes("подносить к лицу"),
           copiedUnsafeAction: compiled.prompt.includes(
             "держит пароварку у лица",
           ),
@@ -297,8 +298,37 @@ def test_steamer_prompt_preserves_real_scale_and_replaces_face_interaction() -> 
         "ready": True,
         "countertop": True,
         "safeAction": True,
+        "irrelevantFaceRule": False,
         "copiedUnsafeAction": False,
         "interactionKind": "countertop_appliance",
+    }
+
+
+def test_steamer_auto_brief_uses_natural_product_specific_spoken_line() -> None:
+    result = _run_module(
+        """
+        const compiled = subject.compileSafeGenerationBrief({
+          mode: "real_seedance",
+          productName: "Пароварка большая",
+          sku: "STEAM-01",
+          durationSeconds: 12,
+          productCategory: "household",
+        });
+        return {
+          ready: compiled.ready,
+          duration: compiled.durationSeconds,
+          spokenLine: compiled.prompt.includes(
+            "Реплика героя дословно: «Показываю, как работает пароварка: управление, процесс и готовый результат.»",
+          ),
+          irrelevantFaceRule: compiled.prompt.includes("подносить к лицу"),
+        };
+        """
+    )
+    assert result == {
+        "ready": True,
+        "duration": 12,
+        "spokenLine": True,
+        "irrelevantFaceRule": False,
     }
 
 
@@ -326,7 +356,7 @@ def test_categories_have_separate_cold_start_interactions() -> None:
           uniqueRequirements: new Set(
             profiles.map((item) => item.requirement),
           ).size,
-          otherColdStart: profiles.at(-1).requirement.includes("cold start"),
+          otherColdStart: profiles.at(-1).kind === "other_cold_start",
           faceTemplateRemoved: profiles.every(
             (item) => !item.videoAction.includes("у лица"),
           ),
@@ -686,7 +716,7 @@ def test_historical_hook_is_reduced_to_bounded_patterns_not_reused_as_copy() -> 
         "concise",
     }
     assert result["containsRawHook"] is False
-    assert result["compilerVersion"] == "safe-brief-v5"
+    assert result["compilerVersion"] == "safe-brief-v6"
 
 
 def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
@@ -882,7 +912,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260729.2" in APP
-    assert "./app.js?v=20260729.5" in INDEX
+    assert "./content-generation-handoff.js?v=20260729.3" in APP
+    assert "./app.js?v=20260729.6" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

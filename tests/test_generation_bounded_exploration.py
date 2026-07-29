@@ -82,5 +82,5 @@ def test_portal_explains_the_autonomous_experiment_and_busts_caches() -> None:
         "Товар, права, обещания и бюджет не меняются",
     ):
         assert token in APP
-    assert "./content-generation-handoff.js?v=20260729.2" in APP
-    assert "./app.js?v=20260729.5" in INDEX
+    assert "./content-generation-handoff.js?v=20260729.3" in APP
+    assert "./app.js?v=20260729.6" in INDEX

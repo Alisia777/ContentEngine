@@ -82,6 +82,7 @@ def test_paid_readiness_accepts_up_to_five_product_angles() -> None:
         "campaignId": "campaign-1",
         "spendAllowed": True,
         "confirmationMatches": True,
+        "safeBriefReady": True,
         "count": 1,
     }
     too_many = _evaluate(value)
@@ -92,7 +93,7 @@ def test_paid_readiness_accepts_up_to_five_product_angles() -> None:
     value["mediaCount"] = 5
     ready = _evaluate(value)
     assert ready["ready"] is True
-    assert ready["total"] == 7
+    assert ready["total"] == 8
 
 
 def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> None:
@@ -108,11 +109,12 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
         "campaignId": "campaign-1",
         "spendAllowed": True,
         "confirmationMatches": False,
+        "safeBriefReady": True,
         "count": 1,
     }
     too_many = _evaluate(value)
     assert too_many["real"] is True
-    assert too_many["total"] == 7
+    assert too_many["total"] == 8
     assert too_many["next"]["key"] == "media"
     assert "до пяти" in too_many["next"]["hint"]
 
@@ -130,11 +132,41 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
     value["confirmationMatches"] = True
     ready = _evaluate(value)
     assert ready["ready"] is True
-    assert ready["completed"] == ready["total"] == 7
+    assert ready["completed"] == ready["total"] == 8
+
+
+def test_paid_readiness_does_not_claim_launch_before_auto_brief_is_verified() -> None:
+    value = {
+        "mode": "real_seedance",
+        "sku": "WB-123",
+        "productName": "Пароварка",
+        "productCategory": "household",
+        "platform": "tiktok",
+        "destinationRef": "@brand",
+        "mediaCount": 3,
+        "brief": "Безопасное авто-ТЗ",
+        "campaignId": "campaign-1",
+        "spendAllowed": True,
+        "confirmationMatches": True,
+        "safeBriefReady": False,
+        "safeBriefHint": "Идёт бесплатная проверка авто-ТЗ.",
+        "count": 1,
+    }
+    checking = _evaluate(value)
+    assert checking["ready"] is False
+    assert checking["completed"] == 7
+    assert checking["total"] == 8
+    assert checking["next"]["key"] == "safe_brief"
+    assert checking["next"]["hint"] == "Идёт бесплатная проверка авто-ТЗ."
+
+    value["safeBriefReady"] = True
+    ready = _evaluate(value)
+    assert ready["ready"] is True
+    assert ready["completed"] == ready["total"] == 8
 
 
 def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None:
-    assert 'from "./generation-form-readiness.js?v=20260729.1"' in APP
+    assert 'from "./generation-form-readiness.js?v=20260729.2"' in APP
     assert "function syncGenerationFormReadiness(form)" in APP
     assert "syncGenerationFormReadiness(form);" in APP
     assert 'id="generation-readiness"' in MODULE_TEXT
@@ -142,6 +174,10 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "current.dataset.signature !== readiness.signature" in APP
     assert 'id="generation-submit" class="btn btn-block" type="submit" disabled' in APP
     assert "Заполните обязательные шаги" in APP
+    assert '"Проверенное авто-ТЗ"' in MODULE_TEXT
+    assert "safeBriefReady: safety.ready" in APP
+    assert "safeBriefState: safety.state" in APP
+    assert "function generationPaidSafetyState(form)" in APP
     assert '? "Проверяем платный запуск — не повторяйте"' in APP
     assert ': "Создаём dry-run задачи…"' in APP
     mock_submit = APP[
@@ -153,7 +189,21 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
     assert './styles.css?v=20260729.3' in INDEX
-    assert './app.js?v=20260729.5' in INDEX
+    assert './app.js?v=20260729.6' in INDEX
+
+
+def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
+    select_markup = APP[
+        APP.index('<select id="generation-mode"'):
+        APP.index('id="generation-duration-field"')
+    ]
+    assert "generationModeChoiceLabel(REAL_SEEDANCE_MODE)" in select_markup
+    assert "REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label" not in select_markup
+    assert '"Блогер + голос · Seedance 2 Fast"' in APP
+    assert (
+        "`Авто-ТЗ готово: ${durationSeconds} секунд, точный товар и короткая дословная реплика.`"
+        in APP
+    )
 
 
 def test_mock_mode_truthfully_describes_tasks_without_media_rendering() -> None:

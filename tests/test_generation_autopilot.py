@@ -556,7 +556,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260729.5' in INDEX
+    assert './app.js?v=20260729.6' in INDEX
 
 
 def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:
@@ -640,3 +640,20 @@ def test_learning_lookup_times_out_and_recovers_without_provider_contact() -> No
         assert forbidden not in retry
     assert "после трёх безопасных попыток" in APP
     assert "сам повторит бесплатную проверку" in APP
+
+
+def test_paid_submit_recovers_same_generation_form_after_safe_rerender() -> None:
+    assert "function generationFormForLearningKey(key, fallback = null)" in APP
+    ensure = APP[
+        APP.index("async function ensureGenerationLearningPolicy("):
+        APP.index("function automaticGenerationBriefCandidate(")
+    ]
+    submit = APP[
+        APP.index("async function submitRealGeneration(form, values, mode)"):
+        APP.index("async function submitMockBatch(")
+    ]
+    assert "const activeForm = generationFormForLearningKey(key, form)" in ensure
+    assert "const learningKeyAtSubmit = generationLearningKey(form, identity)" in submit
+    assert "form = activeForm" in submit
+    assert "сервер проверки ТЗ временно не ответил" in submit
+    assert "Портал повторит бесплатную проверку автоматически" in submit

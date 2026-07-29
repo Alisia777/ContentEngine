@@ -69,7 +69,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260729.2";
+} from "./content-generation-handoff.js?v=20260729.3";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -77,7 +77,7 @@ import {
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260729.1";
+} from "./generation-form-readiness.js?v=20260729.2";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
@@ -7393,6 +7393,14 @@ function realGenerationSku(mode, duration = null) {
   });
 }
 
+function generationModeChoiceLabel(mode) {
+  return {
+    [REAL_PHOTO_MODE]: "Фото товара · квадрат 2K",
+    [REAL_SEEDANCE_MODE]: "Блогер + голос · Seedance 2 Fast",
+    [REAL_GEN4_MODE]: "Анимация товара · Gen-4 Turbo · без голоса",
+  }[String(mode || "")] || "";
+}
+
 function generationSkuForForm(form) {
   return realGenerationSku(
     form?.elements?.generation_mode?.value,
@@ -7588,6 +7596,7 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
 function generationFormReadiness(form) {
   const mode = String(form?.elements?.generation_mode?.value || "mock");
   const sku = generationSkuForForm(form);
+  const safety = generationPaidSafetyState(form);
   const mediaCount = form
     ? form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)').length
     : 0;
@@ -7610,6 +7619,9 @@ function generationFormReadiness(form) {
       form?.elements?.real_spend_confirmation?.checked === true
       && form.elements.real_spend_confirmation.value === sku.confirmation
     ),
+    safeBriefReady: safety.ready,
+    safeBriefHint: safety.hint,
+    safeBriefState: safety.state,
     count: form?.elements?.count?.value,
     maxMockCount: MAX_MOCK_BATCH_SIZE,
   });
@@ -7635,6 +7647,78 @@ function generationPromptInspection(form) {
   );
 }
 
+function generationPaidSafetyState(form) {
+  const sku = generationSkuForForm(form);
+  if (!sku) {
+    return {
+      ready: true,
+      state: "ready",
+      hint: "",
+      learningReady: true,
+      learningGenerationAllowed: true,
+      learningLoading: false,
+      learningContextBound: true,
+      promptReady: true,
+      promptInspection: null,
+    };
+  }
+  const learningKey = generationLearningKey(form);
+  const learningStateMatches = Boolean(
+    learningKey && state.generationLearning.key === learningKey,
+  );
+  const activePolicy = learningStateMatches
+    ? normalizeGenerationLearningPolicy(state.generationLearning.data)
+    : null;
+  const learningReady = Boolean(
+    learningStateMatches && state.generationLearning.status === "ready",
+  );
+  const learningGenerationAllowed = !learningStateMatches
+    || activePolicy?.generationAllowed !== false;
+  const learningLoading = Boolean(
+    learningStateMatches && state.generationLearning.status === "loading",
+  );
+  const learningContextBound = Boolean(generationLearningContext(form));
+  const promptInspection = generationPromptInspection(form);
+  const promptReady = promptInspection?.ready === true;
+  let stateName = "pending";
+  let hint = "Дождитесь бесплатной проверки авто-ТЗ для выбранной категории, модели и длительности.";
+  if (learningLoading) {
+    stateName = "loading";
+    hint = "Идёт бесплатная проверка авто-ТЗ; запуск и списание пока заблокированы.";
+  } else if (!learningReady) {
+    stateName = "pending";
+    hint = "Авто-ТЗ ещё не проверено для этой категории, модели и длительности.";
+  } else if (!learningGenerationAllowed) {
+    stateName = "blocked";
+    hint = "Независимый QA остановил этот вариант; выберите подготовленную альтернативу.";
+  } else if (!promptReady) {
+    stateName = "prompt";
+    hint = promptInspection?.blockers?.[0]?.message
+      || "Восстановите безопасное ТЗ для выбранного режима.";
+  } else if (!learningContextBound) {
+    stateName = "context";
+    hint = "Верните автоматически собранное ТЗ: изменённый вручную текст не отправляется.";
+  } else {
+    stateName = "ready";
+  }
+  return {
+    ready: Boolean(
+      learningReady
+      && learningGenerationAllowed
+      && learningContextBound
+      && promptReady
+    ),
+    state: stateName,
+    hint,
+    learningReady,
+    learningGenerationAllowed,
+    learningLoading,
+    learningContextBound,
+    promptReady,
+    promptInspection,
+  };
+}
+
 function syncGenerationFormReadiness(form) {
   if (!form) return null;
   const readiness = generationFormReadiness(form);
@@ -7646,28 +7730,18 @@ function syncGenerationFormReadiness(form) {
   }
   const mode = String(form.elements.generation_mode?.value || "mock");
   const sku = generationSkuForForm(form);
-  const learningKey = generationLearningKey(form);
-  const learningStateMatches = Boolean(
-    learningKey && state.generationLearning.key === learningKey,
-  );
-  const learningReady = !sku || (
-    learningStateMatches && state.generationLearning.status === "ready"
-  );
-  const learningGenerationAllowed = !sku
-    || normalizeGenerationLearningPolicy(
-      state.generationLearning.data,
-    )?.generationAllowed !== false;
-  const learningLoading = Boolean(
-    sku && learningStateMatches && state.generationLearning.status === "loading",
-  );
-  const learningContextBound = !sku || Boolean(generationLearningContext(form));
-  const promptInspection = generationPromptInspection(form);
-  const promptReady = !sku || promptInspection?.ready === true;
+  const safety = generationPaidSafetyState(form);
+  const {
+    learningReady,
+    learningGenerationAllowed,
+    learningLoading,
+    learningContextBound,
+    promptReady,
+  } = safety;
   const autoBriefStatus = form.querySelector("#generation-auto-brief-status");
-  if (sku && readiness.ready && !promptReady && autoBriefStatus) {
+  if (sku && !promptReady && autoBriefStatus) {
     autoBriefStatus.dataset.state = "warning";
-    autoBriefStatus.textContent = promptInspection?.blockers?.[0]?.message
-      || "Восстановите безопасное ТЗ перед платным запуском.";
+    autoBriefStatus.textContent = safety.hint;
   }
   const submit = form.querySelector("#generation-submit");
   if (submit) {
@@ -8009,9 +8083,9 @@ function renderGenerationSection(sectionState) {
               <select id="generation-mode" name="generation_mode" required>
                 ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Dry-run задач · без файлов и списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
-                  <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""} ${photoSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_PHOTO_MODE].label}${photoSpendAllowed ? "" : " · лимит"}</option>
-                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""} ${seedanceSpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label}${seedanceSpendAllowed ? "" : " · лимит"}</option>
-                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}${gen4SpendAllowed ? "" : " · лимит"}</option>
+                  <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""} ${photoSpendAllowed ? "" : "disabled"}>${generationModeChoiceLabel(REAL_PHOTO_MODE)}${photoSpendAllowed ? "" : " · лимит"}</option>
+                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""} ${seedanceSpendAllowed ? "" : "disabled"}>${generationModeChoiceLabel(REAL_SEEDANCE_MODE)}${seedanceSpendAllowed ? "" : " · лимит"}</option>
+                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${generationModeChoiceLabel(REAL_GEN4_MODE)}${gen4SpendAllowed ? "" : " · лимит"}</option>
                 ` : ""}
               </select>
             </label>
@@ -12697,6 +12771,17 @@ function generationLearningKey(form, identity = selectedGenerationProductIdentit
   ].join(":");
 }
 
+function generationFormForLearningKey(key, fallback = null) {
+  const candidate = fallback?.isConnected
+    ? fallback
+    : document.querySelector("#mock-batch-form");
+  if (!candidate?.isConnected) return null;
+  const identity = selectedGenerationProductIdentity(candidate);
+  return generationLearningKey(candidate, identity) === key
+    ? candidate
+    : null;
+}
+
 function generationProductCategoryLabel(value) {
   return {
     cosmetics: "косметика и уход",
@@ -13406,9 +13491,9 @@ async function ensureGenerationLearningPolicy(
   await loadGenerationLearningPolicy(form, identity, {
     force: learning.key === key && learning.status === "error",
   });
+  const activeForm = generationFormForLearningKey(key, form);
   if (
-    !form.isConnected
-    || generationLearningKey(form) !== key
+    !activeForm
     || learning.key !== key
     || learning.status !== "ready"
   ) {
@@ -13420,9 +13505,10 @@ async function ensureGenerationLearningPolicy(
   ) {
     throw new Error("generation_learning_rejection_guard_blocked");
   }
-  syncAutomaticGenerationBrief(form, { identity });
-  syncContentGenerationHandoff(form);
-  syncGenerationFormReadiness(form);
+  const activeIdentity = selectedGenerationProductIdentity(activeForm);
+  syncAutomaticGenerationBrief(activeForm, { identity: activeIdentity });
+  syncContentGenerationHandoff(activeForm);
+  syncGenerationFormReadiness(activeForm);
   return learning.data;
 }
 
@@ -13579,12 +13665,17 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
   }
   if (status) {
     status.dataset.state = canApply ? "verified" : "manual";
+    const durationSeconds = Number(
+      compiled.durationSeconds
+      || generationSkuForForm(form)?.durationSeconds
+      || 0,
+    );
     status.textContent = canApply
       ? mode === REAL_PHOTO_MODE
         ? "Авто-ТЗ готово: точный товар, один квадратный 2K-кадр и запрет на выдуманные детали."
         : mode === REAL_SEEDANCE_MODE
-          ? "Авто-ТЗ готово: 8 секунд, точный товар и короткая дословная реплика."
-          : "Авто-ТЗ готово: 5 секунд, одно движение камеры, без речи и новых надписей."
+          ? `Авто-ТЗ готово: ${durationSeconds} секунд, точный товар и короткая дословная реплика.`
+          : `Авто-ТЗ готово: ${durationSeconds} секунд, одно движение камеры, без речи и новых надписей.`
       : "ТЗ изменено вручную. Кнопка слева вернёт безопасную версию для выбранного режима.";
   }
   return compiled;
@@ -13729,6 +13820,20 @@ function syncGenerationModeForm(form) {
   const real = baseSku !== null;
   const seedance = mode === REAL_SEEDANCE_MODE;
   const photo = mode === REAL_PHOTO_MODE;
+  for (const choiceMode of [
+    REAL_PHOTO_MODE,
+    REAL_SEEDANCE_MODE,
+    REAL_GEN4_MODE,
+  ]) {
+    const option = form.elements.generation_mode?.querySelector(
+      `option[value="${choiceMode}"]`,
+    );
+    if (option) {
+      option.textContent = `${generationModeChoiceLabel(choiceMode)}${
+        option.disabled ? " · лимит" : ""
+      }`;
+    }
+  }
   if (durationField) durationField.hidden = !real || photo;
   if (durationControl) {
     durationControl.disabled = !real || photo;
@@ -14785,18 +14890,40 @@ async function submitRealGeneration(form, values, mode) {
     toast("Для платного запуска выберите проверенное фото товара с подтверждёнными правами.", "error");
     return;
   }
+  const learningKeyAtSubmit = generationLearningKey(form, identity);
   setFormBusy(form, true, "Проверяем обученное ТЗ без списания…");
   try {
     await ensureGenerationLearningPolicy(form, identity);
-  } catch {
-    const learningBlocked = normalizeGenerationLearningPolicy(
-      state.generationLearning.data,
-    )?.generationAllowed === false;
+    const activeForm = generationFormForLearningKey(
+      learningKeyAtSubmit,
+      form,
+    );
+    if (!activeForm) throw new Error("generation_learning_form_changed");
+    form = activeForm;
+  } catch (error) {
+    const learningBlocked = Boolean(
+      state.generationLearning.key === learningKeyAtSubmit
+      && normalizeGenerationLearningPolicy(
+        state.generationLearning.data,
+      )?.generationAllowed === false
+    );
     const fallbackPrepared = Boolean(
       state.generationLearning.recovery?.key
       && state.generationLearning.recovery.key
         === generationLearningKey(form, identity)
     );
+    const learningError = state.generationLearning.error || error;
+    const diagnosticCode = String(
+      learningError?.serverCode
+      || learningError?.code
+      || learningError?.message
+      || "generation_learning_unavailable",
+    ).trim();
+    const safeDiagnosticCode = /^[a-z0-9_]{3,96}$/iu.test(diagnosticCode)
+      ? diagnosticCode
+      : "generation_learning_unavailable";
+    const automaticRetryScheduled =
+      state.generationLearning.retryAt > Date.now();
     if (form.isConnected) {
       setFormBusy(form, false);
       syncGenerationFormReadiness(form);
@@ -14806,7 +14933,11 @@ async function submitRealGeneration(form, values, mode) {
         ? "Исходный режим исчерпал безопасные структуры. Портал уже подготовил серверно-проверенную альтернативу без Runway и списания; проверьте новую цену и подтвердите её отдельно."
         : learningBlocked
         ? "Платный запуск не создан: независимый QA уже отклонил все безопасные структуры для этого товара и режима. Выберите другой режим, площадку или товар."
-        : "Платный запуск не создан: не удалось безопасно проверить обученное ТЗ. Повторите бесплатную проверку.",
+        : safeDiagnosticCode === "generation_learning_category_mismatch"
+          ? "Платный запуск не создан: категория изменилась. Для новой категории портал начинает обучение с нуля и не использует старые сигналы; дождитесь автоматической бесплатной проверки."
+          : automaticRetryScheduled
+            ? `Платный запуск и списание не выполнены: сервер проверки ТЗ временно не ответил. Портал повторит бесплатную проверку автоматически. Код: ${safeDiagnosticCode}.`
+            : `Платный запуск и списание не выполнены: авто-ТЗ пока не подтверждено сервером. Код: ${safeDiagnosticCode}.`,
       fallbackPrepared ? "info" : "error",
     );
     return;

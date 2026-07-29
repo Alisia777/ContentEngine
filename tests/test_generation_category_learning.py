@@ -72,3 +72,16 @@ def test_normalized_policy_exposes_category_cold_start_to_ux():
     assert '"category_cold_start"' in HANDOFF
     assert 'title = "Cold start категории"' in APP
     assert "результаты других категорий исключены" in APP
+
+
+def test_old_category_rejection_cannot_block_new_category_readiness():
+    safety = APP[
+        APP.index("function generationPaidSafetyState(form)"):
+        APP.index("function syncGenerationFormReadiness(form)")
+    ]
+    assert "const activePolicy = learningStateMatches" in safety
+    assert (
+        "const learningGenerationAllowed = !learningStateMatches"
+        in safety
+    )
+    assert "activePolicy?.generationAllowed !== false" in safety
