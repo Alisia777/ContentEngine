@@ -8,6 +8,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607290002_multi_reference_category_generation.sql"
 ).read_text(encoding="utf-8")
+PROMPT_CONTRACT_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290004_sync_generation_interaction_prompt_contract.sql"
+).read_text(encoding="utf-8")
 EDGE = (
     ROOT / "supabase/functions/creator-generate/index.ts"
 ).read_text(encoding="utf-8")
@@ -68,14 +72,29 @@ def test_category_and_scale_requirements_are_enforced_on_both_server_layers() ->
     assert legacy_validation < interaction_validation
     assert "if p_payload ? 'product_category'" in MIGRATION
     for token in (
-        "товар целиком стоит на устойчивой столешнице",
-        "упаковка БАДа остаётся на столе",
-        "электроника стоит на столе или установлена на рабочем месте",
-        "cold start — товар на устойчивой поверхности",
-        "generation_product_interaction_invalid",
+        (
+            "Масштаб и действие: товар показан целиком в естественном размере "
+            "на устойчивой столешнице; герой взаимодействует с крышкой, "
+            "панелью управления и готовым результатом."
+        ),
+        (
+            "Масштаб и действие: упаковка БАДа показана целиком на столе; "
+            "в кадре этикетка и форма выпуска без сцены приёма и медицинских "
+            "обещаний."
+        ),
+        (
+            "Масштаб и действие: устройство показано целиком на столе или "
+            "рабочем месте; камера переходит к интерфейсу, управлению и "
+            "видимым разъёмам без выдуманных функций."
+        ),
+        (
+            "Масштаб и действие: товар целиком в естественном масштабе на "
+            "устойчивой поверхности; камера показывает только видимые детали."
+        ),
     ):
-        assert token in MIGRATION
-        assert token in EDGE or token == "generation_product_interaction_invalid"
+        assert token in PROMPT_CONTRACT_MIGRATION
+        assert token in EDGE
+    assert "generation_product_interaction_invalid" in MIGRATION
     assert "productInteractionRequirement(" in EDGE
     assert "payload.product_category" in EDGE
 
