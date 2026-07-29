@@ -54,6 +54,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
             "format": "9:16",
             "brief": "Безопасное ТЗ",
             "media_ids": ["media-a", "media-a", "media-b"],
+            "primary_media_id": "media-b",
             "real_spend_confirmation": "I_CONFIRM_PAID_GENERATION",
         },
         ensure_ascii=False,
@@ -68,7 +69,8 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
     assert result["context"]["handoffDraftId"] == "draft-1"
     assert result["values"]["sku"] == "WB-42"
     assert result["values"]["duration_seconds"] == "15"
-    assert result["values"]["media_ids"] == ["media-a"]
+    assert result["values"]["media_ids"] == ["media-a", "media-b"]
+    assert result["values"]["primary_media_id"] == "media-b"
     assert "real_spend_confirmation" not in result
     assert "real_spend_confirmation" not in result["values"]
 
@@ -124,8 +126,8 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         "persistGenerationFormDraft(form, { manual: true })",
     ):
         assert token in APP
-    assert "generation-form-draft.js?v=20260728.2" in APP
-    assert "app.js?v=20260729.2" in INDEX
+    assert "generation-form-draft.js?v=20260729.1" in APP
+    assert "app.js?v=20260729.3" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:

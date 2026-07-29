@@ -137,12 +137,12 @@ def test_generation_form_autofills_and_locks_exact_product_for_paid_runs() -> No
         "function syncGenerationProductIdentity(form)",
         "input.disabled = real && !paidReady",
         "input.readOnly = real && input.value === value",
-        "Товар зафиксирован по проверенному исходнику",
+        "Товар зафиксирован:",
         'input[name="media_id"]:checked:not(:disabled)',
     ):
         assert token in ADAPTER or token in APP
     assert ".generation-product-identity" in STYLES
     assert ".generation-media-option:has(input:disabled)" in STYLES
-    assert './styles.css?v=20260729.1' in INDEX
-    assert './app.js?v=20260729.2' in INDEX
-    assert './supabase-api.js?v=20260728.6' in APP
+    assert './styles.css?v=20260729.2' in INDEX
+    assert './app.js?v=20260729.3' in INDEX
+    assert './supabase-api.js?v=20260729.1' in APP

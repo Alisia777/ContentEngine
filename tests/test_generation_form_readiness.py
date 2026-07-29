@@ -69,7 +69,7 @@ def test_mock_readiness_guides_user_through_four_human_steps() -> None:
     assert ready["completed"] == ready["total"] == 4
 
 
-def test_paid_readiness_requires_one_photo_scenario_budget_and_confirmation() -> None:
+def test_paid_readiness_accepts_up_to_five_product_angles() -> None:
     value = {
         "mode": "real_seedance",
         "sku": "WB-123",
@@ -77,7 +77,7 @@ def test_paid_readiness_requires_one_photo_scenario_budget_and_confirmation() ->
         "productCategory": "cosmetics",
         "platform": "instagram",
         "destinationRef": "@brand",
-        "mediaCount": 2,
+        "mediaCount": 6,
         "brief": "Один безопасный сценарий",
         "campaignId": "campaign-1",
         "spendAllowed": True,
@@ -87,9 +87,9 @@ def test_paid_readiness_requires_one_photo_scenario_budget_and_confirmation() ->
     too_many = _evaluate(value)
     assert too_many["ready"] is False
     assert too_many["next"]["key"] == "media"
-    assert "ровно одно" in too_many["next"]["hint"]
+    assert "до пяти" in too_many["next"]["hint"]
 
-    value["mediaCount"] = 1
+    value["mediaCount"] = 5
     ready = _evaluate(value)
     assert ready["ready"] is True
     assert ready["total"] == 7
@@ -103,7 +103,7 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
         "productCategory": "cosmetics",
         "platform": "tiktok",
         "destinationRef": "@brand",
-        "mediaCount": 2,
+        "mediaCount": 6,
         "brief": "",
         "campaignId": "campaign-1",
         "spendAllowed": True,
@@ -114,9 +114,9 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
     assert too_many["real"] is True
     assert too_many["total"] == 7
     assert too_many["next"]["key"] == "media"
-    assert "платного фото" in too_many["next"]["hint"]
+    assert "до пяти" in too_many["next"]["hint"]
 
-    value["mediaCount"] = 1
+    value["mediaCount"] = 3
     missing_composition = _evaluate(value)
     assert missing_composition["next"]["key"] == "brief"
     assert missing_composition["next"]["label"] == "Композиция"
@@ -134,7 +134,7 @@ def test_paid_photo_readiness_uses_photo_specific_steps_and_confirmation() -> No
 
 
 def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None:
-    assert 'from "./generation-form-readiness.js?v=20260727.1"' in APP
+    assert 'from "./generation-form-readiness.js?v=20260729.1"' in APP
     assert "function syncGenerationFormReadiness(form)" in APP
     assert "syncGenerationFormReadiness(form);" in APP
     assert 'id="generation-readiness"' in MODULE_TEXT
@@ -152,8 +152,8 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert ".generation-readiness__steps" in STYLES
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
-    assert './styles.css?v=20260729.1' in INDEX
-    assert './app.js?v=20260729.2' in INDEX
+    assert './styles.css?v=20260729.2' in INDEX
+    assert './app.js?v=20260729.3' in INDEX
 
 
 def test_mock_mode_truthfully_describes_tasks_without_media_rendering() -> None:

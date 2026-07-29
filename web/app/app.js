@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260728.6";
+} from "./supabase-api.js?v=20260729.1";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -69,7 +69,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260728.4";
+} from "./content-generation-handoff.js?v=20260729.1";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -77,23 +77,25 @@ import {
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260727.1";
+} from "./generation-form-readiness.js?v=20260729.1";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260728.2";
+} from "./generation-form-draft.js?v=20260729.1";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
   generationPreflightRetryDelay,
   generationPreflightDecision,
+  MAX_REAL_GENERATION_REFERENCES,
+  resolveGenerationMediaSelection,
   resolveGenerationDestination,
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260727.7";
+} from "./generation-autopilot.js?v=20260729.1";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -1350,6 +1352,9 @@ function generationFormDraftValues(form) {
     media_ids: Array.from(
       form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)'),
     ).map((input) => String(input.value || "")).filter(Boolean),
+    primary_media_id: String(
+      form.querySelector('input[name="primary_media_id"]:checked')?.value || "",
+    ),
   };
 }
 
@@ -1423,6 +1428,10 @@ function restoreGenerationFormDraft(form) {
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
     input.checked = !input.disabled && selectedMedia.has(input.value);
     if (input.checked) restoredMediaCount += 1;
+  });
+  form.querySelectorAll('input[name="primary_media_id"]').forEach((input) => {
+    input.checked = input.value === values.primary_media_id
+      && selectedMedia.has(input.value);
   });
   if (restoredMediaCount) {
     form.dataset.generationMediaSelectionTouched = "true";
@@ -7525,6 +7534,7 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
     activeGenerationLearningPolicy(form),
     null,
     generationSkuForForm(form)?.durationSeconds,
+    form.elements.product_category?.value,
   );
   const brief = form.elements.brief;
   const previousAutoPrompt = String(handoff._appliedPrompt || "");
@@ -7539,6 +7549,7 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
     productName: handoff.productName,
     avoidClaims: handoff.creativeBrief?.avoidClaims || [],
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
+    productCategory: form.elements.product_category?.value,
   });
   const compilerWarnings = brief?.value === compiled.prompt ? compiled.warnings : [];
   const evaluation = {
@@ -7615,6 +7626,7 @@ function generationPromptInspection(form) {
       productName: identity?.productName || form.elements.product_name?.value || "",
       avoidClaims: matchingHandoff ? handoff.creativeBrief?.avoidClaims || [] : [],
       durationSeconds: generationSkuForForm(form)?.durationSeconds,
+      productCategory: form.elements.product_category?.value,
     },
   );
 }
@@ -7720,6 +7732,7 @@ function applyContentGenerationHandoffToForm() {
       activeGenerationLearningPolicy(form),
       null,
       generationSkuForForm(form)?.durationSeconds,
+      form.elements.product_category?.value,
     );
     if (form.elements.brief) form.elements.brief.value = compiled.prompt;
     handoff._appliedPrompt = compiled.prompt;
@@ -7773,23 +7786,35 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
       ? " · права не подтверждены"
       : " · недоступно для платного запуска";
   return `
-    <label class="option generation-media-option" data-paid-ready="${identity.paidReady ? "true" : "false"}">
-      <input
-        type="${real ? "radio" : "checkbox"}"
-        name="media_id"
-        value="${escapeHtml(mediaId)}"
-        data-media-identity-verified="${identity.verified ? "true" : "false"}"
-        data-media-rights-confirmed="${identity.rightsConfirmed ? "true" : "false"}"
-        data-media-sku="${escapeHtml(identity.sku)}"
-        data-media-product-name="${escapeHtml(identity.productName)}"
-        ${real && !identity.paidReady ? "disabled" : ""}
-        ${mediaId && mediaId === selectedMediaId && (!real || identity.paidReady) ? "checked" : ""}
-      />
-      <span>
-        <strong>${escapeHtml(filename)}</strong><br />
-        <small class="muted">${escapeHtml(kind)} · ${escapeHtml(identityCopy)}${escapeHtml(safetyCopy)}</small>
-      </span>
-    </label>
+    <div class="option generation-media-option" data-paid-ready="${identity.paidReady ? "true" : "false"}">
+      <label class="generation-media-option__select">
+        <input
+          type="checkbox"
+          name="media_id"
+          value="${escapeHtml(mediaId)}"
+          data-media-identity-verified="${identity.verified ? "true" : "false"}"
+          data-media-rights-confirmed="${identity.rightsConfirmed ? "true" : "false"}"
+          data-media-sku="${escapeHtml(identity.sku)}"
+          data-media-product-name="${escapeHtml(identity.productName)}"
+          ${real && !identity.paidReady ? "disabled" : ""}
+          ${mediaId && mediaId === selectedMediaId && (!real || identity.paidReady) ? "checked" : ""}
+        />
+        <span>
+          <strong>${escapeHtml(filename)}</strong><br />
+          <small class="muted">${escapeHtml(kind)} · ${escapeHtml(identityCopy)}${escapeHtml(safetyCopy)}</small>
+        </span>
+      </label>
+      <label class="generation-media-option__primary" ${real ? "" : "hidden"}>
+        <input
+          type="radio"
+          name="primary_media_id"
+          value="${escapeHtml(mediaId)}"
+          ${real && !identity.paidReady ? "disabled" : ""}
+          ${mediaId && mediaId === selectedMediaId && identity.paidReady ? "checked" : ""}
+        />
+        <span>Главное фото</span>
+      </label>
+    </div>
   `;
 }
 
@@ -8096,9 +8121,9 @@ function renderGenerationSection(sectionState) {
             ${generationRepairMarkup()}
             ${exactMedia.length ? `
               <fieldset style="border:0; padding:0; margin:0">
-                <legend class="field-label">Фото выбранного товара *</legend>
-                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? "Для платного запуска выберите ровно один исходник." : "Для dry-run можно выбрать один или несколько исходников."}</p>
-                ${automaticMediaId ? `<p class="muted tiny generation-media-autoselected" role="status">${defaultIsReal ? "Единственный проверенный исходник выбран автоматически." : "Единственный исходник выбран автоматически."} При необходимости выбор можно изменить.</p>` : ""}
+                <legend class="field-label">Фото и ракурсы выбранного товара *</legend>
+                <p id="generation-media-hint" class="muted tiny">${defaultIsReal ? `Выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара и отметьте главное фото.` : "Для dry-run можно выбрать один или несколько исходников."}</p>
+                ${automaticMediaId ? `<p class="muted tiny generation-media-autoselected" role="status">${defaultIsReal ? "Единственный проверенный исходник выбран главным автоматически." : "Единственный исходник выбран автоматически."} При необходимости выбор можно изменить.</p>` : ""}
                 <div class="option-list" style="margin-top:8px">
                   ${visibleExactMedia.map((item) =>
                     generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)
@@ -8969,6 +8994,7 @@ function realGenerationDraftFromPayload(payload, mode) {
     duration_seconds: payload.duration_seconds,
     brief: payload.brief,
     media_ids: [...payload.media_ids],
+    primary_media_id: payload.media_ids[0] || "",
     platform: payload.platform,
     destination_ref: payload.destination_ref,
     assignee_id: payload.assignee_id || "",
@@ -8994,6 +9020,9 @@ function restoreRealGenerationDraft(jobId) {
   }
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
     input.checked = draft.media_ids.includes(input.value);
+  });
+  form.querySelectorAll('input[name="primary_media_id"]').forEach((input) => {
+    input.checked = input.value === draft.primary_media_id;
   });
   if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
   form.dataset.dirty = "true";
@@ -12220,7 +12249,13 @@ function handleChange(event) {
   }
 
   const generationForm = event.target.closest("#mock-batch-form");
-  if (generationForm && ["generation_mode", "duration_seconds", "campaign_id", "platform"].includes(event.target.name)) {
+  if (generationForm && [
+    "generation_mode",
+    "duration_seconds",
+    "campaign_id",
+    "platform",
+    "product_category",
+  ].includes(event.target.name)) {
     if (event.target.name === "platform") {
       delete generationForm.dataset.autoGenerationPlatform;
       syncGenerationDestination(generationForm);
@@ -12228,13 +12263,36 @@ function handleChange(event) {
     } else {
       syncGenerationModeForm(generationForm);
     }
+    if (event.target.name === "product_category") {
+      syncAutomaticGenerationBrief(generationForm, { force: true });
+      const identity = selectedGenerationProductIdentity(generationForm);
+      if (identity) {
+        window.queueMicrotask(() => {
+          if (generationForm.isConnected) {
+            void loadGenerationLearningPolicy(generationForm, identity, {
+              force: true,
+            });
+          }
+        });
+      }
+    }
     syncContentGenerationHandoff(generationForm, {
-      rebuildPrompt: ["generation_mode", "duration_seconds"].includes(
+      rebuildPrompt: [
+        "generation_mode",
+        "duration_seconds",
+        "product_category",
+      ].includes(
         event.target.name,
       ),
     });
-  } else if (generationForm && event.target.name === "media_id") {
+  } else if (
+    generationForm
+    && ["media_id", "primary_media_id"].includes(event.target.name)
+  ) {
     generationForm.dataset.generationMediaSelectionTouched = "true";
+    syncGenerationMediaSelection(generationForm, {
+      changedInput: event.target,
+    });
     syncGenerationProductIdentity(generationForm);
     syncGenerationFormReadiness(generationForm);
   }
@@ -12509,24 +12567,131 @@ function syncMediaProductFields(form) {
   }
 }
 
+function generationMediaSelectionFromForm(form) {
+  if (!form) {
+    return resolveGenerationMediaSelection([], { real: false });
+  }
+  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const primaryMediaId = String(
+    form.querySelector('input[name="primary_media_id"]:checked')?.value || "",
+  );
+  return resolveGenerationMediaSelection(
+    Array.from(form.querySelectorAll('input[name="media_id"]')).map((input) => ({
+      id: input.value,
+      selected: input.checked,
+      disabled: input.disabled,
+      paidReady: input.dataset.mediaIdentityVerified === "true"
+        && input.dataset.mediaRightsConfirmed === "true",
+      sku: input.dataset.mediaSku,
+      productName: input.dataset.mediaProductName,
+    })),
+    {
+      real,
+      primaryMediaId,
+      maxReferences: MAX_REAL_GENERATION_REFERENCES,
+    },
+  );
+}
+
 function selectedGenerationProductIdentity(form) {
+  const selection = generationMediaSelectionFromForm(form);
+  if (!selection.valid || !selection.primaryMediaId) return null;
+  return {
+    mediaId: selection.primaryMediaId,
+    mediaIds: selection.mediaIds,
+    sku: selection.sku,
+    productName: selection.productName,
+  };
+}
+
+function syncGenerationMediaSelection(
+  form,
+  { changedInput = null, notify = true } = {},
+) {
   if (!form) return null;
-  const selected = [...form.querySelectorAll('input[name="media_id"]:checked')]
-    .find((input) => !input.disabled) || null;
-  const verified = selected?.dataset.mediaIdentityVerified === "true";
-  const rightsConfirmed = selected?.dataset.mediaRightsConfirmed === "true";
-  const sku = String(selected?.dataset.mediaSku || "").trim();
-  const productName = String(selected?.dataset.mediaProductName || "").trim();
-  if (!selected || !verified || !rightsConfirmed || !sku || !productName) return null;
-  return { mediaId: selected.value, sku, productName };
+  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  if (real && changedInput?.name === "primary_media_id") {
+    const source = Array.from(form.querySelectorAll('input[name="media_id"]'))
+      .find((input) => input.value === changedInput.value);
+    if (source && !source.disabled) source.checked = true;
+  }
+  let selection = generationMediaSelectionFromForm(form);
+  if (
+    real
+    && !selection.valid
+    && changedInput
+    && ["too_many_references", "mixed_product_references"].includes(
+      selection.code,
+    )
+  ) {
+    const rejectedCode = selection.code;
+    const changedMedia = changedInput.name === "media_id"
+      ? changedInput
+      : Array.from(form.querySelectorAll('input[name="media_id"]'))
+        .find((input) => input.value === changedInput.value);
+    if (changedMedia) changedMedia.checked = false;
+    selection = generationMediaSelectionFromForm(form);
+    if (notify) {
+      toast(
+        rejectedCode === "too_many_references"
+          ? `Можно выбрать до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара.`
+          : "В один запуск нельзя смешивать фото разных артикулов или вариантов товара.",
+        "error",
+      );
+    }
+  }
+  const selectedIds = new Set(selection.mediaIds || []);
+  const primaryId = selection.valid
+    ? selection.primaryMediaId
+    : "";
+  form.querySelectorAll('input[name="primary_media_id"]').forEach((radio) => {
+    const paidReady = radio.closest(".generation-media-option")
+      ?.dataset.paidReady === "true";
+    radio.disabled = real && !paidReady;
+    radio.closest(".generation-media-option__primary")?.toggleAttribute(
+      "hidden",
+      !real,
+    );
+    radio.checked = Boolean(
+      real && selectedIds.has(radio.value) && radio.value === primaryId,
+    );
+  });
+  if (primaryId) {
+    form.dataset.primaryGenerationMediaId = primaryId;
+  } else {
+    delete form.dataset.primaryGenerationMediaId;
+  }
+  return selection;
 }
 
 function generationLearningKey(form, identity = selectedGenerationProductIdentity(form)) {
   const mode = String(form?.elements?.generation_mode?.value || "");
   const sku = generationSkuForForm(form);
   const platform = String(form?.elements?.platform?.value || "").trim().toLowerCase();
-  if (!form || !identity || !sku || !platform) return "";
-  return [identity.mediaId, sku.model, sku.durationSeconds, platform].join(":");
+  const productCategory = String(
+    form?.elements?.product_category?.value || "",
+  ).trim().toLowerCase();
+  if (!form || !identity || !sku || !platform || !productCategory) return "";
+  return [
+    identity.mediaId,
+    sku.model,
+    sku.durationSeconds,
+    platform,
+    productCategory,
+  ].join(":");
+}
+
+function generationProductCategoryLabel(value) {
+  return {
+    cosmetics: "косметика и уход",
+    baa: "БАД",
+    sports_food: "спортивное питание",
+    food: "еда и напитки",
+    household: "товары для дома",
+    apparel: "одежда и аксессуары",
+    electronics: "электроника",
+    other: "другая категория",
+  }[String(value || "").trim().toLowerCase()] || "неуказанная категория";
 }
 
 function generationRepairMode(model) {
@@ -12698,6 +12863,9 @@ function generationLearningMarkup(form = null) {
     : { status: "idle", data: null, error: null };
   const policy = normalizeGenerationLearningPolicy(current.data);
   const disabled = Boolean(key && state.generationLearning.disabledKey === key);
+  const categoryLabel = generationProductCategoryLabel(
+    form?.elements?.product_category?.value,
+  );
   const qualityGuardLabels = (policy?.qualityGuardCodes || [])
     .map(generationQualityGuardLabel)
     .filter(Boolean);
@@ -12797,9 +12965,10 @@ function generationLearningMarkup(form = null) {
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (current.status === "ready") {
     const evidence = policy?.evidenceCount || 0;
+    title = evidence ? "Категория ещё обучается" : "Cold start категории";
     copy = evidence
-      ? `Накоплено ${evidence} квалифицированных наблюдений, но устойчивого победителя пока нет. Используется базовое безопасное ТЗ.`
-      : "Пока нет минимум шести сопоставимых одобренных публикаций с метриками. Портал использует базовое ТЗ и начинает собирать безопасные структурные сигналы.";
+      ? `Для категории «${categoryLabel}» накоплено ${evidence} квалифицированных наблюдений этого товара, но устойчивого победителя пока нет. Используется её собственное базовое ТЗ.`
+      : `Для категории «${categoryLabel}» пока нет минимум шести сопоставимых одобренных публикаций этого товара с метриками. Обучение начинается с нуля; сигналы других категорий не применяются.`;
     stateName = "baseline";
   }
   return `
@@ -12928,6 +13097,7 @@ async function prepareGenerationLearningFallback(
         sku?.model || "",
         sku?.durationSeconds ?? "",
         platformResolution.value,
+        String(form.elements.product_category?.value || "").trim().toLowerCase(),
       ].join(":");
       return {
         mode,
@@ -13212,6 +13382,7 @@ function automaticGenerationBriefCandidate(form, identity) {
       learningPolicy,
       repairPolicy,
       generationSkuForForm(form)?.durationSeconds,
+      form.elements.product_category?.value,
     );
   }
   return compileSafeGenerationBrief({
@@ -13221,6 +13392,7 @@ function automaticGenerationBriefCandidate(form, identity) {
     learningPolicy,
     repairPolicy,
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
+    productCategory: form.elements.product_category?.value,
   });
 }
 
@@ -13354,8 +13526,11 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
 function syncGenerationProductIdentity(form) {
   if (!form) return null;
   const real = isRealGenerationMode(form.elements.generation_mode?.value);
-  const selected = [...form.querySelectorAll('input[name="media_id"]:checked')]
-    .find((input) => !input.disabled) || null;
+  const selection = syncGenerationMediaSelection(form, { notify: false });
+  const selected = selection?.primaryMediaId
+    ? Array.from(form.querySelectorAll('input[name="media_id"]'))
+      .find((input) => input.value === selection.primaryMediaId)
+    : null;
   const skuInput = form.elements.sku;
   const nameInput = form.elements.product_name;
   const note = form.querySelector("#generation-product-identity-note");
@@ -13363,16 +13538,25 @@ function syncGenerationProductIdentity(form) {
   const rightsConfirmed = selected?.dataset.mediaRightsConfirmed === "true";
   const sku = String(selected?.dataset.mediaSku || "").trim();
   const productName = String(selected?.dataset.mediaProductName || "").trim();
-  const identityReady = Boolean(verified && rightsConfirmed && sku && productName);
+  const identityReady = Boolean(
+    selection?.valid
+    && verified
+    && rightsConfirmed
+    && sku
+    && productName,
+  );
 
   if (!selected || !identityReady) {
     if (skuInput) skuInput.readOnly = false;
     if (nameInput) nameInput.readOnly = false;
     delete form.dataset.identityMediaId;
+    delete form.dataset.identityMediaIds;
     if (note) {
       note.dataset.state = selected ? "warning" : "idle";
-      note.textContent = selected
-        ? "У этого исходника нет проверенной привязки к товару и правам. Для платного запуска выберите другой файл."
+      note.textContent = selected || selection?.mediaIds?.length
+        ? selection?.code === "mixed_product_references"
+          ? "Выбранные фото относятся к разным артикулам или вариантам. Оставьте ракурсы одного товара."
+          : "У одного из исходников нет проверенной привязки к товару и правам. Для платного запуска выберите другой файл."
         : "Выберите проверенное фото ниже — артикул и название подставятся автоматически.";
     }
     syncAutomaticGenerationBrief(form);
@@ -13394,13 +13578,19 @@ function syncGenerationProductIdentity(form) {
   applyValue(skuInput, sku);
   applyValue(nameInput, productName);
   form.dataset.identityMediaId = selected.value;
+  form.dataset.identityMediaIds = selection.mediaIds.join(",");
   if (note) {
     note.dataset.state = "verified";
     note.textContent = real
-      ? `Товар зафиксирован по проверенному исходнику: ${sku} · ${productName}.`
+      ? `Товар зафиксирован: ${sku} · ${productName}. Выбрано ракурсов: ${selection.mediaIds.length}; главное фото отмечено отдельно.`
       : `Из исходника определён товар: ${sku} · ${productName}. Поля можно уточнить вручную.`;
   }
-  const identity = { mediaId: selected.value, sku, productName };
+  const identity = {
+    mediaId: selection.primaryMediaId,
+    mediaIds: selection.mediaIds,
+    sku,
+    productName,
+  };
   syncAutomaticGenerationBrief(form, { identity });
   syncGenerationRepairStatus(form);
   window.queueMicrotask(() => {
@@ -13426,7 +13616,13 @@ function syncGenerationAutomaticMedia(form) {
     { real },
   );
   const target = inputs.find((input) => input.value === mediaId && !input.disabled);
-  if (target) target.checked = true;
+  if (target) {
+    target.checked = true;
+    const primary = Array.from(
+      form.querySelectorAll('input[name="primary_media_id"]'),
+    ).find((input) => input.value === target.value && !input.disabled);
+    if (primary) primary.checked = true;
+  }
   return target?.value || "";
 }
 
@@ -13566,13 +13762,14 @@ function syncGenerationModeForm(form) {
     }
   }
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
-    input.type = real ? "radio" : "checkbox";
+    input.type = "checkbox";
     const paidReady = input.dataset.mediaIdentityVerified === "true"
       && input.dataset.mediaRightsConfirmed === "true";
     input.disabled = real && !paidReady;
     if (input.disabled) input.checked = false;
   });
   syncGenerationAutomaticMedia(form);
+  syncGenerationMediaSelection(form, { notify: false });
   syncGenerationProductIdentity(form);
   if (countHint) {
     countHint.textContent = real
@@ -13584,7 +13781,7 @@ function syncGenerationModeForm(form) {
   }
   if (mediaHint) {
     mediaHint.textContent = real
-      ? "Для платного запуска выберите ровно один исходник."
+      ? `Выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара и отметьте главное фото.`
       : "Для dry-run можно выбрать один или несколько исходников.";
   }
   if (price && sku) {
@@ -14552,7 +14749,8 @@ async function submitRealGeneration(form, values, mode) {
     syncGenerationFormReadiness(form);
   }
   values = new FormData(form);
-  const mediaIds = values.getAll("media_id").map(String);
+  const finalIdentity = selectedGenerationProductIdentity(form);
+  const mediaIds = finalIdentity?.mediaIds || [];
   const brief = String(values.get("brief") || "").trim();
   const photo = generationSku.contentKind === "photo";
   const contentLabel = photo ? "фото" : "видео";
@@ -14560,8 +14758,15 @@ async function submitRealGeneration(form, values, mode) {
     toast(`Платный режим создаёт ровно одно ${contentLabel} за запуск.`, "error");
     return;
   }
-  if (mediaIds.length !== 1) {
-    toast("Для платного запуска выберите ровно одно точное фото товара.", "error");
+  if (
+    !finalIdentity
+    || mediaIds.length < 1
+    || mediaIds.length > MAX_REAL_GENERATION_REFERENCES
+  ) {
+    toast(
+      `Для платного запуска выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} точных фото одного товара.`,
+      "error",
+    );
     return;
   }
   if (!brief) {

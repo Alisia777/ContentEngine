@@ -210,7 +210,7 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
           duration: compiled.durationSeconds,
           exactProduct: compiled.prompt.includes("BOMBBAR PRO"),
           square2k: compiled.prompt.includes("квадратное товарное фото 2048 × 2048"),
-          exactReference: compiled.prompt.includes("@ProductReference как единственный точный референс"),
+          exactReference: compiled.prompt.includes("@ProductReference как главный точный референс"),
           tamperedBlockers: subject.inspectContentGenerationPrompt(
             compiled.prompt.replace("@ProductReference", "Figure 1"),
             "real_photo",
@@ -242,6 +242,110 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
         "recommendedMode": "real_photo",
         "blockers": [],
     }
+
+
+def test_steamer_prompt_preserves_real_scale_and_replaces_face_interaction() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          id: "research-steamer",
+          draftId: "draft-steamer",
+          productName: "Пароварка большая",
+          sku: "STEAM-01",
+          sourceIds: ["source-steamer"],
+          brief: {
+            proofPoints: ["Три корзины видны на исходнике"],
+            avoidClaims: ["готовит полезнее"],
+          },
+          scenarios: [{
+            title: "Небезопасный общий шаблон",
+            platform: "tiktok",
+            hook: "Показываю товар",
+            script: "Показываю товар в работе и одну проверяемую деталь крупно.",
+            shotList: "Герой держит пароварку у лица и приближает к камере",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 5000);
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_seedance",
+          null,
+          null,
+          8,
+          "household",
+        );
+        return {
+          ready: compiled.ready,
+          countertop: compiled.prompt.includes(
+            "товар целиком стоит на устойчивой столешнице",
+          ),
+          safeAction: compiled.prompt.includes(
+            "Герой не поднимает корпус",
+          ),
+          copiedUnsafeAction: compiled.prompt.includes(
+            "держит пароварку у лица",
+          ),
+          interactionKind: subject.inferProductInteractionProfile({
+            productName: record.productName,
+            productCategory: "household",
+          }).kind,
+        };
+        """
+    )
+    assert result == {
+        "ready": True,
+        "countertop": True,
+        "safeAction": True,
+        "copiedUnsafeAction": False,
+        "interactionKind": "countertop_appliance",
+    }
+
+
+def test_categories_have_separate_cold_start_interactions() -> None:
+    result = _run_module(
+        """
+        const categories = [
+          "cosmetics",
+          "baa",
+          "sports_food",
+          "food",
+          "household",
+          "apparel",
+          "electronics",
+          "other",
+        ];
+        const profiles = categories.map((productCategory) =>
+          subject.inferProductInteractionProfile({
+            productName: "Новый товар",
+            productCategory,
+          })
+        );
+        return {
+          kinds: profiles.map((item) => item.kind),
+          uniqueRequirements: new Set(
+            profiles.map((item) => item.requirement),
+          ).size,
+          otherColdStart: profiles.at(-1).requirement.includes("cold start"),
+          faceTemplateRemoved: profiles.every(
+            (item) => !item.videoAction.includes("у лица"),
+          ),
+        };
+        """
+    )
+    assert result["uniqueRequirements"] == 8
+    assert result["otherColdStart"] is True
+    assert result["faceTemplateRemoved"] is True
+    assert result["kinds"] == [
+        "cosmetics",
+        "supplement",
+        "sports_food",
+        "food",
+        "household_cold_start",
+        "wearable",
+        "electronics",
+        "other_cold_start",
+    ]
 
 
 def test_safe_autobrief_is_generation_ready_for_each_paid_mode() -> None:
@@ -285,7 +389,7 @@ def test_safe_autobrief_is_generation_ready_for_each_paid_mode() -> None:
         "real_seedance": {
             "ready": True,
             "duration": 8,
-            "spokenWords": 13,
+            "spokenWords": 10,
             "productLock": True,
             "claimGuard": True,
         },
@@ -778,7 +882,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260728.4" in APP
-    assert "./app.js?v=20260729.2" in INDEX
+    assert "./content-generation-handoff.js?v=20260729.1" in APP
+    assert "./app.js?v=20260729.3" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

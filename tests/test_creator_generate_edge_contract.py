@@ -138,7 +138,8 @@ def test_runway_request_and_polling_are_fixed_to_reviewed_contract() -> None:
     assert 'ratio: startJob.ratio' in source
     assert 'promptText: startJob.promptText' in source
     assert 'promptImage: signedInputUrl' in source
-    assert 'promptImage: [{ uri: signedInputUrl }]' in source
+    assert "promptImage: validReferenceUrls.map" in source
+    assert 'position: index === 0 ? "first" : "reference"' in source
     assert 'audio: true' in source
     assert '`${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`' in source
     assert "const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;" in source

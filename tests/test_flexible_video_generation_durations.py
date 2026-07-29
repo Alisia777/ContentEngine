@@ -172,7 +172,18 @@ def test_edge_and_database_fail_closed_on_duration_price_drift() -> None:
 
 
 def test_duration_change_never_reuses_old_learning_or_provider_receipt() -> None:
-    assert "[identity.mediaId, sku.model, sku.durationSeconds, platform]" in APP
+    learning_key = APP[
+        APP.index("function generationLearningKey")
+        : APP.index("function generationProductCategoryLabel")
+    ]
+    for token in (
+        "identity.mediaId",
+        "sku.model",
+        "sku.durationSeconds",
+        "platform",
+        "productCategory",
+    ):
+        assert token in learning_key
     assert "`${sku.model}:${sku.durationSeconds}`" in APP
     assert "counts.get(`${receipt.model}:${receipt.duration_seconds}`)" in (
         ROOT / "web/app/generation-provider-readiness.js"

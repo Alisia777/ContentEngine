@@ -132,6 +132,43 @@ def test_platform_autopilot_uses_content_specific_defaults_and_respects_manual_c
     ]
 
 
+def test_real_generation_reference_bundle_requires_one_product_and_primary() -> None:
+    expression = """
+    (() => {
+      const sameProduct = [
+        {id: "front", selected: true, paidReady: true, sku: "SKU-1", productName: "Пароварка"},
+        {id: "side", selected: true, paidReady: true, sku: "SKU-1", productName: "Пароварка"},
+        {id: "detail", selected: true, paidReady: true, sku: "SKU-1", productName: "Пароварка"},
+      ];
+      return {
+        valid: subject.resolveGenerationMediaSelection(sameProduct, {
+          real: true,
+          primaryMediaId: "side",
+        }),
+        mixed: subject.resolveGenerationMediaSelection([
+          ...sameProduct,
+          {id: "other", selected: true, paidReady: true, sku: "SKU-2", productName: "Чайник"},
+        ], {real: true}),
+        tooMany: subject.resolveGenerationMediaSelection(
+          Array.from({length: 6}, (_, index) => ({
+            id: `ref-${index}`,
+            selected: true,
+            paidReady: true,
+            sku: "SKU-1",
+            productName: "Пароварка",
+          })),
+          {real: true},
+        ),
+      };
+    })()
+    """
+    result = _evaluate(expression)
+    assert result["valid"]["valid"] is True
+    assert result["valid"]["mediaIds"] == ["side", "front", "detail"]
+    assert result["mixed"]["code"] == "mixed_product_references"
+    assert result["tooMany"]["code"] == "too_many_references"
+
+
 def test_destination_autopilot_reuses_only_one_unambiguous_safe_history_value() -> None:
     batches = json.dumps(
         [
@@ -478,13 +515,23 @@ def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading(
 
 
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260727.7"' in APP
+    assert 'from "./generation-autopilot.js?v=20260729.1"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
         in APP
     )
-    assert "Единственный проверенный исходник выбран автоматически" in APP
+    assert "Единственный проверенный исходник выбран главным автоматически" in APP
+    assert 'name="primary_media_id"' in APP
+    assert "resolveGenerationMediaSelection" in APP
+    assert "Cold start категории" in APP
+    assert "Сигналы других категорий не применяются" not in APP
+    assert "сигналы других категорий не применяются" in APP
+    learning_key = APP[
+        APP.index("function generationLearningKey")
+        : APP.index("function generationProductCategoryLabel")
+    ]
+    assert "product_category" in learning_key
     assert "function syncGenerationAutomaticMedia(form)" in APP
     assert 'generationForm.dataset.generationMediaSelectionTouched = "true"' in APP
     assert "snapshot.generationMediaSelectionTouched" in APP
@@ -509,7 +556,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260729.2' in INDEX
+    assert './app.js?v=20260729.3' in INDEX
 
 
 def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:

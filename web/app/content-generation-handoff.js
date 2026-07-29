@@ -11,6 +11,11 @@ const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
+const PRODUCT_INTERACTION_PREFIX = "Масштаб и действие:";
+const COUNTERTOP_PRODUCT_PATTERN =
+  /(?:пароварк|мультиварк|аэрогрил|духовк|микроволнов|кофемашин|кофеварк|электрогрил|тостер|соковыжимал|хлебопеч|кухонн\p{L}*\s+комбайн|стационарн\p{L}*\s+блендер|steamer|air\s*fryer|microwave|coffee\s*machine|countertop\s*appliance)/iu;
+const INSTALLED_PRODUCT_PATTERN =
+  /(?:холодильник|морозильник|стиральн\p{L}*\s+машин|сушильн\p{L}*\s+машин|посудомоеч|телевизор|матрас|диван|кресл|стол\b|шкаф|комод|пылесос|кондиционер|обогревател|велосипед|самокат|коляск|refrigerator|washing\s*machine|dishwasher|television|mattress|sofa|wardrobe|vacuum)/iu;
 const VIDEO_DURATION_OPTIONS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze([2, 5, 8, 10]),
   [REAL_SEEDANCE_MODE]: Object.freeze([4, 8, 12, 15]),
@@ -118,6 +123,7 @@ export function compileContentGenerationPrompt(
   learningPolicy = null,
   repairPolicy = null,
   durationSeconds = null,
+  productCategory = "",
 ) {
   if (!validHandoff(handoff, handoff?.createdAt)) {
     return result("", [{
@@ -138,6 +144,7 @@ export function compileContentGenerationPrompt(
       learningPolicy,
       repairPolicy,
       durationSeconds: 0,
+      productCategory,
     });
   }
   const seedance = normalizedMode === REAL_SEEDANCE_MODE;
@@ -153,7 +160,14 @@ export function compileContentGenerationPrompt(
     ? normalizedDuration >= 12 ? 3 : 2
     : normalizedDuration >= 8 ? 2 : 1;
   const shotLines = lines(scenario.shotList, shotLimit);
-  const action = shotLines.join(" Затем ");
+  const interaction = inferProductInteractionProfile({
+    productName: handoff.productName,
+    productCategory,
+  });
+  const rawAction = shotLines.join(" Затем ");
+  const action = generationActionFitsProduct(rawAction, interaction)
+    ? rawAction
+    : interaction.videoAction;
   const spokenWords = words(scenario.spokenScript).length;
   const blockers = [];
   const warnings = [];
@@ -217,6 +231,7 @@ export function compileContentGenerationPrompt(
     required(`Точный товар: ${handoff.productName}, артикул ${handoff.sku}.`),
     optional(`Хук: ${scenario.hook}.`),
     required(`Действие в кадре: ${action || "[ДОБАВЬТЕ ОДНО ПОНЯТНОЕ ДЕЙСТВИЕ]"}.`),
+    required(interaction.requirement),
     required(spokenLine),
     required(seedance ? GENERATED_TEXT_GUARD : ""),
     optional(brief.visualDirection ? `Визуальное направление: ${brief.visualDirection}.` : ""),
@@ -244,6 +259,7 @@ export function compileContentGenerationPrompt(
     productName: handoff.productName,
     avoidClaims: brief.avoidClaims,
     durationSeconds: normalizedDuration,
+    productCategory,
   });
   for (const blocker of inspection.blockers) {
     if (!blockers.some((item) => item.code === blocker.code)) blockers.push(blocker);
@@ -267,6 +283,7 @@ export function compileSafeGenerationBrief({
   learningPolicy = null,
   repairPolicy = null,
   durationSeconds: requestedDurationSeconds = null,
+  productCategory = "",
 } = {}) {
   const normalizedMode = normalizeMode(mode);
   const exactProductName = cleanText(productName);
@@ -278,6 +295,10 @@ export function compileSafeGenerationBrief({
     normalizedMode,
     repairPolicy,
   );
+  const interaction = inferProductInteractionProfile({
+    productName: exactProductName,
+    productCategory,
+  });
   const blockers = [];
   const warnings = [];
 
@@ -317,11 +338,11 @@ export function compileSafeGenerationBrief({
     durationSeconds = 0;
     promptLines = [
       required("Создай одно квадратное товарное фото 2048 × 2048."),
-      required(`Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как единственный точный референс товара. ${identityLine}`),
-      required("Студийное фото: один товар целиком по центру, нейтральный фон, мягкий свет, естественная тень, высокая детализация."),
+      required(`Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как главный точный референс товара; остальные выбранные ракурсы уточняют форму и детали. ${identityLine}`),
+      optional("Студийное фото: один товар целиком по центру, нейтральный фон, мягкий свет, естественная тень, высокая детализация."),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
-      required("Товар — единственный главный объект; оставь безопасные поля по краям."),
+      optional("Товар — единственный главный объект; оставь безопасные поля по краям."),
       required(productLock),
       required(claimGuard),
       required("Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса."),
@@ -335,7 +356,8 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required(`Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
-      required("С первого кадра показывай именно этот товар. Один спокойный проход камеры: медленно приблизься к неподвижной упаковке, удерживая товар целиком и в резком фокусе."),
+      optional(interaction.gen4Action),
+      required(interaction.requirement),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
       required("Без речи, дикторского текста и сгенерированных надписей."),
@@ -348,14 +370,13 @@ export function compileSafeGenerationBrief({
       normalizedMode,
       requestedDurationSeconds,
     );
-    const spokenLine = durationSeconds <= 4
-      ? "Показываю точный товар — детали смотрите в карточке."
-      : "Показываю точный товар крупно: смотрите упаковку и детали, а характеристики проверяйте в карточке.";
+    const spokenLine = interaction.spokenLine;
     spokenWords = words(spokenLine).length;
     promptLines = [
       required(`Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
-      required("С первого кадра герой держит точный товар у лица, затем приближает упаковку к камере и возвращает в центр."),
+      optional(interaction.videoAction),
+      required(interaction.requirement),
       required(`Реплика героя дословно: «${spokenLine}»`),
       required(GENERATED_TEXT_GUARD),
       required(learningDirection),
@@ -377,6 +398,7 @@ export function compileSafeGenerationBrief({
     productName: exactProductName,
     avoidClaims: safeAvoidClaims,
     durationSeconds,
+    productCategory,
   });
   for (const blocker of inspection.blockers) {
     if (!blockers.some((item) => item.code === blocker.code)) blockers.push(blocker);
@@ -909,7 +931,12 @@ function generationLearningDirection(value, mode, repairValue = null) {
 export function inspectContentGenerationPrompt(
   prompt,
   mode,
-  { productName = "", avoidClaims = [], durationSeconds = null } = {},
+  {
+    productName = "",
+    productCategory = "",
+    avoidClaims = [],
+    durationSeconds = null,
+  } = {},
 ) {
   const promptLines = String(prompt ?? "").split(/\r?\n/u).map(cleanText).filter(Boolean);
   const normalized = cleanText(prompt);
@@ -971,11 +998,11 @@ export function inspectContentGenerationPrompt(
       });
     }
     if (!normalized.includes(
-      `Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как единственный точный референс товара`,
+      `Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как главный точный референс товара; остальные выбранные ракурсы уточняют форму и детали`,
     )) {
       blockers.push({
         code: "photo_reference_guard_missing",
-        message: "Верните указание использовать выбранный исходник как единственный точный референс.",
+        message: "Верните указание использовать главный кадр и дополнительные ракурсы только как референсы того же товара.",
       });
     }
     if (/(?:ролик[^.]{0,100}секунд|Реплика героя дословно)/iu.test(normalized)) {
@@ -985,6 +1012,16 @@ export function inspectContentGenerationPrompt(
       });
     }
   } else if (normalizedMode === REAL_SEEDANCE_MODE) {
+    const interaction = inferProductInteractionProfile({
+      productName,
+      productCategory,
+    });
+    if (!normalized.includes(interaction.requirement)) {
+      blockers.push({
+        code: "product_interaction_guard_missing",
+        message: "Верните безопасное действие с учётом реального размера товара.",
+      });
+    }
     if (!normalized.includes(
       `Создай один непрерывный вертикальный UGC-ролик длительностью ${normalizedDuration} секунд`,
     )) {
@@ -1016,6 +1053,16 @@ export function inspectContentGenerationPrompt(
       });
     }
   } else {
+    const interaction = inferProductInteractionProfile({
+      productName,
+      productCategory,
+    });
+    if (!normalized.includes(interaction.requirement)) {
+      blockers.push({
+        code: "product_interaction_guard_missing",
+        message: "Верните безопасное действие с учётом реального размера товара.",
+      });
+    }
     if (!normalized.includes(
       `Создай один непрерывный вертикальный ролик длительностью ${normalizedDuration} секунд`,
     )) {
@@ -1032,6 +1079,158 @@ export function inspectContentGenerationPrompt(
     }
   }
   return result(normalized, blockers, warnings, { mode: normalizedMode });
+}
+
+export function inferProductInteractionProfile({
+  productName = "",
+  productCategory = "",
+} = {}) {
+  const normalizedName = cleanText(productName);
+  const searchValue = normalizedName.toLocaleLowerCase("ru-RU");
+  const category = cleanText(productCategory).toLocaleLowerCase("ru-RU");
+  if (COUNTERTOP_PRODUCT_PATTERN.test(searchValue)) {
+    return {
+      kind: "countertop_appliance",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} товар целиком стоит на устойчивой столешнице; не поднимать корпус, не подносить к лицу и не уменьшать его.`,
+      videoAction:
+        "С первого кадра точный товар целиком стоит на устойчивой столешнице. Герой не поднимает корпус: показывает крышку или рабочую часть, затем управление и видимый результат использования.",
+      gen4Action:
+        "С первого кадра показывай именно этот товар целиком на устойчивой столешнице. Камера спокойно приближается к рабочей части и управлению; корпус остаётся неподвижным и в резком фокусе.",
+      spokenLine:
+        "Показываю товар в работе: управление, детали и результат смотрите крупно.",
+    };
+  }
+  if (INSTALLED_PRODUCT_PATTERN.test(searchValue)) {
+    return {
+      kind: "installed_or_large",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} товар остаётся установленным на полу или рабочем месте; не держать в руках, не подносить к лицу и не уменьшать его.`,
+      videoAction:
+        "С первого кадра точный товар виден целиком на месте использования. Герой подходит к нему и показывает управление, рабочую часть или одну проверяемую функцию, не поднимая корпус.",
+      gen4Action:
+        "С первого кадра показывай именно этот товар целиком на месте использования. Камера делает один спокойный проход от общего вида к рабочей детали; товар остаётся неподвижным.",
+      spokenLine:
+        "Показываю товар на месте: масштаб, управление и детали видны крупно.",
+    };
+  }
+  if (category === "apparel") {
+    return {
+      kind: "wearable",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} показать товар надетым или разложенным в естественном масштабе; камеру приближать к деталям, а не товар к лицу.`,
+      videoAction:
+        "С первого кадра точный товар виден целиком в естественном масштабе. Герой показывает посадку или материал, затем камера приближается к одной детали.",
+      gen4Action:
+        "С первого кадра показывай именно этот товар целиком в естественном масштабе. Один спокойный проход камеры переходит от общего вида к фактуре или детали.",
+      spokenLine:
+        "Показываю товар целиком, затем посадку и одну важную деталь крупно.",
+    };
+  }
+  if (category === "cosmetics") {
+    return {
+      kind: "cosmetics",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} косметику показывать в руках на уровне корпуса или на столе; не подносить упаковку к лицу и не изображать неподтверждённый эффект.`,
+      videoAction:
+        "С первого кадра точная упаковка видна целиком на столе или в руках на уровне корпуса. Герой показывает дозатор, текстуру на тыльной стороне ладони или одну деталь упаковки без нанесения на лицо.",
+      gen4Action:
+        "С первого кадра показывай точную упаковку целиком на столе. Камера спокойно приближается к дозатору, текстуре или одной проверяемой детали.",
+      spokenLine:
+        "Показываю упаковку, дозатор и текстуру без обещаний результата.",
+    };
+  }
+  if (category === "baa") {
+    return {
+      kind: "supplement",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} упаковка БАДа остаётся на столе; показывать этикетку и форму выпуска без приёма внутрь, медицинских обещаний и приближения к лицу.`,
+      videoAction:
+        "С первого кадра точная упаковка БАДа целиком стоит на столе. Герой поворачивает её этикеткой к камере и показывает форму выпуска рядом с упаковкой, не принимая продукт.",
+      gen4Action:
+        "С первого кадра показывай точную упаковку БАДа целиком на столе. Камера спокойно приближается к этикетке и форме выпуска без сцены употребления.",
+      spokenLine:
+        "Показываю точную упаковку и форму выпуска; сведения проверяйте на этикетке.",
+    };
+  }
+  if (category === "sports_food") {
+    return {
+      kind: "sports_food",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} спортивное питание показывать на столе вместе с мерной порцией; не подносить банку к лицу и не изображать результат употребления.`,
+      videoAction:
+        "С первого кадра точная упаковка целиком стоит на столе. Герой открывает крышку, показывает мерную ложку или готовую порцию рядом и возвращает упаковку этикеткой к камере.",
+      gen4Action:
+        "С первого кадра показывай точную упаковку целиком на столе. Камера спокойно переходит к крышке, мерной ложке и одной проверяемой детали этикетки.",
+      spokenLine:
+        "Показываю упаковку, мерную порцию и детали на этикетке без обещаний.",
+    };
+  }
+  if (category === "food") {
+    return {
+      kind: "food",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} еду или напиток показывать на столе рядом с естественной порцией; не подносить упаковку к лицу и не выдумывать вкус или эффект.`,
+      videoAction:
+        "С первого кадра точная упаковка целиком стоит на столе. Герой открывает её или сервирует одну естественную порцию рядом, затем показывает упаковку и фактуру продукта.",
+      gen4Action:
+        "С первого кадра показывай точную упаковку целиком на столе. Камера спокойно приближается к открытой упаковке, порции и фактуре продукта.",
+      spokenLine:
+        "Показываю упаковку, порцию и фактуру; состав проверяйте на этикетке.",
+    };
+  }
+  if (category === "household") {
+    return {
+      kind: "household_cold_start",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} товар для дома остаётся на устойчивой поверхности в реальном масштабе; показывать рабочую часть, не подносить к лицу и не выдумывать способ использования.`,
+      videoAction:
+        "С первого кадра точный товар для дома целиком стоит на устойчивой поверхности. Герой показывает одну рабочую часть и одно безопасное действие, не поднимая крупный корпус.",
+      gen4Action:
+        "С первого кадра показывай точный товар для дома целиком на устойчивой поверхности. Камера спокойно приближается к одной рабочей части.",
+      spokenLine:
+        "Показываю товар в реальном масштабе и одну рабочую деталь.",
+    };
+  }
+  if (category === "electronics") {
+    return {
+      kind: "electronics",
+      requirement:
+        `${PRODUCT_INTERACTION_PREFIX} электроника стоит на столе или установлена на рабочем месте; показывать интерфейс и разъёмы без поднесения к лицу и выдуманных функций.`,
+      videoAction:
+        "С первого кадра точное устройство целиком стоит на рабочем месте. Герой показывает включение, один элемент управления и разъём или экран без изменения масштаба.",
+      gen4Action:
+        "С первого кадра показывай точное устройство целиком на рабочем месте. Камера спокойно приближается к управлению, экрану или разъёму.",
+      spokenLine:
+        "Показываю устройство, управление и одну проверяемую деталь.",
+    };
+  }
+  return {
+    kind: category === "other" ? "other_cold_start" : "unclassified_cold_start",
+    requirement:
+      `${PRODUCT_INTERACTION_PREFIX} cold start — товар на устойчивой поверхности в реальном масштабе; без человека, лица и выдуманного использования.`,
+    videoAction:
+      "С первого кадра точный товар целиком стоит на нейтральной устойчивой поверхности. Без человека: камера спокойно приближается к одной видимой детали, не меняя форму и масштаб товара.",
+    gen4Action:
+      "С первого кадра показывай именно этот товар целиком на нейтральной устойчивой поверхности. Без человека: один спокойный проход камеры приближается к одной видимой детали.",
+    spokenLine:
+      "Показываю точный товар целиком и одну видимую деталь без предположений.",
+  };
+}
+
+function generationActionFitsProduct(action, interaction) {
+  const normalized = cleanText(action);
+  if (!normalized) return false;
+  if (/(?:у|рядом\s+с|возле)\s+лиц|к\s+лицу|поднос\p{L}*\s+к\s+(?:камер|лиц)/iu.test(normalized)) {
+    return false;
+  }
+  if (
+    ["countertop_appliance", "installed_or_large"].includes(interaction.kind)
+    && /(?:держ\p{L}*\s+(?:в\s+рук|товар)|подним\p{L}*\s+(?:корпус|товар)|бер\p{L}*\s+в\s+рук)/iu.test(normalized)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function validHandoff(value, now = Date.now()) {

@@ -31,6 +31,7 @@ const GENERATION_PREFLIGHT_RETRY_DELAYS_MS = Object.freeze([
   4_000,
 ]);
 const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
+export const MAX_REAL_GENERATION_REFERENCES = 5;
 
 export function chooseInitialGenerationMedia(items, { real = false } = {}) {
   const candidates = (Array.isArray(items) ? items : [])
@@ -43,6 +44,99 @@ export function chooseInitialGenerationMedia(items, { real = false } = {}) {
     }))
     .filter((item) => item.id && (!real || item.paidReady));
   return candidates.length === 1 ? candidates[0].id : "";
+}
+
+export function resolveGenerationMediaSelection(items, {
+  real = false,
+  primaryMediaId = "",
+  maxReferences = MAX_REAL_GENERATION_REFERENCES,
+} = {}) {
+  const selected = (Array.isArray(items) ? items : [])
+    .filter((item) => item?.selected === true && item?.disabled !== true)
+    .map((item) => ({
+      id: String(item?.id || item?.public_id || "").trim(),
+      sku: String(item?.sku || "").trim(),
+      productName: String(item?.productName || item?.product_name || "").trim(),
+      paidReady: item?.paidReady === true || (
+        item?.identity_verified === true
+        && item?.rights_confirmed === true
+      ),
+    }))
+    .filter((item) => item.id);
+  const limit = Math.max(1, Math.min(
+    MAX_REAL_GENERATION_REFERENCES,
+    Number(maxReferences) || MAX_REAL_GENERATION_REFERENCES,
+  ));
+  if (!real) {
+    return {
+      valid: selected.length > 0,
+      code: selected.length ? "" : "media_required",
+      mediaIds: selected.map((item) => item.id),
+      primaryMediaId: selected[0]?.id || "",
+      sku: selected[0]?.sku || "",
+      productName: selected[0]?.productName || "",
+    };
+  }
+  if (!selected.length) {
+    return {
+      valid: false,
+      code: "media_required",
+      mediaIds: [],
+      primaryMediaId: "",
+      sku: "",
+      productName: "",
+    };
+  }
+  if (selected.length > limit) {
+    return {
+      valid: false,
+      code: "too_many_references",
+      mediaIds: selected.map((item) => item.id),
+      primaryMediaId: "",
+      sku: "",
+      productName: "",
+    };
+  }
+  if (selected.some((item) =>
+    !item.paidReady || !item.sku || !item.productName
+  )) {
+    return {
+      valid: false,
+      code: "media_not_paid_ready",
+      mediaIds: selected.map((item) => item.id),
+      primaryMediaId: "",
+      sku: "",
+      productName: "",
+    };
+  }
+  const [{ sku, productName }] = selected;
+  if (selected.some((item) =>
+    item.sku !== sku || item.productName !== productName
+  )) {
+    return {
+      valid: false,
+      code: "mixed_product_references",
+      mediaIds: selected.map((item) => item.id),
+      primaryMediaId: "",
+      sku: "",
+      productName: "",
+    };
+  }
+  const requestedPrimary = String(primaryMediaId || "").trim();
+  const primary = selected.find((item) => item.id === requestedPrimary)
+    || selected[0];
+  return {
+    valid: true,
+    code: "",
+    mediaIds: [
+      primary.id,
+      ...selected.filter((item) => item.id !== primary.id)
+        .map((item) => item.id),
+    ],
+    primaryMediaId: primary.id,
+    sku,
+    productName,
+  };
 }
 
 export function resolveGenerationPlatform({

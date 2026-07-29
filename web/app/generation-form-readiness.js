@@ -22,13 +22,11 @@ export function evaluateGenerationFormReadiness(value = {}) {
     ),
     step(
       "media",
-      "Фото товара",
-      real ? mediaCount === 1 : mediaCount >= 1,
-      real && mediaCount > 1
-        ? photo
-          ? "Для платного фото оставьте ровно один исходник."
-          : "Для платного ролика оставьте ровно одно фото."
-        : "Выберите точное фото товара ниже.",
+      "Фото и ракурсы товара",
+      real ? mediaCount >= 1 && mediaCount <= 5 : mediaCount >= 1,
+      real && mediaCount > 5
+        ? "Оставьте до пяти ракурсов одного и того же товара."
+        : "Выберите от одного до пяти точных фото товара ниже.",
     ),
   ];
 

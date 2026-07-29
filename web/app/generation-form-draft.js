@@ -73,7 +73,11 @@ export function buildGenerationFormDraft(value = {}, {
     (Array.isArray(value.media_ids) ? value.media_ids : [])
       .map((item) => boundedText(item, 180))
       .filter(Boolean),
-  )].slice(0, real ? 1 : 50);
+  )].slice(0, real ? 5 : 50);
+  const requestedPrimaryMediaId = boundedText(value.primary_media_id, 180);
+  const primaryMediaId = mediaIds.includes(requestedPrimaryMediaId)
+    ? requestedPrimaryMediaId
+    : mediaIds[0] || "";
 
   return {
     version: GENERATION_FORM_DRAFT_VERSION,
@@ -102,6 +106,7 @@ export function buildGenerationFormDraft(value = {}, {
       format: FORMATS.has(format) ? format : (real ? "9:16" : "9:16"),
       brief: boundedText(value.brief, 4_000),
       media_ids: mediaIds,
+      primary_media_id: primaryMediaId,
     },
   };
 }

@@ -5461,6 +5461,50 @@ input[type="radio"] {
   background: #fbfcfb;
 }
 
+.generation-media-option {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.generation-media-option__select {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  cursor: pointer;
+  gap: 11px;
+}
+
+.generation-media-option__select > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.generation-media-option__primary {
+  display: inline-flex;
+  margin-left: auto;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  align-items: center;
+  color: var(--ink-soft);
+  background: var(--surface);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: .7rem;
+  font-weight: 700;
+  gap: 5px;
+}
+
+.generation-media-option__primary:has(input:checked) {
+  border-color: var(--success);
+  color: var(--forest);
+  background: var(--forest-pale);
+}
+
+.generation-media-option__primary[hidden] {
+  display: none;
+}
+
 .generation-product-identity {
   margin: -4px 0 2px;
   padding: 9px 11px;

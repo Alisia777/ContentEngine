@@ -82,7 +82,7 @@ def test_photo_uses_campaign_budget_idempotency_and_no_auto_retry() -> None:
     assert provider_create.count("fetchWithTimeout(") == 1
 
 
-def test_edge_calls_runway_text_to_image_with_one_reference_and_png() -> None:
+def test_edge_calls_runway_text_to_image_with_product_reference_bundle_and_png() -> None:
     for token in (
         'model: "seedream5_lite"',
         "duration_seconds: 0",
@@ -93,7 +93,8 @@ def test_edge_calls_runway_text_to_image_with_one_reference_and_png() -> None:
         'outputFormat: "png"',
         "outputCount: 1",
         'const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference"',
-        "tag: RUNWAY_PRODUCT_REFERENCE_TAG",
+        "referenceImages: validReferenceUrls.map",
+        "`${RUNWAY_PRODUCT_REFERENCE_TAG}${index + 1}`",
         'const outputMimeType = photoOutput ? "image/png" : "video/mp4"',
         "photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)",
         "view.getUint32(0, false) === 2_048",

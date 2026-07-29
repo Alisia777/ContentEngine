@@ -404,7 +404,8 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert "`RUNWAY_GEN4_TURBO_${duration}S_USD_${estimatedUsd}`" in adapter
     assert "`RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`" in adapter
     assert "batch?.spend_confirmation !== sku.confirmation" in adapter
-    assert "media_ids.length !== 1" in adapter
+    assert "batch.media_ids.length > 5" in adapter
+    assert "new Set(batch.media_ids.map(String)).size" in adapter
     assert "edge:${REAL_GENERATION_FUNCTION}" in adapter
 
     assert 'name="generation_mode"' in app
@@ -413,7 +414,8 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert 'name="real_spend_confirmation"' in app
     assert "values.get(\"real_spend_confirmation\") !== generationSku.confirmation" in app
     assert "Number(values.get(\"count\")) !== 1" in app
-    assert "mediaIds.length !== 1" in app
+    assert "mediaIds.length < 1" in app
+    assert "mediaIds.length > MAX_REAL_GENERATION_REFERENCES" in app
     assert "state.api.startRealGeneration(payload)" in app
     assert 'data-action="check-real-generation"' in app
     assert "parameters.job_id" in app
@@ -456,7 +458,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260729.2' in index
+    assert './app.js?v=20260729.3' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

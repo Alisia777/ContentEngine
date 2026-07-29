@@ -254,7 +254,7 @@ type CommonStartPayload = {
   count: 1;
   format: "9:16" | "1:1" | "16:9";
   brief: string;
-  media_ids: [string];
+  media_ids: string[];
   platform:
     | "instagram"
     | "tiktok"
@@ -427,6 +427,7 @@ type StartJob = {
   ratio: string;
   promptText: string;
   inputObjectName: string;
+  referenceObjectNames: string[];
   outputObjectName: string;
   estimatedCostMinor: number;
   estimatedCredits: number;
@@ -673,7 +674,7 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
   const modelRequirements: Record<RunwayModel, string[]> = {
     seedream5_lite: [
       "Создай одно квадратное товарное фото 2048 × 2048.",
-      `Используй @${RUNWAY_PRODUCT_REFERENCE_TAG} как единственный точный референс товара.`,
+      `Используй @${RUNWAY_PRODUCT_REFERENCE_TAG} как главный точный референс товара; остальные выбранные ракурсы уточняют форму и детали.`,
       "Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса.",
     ],
     gen4_turbo: [
@@ -685,6 +686,13 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
       GENERATED_TEXT_GUARD,
     ],
   };
+  if (
+    payload.model !== "seedream5_lite" &&
+    !payload.brief.includes(productInteractionRequirement(
+      payload.product_name,
+      payload.product_category,
+    ))
+  ) return false;
   if (
     [...commonRequirements, ...modelRequirements[payload.model]].some(
       (requirement) => !payload.brief.includes(requirement),
@@ -702,6 +710,38 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
       spokenWords <= seedanceSpokenWordLimit(payload.duration_seconds);
   }
   return spokenMatch === null;
+}
+
+function productInteractionRequirement(
+  productName: string,
+  productCategory: CommonStartPayload["product_category"],
+): string {
+  const normalizedName = productName.trim().toLocaleLowerCase("ru-RU");
+  if (/(?:пароварк|мультиварк|аэрогрил|духовк|микроволнов|кофемашин|кофеварк|электрогрил|тостер|соковыжимал|хлебопеч|кухонн\p{L}*\s+комбайн|стационарн\p{L}*\s+блендер|steamer|air\s*fryer|microwave|coffee\s*machine|countertop\s*appliance)/iu.test(normalizedName)) {
+    return "Масштаб и действие: товар целиком стоит на устойчивой столешнице; не поднимать корпус, не подносить к лицу и не уменьшать его.";
+  }
+  if (/(?:холодильник|морозильник|стиральн\p{L}*\s+машин|сушильн\p{L}*\s+машин|посудомоеч|телевизор|матрас|диван|кресл|стол\b|шкаф|комод|пылесос|кондиционер|обогревател|велосипед|самокат|коляск|refrigerator|washing\s*machine|dishwasher|television|mattress|sofa|wardrobe|vacuum)/iu.test(normalizedName)) {
+    return "Масштаб и действие: товар остаётся установленным на полу или рабочем месте; не держать в руках, не подносить к лицу и не уменьшать его.";
+  }
+  const requirements: Record<CommonStartPayload["product_category"], string> = {
+    cosmetics:
+      "Масштаб и действие: косметику показывать в руках на уровне корпуса или на столе; не подносить упаковку к лицу и не изображать неподтверждённый эффект.",
+    baa:
+      "Масштаб и действие: упаковка БАДа остаётся на столе; показывать этикетку и форму выпуска без приёма внутрь, медицинских обещаний и приближения к лицу.",
+    sports_food:
+      "Масштаб и действие: спортивное питание показывать на столе вместе с мерной порцией; не подносить банку к лицу и не изображать результат употребления.",
+    food:
+      "Масштаб и действие: еду или напиток показывать на столе рядом с естественной порцией; не подносить упаковку к лицу и не выдумывать вкус или эффект.",
+    household:
+      "Масштаб и действие: товар для дома остаётся на устойчивой поверхности в реальном масштабе; показывать рабочую часть, не подносить к лицу и не выдумывать способ использования.",
+    apparel:
+      "Масштаб и действие: показать товар надетым или разложенным в естественном масштабе; камеру приближать к деталям, а не товар к лицу.",
+    electronics:
+      "Масштаб и действие: электроника стоит на столе или установлена на рабочем месте; показывать интерфейс и разъёмы без поднесения к лицу и выдуманных функций.",
+    other:
+      "Масштаб и действие: cold start — товар на устойчивой поверхности в реальном масштабе; без человека, лица и выдуманного использования.",
+  };
+  return requirements[productCategory];
 }
 
 function readStartPayload(value: unknown): StartPayload | null {
@@ -764,8 +804,11 @@ function readStartPayload(value: unknown): StartPayload | null {
     Object.hasOwn(value, "review_autostart_terms_version");
   const promptLimit = model === null ? 0 : RUNWAY_PROMPT_LIMITS[model];
   if (
-    !Array.isArray(mediaIds) || mediaIds.length !== 1 ||
-    !isUuid(mediaIds[0])
+    !Array.isArray(mediaIds) ||
+    mediaIds.length < 1 ||
+    mediaIds.length > 5 ||
+    mediaIds.some((mediaId) => !isUuid(mediaId)) ||
+    new Set(mediaIds).size !== mediaIds.length
   ) {
     return null;
   }
@@ -1433,6 +1476,9 @@ function readStartJob(value: unknown): StartJob | null {
     typeof job.review_autostart_terms_version === "string"
       ? job.review_autostart_terms_version
       : null;
+  const referenceObjectNames = Array.isArray(job.reference_object_names)
+    ? job.reference_object_names
+    : [job.input_object_name];
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) || job.batch_id !== batch.id ||
     !isUuid(job.campaign_id) || !isBoundedText(job.campaign_name, 2, 160) ||
@@ -1441,6 +1487,11 @@ function readStartJob(value: unknown): StartJob | null {
     job.provider !== "runway" || sku === null ||
     !isBoundedText(job.prompt_text, 1, 1_200) ||
     !isObjectName(job.input_object_name) ||
+    referenceObjectNames.length < 1 ||
+    referenceObjectNames.length > 5 ||
+    referenceObjectNames.some((objectName) => !isObjectName(objectName)) ||
+    referenceObjectNames[0] !== job.input_object_name ||
+    new Set(referenceObjectNames).size !== referenceObjectNames.length ||
     !isObjectName(job.output_object_name) ||
     !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000) ||
     !isIntegerInRange(job.estimated_credits, 0, 1_000_000) ||
@@ -1470,6 +1521,7 @@ function readStartJob(value: unknown): StartJob | null {
     ratio: sku.ratio,
     promptText: job.prompt_text,
     inputObjectName: job.input_object_name,
+    referenceObjectNames: referenceObjectNames as string[],
     outputObjectName: job.output_object_name,
     estimatedCostMinor: sku.estimatedCostMinor,
     estimatedCredits: sku.estimatedCredits,
@@ -3373,15 +3425,15 @@ async function handleCreatorGenerate(
       batch,
     );
   }
-  const { data: signedInputData, error: signedInputError } = await context
-    .supabaseAdmin.storage.from(STORAGE_BUCKET).createSignedUrl(
-      startJob.inputObjectName,
-      INPUT_URL_TTL_SECONDS,
-    );
-  const signedInputUrl = signedInputError
-    ? null
-    : validateSupabaseSignedUrl(signedInputData?.signedUrl);
-  if (signedInputUrl === null) {
+  const signedReferenceUrls = await Promise.all(
+    startJob.referenceObjectNames.map(async (objectName) => {
+      const { data, error } = await context.supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .createSignedUrl(objectName, INPUT_URL_TTL_SECONDS);
+      return error ? null : validateSupabaseSignedUrl(data?.signedUrl);
+    }),
+  );
+  if (signedReferenceUrls.some((url) => url === null)) {
     await markFailed(startJob.id, "provider_configuration_error");
     return await respondWithCurrent(
       startPayload.organization_id,
@@ -3389,6 +3441,8 @@ async function handleCreatorGenerate(
       batch,
     );
   }
+  const validReferenceUrls = signedReferenceUrls as string[];
+  const signedInputUrl = validReferenceUrls[0];
 
   const photoGeneration = startJob.model === "seedream5_lite";
   const providerRequestBody = photoGeneration
@@ -3398,10 +3452,12 @@ async function handleCreatorGenerate(
       ratio: startJob.ratio,
       outputFormat: "png",
       outputCount: 1,
-      referenceImages: [{
-        uri: signedInputUrl,
-        tag: RUNWAY_PRODUCT_REFERENCE_TAG,
-      }],
+      referenceImages: validReferenceUrls.map((uri, index) => ({
+        uri,
+        tag: index === 0
+          ? RUNWAY_PRODUCT_REFERENCE_TAG
+          : `${RUNWAY_PRODUCT_REFERENCE_TAG}${index + 1}`,
+      })),
     }
     : startJob.model === "seedance2_fast"
     ? {
@@ -3409,7 +3465,10 @@ async function handleCreatorGenerate(
       duration: startJob.durationSeconds,
       ratio: startJob.ratio,
       promptText: startJob.promptText,
-      promptImage: [{ uri: signedInputUrl }],
+      promptImage: validReferenceUrls.map((uri, index) => ({
+        uri,
+        position: index === 0 ? "first" : "reference",
+      })),
       audio: true,
     }
     : {

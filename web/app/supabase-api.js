@@ -1765,9 +1765,15 @@ export class CreatorApi {
         code: "real_generation_is_disabled",
       });
     }
-    if (!Array.isArray(batch?.media_ids) || batch.media_ids.length !== 1) {
-      throw new CreatorApiError("Для платного запуска выберите ровно одно точное фото товара.", {
-        code: "real_generation_exactly_one_media_required",
+    if (
+      !Array.isArray(batch?.media_ids)
+      || batch.media_ids.length < 1
+      || batch.media_ids.length > 5
+      || new Set(batch.media_ids.map(String)).size !== batch.media_ids.length
+      || batch.media_ids.some((mediaId) => !isUuid(String(mediaId || "")))
+    ) {
+      throw new CreatorApiError("Выберите от одного до пяти точных фото одного товара.", {
+        code: "real_generation_product_references_invalid",
       });
     }
     const campaignId = String(batch?.campaign_id || "").trim();
@@ -1882,7 +1888,7 @@ export class CreatorApi {
       ...batch,
       campaign_id: campaignId,
       count: 1,
-      media_ids: [String(batch.media_ids[0])],
+      media_ids: batch.media_ids.map(String),
       mode: "real",
       provider: "runway",
       model,
@@ -2876,6 +2882,10 @@ function toFriendlyMessage(error) {
     mock_only_required: "Платная генерация отключена. Доступен только dry-run задач без файлов и списаний.",
     real_generation_is_disabled: "Платная генерация сейчас недоступна. Используйте dry-run задач без файлов и списаний.",
     real_generation_exactly_one_media_required: "Для платного запуска выберите ровно одно точное фото товара.",
+    real_generation_product_references_invalid: "Выберите от одного до пяти точных фото одного товара.",
+    product_reference_media_ids_invalid: "Выберите от одного до пяти разных ракурсов одного товара.",
+    exact_product_reference_bundle_mismatch: "Выбранные фото должны принадлежать одному товару и иметь подтверждённые права.",
+    generation_product_interaction_invalid: "Восстановите безопасное ТЗ с учётом реального размера и способа использования товара.",
     real_spend_confirmation_required: "Подтвердите создание одного платного видео по указанной цене.",
     real_generation_sku_invalid: "Параметры платного режима не совпадают с подтверждённой ценой.",
     real_generation_action_invalid: "Неизвестное действие платной генерации.",
