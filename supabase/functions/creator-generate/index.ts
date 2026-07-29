@@ -534,6 +534,15 @@ function readBudgetErrorCode(value: unknown): BudgetErrorCode | null {
     : null;
 }
 
+function readSafeStartRpcErrorCode(value: unknown): string | null {
+  if (!isRecord(value) || typeof value.message !== "string") return null;
+  const code = value.message.trim();
+  return /^(?:(?:real_|paid_)?generation|idempotency|product_reference|exact_product|media|brief|format|platform|payout|assignee|certified_assignee)_[a-z0-9_]{2,95}$/u
+      .test(code)
+    ? code
+    : null;
+}
+
 function readClaimErrorCode(value: unknown): ClaimErrorCode | null {
   const budgetCode = readBudgetErrorCode(value);
   if (budgetCode !== null) return budgetCode;
@@ -3323,6 +3332,7 @@ async function handleCreatorGenerate(
   );
   if (startError) {
     const budgetCode = readBudgetErrorCode(startError);
+    const safeStartRpcCode = readSafeStartRpcErrorCode(startError);
     const validationCode = [
         "real_generation_payload_invalid",
         "real_generation_sku_invalid",
@@ -3359,7 +3369,8 @@ async function handleCreatorGenerate(
     const code = budgetCode ??
       (startError.message === "real_generation_reconciliation_required"
         ? "real_generation_reconciliation_required"
-        : repairCode ?? validationCode ?? "generation_rejected");
+        : repairCode ?? validationCode ?? safeStartRpcCode ??
+          "generation_rejected");
     const status = budgetCode !== null
       ? budgetErrorHttpStatus(budgetCode)
       : code === "generation_rejected"

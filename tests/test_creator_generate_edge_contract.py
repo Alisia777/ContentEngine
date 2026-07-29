@@ -113,6 +113,21 @@ def test_paid_provider_post_is_guarded_by_sanitized_database_budget_claim() -> N
     assert "? 409" in claim_guard
 
 
+def test_paid_start_preserves_safe_database_rejection_codes() -> None:
+    source = _source()
+
+    sanitizer = source[
+        source.index("function readSafeStartRpcErrorCode") : source.index(
+            "function readClaimErrorCode"
+        )
+    ]
+    assert "value.message.trim()" in sanitizer
+    assert "(?:real_|paid_)?generation" in sanitizer
+    assert "[a-z0-9_]{2,95}" in sanitizer
+    assert "safeStartRpcCode ??" in source
+    assert '"generation_rejected"' in source
+
+
 def test_provider_task_transitions_preserve_task_id_and_processing_order() -> None:
     source = _source()
 
