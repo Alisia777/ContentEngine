@@ -210,7 +210,7 @@ Current state:
   timeline points across at least 90% of the video without retaining or
   uploading those extra frames, so brief black sections and long freezes are
   less likely to hide between the five external-review frames;
-- for MP4 up to 10 seconds the browser now also plays the exact file at normal
+- for MP4 up to 15 seconds the browser now also plays the exact file at normal
   speed and measures every frame reported as presented by the browser. Only
   bounded counts, coverage, maximum gap, black-run and near-duplicate-run
   aggregates are persisted; pixels from this scan are neither retained nor
@@ -229,7 +229,7 @@ Still required:
 
 - production evidence for speech/script agreement accuracy and intelligibility
   across accents, music beds and noisy product scenes;
-- full-stream semantic product/label persistence and safe-zone violations
+- full-stream semantic product/label persistence and automatic safe-zone violations; final human QA now includes a conservative, switchable platform risk overlay on the exact protected video, while automated semantic proof still remains open
   beyond the external 12–24-point atlas (the new full-playback scan detects
   technical black/freeze/duplication runs but does not understand product
   identity or text on every frame);

@@ -2034,7 +2034,7 @@ function deterministicFindings(
       "browser_presented_frames_v1" &&
     continuityCallbackCount !== null &&
     continuityCallbackCount >= 2 &&
-    continuityCallbackCount <= 2_400 &&
+    continuityCallbackCount <= 3_600 &&
     continuityPresentedCount !== null &&
     continuityPresentedCount === continuityCallbackCount &&
     continuityPresentedCount <= 10_000 &&
@@ -2051,13 +2051,13 @@ function deterministicFindings(
     continuityBlackRatio <= 1 &&
     continuityLongestBlackRun !== null &&
     continuityLongestBlackRun >= 0 &&
-    continuityLongestBlackRun <= (duration ?? 10) &&
+    continuityLongestBlackRun <= (duration ?? 15) &&
     continuityDuplicateRatio !== null &&
     continuityDuplicateRatio >= 0 &&
     continuityDuplicateRatio <= 1 &&
     continuityLongestDuplicateRun !== null &&
     continuityLongestDuplicateRun >= 0 &&
-    continuityLongestDuplicateRun <= (duration ?? 10) &&
+    continuityLongestDuplicateRun <= (duration ?? 15) &&
     metrics.continuity_raw_frames_persisted === false;
   const blackRatio = continuityScanCompleted
     ? continuityBlackRatio
@@ -2165,15 +2165,15 @@ function deterministicFindings(
     if (
       run.media.metadata.kind === "generated_video" &&
       duration !== null &&
-      duration <= 10 &&
+      duration <= 15 &&
       !continuityScanCompleted
     ) {
       add(makeFinding(
         "TECH.CONTINUITY_SCAN_INCOMPLETE",
         "technical",
         "high",
-        "Покадровый локальный контроль короткого ролика не подтверждён",
-        "Для сгенерированного MP4 до 10 секунд нет валидных агрегатов по каждому показанному браузером кадру.",
+        "Покадровый локальный контроль сгенерированного ролика не подтверждён",
+        "Для сгенерированного MP4 до 15 секунд нет валидных агрегатов по каждому показанному браузером кадру.",
         "Повторите подготовку evidence в обновлённом браузере и полностью просмотрите точный MP4.",
         { human: true, stage: "video" },
       ));

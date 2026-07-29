@@ -52,7 +52,7 @@ def test_preflight_is_membership_scoped_and_returns_only_safe_booleans() -> None
     assert "await recordProviderReadiness(" in handler
     assert "receipt_id: receipt.receiptId" in handler
     assert "receipt_hash: receipt.receiptHash" in handler
-    assert 'receipt_version: "generation-provider-readiness-receipt-v1"' in handler
+    assert 'receipt_version: "generation-provider-readiness-receipt-v2"' in handler
     assert "creditBalance" not in handler
     assert "maxDailyGenerations" not in handler
 
@@ -93,7 +93,7 @@ def test_client_performs_free_preflight_before_starting_paid_generation() -> Non
     assert "validateGenerationPreflight(preflightOutcome, generationSku)" in submit
     assert "Платный запуск не создан: бесплатная проверка Runway не пройдена" in submit
 
-    assert "realGenerationPreflight(model)" in ADAPTER
+    assert "realGenerationPreflight(model, durationSeconds)" in ADAPTER
     invoke = _between(
         ADAPTER,
         "async invokeRealGeneration(action, payload = {})",
@@ -112,7 +112,8 @@ def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
         "async function runGenerationPreflight(",
         "async function checkRunwayReadiness(control)",
     )
-    assert "state.api.realGenerationPreflight(sku.model)" in runner
+    assert "state.api.realGenerationPreflight(" in runner
+    assert "sku.durationSeconds" in runner
     assert "real_spend_confirmation" not in runner
     assert "startRealGeneration" not in runner
     assert "generationPreflightDecision(previous" in runner
@@ -136,7 +137,7 @@ def test_real_mode_automatically_runs_one_free_deduplicated_preflight() -> None:
         "function scheduleAutomaticGenerationPreflight",
         "async function runGenerationPreflight",
     )
-    assert "form.dataset.autoGenerationPreflightModel === sku.model" in scheduler
+    assert "form.dataset.autoGenerationPreflightKey === key" in scheduler
     assert "window.queueMicrotask" in scheduler
     assert "void runGenerationPreflight(form)" in scheduler
     assert "startRealGeneration" not in scheduler
@@ -161,7 +162,7 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
         "requestEpoch === state.dataEpoch",
         "requestUserId === state.user?.id",
         'document.querySelector("#mock-batch-form")',
-        "currentSku?.model === sku.model",
+        "generationPreflightKey(currentSku) === generationPreflightKey(sku)",
         "currentEntry === entry",
         "realGenerationSpendAllowed(",
         "window.setTimeout(() =>",
@@ -169,7 +170,7 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
     ):
         assert token in recovery
     assert "currentForm?.isConnected" in runner
-    assert "currentForm.elements.generation_mode?.value" in runner
+    assert "generationSkuForForm(currentForm)" in runner
     assert "form.isConnected" not in runner
     for token in (
         "automaticRetry = false",
@@ -208,11 +209,11 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
 
 def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None:
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"'
         in EDGE
     )
     assert (
-        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"'
+        'const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"'
         in APP
     )
     assert (

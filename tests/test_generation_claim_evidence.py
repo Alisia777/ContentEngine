@@ -198,9 +198,9 @@ def test_training_explains_research_provenance_and_human_boundary() -> None:
 
 
 def test_claim_evidence_release_bumps_browser_modules_and_error_copy() -> None:
-    assert "./content-review-view.js?v=20260728.1" in APP
-    assert "./supabase-api.js?v=20260728.5" in APP
+    assert "./content-review-view.js?v=20260728.3" in APP
+    assert "./supabase-api.js?v=20260728.6" in APP
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 8" in APP
-    assert "./app.js?v=20260728.11" in INDEX
+    assert "./app.js?v=20260728.13" in INDEX
     assert "generation_research_claim_evidence_invalid" in ADAPTER
     assert "Платный запуск не создан" in ADAPTER

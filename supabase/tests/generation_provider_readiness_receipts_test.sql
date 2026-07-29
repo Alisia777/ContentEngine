@@ -107,8 +107,8 @@ select is(
       '2026-07-28T12:00:00Z'::timestamptz
     )
   ),
-  3,
-  'the latest-receipt reader always returns the three production SKUs'
+  9,
+  'the latest-receipt reader returns every selectable production duration'
 );
 
 select is(
@@ -126,8 +126,8 @@ select is(
       and item -> 'ready' = 'false'::jsonb
       and item -> 'fresh' = 'false'::jsonb
   ),
-  3,
-  'missing receipts fail closed for every production SKU'
+  9,
+  'missing receipts fail closed for every selectable duration'
 );
 
 select is(
@@ -140,8 +140,8 @@ select is(
       )
     ) with ordinality rows(item, ordinal)
   ),
-  '["seedream5_lite", "gen4_turbo", "seedance2_fast"]'::jsonb,
-  'receipt order matches the production generation selector'
+  '["seedream5_lite", "gen4_turbo", "gen4_turbo", "gen4_turbo", "gen4_turbo", "seedance2_fast", "seedance2_fast", "seedance2_fast", "seedance2_fast"]'::jsonb,
+  'receipt order matches the production generation duration selector'
 );
 
 select ok(

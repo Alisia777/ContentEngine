@@ -509,7 +509,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260728.11' in INDEX
+    assert './app.js?v=20260728.13' in INDEX
 
 
 def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:
@@ -530,7 +530,7 @@ def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -
         "state.api.generationLearningPolicy({",
         "normalizeGenerationLearningPolicy(rawPolicy)",
         "resolveGenerationLearningFallback({",
-        "form.dataset.autoGenerationPreflightModel = candidate.sku.model",
+        "form.dataset.autoGenerationPreflightKey = generationPreflightKey(candidate.sku)",
         "syncAutomaticGenerationBrief(form, { force: true, identity })",
         "state.generationLearning",
         "learning.recovery = {",

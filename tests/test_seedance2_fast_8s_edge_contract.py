@@ -9,19 +9,21 @@ APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 ADAPTER = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
 
 
-def test_edge_accepts_one_exact_seedance_paid_sku() -> None:
+def test_edge_accepts_duration_bound_seedance_paid_skus() -> None:
     for token in (
         'model: "seedance2_fast"',
-        "duration_seconds: 8",
         "audio: true",
         'format: "9:16"',
-        'spend_confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32"',
+        "minimumDuration: 4",
+        "maximumDuration: 15",
+        "creditsPerSecond: 29",
+        "`RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`",
         'value.model === "seedance2_fast"',
-        "value.duration_seconds === 8",
+        'sku?.model === "seedance2_fast"',
         "value.audio === true",
         'value.format === "9:16"',
-        "job.estimated_cost_minor === 232",
-        "job.estimated_credits === 232",
+        "job.estimated_cost_minor === sku.estimatedCredits",
+        "job.estimated_credits === sku.estimatedCredits",
     ):
         assert token in EDGE
 

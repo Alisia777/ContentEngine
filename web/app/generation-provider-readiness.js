@@ -1,15 +1,27 @@
 const PROVIDER_RECEIPT_VERSION =
-  "generation-provider-readiness-receipt-v1";
+  "generation-provider-readiness-receipt-v2";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const RECEIPT_TTL_MS = 15 * 60 * 1_000;
 const FUTURE_SKEW_MS = 60 * 1_000;
-const MODEL_CREDITS = Object.freeze({
-  seedream5_lite: 4,
-  gen4_turbo: 25,
-  seedance2_fast: 232,
-});
+function generationCredits(model, durationSeconds) {
+  const duration = Number(durationSeconds);
+  if (model === "seedream5_lite" && duration === 0) return 4;
+  if (
+    model === "gen4_turbo"
+    && Number.isInteger(duration)
+    && duration >= 2
+    && duration <= 10
+  ) return duration * 5;
+  if (
+    model === "seedance2_fast"
+    && Number.isInteger(duration)
+    && duration >= 4
+    && duration <= 15
+  ) return duration * 29;
+  return null;
+}
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -24,14 +36,15 @@ function safeText(value) {
 function exactReadyReceipt(value, gateVersion, nowMs) {
   const item = objectValue(value);
   const model = safeText(item?.model);
-  const estimatedCredits = MODEL_CREDITS[model];
+  const durationSeconds = Number(item?.duration_seconds);
+  const estimatedCredits = generationCredits(model, durationSeconds);
   const checkedAt = safeText(item?.checked_at);
   const expiresAt = safeText(item?.expires_at);
   const checkedAtMs = Date.parse(checkedAt);
   const expiresAtMs = Date.parse(expiresAt);
   if (
     !item
-    || estimatedCredits === undefined
+    || estimatedCredits === null
     || item.provider !== "runway"
     || (item.status !== undefined && item.status !== "ready")
     || (
@@ -61,6 +74,7 @@ function exactReadyReceipt(value, gateVersion, nowMs) {
   return Object.freeze({
     provider: "runway",
     model,
+    duration_seconds: durationSeconds,
     ready: true,
     estimated_credits: estimatedCredits,
     balance_sufficient: true,
@@ -104,8 +118,10 @@ export function generationProviderReadinessPreflights(
   const counts = new Map();
   for (const row of rows) {
     const model = safeText(row?.model);
-    if (!Object.hasOwn(MODEL_CREDITS, model)) continue;
-    counts.set(model, (counts.get(model) || 0) + 1);
+    const durationSeconds = Number(row?.duration_seconds);
+    if (generationCredits(model, durationSeconds) === null) continue;
+    const key = `${model}:${durationSeconds}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
   }
   return Object.freeze(
     rows
@@ -115,7 +131,8 @@ export function generationProviderReadinessPreflights(
           : null
       ))
       .filter((receipt) => (
-        receipt !== null && counts.get(receipt.model) === 1
+        receipt !== null
+        && counts.get(`${receipt.model}:${receipt.duration_seconds}`) === 1
       )),
   );
 }

@@ -12,6 +12,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280005_generation_mode_prompt_contract.sql"
 ).read_text(encoding="utf-8")
+FLEXIBLE_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607280008_flexible_video_generation_durations.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/generation_mode_prompt_contract_test.sql"
 ).read_text(encoding="utf-8")
@@ -34,6 +38,7 @@ INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 
 def test_mode_prompt_migration_and_pgtap_parse() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(FLEXIBLE_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -199,7 +204,7 @@ def test_edge_rejects_unbound_base_prompt_before_learning_or_paid_state() -> Non
         "`Точный товар: ${payload.product_name}, артикул ${payload.sku}.`",
         "generation_mode_prompt_binding_invalid",
         "countPromptWords(spokenMatch[1])",
-        "spokenWords >= 1 && spokenWords <= 22",
+        "spokenWords <= seedanceSpokenWordLimit(payload.duration_seconds)",
     ):
         assert token in GENERATION_EDGE
     base_gate = GENERATION_EDGE.index(
@@ -218,11 +223,13 @@ def test_edge_rejects_unbound_base_prompt_before_learning_or_paid_state() -> Non
 
 
 def test_database_rechecks_identity_mode_and_spoken_word_limit() -> None:
-    wrapper = MIGRATION[
-        MIGRATION.index(
-            "create or replace function public.creator_start_real_generation("
+    wrapper = FLEXIBLE_MIGRATION[
+        FLEXIBLE_MIGRATION.index(
+            ".creator_start_real_generation_pre_review_autostart_v11("
         ) :
-        MIGRATION.rindex("commit;")
+        FLEXIBLE_MIGRATION.index(
+            "-- The outer v12 layer",
+        )
     ]
     for token in (
         "generation_mode_prompt_requirements(",
@@ -230,28 +237,28 @@ def test_database_rechecks_identity_mode_and_spoken_word_limit() -> None:
         "position(identity_requirement in brief_value) = 0",
         "foreach requirement_value in array requirements",
         "generation_mode_prompt_binding_invalid",
-        "spoken_word_count not between 1 and 22",
+        "spoken_word_count not between 1 and spoken_word_limit",
         ".creator_start_real_generation_pre_mode_prompt_v10(p_payload)",
     ):
         assert token in wrapper
-    prior_call = wrapper.index(
-        ".creator_start_real_generation_pre_mode_prompt_v10(p_payload)"
-    )
     prompt_gate = wrapper.index(
         "foreach requirement_value in array requirements"
     )
-    assert prior_call < prompt_gate
-    assert "raising below rolls back" in wrapper
+    prior_call = wrapper.index(
+        ".creator_start_real_generation_pre_mode_prompt_v10(p_payload)"
+    )
+    assert prompt_gate < prior_call
+    assert "duration_requirement := format(" in wrapper
 
 
 def test_release_versions_bind_the_mode_prompt_contract() -> None:
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"' in (
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"' in (
         GENERATION_EDGE
     )
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"' in APP
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"' in API
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"' in APP
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"' in API
     assert "./product-research-view.js?v=20260728.5" in APP
-    assert "./content-generation-handoff.js?v=20260728.3" in APP
-    assert "./supabase-api.js?v=20260728.5" in APP
-    assert "./app.js?v=20260728.11" in INDEX
+    assert "./content-generation-handoff.js?v=20260728.4" in APP
+    assert "./supabase-api.js?v=20260728.6" in APP
+    assert "./app.js?v=20260728.13" in INDEX
     assert "generation_mode_prompt_binding_invalid" in API

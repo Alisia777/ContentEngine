@@ -78,14 +78,9 @@ const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const ACCESS_FUNCTION = "creator-access";
 const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6";
-const REAL_GENERATION_CREDITS = Object.freeze({
-  gen4_turbo: 25,
-  seedance2_fast: 232,
-  seedream5_lite: 4,
-});
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7";
 const PROVIDER_READINESS_RECEIPT_VERSION =
-  "generation-provider-readiness-receipt-v1";
+  "generation-provider-readiness-receipt-v2";
 const PROVIDER_READINESS_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PROVIDER_READINESS_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -93,19 +88,19 @@ const PROVIDER_READINESS_TTL_MS = 15 * 60 * 1_000;
 const PROVIDER_READINESS_FUTURE_SKEW_MS = 60 * 1_000;
 const REAL_GENERATION_SKUS = Object.freeze({
   gen4_turbo: Object.freeze({
-    duration_seconds: 5,
     audio: false,
     prompt_max_length: 1000,
-    confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25",
-    estimated_usd: "0.25",
+    min_duration_seconds: 2,
+    max_duration_seconds: 10,
+    credits_per_second: 5,
   }),
   seedance2_fast: Object.freeze({
-    duration_seconds: 8,
     audio: true,
     format: "9:16",
     prompt_max_length: 1200,
-    confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32",
-    estimated_usd: "2.32",
+    min_duration_seconds: 4,
+    max_duration_seconds: 15,
+    credits_per_second: 29,
   }),
   seedream5_lite: Object.freeze({
     duration_seconds: 0,
@@ -116,6 +111,32 @@ const REAL_GENERATION_SKUS = Object.freeze({
     estimated_usd: "0.04",
   }),
 });
+
+function realGenerationSku(model, durationSeconds) {
+  const normalizedModel = String(model || "");
+  const base = REAL_GENERATION_SKUS[normalizedModel];
+  const duration = Number(durationSeconds);
+  if (!base) return null;
+  if (normalizedModel === "seedream5_lite") {
+    return duration === 0 ? base : null;
+  }
+  if (
+    !Number.isInteger(duration)
+    || duration < base.min_duration_seconds
+    || duration > base.max_duration_seconds
+  ) return null;
+  const estimatedCredits = duration * base.credits_per_second;
+  const estimatedUsd = (estimatedCredits / 100).toFixed(2);
+  return Object.freeze({
+    ...base,
+    duration_seconds: duration,
+    estimated_credits: estimatedCredits,
+    estimated_usd: estimatedUsd,
+    confirmation: normalizedModel === "seedance2_fast"
+      ? `RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`
+      : `RUNWAY_GEN4_TURBO_${duration}S_USD_${estimatedUsd}`,
+  });
+}
 
 function normalizeApiGenerationProviderPreflight(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -133,14 +154,15 @@ function normalizeApiGenerationProviderPreflight(value) {
   const checkedAtMs = Date.parse(checkedAt);
   const expiresAtMs = Date.parse(expiresAt);
   const nowMs = Date.now();
+  const sku = realGenerationSku(model, value.duration_seconds);
   if (
-    !Object.hasOwn(REAL_GENERATION_CREDITS, model) ||
+    sku === null ||
     value.provider !== "runway" ||
     value.ready !== true ||
     value.balance_sufficient !== true ||
     value.model_available !== true ||
     value.daily_quota_available !== true ||
-    value.estimated_credits !== REAL_GENERATION_CREDITS[model] ||
+    value.estimated_credits !== sku.estimated_credits ||
     (
       value.failure_code !== undefined
       && value.failure_code !== null
@@ -165,8 +187,9 @@ function normalizeApiGenerationProviderPreflight(value) {
   return Object.freeze({
     provider: "runway",
     model,
+    duration_seconds: sku.duration_seconds,
     ready: true,
-    estimated_credits: REAL_GENERATION_CREDITS[model],
+    estimated_credits: sku.estimated_credits,
     balance_sufficient: true,
     model_available: true,
     daily_quota_available: true,
@@ -1754,7 +1777,7 @@ export class CreatorApi {
       });
     }
     const model = String(batch?.model || "gen4_turbo");
-    const sku = REAL_GENERATION_SKUS[model];
+    const sku = realGenerationSku(model, batch?.duration_seconds);
     if (!sku) {
       throw new CreatorApiError("Выберите доступный платный режим.", {
         code: "real_generation_sku_invalid",
@@ -1870,15 +1893,17 @@ export class CreatorApi {
     });
   }
 
-  realGenerationPreflight(model) {
+  realGenerationPreflight(model, durationSeconds) {
     const normalizedModel = String(model || "").trim();
-    if (!REAL_GENERATION_SKUS[normalizedModel]) {
+    const sku = realGenerationSku(normalizedModel, durationSeconds);
+    if (!sku) {
       throw new CreatorApiError("Выберите доступный платный режим.", {
         code: "real_generation_sku_invalid",
       });
     }
     return this.invokeRealGeneration("preflight", {
       model: normalizedModel,
+      duration_seconds: sku.duration_seconds,
     });
   }
 
@@ -2011,7 +2036,12 @@ export class CreatorApi {
       if (
         preflight === null ||
         preflight.model !== payload.model ||
-        preflight.estimated_credits !== REAL_GENERATION_CREDITS[payload.model]
+        preflight.duration_seconds !== payload.duration_seconds ||
+        preflight.estimated_credits !==
+          realGenerationSku(
+            payload.model,
+            payload.duration_seconds,
+          )?.estimated_credits
       ) {
         throw new CreatorApiError(
           "Runway не подтвердил готовность выбранной модели. Платный запуск не создан.",
@@ -2520,20 +2550,20 @@ function validContentReviewTechnicalMetrics(value) {
     && Math.abs(
       sampledAt.at(-1) - value.timeline_atlas_last_second,
     ) <= 0.002;
-  const continuityScanValid = value.duration_seconds <= 10
+  const continuityScanValid = value.duration_seconds <= 15
     ? value.continuity_scan_status === "completed"
       && value.continuity_scan_strategy === "browser_presented_frames_v1"
       && Number.isInteger(value.continuity_scan_callback_count)
       && value.continuity_scan_callback_count >= 2
-      && value.continuity_scan_callback_count <= 2_400
+      && value.continuity_scan_callback_count <= 3_600
       && Number.isInteger(value.continuity_scan_presented_frame_count)
       && value.continuity_scan_presented_frame_count ===
         value.continuity_scan_callback_count
       && value.continuity_scan_presented_frame_count <= 10_000
       && Number.isInteger(value.continuity_scan_missed_frame_count)
       && value.continuity_scan_missed_frame_count === 0
-      && finiteInRange("continuity_scan_first_second", 0, 10)
-      && finiteInRange("continuity_scan_last_second", 0, 10)
+      && finiteInRange("continuity_scan_first_second", 0, 15)
+      && finiteInRange("continuity_scan_last_second", 0, 15)
       && value.continuity_scan_last_second >
         value.continuity_scan_first_second
       && value.continuity_scan_last_second <= value.duration_seconds
@@ -2564,7 +2594,7 @@ function validContentReviewTechnicalMetrics(value) {
       && value.continuity_scan_strategy === "browser_presented_frames_v1"
       && value.continuity_scan_not_applicable_reason ===
         "duration_above_short_video_limit"
-      && value.continuity_scan_duration_limit_seconds === 10;
+      && value.continuity_scan_duration_limit_seconds === 15;
   if (
     sourceType !== "video"
     || !Number.isInteger(Number(value.frame_count))

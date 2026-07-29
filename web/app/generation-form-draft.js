@@ -18,6 +18,7 @@ const PLATFORMS = new Set([
   "wildberries",
 ]);
 const FORMATS = new Set(["9:16", "1:1", "16:9", "2048:2048"]);
+const VIDEO_DURATIONS = new Set(["2", "4", "5", "8", "10", "12", "15"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export const GENERATION_FORM_DRAFT_VERSION = 1;
@@ -64,6 +65,7 @@ export function buildGenerationFormDraft(value = {}, {
     ? String(value.generation_mode)
     : "mock";
   const real = mode !== "mock";
+  const durationSeconds = String(value.duration_seconds ?? "").trim();
   const productCategory = String(value.product_category || "").trim();
   const platform = String(value.platform || "").trim();
   const format = String(value.format || "").trim();
@@ -79,6 +81,13 @@ export function buildGenerationFormDraft(value = {}, {
     context: normalizedContext(context),
     values: {
       generation_mode: mode,
+      duration_seconds: VIDEO_DURATIONS.has(durationSeconds)
+        ? durationSeconds
+        : mode === "real_seedance"
+          ? "8"
+          : mode === "real_gen4"
+            ? "5"
+            : "",
       campaign_id: optionalUuid(value.campaign_id),
       sku: boundedText(value.sku, 120),
       product_name: boundedText(value.product_name, 180),

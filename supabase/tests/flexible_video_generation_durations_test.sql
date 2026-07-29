@@ -1,0 +1,107 @@
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions, pg_temp, pg_catalog;
+
+select plan(11);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'gen4_turbo', '2'::jsonb, 'false'::jsonb, '9:16',
+    'RUNWAY_GEN4_TURBO_2S_USD_0.10'
+  ) -> 'estimated_credits',
+  '10'::jsonb,
+  'Gen-4 two-second price is bound to ten credits'
+);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'gen4_turbo', '10'::jsonb, 'false'::jsonb, '16:9',
+    'RUNWAY_GEN4_TURBO_10S_USD_0.50'
+  ) -> 'estimated_credits',
+  '50'::jsonb,
+  'Gen-4 ten-second price is bound to fifty credits'
+);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'seedance2_fast', '4'::jsonb, 'true'::jsonb, '9:16',
+    'RUNWAY_SEEDANCE2_FAST_4S_AUDIO_USD_1.16'
+  ) -> 'estimated_credits',
+  '116'::jsonb,
+  'Seedance four-second price is bound to 116 credits'
+);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'seedance2_fast', '15'::jsonb, 'true'::jsonb, '9:16',
+    'RUNWAY_SEEDANCE2_FAST_15S_AUDIO_USD_4.35'
+  ) -> 'estimated_credits',
+  '435'::jsonb,
+  'Seedance fifteen-second price is bound to 435 credits'
+);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'gen4_turbo', '11'::jsonb, 'false'::jsonb, '9:16',
+    'RUNWAY_GEN4_TURBO_11S_USD_0.55'
+  ),
+  null::jsonb,
+  'Gen-4 durations above ten seconds fail closed'
+);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'seedance2_fast', '16'::jsonb, 'true'::jsonb, '9:16',
+    'RUNWAY_SEEDANCE2_FAST_16S_AUDIO_USD_4.64'
+  ),
+  null::jsonb,
+  'Seedance durations above fifteen seconds fail closed'
+);
+
+select is(
+  content_factory_private.real_generation_sku_config(
+    'seedance2_fast', '15'::jsonb, 'true'::jsonb, '9:16',
+    'RUNWAY_SEEDANCE2_FAST_15S_AUDIO_USD_2.32'
+  ),
+  null::jsonb,
+  'a stale eight-second confirmation cannot authorize fifteen seconds'
+);
+
+select ok(
+  to_regprocedure(
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'
+  ) is not null,
+  'the previous complete paid-start chain remains private behind v12'
+);
+
+select matches(
+  pg_get_functiondef(
+    'public.creator_start_real_generation(jsonb)'::regprocedure
+  ),
+  'real_generation_sku_binding_invalid',
+  'the final paid-start boundary binds the returned job to dynamic price'
+);
+
+select ok(
+  exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'content_factory'
+      and table_name = 'generation_provider_readiness_receipts'
+      and column_name = 'duration_seconds'
+      and is_nullable = 'NO'
+  ),
+  'provider readiness receipts are duration-specific'
+);
+
+select matches(
+  pg_get_functiondef(
+    'public.system_record_generation_provider_readiness(jsonb)'::regprocedure
+  ),
+  'duration_value \\* 29',
+  'trusted readiness recording recalculates Seedance credits'
+);
+
+select * from finish();
+rollback;

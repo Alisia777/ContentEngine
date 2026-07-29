@@ -18,6 +18,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280007_content_review_frame_continuity.sql"
 )
+EXTENSION_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607280009_generated_video_15s_continuity.sql"
+)
 PGTAP = ROOT / "supabase/tests/content_review_frame_continuity_test.sql"
 
 
@@ -139,8 +143,8 @@ def test_browser_capture_is_local_bounded_and_not_persisted_as_frames() -> None:
     api = API.read_text(encoding="utf-8")
     app = APP.read_text(encoding="utf-8")
     for marker in (
-        "CONTINUITY_SCAN_MAX_DURATION_SECONDS = 10",
-        "CONTINUITY_SCAN_MAX_FRAMES = 2_400",
+        "CONTINUITY_SCAN_MAX_DURATION_SECONDS = 15",
+        "CONTINUITY_SCAN_MAX_FRAMES = 3_600",
         "requestVideoFrameCallback",
         "captureVideoContinuityMetrics",
         "analyzeVideoContinuitySamples",
@@ -172,13 +176,16 @@ def test_edge_uses_continuity_aggregates_for_deterministic_findings() -> None:
 
 
 def test_database_continuity_metrics_are_bounded_and_non_bypassable() -> None:
-    migration = MIGRATION.read_text(encoding="utf-8")
+    migration = (
+        MIGRATION.read_text(encoding="utf-8")
+        + EXTENSION_MIGRATION.read_text(encoding="utf-8")
+    )
     pgtap = PGTAP.read_text(encoding="utf-8")
     for marker in (
         "valid_content_review_continuity_metrics",
         "content_review_evidence_continuity_metrics_valid",
         "browser_presented_frames_v1",
-        "between 2 and 2400",
+        "between 2 and 3600",
         "between 0.8 and 1",
         "continuity_raw_frames_persisted",
         "creator_commit_content_review_evidence_without_continuity_gate_v4",

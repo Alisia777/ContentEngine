@@ -510,7 +510,7 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
         'action === "refresh-generation-model-acceptance"',
         "loadGenerationModelAcceptance({ force: true })",
         "form.elements.real_spend_confirmation.checked = false",
-        "form.dataset.autoGenerationPreflightModel = sku.model",
+        "form.dataset.autoGenerationPreflightKey = generationPreflightKey(sku)",
         "Платный запуск не выполнен",
     ):
         assert token in APP
@@ -531,8 +531,8 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "./generation-model-acceptance-view.js?v=20260728.1" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260728.1" in INDEX
-    assert "./app.js?v=20260728.11" in INDEX
-    assert "./supabase-api.js?v=20260728.5" in APP
+    assert "./app.js?v=20260728.13" in INDEX
+    assert "./supabase-api.js?v=20260728.6" in APP
 
 
 def test_visible_generation_acceptance_refreshes_without_rebuilding_the_form() -> None:

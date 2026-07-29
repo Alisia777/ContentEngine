@@ -40,14 +40,24 @@ select ok(
   content_factory_private.valid_content_review_continuity_metrics(
     jsonb_build_object(
       'duration_seconds', 12,
-      'continuity_scan_status', 'not_applicable',
+      'continuity_scan_status', 'completed',
       'continuity_scan_strategy', 'browser_presented_frames_v1',
-      'continuity_scan_not_applicable_reason',
-        'duration_above_short_video_limit',
-      'continuity_scan_duration_limit_seconds', 10
+      'continuity_scan_callback_count', 360,
+      'continuity_scan_presented_frame_count', 360,
+      'continuity_scan_missed_frame_count', 0,
+      'continuity_scan_first_second', 0,
+      'continuity_scan_last_second', 11.9667,
+      'continuity_scan_coverage_ratio', 0.9972,
+      'continuity_scan_max_gap_seconds', 0.0334,
+      'continuity_black_frame_ratio', 0,
+      'continuity_longest_black_run_seconds', 0,
+      'continuity_duplicate_transition_ratio', 0.02,
+      'continuity_longest_duplicate_run_seconds', 0.0667,
+      'continuity_mean_frame_difference', 0.08,
+      'continuity_raw_frames_persisted', false
     )
   ),
-  'long videos carry an explicit bounded-scan not-applicable receipt'
+  'generated video continuity remains required through twelve seconds'
 );
 
 select ok(

@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260728.1' in APP
-    assert './content-review.css?v=20260716.3' in INDEX
-    assert './app.js?v=20260728.11' in INDEX
+    assert './content-review-view.js?v=20260728.3' in APP
+    assert './content-review.css?v=20260728.1' in INDEX
+    assert './app.js?v=20260728.13' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -471,6 +471,37 @@ def test_exact_media_is_refreshed_loaded_and_watched_before_decision() -> None:
     assert "state.api.contentReviewStatus(reviewId)" in APP
     assert "state.api.contentReviewCatalog({ limit: 50 })" in APP
     assert "Content review post-decision refresh failed" in APP
+
+
+def test_exact_video_has_conservative_platform_safe_zone_preview() -> None:
+    for platform in ("instagram", "tiktok", "youtube", "vk"):
+        assert f"{platform}: Object.freeze(" in VIEW
+        assert f'data-safe-zone-platform="${{escapeHtml(normalizedPlatform)}}"'
+    for marker in (
+        "PLATFORM_SAFE_ZONE_GUIDES",
+        "platformSafeZoneVideoMarkup(run.input?.platform, exactVideo)",
+        "data-content-review-safe-zone-toggle",
+        "data-content-review-safe-zone-stage",
+        "syncContentReviewSafeZoneStage",
+        "media.videoWidth / media.videoHeight",
+        "--content-review-exact-video-width",
+        "--content-review-exact-video-ratio",
+        "Показывать зоны риска интерфейса",
+        "консервативный индикатор риска, а не точный шаблон публикации",
+        "нативном предпросмотре площадки",
+        'rel="noopener noreferrer"',
+        ".content-review-safe-zone__overlay",
+        ".content-review-safe-zone__frame",
+        "[data-content-review-safe-zone-toggle]:not(:checked)",
+        '@media (max-width: 560px)',
+    ):
+        assert marker in VIEW or marker in STYLES
+    assert "pointer-events: none" in STYLES
+    assert "syncContentReviewSafeZoneStage(media, { clear: true })" in APP
+    assert "syncContentReviewSafeZoneStage(media);" in APP
+    assert "data-content-review-exact-media" in VIEW
+    assert 'media.addEventListener("ended", onEnded)' in APP
+    assert 'name="media_watched_confirmed"' in VIEW
 
 
 def test_generated_video_task_routes_to_content_review_instead_of_generic_acceptance() -> None:

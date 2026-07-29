@@ -393,12 +393,16 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert 'provider: "runway"' in adapter
     assert 'gen4_turbo: Object.freeze' in adapter
     assert 'seedance2_fast: Object.freeze' in adapter
-    assert "duration_seconds: 5" in adapter
-    assert "duration_seconds: 8" in adapter
+    assert "min_duration_seconds: 2" in adapter
+    assert "max_duration_seconds: 10" in adapter
+    assert "credits_per_second: 5" in adapter
+    assert "min_duration_seconds: 4" in adapter
+    assert "max_duration_seconds: 15" in adapter
+    assert "credits_per_second: 29" in adapter
     assert "audio: true" in adapter
     assert "allow_real_spend: true" in adapter
-    assert 'confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25"' in adapter
-    assert 'confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32"' in adapter
+    assert "`RUNWAY_GEN4_TURBO_${duration}S_USD_${estimatedUsd}`" in adapter
+    assert "`RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`" in adapter
     assert "batch?.spend_confirmation !== sku.confirmation" in adapter
     assert "media_ids.length !== 1" in adapter
     assert "edge:${REAL_GENERATION_FUNCTION}" in adapter
@@ -452,7 +456,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260728.11' in index
+    assert './app.js?v=20260728.13' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

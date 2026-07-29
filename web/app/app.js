@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260728.5";
+} from "./supabase-api.js?v=20260728.6";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -31,7 +31,7 @@ import {
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260728.1";
+} from "./generation-provider-readiness.js?v=20260728.2";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
@@ -62,7 +62,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260728.3";
+} from "./content-generation-handoff.js?v=20260728.4";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -76,7 +76,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260727.1";
+} from "./generation-form-draft.js?v=20260728.2";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -101,8 +101,9 @@ import {
   normalizeContentReviewRun,
   readContentReviewDecision,
   readContentReviewForm,
+  syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260728.1";
+} from "./content-review-view.js?v=20260728.3";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -404,12 +405,14 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
     model: "gen4_turbo",
     durationSeconds: 5,
+    durationOptions: Object.freeze([2, 5, 8, 10]),
+    creditsPerSecond: 5,
     audio: false,
     format: null,
     promptMaxLength: 1000,
@@ -423,6 +426,8 @@ const REAL_GENERATION_SKUS = Object.freeze({
     contentKind: "video",
     model: "seedance2_fast",
     durationSeconds: 8,
+    durationOptions: Object.freeze([4, 8, 12, 15]),
+    creditsPerSecond: 29,
     audio: true,
     format: "9:16",
     promptMaxLength: 1200,
@@ -1315,6 +1320,7 @@ function generationFormDraftValues(form) {
   if (!form) return null;
   return {
     generation_mode: String(form.elements.generation_mode?.value || "mock"),
+    duration_seconds: String(form.elements.duration_seconds?.value || ""),
     campaign_id: String(form.elements.campaign_id?.value || ""),
     sku: String(form.elements.sku?.value || ""),
     product_name: String(form.elements.product_name?.value || ""),
@@ -1421,6 +1427,7 @@ function restoreGenerationFormDraft(form) {
   };
   for (const name of [
     "product_category",
+    "duration_seconds",
     "platform",
     "destination_ref",
     "assignee_id",
@@ -7331,8 +7338,58 @@ function renderHomeSection(homeState) {
   `;
 }
 
-function realGenerationSku(mode) {
-  return REAL_GENERATION_SKUS[String(mode || "")] || null;
+function realGenerationSku(mode, duration = null) {
+  const base = REAL_GENERATION_SKUS[String(mode || "")];
+  if (!base) return null;
+  const requestedDuration = Number(duration);
+  const durationSeconds = base.contentKind === "photo"
+    ? 0
+    : base.durationOptions.includes(requestedDuration)
+      ? requestedDuration
+      : base.durationSeconds;
+  if (durationSeconds === base.durationSeconds) return base;
+  const estimatedCredits = base.creditsPerSecond * durationSeconds;
+  const estimatedUsd = (estimatedCredits / 100).toFixed(2);
+  return Object.freeze({
+    ...base,
+    durationSeconds,
+    estimatedCredits,
+    estimatedMinor: estimatedCredits,
+    estimatedUsd,
+    confirmation: base.model === "seedance2_fast"
+      ? `RUNWAY_SEEDANCE2_FAST_${durationSeconds}S_AUDIO_USD_${estimatedUsd}`
+      : `RUNWAY_GEN4_TURBO_${durationSeconds}S_USD_${estimatedUsd}`,
+    label: base.model === "seedance2_fast"
+      ? `Блогер + голос · ${durationSeconds} секунд · ≈ $${estimatedUsd}`
+      : `Анимация товара · ${durationSeconds} секунд · без голоса · ≈ $${estimatedUsd}`,
+  });
+}
+
+function generationSkuForForm(form) {
+  return realGenerationSku(
+    form?.elements?.generation_mode?.value,
+    form?.elements?.duration_seconds?.value,
+  );
+}
+
+function affordableGenerationSku(mode, campaignId = "") {
+  const base = realGenerationSku(mode);
+  if (!base) return null;
+  const durations = base.contentKind === "photo"
+    ? [0]
+    : [
+      base.durationSeconds,
+      ...base.durationOptions.filter(
+        (duration) => duration !== base.durationSeconds,
+      ),
+    ];
+  return durations
+    .map((duration) => realGenerationSku(mode, duration))
+    .find((sku) => realGenerationSpendAllowed(
+      mode,
+      campaignId,
+      sku.durationSeconds,
+    )) || null;
 }
 
 function generationAssignableMembers() {
@@ -7385,8 +7442,8 @@ function activeGenerationCampaigns() {
     .filter((campaign) => campaign.id && campaign.enabled && !campaign.blockerCode);
 }
 
-function realGenerationSpendAllowed(mode, campaignId = "") {
-  const sku = realGenerationSku(mode);
+function realGenerationSpendAllowed(mode, campaignId = "", duration = null) {
+  const sku = realGenerationSku(mode, duration);
   if (!sku) return true;
   if (!state.generationSpend.data || state.generationSpend.status !== "ready") return false;
   return generationSpendAllowsMinor(
@@ -7451,6 +7508,8 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
     handoff,
     mode,
     activeGenerationLearningPolicy(form),
+    null,
+    generationSkuForForm(form)?.durationSeconds,
   );
   const brief = form.elements.brief;
   const previousAutoPrompt = String(handoff._appliedPrompt || "");
@@ -7464,6 +7523,7 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
   const inspected = inspectContentGenerationPrompt(brief?.value || "", mode, {
     productName: handoff.productName,
     avoidClaims: handoff.creativeBrief?.avoidClaims || [],
+    durationSeconds: generationSkuForForm(form)?.durationSeconds,
   });
   const compilerWarnings = brief?.value === compiled.prompt ? compiled.warnings : [];
   const evaluation = {
@@ -7497,7 +7557,7 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
 
 function generationFormReadiness(form) {
   const mode = String(form?.elements?.generation_mode?.value || "mock");
-  const sku = realGenerationSku(mode);
+  const sku = generationSkuForForm(form);
   const mediaCount = form
     ? form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)').length
     : 0;
@@ -7514,6 +7574,7 @@ function generationFormReadiness(form) {
     spendAllowed: !sku || realGenerationSpendAllowed(
       mode,
       form?.elements?.campaign_id?.value || "",
+      sku.durationSeconds,
     ),
     confirmationMatches: !sku || (
       form?.elements?.real_spend_confirmation?.checked === true
@@ -7538,6 +7599,7 @@ function generationPromptInspection(form) {
     {
       productName: identity?.productName || form.elements.product_name?.value || "",
       avoidClaims: matchingHandoff ? handoff.creativeBrief?.avoidClaims || [] : [],
+      durationSeconds: generationSkuForForm(form)?.durationSeconds,
     },
   );
 }
@@ -7552,7 +7614,7 @@ function syncGenerationFormReadiness(form) {
     if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
   }
   const mode = String(form.elements.generation_mode?.value || "mock");
-  const sku = realGenerationSku(mode);
+  const sku = generationSkuForForm(form);
   const learningKey = generationLearningKey(form);
   const learningStateMatches = Boolean(
     learningKey && state.generationLearning.key === learningKey,
@@ -7582,6 +7644,7 @@ function syncGenerationFormReadiness(form) {
     const spendAllowed = !sku || realGenerationSpendAllowed(
       mode,
       form.elements.campaign_id?.value || "",
+      sku.durationSeconds,
     );
     submit.disabled = busy
       || !readiness.ready
@@ -7640,6 +7703,8 @@ function applyContentGenerationHandoffToForm() {
       handoff,
       handoffMode,
       activeGenerationLearningPolicy(form),
+      null,
+      generationSkuForForm(form)?.durationSeconds,
     );
     if (form.elements.brief) form.elements.brief.value = compiled.prompt;
     handoff._appliedPrompt = compiled.prompt;
@@ -7724,10 +7789,10 @@ function renderGenerationSection(sectionState) {
   const aliases = listFrom(data, "wb_aliases", "aliases");
   const generationCampaigns = activeGenerationCampaigns();
   const seedanceCampaign = generationCampaigns.find((campaign) =>
-    realGenerationSpendAllowed(REAL_SEEDANCE_MODE, campaign.id)
+    affordableGenerationSku(REAL_SEEDANCE_MODE, campaign.id)
   );
   const gen4Campaign = generationCampaigns.find((campaign) =>
-    realGenerationSpendAllowed(REAL_GEN4_MODE, campaign.id)
+    affordableGenerationSku(REAL_GEN4_MODE, campaign.id)
   );
   const photoCampaign = generationCampaigns.find((campaign) =>
     realGenerationSpendAllowed(REAL_PHOTO_MODE, campaign.id)
@@ -7783,7 +7848,10 @@ function renderGenerationSection(sectionState) {
       : defaultMode === REAL_PHOTO_MODE
         ? photoCampaign?.id || ""
         : seedanceCampaign?.id || gen4Campaign?.id || photoCampaign?.id || generationCampaigns[0]?.id || "";
-  const defaultRealSku = realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
+  const defaultRealSku = affordableGenerationSku(
+    defaultMode,
+    defaultCampaignId,
+  ) || realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
   const automaticMediaId = repairReady
     ? repairPolicy.inputMediaId
@@ -7869,7 +7937,7 @@ function renderGenerationSection(sectionState) {
         <section class="card card-pad">
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
-          <p class="muted tiny">Dry-run создаёт задачи и места публикации, но не рендерит фото или видео. Платные режимы создают ровно один медиафайл: квадратное фото 2K, 5-секундную анимацию или 8-секундного блогера с озвучкой.</p>
+          <p class="muted tiny">Dry-run создаёт задачи и места публикации, но не рендерит фото или видео. Платные режимы создают ровно один медиафайл: квадратное фото 2K, анимацию товара на 2–10 секунд или UGC-ролик с голосом на 4–15 секунд.</p>
           ${contentGenerationHandoffMarkup(
             handoff,
             handoffEvaluation,
@@ -7902,6 +7970,13 @@ function renderGenerationSection(sectionState) {
                   <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${REAL_GENERATION_SKUS[REAL_GEN4_MODE].label}${gen4SpendAllowed ? "" : " · лимит"}</option>
                 ` : ""}
               </select>
+            </label>
+            <label class="field" id="generation-duration-field" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "hidden"}>
+              <span>Длительность одного ролика *</span>
+              <select name="duration_seconds" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "required" : "disabled"}>
+                ${[2, 4, 5, 8, 10, 12, 15].map((duration) => `<option value="${duration}" ${duration === defaultRealSku.durationSeconds ? "selected" : ""}>${duration} секунд</option>`).join("")}
+              </select>
+              <small class="field-hint">Gen‑4 Turbo: 2, 5, 8 или 10 секунд. Seedance 2 Fast: 4, 8, 12 или 15 секунд. Цена пересчитывается до подтверждения.</small>
             </label>
             <div id="generation-mock-explanation" class="alert alert-info" role="status" ${defaultIsReal ? "hidden" : ""}>
               <strong aria-hidden="true">i</strong>
@@ -8876,6 +8951,7 @@ function realGenerationDraftFromPayload(payload, mode) {
     product_category: payload.product_category,
     count: "1",
     format: payload.format,
+    duration_seconds: payload.duration_seconds,
     brief: payload.brief,
     media_ids: [...payload.media_ids],
     platform: payload.platform,
@@ -8898,7 +8974,7 @@ function restoreRealGenerationDraft(jobId) {
   };
   setValue("generation_mode", draft.generation_mode);
   setValue("campaign_id", draft.campaign_id);
-  for (const name of ["sku", "product_name", "product_category", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
+  for (const name of ["sku", "product_name", "product_category", "duration_seconds", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
     setValue(name, draft[name]);
   }
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
@@ -9699,6 +9775,7 @@ function bindContentReviewDecisionMedia() {
     const onLoadStart = () => {
       loadedSource = "";
       delete media.dataset.contentReviewEndedSrc;
+      syncContentReviewSafeZoneStage(media, { clear: true });
       setLocked("loading", "Загружаем метаданные MP4. После загрузки воспроизведите этот же файл до конца.");
     };
     const onLoadedMetadata = () => {
@@ -9707,6 +9784,7 @@ function bindContentReviewDecisionMedia() {
         onError();
         return;
       }
+      syncContentReviewSafeZoneStage(media);
       media.dataset.contentReviewLoadedSrc = loadedSource;
       setLocked("metadata", "MP4 доступен. Воспроизведите этот же файл до события окончания; затем подтвердите личный просмотр.");
     };
@@ -12095,7 +12173,7 @@ function handleChange(event) {
   }
 
   const generationForm = event.target.closest("#mock-batch-form");
-  if (generationForm && ["generation_mode", "campaign_id", "platform"].includes(event.target.name)) {
+  if (generationForm && ["generation_mode", "duration_seconds", "campaign_id", "platform"].includes(event.target.name)) {
     if (event.target.name === "platform") {
       delete generationForm.dataset.autoGenerationPlatform;
       syncGenerationDestination(generationForm);
@@ -12104,7 +12182,9 @@ function handleChange(event) {
       syncGenerationModeForm(generationForm);
     }
     syncContentGenerationHandoff(generationForm, {
-      rebuildPrompt: event.target.name === "generation_mode",
+      rebuildPrompt: ["generation_mode", "duration_seconds"].includes(
+        event.target.name,
+      ),
     });
   } else if (generationForm && event.target.name === "media_id") {
     generationForm.dataset.generationMediaSelectionTouched = "true";
@@ -12302,10 +12382,10 @@ function selectedGenerationProductIdentity(form) {
 
 function generationLearningKey(form, identity = selectedGenerationProductIdentity(form)) {
   const mode = String(form?.elements?.generation_mode?.value || "");
-  const sku = realGenerationSku(mode);
+  const sku = generationSkuForForm(form);
   const platform = String(form?.elements?.platform?.value || "").trim().toLowerCase();
   if (!form || !identity || !sku || !platform) return "";
-  return [identity.mediaId, sku.model, platform].join(":");
+  return [identity.mediaId, sku.model, sku.durationSeconds, platform].join(":");
 }
 
 function generationRepairMode(model) {
@@ -12342,7 +12422,7 @@ function prepareGenerationAcceptance(model) {
 
   // This action prepares fields only. Suppress the automatic provider
   // preflight that a regular manual mode change would schedule.
-  form.dataset.autoGenerationPreflightModel = sku.model;
+  form.dataset.autoGenerationPreflightKey = generationPreflightKey(sku);
   form.dataset.dirty = "true";
   syncGenerationModeForm(form);
   syncContentGenerationHandoff(form, { rebuildPrompt: true });
@@ -12705,6 +12785,7 @@ async function prepareGenerationLearningFallback(
       const candidateKey = [
         identity.mediaId,
         sku?.model || "",
+        sku?.durationSeconds ?? "",
         platformResolution.value,
       ].join(":");
       return {
@@ -12797,7 +12878,7 @@ async function prepareGenerationLearningFallback(
   }
   // Fallback only prepares another server-checked policy. It must never
   // contact the paid provider or carry price confirmation across models.
-  form.dataset.autoGenerationPreflightModel = candidate.sku.model;
+  form.dataset.autoGenerationPreflightKey = generationPreflightKey(candidate.sku);
   form.dataset.dirty = "true";
   const candidateKey = generationLearningKey(form, identity);
   if (!candidateKey || candidateKey !== candidate.key) return null;
@@ -12838,7 +12919,7 @@ async function loadGenerationLearningPolicy(
   { force = false, automaticRetry = false } = {},
 ) {
   const key = generationLearningKey(form, identity);
-  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  const sku = generationSkuForForm(form);
   const platform = String(form?.elements?.platform?.value || "").trim().toLowerCase();
   if (!key || !sku || !identity) {
     syncGenerationLearningStatus(form);
@@ -12989,6 +13070,7 @@ function automaticGenerationBriefCandidate(form, identity) {
       mode,
       learningPolicy,
       repairPolicy,
+      generationSkuForForm(form)?.durationSeconds,
     );
   }
   return compileSafeGenerationBrief({
@@ -12997,6 +13079,7 @@ function automaticGenerationBriefCandidate(form, identity) {
     productName: identity.productName,
     learningPolicy,
     repairPolicy,
+    durationSeconds: generationSkuForForm(form)?.durationSeconds,
   });
 }
 
@@ -13236,11 +13319,33 @@ function syncGenerationDestination(form) {
 
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
-  const sku = realGenerationSku(mode);
-  cancelInactiveGenerationPreflightRetries(sku);
-  const real = sku !== null;
+  const baseSku = realGenerationSku(mode);
+  const durationField = form.querySelector("#generation-duration-field");
+  const durationControl = form.elements.duration_seconds;
+  const real = baseSku !== null;
   const seedance = mode === REAL_SEEDANCE_MODE;
   const photo = mode === REAL_PHOTO_MODE;
+  if (durationField) durationField.hidden = !real || photo;
+  if (durationControl) {
+    durationControl.disabled = !real || photo;
+    durationControl.required = real && !photo;
+    Array.from(durationControl.options).forEach((option) => {
+      option.disabled = Boolean(
+        real
+        && !photo
+        && !baseSku.durationOptions.includes(Number(option.value)),
+      );
+    });
+    if (
+      real
+      && !photo
+      && !baseSku.durationOptions.includes(Number(durationControl.value))
+    ) {
+      durationControl.value = String(baseSku.durationSeconds);
+    }
+  }
+  const sku = realGenerationSku(mode, durationControl?.value);
+  cancelInactiveGenerationPreflightRetries(sku);
   const count = form.elements.count;
   const brief = form.elements.brief;
   const format = form.elements.format;
@@ -13261,7 +13366,11 @@ function syncGenerationModeForm(form) {
   const preflightButton = form.querySelector('[data-action="check-runway-readiness"]');
   const briefHint = form.querySelector("#generation-brief-hint");
   const briefLabel = form.querySelector("#generation-brief-label");
-  const spendAllowed = !real || realGenerationSpendAllowed(mode, campaignSelect?.value || "");
+  const spendAllowed = !real || realGenerationSpendAllowed(
+    mode,
+    campaignSelect?.value || "",
+    sku?.durationSeconds,
+  );
 
   if (count) {
     if (real) {
@@ -13345,7 +13454,7 @@ function syncGenerationModeForm(form) {
       ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией."
       : photo
         ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст."
-        : "Этот режим создаёт видео без сгенерированной речи.";
+        : `Этот режим создаёт ${sku.durationSeconds}-секундное видео без сгенерированной речи.`;
   }
   if (confirmationTitle && sku) {
     confirmationTitle.textContent = `Подтверждаю создание одного платного ${photo ? "фото" : "видео"}`;
@@ -13363,7 +13472,7 @@ function syncGenerationModeForm(form) {
       : photo
         ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар."
         : real
-          ? "Авто-ТЗ соберёт один 5-секундный проход камеры без речи и новых надписей."
+          ? `Авто-ТЗ соберёт один ${sku.durationSeconds}-секундный проход камеры без речи и новых надписей.`
           : "Необязательно: добавьте инструкцию исполнителю. Этот текст не запускает рендер.";
   }
   if (briefLabel) {
@@ -13765,6 +13874,7 @@ function validateGenerationPreflight(result, sku) {
   if (
     preflight === null
     || preflight.model !== sku.model
+    || preflight.duration_seconds !== sku.durationSeconds
     || preflight.estimated_credits !== sku.estimatedCredits
   ) {
     const failure = new Error("Runway preflight response invalid");
@@ -13781,8 +13891,12 @@ function hydrateGenerationProviderReadiness(value) {
     nowMs,
   });
   for (const preflight of receipts) {
+    const key = generationPreflightKey({
+      model: preflight.model,
+      durationSeconds: preflight.duration_seconds,
+    });
     const previous = state.generationPreflight.entries.get(
-      preflight.model,
+      key,
     );
     const serverCheckedAt = Date.parse(preflight.checked_at);
     if (
@@ -13793,7 +13907,7 @@ function hydrateGenerationProviderReadiness(value) {
         && previous.serverCheckedAt >= serverCheckedAt
       )
     ) continue;
-    state.generationPreflight.entries.set(preflight.model, {
+    state.generationPreflight.entries.set(key, {
       status: "ready",
       checkedAt: Math.min(serverCheckedAt, nowMs),
       serverCheckedAt,
@@ -13802,7 +13916,7 @@ function hydrateGenerationProviderReadiness(value) {
       errorCode: "",
       requestId: state.generationPreflight.requestId,
       promise: null,
-      retryKey: preflight.model,
+      retryKey: key,
       retryAttempt: 0,
       retryTimer: null,
       retryResolve: null,
@@ -13822,6 +13936,12 @@ function generationPreflightErrorCode(error) {
     : "real_generation_request_failed";
 }
 
+function generationPreflightKey(sku) {
+  return sku
+    ? `${sku.model}:${sku.durationSeconds}`
+    : "";
+}
+
 function clearGenerationPreflightRetry(entry) {
   if (!entry || typeof entry !== "object") return;
   if (entry.retryTimer !== null && entry.retryTimer !== undefined) {
@@ -13835,9 +13955,10 @@ function clearGenerationPreflightRetry(entry) {
 }
 
 function cancelInactiveGenerationPreflightRetries(activeSku = null) {
-  for (const [model, entry] of state.generationPreflight.entries) {
+  const activeKey = generationPreflightKey(activeSku);
+  for (const [key, entry] of state.generationPreflight.entries) {
     if (entry?.retryTimer === null || entry?.retryTimer === undefined) continue;
-    if (activeSku?.model === model) continue;
+    if (activeKey === key) continue;
     clearGenerationPreflightRetry(entry);
   }
 }
@@ -13875,30 +13996,29 @@ function queueGenerationPreflightRetry(
       entry.retryResolve = null;
       entry.retryAt = 0;
       const form = document.querySelector("#mock-batch-form");
-      const currentSku = realGenerationSku(
-        form?.elements?.generation_mode?.value,
-      );
+      const currentSku = generationSkuForForm(form);
       const currentEntry = state.generationPreflight.entries.get(
-        sku.model,
+        generationPreflightKey(sku),
       );
       const spendAllowed = Boolean(
         form
         && realGenerationSpendAllowed(
           String(form.elements.generation_mode?.value || ""),
           form.elements.campaign_id?.value || "",
+          currentSku?.durationSeconds,
         )
       );
       resolve(Boolean(
         requestEpoch === state.dataEpoch
         && requestUserId === state.user?.id
         && form?.isConnected
-        && currentSku?.model === sku.model
+        && generationPreflightKey(currentSku) === generationPreflightKey(sku)
         && currentEntry === entry
         && spendAllowed
       ));
     }, delay);
   });
-  syncCurrentGenerationPreflightUi(sku.model);
+  syncCurrentGenerationPreflightUi(generationPreflightKey(sku));
   const recovery = wait.then((current) => {
     if (!current) return { ok: false, stale: true };
     const form = document.querySelector("#mock-batch-form");
@@ -13924,7 +14044,8 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
     return;
   }
 
-  const entry = state.generationPreflight.entries.get(sku.model) || {
+  const key = generationPreflightKey(sku);
+  const entry = state.generationPreflight.entries.get(key) || {
     status: "idle",
   };
   const retryScheduled = entry.retryAt > Date.now();
@@ -13958,25 +14079,30 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
   }
 }
 
-function syncCurrentGenerationPreflightUi(model) {
+function syncCurrentGenerationPreflightUi(key) {
   const form = document.querySelector("#mock-batch-form");
-  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
-  if (!form || !sku || sku.model !== model) return;
+  const sku = generationSkuForForm(form);
+  if (!form || !sku || generationPreflightKey(sku) !== key) return;
   const spendAllowed = realGenerationSpendAllowed(
     String(form.elements.generation_mode?.value || ""),
     form.elements.campaign_id?.value || "",
+    sku.durationSeconds,
   );
   syncGenerationPreflightUi(form, sku, { automaticAllowed: spendAllowed });
 }
 
 function scheduleAutomaticGenerationPreflight(form) {
-  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  const sku = generationSkuForForm(form);
   if (!form || !sku || !state.api || state.realGenerationStartInFlight) return;
-  if (form.dataset.autoGenerationPreflightModel === sku.model) return;
-  form.dataset.autoGenerationPreflightModel = sku.model;
+  const key = generationPreflightKey(sku);
+  if (form.dataset.autoGenerationPreflightKey === key) return;
+  form.dataset.autoGenerationPreflightKey = key;
   window.queueMicrotask(() => {
-    const currentSku = realGenerationSku(form.elements.generation_mode?.value);
-    if (!form.isConnected || currentSku?.model !== sku.model) return;
+    const currentSku = generationSkuForForm(form);
+    if (
+      !form.isConnected
+      || generationPreflightKey(currentSku) !== key
+    ) return;
     void runGenerationPreflight(form);
   });
 }
@@ -13989,14 +14115,15 @@ async function runGenerationPreflight(
     awaitRetry = false,
   } = {},
 ) {
-  const sku = realGenerationSku(form?.elements?.generation_mode?.value);
+  const sku = generationSkuForForm(form);
   if (!form || !sku || !state.api) {
     return {
       ok: false,
       errorMessage: "Выберите платный режим, который нужно проверить.",
     };
   }
-  const previous = state.generationPreflight.entries.get(sku.model) || {
+  const key = generationPreflightKey(sku);
+  const previous = state.generationPreflight.entries.get(key) || {
     status: "idle",
   };
   const decision = generationPreflightDecision(previous, {
@@ -14020,7 +14147,7 @@ async function runGenerationPreflight(
 
   const continueRetrySeries = Boolean(
     automaticRetry
-    && previous.retryKey === sku.model
+    && previous.retryKey === key
     && Number.isSafeInteger(previous.retryAttempt),
   );
   clearGenerationPreflightRetry(previous);
@@ -14034,7 +14161,7 @@ async function runGenerationPreflight(
     errorCode: "",
     requestId: state.generationPreflight.requestId + 1,
     promise: null,
-    retryKey: sku.model,
+    retryKey: key,
     retryAttempt: continueRetrySeries
       ? previous.retryAttempt + 1
       : 1,
@@ -14043,12 +14170,15 @@ async function runGenerationPreflight(
     retryAt: 0,
   };
   state.generationPreflight.requestId = entry.requestId;
-  state.generationPreflight.entries.set(sku.model, entry);
+  state.generationPreflight.entries.set(key, entry);
   syncGenerationPreflightUi(form, sku);
   const request = (async () => {
     try {
       const result = await withUiTimeout(
-        state.api.realGenerationPreflight(sku.model),
+        state.api.realGenerationPreflight(
+          sku.model,
+          sku.durationSeconds,
+        ),
         REAL_GENERATION_SOFT_TIMEOUT_MS,
         "Runway preflight timeout",
       );
@@ -14058,9 +14188,9 @@ async function runGenerationPreflight(
         requestEpoch !== state.dataEpoch
         || requestUserId !== state.user?.id
         || !currentForm?.isConnected
-        || realGenerationSku(
-          currentForm.elements.generation_mode?.value,
-        )?.model !== sku.model
+        || generationPreflightKey(
+          generationSkuForForm(currentForm),
+        ) !== key
       ) return { ok: false, stale: true };
       entry.status = "ready";
       entry.checkedAt = Date.now();
@@ -14073,9 +14203,9 @@ async function runGenerationPreflight(
         requestEpoch !== state.dataEpoch
         || requestUserId !== state.user?.id
         || !currentForm?.isConnected
-        || realGenerationSku(
-          currentForm.elements.generation_mode?.value,
-        )?.model !== sku.model
+        || generationPreflightKey(
+          generationSkuForForm(currentForm),
+        ) !== key
       ) return { ok: false, stale: true };
       entry.status = "error";
       entry.checkedAt = Date.now();
@@ -14094,7 +14224,7 @@ async function runGenerationPreflight(
       };
     } finally {
       entry.promise = null;
-      syncCurrentGenerationPreflightUi(sku.model);
+      syncCurrentGenerationPreflightUi(key);
     }
   })();
   entry.promise = request;
@@ -14112,7 +14242,7 @@ async function runGenerationPreflight(
 async function checkRunwayReadiness(control) {
   const form = control.closest("#mock-batch-form");
   const mode = String(form?.elements?.generation_mode?.value || "");
-  const sku = realGenerationSku(mode);
+  const sku = generationSkuForForm(form);
   if (!form || !sku) {
     toast("Выберите платный режим, который нужно проверить.", "error");
     return;
@@ -14134,11 +14264,9 @@ async function checkRunwayReadiness(control) {
 }
 
 async function runGenerationPreflightForPaidStart(form) {
-  const sku = realGenerationSku(
-    form?.elements?.generation_mode?.value,
-  );
+  const sku = generationSkuForForm(form);
   const existing = sku
-    ? state.generationPreflight.entries.get(sku.model)
+    ? state.generationPreflight.entries.get(generationPreflightKey(sku))
     : null;
   if (existing?.status === "loading" && existing.promise) {
     await existing.promise;
@@ -14223,7 +14351,10 @@ async function submitRealGeneration(form, values, mode) {
     toast("Платная генерация выключена в конфигурации портала.", "error");
     return;
   }
-  const generationSku = realGenerationSku(mode);
+  const generationSku = realGenerationSku(
+    mode,
+    values.get("duration_seconds"),
+  );
   if (!generationSku) {
     toast("Выберите точный платный режим генерации.", "error");
     return;
@@ -14233,7 +14364,11 @@ async function submitRealGeneration(form, values, mode) {
     toast("Выберите активную кампанию из свежей денежной сводки.", "error");
     return;
   }
-  if (!realGenerationSpendAllowed(mode, campaignId)) {
+  if (!realGenerationSpendAllowed(
+    mode,
+    campaignId,
+    generationSku.durationSeconds,
+  )) {
     const overview = normalizeGenerationSpendOverview(state.generationSpend.data || {});
     toast(overview.blockerMessage || "Для выбранной цены не хватает утверждённого денежного остатка. Dry-run задач без файлов остаётся доступен.", "error");
     await loadGenerationSpendOverview({ silent: true, force: true });

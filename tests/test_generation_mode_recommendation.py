@@ -403,8 +403,8 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260728.3"'
+        'from "./content-generation-handoff.js?v=20260728.4"'
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260727.7"' in APP
-    assert './app.js?v=20260728.11' in INDEX
+    assert './app.js?v=20260728.13' in INDEX

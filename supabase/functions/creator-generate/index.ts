@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
@@ -38,10 +38,23 @@ const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
 const GEN4_RATIOS = new Set(["1280:720", "720:1280", "960:960"]);
 const SEEDANCE_FAST_RATIO = "720:1280";
 const SEEDREAM5_LITE_RATIO = "2048:2048";
-const RUNWAY_SKU_CREDITS = Object.freeze({
-  gen4_turbo: 25,
-  seedance2_fast: 232,
-  seedream5_lite: 4,
+const RUNWAY_SKU_CONFIG = Object.freeze({
+  gen4_turbo: Object.freeze({
+    minimumDuration: 2,
+    maximumDuration: 10,
+    creditsPerSecond: 5,
+  }),
+  seedance2_fast: Object.freeze({
+    minimumDuration: 4,
+    maximumDuration: 15,
+    creditsPerSecond: 29,
+  }),
+  seedream5_lite: Object.freeze({
+    minimumDuration: 0,
+    maximumDuration: 0,
+    creditsPerSecond: 0,
+    fixedCredits: 4,
+  }),
 });
 const RUNWAY_PROMPT_LIMITS = Object.freeze({
   gen4_turbo: 1_000,
@@ -309,16 +322,16 @@ type StartPayload =
   & (
     | {
       model: "gen4_turbo";
-      duration_seconds: 5;
+      duration_seconds: number;
       audio?: false;
-      spend_confirmation: "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+      spend_confirmation: string;
     }
     | {
       model: "seedance2_fast";
-      duration_seconds: 8;
+      duration_seconds: number;
       audio: true;
       format: "9:16";
-      spend_confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32";
+      spend_confirmation: string;
     }
     | {
       model: "seedream5_lite";
@@ -329,12 +342,13 @@ type StartPayload =
     }
   );
 
-type RunwayModel = keyof typeof RUNWAY_SKU_CREDITS;
+type RunwayModel = keyof typeof RUNWAY_SKU_CONFIG;
 
 type PreflightPayload = {
   action: "preflight";
   organization_id: string;
   model: RunwayModel;
+  duration_seconds: number;
 };
 
 type StatusPayload = {
@@ -368,6 +382,7 @@ type ReconciliationContext = {
 type RunwayProviderReadinessSnapshot = {
   ready: boolean;
   model: RunwayModel;
+  durationSeconds: number;
   estimatedCredits: number;
   balanceSufficient: boolean;
   modelAvailable: boolean;
@@ -384,6 +399,7 @@ type RunwayProviderReadiness =
   | {
     ready: false;
     model: RunwayModel;
+    durationSeconds: number;
     estimatedCredits: number;
     balanceSufficient: boolean;
     modelAvailable: boolean;
@@ -406,7 +422,7 @@ type StartJob = {
   status: string;
   provider: "runway";
   model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
-  durationSeconds: 0 | 5 | 8;
+  durationSeconds: number;
   audio: boolean;
   ratio: string;
   promptText: string;
@@ -427,7 +443,7 @@ type StatusJob = {
   provider: "runway";
   providerTaskId: string | null;
   model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
-  durationSeconds: 0 | 5 | 8;
+  durationSeconds: number;
   audio: boolean;
   ratio: string;
   estimatedCostMinor: number;
@@ -457,7 +473,7 @@ type SafeJob = {
   provider: "runway";
   provider_task_id: string | null;
   model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
-  duration_seconds: 0 | 5 | 8;
+  duration_seconds: number;
   audio: boolean;
   ratio: string;
   estimated_cost_minor: number;
@@ -599,6 +615,51 @@ function readRunwayModel(value: unknown): RunwayModel | null {
     : null;
 }
 
+function readRunwayGenerationSku(
+  model: RunwayModel,
+  durationSeconds: unknown,
+): {
+  model: RunwayModel;
+  durationSeconds: number;
+  estimatedCredits: number;
+  estimatedUsd: string;
+  confirmation: string;
+} | null {
+  const duration = Number(durationSeconds);
+  const config = RUNWAY_SKU_CONFIG[model];
+  if (
+    !Number.isInteger(duration) ||
+    duration < config.minimumDuration ||
+    duration > config.maximumDuration
+  ) return null;
+  if (model === "seedream5_lite") {
+    return duration === 0
+      ? {
+        model,
+        durationSeconds: 0,
+        estimatedCredits: 4,
+        estimatedUsd: "0.04",
+        confirmation: "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04",
+      }
+      : null;
+  }
+  const estimatedCredits = duration * config.creditsPerSecond;
+  const estimatedUsd = (estimatedCredits / 100).toFixed(2);
+  return {
+    model,
+    durationSeconds: duration,
+    estimatedCredits,
+    estimatedUsd,
+    confirmation: model === "seedance2_fast"
+      ? `RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`
+      : `RUNWAY_GEN4_TURBO_${duration}S_USD_${estimatedUsd}`,
+  };
+}
+
+function seedanceSpokenWordLimit(durationSeconds: number): number {
+  return Math.max(10, Math.min(42, Math.floor(durationSeconds * 22 / 8)));
+}
+
 function countPromptWords(value: string): number {
   return value.match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)?.length || 0;
 }
@@ -616,11 +677,11 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
       "Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса.",
     ],
     gen4_turbo: [
-      "Создай один непрерывный вертикальный ролик длительностью 5 секунд.",
+      `Создай один непрерывный вертикальный ролик длительностью ${payload.duration_seconds} секунд.`,
       "Без речи, дикторского текста и сгенерированных надписей.",
     ],
     seedance2_fast: [
-      "Создай один непрерывный вертикальный UGC-ролик длительностью 8 секунд.",
+      `Создай один непрерывный вертикальный UGC-ролик длительностью ${payload.duration_seconds} секунд.`,
       GENERATED_TEXT_GUARD,
     ],
   };
@@ -637,7 +698,8 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
       return false;
     }
     const spokenWords = countPromptWords(spokenMatch[1]);
-    return spokenWords >= 1 && spokenWords <= 22;
+    return spokenWords >= 1 &&
+      spokenWords <= seedanceSpokenWordLimit(payload.duration_seconds);
   }
   return spokenMatch === null;
 }
@@ -680,22 +742,23 @@ function readStartPayload(value: unknown): StartPayload | null {
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
 
   const mediaIds = value.media_ids;
+  const model = readRunwayModel(value.model);
+  const sku = model === null
+    ? null
+    : readRunwayGenerationSku(model, value.duration_seconds);
   const gen4Sku = value.model === "gen4_turbo" &&
-    value.duration_seconds === 5 &&
+    sku?.model === "gen4_turbo" &&
     (!Object.hasOwn(value, "audio") || value.audio === false) &&
-    value.spend_confirmation === "RUNWAY_GEN4_TURBO_5S_USD_0.25";
+    value.spend_confirmation === sku.confirmation;
   const seedanceSku = value.model === "seedance2_fast" &&
-    value.duration_seconds === 8 && value.audio === true &&
+    sku?.model === "seedance2_fast" && value.audio === true &&
     value.format === "9:16" &&
-    value.spend_confirmation ===
-      "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32";
+    value.spend_confirmation === sku.confirmation;
   const seedreamSku = value.model === "seedream5_lite" &&
-    value.duration_seconds === 0 &&
+    sku?.model === "seedream5_lite" &&
     (!Object.hasOwn(value, "audio") || value.audio === false) &&
     value.format === "1:1" &&
-    value.spend_confirmation ===
-      "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04";
-  const model = readRunwayModel(value.model);
+    value.spend_confirmation === sku.confirmation;
   const reviewAutostartKeyPresent =
     Object.hasOwn(value, "review_autostart_confirmed") ||
     Object.hasOwn(value, "review_autostart_terms_version");
@@ -790,14 +853,23 @@ function readStartPayload(value: unknown): StartPayload | null {
 
 function readPreflightPayload(value: unknown): PreflightPayload | null {
   if (!isRecord(value)) return null;
-  const allowed = new Set(["action", "organization_id", "model"]);
+  const allowed = new Set([
+    "action",
+    "organization_id",
+    "model",
+    "duration_seconds",
+  ]);
   const model = readRunwayModel(value.model);
+  const sku = model === null
+    ? null
+    : readRunwayGenerationSku(model, value.duration_seconds);
   if (
     !hasOnlyKeys(value, allowed) ||
     Object.keys(value).length !== allowed.size ||
     value.action !== "preflight" ||
     !isUuid(value.organization_id) ||
-    model === null
+    model === null ||
+    sku === null
   ) {
     return null;
   }
@@ -805,6 +877,7 @@ function readPreflightPayload(value: unknown): PreflightPayload | null {
     action: "preflight",
     organization_id: value.organization_id,
     model,
+    duration_seconds: sku.durationSeconds,
   };
 }
 
@@ -1287,43 +1360,49 @@ function rpcPayload(payload: StartPayload | StatusPayload): Json {
 
 function readRunwaySku(job: Record<string, unknown>): {
   model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
-  durationSeconds: 0 | 5 | 8;
+  durationSeconds: number;
   audio: boolean;
   ratio: string;
   estimatedCostMinor: number;
   estimatedCredits: number;
 } | null {
+  const model = readRunwayModel(job.model);
+  const sku = model === null
+    ? null
+    : readRunwayGenerationSku(model, job.duration_seconds);
   if (
-    job.model === "gen4_turbo" && job.duration_seconds === 5 &&
+    sku?.model === "gen4_turbo" &&
     job.audio === false && typeof job.ratio === "string" &&
-    GEN4_RATIOS.has(job.ratio) && job.estimated_cost_minor === 25 &&
-    job.estimated_credits === 25
+    GEN4_RATIOS.has(job.ratio) &&
+    job.estimated_cost_minor === sku.estimatedCredits &&
+    job.estimated_credits === sku.estimatedCredits
   ) {
     return {
       model: "gen4_turbo",
-      durationSeconds: 5,
+      durationSeconds: sku.durationSeconds,
       audio: false,
       ratio: job.ratio,
-      estimatedCostMinor: 25,
-      estimatedCredits: 25,
+      estimatedCostMinor: sku.estimatedCredits,
+      estimatedCredits: sku.estimatedCredits,
     };
   }
   if (
-    job.model === "seedance2_fast" && job.duration_seconds === 8 &&
+    sku?.model === "seedance2_fast" &&
     job.audio === true && job.ratio === SEEDANCE_FAST_RATIO &&
-    job.estimated_cost_minor === 232 && job.estimated_credits === 232
+    job.estimated_cost_minor === sku.estimatedCredits &&
+    job.estimated_credits === sku.estimatedCredits
   ) {
     return {
       model: "seedance2_fast",
-      durationSeconds: 8,
+      durationSeconds: sku.durationSeconds,
       audio: true,
       ratio: SEEDANCE_FAST_RATIO,
-      estimatedCostMinor: 232,
-      estimatedCredits: 232,
+      estimatedCostMinor: sku.estimatedCredits,
+      estimatedCredits: sku.estimatedCredits,
     };
   }
   if (
-    job.model === "seedream5_lite" && job.duration_seconds === 0 &&
+    sku?.model === "seedream5_lite" &&
     job.audio === false && job.ratio === SEEDREAM5_LITE_RATIO &&
     job.estimated_cost_minor === 4 && job.estimated_credits === 4
   ) {
@@ -1647,6 +1726,7 @@ function readNonNegativeNumber(value: unknown): number | null {
 function parseRunwayOrganizationReadiness(
   value: unknown,
   model: RunwayModel,
+  durationSeconds: number,
 ): RunwayProviderReadinessSnapshot | null {
   if (!isRecord(value) || !isRecord(value.tier) || !isRecord(value.usage)) {
     return null;
@@ -1669,7 +1749,9 @@ function parseRunwayOrganizationReadiness(
   const dailyGenerations = isRecord(usageModel)
     ? readNonNegativeNumber(usageModel.dailyGenerations)
     : 0;
-  const estimatedCredits = RUNWAY_SKU_CREDITS[model];
+  const sku = readRunwayGenerationSku(model, durationSeconds);
+  if (sku === null) return null;
+  const estimatedCredits = sku.estimatedCredits;
   const modelAvailable = maxDaily !== null && maxDaily > 0;
   const balanceSufficient = creditBalance >= estimatedCredits;
   const dailyQuotaAvailable = modelAvailable &&
@@ -1677,6 +1759,7 @@ function parseRunwayOrganizationReadiness(
   return {
     ready: balanceSufficient && modelAvailable && dailyQuotaAvailable,
     model,
+    durationSeconds: sku.durationSeconds,
     estimatedCredits,
     balanceSufficient,
     modelAvailable,
@@ -1687,8 +1770,22 @@ function parseRunwayOrganizationReadiness(
 async function checkRunwayProviderReadiness(
   secret: string,
   model: RunwayModel,
+  durationSeconds: number,
 ): Promise<RunwayProviderReadiness> {
-  const estimatedCredits = RUNWAY_SKU_CREDITS[model];
+  const sku = readRunwayGenerationSku(model, durationSeconds);
+  if (sku === null) {
+    return {
+      ready: false,
+      model,
+      durationSeconds,
+      estimatedCredits: 0,
+      balanceSufficient: false,
+      modelAvailable: false,
+      dailyQuotaAvailable: false,
+      failureCode: "provider_request_rejected",
+    };
+  }
+  const estimatedCredits = sku.estimatedCredits;
   let response: Response;
   try {
     response = await fetchWithTimeout(
@@ -1707,6 +1804,7 @@ async function checkRunwayProviderReadiness(
     return {
       ready: false,
       model,
+      durationSeconds: sku.durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -1719,6 +1817,7 @@ async function checkRunwayProviderReadiness(
     return {
       ready: false,
       model,
+      durationSeconds: sku.durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -1733,6 +1832,7 @@ async function checkRunwayProviderReadiness(
     return {
       ready: false,
       model,
+      durationSeconds: sku.durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -1740,11 +1840,16 @@ async function checkRunwayProviderReadiness(
       failureCode: "provider_response_invalid",
     };
   }
-  const parsed = parseRunwayOrganizationReadiness(value, model);
+  const parsed = parseRunwayOrganizationReadiness(
+    value,
+    model,
+    sku.durationSeconds,
+  );
   if (parsed === null) {
     return {
       ready: false,
       model,
+      durationSeconds: sku.durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -1788,10 +1893,11 @@ function parseProviderReadinessReceipt(
   const expiresAtMs = Date.parse(expiresAt);
   const expectedFailure = readiness.ready ? null : readiness.failureCode;
   if (
-    value.version !== "generation-provider-readiness-receipt-v1" ||
+    value.version !== "generation-provider-readiness-receipt-v2" ||
     value.organization_id !== organizationId ||
     value.provider !== "runway" ||
     value.model !== readiness.model ||
+    value.duration_seconds !== readiness.durationSeconds ||
     value.ready !== readiness.ready ||
     value.estimated_credits !== readiness.estimatedCredits ||
     value.balance_sufficient !== readiness.balanceSufficient ||
@@ -2834,6 +2940,7 @@ async function handleCreatorGenerate(
             checked_by: checkedBy,
             provider: "runway",
             model: readiness.model,
+            duration_seconds: readiness.durationSeconds,
             ready: readiness.ready,
             estimated_credits: readiness.estimatedCredits,
             balance_sufficient: readiness.balanceSufficient,
@@ -2882,7 +2989,11 @@ async function handleCreatorGenerate(
       const unavailable: RunwayProviderReadiness = {
         ready: false,
         model: payload.model,
-        estimatedCredits: RUNWAY_SKU_CREDITS[payload.model],
+        durationSeconds: payload.duration_seconds,
+        estimatedCredits: readRunwayGenerationSku(
+          payload.model,
+          payload.duration_seconds,
+        )?.estimatedCredits ?? 0,
         balanceSufficient: false,
         modelAvailable: false,
         dailyQuotaAvailable: false,
@@ -2909,6 +3020,7 @@ async function handleCreatorGenerate(
     const readiness = await checkRunwayProviderReadiness(
       secret,
       payload.model,
+      payload.duration_seconds,
     );
     const receipt = await recordProviderReadiness(
       payload.organization_id,
@@ -2937,6 +3049,7 @@ async function handleCreatorGenerate(
       preflight: {
         provider: "runway",
         model: readiness.model,
+        duration_seconds: readiness.durationSeconds,
         ready: true,
         estimated_credits: readiness.estimatedCredits,
         balance_sufficient: readiness.balanceSufficient,
@@ -2947,7 +3060,7 @@ async function handleCreatorGenerate(
         expires_at: receipt.expiresAt,
         receipt_id: receipt.receiptId,
         receipt_hash: receipt.receiptHash,
-        receipt_version: "generation-provider-readiness-receipt-v1",
+        receipt_version: "generation-provider-readiness-receipt-v2",
         fresh: true,
       },
     });
@@ -3250,6 +3363,7 @@ async function handleCreatorGenerate(
   const providerReadiness = await checkRunwayProviderReadiness(
     secret,
     startJob.model,
+    startJob.durationSeconds,
   );
   if (!providerReadiness.ready) {
     await markFailed(startJob.id, providerReadiness.failureCode);

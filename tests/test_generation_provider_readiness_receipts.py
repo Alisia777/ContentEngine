@@ -15,6 +15,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280004_generation_provider_readiness_receipts.sql"
 ).read_text(encoding="utf-8")
+FLEXIBLE_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607280008_flexible_video_generation_durations.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT
     / "supabase/tests/generation_provider_readiness_receipts_test.sql"
@@ -62,6 +66,7 @@ def _run_readiness(body: str) -> dict:
 
 def test_provider_readiness_sql_and_pgtap_are_parseable() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(FLEXIBLE_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -95,10 +100,11 @@ def test_receipts_are_private_append_only_bounded_and_public_safe() -> None:
 
 def test_only_edge_can_record_exact_safe_provider_outcomes() -> None:
     recorder = _between(
-        MIGRATION,
+        FLEXIBLE_MIGRATION,
         "create or replace function\n"
         "  public.system_record_generation_provider_readiness",
-        "-- Return one bounded",
+        "create or replace function\n"
+        "  content_factory_private.generation_provider_readiness",
     )
     for token in (
         "security definer",
@@ -139,7 +145,8 @@ def test_edge_persists_every_free_check_before_answering_the_browser() -> None:
     for token in (
         "receipt_id: receipt.receiptId",
         "receipt_hash: receipt.receiptHash",
-        'receipt_version: "generation-provider-readiness-receipt-v1"',
+        "duration_seconds: readiness.durationSeconds",
+        'receipt_version: "generation-provider-readiness-receipt-v2"',
         "expires_at: receipt.expiresAt",
     ):
         assert token in handler
@@ -152,6 +159,7 @@ const nowMs = Date.parse("2026-07-28T12:05:00.000Z");
 const receipt = {
   provider: "runway",
   model: "seedream5_lite",
+  duration_seconds: 0,
   status: "ready",
   reason_code: "provider_ready",
   ready: true,
@@ -160,37 +168,37 @@ const receipt = {
   balance_sufficient: true,
   model_available: true,
   daily_quota_available: true,
-  learning_gate_version: "2026-07-28.v6",
+  learning_gate_version: "2026-07-28.v7",
   checked_at: "2026-07-28T12:00:00.000Z",
   expires_at: "2026-07-28T12:15:00.000Z",
   receipt_id: "fa000000-0000-4000-8000-000000000001",
   receipt_hash: "a".repeat(64),
-  receipt_version: "generation-provider-readiness-receipt-v1",
+  receipt_version: "generation-provider-readiness-receipt-v2",
 };
 return {
   valid: subject.normalizeGenerationProviderPreflight(
     receipt,
-    { gateVersion: "2026-07-28.v6", nowMs },
+    { gateVersion: "2026-07-28.v7", nowMs },
   )?.model || null,
   stale: subject.normalizeGenerationProviderPreflight(
     { ...receipt, expires_at: "2026-07-28T12:05:00.000Z" },
-    { gateVersion: "2026-07-28.v6", nowMs },
+    { gateVersion: "2026-07-28.v7", nowMs },
   ),
   wrongGate: subject.normalizeGenerationProviderPreflight(
     { ...receipt, learning_gate_version: "2026-07-27.v9" },
-    { gateVersion: "2026-07-28.v6", nowMs },
+    { gateVersion: "2026-07-28.v7", nowMs },
   ),
   badHash: subject.normalizeGenerationProviderPreflight(
     { ...receipt, receipt_hash: "unsafe" },
-    { gateVersion: "2026-07-28.v6", nowMs },
+    { gateVersion: "2026-07-28.v7", nowMs },
   ),
   contradictoryFailure: subject.normalizeGenerationProviderPreflight(
     { ...receipt, failure_code: "provider_rate_limited" },
-    { gateVersion: "2026-07-28.v6", nowMs },
+    { gateVersion: "2026-07-28.v7", nowMs },
   ),
   duplicateCount: subject.generationProviderReadinessPreflights(
     { provider_readiness: [receipt, { ...receipt }] },
-    { gateVersion: "2026-07-28.v6", nowMs },
+    { gateVersion: "2026-07-28.v7", nowMs },
   ).length,
 };
 """
@@ -237,7 +245,8 @@ def test_api_boundary_revalidates_receipt_before_app_state() -> None:
         "if (!data.job",
     )
     assert "normalizeApiGenerationProviderPreflight(" in preflight
-    assert "REAL_GENERATION_CREDITS[payload.model]" in preflight
+    assert "realGenerationSku(" in preflight
+    assert "payload.duration_seconds" in preflight
     assert "return { ...data, preflight }" in preflight
     normalizer = _between(
         API,
@@ -250,17 +259,17 @@ def test_api_boundary_revalidates_receipt_before_app_state() -> None:
 
 
 def test_release_versions_include_the_readiness_module_and_gate() -> None:
-    assert "./app.js?v=20260728.11" in INDEX
-    assert "./supabase-api.js?v=20260728.5" in APP
+    assert "./app.js?v=20260728.13" in INDEX
+    assert "./supabase-api.js?v=20260728.6" in APP
     assert (
-        "./generation-provider-readiness.js?v=20260728.1"
+        "./generation-provider-readiness.js?v=20260728.2"
         in APP
     )
     assert (
-        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"'
+        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"'
         in APP
     )
     assert (
-        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v6"'
+        'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"'
         in EDGE
     )

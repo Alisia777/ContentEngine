@@ -23,12 +23,13 @@ const TIMELINE_ATLAS_GAP = 2;
 const TIMELINE_ATLAS_LABEL_HEIGHT = 18;
 const TIMELINE_ATLAS_DENSE_MAX_DURATION_SECONDS = 10;
 const TIMELINE_ATLAS_DENSE_MAX_GAP_SECONDS = 0.5;
-const CONTINUITY_SCAN_MAX_DURATION_SECONDS = 10;
-const CONTINUITY_SCAN_MAX_FRAMES = 2_400;
+const CONTINUITY_SCAN_MAX_DURATION_SECONDS = 15;
+const CONTINUITY_SCAN_MAX_FRAMES = 3_600;
 const CONTINUITY_SCAN_TIMEOUT_PADDING_MS = 10_000;
 const CONTINUITY_SCAN_MIN_COVERAGE = 0.8;
 const CONTINUITY_SCAN_MAX_GAP_SECONDS = 0.5;
 const CONTINUITY_DUPLICATE_DIFFERENCE = 0.0015;
+const CONTENT_REVIEW_DECISION_VIDEO_MAX_HEIGHT = 420;
 const GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES = new Set([
   "CONTEXT.GENERATED_PROVENANCE",
   "AD.MARKING.LABEL",
@@ -56,6 +57,25 @@ const PLATFORM_LABELS = Object.freeze({
   telegram: "Telegram",
   wildberries: "Wildberries",
   other: "Другая площадка",
+});
+
+const PLATFORM_SAFE_ZONE_GUIDES = Object.freeze({
+  instagram: Object.freeze({
+    label: "Instagram Reels",
+    sourceUrl: "https://www.facebook.com/business/ads/facebook-instagram-reels-ads",
+  }),
+  tiktok: Object.freeze({
+    label: "TikTok",
+    sourceUrl: "https://ads.tiktok.com/help/article/tiktok-interactive-add-on-download-card-ad-specifications?lang=en",
+  }),
+  youtube: Object.freeze({
+    label: "YouTube Shorts",
+    sourceUrl: "https://support.google.com/youtube/answer/16215842",
+  }),
+  vk: Object.freeze({
+    label: "VK Клипы",
+    sourceUrl: "",
+  }),
 });
 
 const CONTENT_KIND_LABELS = Object.freeze({
@@ -533,6 +553,42 @@ export async function captureContentReviewEvidence(media, { onProgress } = {}) {
   return captureImageEvidence(source, onProgress);
 }
 
+export function syncContentReviewSafeZoneStage(media, { clear = false } = {}) {
+  if (!(media instanceof HTMLVideoElement)) return false;
+  const stage = media.closest("[data-content-review-safe-zone-stage]");
+  if (!(stage instanceof HTMLElement)) return false;
+  const clearGeometry = () => {
+    stage.style.removeProperty("--content-review-exact-video-width");
+    stage.style.removeProperty("--content-review-exact-video-ratio");
+    delete stage.dataset.contentReviewSafeZoneGeometry;
+  };
+  if (
+    clear
+    || !Number.isFinite(media.videoWidth)
+    || !Number.isFinite(media.videoHeight)
+    || media.videoWidth <= 0
+    || media.videoHeight <= 0
+  ) {
+    clearGeometry();
+    return false;
+  }
+  const ratio = media.videoWidth / media.videoHeight;
+  const boundedWidth = Math.max(
+    1,
+    Math.min(1280, CONTENT_REVIEW_DECISION_VIDEO_MAX_HEIGHT * ratio),
+  );
+  stage.style.setProperty(
+    "--content-review-exact-video-width",
+    `${round(boundedWidth, 3)}px`,
+  );
+  stage.style.setProperty(
+    "--content-review-exact-video-ratio",
+    `${media.videoWidth} / ${media.videoHeight}`,
+  );
+  stage.dataset.contentReviewSafeZoneGeometry = "ready";
+  return true;
+}
+
 export async function buildContentReviewFrameFiles(evidence) {
   const frames = Array.isArray(evidence?.frames) ? evidence.frames : [];
   const metrics = evidence?.technical_metrics;
@@ -979,9 +1035,10 @@ function reviewDecisionMarkup(
   const unavailableMessage = run.mediaIsStale
     ? "Файл изменился после анализа. Для этой версии нельзя фиксировать решение — запустите новую проверку."
     : "Точная защищённая версия файла сейчас недоступна. Обновите статус, прежде чем принимать решение.";
+  const exactVideo = `<video class="content-review-decision-preview__media" data-content-review-exact-media data-media-kind="video" src="${escapeHtml(run.media?.url || "")}" controls preload="metadata" playsinline></video>`;
   const exactPreview = mediaAvailable
     ? run.media.isVideo
-      ? `<video class="content-review-decision-preview__media" data-content-review-exact-media data-media-kind="video" src="${escapeHtml(run.media.url)}" controls preload="metadata" playsinline></video>`
+      ? platformSafeZoneVideoMarkup(run.input?.platform, exactVideo)
       : `<img class="content-review-decision-preview__media" data-content-review-exact-media data-media-kind="image" src="${escapeHtml(run.media.url)}" alt="${escapeHtml(run.media.name || "Проверяемый материал")}" />`
     : `<div class="content-review-decision-preview__missing">${escapeHtml(unavailableMessage)}</div>`;
   const previewTitle = run.media?.isVideo
@@ -1026,6 +1083,33 @@ function reviewDecisionMarkup(
         <button class="btn btn-ghost" type="submit" name="decision" value="rejected" data-review-decision-submit disabled>Отклонить</button>
       </div>
     </form>`;
+}
+
+function platformSafeZoneVideoMarkup(platform, videoMarkup) {
+  const normalizedPlatform = String(platform || "").trim().toLowerCase();
+  const guide = PLATFORM_SAFE_ZONE_GUIDES[normalizedPlatform];
+  if (!guide) return videoMarkup;
+  const sourceLink = guide.sourceUrl
+    ? `<a href="${escapeHtml(guide.sourceUrl)}" target="_blank" rel="noopener noreferrer">Официальная справка площадки ↗</a>`
+    : "";
+  return `
+    <div class="content-review-safe-zone" data-safe-zone-platform="${escapeHtml(normalizedPlatform)}">
+      <div class="content-review-safe-zone__toolbar">
+        <label><input type="checkbox" data-content-review-safe-zone-toggle checked /><span>Показывать зоны риска интерфейса</span></label>
+        ${sourceLink}
+      </div>
+      <div class="content-review-safe-zone__stage" data-content-review-safe-zone-stage>
+        ${videoMarkup}
+        <div class="content-review-safe-zone__overlay" aria-hidden="true">
+          <span class="content-review-safe-zone__risk is-top"></span>
+          <span class="content-review-safe-zone__risk is-right"></span>
+          <span class="content-review-safe-zone__risk is-bottom"></span>
+          <span class="content-review-safe-zone__risk is-left"></span>
+          <span class="content-review-safe-zone__frame"><b>Ключевой товар, лицо и текст — внутри</b></span>
+        </div>
+      </div>
+      <small class="content-review-safe-zone__note"><strong>${escapeHtml(guide.label)}:</strong> это консервативный индикатор риска, а не точный шаблон публикации. Элементы интерфейса, подпись и CTA меняются — перед выпуском проверьте ролик в нативном предпросмотре площадки.</small>
+    </div>`;
 }
 
 function generationRepairNextActionMarkup(run) {
