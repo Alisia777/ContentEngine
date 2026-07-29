@@ -6423,31 +6423,45 @@ html[data-portal-theme="altea-dark"] .generation-readiness {
 
 .upload-zone {
   display: grid;
+  width: 100%;
   min-height: 180px;
   padding: 26px;
   border: 1.5px dashed #aabbb4;
   border-radius: 15px;
+  color: inherit;
+  cursor: pointer;
   text-align: center;
   background: #f9fbfa;
   place-content: center;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
+.upload-zone:hover:not(:disabled),
+.upload-zone:focus-visible,
 .upload-zone.dragover {
   border-color: var(--success);
   background: var(--forest-pale);
 }
 
-.upload-zone input {
+.upload-zone:disabled {
+  cursor: progress;
+  opacity: 0.68;
+}
+
+.upload-zone__input {
   position: absolute;
   width: 1px;
   height: 1px;
+  padding: 0;
+  border: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.upload-zone label {
+.upload-zone__label {
   color: var(--forest);
-  cursor: pointer;
   font-weight: 780;
 }
 

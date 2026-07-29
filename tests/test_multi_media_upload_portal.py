@@ -24,6 +24,8 @@ def test_media_picker_accepts_a_real_multi_file_batch() -> None:
 
     assert 'id="media-file"' in markup
     assert " multiple required" in markup
+    assert 'type="button" data-upload-zone data-action="choose-media-upload-files"' in markup
+    assert 'class="upload-zone__input"' in markup
     assert "Выбрать файлы" in markup
     assert "перетащите их сюда" in markup
     assert 'id="selected-file-summary"' in markup
@@ -31,11 +33,28 @@ def test_media_picker_accepts_a_real_multi_file_batch() -> None:
     assert "config.js?v=20260729.1" in INDEX
 
 
+def test_media_picker_button_opens_the_native_multi_file_chooser_synchronously() -> None:
+    click = _between("async function handleClick", "async function handleSubmit")
+
+    assert 'if (action === "choose-media-upload-files")' in click
+    assert "input.click();" in click
+    chooser_branch = click[
+        click.index('if (action === "choose-media-upload-files")'):
+        click.index('if (action === "remove-media-upload-file")')
+    ]
+    assert "await " not in chooser_branch
+    assert "input.disabled" in chooser_branch
+    assert 'form.dataset.busy === "true"' in chooser_branch
+    assert ".upload-zone__input" in STYLES
+    assert ".upload-zone:hover:not(:disabled)" in STYLES
+
+
 def test_drop_merges_every_file_instead_of_taking_only_the_first() -> None:
     drop = _between("async function handleDrop", "function handleDragEnd")
 
     assert "Array.from(event.dataTransfer?.files || [])" in drop
     assert "mergeMediaFileSelection(" in drop
+    assert "const input = form?.elements?.file;" in drop
     assert "setMediaInputFiles(input, selection.files)" in drop
     assert "files?.[0]" not in drop
     assert "MEDIA_UPLOAD_BATCH_LIMIT" in drop
@@ -64,6 +83,17 @@ def test_optional_telemetry_never_holds_the_upload_form_busy() -> None:
     assert "const capture = state.api.captureEvent({" in track
     assert "Promise.resolve(capture).catch(() => {});" in track
     assert "await state.api.captureEvent({" not in track
+
+
+def test_media_upload_busy_state_cannot_leave_a_replaced_form_locked() -> None:
+    restore = _between("function restoreDirtyWorkspaceForms", "function workspaceNavLinkMarkup")
+    submit = _between("async function submitMedia(form)", "async function track")
+
+    assert "state.mediaUploadInFlight" in restore
+    assert "state.mediaUploadInFlight = true;" in submit
+    assert "state.mediaUploadInFlight = false;" in submit
+    assert 'document.querySelector("#media-upload-form")' in submit
+    assert "if (currentForm) setFormBusy(currentForm, false);" in submit
 
 
 def test_batch_selection_and_worker_limit_are_executable() -> None:

@@ -45,7 +45,8 @@ def test_product_media_form_is_explicit_conditional_and_sent_before_upload() -> 
     assert submit.index("const productIdentity = {}") < submit.index("setFormBusy(form, true")
     assert submit.index("...productIdentity") < submit.index("rights_confirmed: true")
     assert "removePrivateObject(objectKey)" in submit
-    assert "if (form.isConnected) setFormBusy(form, false)" in submit
+    assert 'const currentForm = document.querySelector("#media-upload-form")' in submit
+    assert "if (currentForm) setFormBusy(currentForm, false)" in submit
 
 
 def test_creator_api_product_identity_guard_is_executable() -> None:

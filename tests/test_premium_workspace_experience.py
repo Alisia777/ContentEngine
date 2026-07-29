@@ -436,7 +436,9 @@ def test_paid_generation_stays_single_flight_across_workspace_rerenders() -> Non
     assert "realGenerationStartInFlight: false" in APP
     assert 'form[data-busy="true"]' in workspace
     assert "busyLabel:" in workspace
-    assert "if (snapshot.busy) setFormBusy(form, true" in workspace
+    assert "const restoreBusy = snapshot.busy" in workspace
+    assert 'form.id !== "media-upload-form" || state.mediaUploadInFlight' in workspace
+    assert "if (restoreBusy) setFormBusy(form, true" in workspace
 
     assert "if (state.realGenerationStartInFlight)" in submit
     assert "state.realGenerationStartInFlight = true" in submit

@@ -937,6 +937,7 @@ const state = {
   dataEpoch: 0,
   bootstrapRequestId: 0,
   mobileNavOpen: false,
+  mediaUploadInFlight: false,
   realGenerationStartInFlight: false,
   realGenerationStartNotice: "",
   generationDraftSaveTimer: null,
@@ -5912,7 +5913,10 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
       showSelectedFiles(form);
       syncMediaProductFields(form);
     }
-    if (snapshot.busy) setFormBusy(form, true, snapshot.busyLabel || "Подождите…");
+    const restoreBusy = snapshot.busy && (
+      form.id !== "media-upload-form" || state.mediaUploadInFlight
+    );
+    if (restoreBusy) setFormBusy(form, true, snapshot.busyLabel || "Подождите…");
   });
 }
 
@@ -10481,18 +10485,18 @@ function renderMediaSection(sectionState) {
           <h2 style="font:600 1.45rem/1.2 Georgia,serif; margin:0 0 8px">Точные фото или видео</h2>
           <p class="muted tiny">Файлы попадут в закрытую папку команды. До ${MEDIA_UPLOAD_BATCH_LIMIT} файлов за раз, каждый — максимум ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.</p>
           <form id="media-upload-form" class="form-stack" novalidate>
-            <div class="upload-zone" data-upload-zone aria-describedby="media-upload-help selected-file-summary">
+            <button class="upload-zone" type="button" data-upload-zone data-action="choose-media-upload-files" aria-controls="media-file" aria-describedby="media-upload-help selected-file-summary">
               <span class="empty-icon" aria-hidden="true">⇧</span>
-              <label for="media-file">Выбрать файлы</label>
-              <input id="media-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" multiple required />
+              <span class="upload-zone__label">Выбрать файлы</span>
               <small class="muted" id="media-upload-help">Выберите несколько файлов или перетащите их сюда: фото JPG, PNG, WEBP и видео MP4.</small>
-              ${LOCAL_QA_MEDIA_FIXTURE_ENABLED ? `
-                <button class="btn btn-ghost btn-small" type="button" data-action="use-local-media-fixture">
-                  Подставить тестовое фото
-                </button>
-                <small class="muted">Только для локального QA-прогона; в HTTPS-сборке кнопки нет.</small>
-              ` : ""}
-            </div>
+            </button>
+            <input class="upload-zone__input" id="media-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" multiple required />
+            ${LOCAL_QA_MEDIA_FIXTURE_ENABLED ? `
+              <button class="btn btn-ghost btn-small" type="button" data-action="use-local-media-fixture">
+                Подставить тестовое фото
+              </button>
+              <small class="muted">Только для локального QA-прогона; в HTTPS-сборке кнопки нет.</small>
+            ` : ""}
             <div id="selected-file-summary" class="media-upload-selection" aria-live="polite"></div>
             <label class="field"><span>Тип материала</span><select name="kind" required><option value="product_photo">Фото товара</option><option value="packshot">Фото упаковки без фона</option><option value="creator_reference">Пример желаемого кадра</option><option value="source_video">Исходное видео</option></select></label>
             <div class="form-stack" data-media-product-fields>
@@ -10851,6 +10855,18 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "choose-media-upload-files") {
+    const form = control.closest("#media-upload-form");
+    const input = form?.elements?.file;
+    if (
+      !(input instanceof HTMLInputElement)
+      || input.disabled
+      || form.dataset.busy === "true"
+    ) return;
+    input.click();
+    return;
+  }
 
   if (action === "remove-media-upload-file") {
     const form = control.closest("#media-upload-form");
@@ -12441,8 +12457,8 @@ async function handleDrop(event) {
   event.preventDefault();
   zone.classList.remove("dragover");
   const droppedFiles = Array.from(event.dataTransfer?.files || []);
-  const input = zone.querySelector('input[type="file"]');
   const form = zone.closest("form");
+  const input = form?.elements?.file;
   if (!droppedFiles.length || !input || !form) return;
   const selection = mergeMediaFileSelection(
     Array.from(input.files || []),
@@ -16501,6 +16517,7 @@ async function submitMedia(form) {
     return;
   }
 
+  state.mediaUploadInFlight = true;
   setFormBusy(form, true, `Загружаем 0 из ${uploadIndexes.length}…`);
   let completedUploads = 0;
   let nextUpload = 0;
@@ -16568,7 +16585,9 @@ async function submitMedia(form) {
       ),
     );
   } finally {
-    if (form.isConnected) setFormBusy(form, false);
+    state.mediaUploadInFlight = false;
+    const currentForm = document.querySelector("#media-upload-form");
+    if (currentForm) setFormBusy(currentForm, false);
   }
 
   const successful = results.filter((item) => item?.ok);
