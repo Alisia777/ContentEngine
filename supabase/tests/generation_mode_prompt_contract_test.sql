@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(9);
+select plan(10);
 
 select is(
   content_factory_private.generation_mode_prompt_requirements(
@@ -95,6 +95,14 @@ select matches(
   ),
   'generation_mode_prompt_binding_invalid',
   'the paid database boundary fails closed on a missing mode prompt fragment'
+);
+
+select matches(
+  pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_category_learning_v14(jsonb)'::regprocedure
+  ),
+  'primary_payload := jsonb_set\\([[:space:]]+p_payload - ''product_category''',
+  'the category-only wrapper key is not forwarded to the legacy payload validator'
 );
 
 select * from finish();

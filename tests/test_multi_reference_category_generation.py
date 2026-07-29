@@ -12,6 +12,10 @@ PROMPT_CONTRACT_MIGRATION = (
     ROOT
     / "supabase/migrations/202607290004_sync_generation_interaction_prompt_contract.sql"
 ).read_text(encoding="utf-8")
+CATEGORY_DELEGATION_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290005_preserve_category_wrapper_delegation.sql"
+).read_text(encoding="utf-8")
 EDGE = (
     ROOT / "supabase/functions/creator-generate/index.ts"
 ).read_text(encoding="utf-8")
@@ -104,3 +108,18 @@ def test_supported_models_use_reference_bundle_without_changing_gen4_contract() 
     assert 'position: index === 0 ? "first" : "reference"' in EDGE
     assert "promptImage: signedInputUrl" in EDGE
     assert "Promise.all(" in EDGE
+
+
+def test_category_wrapper_key_is_not_forwarded_to_legacy_payload_validator() -> None:
+    assert "creator_start_real_generation_pre_category_learning_v14" in (
+        CATEGORY_DELEGATION_MIGRATION
+    )
+    assert "p_payload - ''product_category''" in CATEGORY_DELEGATION_MIGRATION
+    for code in (
+        "real_generation_payload_invalid",
+        "generation_product_interaction_invalid",
+        "exact_product_reference_bundle_mismatch",
+        "generation_learning_category_mismatch",
+        "refreshed_courses_required",
+    ):
+        assert code in EDGE

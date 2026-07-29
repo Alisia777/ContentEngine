@@ -3323,13 +3323,28 @@ async function handleCreatorGenerate(
   );
   if (startError) {
     const budgetCode = readBudgetErrorCode(startError);
-    const learningCode = [
-        "generation_learning_context_invalid",
-        "generation_learning_policy_stale",
-        "generation_learning_prompt_binding_invalid",
-        "generation_learning_research_provenance_invalid",
-        "generation_mode_prompt_binding_invalid",
-      ].includes(startError.message)
+    const validationCode = [
+      "real_generation_payload_invalid",
+      "real_generation_sku_invalid",
+      "real_generation_sku_binding_invalid",
+      "product_reference_media_ids_invalid",
+      "exact_product_reference_bundle_mismatch",
+      "generation_reference_bundle_binding_invalid",
+      "generation_product_interaction_invalid",
+      "paid_generation_product_category_invalid",
+      "paid_generation_product_category_binding_invalid",
+      "generation_learning_context_invalid",
+      "generation_learning_policy_stale",
+      "generation_learning_prompt_binding_invalid",
+      "generation_learning_research_provenance_invalid",
+      "generation_learning_category_mismatch",
+      "generation_learning_category_binding_invalid",
+      "generation_mode_prompt_binding_invalid",
+      "refreshed_courses_required",
+      "required_courses_incomplete",
+      "final_exam_required",
+      "practical_project_approval_required",
+    ].includes(startError.message)
       ? startError.message
       : null;
     const repairCode = [
@@ -3344,12 +3359,20 @@ async function handleCreatorGenerate(
     const code = budgetCode ??
       (startError.message === "real_generation_reconciliation_required"
         ? "real_generation_reconciliation_required"
-        : repairCode ?? learningCode ?? "generation_rejected");
+        : repairCode ?? validationCode ?? "generation_rejected");
     const status = budgetCode !== null
       ? budgetErrorHttpStatus(budgetCode)
       : code === "generation_rejected"
       ? 403
-      : code === "generation_learning_context_invalid" ||
+      : code === "real_generation_payload_invalid" ||
+          code === "real_generation_sku_invalid" ||
+          code === "real_generation_sku_binding_invalid" ||
+          code === "product_reference_media_ids_invalid" ||
+          code === "generation_reference_bundle_binding_invalid" ||
+          code === "generation_product_interaction_invalid" ||
+          code === "paid_generation_product_category_invalid" ||
+          code === "paid_generation_product_category_binding_invalid" ||
+          code === "generation_learning_context_invalid" ||
           code === "generation_learning_prompt_binding_invalid" ||
           code === "generation_mode_prompt_binding_invalid" ||
           code === "generation_repair_context_invalid" ||
