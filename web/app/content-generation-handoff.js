@@ -360,7 +360,7 @@ export function compileSafeGenerationBrief({
       required(identityLine),
       optional(
         safeScenarioIntent
-          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${safeScenarioIntent}.`
+          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
           : interaction.gen4Action,
       ),
       required(interaction.requirement),
@@ -388,7 +388,7 @@ export function compileSafeGenerationBrief({
       required(identityLine),
       optional(
         safeScenarioIntent
-          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${safeScenarioIntent}.`
+          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
           : interaction.videoAction,
       ),
       required(interaction.requirement),
@@ -1387,6 +1387,11 @@ function uniqueStrings(value, maximum) {
 
 function cleanText(value) {
   return String(value ?? "").replace(/\s+/gu, " ").trim();
+}
+
+function withTerminalPunctuation(value) {
+  const normalized = cleanText(value);
+  return /[.!?…]$/u.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function cleanMultiline(value) {

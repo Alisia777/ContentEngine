@@ -359,6 +359,7 @@ def test_steamer_auto_brief_preserves_human_scenario_under_product_guards() -> N
           hasRelevantLine: compiled.prompt.includes(
             "Реплика героя дословно: «Готовлю лосось с овощами на пару: без жарки и лишнего масла, равномерно и удобно.»"
           ),
+          noDoublePunctuation: !compiled.prompt.includes("столе.."),
           productLock: compiled.prompt.includes(
             "Сохрани форму, цвет, упаковку, этикетку и пропорции"
           ),
@@ -372,6 +373,7 @@ def test_steamer_auto_brief_preserves_human_scenario_under_product_guards() -> N
         "keepsPacing": True,
         "keepsScaleGuard": True,
         "hasRelevantLine": True,
+        "noDoublePunctuation": True,
         "productLock": True,
     }
 
