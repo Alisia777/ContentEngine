@@ -10,6 +10,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280002_generation_quality_guard_lineage.sql"
 ).read_text(encoding="utf-8")
+CONFLICT_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290008_fix_quality_guard_lineage_conflict_target.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/generation_quality_guard_lineage_test.sql"
 ).read_text(encoding="utf-8")
@@ -17,6 +21,7 @@ PGTAP = (
 
 def test_quality_guard_lineage_sql_and_pgtap_are_parseable() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(CONFLICT_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -163,8 +168,19 @@ def test_lineage_is_private_append_only_and_idempotent() -> None:
         "existing_lineage.prompt_hash is distinct from prompt_hash_value",
     ):
         assert token in MIGRATION
-    assert "select plan(15);" in PGTAP
+    assert "select plan(16);" in PGTAP
     assert PGTAP.rstrip().endswith("rollback;")
+
+
+def test_lineage_conflict_targets_the_named_unique_constraint() -> None:
+    for token in (
+        "generation_quality_guard_lineage_org_job_uq",
+        "unique (organization_id, generation_job_id)",
+        "on conflict on constraint generation_quality_guard_lineage_org_job_uq",
+        "generation_quality_guard_lineage_conflict_patch_failed",
+        "generation_quality_guard_lineage_conflict_contract_invalid",
+    ):
+        assert token in CONFLICT_MIGRATION.lower()
 
 
 def test_final_wrapper_keeps_public_rpc_and_private_complete_predecessor() -> None:

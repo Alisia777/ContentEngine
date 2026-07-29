@@ -10,6 +10,14 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280006_generation_review_autostart_consent.sql"
 ).read_text(encoding="utf-8")
+DELEGATION_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290006_strip_review_consent_before_legacy_generation.sql"
+).read_text(encoding="utf-8")
+CONFLICT_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290009_fix_review_consent_conflict_target.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/generation_review_autostart_consent_test.sql"
 ).read_text(encoding="utf-8")
@@ -21,6 +29,8 @@ EDGE = (
 
 def test_review_autostart_consent_sql_is_parseable() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(DELEGATION_MIGRATION)
+    assert parse_sql(CONFLICT_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -50,6 +60,32 @@ def test_start_and_status_wrappers_preserve_prior_security_chain() -> None:
         "notify pgrst, 'reload schema'",
     ):
         assert token in MIGRATION
+
+
+def test_review_consent_keys_are_not_forwarded_to_legacy_payload_validator() -> None:
+    for token in (
+        "creator_start_real_generation_pre_flexible_duration_v12",
+        "creator_start_real_generation_pre_review_autostart_v11",
+        "p_payload - array[",
+        "''review_autostart_confirmed''",
+        "''review_autostart_terms_version''",
+        "generation_review_consent_delegation_contract_invalid",
+    ):
+        assert token in DELEGATION_MIGRATION
+
+
+def test_review_consent_conflict_targets_the_named_unique_constraint() -> None:
+    for token in (
+        "generation_review_autostart_consents_org_job_uq",
+        "unique (organization_id, generation_job_id)",
+        (
+            "on conflict on constraint "
+            "generation_review_autostart_consents_org_job_uq"
+        ),
+        "generation_review_consent_conflict_patch_failed",
+        "generation_review_consent_conflict_contract_invalid",
+    ):
+        assert token in CONFLICT_MIGRATION.lower()
 
 
 def test_consent_is_explicit_versioned_and_never_enables_transcription() -> None:

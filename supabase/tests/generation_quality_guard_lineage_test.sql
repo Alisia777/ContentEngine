@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(15);
+select plan(16);
 
 select is(
   content_factory_private.valid_generation_quality_guard_codes(
@@ -115,6 +115,24 @@ select ok(
       and not trigger_row.tgisinternal
   ),
   'QA guard lineage is append-only'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_constraint constraint_row
+    where constraint_row.conrelid =
+            'content_factory.generation_quality_guard_lineage'::regclass
+      and constraint_row.conname =
+            'generation_quality_guard_lineage_org_job_uq'
+      and pg_get_constraintdef(constraint_row.oid) =
+            'UNIQUE (organization_id, generation_job_id)'
+  )
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_policy_snapshot_v9(jsonb)'::regprocedure
+  ) like
+    '%on conflict on constraint generation_quality_guard_lineage_org_job_uq%',
+  'lineage idempotency targets the stable unique constraint'
 );
 
 select ok(

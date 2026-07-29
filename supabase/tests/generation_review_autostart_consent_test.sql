@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(12);
+select plan(13);
 
 select has_table(
   'content_factory',
@@ -43,6 +43,24 @@ select has_trigger(
   'generation_review_autostart_consents',
   'generation_review_autostart_consent_append_only',
   'generated-video QA consent is append-only'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_constraint constraint_row
+    where constraint_row.conrelid =
+            'content_factory.generation_review_autostart_consents'::regclass
+      and constraint_row.conname =
+            'generation_review_autostart_consents_org_job_uq'
+      and pg_get_constraintdef(constraint_row.oid) =
+            'UNIQUE (organization_id, generation_job_id)'
+  )
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
+  ) like
+    '%on conflict on constraint generation_review_autostart_consents_org_job_uq%',
+  'review consent idempotency targets the stable unique constraint'
 );
 
 select ok(
@@ -87,7 +105,13 @@ select ok(
   ) like '%generated-video-qa-autostart-v1%'
   and pg_get_functiondef(
     'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
-  ) like '%''transcription_requested'', false%',
+  ) like '%''transcription_requested'', false%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
+  ) like '%''review_autostart_confirmed''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_flexible_duration_v12(jsonb)'::regprocedure
+  ) like '%''review_autostart_terms_version''%',
   'paid-start records only the exact no-transcription consent'
 );
 
