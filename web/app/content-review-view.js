@@ -30,6 +30,7 @@ const CONTINUITY_SCAN_MIN_COVERAGE = 0.8;
 const CONTINUITY_SCAN_MAX_GAP_SECONDS = 0.5;
 const CONTINUITY_DUPLICATE_DIFFERENCE = 0.0015;
 const CONTENT_REVIEW_DECISION_VIDEO_MAX_HEIGHT = 420;
+export const MAX_CONTENT_REVIEW_IMAGE_SELECTION = 5;
 const GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES = new Set([
   "CONTEXT.GENERATED_PROVENANCE",
   "AD.MARKING.LABEL",
@@ -443,17 +444,23 @@ export function contentReviewWorkspaceMarkup({
     : normalized.runs.find((item) => contentReviewStatusKind(item.status) === "active")
       || normalized.runs[0]
       || null;
-  const busy = contentReviewIsBusy(phase, selected);
+  const busy = contentReviewIsBusy(phase, null);
+  const activeMediaIds = new Set(
+    normalized.runs
+      .filter((item) => contentReviewStatusKind(item.status) === "active")
+      .map((item) => item.mediaId)
+      .filter(Boolean),
+  );
   return `
     <section class="content-review-hero" aria-labelledby="content-review-hero-title">
       <div>
         <span class="content-review-hero__mark" aria-hidden="true">✓</span>
         <p class="eyebrow">До публикации</p>
         <h2 id="content-review-hero-title">Один экран для качества и рисков</h2>
-        <p>Портал проверит технические признаки, понятность ролика, товарные обещания и обязательные реквизиты. Это фильтр рисков, а не автоматическая юридическая экспертиза.</p>
+        <p>Портал проверит каждый выбранный ракурс отдельно: технические признаки, товарные обещания и обязательные реквизиты. Это фильтр рисков, а не автоматическая юридическая экспертиза.</p>
       </div>
       <ol class="content-review-hero__steps" aria-label="Как проходит проверка">
-        <li><span>1</span><div><strong>Выберите файл</strong><small>Точное фото или MP4 из материалов</small></div></li>
+        <li><span>1</span><div><strong>Выберите файлы</strong><small>До 5 фото одного товара или один MP4</small></div></li>
         <li><span>2</span><div><strong>Заполните контекст</strong><small>Площадка, статус публикации и подтверждения</small></div></li>
         <li><span>3</span><div><strong>Примите решение</strong><small>Исправить, отклонить или одобрить человеку</small></div></li>
       </ol>
@@ -461,7 +468,7 @@ export function contentReviewWorkspaceMarkup({
     ${notice ? messageMarkup(notice, "success") : ""}
     ${error ? messageMarkup(error, "danger") : ""}
     <div class="content-review-layout">
-      ${reviewFormMarkup(normalized.media, busy)}
+      ${reviewFormMarkup(normalized.media, busy, activeMediaIds)}
       <section class="content-review-output" aria-live="polite">
         ${reviewCurrentMarkup(selected, { phase, canDecide })}
       </section>
@@ -472,8 +479,12 @@ export function contentReviewWorkspaceMarkup({
 
 export function readContentReviewForm(form) {
   const values = new FormData(form);
+  const mediaIds = [...new Set(
+    values.getAll("media_id").map((value) => text(value, 180)).filter(Boolean),
+  )];
   return {
-    media_id: stringValue(values, "media_id"),
+    media_ids: mediaIds,
+    media_id: mediaIds[0] || "",
     platform: stringValue(values, "platform"),
     content_kind: stringValue(values, "content_kind"),
     product_category: stringValue(values, "product_category"),
@@ -530,8 +541,9 @@ export function syncContentReviewFormVisibility(form) {
   const advertising = String(form.elements.content_kind?.value || "unknown") === "advertising";
   const baa = String(form.elements.product_category?.value || "other") === "baa";
   const peopleMayBePresent = String(form.elements.people_present?.value || "unknown") !== "no";
-  const selectedMedia = form.querySelector('input[name="media_id"]:checked');
-  const selectedVideo = selectedMedia?.dataset.mediaType === "video";
+  const selectedVideo = Array.from(
+    form.querySelectorAll('input[name="media_id"]:checked'),
+  ).some((item) => item.dataset.mediaType === "video");
   const aiGenerated = form.elements.ai_generated?.checked === true;
   const largeAudience = form.elements.audience_over_10000?.checked === true;
   toggleConditional(form, "[data-review-advertising]", advertising);
@@ -551,6 +563,70 @@ export async function captureContentReviewEvidence(media, { onProgress } = {}) {
     return captureVideoEvidence(source, onProgress);
   }
   return captureImageEvidence(source, onProgress);
+}
+
+export function resolveContentReviewMediaSelection(media, selectedIds) {
+  const catalog = Array.isArray(media) ? media : [];
+  const ids = [...new Set(
+    (Array.isArray(selectedIds) ? selectedIds : [])
+      .map((value) => text(value, 180))
+      .filter(Boolean),
+  )];
+  if (!ids.length) {
+    return {
+      ok: false,
+      code: "content_review_media_required",
+      message: "Выберите хотя бы одно фото или один MP4.",
+      items: [],
+      mediaIds: [],
+    };
+  }
+  if (ids.length > MAX_CONTENT_REVIEW_IMAGE_SELECTION) {
+    return {
+      ok: false,
+      code: "content_review_media_limit",
+      message: `Можно выбрать не более ${MAX_CONTENT_REVIEW_IMAGE_SELECTION} фото одного товара.`,
+      items: [],
+      mediaIds: ids,
+    };
+  }
+  const byId = new Map(catalog.map((item) => [String(item?.id || ""), item]));
+  const items = ids.map((id) => byId.get(id)).filter(Boolean);
+  if (items.length !== ids.length || items.some((item) => !item.supported)) {
+    return {
+      ok: false,
+      code: "content_review_media_stale",
+      message: "Один из выбранных файлов больше недоступен. Обновите раздел и выберите файлы снова.",
+      items: [],
+      mediaIds: ids,
+    };
+  }
+  const videos = items.filter((item) => item.isVideo);
+  if (videos.length) {
+    if (items.length !== 1) {
+      return {
+        ok: false,
+        code: "content_review_video_single_only",
+        message: "MP4 проверяется отдельно. Для пакетной проверки выберите только фотографии.",
+        items: [],
+        mediaIds: ids,
+      };
+    }
+    return { ok: true, code: "ok", message: "", items, mediaIds: ids };
+  }
+  if (items.length > 1) {
+    const productIds = items.map((item) => String(item.productId || "").trim());
+    if (productIds.some((value) => !value) || new Set(productIds).size !== 1) {
+      return {
+        ok: false,
+        code: "content_review_product_mismatch",
+        message: "Пакетная проверка принимает только фото одного привязанного товара. Не смешивайте разные артикулы.",
+        items: [],
+        mediaIds: ids,
+      };
+    }
+  }
+  return { ok: true, code: "ok", message: "", items, mediaIds: ids };
 }
 
 export function syncContentReviewSafeZoneStage(media, { clear = false } = {}) {
@@ -648,7 +724,7 @@ function jpegDataUriToBlob(value) {
   return blob;
 }
 
-function reviewFormMarkup(media, busy) {
+function reviewFormMarkup(media, busy, activeMediaIds = new Set()) {
   const supported = media.filter((item) => item.supported);
   return `
     <form id="content-review-form" class="card content-review-form" novalidate aria-busy="${busy ? "true" : "false"}">
@@ -657,9 +733,9 @@ function reviewFormMarkup(media, busy) {
         <div><p class="eyebrow">Новая проверка</p><h2>Что собираемся публиковать?</h2><p>Заполните только факты. Если рекламный статус неизвестен, так и укажите — портал остановит публикацию до решения.</p></div>
       </div>
       <fieldset class="content-review-fieldset">
-        <legend>1. Файл из материалов *</legend>
+        <legend>1. Файлы из материалов *</legend>
         ${supported.length
-          ? `<div class="content-review-media-grid">${supported.slice(0, 30).map(reviewMediaOptionMarkup).join("")}</div>`
+          ? `<div class="content-review-media-selection-status"><span>До 5 фото одного товара — каждый ракурс получит отдельный результат. MP4 проверяется по одному.</span><strong data-content-review-media-count aria-live="polite">Ничего не выбрано</strong></div><div class="content-review-media-grid">${supported.slice(0, 30).map((item, index) => reviewMediaOptionMarkup(item, index, activeMediaIds)).join("")}</div>`
           : `<div class="content-review-empty"><span aria-hidden="true">▧</span><div><strong>Нет подходящих файлов</strong><p>Загрузите JPG, PNG, WEBP или MP4 в разделе «Материалы», затем обновите эту страницу.</p><a href="#/workspace/media">Открыть материалы →</a></div></div>`}
       </fieldset>
       <fieldset class="content-review-fieldset">
@@ -709,8 +785,8 @@ function reviewFormMarkup(media, busy) {
         </div>
       </fieldset>
       <div class="content-review-submit">
-        <div><strong>Что будет отправлено</strong><p>Всегда: текст формы, технические числа, четыре сжатых контрольных кадра и один хронологический атлас таймлайна из 12–24 мини-кадров. Исходный MP4 передаётся в OpenAI Transcriptions только при отмеченном подтверждении выше, наличии сценария, нормальной локальной аудиодорожки и размере до 25 МБ; полный текст расшифровки не сохраняется.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
-        <button class="btn" type="submit" ${supported.length && !busy ? "" : "disabled"}>${busy ? "Проверка уже выполняется…" : "Проверить качество и риски"}</button>
+        <div><strong>Что будет отправлено</strong><p>Для каждого фото: текст формы, технические числа и один сжатый контрольный кадр. Для MP4: четыре контрольных кадра и один хронологический атлас из 12–24 мини-кадров. Исходный MP4 передаётся в OpenAI Transcriptions только при отмеченном подтверждении выше, наличии сценария, нормальной локальной аудиодорожки и размере до 25 МБ; полный текст расшифровки не сохраняется.</p><small class="field-hint" data-content-review-draft-status role="status" aria-live="polite">Черновик сохраняется в этом браузере.</small></div>
+        <button class="btn" type="submit" ${supported.length && !busy ? "" : "disabled"}>${busy ? "Файлы ставятся в очередь…" : "Проверить выбранные файлы"}</button>
       </div>
     </form>
   `;
@@ -718,7 +794,7 @@ function reviewFormMarkup(media, busy) {
 
 function reviewCurrentMarkup(run, { phase, canDecide }) {
   if (phase === "preparing") {
-    return progressMarkup("Готовим техническое evidence", "Сохраняем четыре контрольных кадра и атлас из 12–24 точек таймлайна, затем измеряем уровни звука. На этом шаге MP4 не передаётся; транскрипция возможна позже только по явному подтверждению формы.", 1);
+    return progressMarkup("Готовим техническую проверку", "Для фото считываем точный кадр и его параметры. Для MP4 готовим четыре контрольных кадра, атлас таймлайна и уровни звука. На этом шаге исходный MP4 не передаётся.", 1);
   }
   if (phase === "saving_evidence") {
     return progressMarkup("Сохраняем evidence", "Кадры загружаются в защищённую папку и фиксируются до запуска проверки.", 2);
@@ -1191,17 +1267,18 @@ function progressMarkup(title, description, step, run = null) {
     </div>`;
 }
 
-function reviewMediaOptionMarkup(item, index) {
+function reviewMediaOptionMarkup(item, index, activeMediaIds) {
+  const active = activeMediaIds instanceof Set && activeMediaIds.has(item.id);
   const preview = item.url
     ? item.isVideo
       ? `<video src="${escapeHtml(item.url)}" preload="metadata" muted playsinline></video><i aria-hidden="true">▶</i>`
       : `<img src="${escapeHtml(item.url)}" alt="" loading="lazy" />`
     : `<span aria-hidden="true">${item.isVideo ? "▶" : "▧"}</span>`;
   return `
-    <label class="content-review-media-option">
-      <input type="radio" name="media_id" value="${escapeHtml(item.id)}" data-media-type="${item.isVideo ? "video" : "image"}" ${index === 0 ? "required" : ""} />
+    <label class="content-review-media-option ${active ? "is-disabled" : ""}" ${active ? 'aria-disabled="true"' : ""}>
+      <input type="checkbox" name="media_id" value="${escapeHtml(item.id)}" data-media-type="${item.isVideo ? "video" : "image"}" data-product-id="${escapeHtml(item.productId)}" ${active ? "disabled" : ""} />
       <span class="content-review-media-option__preview">${preview}</span>
-      <span><strong>${escapeHtml(item.name)}</strong><small>${item.isVideo ? "MP4-видео" : "Изображение"} · ${formatBytes(item.sizeBytes)}</small></span>
+      <span><strong>${escapeHtml(item.name)}</strong><small>${item.isVideo ? "MP4-видео" : "Изображение"} · ${formatBytes(item.sizeBytes)}</small>${active ? "<em>Уже проверяется</em>" : ""}</span>
       <b aria-hidden="true">✓</b>
     </label>`;
 }

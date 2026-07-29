@@ -106,13 +106,15 @@ import {
   contentReviewWorkspaceMarkup,
   generatedMediaContextCanApprove,
   generatedMediaPostContextRequiredRiskCodes,
+  MAX_CONTENT_REVIEW_IMAGE_SELECTION,
   normalizeContentReviewCatalog,
   normalizeContentReviewRun,
   readContentReviewDecision,
   readContentReviewForm,
+  resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260728.3";
+} from "./content-review-view.js?v=20260729.4";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -252,7 +254,7 @@ const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitte
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 8;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const GENERATED_VIDEO_QA_STORAGE_VERSION = 6;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
@@ -9650,9 +9652,16 @@ function restoreContentReviewDraft() {
       control.value = String(draft.input[name] ?? "");
     }
   }
-  const mediaControl = Array.from(form.querySelectorAll('input[name="media_id"]'))
-    .find((control) => String(control.value || "") === String(draft.input.media_id || ""));
-  if (mediaControl instanceof HTMLInputElement) mediaControl.checked = true;
+  const restoredMediaIds = new Set(
+    Array.isArray(draft.input.media_ids) && draft.input.media_ids.length
+      ? draft.input.media_ids.map(String)
+      : [String(draft.input.media_id || "")].filter(Boolean),
+  );
+  form.querySelectorAll('input[name="media_id"]').forEach((control) => {
+    if (control instanceof HTMLInputElement && !control.disabled) {
+      control.checked = restoredMediaIds.has(String(control.value || ""));
+    }
+  });
   const booleanFields = [
     "rights_confirmed", "claims_verified", "ad_label_confirmed", "ord_confirmed",
     "audience_over_10000", "rkn_registered", "person_consent_confirmed",
@@ -9666,6 +9675,7 @@ function restoreContentReviewDraft() {
   state.contentReview.durableEvidence = usableContentReviewEvidence(draft.evidence, {
     mediaId: String(draft.input.media_id || ""),
   });
+  syncContentReviewMediaSelection(form, { silent: true });
   syncContentReviewFormVisibility(form);
   form.dataset.dirty = "true";
   const status = form.querySelector("[data-content-review-draft-status]");
@@ -9814,7 +9824,11 @@ function selectPendingContentReviewMedia() {
   const controls = Array.from(document.querySelectorAll('#content-review-form input[name="media_id"]'));
   const target = controls.find((control) => String(control.value || "") === mediaId);
   if (!target) return;
+  controls.forEach((control) => {
+    control.checked = false;
+  });
   target.checked = true;
+  syncContentReviewMediaSelection(target.form, { silent: true });
   const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
   const media = catalog.media.find((item) => item.id === mediaId);
   applyGeneratedMediaReviewDefaults(target.form, media);
@@ -9831,6 +9845,56 @@ function selectPendingContentReviewMedia() {
     : state.contentReview.notice;
   target.closest(".content-review-media-option")?.scrollIntoView({ block: "center", behavior: "smooth" });
   target.focus({ preventScroll: true });
+}
+
+function syncContentReviewMediaSelection(form, {
+  changedInput = null,
+  silent = false,
+} = {}) {
+  if (!(form instanceof HTMLFormElement)) return null;
+  const inputs = Array.from(
+    form.querySelectorAll('input[name="media_id"]:not(:disabled)'),
+  );
+  if (
+    changedInput instanceof HTMLInputElement
+    && changedInput.name === "media_id"
+    && changedInput.checked
+  ) {
+    if (changedInput.dataset.mediaType === "video") {
+      inputs.forEach((input) => {
+        if (input !== changedInput) input.checked = false;
+      });
+    } else {
+      inputs.forEach((input) => {
+        if (input.dataset.mediaType === "video") input.checked = false;
+      });
+    }
+  }
+  const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+  let selectedIds = inputs.filter((input) => input.checked).map((input) => input.value);
+  let resolution = resolveContentReviewMediaSelection(catalog.media, selectedIds);
+  if (
+    !resolution.ok
+    && changedInput instanceof HTMLInputElement
+    && changedInput.checked
+  ) {
+    changedInput.checked = false;
+    selectedIds = inputs.filter((input) => input.checked).map((input) => input.value);
+    if (!silent) toast(resolution.message, "error");
+    resolution = selectedIds.length
+      ? resolveContentReviewMediaSelection(catalog.media, selectedIds)
+      : null;
+  }
+  const count = form.querySelector("[data-content-review-media-count]");
+  if (count) {
+    const selected = inputs.filter((input) => input.checked);
+    count.textContent = selected.length
+      ? selected[0]?.dataset.mediaType === "video"
+        ? "Выбран 1 MP4"
+        : `Выбрано ${selected.length} из ${MAX_CONTENT_REVIEW_IMAGE_SELECTION}`
+      : "Ничего не выбрано";
+  }
+  return resolution;
 }
 
 function applyGeneratedMediaReviewDefaults(form, media) {
@@ -12390,14 +12454,23 @@ function handleChange(event) {
   const contentReviewForm = event.target.closest("#content-review-form");
   if (contentReviewForm) {
     if (event.target.name === "media_id") {
+      syncContentReviewMediaSelection(contentReviewForm, {
+        changedInput: event.target,
+      });
       const mediaId = String(event.target.value || "");
       const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
       const media = catalog.media.find((item) => item.id === mediaId);
-      applyGeneratedMediaReviewDefaults(contentReviewForm, media);
-      state.contentReview.durableEvidence = generatedVideoQaEvidenceForMedia(media || mediaId)
-        || (String(state.contentReview.durableEvidence?.mediaId || "") === mediaId
-          ? state.contentReview.durableEvidence
-          : null);
+      if (event.target.checked) {
+        applyGeneratedMediaReviewDefaults(contentReviewForm, media);
+        state.contentReview.durableEvidence = generatedVideoQaEvidenceForMedia(media || mediaId)
+          || (String(state.contentReview.durableEvidence?.mediaId || "") === mediaId
+            ? state.contentReview.durableEvidence
+            : null);
+      } else if (
+        String(state.contentReview.durableEvidence?.mediaId || "") === mediaId
+      ) {
+        state.contentReview.durableEvidence = null;
+      }
     }
     syncContentReviewFormVisibility(contentReviewForm);
     persistContentReviewDraft(contentReviewForm);
@@ -16192,19 +16265,142 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form, 
   return promoteReady(pending);
 }
 
+async function submitContentReviewImageBatch(form, input, catalog, mediaItems) {
+  const review = state.contentReview;
+  const completedRuns = catalog.runs.filter((item) => (
+    contentReviewStatusKind(item.status) === "ready"
+    && item.input?.platform === input.platform
+    && item.input?.productCategory === input.product_category
+    && item.input?.contentKind === input.content_kind
+  ));
+  const started = [];
+  let failure = null;
+  stopContentReviewPolling();
+  review.requestId += 1;
+  review.phase = "preparing";
+  review.error = "";
+  review.notice = `Подготавливаем 1 из ${mediaItems.length} фото. Каждый ракурс получит собственный результат и историю.`;
+  renderWorkspace("review");
+
+  for (let index = 0; index < mediaItems.length; index += 1) {
+    const media = mediaItems[index];
+    review.phase = "preparing";
+    review.notice = `Подготавливаем ${index + 1} из ${mediaItems.length}: ${media.name}.`;
+    renderWorkspace("review");
+    let evidence;
+    try {
+      evidence = await captureContentReviewEvidence(media);
+    } catch (error) {
+      failure = { media, error };
+      break;
+    }
+
+    const previousSameMedia = completedRuns.find((item) => item.mediaId === media.id);
+    const previousSameProduct = media.productId
+      ? completedRuns.find((item) => item.media?.productId === media.productId)
+      : null;
+    const previous = previousSameMedia || previousSameProduct || null;
+    const comparisonScope = previousSameMedia
+      ? "same_media"
+      : previousSameProduct
+        ? "same_product"
+        : "none";
+    review.phase = "queueing";
+    review.notice = `Ставим в очередь ${index + 1} из ${mediaItems.length}: ${media.name}.`;
+    renderWorkspace("review");
+    let provisional = null;
+    try {
+      const raw = await state.api.startContentReview(
+        {
+          ...input,
+          media_id: media.id,
+          parent_review_id: previous?.id || null,
+          technical_metrics: evidence.technical_metrics,
+        },
+        {
+          onRunCreated: (run) => {
+            provisional = normalizeContentReviewRun({ run }, {
+              id: run?.id,
+              status: run?.status || "queued",
+              mediaId: media.id,
+              media,
+              input: {
+                mediaId: media.id,
+                platform: input.platform,
+                contentKind: input.content_kind,
+                productCategory: input.product_category,
+              },
+            });
+            upsertContentReviewRun(provisional);
+          },
+        },
+      );
+      const record = normalizeContentReviewRun(raw, provisional || {
+        mediaId: media.id,
+        media,
+      });
+      started.push(record);
+      review.record = record;
+      upsertContentReviewRun(record);
+      await track("content_review_started", {
+        review_id: record.id,
+        media_id: media.id,
+        platform: input.platform,
+        content_kind: input.content_kind,
+        frame_count: Number(evidence.technical_metrics?.frame_count || 1),
+        evidence_id: null,
+        evidence_persisted: false,
+        raw_video_sent: false,
+        comparison_scope: comparisonScope,
+        repair_source_review_id: null,
+        batch_size: mediaItems.length,
+        batch_position: index + 1,
+      }).catch(() => {});
+    } catch (error) {
+      failure = { media, error };
+      break;
+    }
+  }
+
+  if (started.length) {
+    review.record = started[started.length - 1];
+    review.phase = contentReviewStatusKind(review.record.status) === "ready"
+      ? "idle"
+      : "processing";
+    form.removeAttribute("data-dirty");
+    clearContentReviewDraft();
+  } else {
+    review.phase = "idle";
+  }
+  if (failure) {
+    review.error = `Не удалось поставить в очередь «${failure.media.name}»: ${actionErrorMessage(failure.error)}`;
+    review.notice = started.length
+      ? `Запущено ${started.length} из ${mediaItems.length} независимых проверок. Уже созданные проверки не потеряны; проблемный файл можно повторить отдельно.`
+      : "Пакет не запущен. Исправьте проблемный файл и повторите.";
+  } else {
+    review.error = "";
+    review.notice = `Запущено ${started.length} независимых проверок фото одного товара. Можно закрыть вкладку: сервер продолжит обработку, а результаты появятся в истории.`;
+  }
+  if (state.route.path === "/workspace/review") renderWorkspace("review");
+  scheduleContentReviewPolling(800);
+}
+
 async function submitContentReview(form) {
   const review = state.contentReview;
-  if (contentReviewIsBusy(review.phase, review.record)) {
-    toast("Текущая проверка ещё не завершена. Дождитесь результата или откройте её статус.", "info");
+  if (contentReviewIsBusy(review.phase, null)) {
+    toast("Выбранные файлы уже ставятся в очередь. Дождитесь завершения текущей операции.", "info");
     return;
   }
   const input = readContentReviewForm(form);
   const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
-  const media = catalog.media.find((item) => item.id === input.media_id);
-  if (!media) {
-    toast("Выбранный материал не найден. Обновите раздел и выберите файл снова.", "error");
+  const selection = resolveContentReviewMediaSelection(catalog.media, input.media_ids);
+  if (!selection.ok) {
+    toast(selection.message, "error");
     return;
   }
+  const selectedMedia = selection.items;
+  const media = selectedMedia[0];
+  input.media_id = media.id;
   const automaticQaEntry = state.generatedVideoQa.entries.get(String(media.id || "").toLowerCase());
   const automaticEvidence = generatedVideoQaEvidenceForMedia(media);
   if (
@@ -16246,6 +16442,10 @@ async function submitContentReview(form) {
     toast("У рекламы не заполнены рекламодатель или ERID. Проверка продолжится, но публикация, скорее всего, будет заблокирована.", "info");
   }
   persistContentReviewDraft(form);
+  if (selectedMedia.length > 1) {
+    await submitContentReviewImageBatch(form, input, catalog, selectedMedia);
+    return;
+  }
   const completedRuns = catalog.runs.filter((item) => (
     contentReviewStatusKind(item.status) === "ready"
     && item.input?.platform === input.platform

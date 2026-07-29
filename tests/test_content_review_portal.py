@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260728.3' in APP
-    assert './content-review.css?v=20260728.1' in INDEX
-    assert './app.js?v=20260729.6' in INDEX
+    assert './content-review-view.js?v=20260729.4' in APP
+    assert './content-review.css?v=20260729.2' in INDEX
+    assert './app.js?v=20260729.7' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -82,6 +82,62 @@ def test_review_form_covers_context_rights_advertising_and_disclosures() -> None
     assert "[data-review-person-consent]" in VIEW
     assert "[data-review-ai-disclosure]" in VIEW
     assert "[data-review-rkn]" in VIEW
+
+
+def test_review_accepts_up_to_five_photos_of_one_product_and_queues_each_file() -> None:
+    assert 'type="checkbox" name="media_id"' in VIEW
+    assert "MAX_CONTENT_REVIEW_IMAGE_SELECTION = 5" in VIEW
+    assert "До 5 фото одного товара" in VIEW
+    assert "data-content-review-media-count" in VIEW
+    assert "resolveContentReviewMediaSelection" in VIEW
+    assert "content_review_product_mismatch" in VIEW
+    assert "content_review_video_single_only" in VIEW
+    assert "async function submitContentReviewImageBatch" in APP
+    assert "for (let index = 0; index < mediaItems.length; index += 1)" in APP
+    assert "batch_size: mediaItems.length" in APP
+    assert "batch_position: index + 1" in APP
+    assert "Запущено ${started.length} независимых проверок фото одного товара" in APP
+    assert "contentReviewIsBusy(review.phase, null)" in APP
+    assert "contentReviewIsBusy(phase, null)" in VIEW
+
+
+def test_multi_photo_selection_rejects_mixed_products_video_and_oversized_batches() -> None:
+    module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
+    script = f"""
+import {{ resolveContentReviewMediaSelection }} from {json.dumps(module_url)};
+const media = [
+  ...Array.from({{ length: 6 }}, (_, index) => ({{
+    id: `photo-${{index + 1}}`,
+    productId: "product-a",
+    isImage: true,
+    isVideo: false,
+    supported: true,
+  }})),
+  {{ id: "other", productId: "product-b", isImage: true, isVideo: false, supported: true }},
+  {{ id: "video", productId: "product-a", isImage: false, isVideo: true, supported: true }},
+];
+const valid = resolveContentReviewMediaSelection(media, ["photo-1", "photo-2", "photo-3"]);
+if (!valid.ok || valid.items.length !== 3) throw new Error("valid same-product batch rejected");
+const mixed = resolveContentReviewMediaSelection(media, ["photo-1", "other"]);
+if (mixed.ok || mixed.code !== "content_review_product_mismatch") throw new Error("mixed product accepted");
+const video = resolveContentReviewMediaSelection(media, ["photo-1", "video"]);
+if (video.ok || video.code !== "content_review_video_single_only") throw new Error("mixed video accepted");
+const oversized = resolveContentReviewMediaSelection(
+  media,
+  ["photo-1", "photo-2", "photo-3", "photo-4", "photo-5", "photo-6"],
+);
+if (oversized.ok || oversized.code !== "content_review_media_limit") throw new Error("oversized batch accepted");
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video() -> None:
@@ -170,7 +226,7 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 8" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in APP
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in APP
     assert "upsert: false" in API
 
@@ -825,7 +881,7 @@ const html = contentReviewWorkspaceMarkup({{
   phase: "processing"
 }});
 if (!html.includes('aria-busy="false"')) throw new Error("empty form stayed busy");
-if (!html.includes(">Проверить качество и риски</button>")) {{
+if (!html.includes(">Проверить выбранные файлы</button>")) {{
   throw new Error("action label did not recover");
 }}
 if (html.includes("Проверка уже выполняется…")) {{

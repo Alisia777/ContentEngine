@@ -83,4 +83,4 @@ def test_portal_explains_the_autonomous_experiment_and_busts_caches() -> None:
     ):
         assert token in APP
     assert "./content-generation-handoff.js?v=20260729.3" in APP
-    assert "./app.js?v=20260729.6" in INDEX
+    assert "./app.js?v=20260729.7" in INDEX
