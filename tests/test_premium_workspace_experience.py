@@ -421,6 +421,9 @@ def test_workspace_refresh_preserves_dirty_forms_and_files() -> None:
     assert 'form[data-dirty="true"]' in workspace
     assert "new DataTransfer()" in workspace
     assert '["checkbox", "radio"].includes(field.type)' in workspace
+    assert 'name: String(field.name || "")' in workspace
+    assert 'item.name === field.name' in workspace
+    assert 'item.value === field.value' in workspace
     assert 'document.addEventListener("input", handleFormActivity)' in APP
     assert 'form.dataset.dirty = "true"' in APP
     drop_handler = _between(APP, "async function handleDrop", "function handleDragEnd")

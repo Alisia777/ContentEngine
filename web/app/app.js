@@ -5859,6 +5859,8 @@ function captureDirtyWorkspaceForms(container) {
     fields: Array.from(form.elements).map((field) => {
       const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
       return {
+        name: String(field.name || ""),
+        type: String(field.type || ""),
         value: field.value,
         checked: checkable ? field.checked : null,
         selectedValues: field instanceof HTMLSelectElement && field.multiple
@@ -5879,7 +5881,15 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     const form = forms.find((candidate, index) => workspaceFormKey(candidate, index) === snapshot.key);
     if (!form) return;
     Array.from(form.elements).forEach((field, fieldIndex) => {
-      const saved = snapshot.fields[fieldIndex];
+      const checkable = field instanceof HTMLInputElement
+        && ["checkbox", "radio"].includes(field.type);
+      const saved = checkable
+        ? snapshot.fields.find((item) => (
+            item.name === field.name
+            && item.type === field.type
+            && item.value === field.value
+          ))
+        : snapshot.fields[fieldIndex];
       if (!saved) return;
       if (field instanceof HTMLInputElement && field.type === "file" && saved.files?.length) {
         try {
@@ -12788,9 +12798,15 @@ function generationMediaSelectionFromForm(form) {
 function selectedGenerationProductIdentity(form) {
   const selection = generationMediaSelectionFromForm(form);
   if (!selection.valid || !selection.primaryMediaId) return null;
+  const mediaIds = [
+    selection.primaryMediaId,
+    ...selection.mediaIds.filter(
+      (mediaId) => mediaId !== selection.primaryMediaId,
+    ),
+  ];
   return {
     mediaId: selection.primaryMediaId,
-    mediaIds: selection.mediaIds,
+    mediaIds,
     sku: selection.sku,
     productName: selection.productName,
   };
@@ -15266,11 +15282,12 @@ async function submitRealGeneration(form, values, mode) {
       state.lastRealGenerationJobId = jobId;
       applyRealGenerationResult(jobId, { job: error.job }, { renderNow: false });
     }
+    const startErrorMessage = actionErrorMessage(error);
     state.realGenerationStartNotice = providerStartAttempted
-      ? "Запуск не подтверждён окончательно. Сначала обновите очередь и проверьте существующую задачу; не создавайте дубликат с новой оплатой."
+      ? `Запуск не подтверждён окончательно. Причина: ${startErrorMessage} Сначала обновите очередь и проверьте существующую задачу; не создавайте дубликат с новой оплатой.`
       : "Платный запуск не создан: бесплатная проверка Runway не пройдена. Исправьте баланс, ключ или квоту и повторите подтверждение.";
     state.sections.generation.status = "idle";
-    toast(actionErrorMessage(error), "error");
+    toast(startErrorMessage, "error");
   } finally {
     state.realGenerationStartInFlight = false;
     const renderedForm = document.querySelector("#mock-batch-form");
