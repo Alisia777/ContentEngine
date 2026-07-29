@@ -33,6 +33,23 @@ as $prompt$
   )
 $prompt$;
 
+create or replace function pg_temp.canonical_seedance_prompt_for_duration(
+  p_product_name text,
+  p_sku text,
+  p_duration integer
+)
+returns text
+language sql
+immutable
+as $prompt$
+  select format(
+    'Точный товар: %s, артикул %s. Создай один непрерывный вертикальный UGC-ролик длительностью %s секунд. Без сгенерированных надписей, субтитров и декоративного текста. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара. Реплика героя дословно: «Показываю товар крупно и честно»',
+    p_product_name,
+    p_sku,
+    p_duration
+  )
+$prompt$;
+
 
 -- TEST-ONLY refreshed-course gate. Production authorization accepts only a
 -- completed server-style attempt whose question counts match the active module
@@ -474,15 +491,16 @@ values (public.creator_start_real_generation(jsonb_build_object(
   'idempotency_key', 'seedance-success-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
   'count', 1, 'format', '9:16',
-  'brief', pg_temp.canonical_seedance_prompt(
+  'brief', pg_temp.canonical_seedance_prompt_for_duration(
     'Seedance product',
-    'SEEDANCE-SKU-1'
+    'SEEDANCE-SKU-1',
+    15
   ),
   'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'seedance-test',
   'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
-  'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
-  'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
+  'duration_seconds', 15, 'audio', true, 'allow_real_spend', true,
+  'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_15S_AUDIO_USD_4.35'
 )));
 
 select is(
@@ -501,8 +519,8 @@ select is(
     )
     from seedance_test_context
   ),
-  '8:true:720:1280:232:232',
-  'wire response carries 8s, audio, provider ratio and exact price'
+  '15:true:720:1280:435:435',
+  'wire response carries 15s, audio, provider ratio and exact price'
 );
 select ok(
   exists (
@@ -513,10 +531,10 @@ select ok(
     )
       and batch.provider = 'runway'
       and batch.model = 'seedance2_fast'
-      and batch.duration_seconds = 8
+      and batch.duration_seconds = 15
       and batch.audio
-      and batch.estimated_cost_minor = 232
-      and batch.estimated_credits = 232
+      and batch.estimated_cost_minor = 435
+      and batch.estimated_credits = 435
       and batch.currency = 'USD'
       and batch.input ->> 'job_id' = (
         select success_response #>> '{job,id}' from seedance_test_context
@@ -532,7 +550,7 @@ select ok(
       select (success_response #>> '{job,id}')::uuid from seedance_test_context
     )
       and job.status = 'queued'
-      and job.estimated_cost_minor = 232
+      and job.estimated_cost_minor = 435
       and job.actual_cost_minor = 0
       and job.input -> 'audio' = 'true'::jsonb
       and job.input ->> 'ratio' = '720:1280'
@@ -558,15 +576,16 @@ select is(
     'idempotency_key', 'seedance-success-0001',
     'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
     'count', 1, 'format', '9:16',
-    'brief', pg_temp.canonical_seedance_prompt(
+    'brief', pg_temp.canonical_seedance_prompt_for_duration(
       'Seedance product',
-      'SEEDANCE-SKU-1'
+      'SEEDANCE-SKU-1',
+      15
     ),
     'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
     'platform', 'wildberries', 'destination_ref', 'seedance-test',
     'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
-    'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
-    'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
+    'duration_seconds', 15, 'audio', true, 'allow_real_spend', true,
+    'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_15S_AUDIO_USD_4.35'
   ))::text,
   (select success_response::text from seedance_test_context),
   'Seedance start replays before quota evaluation'
@@ -624,7 +643,7 @@ select is(
       select (success_response #>> '{job,id}')::uuid from seedance_test_context
     )
   ),
-  '232',
+  '435',
   'submitted Seedance job records its persisted SKU cost, never Gen-4 cost'
 );
 select is(
@@ -675,9 +694,9 @@ select ok(
       select success_response #>> '{job,output_object_name}' from seedance_test_context
     )
       and media.metadata ->> 'model' = 'seedance2_fast'
-      and media.metadata ->> 'duration_seconds' = '8'
+      and media.metadata ->> 'duration_seconds' = '15'
       and media.metadata -> 'audio' = 'true'::jsonb
-      and media.metadata ->> 'estimated_credits' = '232'
+      and media.metadata ->> 'estimated_credits' = '435'
       and exists (
         select 1
         from content_factory.generation_storage_reservations reservation
@@ -716,7 +735,7 @@ select is(
     'organization_id', '90000000-0000-4000-8000-000000000001',
     'job_id', (select success_response #>> '{job,id}' from seedance_test_context)
   )) #>> '{job,estimated_credits}',
-  '232',
+  '435',
   'terminal user status retains exact Seedance credits'
 );
 

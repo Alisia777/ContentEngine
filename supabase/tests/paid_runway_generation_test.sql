@@ -18,6 +18,23 @@ as $prompt$
   )
 $prompt$;
 
+create or replace function pg_temp.canonical_gen4_prompt_for_duration(
+  p_product_name text,
+  p_sku text,
+  p_duration integer
+)
+returns text
+language sql
+immutable
+as $prompt$
+  select format(
+    'Точный товар: %s, артикул %s. Создай один непрерывный вертикальный ролик длительностью %s секунд. Без речи, дикторского текста и сгенерированных надписей. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.',
+    p_product_name,
+    p_sku,
+    p_duration
+  )
+$prompt$;
+
 
 -- TEST-ONLY refreshed-course gate. Production authorization accepts only a
 -- completed server-style attempt whose question counts match the active module
@@ -495,12 +512,14 @@ values (public.creator_start_real_generation(jsonb_build_object(
   'idempotency_key', 'real-success-path-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '9:16',
-  'brief', pg_temp.canonical_gen4_prompt('Runway product', 'REAL-SKU-1'),
+  'brief', pg_temp.canonical_gen4_prompt_for_duration(
+    'Runway product', 'REAL-SKU-1', 10
+  ),
   'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
   'platform', 'wildberries', 'destination_ref', 'wb-real-test',
   'mode', 'real', 'provider', 'runway', 'model', 'gen4_turbo',
-  'duration_seconds', 5, 'allow_real_spend', true,
-  'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25'
+  'duration_seconds', 10, 'allow_real_spend', true,
+  'spend_confirmation', 'RUNWAY_GEN4_TURBO_10S_USD_0.50'
 )));
 
 select is(
@@ -521,8 +540,8 @@ select is(
       select (initial_response #>> '{job,id}')::uuid from paid_runway_context
     )
   ),
-  '25:0',
-  'queued Runway job records 25 USD minor estimated and zero actual spend'
+  '50:0',
+  'queued ten-second Runway job records 50 USD minor estimated and zero actual spend'
 );
 select ok(
   exists (
@@ -535,7 +554,7 @@ select ok(
         select initial_response #>> '{job,id}' from paid_runway_context
       )
       and batch.input #>> '{billing,currency}' = 'USD'
-      and batch.input #>> '{billing,estimated_credits}' = '25'
+      and batch.input #>> '{billing,estimated_credits}' = '50'
   ),
   'batch stores the exact job id and fixed USD/credits metadata'
 );
@@ -568,12 +587,14 @@ select is(
     'idempotency_key', 'real-success-path-0001',
     'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
     'count', 1, 'format', '9:16',
-    'brief', pg_temp.canonical_gen4_prompt('Runway product', 'REAL-SKU-1'),
+    'brief', pg_temp.canonical_gen4_prompt_for_duration(
+      'Runway product', 'REAL-SKU-1', 10
+    ),
     'media_ids', '["83000000-0000-4000-8000-000000000001"]'::jsonb,
     'platform', 'wildberries', 'destination_ref', 'wb-real-test',
     'mode', 'real', 'provider', 'runway', 'model', 'gen4_turbo',
-    'duration_seconds', 5, 'allow_real_spend', true,
-    'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25'
+    'duration_seconds', 10, 'allow_real_spend', true,
+    'spend_confirmation', 'RUNWAY_GEN4_TURBO_10S_USD_0.50'
   ))::text,
   (select initial_response::text from paid_runway_context),
   'start is idempotent before quota evaluation'
@@ -797,7 +818,7 @@ select ok(
       select (initial_response #>> '{job,id}')::uuid from paid_runway_context
     )
       and job.status = 'succeeded'
-      and job.actual_cost_minor = 25
+      and job.actual_cost_minor = 50
       and batch.status = 'succeeded'
       and batch.total_created = 1
   ),

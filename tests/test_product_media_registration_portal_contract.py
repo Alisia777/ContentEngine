@@ -43,7 +43,7 @@ def test_product_media_form_is_explicit_conditional_and_sent_before_upload() -> 
     assert "productIdentity.sku = sku" in submit
     assert "productIdentity.product_name = productName" in submit
     assert submit.index("const productIdentity = {}") < submit.index("setFormBusy(form, true")
-    assert submit.index("...productIdentity") < submit.index("rights_confirmed")
+    assert submit.index("...productIdentity") < submit.index("rights_confirmed: true")
     assert "removePrivateObject(objectKey)" in submit
     assert "if (form.isConnected) setFormBusy(form, false)" in submit
 

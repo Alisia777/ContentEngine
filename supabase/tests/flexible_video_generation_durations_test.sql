@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(11);
+select plan(15);
 
 select is(
   content_factory_private.real_generation_sku_config(
@@ -99,8 +99,47 @@ select matches(
   pg_get_functiondef(
     'public.system_record_generation_provider_readiness(jsonb)'::regprocedure
   ),
-  'duration_value \\* 29',
+  'duration_value [*] 29',
   'trusted readiness recording recalculates Seedance credits'
+);
+
+select matches(
+  pg_get_functiondef(
+    'content_factory_private.creator_start_gen4_turbo_5s(jsonb)'::regprocedure
+  ),
+  'estimated_cost_minor_value',
+  'Gen-4 paid-start runtime persists the dynamic SKU price'
+);
+
+select matches(
+  pg_get_functiondef(
+    'content_factory_private.creator_start_seedance2_fast_8s(jsonb)'::regprocedure
+  ),
+  'estimated_credits_value',
+  'Seedance paid-start runtime persists the dynamic SKU credits'
+);
+
+select matches(
+  pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_campaign_v1(jsonb)'::regprocedure
+  ),
+  'sku_config -> ''estimated_credits''',
+  'campaign response reports dynamic credits instead of the historical default'
+);
+
+select ok(
+  position(
+    'creator_start_real_generation_pre_flexible_duration_v12'
+    in pg_get_functiondef(
+      'public.creator_start_real_generation(jsonb)'::regprocedure
+    )
+  ) < position(
+    'sku_config := content_factory_private.real_generation_sku_config'
+    in pg_get_functiondef(
+      'public.creator_start_real_generation(jsonb)'::regprocedure
+    )
+  ),
+  'legacy authorization and policy errors run before the final SKU binding'
 );
 
 select * from finish();

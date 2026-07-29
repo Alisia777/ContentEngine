@@ -21,6 +21,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280008_flexible_video_generation_durations.sql"
 ).read_text(encoding="utf-8")
+RUNTIME_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290001_flexible_video_generation_runtime.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/flexible_video_generation_durations_test.sql"
 ).read_text(encoding="utf-8")
@@ -28,6 +32,7 @@ PGTAP = (
 
 def test_flexible_duration_sql_contracts_parse() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(RUNTIME_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -153,6 +158,17 @@ def test_edge_and_database_fail_closed_on_duration_price_drift() -> None:
         "generation-provider-readiness-receipt-v2",
     ):
         assert token in MIGRATION
+    for token in (
+        "creator_start_gen4_turbo_5s",
+        "creator_start_seedance2_fast_8s",
+        "duration_value := (sku_config ->> 'duration_seconds')::integer",
+        "estimated_cost_minor_value :=",
+        "estimated_credits_value :=",
+        "creator_start_real_generation_pre_flexible_duration_v12",
+    ):
+        assert token in RUNTIME_MIGRATION
+    assert "'duration_seconds', 5" not in RUNTIME_MIGRATION
+    assert "'duration_seconds', 8" not in RUNTIME_MIGRATION
 
 
 def test_duration_change_never_reuses_old_learning_or_provider_receipt() -> None:

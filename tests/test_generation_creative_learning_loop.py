@@ -212,8 +212,8 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
     ):
         assert token in APP
     assert ".generation-learning-status" in STYLES
-    assert "./styles.css?v=20260728.1" in INDEX
-    assert "./app.js?v=20260728.13" in INDEX
+    assert "./styles.css?v=20260729.1" in INDEX
+    assert "./app.js?v=20260729.1" in INDEX
     assert "./supabase-api.js?v=20260728.6" in APP
 
 

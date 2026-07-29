@@ -423,7 +423,9 @@ def test_workspace_refresh_preserves_dirty_forms_and_files() -> None:
     assert '["checkbox", "radio"].includes(field.type)' in workspace
     assert 'document.addEventListener("input", handleFormActivity)' in APP
     assert 'form.dataset.dirty = "true"' in APP
-    assert 'zone.closest("form")?.setAttribute("data-dirty", "true")' in APP
+    drop_handler = _between(APP, "async function handleDrop", "function handleDragEnd")
+    assert 'const form = zone.closest("form")' in drop_handler
+    assert 'form.dataset.dirty = "true"' in drop_handler
 
 
 def test_paid_generation_stays_single_flight_across_workspace_rerenders() -> None:

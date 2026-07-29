@@ -4,6 +4,13 @@ import {
   PRODUCT_RESEARCH_PLATFORMS,
 } from "./supabase-api.js?v=20260728.6";
 import {
+  DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
+  DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
+  mergeMediaFileSelection,
+  mediaFileValidationError as mediaUploadFileValidationError,
+  mediaUploadWorkerCount,
+} from "./media-upload-queue.js?v=20260729.1";
+import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
   NAVIGATION_MODE_STORAGE_KEY,
@@ -199,6 +206,14 @@ import {
 } from "./my-work-view.js?v=20260716.4";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
+const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
+  1,
+  Math.min(
+    50,
+    Number(CONFIG.MAX_MEDIA_BATCH_FILES) || DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
+  ),
+);
+const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
 const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
@@ -5885,7 +5900,7 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
       syncGenerationModeForm(form);
     }
     if (form.id === "media-upload-form") {
-      showSelectedFile(form.elements.file?.files?.[0]);
+      showSelectedFiles(form);
       syncMediaProductFields(form);
     }
     if (snapshot.busy) setFormBusy(form, true, snapshot.busyLabel || "Подождите…");
@@ -10435,21 +10450,21 @@ function renderMediaSection(sectionState) {
         <section class="card card-pad">
           <p class="eyebrow">Добавить исходник</p>
           <h2 style="font:600 1.45rem/1.2 Georgia,serif; margin:0 0 8px">Точные фото или видео</h2>
-          <p class="muted tiny">Файл попадёт в вашу закрытую папку. Максимум ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.</p>
+          <p class="muted tiny">Файлы попадут в закрытую папку команды. До ${MEDIA_UPLOAD_BATCH_LIMIT} файлов за раз, каждый — максимум ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.</p>
           <form id="media-upload-form" class="form-stack" novalidate>
-            <div class="upload-zone" data-upload-zone>
+            <div class="upload-zone" data-upload-zone aria-describedby="media-upload-help selected-file-summary">
               <span class="empty-icon" aria-hidden="true">⇧</span>
-              <label for="media-file">Выбрать файл</label>
-              <input id="media-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required />
-              <small class="muted">Фото JPG, PNG, WEBP или видео MP4</small>
+              <label for="media-file">Выбрать файлы</label>
+              <input id="media-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" multiple required />
+              <small class="muted" id="media-upload-help">Выберите несколько файлов или перетащите их сюда: фото JPG, PNG, WEBP и видео MP4.</small>
               ${LOCAL_QA_MEDIA_FIXTURE_ENABLED ? `
                 <button class="btn btn-ghost btn-small" type="button" data-action="use-local-media-fixture">
                   Подставить тестовое фото
                 </button>
                 <small class="muted">Только для локального QA-прогона; в HTTPS-сборке кнопки нет.</small>
               ` : ""}
-              <strong id="selected-file-name" style="margin-top:8px"></strong>
             </div>
+            <div id="selected-file-summary" class="media-upload-selection" aria-live="polite"></div>
             <label class="field"><span>Тип материала</span><select name="kind" required><option value="product_photo">Фото товара</option><option value="packshot">Фото упаковки без фона</option><option value="creator_reference">Пример желаемого кадра</option><option value="source_video">Исходное видео</option></select></label>
             <div class="form-stack" data-media-product-fields>
               <div>
@@ -10470,7 +10485,7 @@ function renderMediaSection(sectionState) {
               </div>
             </div>
             <label class="acknowledgement"><input name="rights_confirmed" type="checkbox" required /><span>У команды есть право использовать этот материал.</span></label>
-            <button class="btn btn-block" type="submit">Загрузить в защищённую папку</button>
+            <button class="btn btn-block" type="submit">Загрузить файлы в защищённую папку</button>
           </form>
         </section>
         <section>
@@ -10807,6 +10822,25 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "remove-media-upload-file") {
+    const form = control.closest("#media-upload-form");
+    const input = form?.elements?.file;
+    const index = Number(control.dataset.fileIndex);
+    if (
+      !form
+      || !(input instanceof HTMLInputElement)
+      || !Number.isInteger(index)
+      || form.dataset.busy === "true"
+    ) return;
+    const files = Array.from(input.files || []);
+    if (index < 0 || index >= files.length) return;
+    files.splice(index, 1);
+    setMediaInputFiles(input, files);
+    form.dataset.dirty = "true";
+    showSelectedFiles(form);
+    return;
+  }
 
   if (action === "copy-tracking-link") {
     const value = String(control.dataset.trackingUrl || "");
@@ -12164,7 +12198,20 @@ function handleChange(event) {
   }
 
   if (event.target.id === "media-file") {
-    showSelectedFile(event.target.files?.[0]);
+    const selected = Array.from(event.target.files || []);
+    const selection = mergeMediaFileSelection(
+      [],
+      selected,
+      MEDIA_UPLOAD_BATCH_LIMIT,
+    );
+    if (selection.files.length !== selected.length) {
+      setMediaInputFiles(event.target, selection.files);
+      toast(
+        `В очередь добавлено ${selection.files.length} из ${selected.length} файлов. Максимум за раз: ${MEDIA_UPLOAD_BATCH_LIMIT}.`,
+        "warning",
+      );
+    }
+    showSelectedFiles(event.target.form);
   }
 
   const mediaForm = event.target.closest("#media-upload-form");
@@ -12335,14 +12382,24 @@ async function handleDrop(event) {
   if (!zone) return;
   event.preventDefault();
   zone.classList.remove("dragover");
-  const file = event.dataTransfer?.files?.[0];
+  const droppedFiles = Array.from(event.dataTransfer?.files || []);
   const input = zone.querySelector('input[type="file"]');
-  if (!file || !input) return;
-  const transfer = new DataTransfer();
-  transfer.items.add(file);
-  input.files = transfer.files;
-  zone.closest("form")?.setAttribute("data-dirty", "true");
-  showSelectedFile(file);
+  const form = zone.closest("form");
+  if (!droppedFiles.length || !input || !form) return;
+  const selection = mergeMediaFileSelection(
+    Array.from(input.files || []),
+    droppedFiles,
+    MEDIA_UPLOAD_BATCH_LIMIT,
+  );
+  setMediaInputFiles(input, selection.files);
+  form.dataset.dirty = "true";
+  showSelectedFiles(form);
+  if (selection.skipped > 0) {
+    toast(
+      `Можно загрузить до ${MEDIA_UPLOAD_BATCH_LIMIT} файлов за раз. Лишних файлов: ${selection.skipped}.`,
+      "warning",
+    );
+  }
 }
 
 function handleDragEnd() {
@@ -12350,9 +12407,93 @@ function handleDragEnd() {
   clearWorkspaceDropTargets();
 }
 
-function showSelectedFile(file) {
-  const target = document.querySelector("#selected-file-name");
-  if (target) target.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : "";
+function setMediaInputFiles(input, files) {
+  if (!(input instanceof HTMLInputElement)) return false;
+  try {
+    const transfer = new DataTransfer();
+    files.forEach((file) => transfer.items.add(file));
+    input.files = transfer.files;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function mediaFileValidationError(file) {
+  const error = mediaUploadFileValidationError(
+    file,
+    Number(CONFIG.MAX_UPLOAD_BYTES),
+  );
+  if (error === "Файл больше допустимого размера.") {
+    return `Больше лимита ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.`;
+  }
+  return error;
+}
+
+function showSelectedFiles(form, statusByIndex = new Map()) {
+  const target = form?.querySelector("#selected-file-summary");
+  const files = Array.from(form?.elements?.file?.files || []);
+  if (!target) return;
+  if (!files.length) {
+    target.innerHTML = "";
+    target.hidden = true;
+    syncMediaUploadSubmitLabel(form, 0);
+    return;
+  }
+  target.hidden = false;
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
+  target.innerHTML = `
+    <div class="media-upload-selection__head">
+      <strong>Выбрано: ${files.length}</strong>
+      <small>${formatBytes(totalBytes)} всего</small>
+    </div>
+    <ul class="media-upload-queue" aria-label="Очередь загрузки">
+      ${files.map((file, index) => {
+        const validationError = mediaFileValidationError(file);
+        const current = statusByIndex.get(index) || (
+          validationError
+            ? { state: "error", label: validationError }
+            : { state: "queued", label: "Готов к загрузке" }
+        );
+        return `
+          <li class="media-upload-queue__item" data-media-upload-index="${index}" data-upload-state="${escapeHtml(current.state)}">
+            <span class="media-upload-queue__file">
+              <strong title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</strong>
+              <small>${formatBytes(file.size)}</small>
+            </span>
+            <span class="badge media-upload-queue__status" data-media-upload-status>${escapeHtml(current.label)}</span>
+            <button class="media-upload-queue__remove" type="button" data-action="remove-media-upload-file" data-file-index="${index}" aria-label="Убрать ${escapeHtml(file.name)} из очереди">×</button>
+          </li>
+        `;
+      }).join("")}
+    </ul>
+  `;
+  syncMediaUploadSubmitLabel(form, files.length);
+}
+
+function syncMediaUploadSubmitLabel(form, count) {
+  const submit = form?.querySelector('button[type="submit"]');
+  if (!submit || form.dataset.busy === "true") return;
+  const lastTwo = count % 100;
+  const last = count % 10;
+  const fileWord = lastTwo >= 11 && lastTwo <= 14
+    ? "файлов"
+    : last === 1
+      ? "файл"
+      : last >= 2 && last <= 4
+        ? "файла"
+        : "файлов";
+  submit.textContent = count > 0
+    ? `Загрузить ${count} ${fileWord}`
+    : "Загрузить файлы в защищённую папку";
+}
+
+function setMediaUploadItemStatus(form, index, stateName, label) {
+  const row = form?.querySelector(`[data-media-upload-index="${index}"]`);
+  if (!row) return;
+  row.dataset.uploadState = stateName;
+  const status = row.querySelector("[data-media-upload-status]");
+  if (status) status.textContent = label;
 }
 
 function syncMediaProductFields(form) {
@@ -16053,18 +16194,18 @@ async function submitContentReviewDecision(form, submitter) {
 
 async function submitMedia(form) {
   const values = new FormData(form);
-  const file = values.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    toast("Выберите непустой файл.", "error");
+  const files = Array.from(form.elements.file?.files || []);
+  if (!files.length) {
+    toast("Выберите хотя бы один файл.", "error");
     return;
   }
-  if (file.size > Number(CONFIG.MAX_UPLOAD_BYTES)) {
-    toast(`Файл больше лимита ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.`, "error");
+  if (files.length > MEDIA_UPLOAD_BATCH_LIMIT) {
+    toast(`За один раз можно загрузить до ${MEDIA_UPLOAD_BATCH_LIMIT} файлов.`, "error");
     return;
   }
-  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "video/mp4"]);
-  if (!allowedTypes.has(file.type)) {
-    toast("Разрешены JPG, PNG, WEBP и MP4.", "error");
+  if (values.get("rights_confirmed") !== "on") {
+    toast("Подтвердите право команды использовать выбранные файлы.", "error");
+    form.elements.rights_confirmed?.focus();
     return;
   }
 
@@ -16087,41 +16228,152 @@ async function submitMedia(form) {
     productIdentity.product_name = productName;
   }
 
-  setFormBusy(form, true, "Проверяем файл и загружаем…");
-  let objectKey = "";
-  try {
-    objectKey = privateObjectKey(file.name);
-    const sha256 = await fileSha256(file);
-    await state.api.uploadPrivateObject(objectKey, file);
-    try {
-      await state.api.registerMedia({
-        bucket: state.bootstrap.storage.bucket,
-        object_key: objectKey,
-        original_filename: file.name,
-        mime_type: file.type,
-        size_bytes: file.size,
-        sha256,
-        kind,
-        ...productIdentity,
-        rights_confirmed: values.get("rights_confirmed") === "on",
-      });
-    } catch (registrationError) {
-      await state.api.removePrivateObject(objectKey).catch(() => {});
-      throw registrationError;
+  showSelectedFiles(form);
+  const results = new Array(files.length);
+  const uploadIndexes = [];
+  files.forEach((file, index) => {
+    const validationError = mediaFileValidationError(file);
+    if (validationError) {
+      results[index] = { ok: false, error: validationError, file };
+      setMediaUploadItemStatus(form, index, "error", validationError);
+    } else {
+      uploadIndexes.push(index);
     }
-    await track("media_uploaded", { kind, mime_type: file.type, size_bytes: file.size });
-    delete form.dataset.dirty;
-    form.reset();
-    showSelectedFile(null);
-    syncMediaProductFields(form);
-    state.sections.media.status = "idle";
-    state.sections.generation.status = "idle";
-    toast("Файл сохранён в защищённой папке.", "success");
-    render();
-  } catch (error) {
-    toast(actionErrorMessage(error), "error");
+  });
+  if (!uploadIndexes.length) {
+    toast("В выбранных файлах нет подходящих JPG, PNG, WEBP или MP4.", "error");
+    return;
+  }
+
+  setFormBusy(form, true, `Загружаем 0 из ${uploadIndexes.length}…`);
+  let completedUploads = 0;
+  let nextUpload = 0;
+  const worker = async () => {
+    while (nextUpload < uploadIndexes.length) {
+      const index = uploadIndexes[nextUpload];
+      nextUpload += 1;
+      const file = files[index];
+      let objectKey = "";
+      let objectUploaded = false;
+      setMediaUploadItemStatus(form, index, "checking", "Проверяем…");
+      try {
+        objectKey = privateObjectKey(file.name);
+        const sha256 = await fileSha256(file);
+        setMediaUploadItemStatus(form, index, "uploading", "Загружаем…");
+        await state.api.uploadPrivateObject(objectKey, file);
+        objectUploaded = true;
+        setMediaUploadItemStatus(form, index, "registering", "Сохраняем…");
+        await state.api.registerMedia({
+          bucket: state.bootstrap.storage.bucket,
+          object_key: objectKey,
+          original_filename: file.name,
+          mime_type: file.type,
+          size_bytes: file.size,
+          sha256,
+          kind,
+          ...productIdentity,
+          rights_confirmed: true,
+        });
+        results[index] = { ok: true, file };
+        setMediaUploadItemStatus(form, index, "success", "Готово");
+        await track("media_uploaded", {
+          kind,
+          mime_type: file.type,
+          size_bytes: file.size,
+          batch_size: files.length,
+        });
+      } catch (error) {
+        if (objectUploaded && objectKey) {
+          await state.api.removePrivateObject(objectKey).catch(() => {});
+        }
+        const message = actionErrorMessage(error);
+        results[index] = { ok: false, error: message, file };
+        setMediaUploadItemStatus(form, index, "error", message);
+      } finally {
+        completedUploads += 1;
+        const submit = form.querySelector('button[type="submit"]');
+        if (submit) {
+          submit.textContent = `Загружаем ${completedUploads} из ${uploadIndexes.length}…`;
+        }
+      }
+    }
+  };
+
+  try {
+    await Promise.all(
+      Array.from(
+        {
+          length: mediaUploadWorkerCount(
+            uploadIndexes.length,
+            MEDIA_UPLOAD_CONCURRENCY,
+          ),
+        },
+        () => worker(),
+      ),
+    );
   } finally {
     if (form.isConnected) setFormBusy(form, false);
+  }
+
+  const successful = results.filter((item) => item?.ok);
+  const failed = results.filter((item) => item && !item.ok);
+  if (!failed.length) {
+    delete form.dataset.dirty;
+    form.reset();
+    showSelectedFiles(form);
+    syncMediaProductFields(form);
+  } else {
+    setMediaInputFiles(
+      form.elements.file,
+      failed.map((item) => item.file),
+    );
+    form.dataset.dirty = "true";
+    showSelectedFiles(
+      form,
+      new Map(failed.map((item, index) => [
+        index,
+        { state: "error", label: item.error },
+      ])),
+    );
+  }
+
+  if (successful.length) {
+    state.sections.media.status = "idle";
+    state.sections.generation.status = "idle";
+    try {
+      await track("media_batch_uploaded", {
+        requested: files.length,
+        uploaded: successful.length,
+        failed: failed.length,
+      });
+      await loadSection("media", { silent: true });
+      const refreshedForm = document.querySelector("#media-upload-form");
+      if (failed.length && refreshedForm) {
+        showSelectedFiles(
+          refreshedForm,
+          new Map(failed.map((item, index) => [
+            index,
+            { state: "error", label: item.error },
+          ])),
+        );
+      }
+    } catch {
+      // Uploads are already durable; a failed list refresh must not retry them.
+    }
+  }
+
+  if (!failed.length) {
+    toast(
+      `${successful.length} ${successful.length === 1 ? "файл сохранён" : "файлов сохранено"} в защищённой папке.`,
+      "success",
+    );
+  } else if (successful.length) {
+    toast(
+      `Загружено ${successful.length} из ${files.length}. Неудачные файлы оставлены в очереди для повтора.`,
+      "warning",
+    );
+  } else {
+    toast("Файлы не загрузились. Ошибки показаны рядом с каждым файлом.", "error");
   }
 }
 
