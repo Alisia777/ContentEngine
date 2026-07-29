@@ -124,6 +124,7 @@ class FakeResponse:
 class FakeManagementApi:
     def __init__(self, history: dict[str, str] | None = None) -> None:
         self.history = dict(history or {})
+        self.history_initialized = history is not None
         self.requests: list[dict] = []
         self.fail_version: str | None = None
         self.fail_private = False
@@ -139,6 +140,16 @@ class FakeManagementApi:
             }
         )
         sql = payload["query"]
+        if "select to_regclass(" in sql:
+            return FakeResponse([{
+                "history_table": (
+                    "contentengine_deploy.schema_migrations"
+                    if self.history_initialized
+                    else None
+                ),
+            }])
+        if "create schema if not exists contentengine_deploy" in sql:
+            self.history_initialized = True
         if "select version, sha256" in sql:
             return FakeResponse(
                 [
@@ -303,6 +314,25 @@ def test_applied_migrations_are_idempotently_skipped(tmp_path: Path) -> None:
     assert sum("test_only" in item["query"] for item in fake_http.requests) == 1
 
 
+def test_existing_history_skips_repeated_production_ddl(tmp_path: Path) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    fake_http = FakeManagementApi(
+        {migration.version: migration.sha256 for migration in migrations}
+    )
+
+    deploy(
+        client=_client(fake_http),
+        migrations=migrations,
+        private_exam_sql_body="select 1;",
+    )
+
+    assert any("select to_regclass(" in item["query"] for item in fake_http.requests)
+    assert not any(
+        "create schema if not exists contentengine_deploy" in item["query"]
+        for item in fake_http.requests
+    )
+
+
 def test_immutable_checksum_mismatch_stops_before_any_write(tmp_path: Path) -> None:
     migrations = _fixture_migrations(tmp_path)
     fake_http = FakeManagementApi({migrations[0].version: "0" * 64})
@@ -314,7 +344,7 @@ def test_immutable_checksum_mismatch_stops_before_any_write(tmp_path: Path) -> N
             private_exam_sql_body="select 1;",
         )
 
-    assert len(fake_http.requests) == 2  # history bootstrap and read only
+    assert len(fake_http.requests) == 2  # history probe and immutable read
     assert fake_http.history == {migrations[0].version: "0" * 64}
 
 

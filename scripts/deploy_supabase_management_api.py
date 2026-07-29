@@ -960,6 +960,11 @@ HISTORY_SELECT_SQL = (
     f"select version, sha256 from {HISTORY_SCHEMA}.{HISTORY_TABLE} "
     "order by version"
 )
+HISTORY_EXISTS_SQL = (
+    "select to_regclass("
+    f"'{HISTORY_SCHEMA}.{HISTORY_TABLE}'"
+    ")::text as history_table"
+)
 
 
 def _rows_from_response(payload: Any) -> list[dict[str, Any]]:
@@ -972,6 +977,19 @@ def _rows_from_response(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         raise DeploymentError("Supabase migration history response was invalid")
     return rows
+
+
+def remote_history_exists(client: ManagementApiClient) -> bool:
+    payload = client.execute(HISTORY_EXISTS_SQL, read_only=True)
+    rows = _rows_from_response(payload)
+    if len(rows) != 1 or set(rows[0]) != {"history_table"}:
+        raise DeploymentError("Supabase migration history probe was invalid")
+    value = rows[0]["history_table"]
+    if value is None:
+        return False
+    if value != f"{HISTORY_SCHEMA}.{HISTORY_TABLE}":
+        raise DeploymentError("Supabase migration history probe was invalid")
+    return True
 
 
 def read_remote_history(client: ManagementApiClient) -> dict[str, str]:
@@ -1086,14 +1104,23 @@ def deploy(
     migrations: list[Migration],
     private_exam_sql_body: str,
 ) -> list[str]:
-    # This transaction only creates/revokes the same history objects and is
-    # therefore safe to repeat after a gateway timeout with an unknown response.
     try:
-        client.execute(HISTORY_BOOTSTRAP_SQL, retry_safe=True)
+        history_exists = remote_history_exists(client)
     except DeploymentError as exc:
         raise DeploymentError(
-            f"Supabase migration history bootstrap failed: {exc}"
+            f"Supabase migration history probe failed: {exc}"
         ) from None
+    if not history_exists:
+        # This transaction only creates/revokes the same history objects and is
+        # safe to repeat after a gateway timeout with an unknown response. Avoid
+        # running DDL at all on established production databases: even IF NOT
+        # EXISTS can wait behind unrelated catalog locks.
+        try:
+            client.execute(HISTORY_BOOTSTRAP_SQL, retry_safe=True)
+        except DeploymentError as exc:
+            raise DeploymentError(
+                f"Supabase migration history bootstrap failed: {exc}"
+            ) from None
     try:
         remote_history = read_remote_history(client)
     except DeploymentError as exc:
