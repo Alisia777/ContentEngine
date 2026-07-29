@@ -556,7 +556,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260729.8' in INDEX
+    assert './app.js?v=20260729.9' in INDEX
 
 
 def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:
@@ -657,3 +657,17 @@ def test_paid_submit_recovers_same_generation_form_after_safe_rerender() -> None
     assert "form = activeForm" in submit
     assert "сервер проверки ТЗ временно не ответил" in submit
     assert "Портал повторит бесплатную проверку автоматически" in submit
+
+
+def test_paid_learning_keeps_selected_identity_while_form_is_busy() -> None:
+    selection = APP[
+        APP.index("function generationMediaSelectionFromForm("):
+        APP.index("function selectedGenerationProductIdentity(")
+    ]
+    assert 'form.dataset.busy === "true"' in selection
+    assert 'input.dataset.wasDisabled === "false"' in selection
+    assert "disabled: Boolean(" in selection
+    assert (
+        'setFormBusy(form, true, "Проверяем обученное ТЗ без списания…")'
+        in APP
+    )

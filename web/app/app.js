@@ -12765,7 +12765,13 @@ function generationMediaSelectionFromForm(form) {
     Array.from(form.querySelectorAll('input[name="media_id"]')).map((input) => ({
       id: input.value,
       selected: input.checked,
-      disabled: input.disabled,
+      disabled: Boolean(
+        input.disabled
+        && !(
+          form.dataset.busy === "true"
+          && input.dataset.wasDisabled === "false"
+        )
+      ),
       paidReady: input.dataset.mediaIdentityVerified === "true"
         && input.dataset.mediaRightsConfirmed === "true",
       sku: input.dataset.mediaSku,
