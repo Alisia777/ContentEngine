@@ -16276,7 +16276,7 @@ async function submitMedia(form) {
         });
         results[index] = { ok: true, file };
         setMediaUploadItemStatus(form, index, "success", "Готово");
-        await track("media_uploaded", {
+        track("media_uploaded", {
           kind,
           mime_type: file.type,
           size_bytes: file.size,
@@ -16341,7 +16341,7 @@ async function submitMedia(form) {
     state.sections.media.status = "idle";
     state.sections.generation.status = "idle";
     try {
-      await track("media_batch_uploaded", {
+      track("media_batch_uploaded", {
         requested: files.length,
         uploaded: successful.length,
         failed: failed.length,
@@ -16380,13 +16380,14 @@ async function submitMedia(form) {
 async function track(eventName, properties = {}) {
   if (!state.api || !state.session || !state.bootstrap || membershipLockDetails()) return;
   try {
-    await state.api.captureEvent({
+    const capture = state.api.captureEvent({
       event_name: eventName,
       event_version: 1,
       session_id: state.sessionId,
       route: state.route.path,
       properties,
     });
+    Promise.resolve(capture).catch(() => {});
   } catch {
     // Product telemetry must never block a person's task.
   }

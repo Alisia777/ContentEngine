@@ -54,6 +54,16 @@ def test_batch_upload_has_bounded_parallelism_and_per_file_recovery() -> None:
     assert "await state.api.removePrivateObject(objectKey)" in submit
     assert "failed.map((item) => item.file)" in submit
     assert "Неудачные файлы оставлены в очереди для повтора" in submit
+    assert 'await track("media_uploaded"' not in submit
+    assert 'await track("media_batch_uploaded"' not in submit
+
+
+def test_optional_telemetry_never_holds_the_upload_form_busy() -> None:
+    track = _between("async function track(", "function validateConfig")
+
+    assert "const capture = state.api.captureEvent({" in track
+    assert "Promise.resolve(capture).catch(() => {});" in track
+    assert "await state.api.captureEvent({" not in track
 
 
 def test_batch_selection_and_worker_limit_are_executable() -> None:

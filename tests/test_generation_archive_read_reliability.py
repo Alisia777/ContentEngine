@@ -29,6 +29,8 @@ def test_browser_lets_the_server_timestamp_product_telemetry() -> None:
     ]
 
     assert "state.api.captureEvent({" in track
+    assert "Promise.resolve(capture).catch(() => {});" in track
+    assert "await state.api.captureEvent({" not in track
     assert "event_name: eventName" in track
     assert "route: state.route.path" in track
     assert "occurred_at:" not in track
