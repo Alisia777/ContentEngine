@@ -717,10 +717,16 @@ function productInteractionRequirement(
   productCategory: CommonStartPayload["product_category"],
 ): string {
   const normalizedName = productName.trim().toLocaleLowerCase("ru-RU");
-  if (/(?:пароварк|мультиварк|аэрогрил|духовк|микроволнов|кофемашин|кофеварк|электрогрил|тостер|соковыжимал|хлебопеч|кухонн\p{L}*\s+комбайн|стационарн\p{L}*\s+блендер|steamer|air\s*fryer|microwave|coffee\s*machine|countertop\s*appliance)/iu.test(normalizedName)) {
+  if (
+    /(?:пароварк|мультиварк|аэрогрил|духовк|микроволнов|кофемашин|кофеварк|электрогрил|тостер|соковыжимал|хлебопеч|кухонн\p{L}*\s+комбайн|стационарн\p{L}*\s+блендер|steamer|air\s*fryer|microwave|coffee\s*machine|countertop\s*appliance)/iu
+      .test(normalizedName)
+  ) {
     return "Масштаб и действие: товар целиком стоит на устойчивой столешнице; не поднимать корпус, не подносить к лицу и не уменьшать его.";
   }
-  if (/(?:холодильник|морозильник|стиральн\p{L}*\s+машин|сушильн\p{L}*\s+машин|посудомоеч|телевизор|матрас|диван|кресл|стол\b|шкаф|комод|пылесос|кондиционер|обогревател|велосипед|самокат|коляск|refrigerator|washing\s*machine|dishwasher|television|mattress|sofa|wardrobe|vacuum)/iu.test(normalizedName)) {
+  if (
+    /(?:холодильник|морозильник|стиральн\p{L}*\s+машин|сушильн\p{L}*\s+машин|посудомоеч|телевизор|матрас|диван|кресл|стол\b|шкаф|комод|пылесос|кондиционер|обогревател|велосипед|самокат|коляск|refrigerator|washing\s*machine|dishwasher|television|mattress|sofa|wardrobe|vacuum)/iu
+      .test(normalizedName)
+  ) {
     return "Масштаб и действие: товар остаётся установленным на полу или рабочем месте; не держать в руках, не подносить к лицу и не уменьшать его.";
   }
   const requirements: Record<CommonStartPayload["product_category"], string> = {
