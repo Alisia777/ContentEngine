@@ -69,7 +69,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260729.3";
+} from "./content-generation-handoff.js?v=20260729.4";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -83,7 +83,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260729.1";
+} from "./generation-form-draft.js?v=20260729.2";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -1352,6 +1352,7 @@ function generationFormDraftValues(form) {
     count: Number(form.elements.count?.value || 0),
     format: String(form.elements.format?.value || ""),
     brief: String(form.elements.brief?.value || ""),
+    scenario_intent: String(form.dataset.generationScenarioIntent || ""),
     media_ids: Array.from(
       form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)'),
     ).map((input) => String(input.value || "")).filter(Boolean),
@@ -1464,6 +1465,9 @@ function restoreGenerationFormDraft(form) {
     "brief",
   ]) {
     setValue(name, values[name]);
+  }
+  if (values.scenario_intent) {
+    form.dataset.generationScenarioIntent = values.scenario_intent;
   }
   if (!restoredMediaCount) {
     setValue("sku", values.sku);
@@ -5851,6 +5855,7 @@ function captureDirtyWorkspaceForms(container) {
     autoGenerationPlatform: String(form.dataset.autoGenerationPlatform || ""),
     autoGenerationDestination: String(form.dataset.autoGenerationDestination || ""),
     autoGenerationBrief: String(form.dataset.autoGenerationBrief || ""),
+    generationScenarioIntent: String(form.dataset.generationScenarioIntent || ""),
     fields: Array.from(form.elements).map((field) => {
       const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
       return {
@@ -5906,6 +5911,9 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     }
     if (snapshot.autoGenerationBrief) {
       form.dataset.autoGenerationBrief = snapshot.autoGenerationBrief;
+    }
+    if (snapshot.generationScenarioIntent) {
+      form.dataset.generationScenarioIntent = snapshot.generationScenarioIntent;
     }
     if (form.id === "mock-batch-form") {
       form.dataset.workspaceSnapshotRestored = "true";
@@ -7474,6 +7482,18 @@ function isRealGenerationMode(mode) {
   return realGenerationSku(mode) !== null;
 }
 
+function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
+  if (!isRealGenerationMode(mode) || !sku) {
+    return `До ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите платный режим.`;
+  }
+  if (sku.contentKind === "photo") {
+    return `Одно платное квадратное фото 2K по выбранным ракурсам · около $${sku.estimatedUsd}. После готовности запустится проверка качества.`;
+  }
+  return mode === REAL_SEEDANCE_MODE
+    ? `Одно платное вертикальное UGC-видео с голосом, ${sku.durationSeconds} секунд · около $${sku.estimatedUsd}. После готовности запустится AI-проверка.`
+    : `Одно платное вертикальное видео без речи, ${sku.durationSeconds} секунд · около $${sku.estimatedUsd}. После готовности запустится AI-проверка.`;
+}
+
 function activeGenerationCampaigns() {
   if (!state.generationSpend.data || state.generationSpend.status !== "ready") return [];
   return normalizeGenerationSpendOverview(state.generationSpend.data).campaigns
@@ -8098,9 +8118,9 @@ function renderGenerationSection(sectionState) {
               </select>
               <small class="field-hint">Gen‑4 Turbo: 2, 5, 8 или 10 секунд. Seedance 2 Fast: 4, 8, 12 или 15 секунд. Цена пересчитывается до подтверждения.</small>
             </label>
-            <div id="generation-mock-explanation" class="alert alert-info" role="status" ${defaultIsReal ? "hidden" : ""}>
+            <div id="generation-mock-explanation" class="alert alert-info" role="status">
               <strong aria-hidden="true">i</strong>
-              <span><strong>Что получится:</strong> до ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите один из платных режимов выше.</span>
+              <span><strong>Что получится:</strong> <span id="generation-outcome-copy">${escapeHtml(generationOutcomeCopy(defaultMode, defaultRealSku))}</span></span>
             </div>
             <label class="field" id="generation-campaign-field" ${defaultIsReal ? "" : "hidden"}>
               <span>Кампания и её бюджет *</span>
@@ -11439,7 +11459,7 @@ async function handleClick(event) {
     syncGenerationFormReadiness(form);
     persistGenerationFormDraft(form);
     form.elements.brief?.focus({ preventScroll: true });
-    toast("Безопасное ТЗ восстановлено по выбранному товару и режиму.", "success");
+    toast("Безопасное ТЗ собрано: ваш замысел сохранён, ограничения товара добавлены.", "success");
     return;
   }
 
@@ -12524,6 +12544,9 @@ function handleFormActivity(event) {
         syncGenerationRepairStatus(form);
       }
       if (event.target.name === "brief") {
+        form.dataset.generationScenarioIntent = String(
+          event.target.value || "",
+        ).trim().slice(0, 1_200);
         syncGenerationModeForm(form);
         syncContentGenerationHandoff(form);
       } else {
@@ -13609,6 +13632,7 @@ function automaticGenerationBriefCandidate(form, identity) {
     mode,
     sku: identity.sku,
     productName: identity.productName,
+    scenarioIntent: form.dataset.generationScenarioIntent || "",
     learningPolicy,
     repairPolicy,
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
@@ -13712,6 +13736,20 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
     return null;
   }
 
+  const brief = form.elements.brief;
+  const previousAutomatic = String(form.dataset.autoGenerationBrief || "");
+  const currentBrief = String(brief?.value || "").trim();
+  const looksCompiled = currentBrief.includes("Точный товар:")
+    && currentBrief.includes("Сохрани форму, цвет, упаковку, этикетку и пропорции")
+    && currentBrief.includes("Не добавляй новые свойства, результаты, медицинские обещания");
+  if (
+    force
+    && currentBrief
+    && currentBrief !== previousAutomatic
+    && !looksCompiled
+  ) {
+    form.dataset.generationScenarioIntent = currentBrief.slice(0, 1_200);
+  }
   const compiled = automaticGenerationBriefCandidate(form, verifiedIdentity);
   if (button) button.disabled = compiled?.ready !== true;
   if (!compiled?.ready) {
@@ -13722,8 +13760,6 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
     return compiled;
   }
 
-  const brief = form.elements.brief;
-  const previousAutomatic = String(form.dataset.autoGenerationBrief || "");
   const canApply = Boolean(
     brief && (
       force
@@ -13941,6 +13977,7 @@ function syncGenerationModeForm(form) {
   const countLabel = form.querySelector("#generation-count-label");
   const mediaHint = form.querySelector("#generation-media-hint");
   const mockExplanation = form.querySelector("#generation-mock-explanation");
+  const outcomeCopy = form.querySelector("#generation-outcome-copy");
   const price = form.querySelector("#real-generation-price");
   const note = form.querySelector("#real-generation-note");
   const confirmationCopy = form.querySelector("#real-generation-confirmation-copy");
@@ -13991,7 +14028,8 @@ function syncGenerationModeForm(form) {
     if (sku?.format) format.value = sku.format;
   }
   if (confirmation) confirmation.hidden = !real;
-  if (mockExplanation) mockExplanation.hidden = real;
+  if (mockExplanation) mockExplanation.hidden = false;
+  if (outcomeCopy) outcomeCopy.textContent = generationOutcomeCopy(mode, sku);
   if (campaignField) campaignField.hidden = !real;
   if (campaignSelect) {
     campaignSelect.disabled = !real;
@@ -14051,7 +14089,7 @@ function syncGenerationModeForm(form) {
   }
   if (briefHint) {
     briefHint.textContent = seedance
-      ? "Авто-ТЗ добавит короткую дословную реплику; перед оплатой её можно уточнить."
+      ? "Опишите сцену своими словами, затем нажмите «Собрать безопасное ТЗ»: замысел сохранится, а короткая реплика и ограничения добавятся автоматически."
       : photo
         ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар."
         : real

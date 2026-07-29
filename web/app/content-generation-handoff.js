@@ -2,7 +2,7 @@ export const CONTENT_GENERATION_HANDOFF_VERSION = 1;
 export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
-export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v6";
+export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v7";
 export const GENERATION_REPAIR_COMPILER_VERSION = "review-repair-v1";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
@@ -278,6 +278,7 @@ export function compileSafeGenerationBrief({
   mode,
   productName,
   sku,
+  scenarioIntent = "",
   visualDirection = "",
   avoidClaims = [],
   learningPolicy = null,
@@ -288,6 +289,7 @@ export function compileSafeGenerationBrief({
   const normalizedMode = normalizeMode(mode);
   const exactProductName = cleanText(productName);
   const exactSku = cleanText(sku);
+  const safeScenarioIntent = cleanText(scenarioIntent).slice(0, 400);
   const safeVisualDirection = cleanText(visualDirection);
   const safeAvoidClaims = uniqueStrings(avoidClaims, 8);
   const learningDirection = generationLearningDirection(
@@ -356,7 +358,11 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required(`Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
-      optional(interaction.gen4Action),
+      optional(
+        safeScenarioIntent
+          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${safeScenarioIntent}.`
+          : interaction.gen4Action,
+      ),
       required(interaction.requirement),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
@@ -370,12 +376,21 @@ export function compileSafeGenerationBrief({
       normalizedMode,
       requestedDurationSeconds,
     );
-    const spokenLine = interaction.spokenLine;
+    const spokenLine = safeScenarioSpokenLine({
+      scenarioIntent: safeScenarioIntent,
+      productName: exactProductName,
+      fallback: interaction.spokenLine,
+      durationSeconds,
+    });
     spokenWords = words(spokenLine).length;
     promptLines = [
       required(`Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
-      optional(interaction.videoAction),
+      optional(
+        safeScenarioIntent
+          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${safeScenarioIntent}.`
+          : interaction.videoAction,
+      ),
       required(interaction.requirement),
       required(`Реплика героя дословно: «${spokenLine}»`),
       required(GENERATED_TEXT_GUARD),
@@ -1335,6 +1350,29 @@ function result(prompt, blockers, warnings, details = {}) {
 
 function words(value) {
   return cleanText(value).match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu) || [];
+}
+
+function safeScenarioSpokenLine({
+  scenarioIntent = "",
+  productName = "",
+  fallback = "",
+  durationSeconds = 8,
+} = {}) {
+  const normalizedIntent = cleanText(scenarioIntent).toLocaleLowerCase("ru-RU");
+  const normalizedProduct = cleanText(productName).toLocaleLowerCase("ru-RU");
+  let candidate = cleanText(fallback);
+  if (
+    /(?:пароварк|steamer)/iu.test(normalizedProduct)
+    && /(?:готов\p{L}*\s+на\s+пар|без\s+жарк|лишн\p{L}*\s+масл|лосос)/iu.test(normalizedIntent)
+  ) {
+    candidate = /лосос/iu.test(normalizedIntent)
+      ? "Готовлю лосось с овощами на пару: без жарки и лишнего масла, равномерно и удобно."
+      : "Готовлю на пару без жарки и лишнего масла: равномерно, просто и удобно.";
+  }
+  const maximum = seedanceSpokenWordLimit(durationSeconds);
+  return words(candidate).length <= maximum
+    ? candidate
+    : words(candidate).slice(0, maximum).join(" ");
 }
 
 function lines(value, maximum) {

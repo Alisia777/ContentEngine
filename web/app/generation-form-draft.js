@@ -105,6 +105,7 @@ export function buildGenerationFormDraft(value = {}, {
       count: boundedInteger(value.count, 1, 50, real ? 1 : 5),
       format: FORMATS.has(format) ? format : (real ? "9:16" : "9:16"),
       brief: boundedText(value.brief, 4_000),
+      scenario_intent: boundedText(value.scenario_intent, 1_200),
       media_ids: mediaIds,
       primary_media_id: primaryMediaId,
     },

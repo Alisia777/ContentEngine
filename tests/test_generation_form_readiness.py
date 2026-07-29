@@ -189,7 +189,7 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
     assert './styles.css?v=20260729.3' in INDEX
-    assert './app.js?v=20260729.7' in INDEX
+    assert './app.js?v=20260729.8' in INDEX
 
 
 def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
@@ -229,3 +229,15 @@ def test_mock_mode_truthfully_describes_tasks_without_media_rendering() -> None:
     assert "Фото и видео не генерировались" in APP
     assert "Dry-run задач · медиафайлы не создавались" in APP
     assert "Будут созданы задачи без фото или видео" in MODULE_TEXT
+
+
+def test_paid_mode_outcome_and_human_brief_are_described_truthfully() -> None:
+    assert 'id="generation-outcome-copy"' in APP
+    assert "function generationOutcomeCopy(mode" in APP
+    assert "Одно платное вертикальное UGC-видео с голосом" in APP
+    assert "outcomeCopy.textContent = generationOutcomeCopy(mode, sku)" in APP
+    assert "form.dataset.generationScenarioIntent" in APP
+    assert "Замысел пользователя" in (
+        ROOT / "web/app/content-generation-handoff.js"
+    ).read_text(encoding="utf-8")
+    assert "Опишите сцену своими словами" in APP

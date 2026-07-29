@@ -332,6 +332,50 @@ def test_steamer_auto_brief_uses_natural_product_specific_spoken_line() -> None:
     }
 
 
+def test_steamer_auto_brief_preserves_human_scenario_under_product_guards() -> None:
+    result = _run_module(
+        """
+        const compiled = subject.compileSafeGenerationBrief({
+          mode: "real_seedance",
+          productName: "Пароварка",
+          sku: "WWW123",
+          durationSeconds: 15,
+          productCategory: "household",
+          scenarioIntent: [
+            "Блогер готовит лосось с брокколи и овощами в пароварке.",
+            "Затем не спеша достаёт еду на тарелку и показывает результат.",
+            "Пароварка стоит на столе; к камере приближается только тарелка.",
+            "Рассказать о готовке без жарки и лишнего масла.",
+          ].join(" "),
+        });
+        return {
+          ready: compiled.ready,
+          bounded: compiled.prompt.length <= subject.CONTENT_GENERATION_PROMPT_LIMIT,
+          keepsDish: compiled.prompt.includes("лосось с брокколи и овощами"),
+          keepsPacing: compiled.prompt.includes("не спеша достаёт еду"),
+          keepsScaleGuard: compiled.prompt.includes(
+            "товар показан целиком в естественном размере на устойчивой столешнице"
+          ),
+          hasRelevantLine: compiled.prompt.includes(
+            "Реплика героя дословно: «Готовлю лосось с овощами на пару: без жарки и лишнего масла, равномерно и удобно.»"
+          ),
+          productLock: compiled.prompt.includes(
+            "Сохрани форму, цвет, упаковку, этикетку и пропорции"
+          ),
+        };
+        """
+    )
+    assert result == {
+        "ready": True,
+        "bounded": True,
+        "keepsDish": True,
+        "keepsPacing": True,
+        "keepsScaleGuard": True,
+        "hasRelevantLine": True,
+        "productLock": True,
+    }
+
+
 def test_categories_have_separate_cold_start_interactions() -> None:
     result = _run_module(
         """
@@ -716,7 +760,7 @@ def test_historical_hook_is_reduced_to_bounded_patterns_not_reused_as_copy() -> 
         "concise",
     }
     assert result["containsRawHook"] is False
-    assert result["compilerVersion"] == "safe-brief-v6"
+    assert result["compilerVersion"] == "safe-brief-v7"
 
 
 def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
@@ -912,7 +956,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260729.3" in APP
-    assert "./app.js?v=20260729.7" in INDEX
+    assert "./content-generation-handoff.js?v=20260729.4" in APP
+    assert "./app.js?v=20260729.8" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

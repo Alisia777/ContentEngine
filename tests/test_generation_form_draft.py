@@ -53,6 +53,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
             "count": 1,
             "format": "9:16",
             "brief": "Безопасное ТЗ",
+            "scenario_intent": "Блогер готовит лосось в пароварке",
             "media_ids": ["media-a", "media-a", "media-b"],
             "primary_media_id": "media-b",
             "real_spend_confirmation": "I_CONFIRM_PAID_GENERATION",
@@ -71,6 +72,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
     assert result["values"]["duration_seconds"] == "15"
     assert result["values"]["media_ids"] == ["media-a", "media-b"]
     assert result["values"]["primary_media_id"] == "media-b"
+    assert result["values"]["scenario_intent"] == "Блогер готовит лосось в пароварке"
     assert "real_spend_confirmation" not in result
     assert "real_spend_confirmation" not in result["values"]
 
@@ -126,8 +128,9 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         "persistGenerationFormDraft(form, { manual: true })",
     ):
         assert token in APP
-    assert "generation-form-draft.js?v=20260729.1" in APP
-    assert "app.js?v=20260729.7" in INDEX
+    assert "generation-form-draft.js?v=20260729.2" in APP
+    assert "form.dataset.generationScenarioIntent" in APP
+    assert "app.js?v=20260729.8" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:
