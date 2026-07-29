@@ -101,7 +101,7 @@ select matches(
   pg_get_functiondef(
     'content_factory_private.creator_start_real_generation_pre_category_learning_v14(jsonb)'::regprocedure
   ),
-  'primary_payload := jsonb_set\\([[:space:]]+p_payload - ''product_category''',
+  'primary_payload := jsonb_set[(][[:space:]]+p_payload - ''product_category''',
   'the category-only wrapper key is not forwarded to the legacy payload validator'
 );
 
