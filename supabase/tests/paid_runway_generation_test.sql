@@ -423,8 +423,8 @@ select throws_ok(
     ))
   $$,
   '22023',
-  'exact_one_product_media_required',
-  'a paid request requires exactly one product media object'
+  'product_reference_media_ids_invalid',
+  'a paid request requires at least one product reference'
 );
 
 do $$
