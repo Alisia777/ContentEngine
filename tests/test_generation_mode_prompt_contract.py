@@ -252,13 +252,13 @@ def test_database_rechecks_identity_mode_and_spoken_word_limit() -> None:
 
 
 def test_release_versions_bind_the_mode_prompt_contract() -> None:
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"' in (
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in (
         GENERATION_EDGE
     )
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"' in APP
-    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7"' in API
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in APP
+    assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in API
     assert "./product-research-view.js?v=20260728.5" in APP
-    assert "./content-generation-handoff.js?v=20260729.1" in APP
-    assert "./supabase-api.js?v=20260729.1" in APP
-    assert "./app.js?v=20260729.3" in INDEX
+    assert "./content-generation-handoff.js?v=20260729.2" in APP
+    assert "./supabase-api.js?v=20260729.2" in APP
+    assert "./app.js?v=20260729.4" in INDEX
     assert "generation_mode_prompt_binding_invalid" in API

@@ -13,7 +13,7 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
@@ -235,6 +235,16 @@ type ContentEngineDatabase = {
   };
 };
 
+type ProductCategory =
+  | "cosmetics"
+  | "baa"
+  | "sports_food"
+  | "food"
+  | "household"
+  | "apparel"
+  | "electronics"
+  | "other";
+
 type CommonStartPayload = {
   action: "start";
   organization_id: string;
@@ -242,15 +252,7 @@ type CommonStartPayload = {
   idempotency_key: string;
   sku: string;
   product_name: string;
-  product_category:
-    | "cosmetics"
-    | "baa"
-    | "sports_food"
-    | "food"
-    | "household"
-    | "apparel"
-    | "electronics"
-    | "other";
+  product_category: ProductCategory;
   count: 1;
   format: "9:16" | "1:1" | "16:9";
   brief: string;
@@ -295,6 +297,7 @@ type GenerationLearningContext = {
   )[];
   source: "baseline" | "approved_research" | "performance_learning";
   compiler_version: string;
+  product_category: ProductCategory;
   applied_policy_hash?: string;
   creative_brief_draft_id?: string;
   scenario_position?: 1 | 2 | 3;
@@ -939,6 +942,7 @@ function readGenerationLearningContext(
     "hook_patterns",
     "source",
     "compiler_version",
+    "product_category",
     "applied_policy_hash",
     "creative_brief_draft_id",
     "scenario_position",
@@ -948,6 +952,7 @@ function readGenerationLearningContext(
     "hook_patterns",
     "source",
     "compiler_version",
+    "product_category",
   ];
   if (
     !hasOnlyKeys(value, allowed) ||
@@ -978,6 +983,16 @@ function readGenerationLearningContext(
     "approved_research",
     "performance_learning",
   ]);
+  const productCategories = new Set([
+    "cosmetics",
+    "baa",
+    "sports_food",
+    "food",
+    "household",
+    "apparel",
+    "electronics",
+    "other",
+  ]);
   const hookPatterns = value.hook_patterns;
   if (
     typeof value.creative_angle !== "string" ||
@@ -992,6 +1007,8 @@ function readGenerationLearningContext(
     !sources.has(value.source) ||
     typeof value.compiler_version !== "string" ||
     !/^[a-z0-9][a-z0-9._-]{2,63}$/u.test(value.compiler_version) ||
+    typeof value.product_category !== "string" ||
+    !productCategories.has(value.product_category) ||
     (
       Object.hasOwn(value, "applied_policy_hash") &&
       (
@@ -3162,6 +3179,7 @@ async function handleCreatorGenerate(
           media_id: startPayload.media_ids[0],
           platform: startPayload.platform,
           model: startPayload.model,
+          product_category: startPayload.product_category,
         },
       },
     );
@@ -3188,6 +3206,17 @@ async function handleCreatorGenerate(
       request,
       { ok: false, code: "generation_learning_unavailable" },
       503,
+    );
+  }
+  if (
+    learningPolicy.product_category !== startPayload.product_category ||
+    startPayload.learning_context.product_category !==
+      startPayload.product_category
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_learning_category_mismatch" },
+      409,
     );
   }
   if (learningPolicy.generation_allowed === false) {

@@ -560,6 +560,16 @@ export function normalizeGenerationLearningPolicy(value) {
     "generation_allowed",
     "generationAllowed",
   ) !== false;
+  const productCategory = cleanText(policyField(
+    value,
+    "product_category",
+    "productCategory",
+  ));
+  const categoryEvidenceCountValue = Number(policyField(
+    value,
+    "category_evidence_count",
+    "categoryEvidenceCount",
+  ));
   const selectionMode = [
     "performance",
     "quality",
@@ -579,6 +589,15 @@ export function normalizeGenerationLearningPolicy(value) {
     version: cleanText(value.version),
     applied,
     generationAllowed,
+    productCategory,
+    categoryEvidenceCount: Number.isInteger(categoryEvidenceCountValue)
+      ? Math.max(0, categoryEvidenceCountValue)
+      : 0,
+    categoryColdStart: policyField(
+      value,
+      "category_cold_start",
+      "categoryColdStart",
+    ) === true,
     confidence: ["none", "low", "medium", "high"].includes(value.confidence)
       ? value.confidence
       : "none",

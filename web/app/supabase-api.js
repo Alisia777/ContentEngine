@@ -78,7 +78,7 @@ const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const ACCESS_FUNCTION = "creator-access";
 const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
 const PROVIDER_READINESS_RECEIPT_VERSION =
   "generation-provider-readiness-receipt-v2";
 const PROVIDER_READINESS_UUID_PATTERN =
@@ -386,10 +386,13 @@ export class CreatorApi {
     }));
   }
 
-  generationLearningPolicy({ mediaId, platform, model }) {
+  generationLearningPolicy({ mediaId, platform, model, productCategory }) {
     const normalizedMediaId = String(mediaId || "").trim();
     const normalizedPlatform = String(platform || "").trim().toLowerCase();
     const normalizedModel = String(model || "").trim().toLowerCase();
+    const normalizedProductCategory = String(productCategory || "")
+      .trim()
+      .toLowerCase();
     if (!isUuid(normalizedMediaId)) {
       throw new CreatorApiError("Не удалось определить исходник для самообучения.", {
         code: "generation_learning_policy_media_invalid",
@@ -405,10 +408,27 @@ export class CreatorApi {
         code: "generation_learning_policy_scope_invalid",
       });
     }
+    if (
+      ![
+        "cosmetics",
+        "baa",
+        "sports_food",
+        "food",
+        "household",
+        "apparel",
+        "electronics",
+        "other",
+      ].includes(normalizedProductCategory)
+    ) {
+      throw new CreatorApiError("Выберите категорию для отдельного контура обучения.", {
+        code: "generation_learning_policy_category_invalid",
+      });
+    }
     return this.call(RPC.generationLearningPolicy, this.withOrganization({
       media_id: normalizedMediaId,
       platform: normalizedPlatform,
       model: normalizedModel,
+      product_category: normalizedProductCategory,
     }));
   }
 
@@ -2956,6 +2976,9 @@ function toFriendlyMessage(error) {
     generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
     real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к Runway.",
     generation_learning_context_required: "Восстановите безопасное авто-ТЗ и дождитесь бесплатной проверки обучения.",
+    generation_learning_policy_category_invalid: "Выберите категорию товара для отдельного контура обучения.",
+    generation_learning_category_mismatch: "Категория товара изменилась. Дождитесь нового обучения с нуля и восстановите авто-ТЗ.",
+    generation_learning_category_binding_invalid: "Сервер не смог сохранить категорию вместе с обучающим сигналом. Платный запуск не создан.",
     generation_learning_opt_out_invalid: "Не удалось подтвердить осознанное отключение обученного ракурса.",
     generation_learning_unavailable: "Обученное ТЗ временно не проверено. Платный запуск не создан.",
     generation_learning_policy_required: "Для товара уже есть подтверждённое обучение. Обновите авто-ТЗ перед запуском.",

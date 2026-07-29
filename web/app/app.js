@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260729.1";
+} from "./supabase-api.js?v=20260729.2";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -69,7 +69,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260729.1";
+} from "./content-generation-handoff.js?v=20260729.2";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -422,7 +422,7 @@ const FINAL_EXAM_RATIONALE_CODES = Object.freeze(Object.keys(FINAL_EXAM_RATIONAL
 const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
-const GENERATION_LEARNING_GATE_VERSION = "2026-07-28.v7";
+const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -12788,13 +12788,19 @@ function activeGenerationLearningPolicy(
   identity = selectedGenerationProductIdentity(form),
 ) {
   const key = generationLearningKey(form, identity);
+  const productCategory = String(
+    form?.elements?.product_category?.value || "",
+  ).trim().toLowerCase();
   if (
     !key
     || state.generationLearning.key !== key
     || state.generationLearning.status !== "ready"
     || state.generationLearning.disabledKey === key
   ) return null;
-  return normalizeGenerationLearningPolicy(state.generationLearning.data);
+  const policy = normalizeGenerationLearningPolicy(
+    state.generationLearning.data,
+  );
+  return policy?.productCategory === productCategory ? policy : null;
 }
 
 function generationCreativeAngleLabel(value) {
@@ -12941,6 +12947,15 @@ function generationLearningMarkup(form = null) {
         : `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
     stateName = "baseline";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
+  } else if (
+    policy?.applied
+    && policy.selectionMode === "bounded_exploration"
+    && policy.categoryColdStart
+  ) {
+    title = "Cold start категории";
+    copy = `Для категории «${categoryLabel}» ещё нет собственных наблюдений. Назначен первый безопасный структурный тест «${generationCreativeAngleLabel(policy.preferredAngle)}»; результаты других категорий исключены.`;
+    stateName = "applied";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied && policy.selectionMode === "bounded_exploration") {
     const replacedRejectedStructure = policy.reasonCodes.includes(
       "hard_rejected_structure_replaced",
@@ -12950,7 +12965,7 @@ function generationLearningMarkup(form = null) {
       : "Автотест ракурса назначен";
     copy = replacedRejectedStructure
       ? `${generationCreativeAngleLabel(policy.preferredAngle)} · независимый QA окончательно отклонил прежнюю структуру, поэтому система выбрала следующий безопасный вариант и не копировала текст замечаний.${learnedInstructionCopy}`
-      : `${generationCreativeAngleLabel(policy.preferredAngle)} · система сама чередует два безопасных ракурса, пока не появится устойчивый победитель. Товар, права, обещания и бюджет не меняются.${learnedInstructionCopy}`;
+      : `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.categoryEvidenceCount} наблюдений именно в категории «${categoryLabel}». Товар, права, обещания и бюджет не меняются; система сама чередует два безопасных ракурса до устойчивого победителя. Результаты других категорий не используются.${learnedInstructionCopy}`;
     stateName = "applied";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
   } else if (policy?.applied && policy.selectionMode === "quality") {
@@ -13134,18 +13149,28 @@ async function prepareGenerationLearningFallback(
             mediaId: identity.mediaId,
             platform: candidate.platform,
             model: candidate.sku.model,
+            productCategory: String(
+              form.elements.product_category?.value || "",
+            ).trim().toLowerCase(),
           }),
           WORKSPACE_REQUEST_TIMEOUT_MS,
           "generation_learning_fallback_timeout",
         );
         const rawPolicy = raw?.data ?? raw ?? {};
+        const normalizedPolicy =
+          normalizeGenerationLearningPolicy(rawPolicy);
+        const candidateProductCategory = String(
+          form.elements.product_category?.value || "",
+        ).trim().toLowerCase();
+        const categoryMatches =
+          normalizedPolicy?.productCategory === candidateProductCategory;
         return {
           ...candidate,
           generationAllowed:
-            normalizeGenerationLearningPolicy(rawPolicy)
-              ?.generationAllowed === true,
+            categoryMatches
+            && normalizedPolicy?.generationAllowed === true,
           estimatedMinor: candidate.sku.estimatedMinor,
-          rawPolicy,
+          rawPolicy: categoryMatches ? rawPolicy : null,
         };
       } catch (_error) {
         return {
@@ -13276,6 +13301,9 @@ async function loadGenerationLearningPolicy(
           mediaId: identity.mediaId,
           platform,
           model: sku.model,
+          productCategory: String(
+            form.elements.product_category?.value || "",
+          ).trim().toLowerCase(),
         }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "generation_learning_policy_timeout",
@@ -13299,6 +13327,23 @@ async function loadGenerationLearningPolicy(
     const rawPolicy = raw?.data ?? raw ?? {};
     const normalizedRawPolicy =
       normalizeGenerationLearningPolicy(rawPolicy);
+    const requestedProductCategory = String(
+      form.elements.product_category?.value || "",
+    ).trim().toLowerCase();
+    if (
+      normalizedRawPolicy?.productCategory !== requestedProductCategory
+    ) {
+      const categoryError = new Error(
+        "generation_learning_category_mismatch",
+      );
+      categoryError.code = "generation_learning_category_mismatch";
+      learning.status = "error";
+      learning.error = categoryError;
+      learning.data = null;
+      syncGenerationLearningStatus(form);
+      syncGenerationFormReadiness(form);
+      return null;
+    }
     if (
       normalizedRawPolicy?.generationAllowed === false
       && normalizedRawPolicy.qualityGuardEffectivenessStatus
@@ -13400,6 +13445,9 @@ function generationLearningContext(form) {
   const identity = selectedGenerationProductIdentity(form);
   const autoPrompt = String(form?.dataset?.autoGenerationBrief || "");
   const currentPrompt = String(form?.elements?.brief?.value || "");
+  const productCategory = String(
+    form?.elements?.product_category?.value || "",
+  ).trim().toLowerCase();
   if (!identity || !autoPrompt || currentPrompt !== autoPrompt) return null;
   const policy = activeGenerationLearningPolicy(form, identity);
   if (policy?.applied) {
@@ -13409,6 +13457,7 @@ function generationLearningContext(form) {
       source: "performance_learning",
       compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
       applied_policy_hash: policy.policyHash,
+      product_category: productCategory,
     };
   }
   const handoff = state.contentGenerationHandoff;
@@ -13432,6 +13481,7 @@ function generationLearningContext(form) {
       compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
       creative_brief_draft_id: handoff.draftId,
       scenario_position: handoff.scenario.position,
+      product_category: productCategory,
     };
   }
   return {
@@ -13439,6 +13489,7 @@ function generationLearningContext(form) {
     hook_patterns: [],
     source: "baseline",
     compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+    product_category: productCategory,
   };
 }
 

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(24);
+select plan(30);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -208,6 +208,7 @@ select
   jsonb_build_object(
     'platform', 'youtube',
     'model', 'seedream5_lite',
+    'product_category', 'household',
     'prompt_text', 'Test-only structural prompt'
   ),
   '{}'::jsonb,
@@ -256,6 +257,89 @@ select is(
     from second_exploration_policy),
   '["demonstration"]'::jsonb,
   'the demonstration assignment contains only its bounded pattern'
+);
+
+create temporary table category_learning_policies (
+  product_category text primary key,
+  policy jsonb not null
+) on commit drop;
+
+insert into category_learning_policies (product_category, policy)
+select category.product_category,
+       public.creator_generation_learning_policy(jsonb_build_object(
+         'organization_id', context.organization_id,
+         'media_id', context.media_id,
+         'platform', 'youtube',
+         'model', 'seedream5_lite',
+         'product_category', category.product_category
+       ))
+from exploration_test_context context
+cross join (
+  values ('household'::text), ('electronics'::text)
+) category(product_category);
+
+select is(
+  (
+    select policy ->> 'preferred_angle'
+    from category_learning_policies
+    where product_category = 'household'
+  ),
+  'demonstration',
+  'the matching category balances from its own prior signal'
+);
+
+select is(
+  (
+    select (policy ->> 'category_evidence_count')::integer
+    from category_learning_policies
+    where product_category = 'household'
+  ),
+  1,
+  'the matching category reports only its own evidence'
+);
+
+select is(
+  (
+    select policy ->> 'product_category'
+    from category_learning_policies
+    where product_category = 'household'
+  ),
+  'household',
+  'the immutable policy binds its requested product category'
+);
+
+select is(
+  (
+    select policy ->> 'preferred_angle'
+    from category_learning_policies
+    where product_category = 'electronics'
+  ),
+  'product_focus',
+  'a new category starts from the first safe structural test'
+);
+
+select is(
+  (
+    select policy ->> 'category_cold_start'
+    from category_learning_policies
+    where product_category = 'electronics'
+  ),
+  'true',
+  'a new category is explicitly marked as a cold start'
+);
+
+select isnt(
+  (
+    select policy ->> 'policy_hash'
+    from category_learning_policies
+    where product_category = 'household'
+  ),
+  (
+    select policy ->> 'policy_hash'
+    from category_learning_policies
+    where product_category = 'electronics'
+  ),
+  'different categories cannot reuse the same learning policy hash'
 );
 
 select is(

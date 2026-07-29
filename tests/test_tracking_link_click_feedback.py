@@ -128,8 +128,8 @@ def test_portal_creates_copies_and_autofills_tracking_clicks() -> None:
         "mixed: \"Ссылка + снимок\"",
     ):
         assert token in APP or token in API
-    assert "./supabase-api.js?v=20260729.1" in APP
-    assert "./app.js?v=20260729.3" in INDEX
+    assert "./supabase-api.js?v=20260729.2" in APP
+    assert "./app.js?v=20260729.4" in INDEX
 
 
 def test_public_redirect_is_linted_checked_and_deployed() -> None:
