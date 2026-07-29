@@ -77,10 +77,10 @@ select ok(
 
 select matches(
   pg_get_functiondef(
-    'public.creator_start_real_generation(jsonb)'::regprocedure
+    'public.creator_start_real_generation_single_reference_v13(jsonb)'::regprocedure
   ),
   'real_generation_sku_binding_invalid',
-  'the final paid-start boundary binds the returned job to dynamic price'
+  'the retained single-reference boundary binds the returned job to dynamic price'
 );
 
 select ok(
@@ -131,12 +131,12 @@ select ok(
   position(
     'creator_start_real_generation_pre_flexible_duration_v12'
     in pg_get_functiondef(
-      'public.creator_start_real_generation(jsonb)'::regprocedure
+      'public.creator_start_real_generation_single_reference_v13(jsonb)'::regprocedure
     )
   ) < position(
     'sku_config := content_factory_private.real_generation_sku_config'
     in pg_get_functiondef(
-      'public.creator_start_real_generation(jsonb)'::regprocedure
+      'public.creator_start_real_generation_single_reference_v13(jsonb)'::regprocedure
     )
   ),
   'legacy authorization and policy errors run before the final SKU binding'

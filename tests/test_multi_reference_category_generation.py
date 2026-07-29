@@ -59,6 +59,14 @@ def test_client_and_edge_keep_primary_first_and_reject_duplicate_references() ->
 def test_category_and_scale_requirements_are_enforced_on_both_server_layers() -> None:
     assert "generation_product_interaction_requirement" in MIGRATION
     assert "productInteractionRequirement" in EDGE
+    legacy_validation = MIGRATION.index(
+        "result_value :=\n    public.creator_start_real_generation_single_reference_v13"
+    )
+    interaction_validation = MIGRATION.index(
+        "message = 'generation_product_interaction_invalid'"
+    )
+    assert legacy_validation < interaction_validation
+    assert "if p_payload ? 'product_category'" in MIGRATION
     for token in (
         "товар целиком стоит на устойчивой столешнице",
         "упаковка БАДа остаётся на столе",

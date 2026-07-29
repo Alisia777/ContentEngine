@@ -171,24 +171,6 @@ begin
     end;
   end loop;
 
-  interaction_requirement :=
-    content_factory_private.generation_product_interaction_requirement(
-      p_payload ->> 'product_name',
-      p_payload ->> 'product_category'
-    );
-  if p_payload ->> 'model' <> 'seedream5_lite'
-     and (
-       interaction_requirement is null
-       or position(
-         interaction_requirement
-         in btrim(coalesce(p_payload ->> 'brief', ''))
-       ) = 0
-     ) then
-    raise exception using
-      errcode = '55000',
-      message = 'generation_product_interaction_invalid';
-  end if;
-
   primary_payload := jsonb_set(
     p_payload,
     '{media_ids}',
@@ -199,6 +181,28 @@ begin
     public.creator_start_real_generation_single_reference_v13(
       primary_payload
     );
+
+  -- Preserve the established authorization/input error order for legacy
+  -- callers and fixtures. Production clients provide product_category; for
+  -- those requests this guard still runs inside the same transaction, before
+  -- the Edge Function can contact the paid provider.
+  if p_payload ? 'product_category'
+     and p_payload ->> 'model' <> 'seedream5_lite' then
+    interaction_requirement :=
+      content_factory_private.generation_product_interaction_requirement(
+        p_payload ->> 'product_name',
+        p_payload ->> 'product_category'
+      );
+    if interaction_requirement is null
+       or position(
+         interaction_requirement
+         in btrim(coalesce(p_payload ->> 'brief', ''))
+       ) = 0 then
+      raise exception using
+        errcode = '55000',
+        message = 'generation_product_interaction_invalid';
+    end if;
+  end if;
 
   user_id := content_factory_private.current_profile_id();
   organization_id :=
