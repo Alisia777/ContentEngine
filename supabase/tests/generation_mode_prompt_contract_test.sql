@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(8);
+select plan(9);
 
 select is(
   content_factory_private.generation_mode_prompt_requirements(
@@ -49,6 +49,15 @@ select is(
   ),
   null::text[],
   'unknown paid models cannot produce a base prompt contract'
+);
+
+select is(
+  content_factory_private.generation_product_interaction_requirement(
+    'Пароварка',
+    'household'
+  ),
+  'Масштаб и действие: товар показан целиком в естественном размере на устойчивой столешнице; герой взаимодействует с крышкой, панелью управления и готовым результатом.',
+  'countertop appliance interaction matches the browser compiler exactly'
 );
 
 select ok(

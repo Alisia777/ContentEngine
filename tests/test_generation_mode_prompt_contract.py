@@ -16,6 +16,10 @@ FLEXIBLE_MIGRATION = (
     ROOT
     / "supabase/migrations/202607280008_flexible_video_generation_durations.sql"
 ).read_text(encoding="utf-8")
+INTERACTION_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607290004_sync_generation_interaction_prompt_contract.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/generation_mode_prompt_contract_test.sql"
 ).read_text(encoding="utf-8")
@@ -39,7 +43,20 @@ INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 def test_mode_prompt_migration_and_pgtap_parse() -> None:
     assert parse_sql(MIGRATION)
     assert parse_sql(FLEXIBLE_MIGRATION)
+    assert parse_sql(INTERACTION_MIGRATION)
     assert parse_sql(PGTAP)
+
+
+def test_product_interaction_contract_matches_browser_edge_and_database() -> None:
+    requirements = (
+        "Масштаб и действие: товар показан целиком в естественном размере на устойчивой столешнице; герой взаимодействует с крышкой, панелью управления и готовым результатом.",
+        "Масштаб и действие: товар показан целиком в естественном размере на месте использования; герой взаимодействует с управлением или рабочей частью.",
+        "Масштаб и действие: товар для дома показан целиком в естественном размере на устойчивой поверхности; герой демонстрирует одну видимую рабочую часть и понятное безопасное действие.",
+    )
+    for requirement in requirements:
+        assert requirement.removeprefix("Масштаб и действие: ") in HANDOFF
+        assert requirement in GENERATION_EDGE
+        assert requirement in INTERACTION_MIGRATION
 
 
 def test_research_scenarios_are_bounded_to_the_recommended_model() -> None:
