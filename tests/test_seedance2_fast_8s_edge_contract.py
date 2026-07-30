@@ -33,9 +33,12 @@ def test_edge_uses_seedance_reference_mode_with_audio() -> None:
     provider_call = EDGE.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`')
     request_section = EDGE[seedance_start:provider_call]
 
-    assert "promptImage: validReferenceUrls.map" in request_section
+    assert "promptImage: validReferenceUrls.map((uri) => ({ uri }))" in (
+        request_section
+    )
     assert "audio: true" in request_section
-    assert 'position: index === 0 ? "first" : "reference"' in request_section
+    assert "position:" not in request_section
+    assert '"reference"' not in request_section
     assert "promptText: startJob.promptText" in request_section
     assert "duration: startJob.durationSeconds" in request_section
     assert "ratio: startJob.ratio" in request_section
