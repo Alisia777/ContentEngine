@@ -103,9 +103,10 @@ def test_category_and_scale_requirements_are_enforced_on_both_server_layers() ->
     assert "payload.product_category" in EDGE
 
 
-def test_supported_models_use_reference_bundle_without_changing_gen4_contract() -> None:
+def test_supported_models_use_reference_bundle_without_mixing_seedance_modes() -> None:
     assert "referenceImages: validReferenceUrls.map" in EDGE
-    assert 'position: index === 0 ? "first" : "reference"' in EDGE
+    assert "promptImage: validReferenceUrls.map((uri) => ({ uri }))" in EDGE
+    assert 'position: index === 0 ? "first" : "reference"' not in EDGE
     assert "promptImage: signedInputUrl" in EDGE
     assert "Promise.all(" in EDGE
 

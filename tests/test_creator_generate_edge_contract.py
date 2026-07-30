@@ -153,8 +153,17 @@ def test_runway_request_and_polling_are_fixed_to_reviewed_contract() -> None:
     assert 'ratio: startJob.ratio' in source
     assert 'promptText: startJob.promptText' in source
     assert 'promptImage: signedInputUrl' in source
-    assert "promptImage: validReferenceUrls.map" in source
-    assert 'position: index === 0 ? "first" : "reference"' in source
+    assert "promptImage: validReferenceUrls.map((uri) => ({ uri }))" in source
+    seedance_request_start = source.index(
+        'startJob.model === "seedance2_fast"'
+    )
+    seedance_request_end = source.index(
+        ": {",
+        source.index("audio: true", seedance_request_start),
+    )
+    seedance_request = source[seedance_request_start:seedance_request_end]
+    assert "position:" not in seedance_request
+    assert '"reference"' not in seedance_request
     assert 'audio: true' in source
     assert '`${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`' in source
     assert "const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;" in source

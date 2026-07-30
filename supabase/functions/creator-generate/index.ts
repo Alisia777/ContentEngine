@@ -3534,10 +3534,7 @@ async function handleCreatorGenerate(
       duration: startJob.durationSeconds,
       ratio: startJob.ratio,
       promptText: startJob.promptText,
-      promptImage: validReferenceUrls.map((uri, index) => ({
-        uri,
-        position: index === 0 ? "first" : "reference",
-      })),
+      promptImage: validReferenceUrls.map((uri) => ({ uri })),
       audio: true,
     }
     : {
