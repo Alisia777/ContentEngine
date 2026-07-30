@@ -1,0 +1,188 @@
+/* Completed review: one result object at a time ---------------------------- */
+
+.review-os-space--result .content-review-output {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.review-os-space--result .content-review-welcome,
+.review-os-space--result .content-review-progress,
+.review-os-space--result .content-review-failed {
+  display: grid;
+  width: min(760px, calc(100% - 44px));
+  min-height: 420px;
+  margin: 8vh auto 0;
+  place-content: center;
+  color: var(--ce-os-text);
+  border-color: var(--ce-os-line);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: center;
+}
+
+.review-os-result,
+.review-os-result-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.review-os-result-shell {
+  display: grid;
+  grid-template-rows: 74px minmax(0, 1fr) 66px;
+}
+
+.review-os-result-panels {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.review-os-result-panel {
+  position: absolute;
+  inset: 0;
+  display: none;
+  min-width: 0;
+  padding: clamp(24px, 4vw, 54px) clamp(20px, 5vw, 78px) 78px;
+  overflow: auto;
+  color: var(--ce-os-text);
+  scrollbar-color: rgba(232, 130, 69, 0.34) transparent;
+}
+
+.review-os-result-panel.is-active {
+  display: block;
+}
+
+.review-os-result-panel > .card,
+.review-os-result-panel > .content-review-score-grid,
+.review-os-result-panel > form,
+.review-os-result-panel .content-review-score-grid > .card {
+  width: min(1180px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.review-os-result-panel > .card,
+.review-os-result-panel .content-review-score-grid > .card {
+  border-color: rgba(255, 255, 255, 0.075) !important;
+  border-radius: 22px !important;
+  color: var(--ce-os-text) !important;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.03), transparent 46%),
+    rgba(255, 255, 255, 0.016) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.24) !important;
+}
+
+.review-os-result-panel .content-review-result__header {
+  min-height: 112px;
+  padding: 24px 28px;
+}
+
+.review-os-result-panel .content-review-result__header h2 {
+  color: var(--ce-os-text);
+  font-size: clamp(1.7rem, 3vw, 3.2rem);
+  letter-spacing: -0.045em;
+}
+
+.review-os-result-panel .content-review-decision-preview {
+  display: grid;
+  min-height: 480px;
+  margin-top: 16px;
+  padding: 18px;
+  place-items: center;
+}
+
+.review-os-result-panel .content-review-decision-preview__media {
+  width: auto;
+  max-width: 100%;
+  height: min(62vh, 620px);
+  max-height: 620px;
+  border-radius: 17px;
+  object-fit: contain;
+  background: #050403;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+}
+
+.review-os-result-panel .content-review-score-grid {
+  display: grid;
+  min-height: 430px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+}
+
+.review-os-result-panel .content-review-score-grid > .card {
+  display: grid;
+  min-height: 100%;
+  padding: clamp(26px, 4vw, 52px);
+  place-content: center;
+}
+
+.review-os-result-panel .content-review-breakdown,
+.review-os-result-panel .content-review-findings,
+.review-os-result-panel .content-review-recommendations,
+.review-os-result-panel .content-review-strengths,
+.review-os-result-panel .content-review-comparison {
+  min-height: 520px;
+  padding: clamp(28px, 4vw, 58px);
+  align-content: start;
+}
+
+.review-os-result-panel .content-review-bars {
+  margin-top: 28px;
+  gap: 18px;
+}
+
+.review-os-result-panel .content-review-bar i {
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.review-os-result-panel .content-review-bar u {
+  background: linear-gradient(90deg, #bf6332, var(--ce-os-copper-bright));
+}
+
+.review-os-result-panel .content-review-finding-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.review-os-result-panel .content-review-finding,
+.review-os-result-panel .content-review-recommendations li {
+  border-color: rgba(255, 255, 255, 0.075);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.review-os-result-panel .content-review-strengths,
+.review-os-result-panel .content-review-clear,
+.review-os-result-panel .content-review-comparison.is-positive {
+  color: var(--ce-os-text) !important;
+  border-color: rgba(255, 255, 255, 0.075) !important;
+  background: rgba(255, 255, 255, 0.018) !important;
+}
+
+.review-os-result-panel .content-review-strengths li > span,
+.review-os-result-panel .content-review-clear > span {
+  color: var(--ce-os-success);
+  background: rgba(134, 191, 164, 0.09);
+}
+
+.review-os-result-panel :is(p, small, li) {
+  color: var(--ce-os-muted);
+}
+
+.review-os-result-panel :is(h2, h3, h4, strong, b) {
+  color: var(--ce-os-text);
+}
+
+.review-os-result-panel .content-review-decision {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.018);
+}
