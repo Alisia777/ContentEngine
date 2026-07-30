@@ -1,0 +1,66 @@
+/* Per-desk draft indicators ------------------------------------------ */
+
+.workspace-draft-indicator,
+.workspace-deck-current__copy > .workspace-draft-indicator {
+  display: inline-flex;
+  width: max-content;
+  min-height: 22px;
+  margin-top: 5px;
+  padding: 4px 7px;
+  border: 1px solid rgba(240, 154, 96, 0.2);
+  border-radius: 999px;
+  align-items: center;
+  gap: 5px;
+  color: #f0a16b;
+  background: rgba(231, 131, 69, 0.08);
+  font-size: 0.52rem;
+  font-weight: 820;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.workspace-draft-indicator::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e88446;
+  box-shadow: 0 0 12px rgba(232, 132, 70, 0.55);
+  content: "";
+}
+
+.workspace-overview-draft {
+  display: inline-flex;
+  width: max-content;
+  min-height: 22px;
+  margin-top: 4px;
+  padding: 4px 7px;
+  border: 1px solid rgba(137, 200, 178, 0.17);
+  border-radius: 999px;
+  align-items: center;
+  color: #9ed1bf;
+  background: rgba(137, 200, 178, 0.065);
+  font-size: 0.53rem;
+  font-weight: 780;
+}
+
+.workspace-draft-live-region {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .workspace-draft-indicator,
+  .workspace-deck-current__copy > .workspace-draft-indicator {
+    display: inline-flex;
+    justify-self: center;
+    margin-inline: auto;
+    font-size: 0.48rem;
+  }
+}
