@@ -1,0 +1,80 @@
+/* Final geometry fixes for the immersive desktop layer. */
+
+.review-os-form .content-review-media-option {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+
+.review-os-form .content-review-media-option > strong,
+.review-os-form .content-review-media-option > small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-os-step-dock small,
+.review-os-result-dock small,
+.academy-os-dock small,
+.academy-course-os-dock small {
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 980px) {
+  .review-os-topbar {
+    min-height: 112px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+  }
+
+  .review-os-mode-switch {
+    position: static;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    justify-content: stretch;
+    backdrop-filter: none;
+  }
+
+  .review-os-mode-switch button {
+    flex: 1;
+  }
+
+  .review-os-workbench {
+    height: calc(100dvh - 208px);
+    min-height: 610px;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .review-os-topbar {
+    min-height: 106px;
+    border-radius: 17px 17px 0 0;
+  }
+
+  .review-os-workbench {
+    height: calc(100dvh - 194px);
+  }
+
+  .review-os-step-dock,
+  .review-os-result-dock {
+    min-height: 62px;
+  }
+
+  .review-os-step-dock button,
+  .review-os-result-dock button {
+    flex: 0 0 68px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-desktop-os-polish,
+  .workspace-desktop-os-polish * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

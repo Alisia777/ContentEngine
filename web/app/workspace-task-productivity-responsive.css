@@ -1,0 +1,262 @@
+/* Mission Control, motion and responsive productivity states. */
+
+.workspace-overview__section--productivity { order: -1; }
+
+.workspace-overview-productivity {
+  position: relative;
+  display: grid;
+  min-height: 190px;
+  border-color: rgba(232, 139, 82, 0.13);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.workspace-overview-productivity::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: inherit;
+  background: #d8753b;
+  content: "";
+}
+
+.workspace-overview-productivity[data-tone="blocked"]::after { background: #e76f67; }
+.workspace-overview-productivity[data-tone="waiting"]::after,
+.workspace-overview-productivity[data-tone="parked"]::after { background: #d4a957; }
+.workspace-overview-productivity[data-tone="done"]::after { background: #77b497; }
+.workspace-overview-productivity[data-tone="return"]::after { background: #f09a5d; }
+
+.workspace-overview-productivity__actions {
+  display: grid;
+  margin-top: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.workspace-overview-productivity__actions button {
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 10px;
+  color: #a99b92;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  font-size: 0.58rem;
+  font-weight: 760;
+}
+
+.workspace-overview-productivity__actions button:last-child {
+  border-color: rgba(232, 139, 82, 0.21);
+  color: #e4b18e;
+  background: rgba(226, 118, 54, 0.07);
+}
+
+.workspace-overview-task-state {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+  color: #9a8d84;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.5rem;
+  font-weight: 780;
+}
+
+.workspace-overview-task-state[data-tone="blocked"] { color: #ef9e97; background: rgba(169, 59, 52, 0.1); }
+.workspace-overview-task-state[data-tone="waiting"],
+.workspace-overview-task-state[data-tone="parked"] { color: #dabb7d; background: rgba(181, 130, 44, 0.09); }
+.workspace-overview-task-state[data-tone="done"] { color: #9bc8b0; background: rgba(56, 124, 91, 0.09); }
+
+.workspace-overview-route-count {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid rgba(232, 139, 82, 0.24);
+  border-radius: 999px;
+  color: #f0a06a;
+  background: rgba(226, 118, 54, 0.09);
+  place-items: center;
+  font-size: 0.53rem;
+  font-weight: 840;
+}
+
+@keyframes productivity-panel-in {
+  from { opacity: 0; transform: translateX(34px) scale(0.985); }
+}
+
+@keyframes productivity-dialog-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 22px)) scale(0.975); }
+}
+
+@keyframes productivity-fade-in { to { opacity: 1; } }
+
+@keyframes productivity-return-pulse {
+  50% { box-shadow: 0 0 0 8px rgba(240, 160, 100, 0.05); filter: brightness(1.18); }
+}
+
+@media (max-width: 1100px) and (min-width: 821px) {
+  .workspace-task-dock {
+    left: calc(var(--sidebar-width, 252px) + 12px);
+    right: 12px;
+  }
+
+  .workspace-task-dock__summary { min-width: 112px; }
+  .workspace-task-dock__summary small { display: none; }
+  .workspace-task-dock__chip { min-width: 190px; }
+}
+
+@media (max-width: 820px) {
+  :root { --task-productivity-dock-height: 64px; }
+
+  .workspace-shell.workspace-productivity-enabled .workspace-main {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .workspace-task-dock {
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    left: 8px;
+  }
+
+  .workspace-task-dock__bar {
+    min-height: 60px;
+    padding: 6px;
+    border-radius: 16px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .workspace-task-dock__summary {
+    min-width: 48px;
+    width: 48px;
+    min-height: 48px;
+    padding: 7px;
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-task-dock__summary > span:nth-child(2),
+  .workspace-task-dock__summary em { display: none; }
+
+  .workspace-task-dock__mark {
+    width: 32px;
+    height: 32px;
+    margin: auto;
+  }
+
+  .workspace-task-dock__chip {
+    min-width: min(210px, 62vw);
+    min-height: 48px;
+  }
+
+  .workspace-task-dock__copy strong { font-size: 0.62rem; }
+
+  .workspace-task-dock__actions button {
+    width: 38px;
+    height: 38px;
+  }
+
+  .workspace-task-dock__actions button:first-child:not(:last-child) { display: none; }
+
+  .workspace-task-quick-actions {
+    top: 10px;
+    right: 52px;
+    opacity: 1;
+    transform: none;
+  }
+
+  .workspace-context-panel {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: calc(92dvh - env(safe-area-inset-top, 0px));
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 24px 24px 0 0;
+    animation-name: productivity-sheet-in;
+  }
+
+  .workspace-context-panel__header { padding: 19px 18px 15px; }
+  .workspace-context-panel__body { padding: 17px 18px 28px; }
+
+  .workspace-context-panel__footer {
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    grid-template-columns: minmax(0, 1fr) repeat(2, 74px) 40px;
+  }
+
+  .workspace-context-meta { grid-template-columns: 1fr 1fr; }
+
+  .workspace-park-dialog {
+    top: auto;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    left: 8px;
+    width: auto;
+    max-height: 88dvh;
+    transform: none;
+    animation-name: productivity-mobile-dialog-in;
+  }
+
+  .workspace-park-dialog fieldset { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .workspace-task-dock__chip { min-width: calc(100vw - 160px); }
+
+  .workspace-context-panel__footer {
+    grid-template-columns: minmax(0, 1fr) repeat(2, 42px) 40px;
+  }
+
+  .workspace-context-panel__footer .workspace-context-button:not(.workspace-context-button--primary):not(.workspace-context-button--icon) {
+    overflow: hidden;
+    padding: 0;
+    color: transparent;
+    font-size: 0;
+  }
+
+  .workspace-context-panel__footer .workspace-context-button:nth-child(2)::before {
+    color: #b6a89e;
+    content: "◆";
+    font-size: 0.72rem;
+  }
+
+  .workspace-context-panel__footer .workspace-context-button:nth-child(3)::before {
+    color: #b6a89e;
+    content: "◷";
+    font-size: 0.78rem;
+  }
+}
+
+@keyframes productivity-sheet-in {
+  from { opacity: 0; transform: translateY(42px); }
+}
+
+@keyframes productivity-mobile-dialog-in {
+  from { opacity: 0; transform: translateY(36px) scale(0.985); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-task-dock *,
+  .workspace-task-dock *::before,
+  .workspace-task-dock *::after,
+  .workspace-context-panel,
+  .workspace-context-panel *,
+  .workspace-context-panel *::before,
+  .workspace-context-panel *::after,
+  .workspace-park-dialog,
+  .workspace-park-dialog *,
+  .workspace-park-dialog *::before,
+  .workspace-park-dialog *::after,
+  .workspace-task-quick-actions,
+  .workspace-task-quick-actions * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

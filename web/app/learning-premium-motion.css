@@ -1,0 +1,272 @@
+/* Motion -------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .learning-premium-orbit--one {
+    animation: learning-orbit-spin 26s linear infinite;
+  }
+
+  .learning-premium-orbit--two {
+    animation: learning-orbit-spin 19s linear -7s infinite reverse;
+  }
+
+  .learning-premium-scan {
+    animation: learning-scan-drift 9s ease-in-out infinite alternate;
+  }
+
+  .learning-page.learning-premium-v3 .learning-passport {
+    animation: learning-passport-float 7s ease-in-out infinite;
+  }
+
+  .learning-page.learning-premium-v3 .passport-steps li.current > span,
+  .learning-page.learning-premium-v3 .course-card.current .course-status-dot i {
+    animation: learning-current-pulse 2.8s ease-in-out infinite;
+  }
+
+  .learning-page.learning-premium-v3 .workflow-node > span::after {
+    position: absolute;
+    inset: -5px;
+    border: 1px solid rgba(240, 154, 96, 0.08);
+    border-radius: 20px;
+    content: "";
+    animation: learning-node-breathe 3.6s ease-in-out infinite;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow li:nth-child(2n) .workflow-node > span::after {
+    animation-delay: -1.8s;
+  }
+}
+
+@keyframes learning-orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes learning-scan-drift {
+  to { opacity: 0.38; transform: translateX(54px) rotate(18deg); }
+}
+
+@keyframes learning-passport-float {
+  50% { translate: 0 -7px; }
+}
+
+@keyframes learning-current-pulse {
+  50% { box-shadow: 0 0 0 8px rgba(231, 131, 69, 0.045), 0 0 25px rgba(231, 131, 69, 0.16); }
+}
+
+@keyframes learning-node-breathe {
+  50% { opacity: 0; transform: scale(1.16); }
+}
+
+/* Responsive ---------------------------------------------------------- */
+
+@media (min-width: 1500px) {
+  .learning-page.learning-premium-v3 .course-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .learning-page.learning-premium-v3 .course-card {
+    min-height: 470px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .learning-page.learning-premium-v3 .learning-hero {
+    min-height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .learning-page.learning-premium-v3 .learning-passport {
+    max-width: 740px;
+  }
+
+  .learning-command-status {
+    display: none;
+  }
+
+  .learning-command-bar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .learning-page.learning-premium-v3 .learning-track-picker__head,
+  .learning-page.learning-premium-v3 .learning-safety-gate {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    row-gap: 24px;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow::before {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .learning-premium-scroll-progress {
+    left: 0;
+  }
+
+  .learning-page.learning-premium-v3 {
+    gap: 14px;
+  }
+
+  .learning-page.learning-premium-v3 [data-learning-premium-section] {
+    scroll-margin-top: 132px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-hero {
+    padding: 28px 21px;
+    border-radius: 24px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-hero h1 {
+    font-size: clamp(2.75rem, 12vw, 4.4rem);
+  }
+
+  .learning-page.learning-premium-v3 .learning-hero-copy > p:not(.eyebrow) {
+    font-size: 0.94rem;
+  }
+
+  .learning-command-bar {
+    top: 70px;
+    padding: 7px;
+    border-radius: 15px;
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .learning-command-progress {
+    width: 48px;
+    height: 48px;
+    border-radius: 13px;
+  }
+
+  .learning-command-progress strong {
+    font-size: 0.72rem;
+  }
+
+  .learning-command-progress small {
+    display: none;
+  }
+
+  .learning-command-link {
+    min-height: 38px;
+    padding-inline: 10px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-now {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-page.learning-premium-v3 .learning-now-step {
+    width: 72px;
+    height: 72px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-track-picker__choices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .learning-page.learning-premium-v3 .learning-track-picker__result {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .learning-page.learning-premium-v3 .learning-track-picker__result .btn {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .learning-page.learning-premium-v3 .training-achievement-shelf__grid,
+  .learning-page.learning-premium-v3 .course-grid,
+  .learning-assessment-grid,
+  .learning-option-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow li > p {
+    font-size: 0.66rem;
+  }
+
+  .learning-page.learning-premium-v3 .learning-section-heading,
+  .learning-page.learning-premium-v3 .section-heading {
+    display: grid;
+    gap: 12px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-section-heading > span {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .learning-page.learning-premium-v3 .learning-hero-actions,
+  .learning-premium-hero-facts {
+    display: grid;
+  }
+
+  .learning-page.learning-premium-v3 .learning-hero-actions .btn,
+  .learning-premium-hero-facts span {
+    width: 100%;
+  }
+
+  .learning-page.learning-premium-v3 .learning-passport {
+    padding: 19px;
+  }
+
+  .learning-page.learning-premium-v3 .passport-steps li {
+    padding-inline: 4px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-track-picker,
+  .learning-page.learning-premium-v3 .training-achievement-shelf,
+  .learning-page.learning-premium-v3 .learning-safety-gate,
+  .learning-page.learning-premium-v3 .work-map-section {
+    padding: 22px 18px;
+    border-radius: 21px;
+  }
+
+  .learning-page.learning-premium-v3 .learning-track-picker__choices {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow li {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-items: center;
+    text-align: left;
+  }
+
+  .learning-page.learning-premium-v3 .workflow-node {
+    grid-row: 1 / span 2;
+    margin: 0;
+  }
+
+  .learning-page.learning-premium-v3 .portal-workflow li > strong,
+  .learning-page.learning-premium-v3 .portal-workflow li > p {
+    margin: 0;
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learning-page.learning-premium-v3 *,
+  .learning-page.learning-premium-v3 *::before,
+  .learning-page.learning-premium-v3 *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .learning-page.learning-premium-v3 [data-premium-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -1,0 +1,43 @@
+/* Small compatibility fixes kept separate from the main desktop system. */
+
+.workspace-shell.workspace-desks-enabled {
+  --desk-context-height: 78px;
+}
+
+.workspace-shell.workspace-desks-enabled .workspace-deckbar {
+  top: var(--desk-context-height);
+}
+
+.workspace-shell.workspace-desks-enabled .learning-command-bar {
+  top: calc(var(--desk-context-height) + var(--deskbar-height) + 14px);
+}
+
+@media (min-width: 1500px) {
+  .workspace-shell.workspace-desks-enabled {
+    --desk-context-height: clamp(78px, 5vw, 92px);
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 821px) {
+  .workspace-task-focused {
+    left: calc(var(--sidebar-width, 252px) + 22px) !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .workspace-shell.workspace-desks-enabled {
+    --desk-context-height: 62px;
+  }
+
+  .workspace-shell.workspace-desks-enabled .learning-command-bar {
+    top: calc(var(--desk-context-height) + var(--deskbar-height) + 8px);
+  }
+}
+
+.workspace-shell.workspace-desks-enabled .workspace-deckbar + #main-content {
+  min-width: 0;
+}
+
+body.workspace-focus-mode .workspace-overview-backdrop {
+  pointer-events: auto;
+}

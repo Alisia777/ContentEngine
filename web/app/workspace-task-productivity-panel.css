@@ -1,0 +1,591 @@
+/* Context shelf and parking dialog. */
+
+.workspace-context-backdrop,
+.workspace-park-backdrop {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  background: rgba(4, 3, 3, 0.42);
+  opacity: 0;
+  animation: productivity-fade-in 180ms ease forwards;
+  backdrop-filter: blur(3px);
+}
+
+.workspace-context-panel {
+  position: fixed;
+  z-index: 71;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: grid;
+  width: var(--task-productivity-panel-width);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 24px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  color: #f5eee7;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(226, 118, 54, 0.12), transparent 23rem),
+    #151210;
+  box-shadow: -24px 0 82px rgba(0, 0, 0, 0.48);
+  animation: productivity-panel-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.workspace-context-panel__header {
+  display: flex;
+  min-width: 0;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.workspace-context-panel__header p,
+.workspace-context-panel__header h2,
+.workspace-park-dialog header p,
+.workspace-park-dialog header h2 {
+  margin: 0;
+}
+
+.workspace-context-panel__header p,
+.workspace-park-dialog header p {
+  color: #c76c39;
+  font-size: 0.58rem;
+  font-weight: 830;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.workspace-context-panel__header h2 {
+  margin-top: 6px;
+  color: #fff7ef;
+  font: 650 clamp(1.35rem, 2vw, 1.85rem)/1.08 var(--font-display, Georgia, serif);
+  letter-spacing: -0.025em;
+}
+
+.workspace-context-panel__header button,
+.workspace-park-dialog header button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  color: #a89b92;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  place-items: center;
+  font-size: 1rem;
+}
+
+.workspace-context-panel__header button:hover,
+.workspace-park-dialog header button:hover {
+  color: #fff7ef;
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.workspace-context-panel__body {
+  min-height: 0;
+  padding: 20px 22px 34px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #4a3e35 transparent;
+}
+
+.workspace-context-status {
+  display: inline-flex;
+  min-height: 31px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 999px;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.workspace-context-status > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #df8047;
+}
+
+.workspace-context-status strong {
+  color: #e8ddd4;
+  font-size: 0.62rem;
+}
+
+.workspace-context-status small {
+  padding-left: 7px;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  color: #766b63;
+  font-size: 0.54rem;
+}
+
+.workspace-context-status[data-tone="blocked"] > span { background: #ef7f74; }
+.workspace-context-status[data-tone="waiting"] > span,
+.workspace-context-status[data-tone="parked"] > span { background: #d9ad5f; }
+.workspace-context-status[data-tone="done"] > span { background: #7fbea0; }
+.workspace-context-status[data-tone="return"] > span { background: #f0a064; }
+
+.workspace-context-lead {
+  margin: 15px 0 0;
+  color: #9e9289;
+  font-size: 0.79rem;
+  line-height: 1.58;
+}
+
+.workspace-context-parking {
+  display: grid;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(221, 174, 87, 0.18);
+  border-radius: 15px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  background: rgba(196, 145, 56, 0.07);
+}
+
+.workspace-context-parking > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: #e6bc73;
+  background: rgba(207, 158, 67, 0.12);
+  place-items: center;
+}
+
+.workspace-context-parking small,
+.workspace-context-parking strong,
+.workspace-context-parking p {
+  display: block;
+  margin: 0;
+}
+
+.workspace-context-parking small {
+  color: #8d7654;
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-context-parking strong {
+  margin-top: 3px;
+  color: #e8d9c6;
+  font-size: 0.72rem;
+}
+
+.workspace-context-parking p {
+  margin-top: 5px;
+  color: #998b7e;
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
+.workspace-context-block {
+  margin-top: 16px;
+  padding: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.workspace-context-block--accent {
+  border-color: rgba(230, 133, 69, 0.18);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(226, 118, 54, 0.1), transparent 14rem),
+    rgba(226, 118, 54, 0.035);
+}
+
+.workspace-context-kicker {
+  margin: 0;
+  color: #c56a38;
+  font-size: 0.54rem;
+  font-weight: 830;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workspace-context-block h3 {
+  margin: 6px 0 0;
+  color: #f1e8e0;
+  font-size: 0.87rem;
+  line-height: 1.38;
+}
+
+.workspace-context-ready {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.workspace-context-ready small,
+.workspace-context-ready strong {
+  display: block;
+}
+
+.workspace-context-ready small {
+  color: #756a62;
+  font-size: 0.52rem;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspace-context-ready strong {
+  margin-top: 5px;
+  color: #cbbfb5;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.workspace-context-meta {
+  display: grid;
+  margin-top: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workspace-context-meta__item {
+  display: grid;
+  min-width: 0;
+  min-height: 58px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 13px;
+  align-content: center;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.workspace-context-meta__item small,
+.workspace-context-meta__item strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-context-meta__item small {
+  color: #6f655e;
+  font-size: 0.5rem;
+  font-weight: 790;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.workspace-context-meta__item strong {
+  margin-top: 4px;
+  color: #d9cec5;
+  font-size: 0.66rem;
+}
+
+.workspace-context-block__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.workspace-context-block__head > span {
+  color: #6c625b;
+  font-size: 0.5rem;
+}
+
+.workspace-context-block textarea,
+.workspace-park-field input,
+.workspace-park-field textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  color: #e8ddd5;
+  background: rgba(7, 6, 5, 0.44);
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.workspace-context-block textarea {
+  margin-top: 13px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.workspace-context-block textarea:focus,
+.workspace-park-field input:focus,
+.workspace-park-field textarea:focus {
+  border-color: rgba(232, 139, 82, 0.42);
+  outline: 2px solid rgba(232, 139, 82, 0.09);
+}
+
+.workspace-context-links {
+  display: grid;
+  margin-top: 12px;
+  gap: 6px;
+}
+
+.workspace-context-links a {
+  display: flex;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 11px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #bdaca1;
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 0.64rem;
+  text-decoration: none;
+}
+
+.workspace-context-links a:hover {
+  border-color: rgba(232, 139, 82, 0.2);
+  color: #fff5ed;
+  background: rgba(226, 118, 54, 0.065);
+}
+
+.workspace-context-empty {
+  margin: 12px 0 0;
+  color: #71675f;
+  font-size: 0.63rem;
+  line-height: 1.5;
+}
+
+.workspace-context-history {
+  display: grid;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  gap: 10px;
+}
+
+.workspace-context-history li {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.workspace-context-history li > span {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #b86535;
+  box-shadow: 0 0 0 4px rgba(184, 101, 53, 0.07);
+}
+
+.workspace-context-history strong,
+.workspace-context-history p,
+.workspace-context-history time {
+  display: block;
+  margin: 0;
+}
+
+.workspace-context-history strong {
+  color: #dcd0c7;
+  font-size: 0.65rem;
+}
+
+.workspace-context-history p {
+  margin-top: 2px;
+  color: #847970;
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+
+.workspace-context-history time {
+  margin-top: 3px;
+  color: #625951;
+  font-size: 0.49rem;
+}
+
+.workspace-context-panel__footer {
+  display: grid;
+  padding: 13px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(82px, 0.7fr)) 42px;
+  gap: 6px;
+  background: rgba(10, 8, 7, 0.58);
+  backdrop-filter: blur(16px);
+}
+
+.workspace-context-button {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  color: #b6a89e;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  font-size: 0.61rem;
+  font-weight: 760;
+}
+
+.workspace-context-button:hover {
+  border-color: rgba(232, 139, 82, 0.2);
+  color: #fff6ee;
+  background: rgba(226, 118, 54, 0.07);
+}
+
+.workspace-context-button--primary {
+  border-color: rgba(232, 139, 82, 0.34);
+  color: #180d07;
+  background: linear-gradient(145deg, #f0a069, #d7662d);
+}
+
+.workspace-context-button--primary:hover {
+  color: #120b07;
+  background: linear-gradient(145deg, #ffb47d, #e47639);
+}
+
+.workspace-context-button--icon {
+  padding: 0;
+  font-size: 0.8rem;
+}
+
+/* Parking dialog ------------------------------------------------------- */
+
+.workspace-park-backdrop {
+  z-index: 80;
+  background: rgba(4, 3, 3, 0.72);
+  backdrop-filter: blur(9px);
+}
+
+.workspace-park-dialog {
+  position: fixed;
+  z-index: 81;
+  top: 50%;
+  left: 50%;
+  width: min(94vw, 540px);
+  max-height: min(88vh, 720px);
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  color: #f5ede6;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(224, 169, 73, 0.13), transparent 22rem),
+    #171310;
+  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%);
+  animation: productivity-dialog-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.workspace-park-dialog header {
+  display: flex;
+  padding: 22px 22px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.workspace-park-dialog header p {
+  color: #b9914e;
+  font-size: 0.55rem;
+}
+
+.workspace-park-dialog header h2 {
+  margin-top: 5px;
+  color: #fff7ef;
+  font: 650 1.65rem/1.08 var(--font-display, Georgia, serif);
+}
+
+.workspace-park-dialog form {
+  display: grid;
+  padding: 20px 22px 22px;
+  gap: 16px;
+}
+
+.workspace-park-dialog__task {
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 13px;
+  color: #cdbfb4;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.72rem;
+}
+
+.workspace-park-dialog fieldset {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.workspace-park-dialog legend,
+.workspace-park-field > span {
+  display: block;
+  margin-bottom: 9px;
+  color: #8f837a;
+  font-size: 0.58rem;
+  font-weight: 780;
+}
+
+.workspace-park-dialog legend {
+  grid-column: 1 / -1;
+}
+
+.workspace-park-dialog fieldset label {
+  position: relative;
+  display: flex;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 11px;
+  align-items: center;
+  color: #b7aaa0;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  font-size: 0.63rem;
+}
+
+.workspace-park-dialog fieldset input {
+  position: absolute;
+  opacity: 0;
+}
+
+.workspace-park-dialog fieldset label:has(input:checked) {
+  border-color: rgba(221, 174, 87, 0.34);
+  color: #f0ddbd;
+  background: rgba(204, 151, 56, 0.1);
+  box-shadow: inset 2px 0 #d7a954;
+}
+
+.workspace-park-field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.workspace-park-actions {
+  display: flex;
+  margin-top: 2px;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.workspace-park-actions button {
+  min-height: 42px;
+  padding: 9px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  color: #ac9f96;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  font-size: 0.64rem;
+  font-weight: 780;
+}
+
+.workspace-park-actions button[type="submit"] {
+  border-color: rgba(221, 174, 87, 0.34);
+  color: #160f07;
+  background: linear-gradient(145deg, #e9c27e, #c9953e);
+}

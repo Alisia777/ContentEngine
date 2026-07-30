@@ -1,0 +1,116 @@
+/* Final transform-composition polish for the spatial motion layer. */
+
+/* The spatial layer owns workspace entry motion. Disable the older stacked
+   page/surface entrance so the user sees one coherent movement, not two. */
+html.workspace-spatial-ready .route-enter,
+html.workspace-spatial-ready .route-enter .page-wrap > :is(
+  .page-header,
+  .workspace-page-intro,
+  .home-hero,
+  .home-metrics,
+  .card,
+  .split-grid,
+  .workspace-direction,
+  .home-guidance-grid
+) {
+  animation: none !important;
+}
+
+@keyframes spatial-dock-enter {
+  0% { opacity: 0; translate: 0 32px; scale: 0.94; filter: blur(8px); }
+  72% { opacity: 1; translate: 0 -2px; scale: 1.006; filter: blur(0); }
+  100% { opacity: 1; translate: 0; scale: 1; filter: none; }
+}
+
+@keyframes spatial-dock-attention {
+  0%, 100% { filter: brightness(1); translate: 0; scale: 1; }
+  28% { filter: brightness(1.22); translate: 0 -13px; scale: 1.08; }
+  54% { filter: brightness(1.08); translate: 0 -3px; scale: 1.025; }
+  72% { translate: 0 -7px; scale: 1.045; }
+}
+
+/* Apply immediately when the overview node enters the DOM. The body class is
+   still used for background depth, but is not required for card entrance. */
+.workspace-overview-backdrop .workspace-overview-card {
+  animation: spatial-mission-card-in 560ms var(--spatial-spring) both;
+}
+
+.workspace-overview-backdrop .workspace-overview-card:nth-child(2) { animation-delay: 34ms; }
+.workspace-overview-backdrop .workspace-overview-card:nth-child(3) { animation-delay: 68ms; }
+.workspace-overview-backdrop .workspace-overview-card:nth-child(4) { animation-delay: 102ms; }
+.workspace-overview-backdrop .workspace-overview-card:nth-child(5) { animation-delay: 136ms; }
+.workspace-overview-backdrop .workspace-overview-card:nth-child(6) { animation-delay: 170ms; }
+.workspace-overview-backdrop .workspace-overview-card:nth-child(7) { animation-delay: 204ms; }
+.workspace-overview-backdrop .workspace-overview-card:nth-child(n + 8) { animation-delay: 238ms; }
+
+@keyframes spatial-mission-card-in {
+  0% { opacity: 0; filter: blur(5px); translate: 0 24px; scale: 0.95; }
+  76% { opacity: 1; filter: blur(0); translate: 0 -2px; scale: 1.005; }
+  100% { opacity: 1; filter: none; translate: 0; scale: 1; }
+}
+
+/* Close choreography --------------------------------------------------- */
+
+.workspace-overview-backdrop.workspace-spatial-closing {
+  animation: spatial-overlay-close 210ms ease both !important;
+}
+
+.workspace-overview-backdrop.workspace-spatial-closing .workspace-overview {
+  animation: spatial-mission-window-close 210ms cubic-bezier(0.55, 0, 0.9, 0.45) both !important;
+}
+
+.workspace-overview-backdrop.workspace-spatial-closing .workspace-overview-card {
+  animation: none !important;
+}
+
+.workspace-focus-backdrop.workspace-spatial-closing,
+.workspace-context-backdrop.workspace-spatial-closing,
+.workspace-park-backdrop.workspace-spatial-closing {
+  animation: spatial-overlay-close 210ms ease both !important;
+}
+
+.workspace-task-focused.workspace-spatial-closing {
+  animation: spatial-focus-window-close 210ms cubic-bezier(0.55, 0, 0.9, 0.45) both !important;
+}
+
+.workspace-context-panel.workspace-spatial-closing {
+  animation: spatial-sheet-close 210ms cubic-bezier(0.55, 0, 0.9, 0.45) both !important;
+}
+
+.workspace-park-dialog.workspace-spatial-closing {
+  animation: spatial-dialog-close 210ms cubic-bezier(0.55, 0, 0.9, 0.45) both !important;
+}
+
+@keyframes spatial-overlay-close {
+  to { opacity: 0; backdrop-filter: blur(0) saturate(1); }
+}
+
+@keyframes spatial-mission-window-close {
+  to { opacity: 0; filter: blur(7px); transform: translateY(20px) scale(0.965); }
+}
+
+@keyframes spatial-focus-window-close {
+  to { opacity: 0; filter: blur(7px); clip-path: inset(5% 4% 7% 4% round 42px); }
+}
+
+@keyframes spatial-sheet-close {
+  to { opacity: 0; filter: blur(6px); transform: translateX(42px) scale(0.986); }
+}
+
+@keyframes spatial-dialog-close {
+  to { opacity: 0; filter: blur(7px); transform: translateY(22px) scale(0.95); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-task-dock__bar,
+  .workspace-task-dock__chip,
+  .workspace-task-dock__actions > button,
+  .workspace-overview-card {
+    translate: none !important;
+    scale: none !important;
+  }
+
+  .workspace-spatial-closing {
+    animation-duration: 0.01ms !important;
+  }
+}

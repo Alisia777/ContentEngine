@@ -1,0 +1,216 @@
+/* --------------------------------------------------------------------------
+   Responsive
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 980px) {
+  .review-desktop-os,
+  .academy-desktop-os,
+  .academy-course-desktop-os {
+    padding: 8px 8px calc(var(--ce-mac-dock-height) + 20px) !important;
+  }
+
+  .review-os-topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .review-os-mode-switch {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 10px;
+    left: 10px;
+    z-index: 10;
+    justify-content: center;
+    background: rgba(17, 14, 12, 0.94);
+    backdrop-filter: blur(24px);
+  }
+
+  .review-os-workbench {
+    height: calc(100dvh - 154px);
+    padding-top: 54px;
+  }
+
+  .review-os-form,
+  .review-os-result-shell {
+    grid-template-rows: 68px minmax(0, 1fr) 62px;
+  }
+
+  .review-os-form > [data-ce-os-panel],
+  .review-os-result-panel {
+    padding: 24px 18px 76px !important;
+  }
+
+  .review-os-form .content-review-form-grid,
+  .review-os-form .content-review-confirmations,
+  .review-os-result-panel .content-review-score-grid,
+  .academy-os-panel--courses .course-grid,
+  .academy-os-panel--practice.is-active {
+    grid-template-columns: 1fr;
+  }
+
+  .review-os-result-panel .content-review-score-grid {
+    min-height: 0;
+  }
+
+  .review-os-result-panel .content-review-score-grid > .card {
+    min-height: 260px;
+  }
+
+  .academy-os-panel .learning-hero {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .academy-os-panel .learning-hero h1 {
+    font-size: clamp(2.4rem, 10vw, 4.8rem);
+  }
+}
+
+@media (max-width: 640px) {
+  :root { --ce-mac-dock-height: 64px; }
+
+  .ce-mac-dock {
+    padding: 0 7px;
+  }
+
+  .ce-mac-dock__glass {
+    width: min(100%, 560px);
+    min-height: 56px;
+    padding: 6px;
+    overflow-x: auto;
+    justify-content: flex-start;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .ce-mac-dock__glass::-webkit-scrollbar { display: none; }
+
+  .ce-mac-dock__item {
+    width: 43px;
+    height: 43px;
+    flex-basis: 43px;
+    scroll-snap-align: center;
+    transform: none !important;
+  }
+
+  .ce-mac-dock__icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .ce-mac-dock__tooltip { display: none; }
+  .ce-mac-dock__separator { height: 30px; }
+
+  .review-os-topbar,
+  .academy-os-topbar {
+    min-height: 58px;
+    padding: 8px;
+    border-radius: 17px 17px 0 0;
+    gap: 8px;
+  }
+
+  .review-os-window-controls {
+    gap: 5px;
+  }
+
+  .review-os-window-controls i {
+    width: 9px;
+    height: 9px;
+  }
+
+  .review-os-title small,
+  .academy-os-topbar small {
+    display: none;
+  }
+
+  .review-os-title strong,
+  .academy-os-topbar strong {
+    font-size: 0.72rem;
+  }
+
+  .review-os-workbench,
+  .academy-os-window,
+  .academy-course-os-window {
+    min-height: 610px;
+    border-radius: 0 0 18px 18px;
+  }
+
+  .review-os-mode-switch button {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 5px;
+    font-size: 0.55rem;
+  }
+
+  .review-os-step-dock,
+  .review-os-result-dock,
+  .academy-os-dock,
+  .academy-course-os-dock {
+    padding: 7px 8px;
+    justify-content: flex-start;
+  }
+
+  .review-os-step-dock button,
+  .review-os-result-dock button,
+  .academy-os-dock button,
+  .academy-course-os-dock button {
+    min-width: 65px;
+    min-height: 48px;
+  }
+
+  .review-os-form .content-review-fieldset legend {
+    font-size: clamp(1.4rem, 7vw, 2.2rem);
+  }
+
+  .review-os-form .content-review-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-os-footer {
+    padding: 7px 8px;
+    grid-template-columns: 1fr auto 1fr;
+  }
+
+  .review-os-footer > button {
+    min-width: 0;
+    padding: 8px 9px;
+  }
+
+  .review-os-footer > button span {
+    display: none;
+  }
+
+  .review-os-result-panel .content-review-decision-preview {
+    min-height: 360px;
+  }
+
+  .review-os-result-panel .content-review-decision-preview__media {
+    height: min(54vh, 480px);
+  }
+
+  .academy-os-panel,
+  .academy-course-os-panel {
+    padding: 16px 12px 66px;
+  }
+
+  .academy-os-panel .learning-hero {
+    padding: 26px 20px;
+    border-radius: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ce-mac-dock *,
+  .review-desktop-os *,
+  .academy-desktop-os *,
+  .academy-course-desktop-os * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .ce-mac-dock__item {
+    transform: none !important;
+  }
+}

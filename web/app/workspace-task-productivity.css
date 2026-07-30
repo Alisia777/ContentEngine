@@ -1,0 +1,364 @@
+/*
+ * Workspace task productivity
+ * Active task Dock, parking, task context and Mission Control enrichment.
+ */
+
+:root {
+  --task-productivity-dock-height: 74px;
+  --task-productivity-panel-width: min(430px, calc(100vw - 34px));
+}
+
+.workspace-productivity-live-region {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.workspace-shell.workspace-productivity-enabled .workspace-main {
+  padding-bottom: calc(var(--task-productivity-dock-height) + env(safe-area-inset-bottom, 0px) + 18px);
+}
+
+/* Quick task actions --------------------------------------------------- */
+
+.workspace-focusable-card {
+  position: relative;
+}
+
+.workspace-task-quick-actions {
+  position: absolute;
+  z-index: 5;
+  top: 14px;
+  right: 60px;
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 11px;
+  gap: 2px;
+  opacity: 0;
+  background: rgba(14, 12, 10, 0.82);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  transform: translateY(-3px);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(16px) saturate(120%);
+}
+
+.workspace-focusable-card:hover > .workspace-task-quick-actions,
+.workspace-focusable-card:focus-within > .workspace-task-quick-actions,
+.workspace-task-focused > .workspace-task-quick-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.workspace-task-quick-action {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #8e8279;
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+  font-size: 0.75rem;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease, transform 190ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workspace-task-quick-action:hover {
+  border-color: rgba(230, 133, 69, 0.23);
+  color: #fff6ed;
+  background: rgba(226, 118, 54, 0.1);
+  transform: translateY(-1px);
+}
+
+.workspace-task-quick-action.is-active {
+  color: #f0a06a;
+  background: rgba(226, 118, 54, 0.12);
+}
+
+.workspace-task-quick-action.is-parked {
+  color: #e8c078;
+  background: rgba(220, 173, 83, 0.1);
+}
+
+/* Active task Dock ----------------------------------------------------- */
+
+.workspace-task-dock {
+  position: fixed;
+  z-index: 46;
+  right: 18px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  left: calc(var(--sidebar-width, 304px) + 18px);
+  min-width: 0;
+  pointer-events: none;
+}
+
+.workspace-task-dock__bar {
+  display: grid;
+  min-width: 0;
+  min-height: var(--task-productivity-dock-height);
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 18px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: #f7efe8;
+  background:
+    radial-gradient(circle at 4% 50%, rgba(226, 118, 54, 0.12), transparent 14rem),
+    rgba(17, 14, 12, 0.92);
+  box-shadow:
+    0 24px 72px rgba(0, 0, 0, 0.42),
+    inset 0 1px rgba(255, 255, 255, 0.055);
+  pointer-events: auto;
+  backdrop-filter: blur(26px) saturate(122%);
+}
+
+.workspace-task-dock__summary {
+  display: grid;
+  min-width: 148px;
+  min-height: 54px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 13px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  color: #f6eee7;
+  background: rgba(255, 255, 255, 0.026);
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-task-dock__summary:hover {
+  border-color: rgba(232, 139, 82, 0.2);
+  background: rgba(226, 118, 54, 0.07);
+}
+
+.workspace-task-dock__mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(232, 139, 82, 0.28);
+  border-radius: 10px;
+  color: #e98b50;
+  background: rgba(226, 118, 54, 0.1);
+  place-items: center;
+  font-size: 0.62rem;
+}
+
+.workspace-task-dock__summary small,
+.workspace-task-dock__summary strong {
+  display: block;
+}
+
+.workspace-task-dock__summary small {
+  color: #786d65;
+  font-size: 0.52rem;
+  font-weight: 790;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.workspace-task-dock__summary strong {
+  margin-top: 2px;
+  color: #eee2d9;
+  font-size: 0.75rem;
+}
+
+.workspace-task-dock__summary em {
+  padding: 4px 6px;
+  border-radius: 999px;
+  color: #ffb0a7;
+  background: rgba(181, 61, 51, 0.16);
+  font-size: 0.48rem;
+  font-style: normal;
+  font-weight: 820;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-task-dock__tasks {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  align-items: stretch;
+  gap: 6px;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+.workspace-task-dock__tasks::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-task-dock__chip {
+  display: grid;
+  min-width: min(220px, 28vw);
+  max-width: 270px;
+  min-height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 13px;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.022);
+  scroll-snap-align: start;
+  transition: border-color 180ms ease, background 180ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease;
+}
+
+.workspace-task-dock__chip:hover {
+  border-color: rgba(232, 139, 82, 0.19);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+}
+
+.workspace-task-dock__select {
+  display: grid;
+  min-width: 0;
+  padding: 8px 8px 8px 10px;
+  border: 0;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-task-dock__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #df8047;
+  box-shadow: 0 0 0 4px rgba(223, 128, 71, 0.08);
+}
+
+.workspace-task-dock__chip[data-tone="waiting"] .workspace-task-dock__dot,
+.workspace-task-dock__chip[data-tone="parked"] .workspace-task-dock__dot {
+  background: #d9ad5f;
+  box-shadow: 0 0 0 4px rgba(217, 173, 95, 0.08);
+}
+
+.workspace-task-dock__chip[data-tone="blocked"] .workspace-task-dock__dot {
+  background: #ef7f74;
+  box-shadow: 0 0 0 4px rgba(239, 127, 116, 0.08);
+}
+
+.workspace-task-dock__chip[data-tone="done"] .workspace-task-dock__dot {
+  background: #7fbea0;
+  box-shadow: 0 0 0 4px rgba(127, 190, 160, 0.08);
+}
+
+.workspace-task-dock__chip[data-tone="return"] .workspace-task-dock__dot {
+  background: #f0a064;
+  animation: productivity-return-pulse 1.8s ease-in-out infinite;
+}
+
+.workspace-task-dock__copy {
+  min-width: 0;
+}
+
+.workspace-task-dock__copy strong,
+.workspace-task-dock__copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-task-dock__copy strong {
+  color: #eee4dc;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.workspace-task-dock__copy small {
+  margin-top: 4px;
+  color: #756b64;
+  font-size: 0.52rem;
+}
+
+.workspace-task-dock__open {
+  display: grid;
+  width: 100%;
+  min-height: 100%;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.055);
+  color: #b8aaa0;
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.workspace-task-dock__open:hover {
+  color: #ffb27c;
+  background: rgba(226, 118, 54, 0.08);
+}
+
+.workspace-task-dock__empty {
+  display: flex;
+  min-height: 54px;
+  padding: 0 16px;
+  align-items: center;
+  color: #6f655e;
+  font-size: 0.62rem;
+}
+
+.workspace-task-dock__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-task-dock__actions button {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  color: #a8988e;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  place-items: center;
+  font-size: 0.8rem;
+}
+
+.workspace-task-dock__actions button:hover {
+  border-color: rgba(232, 139, 82, 0.24);
+  color: #fff4eb;
+  background: rgba(226, 118, 54, 0.09);
+}
+
+.workspace-task-dock__actions button > span {
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid #110e0c;
+  border-radius: 999px;
+  color: #160d08;
+  background: #e98b50;
+  place-items: center;
+  font-size: 0.48rem;
+  font-weight: 850;
+}
+
+.workspace-task-dock.is-collapsed .workspace-task-dock__tasks {
+  display: none;
+}
+
+.workspace-task-dock.is-collapsed .workspace-task-dock__bar {
+  width: max-content;
+  margin-left: auto;
+  grid-template-columns: auto auto;
+}
