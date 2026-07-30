@@ -83,6 +83,13 @@ function animatePanel(previous, next, direction) {
   ], { duration: 520, easing: SPRING });
 }
 
+function openNativeLesson(panel) {
+  const lesson = q("[data-course-lesson]", panel);
+  const details = q("[data-course-lesson-details]", lesson);
+  if (!lesson || !details?.hidden) return;
+  q('[data-action="training-lesson-toggle"]', lesson)?.click();
+}
+
 function setActive(index, focus = false) {
   if (!runtime.panels.length) return;
   const resolved = Math.max(0, Math.min(runtime.panels.length - 1, Number(index) || 0));
@@ -104,6 +111,7 @@ function setActive(index, focus = false) {
   q("[data-academy-v2-position]", runtime.window).textContent = `${resolved + 1} / ${runtime.panels.length}`;
   runtime.window.style.setProperty("--academy-v2-progress", `${((resolved + 1) / runtime.panels.length) * 100}%`);
   if (previous !== runtime.panels[resolved]) animatePanel(previous, runtime.panels[resolved], resolved >= previousIndex ? 1 : -1);
+  openNativeLesson(runtime.panels[resolved]);
   persistIndex(resolved);
   if (focus) q("button, a, input, select, textarea", runtime.panels[resolved])?.focus({ preventScroll: true });
 }
