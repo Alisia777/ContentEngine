@@ -16533,7 +16533,7 @@ async function submitContentReview(form) {
   const selectedMedia = selection.items;
   let media = selectedMedia[0];
   input.media_id = media.id;
-  if (media.kind === "generated_video" && !media.url) {
+  if (media.kind === "generated_video") {
     try {
       media = await resolveGeneratedVideoReviewMedia(media);
     } catch (error) {

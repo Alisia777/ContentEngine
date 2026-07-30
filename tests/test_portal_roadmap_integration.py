@@ -64,6 +64,6 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
 def test_release_entry_assets_use_current_cache_versions() -> None:
     assert './styles.css?v=20260729.3' in INDEX
     assert './config.js?v=20260729.1' in INDEX
-    assert './app.js?v=20260730.4' in INDEX
+    assert './app.js?v=20260730.5' in INDEX
     assert './supabase-api.js?v=20260729.2' in APP
     assert './catalog.js?v=20260724.1' in APP

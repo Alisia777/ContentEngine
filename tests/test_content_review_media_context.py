@@ -54,6 +54,7 @@ def test_generated_video_recovers_a_fresh_url_from_its_exact_job() -> None:
         APP.index("async function submitContentReview(") :
         APP.index("async function submitContentReviewDecision(")
     ]
+    assert 'media.kind === "generated_video" && !media.url' not in submit
     assert "media = await resolveGeneratedVideoReviewMedia(media)" in submit
 
 
