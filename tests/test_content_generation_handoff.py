@@ -378,6 +378,53 @@ def test_steamer_auto_brief_preserves_human_scenario_under_product_guards() -> N
     }
 
 
+def test_air_fryer_auto_brief_preserves_exact_quote_before_bounded_intent() -> None:
+    result = _run_module(
+        """
+        const scenarioIntent = [
+          "Светлая домашняя кухня.",
+          "Блогер кладёт в корзину аэрогриля куриные бёдра и картофель, выбирает режим и показывает приготовление.",
+          "Затем спокойно выдвигает корзину, перекладывает готовую курицу с картофелем на тарелку и подносит к камере только тарелку.",
+          "Корпус аэрогриля всё время стоит на столе.",
+          "Герой говорит: «Курица с картофелем получается румяной, а готовить в аэрогриле удобно — без сковороды и лишнего масла.»",
+        ].join(" ");
+        const exactSpeech =
+          "Курица с картофелем получается румяной, а готовить в аэрогриле удобно — без сковороды и лишнего масла.";
+        const compiled = subject.compileSafeGenerationBrief({
+          mode: "real_seedance",
+          productName: "Аэрогриль MILIO",
+          sku: "WWW123",
+          durationSeconds: 15,
+          productCategory: "household",
+          scenarioIntent,
+        });
+        return {
+          ready: compiled.ready,
+          bounded: compiled.prompt.length <= subject.CONTENT_GENERATION_PROMPT_LIMIT,
+          exactSpeech: compiled.prompt.includes(
+            `Реплика героя дословно: «${exactSpeech}»`,
+          ),
+          speechOccursOnce: compiled.prompt.split(exactSpeech).length - 1 === 1,
+          keepsCompleteAction: compiled.prompt.includes(
+            "Корпус аэрогриля всё время стоит на столе.",
+          ),
+          noMidWordCut: !compiled.prompt.includes("без сковороды и ли."),
+          dynamicSpeechLimit:
+            compiled.spokenWords <= subject.seedanceSpokenWordLimit(15),
+        };
+        """
+    )
+    assert result == {
+        "ready": True,
+        "bounded": True,
+        "exactSpeech": True,
+        "speechOccursOnce": True,
+        "keepsCompleteAction": True,
+        "noMidWordCut": True,
+        "dynamicSpeechLimit": True,
+    }
+
+
 def test_categories_have_separate_cold_start_interactions() -> None:
     result = _run_module(
         """
@@ -958,7 +1005,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260729.4" in APP
-    assert "./app.js?v=20260729.10" in INDEX
+    assert "./content-generation-handoff.js?v=20260730.1" in APP
+    assert "./app.js?v=20260730.1" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

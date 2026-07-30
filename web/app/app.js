@@ -69,7 +69,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260729.4";
+} from "./content-generation-handoff.js?v=20260730.1";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,

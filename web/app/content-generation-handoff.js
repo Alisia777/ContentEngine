@@ -20,6 +20,9 @@ const VIDEO_DURATION_OPTIONS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze([2, 5, 8, 10]),
   [REAL_SEEDANCE_MODE]: Object.freeze([4, 8, 12, 15]),
 });
+const SAFE_SCENARIO_INTENT_LIMIT = 400;
+const EXPLICIT_SPOKEN_LINE_PATTERN =
+  /(^|[.!?…]\s+)((?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\s+(?:говорит|произносит|рассказывает)|реплика\s+героя(?:\s+дословно)?))\s*:\s*[«“"]([^»”"]{2,500})[»”"]\s*[.!?…]?/iu;
 
 export function contentGenerationDurationSeconds(mode, value = null) {
   const normalizedMode = normalizeMode(mode);
@@ -289,7 +292,12 @@ export function compileSafeGenerationBrief({
   const normalizedMode = normalizeMode(mode);
   const exactProductName = cleanText(productName);
   const exactSku = cleanText(sku);
-  const safeScenarioIntent = cleanText(scenarioIntent).slice(0, 400);
+  const rawScenarioIntent = cleanText(scenarioIntent).slice(0, 1_200);
+  const explicitSpokenLine = extractExplicitSpokenLine(rawScenarioIntent);
+  const safeScenarioIntent = truncateScenarioIntent(
+    removeExplicitSpokenLine(rawScenarioIntent),
+    SAFE_SCENARIO_INTENT_LIMIT,
+  );
   const safeVisualDirection = cleanText(visualDirection);
   const safeAvoidClaims = uniqueStrings(avoidClaims, 8);
   const learningDirection = generationLearningDirection(
@@ -377,7 +385,8 @@ export function compileSafeGenerationBrief({
       requestedDurationSeconds,
     );
     const spokenLine = safeScenarioSpokenLine({
-      scenarioIntent: safeScenarioIntent,
+      scenarioIntent: rawScenarioIntent,
+      explicitSpokenLine,
       productName: exactProductName,
       fallback: interaction.spokenLine,
       durationSeconds,
@@ -1354,14 +1363,18 @@ function words(value) {
 
 function safeScenarioSpokenLine({
   scenarioIntent = "",
+  explicitSpokenLine = "",
   productName = "",
   fallback = "",
   durationSeconds = 8,
 } = {}) {
   const normalizedIntent = cleanText(scenarioIntent).toLocaleLowerCase("ru-RU");
   const normalizedProduct = cleanText(productName).toLocaleLowerCase("ru-RU");
-  let candidate = cleanText(fallback);
+  const exactLine = cleanText(explicitSpokenLine)
+    || extractExplicitSpokenLine(scenarioIntent);
+  let candidate = exactLine || cleanText(fallback);
   if (
+    !exactLine &&
     /(?:пароварк|steamer)/iu.test(normalizedProduct)
     && /(?:готов\p{L}*\s+на\s+пар|без\s+жарк|лишн\p{L}*\s+масл|лосос)/iu.test(normalizedIntent)
   ) {
@@ -1373,6 +1386,39 @@ function safeScenarioSpokenLine({
   return words(candidate).length <= maximum
     ? candidate
     : words(candidate).slice(0, maximum).join(" ");
+}
+
+function extractExplicitSpokenLine(value) {
+  const match = EXPLICIT_SPOKEN_LINE_PATTERN.exec(cleanText(value));
+  return cleanText(match?.[3]);
+}
+
+function removeExplicitSpokenLine(value) {
+  return cleanText(value)
+    .replace(EXPLICIT_SPOKEN_LINE_PATTERN, "$1")
+    .replace(/\s+([.!?…])/gu, "$1")
+    .trim();
+}
+
+function truncateScenarioIntent(value, maximum) {
+  const normalized = cleanText(value);
+  const limit = Math.max(1, Number(maximum) || 1);
+  if (normalized.length <= limit) return normalized;
+
+  const candidate = normalized.slice(0, limit + 1);
+  let sentenceEnd = -1;
+  for (const match of candidate.matchAll(/[.!?…](?=\s|$)/gu)) {
+    sentenceEnd = match.index;
+  }
+  if (sentenceEnd >= Math.floor(limit * 0.45)) {
+    return candidate.slice(0, sentenceEnd + 1).trim();
+  }
+
+  const wordBoundary = candidate.slice(0, limit).search(/\s+\S*$/u);
+  const wholeWords = wordBoundary > 0
+    ? candidate.slice(0, wordBoundary).trim()
+    : candidate.slice(0, limit).trim();
+  return `${wholeWords.replace(/[,:;–—-]+$/u, "")}…`;
 }
 
 function lines(value, maximum) {
