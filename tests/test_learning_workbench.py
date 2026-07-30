@@ -37,6 +37,16 @@ def test_current_task_advances_only_after_confirmed_course_completion() -> None:
     assert "setTimeout" in SCRIPT
 
 
+def test_direct_course_return_consumes_transition_flag_once() -> None:
+    assert (
+        'const completedCourseReturn = readStorage(COURSE_ADVANCE_PENDING_KEY) '
+        '=== "true";'
+    ) in SCRIPT
+    assert "const forcedTaskPanel = completedCourseReturn ||" in SCRIPT
+    assert SCRIPT.count("removeStorage(COURSE_ADVANCE_PENDING_KEY);") >= 2
+    assert "taskChanged || forcedTaskPanel ? \"task\" : savedPanel" in SCRIPT
+
+
 def test_files_are_presented_as_openable_folders_and_tools_as_apps() -> None:
     folders = (
         "Мой маршрут",
