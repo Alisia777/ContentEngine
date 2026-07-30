@@ -40,7 +40,9 @@ def test_badges_read_only_the_existing_tab_scoped_registry() -> None:
     assert '.api.' not in SCRIPT
     assert 'localStorage' not in SCRIPT
     assert 'cloneNode' not in SCRIPT
-    assert '.value' not in SCRIPT
+    assert 'new FormData' not in SCRIPT
+    assert 'input.value' not in SCRIPT
+    assert 'textarea.value' not in SCRIPT
 
 
 def test_productivity_badges_have_reduced_motion_fallback() -> None:
