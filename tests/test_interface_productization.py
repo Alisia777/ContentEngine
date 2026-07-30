@@ -116,8 +116,8 @@ def test_premium_shell_used_by_control_room_workbench_and_launch():
     for path in ["/control-room", "/workbench", "/mvp-launch"]:
         response = api.get(path)
         assert response.status_code == 200
-        assert "altea-bg" in response.text
-        assert "/static/altea_motion/altea_motion.css" in response.text
+        assert "portal-bg" in response.text
+        assert "/static/portal_ui/portal_ui.css" in response.text
         assert "CONTENT ENGINE" in response.text
 
 

@@ -33,8 +33,8 @@ def reset_demo(db) -> None:
     db.execute(delete(models.PublicTrainingLesson))
     db.execute(delete(models.TrainingModule))
     db.execute(delete(models.Membership))
-    db.execute(delete(models.UserProfile).where(models.UserProfile.email.like("%@altea-public.local")))
-    db.execute(delete(models.Organization).where(models.Organization.slug == "altea-beauty"))
+    db.execute(delete(models.UserProfile).where(models.UserProfile.email.like("%@portal-public.local")))
+    db.execute(delete(models.Organization).where(models.Organization.slug == "contentengine-demo"))
     db.commit()
 
 
@@ -49,8 +49,8 @@ def seed(with_certifications: bool, reset: bool) -> dict:
         for role in DEMO_ROLES:
             user = ensure_public_pilot_user(
                 db,
-                email=f"{role}@altea-public.local",
-                display_name=f"ALTEA {role.title()}",
+                email=f"{role}@portal-public.local",
+                display_name=f"CONTENT ENGINE {role.title()}",
                 role=role,
                 supabase_user_id=f"demo-{role}",
                 update_existing_role=True,
@@ -79,7 +79,7 @@ def seed(with_certifications: bool, reset: bool) -> dict:
                     )
 
         return {
-            "organization": users[0].organization.name if users else "ALTEA Beauty",
+            "organization": users[0].organization.name if users else "ContentEngine Demo",
             "users": len(users),
             "memberships": len(users),
             "training_modules": len(modules),
@@ -89,7 +89,7 @@ def seed(with_certifications: bool, reset: bool) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Seed local ALTEA public pilot users, roles and training records.")
+    parser = argparse.ArgumentParser(description="Seed local CONTENT ENGINE public pilot users, roles and training records.")
     parser.add_argument("--with-certifications", action="store_true", help="Grant reviewer/operator/admin/owner demo certifications.")
     parser.add_argument("--reset-demo", action="store_true", help="Remove seeded demo records before creating them again.")
     args = parser.parse_args()

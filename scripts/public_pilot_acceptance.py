@@ -47,11 +47,6 @@ def main() -> None:
             "/login",
             "/control-room",
             "/settings/access",
-            "/altea-motion/splash",
-            "/altea-motion/login",
-            "/altea-motion/auth-loading",
-            "/altea-motion/dashboard-loading",
-            "/altea-motion/dashboard",
         ]:
             print(f"- {route}: configured")
         print("")
@@ -61,4 +56,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

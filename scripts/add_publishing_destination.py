@@ -15,7 +15,7 @@ from app.publishing.errors import PublishingError
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Register an owned publishing destination.")
-    parser.add_argument("--brand", default="Altea")
+    parser.add_argument("--brand", default="ContentEngine")
     parser.add_argument("--platform", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--handle")

@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,25 +9,17 @@ def test_pages_landing_represents_the_novice_first_factory() -> None:
     html = PAGES_LANDING.read_text(encoding="utf-8")
 
     assert "Контент ИИ Завод" in html
+    assert 'content="0; url=./web/app/"' in html
+    assert 'window.location.replace(new URL("./web/app/", window.location.href).href)' in html
+    assert '<link rel="canonical" href="./web/app/">' in html
+    assert '<a href="./web/app/">Открыть Контент ИИ Завод</a>' in html
     assert "QVF_PUBLIC_APP_URL" not in html
     assert "http://127.0.0.1" not in html
     assert "Открыть локальный" not in html
     assert "после локального запуска" not in html
     assert 'href="docs/CLOUD_DEPLOYMENT.md"' not in html
-    assert html.count('data-runtime-cta="pending"') == 4
-    assert html.count('aria-disabled="true"') >= 4
-    assert len(re.findall(r'data-factory-block="[^"]+"', html)) == 9
-    assert "Публичная витрина" in html
-    assert "Облачное приложение" in html
-    assert "Измеримые контент-циклы за 7 дней" in html
-    assert "без автоматического эквайринга" in html
-    assert "Wildberries Seller Analytics" in html
-    assert html.count("Код готов · нужны credentials") == 4
-    assert "Telegram и VK" in html
-    assert "Guided setup · manual" in html
-    assert "код YT, IG, TT и WB готов к credentials" in html
-    assert "Публичные рабочие данные и секреты не выставляются" in html
-    assert "требует входа" not in html
+    assert 'data-runtime-cta="pending"' not in html
+    assert 'data-factory-block="' not in html
 
 
 def test_pages_landing_does_not_restore_the_legacy_shell() -> None:

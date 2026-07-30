@@ -559,7 +559,7 @@
   background: var(--portal-surface-soft, #f8faf8);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .product-research-platforms label,
   .product-research-media-option,
   .product-research-media-empty,
@@ -575,12 +575,12 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] .product-research-approval {
+html[data-portal-theme="obsidian"] .product-research-approval {
   color: var(--portal-ink);
   background: var(--portal-accent-soft);
 }
 
-html[data-portal-theme="altea-dark"] .product-research-generation-action {
+html[data-portal-theme="obsidian"] .product-research-generation-action {
   color: var(--portal-ink);
   background: var(--portal-accent-soft);
 }

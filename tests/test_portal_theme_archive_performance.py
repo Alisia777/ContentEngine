@@ -52,12 +52,12 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index:end_index]
 
 
-def test_four_themes_normalize_and_storage_failures_never_block_the_portal() -> None:
+def test_obsidian_theme_normalizes_and_storage_failures_never_block_the_portal() -> None:
     result = _run_module_javascript(
         EXPERIENCE,
         """
         const writes = [];
-        const readable = { getItem: () => "BORDEAUX" };
+        const readable = { getItem: () => "OBSIDIAN" };
         const writable = { setItem: (key, value) => writes.push([key, value]) };
         const readFailure = { getItem: () => { throw new Error("blocked"); } };
         const writeFailure = { setItem: () => { throw new Error("blocked"); } };
@@ -66,7 +66,7 @@ def test_four_themes_normalize_and_storage_failures_never_block_the_portal() -> 
           get: () => { throw new Error("getter blocked"); },
         });
         const blockedGlobalRead = subject.readPortalThemePreference();
-        const blockedGlobalWrite = subject.persistPortalThemePreference("sapphire");
+        const blockedGlobalWrite = subject.persistPortalThemePreference("obsidian");
         delete globalThis.localStorage;
 
         return {
@@ -75,10 +75,8 @@ def test_four_themes_normalize_and_storage_failures_never_block_the_portal() -> 
           frozen: Object.isFrozen(subject.PORTAL_THEMES)
             && subject.PORTAL_THEMES.every((theme) => Object.isFrozen(theme)),
           normalized: [
-            subject.normalizePortalTheme(" emerald "),
-            subject.normalizePortalTheme("BORDEAUX"),
-            subject.normalizePortalTheme("Sapphire"),
-            subject.normalizePortalTheme(" ALTEA-DARK "),
+            subject.normalizePortalTheme(" obsidian "),
+            subject.normalizePortalTheme("OBSIDIAN"),
           ],
           fallback: [
             subject.normalizePortalTheme("unknown"),
@@ -86,9 +84,9 @@ def test_four_themes_normalize_and_storage_failures_never_block_the_portal() -> 
           ],
           read: subject.readPortalThemePreference(readable),
           readFailure: subject.readPortalThemePreference(readFailure),
-          persisted: subject.persistPortalThemePreference("sapphire", writable),
+          persisted: subject.persistPortalThemePreference("obsidian", writable),
           persistedFallback: subject.persistPortalThemePreference("unsafe", writable),
-          writeFailure: subject.persistPortalThemePreference("bordeaux", writeFailure),
+          writeFailure: subject.persistPortalThemePreference("obsidian", writeFailure),
           blockedGlobalRead,
           blockedGlobalWrite,
           writes,
@@ -97,21 +95,21 @@ def test_four_themes_normalize_and_storage_failures_never_block_the_portal() -> 
     )
 
     assert result == {
-        "themes": ["emerald", "bordeaux", "sapphire", "altea-dark"],
-        "labels": ["Изумруд", "Бордо", "Сапфир", "Тёмная"],
+        "themes": ["obsidian"],
+        "labels": ["Обсидиан"],
         "frozen": True,
-        "normalized": ["emerald", "bordeaux", "sapphire", "altea-dark"],
-        "fallback": ["emerald", "emerald"],
-        "read": "bordeaux",
-        "readFailure": "emerald",
-        "persisted": "sapphire",
-        "persistedFallback": "emerald",
-        "writeFailure": "bordeaux",
-        "blockedGlobalRead": "emerald",
-        "blockedGlobalWrite": "sapphire",
+        "normalized": ["obsidian", "obsidian"],
+        "fallback": ["obsidian", "obsidian"],
+        "read": "obsidian",
+        "readFailure": "obsidian",
+        "persisted": "obsidian",
+        "persistedFallback": "obsidian",
+        "writeFailure": "obsidian",
+        "blockedGlobalRead": "obsidian",
+        "blockedGlobalWrite": "obsidian",
         "writes": [
-            ["contentengine.portal-theme.v1", "sapphire"],
-            ["contentengine.portal-theme.v1", "emerald"],
+            ["contentengine.portal-theme.v1", "obsidian"],
+            ["contentengine.portal-theme.v1", "obsidian"],
         ],
     }
 
@@ -504,7 +502,7 @@ def test_generation_archive_reload_is_server_filtered_and_grouped_by_week() -> N
     assert "Период, статус и поиск применяются на сервере ко всему архиву" in APP
 
 
-def test_theme_archive_motion_and_brand_asset_hooks_are_wired_into_the_spa() -> None:
+def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> None:
     assert re.search(r'from "\./portal-experience\.js\?v=\d+\.\d+";', APP)
     for hook in (
         "PORTAL_THEMES",
@@ -520,32 +518,26 @@ def test_theme_archive_motion_and_brand_asset_hooks_are_wired_into_the_spa() -> 
     ):
         assert hook in APP
 
-    for theme in ("emerald", "bordeaux", "sapphire", "altea-dark"):
-        assert f':root[data-portal-theme="{theme}"]' in EXPERIENCE_CSS
+    assert ':root[data-portal-theme="obsidian"]' in EXPERIENCE_CSS
     assert 'color-scheme: dark' in EXPERIENCE_CSS
-    assert '"altea-dark"' in THEME_BOOTSTRAP
+    assert '"obsidian"' in THEME_BOOTSTRAP
     assert 'grid-template-columns: repeat(2, minmax(0, 1fr))' in EXPERIENCE_CSS
     for hook in (
         ".portal-theme-picker",
         ".generation-archive-toolbar",
-        ".generation-archive-actions",
-        ".brand-atmosphere",
-        "@media (prefers-reduced-motion: no-preference)",
-        "@media (prefers-reduced-motion: reduce)",
-        'url("./assets/brand/altea_flower.svg")',
-        'url("./assets/brand/petal.svg")',
-    ):
-        assert hook in EXPERIENCE_CSS
+            ".generation-archive-actions",
+            ".brand-atmosphere",
+            "@media (prefers-reduced-motion: no-preference)",
+        ):
+            assert hook in EXPERIENCE_CSS
+    assert "@media (prefers-reduced-motion: reduce)" in (
+        ROOT / "web" / "app" / "interface-system.css"
+    ).read_text(encoding="utf-8")
 
-    assert 'data-portal-theme="emerald"' in INDEX
+    assert 'data-portal-theme="obsidian"' in INDEX
     assert re.search(r'<script src="\./theme-bootstrap\.js\?v=\d+\.\d+"></script>', INDEX)
     assert re.search(r'<link rel="stylesheet" href="\./portal-experience\.css\?v=\d+\.\d+"', INDEX)
     assert "try" in THEME_BOOTSTRAP and "catch" in THEME_BOOTSTRAP
 
-    for filename in ("logo_mark.svg", "altea_flower.svg", "petal.svg"):
-        asset = BRAND_ASSETS / filename
-        assert asset.is_file()
-        source = asset.read_text(encoding="utf-8")
-        assert source.lstrip().startswith("<svg")
-        assert "<script" not in source.lower()
-    assert 'src="./assets/brand/logo_mark.svg"' in APP
+    assert not BRAND_ASSETS.exists()
+    assert "brand-monogram" in APP

@@ -23,7 +23,7 @@ from app.public_pilot.local_auth import LOCAL_ISSUER
 
 
 def _slugify(value: str) -> str:
-    return "".join(ch if ch.isalnum() else "-" for ch in value.lower()).strip("-") or "altea-beauty"
+    return "".join(ch if ch.isalnum() else "-" for ch in value.lower()).strip("-") or "contentengine-beauty"
 
 
 def _b64url_decode(value: str) -> bytes:

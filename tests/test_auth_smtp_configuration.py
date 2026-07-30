@@ -55,7 +55,7 @@ def _valid_environment() -> dict[str, str]:
         "SMTP_PORT": "587",
         "SMTP_USER": "smtp-user",
         "SMTP_PASS": "smtp-password",
-        "SMTP_SENDER_NAME": "ALTEA",
+        "SMTP_SENDER_NAME": "CONTENT ENGINE",
     }
 
 
@@ -73,7 +73,7 @@ def test_smtp_payload_uses_secure_email_change_and_never_autoconfirms() -> None:
         "smtp_port": 587,
         "smtp_user": "smtp-user",
         "smtp_pass": "smtp-password",
-        "smtp_sender_name": "ALTEA",
+        "smtp_sender_name": "CONTENT ENGINE",
         **template_payload,
     }
     assert "contentengine-auth-template:v1:invite" in template_payload[

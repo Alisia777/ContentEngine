@@ -1095,7 +1095,7 @@ def check_publishing_destination_readiness(destination_id: int, db: Session = De
 @router.post("/publishing/destinations/import-csv")
 async def import_publishing_destinations_csv(
     file: UploadFile = File(...),
-    default_brand: str = "Altea",
+    default_brand: str = "ContentEngine",
     db: Session = Depends(get_db),
 ):
     text = (await file.read()).decode("utf-8-sig")

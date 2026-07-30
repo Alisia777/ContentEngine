@@ -2,24 +2,9 @@ export const PORTAL_THEME_STORAGE_KEY = "contentengine.portal-theme.v1";
 
 export const PORTAL_THEMES = Object.freeze([
   Object.freeze({
-    id: "emerald",
-    label: "Изумруд",
-    description: "Фирменный зелёный и золото",
-  }),
-  Object.freeze({
-    id: "bordeaux",
-    label: "Бордо",
-    description: "Винный оттенок и розовое золото",
-  }),
-  Object.freeze({
-    id: "sapphire",
-    label: "Сапфир",
-    description: "Глубокий синий и шампань",
-  }),
-  Object.freeze({
-    id: "altea-dark",
-    label: "Тёмная",
-    description: "Ночной графит, фирменный зелёный и золото",
+    id: "obsidian",
+    label: "Обсидиан",
+    description: "Глубокий чёрный, графит и тёплая медь",
   }),
 ]);
 
@@ -45,7 +30,7 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export function normalizePortalTheme(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return PORTAL_THEME_IDS.has(normalized) ? normalized : "emerald";
+  return PORTAL_THEME_IDS.has(normalized) ? normalized : "obsidian";
 }
 
 export function readPortalThemePreference(storage) {
@@ -53,7 +38,7 @@ export function readPortalThemePreference(storage) {
     const preferenceStorage = storage === undefined ? globalThis.localStorage : storage;
     return normalizePortalTheme(preferenceStorage?.getItem?.(PORTAL_THEME_STORAGE_KEY));
   } catch {
-    return "emerald";
+    return "obsidian";
   }
 }
 

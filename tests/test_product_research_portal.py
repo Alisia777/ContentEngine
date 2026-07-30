@@ -377,7 +377,7 @@ def test_research_ui_has_loading_error_dark_mobile_and_reduced_motion_states() -
     assert "Проверить статус" in progress
     assert "Начать заново" in progress
     for contract in (
-        'html[data-portal-theme="altea-dark"]',
+        'html[data-portal-theme="obsidian"]',
         "@media (max-width: 820px)",
         "@media (max-width: 560px)",
         "@media (prefers-reduced-motion: reduce)",

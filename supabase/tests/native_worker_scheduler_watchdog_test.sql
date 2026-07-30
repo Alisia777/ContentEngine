@@ -749,7 +749,7 @@ values
     'NATIVE-WORKER-1',
     'Native worker product',
     'active',
-    '{"brand":"ALTEA"}'::jsonb,
+    '{"brand":"CONTENT ENGINE"}'::jsonb,
     'a8000000-0000-4000-8000-000000000001'
   ),
   (
@@ -758,7 +758,7 @@ values
     'NATIVE-WORKER-2',
     'Native worker product in another organization',
     'active',
-    '{"brand":"ALTEA"}'::jsonb,
+    '{"brand":"CONTENT ENGINE"}'::jsonb,
     'a8000000-0000-4000-8000-000000000004'
   );
 

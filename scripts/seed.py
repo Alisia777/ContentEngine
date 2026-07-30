@@ -29,9 +29,9 @@ def seed() -> None:
         products = [
             {
                 "sku": "ALT-SERUM-001",
-                "brand": "Altea",
+                "brand": "ContentEngine",
                 "marketplace": "Ozon",
-                "title": "Altea Glow Serum",
+                "title": "ContentEngine Glow Serum",
                 "description": "Lightweight facial serum for a fresh daily skincare routine.",
                 "category": "Beauty",
                 "attributes_json": {"volume": "30 ml", "texture": "light serum"},
@@ -43,9 +43,9 @@ def seed() -> None:
             },
             {
                 "sku": "ALT-BOTTLE-002",
-                "brand": "Altea",
+                "brand": "ContentEngine",
                 "marketplace": "Wildberries",
-                "title": "Altea Steel Water Bottle",
+                "title": "ContentEngine Steel Water Bottle",
                 "description": "Reusable steel bottle for work, gym, and commute.",
                 "category": "Home",
                 "attributes_json": {"capacity": "600 ml", "material": "steel"},
@@ -57,9 +57,9 @@ def seed() -> None:
             },
             {
                 "sku": "ALT-ORGANIZER-003",
-                "brand": "Altea",
+                "brand": "ContentEngine",
                 "marketplace": "Ozon",
-                "title": "Altea Desk Organizer",
+                "title": "ContentEngine Desk Organizer",
                 "description": "Compact organizer for stationery and small office items.",
                 "category": "Office",
                 "attributes_json": {"sections": 5, "color": "graphite"},
@@ -76,7 +76,7 @@ def seed() -> None:
 
         guides = [
             {
-                "brand": "Altea",
+                "brand": "ContentEngine",
                 "tone_of_voice": "Clear, helpful, marketplace-native, no hype.",
                 "visual_style": "Soft light, realistic product usage, clean backgrounds.",
                 "forbidden_words_json": ["guaranteed", "miracle", "cure"],
@@ -123,11 +123,11 @@ def seed() -> None:
             )
 
         accounts = [
-            ("Altea", "Instagram Reels", "Altea Instagram", "@altea.store", "SMM Lead", "warming", "phase_1_soft_start", 1, 3),
-            ("Altea", "TikTok", "Altea TikTok", "@altea.shop", "SMM Lead", "warming", "phase_1_soft_start", 1, 3),
-            ("Altea", "YouTube Shorts", "Altea YouTube Shorts", "@altea", "Video Lead", "active", "phase_2_regular_posting", 2, 7),
-            ("Altea", "Telegram", "Altea Telegram", "@altea_channel", "Content Ops", "active", "phase_2_regular_posting", 3, 10),
-            ("Altea", "WB/Ozon", "Altea WB/Ozon marketplace media placeholder", "seller-media", "Marketplace Lead", "new", "phase_0_setup", 1, 2),
+            ("ContentEngine", "Instagram Reels", "ContentEngine Instagram", "@contentengine.store", "SMM Lead", "warming", "phase_1_soft_start", 1, 3),
+            ("ContentEngine", "TikTok", "ContentEngine TikTok", "@contentengine.shop", "SMM Lead", "warming", "phase_1_soft_start", 1, 3),
+            ("ContentEngine", "YouTube Shorts", "ContentEngine YouTube Shorts", "@contentengine", "Video Lead", "active", "phase_2_regular_posting", 2, 7),
+            ("ContentEngine", "Telegram", "ContentEngine Telegram", "@portal_channel", "Content Ops", "active", "phase_2_regular_posting", 3, 10),
+            ("ContentEngine", "WB/Ozon", "ContentEngine WB/Ozon marketplace media placeholder", "seller-media", "Marketplace Lead", "new", "phase_0_setup", 1, 2),
         ]
         for brand, platform, name, handle, owner, status, phase, daily, weekly in accounts:
             get_or_create(

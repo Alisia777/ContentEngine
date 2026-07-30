@@ -81,20 +81,6 @@ QVF_AUTH_REQUIRED=false
 
 и откройте http://127.0.0.1:8014/control-room. Режим без авторизации предназначен только для изолированной локальной проверки.
 
-## ALTEA Motion UI Prototype
-
-The ALTEA Motion prototype is a local animated premium UI kit built with FastAPI, Jinja, CSS, vanilla JS, and local SVG assets. It includes splash, login, auth-loading, dashboard-loading, and final dashboard screens without real authentication or external CDN assets.
-
-Open:
-
-```text
-http://127.0.0.1:8014/altea-motion/splash
-http://127.0.0.1:8014/altea-motion/login
-http://127.0.0.1:8014/altea-motion/auth-loading
-http://127.0.0.1:8014/altea-motion/dashboard-loading
-http://127.0.0.1:8014/altea-motion/dashboard
-```
-
 ## Fast Demo
 
 Run the full mock/local MVP workflow from one command:
@@ -954,7 +940,7 @@ ContentEngine does not create platform accounts, auto-publish unreviewed generat
 Operator CLI:
 
 ```bash
-python scripts/add_publishing_destination.py --platform telegram --name "Altea Telegram" --posting-mode manual
+python scripts/add_publishing_destination.py --platform telegram --name "ContentEngine Telegram" --posting-mode manual
 python scripts/import_publishing_destinations.py --file destinations.csv
 python scripts/create_publishing_package.py --video-job-id 11 --platform telegram
 python scripts/approve_publishing_package.py --package-id 1

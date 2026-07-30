@@ -5,9 +5,9 @@
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
     {% include "_public_workspace_navigation.html" %}
-    <header class="public-topline altea-reveal">
+    <header class="public-topline portal-reveal">
       <div>
-        <p class="public-eyebrow">Контент ИИ Завод · ALTEA Beauty</p>
+        <p class="public-eyebrow">Контент ИИ Завод · ContentEngine Demo</p>
         <h1>Фабрика контента<span class="public-sr-only">Public Pilot Control Room · Unified Control Room</span></h1>
         <p>От товара до измеримых продаж. Система показывает состояние и ведёт к одному следующему действию.</p>
         {% if control_role == 'creator_publisher' %}<span class="public-sr-only">my assignments</span>{% endif %}
@@ -20,40 +20,40 @@
       </form>
     </header>
 
-    <article class="altea-card public-focus-panel altea-reveal" id="workspace-tasks">
+    <article class="portal-card public-focus-panel portal-reveal" id="workspace-tasks">
       <div>
         <span class="public-status public-status--{{ primary_action.status }}">можно продолжать</span>
         <p class="public-eyebrow">Следующее действие</p>
         <h2>{{ primary_action.label }}</h2>
         <p>{{ primary_action.detail }}</p>
       </div>
-      <a class="altea-glow-button" href="{{ primary_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ primary_action.action_type }}">Продолжить</a>
+      <a class="portal-glow-button" href="{{ primary_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ primary_action.action_type }}">Продолжить</a>
     </article>
 
     <div class="public-kpi-grid public-kpi-grid--compact">
-      <article class="altea-card public-kpi altea-reveal">
+      <article class="portal-card public-kpi portal-reveal">
         <span>{{ factory_dashboard.north_star.label }}</span>
         <strong>{{ factory_dashboard.north_star.value }}</strong>
         <small>{{ factory_dashboard.north_star.period }} · {{ factory_dashboard.north_star.definition }}</small>
       </article>
-      <article class="altea-card public-kpi altea-reveal">
+      <article class="portal-card public-kpi portal-reveal">
         <span>Новые ролики</span>
         <strong>{{ factory_dashboard.metrics.videos_7d }}</strong>
         <small>создано за 7 дней</small>
       </article>
-      <article class="altea-card public-kpi altea-reveal">
+      <article class="portal-card public-kpi portal-reveal">
         <span>Заказы из контента</span>
         <strong>{{ factory_dashboard.metrics.orders }}</strong>
         <small>{{ factory_dashboard.metrics.revenue }} ₽ атрибутированной выручки</small>
       </article>
-      <article class="altea-card public-kpi altea-reveal">
+      <article class="portal-card public-kpi portal-reveal">
         <span>Нужно моё решение</span>
         <strong>{{ factory_dashboard.metrics.reviews_waiting }}</strong>
         <small>роликов ждут ручной проверки</small>
       </article>
     </div>
 
-    <section class="public-factory-map altea-reveal" aria-labelledby="factory-map-title">
+    <section class="public-factory-map portal-reveal" aria-labelledby="factory-map-title">
       <header class="public-section-head">
         <div>
           <p class="public-eyebrow">Все блоки в одном месте</p>
@@ -64,7 +64,7 @@
       </header>
       <div class="public-module-grid">
         {% for module in factory_dashboard.modules %}
-        <article class="altea-card public-module-card public-module-card--{{ module.status }}">
+        <article class="portal-card public-module-card public-module-card--{{ module.status }}">
           <div class="public-module-card__top">
             <span class="public-module-number">{{ module.number }}</span>
             <span class="public-status public-status--{{ module.status }}">{{ module.status_label }}</span>
@@ -83,7 +83,7 @@
     {% if product_asset_contract %}
     {% set contract_tier = product_asset_contract.tier %}
     {% set contract_requirement = product_asset_contract.requirement %}
-    <article class="altea-card public-contract-bar public-contract-bar--simple altea-reveal">
+    <article class="portal-card public-contract-bar public-contract-bar--simple portal-reveal">
       <div>
         <p class="public-eyebrow">Товар в работе</p>
         <h2>{{ contract_tier.sku }}</h2>
@@ -104,7 +104,7 @@
     {% endif %}
 
     <div class="public-grid">
-      <article class="altea-card public-panel altea-reveal" id="what-to-add">
+      <article class="portal-card public-panel portal-reveal" id="what-to-add">
         <header class="public-panel-head"><div><p class="public-eyebrow">Что требует внимания</p><h2>Препятствия на пути</h2></div><span>{{ product_blockers|length }}</span></header>
         <ul class="public-list">
           {% for item in product_blockers[:6] %}
@@ -115,7 +115,7 @@
         </ul>
       </article>
 
-      <article class="altea-card public-panel altea-reveal">
+      <article class="portal-card public-panel portal-reveal">
         <header class="public-panel-head"><div><p class="public-eyebrow">Контроль качества</p><h2>Очередь решений</h2></div><span>{{ control_snapshot.review_queue|length }}</span></header>
         <ul class="public-list">
           {% for item in control_snapshot.review_queue[:6] %}
@@ -136,7 +136,7 @@
       </article>
     </div>
 
-    <details class="altea-card public-technical altea-reveal">
+    <details class="portal-card public-technical portal-reveal">
       <summary>Технические подробности<span class="public-sr-only">Executive snapshot · Scores by dimension · What is ready · What is blocked · Road to 10/10</span></summary>
       <div class="public-technical-grid">
         <div><span>Оценка движка</span><strong>{{ control_snapshot.summary.engine_audit_total_score }}/10</strong></div>

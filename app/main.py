@@ -21,7 +21,6 @@ from app.public_pilot.supabase_auth import (
 from app.product_ugc_queue import ProductUGCGenerationQueueService
 from app.public_pilot.onboarding import CloudOnboardingGateMiddleware
 from app.routers import (
-    altea_motion,
     api,
     authorized_media,
     creator_operations,
@@ -250,7 +249,6 @@ def create_app() -> FastAPI:
     app.include_router(product_events.router)
     app.include_router(marketplace_listings.router)
     app.include_router(social_metrics.router)
-    app.include_router(altea_motion.router)
     # Entity-scoped routes must be registered before the legacy catch-all.
     app.include_router(authorized_media.router)
     app.include_router(public_pilot_api.router)

@@ -60,7 +60,7 @@ class PublishingDestinationService:
     def list(self) -> list[models.PublishingDestination]:
         return self.db.scalars(select(models.PublishingDestination).order_by(models.PublishingDestination.platform)).all()
 
-    def import_csv_text(self, text: str, *, default_brand: str = "Altea") -> dict:
+    def import_csv_text(self, text: str, *, default_brand: str = "ContentEngine") -> dict:
         rows = csv.DictReader(io.StringIO(text))
         created: list[models.PublishingDestination] = []
         errors: list[dict] = []

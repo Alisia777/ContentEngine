@@ -5911,7 +5911,7 @@ input[type="radio"] {
   color: #a84238;
 }
 
-html[data-portal-theme="altea-dark"] .generation-handoff {
+html[data-portal-theme="obsidian"] .generation-handoff {
   color: var(--portal-ink);
   background: linear-gradient(135deg, var(--portal-surface-soft), var(--portal-accent-soft));
 }
@@ -6022,7 +6022,7 @@ html[data-portal-theme="altea-dark"] .generation-handoff {
   line-height: 1.35;
 }
 
-html[data-portal-theme="altea-dark"] .generation-readiness {
+html[data-portal-theme="obsidian"] .generation-readiness {
   color: var(--portal-ink);
   background: var(--portal-surface-soft);
 }

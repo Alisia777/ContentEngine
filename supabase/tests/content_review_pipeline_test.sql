@@ -508,7 +508,7 @@ values (
   'REVIEW-SKU-1',
   'Кровавый пилинг AHA/BHA',
   'active',
-  '{"brand":"ALTEA","content_review_category":"cosmetics"}'::jsonb,
+  '{"brand":"CONTENT ENGINE","content_review_category":"cosmetics"}'::jsonb,
   '95000000-0000-4000-8000-000000000001'
 );
 

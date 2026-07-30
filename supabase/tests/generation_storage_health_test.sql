@@ -462,14 +462,14 @@ values
     'b8200000-0000-4000-8000-000000000001',
     'b8100000-0000-4000-8000-000000000001',
     'GEN-HEALTH-1', 'Generation health product', 'active',
-    '{"brand":"ALTEA"}'::jsonb,
+    '{"brand":"CONTENT ENGINE"}'::jsonb,
     'b8000000-0000-4000-8000-000000000001'
   ),
   (
     'b8200000-0000-4000-8000-000000000002',
     'b8100000-0000-4000-8000-000000000002',
     'GEN-HEALTH-2', 'Other generation health product', 'active',
-    '{"brand":"ALTEA"}'::jsonb,
+    '{"brand":"CONTENT ENGINE"}'::jsonb,
     'b8000000-0000-4000-8000-000000000004'
   );
 

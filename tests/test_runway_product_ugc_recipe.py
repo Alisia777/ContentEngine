@@ -52,7 +52,7 @@ def create_product(*, profile: str = "cosmetic") -> int:
     with SessionLocal() as db:
         product = models.Product(
             sku="ROSE-GLOSS-LUMIERE",
-            brand="ALTEA",
+            brand="CONTENT ENGINE",
             title="ROSÉ GLOSS — Crystal Shine Lip Lacquer",
             description="Sheer rosé-pink gloss in a clear barrel with a rose-gold cap.",
             category="Cosmetics",
@@ -586,7 +586,7 @@ def test_mvp_launch_renders_product_ugc_operator_form_and_creates_draft():
         data={
             "product_id": str(product_id),
             "variant_key": "rose-lumiere",
-            "required_packaging_tokens": "ALTEA, Rose Lumiere, 10 ml",
+            "required_packaging_tokens": "CONTENT ENGINE, Rose Lumiere, 10 ml",
             "task": "Показать блеск в повседневном макияже.",
             "creator_profile": "Русскоязычная beauty-блогер 27 лет.",
             "setting": "Перед зеркалом утром.",

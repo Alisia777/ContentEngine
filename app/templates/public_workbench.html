@@ -8,7 +8,7 @@
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
     {% include "_public_workspace_navigation.html" %}
-    <header class="public-topline altea-reveal">
+    <header class="public-topline portal-reveal">
       <div>
         <p class="public-eyebrow">Единый рабочий контур</p>
         <h1>Рабочая область</h1>
@@ -17,16 +17,16 @@
       <span class="public-status public-status--{{ workspace.status }}">{{ 'нужно решение' if workspace.status == 'needs_review' else 'можно работать' }}</span>
     </header>
 
-    <article class="altea-card public-focus-panel altea-reveal">
+    <article class="portal-card public-focus-panel portal-reveal">
       <div>
         <p class="public-eyebrow">Рекомендуемый шаг</p>
         <h2>{{ recommended_action.label }}</h2>
         <p>{{ recommended_action.detail }}</p>
       </div>
-      <a class="altea-glow-button" href="{{ recommended_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ recommended_action.action_type or recommended_action.key }}">Продолжить</a>
+      <a class="portal-glow-button" href="{{ recommended_action.url }}" data-track-event="primary_action_clicked" data-track-target="{{ recommended_action.action_type or recommended_action.key }}">Продолжить</a>
     </article>
 
-    <section class="altea-card public-operations-readiness altea-reveal" id="operations-readiness" aria-labelledby="operations-readiness-title">
+    <section class="portal-card public-operations-readiness portal-reveal" id="operations-readiness" aria-labelledby="operations-readiness-title">
       <header>
         <div>
           <p class="public-eyebrow">Подготовка к реальной работе</p>
@@ -52,7 +52,7 @@
       </div>
     </section>
 
-    <nav class="public-tabs public-tabs--factory altea-reveal" aria-label="Девять блоков контент-завода">
+    <nav class="public-tabs public-tabs--factory portal-reveal" aria-label="Девять блоков контент-завода">
       {% for item in workspace.module_links %}
       <a class="{{ 'is-active' if item.key == selected_tab else '' }}" href="/workbench?tab={{ item.key }}" data-track-event="navigation_clicked" data-track-target="workbench-{{ item.key }}">
         <span>{{ item.number }}</span>
@@ -63,7 +63,7 @@
     </nav>
 
     {% for item in workspace.module_links if item.key == selected_tab %}
-    <article class="altea-card public-workspace-panel altea-reveal">
+    <article class="portal-card public-workspace-panel portal-reveal">
       <div class="public-workspace-summary">
         <div>
           <p class="public-eyebrow">Блок {{ item.number }} из 9 · {{ item.label }}</p>
@@ -97,7 +97,7 @@
         </details>
       </div>
       {% endif %}
-      <div class="public-panel-action"><a class="altea-glow-button" href="/mvp-launch" data-track-event="onboarding_started" data-track-target="first-product">Начать с товара</a></div>
+      <div class="public-panel-action"><a class="portal-glow-button" href="/mvp-launch" data-track-event="onboarding_started" data-track-target="first-product">Начать с товара</a></div>
 
       {% elif item.key == 'video' %}
       <div class="public-facts">
@@ -160,7 +160,7 @@
         {% endfor %}
       </div>
       {% else %}<p class="public-safety-note">Очередь пуста. Она появится после явного подтверждения одного платного запуска.</p>{% endif %}
-      <div class="public-panel-action"><a class="altea-glow-button" href="/mvp-launch" data-track-event="primary_action_clicked" data-track-target="ugc-generator">Создать новый ролик</a></div>
+      <div class="public-panel-action"><a class="portal-glow-button" href="/mvp-launch" data-track-event="primary_action_clicked" data-track-target="ugc-generator">Создать новый ролик</a></div>
 
       {% elif item.key == 'video-quality' %}
       <div class="public-facts"><div><span>Статус</span><strong>{{ workspace.context.video_quality.status or 'ещё не проверялось' }}</strong></div><div><span>Техническая оценка</span><strong>{{ workspace.context.video_quality.score or '—' }}/100</strong></div><div><span>На ручной проверке</span><strong>{{ workspace.context.review_count }}</strong></div></div>
@@ -211,7 +211,7 @@
               <label>Решение<select name="decision"><option value="approved">Одобрить, если все пункты пройдены</option><option value="needs_regeneration">Вернуть на пересоздание</option></select></label>
               <label>Комментарий проверяющего<textarea name="reviewer_notes" minlength="10" required placeholder="Что именно посмотрели и почему принимаете решение"></textarea></label>
               <label class="recipe-confirm"><input type="checkbox" name="confirm_video_watched" value="true" required><span>Я посмотрел реальный MP4, а не только метаданные.</span></label>
-              <button class="altea-glow-button" type="submit">Сохранить решение</button>
+              <button class="portal-glow-button" type="submit">Сохранить решение</button>
             </form>
             {% endif %}
           {% else %}<p class="public-safety-note">Acceptance #{{ cycle.output_acceptance_id }} подтверждён. Следующий шаг находится во вкладке «Воронка».</p>{% endif %}
@@ -243,7 +243,7 @@
           <label>Ник / handle<input name="handle" maxlength="160" placeholder="@brand"></label>
           <label class="public-form-wide">Ссылка на профиль<input name="url" type="url" placeholder="https://instagram.com/brand"></label>
           <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_owned_destination" value="true" required><span>Подтверждаю: эта площадка принадлежит нашей организации. Публикация будет ручной.</span></label>
-          <button class="altea-glow-button" type="submit">Добавить площадку</button>
+          <button class="portal-glow-button" type="submit">Добавить площадку</button>
         </form>
       </details>
       {% endif %}
@@ -264,7 +264,7 @@
             <label>Куда публикуем<select name="destination_id">{% for destination in matching_destinations %}<option value="{{ destination.id }}">{{ destination.name }} · {{ destination.platform }}</option>{% endfor %}</select></label>
             <label>Ссылка на товар<input name="target_url" type="url" value="{{ cycle.product.product_url or '' }}" placeholder="https://..."></label>
             <label class="recipe-confirm"><input type="checkbox" name="confirm_manual_distribution" value="true" required><span>Создать только ручной пакет. Ничего не публиковать автоматически.</span></label>
-            <button class="altea-glow-button" type="submit">Подготовить ручную публикацию</button>
+            <button class="portal-glow-button" type="submit">Подготовить ручную публикацию</button>
           </form>
           {% else %}<p class="public-safety-note">Добавьте выше площадку с брендом «{{ cycle.product.brand }}» и типом «{{ cycle.product_ugc_recipe_draft.platform }}».</p>{% endif %}
 
@@ -280,7 +280,7 @@
             <input type="hidden" name="csrf_token" value="{{ form_csrf_token }}">
             <label>Final URL опубликованного поста<input name="final_url" type="url" required placeholder="https://instagram.com/reel/..."></label>
             <label class="recipe-confirm"><input type="checkbox" name="confirm_uploaded" value="true" required><span>Ролик действительно опубликован вручную на выбранной площадке.</span></label>
-            <button class="altea-glow-button" type="submit">Сохранить final URL</button>
+            <button class="portal-glow-button" type="submit">Сохранить final URL</button>
           </form>
           {% else %}<p class="public-safety-note">Final URL: <a href="{{ cycle.publishing_task.final_url }}" target="_blank" rel="noopener">{{ cycle.publishing_task.final_url }}</a>. Следующий шаг — фактические метрики.</p>{% endif %}
           {% else %}<p class="public-safety-note">Сначала завершите подробную проверку качества во вкладке «Качество».</p>{% endif %}
@@ -308,7 +308,7 @@
 
       {% if can_manage_connectors %}
       {% for setup in official_connector_setup_views if setup.published_cycles %}
-      <details class="public-inline-form"><summary>Настроить {{ setup.display_name }} без сохранения токена</summary><form method="post" action="/workbench/official-connectors/{{ setup.platform }}/setup"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label class="public-form-wide">Опубликованный ролик<select name="cycle_id" required>{% for cycle in setup.published_cycles %}<option value="{{ cycle.id }}">Цикл #{{ cycle.id }} · {{ cycle.product.sku }} · {{ cycle.publishing_task.final_url }}</option>{% endfor %}</select></label><label>{{ setup.target_id_label | replace('_', ' ') }}<input name="target_id" minlength="6" maxlength="80" pattern="{{ setup.target_pattern }}" required></label><label>Имя переменной окружения<input name="credential_ref" maxlength="120" value="{{ setup.credential_default }}" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_secret_reference_only" value="true" required><span>В поле указано только имя секрета. Сам OAuth access token уже настроен владельцем в окружении процесса.</span></label><button class="altea-glow-button" type="submit">Сохранить безопасную настройку</button></form><small>{{ setup.api_product }}{% if setup.required_scopes %} · scopes: {{ setup.required_scopes | join(', ') }}{% endif %}{% if setup.required_permissions %} · permissions: {{ setup.required_permissions | join(', ') }}{% endif %}</small></details>
+      <details class="public-inline-form"><summary>Настроить {{ setup.display_name }} без сохранения токена</summary><form method="post" action="/workbench/official-connectors/{{ setup.platform }}/setup"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label class="public-form-wide">Опубликованный ролик<select name="cycle_id" required>{% for cycle in setup.published_cycles %}<option value="{{ cycle.id }}">Цикл #{{ cycle.id }} · {{ cycle.product.sku }} · {{ cycle.publishing_task.final_url }}</option>{% endfor %}</select></label><label>{{ setup.target_id_label | replace('_', ' ') }}<input name="target_id" minlength="6" maxlength="80" pattern="{{ setup.target_pattern }}" required></label><label>Имя переменной окружения<input name="credential_ref" maxlength="120" value="{{ setup.credential_default }}" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_secret_reference_only" value="true" required><span>В поле указано только имя секрета. Сам OAuth access token уже настроен владельцем в окружении процесса.</span></label><button class="portal-glow-button" type="submit">Сохранить безопасную настройку</button></form><small>{{ setup.api_product }}{% if setup.required_scopes %} · scopes: {{ setup.required_scopes | join(', ') }}{% endif %}{% if setup.required_permissions %} · permissions: {{ setup.required_permissions | join(', ') }}{% endif %}</small></details>
       {% endfor %}
       {% endif %}
       {% if metrics_notice %}<div class="public-guidance"><strong>Снимок принят</strong><p>Значения привязаны к точному publishing task и final URL. Повторный более свежий снимок заменит накопительные значения, а не сложит их второй раз.</p></div>{% endif %}
@@ -333,7 +333,7 @@
           <label>Выручка, ₽<input name="revenue" inputmode="decimal" min="0" step="0.01" type="number"></label>
           <label>Расход, ₽<input name="spend" inputmode="decimal" min="0" step="0.01" type="number"></label>
           <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_cumulative_snapshot" value="true" required><span>Это накопительные значения поста на конец периода, не прибавка за день.</span></label>
-          <button class="altea-glow-button" type="submit">Проверить и сохранить</button>
+          <button class="portal-glow-button" type="submit">Проверить и сохранить</button>
         </form>
       </details>
       {% else %}<p class="public-safety-note">Форма появится после сохранения final URL реальной публикации.</p>{% endif %}
@@ -359,9 +359,9 @@
       {% else %}<p class="public-safety-note">Клиентский счёт ещё не создан. Себестоимость генерации и выплаты участникам уже ведутся отдельно и не попадут сюда автоматически.</p>{% endif %}
 
       {% if can_manage_billing and not customer_billing_account %}
-      <details class="public-inline-form" open><summary>1. Создать клиентский счёт</summary><form method="post" action="/workbench/customer-billing/account"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Валюта<select name="currency"><option>RUB</option><option>USD</option><option>EUR</option></select></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Создать только учётный счёт без банковской операции.</span></label><button class="altea-glow-button" type="submit">Создать учётный счёт</button></form></details>
+      <details class="public-inline-form" open><summary>1. Создать клиентский счёт</summary><form method="post" action="/workbench/customer-billing/account"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Валюта<select name="currency"><option>RUB</option><option>USD</option><option>EUR</option></select></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Создать только учётный счёт без банковской операции.</span></label><button class="portal-glow-button" type="submit">Создать учётный счёт</button></form></details>
       {% elif can_manage_billing and customer_billing_account and not customer_billing_subscription %}
-      <details class="public-inline-form" open><summary>2. Зафиксировать тариф</summary><form method="post" action="/workbench/customer-billing/subscription"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Код тарифа<input name="plan_code" value="content-factory-start" maxlength="80" required></label><label>Статус<select name="status"><option value="active">активен</option><option value="trialing">пробный</option><option value="paused">пауза</option></select></label><label>Период<select name="billing_interval"><option value="month">месяц</option><option value="year">год</option></select></label><label>Абонплата<input name="recurring_amount" type="number" min="0" step="0.01" value="0" required></label><label>Включено циклов<input name="included_content_cycles" type="number" min="0" value="0" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Это состояние тарифа, а не команда списать деньги.</span></label><button class="altea-glow-button" type="submit">Сохранить тариф</button></form></details>
+      <details class="public-inline-form" open><summary>2. Зафиксировать тариф</summary><form method="post" action="/workbench/customer-billing/subscription"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Код тарифа<input name="plan_code" value="content-factory-start" maxlength="80" required></label><label>Статус<select name="status"><option value="active">активен</option><option value="trialing">пробный</option><option value="paused">пауза</option></select></label><label>Период<select name="billing_interval"><option value="month">месяц</option><option value="year">год</option></select></label><label>Абонплата<input name="recurring_amount" type="number" min="0" step="0.01" value="0" required></label><label>Включено циклов<input name="included_content_cycles" type="number" min="0" value="0" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_ledger_only" value="true" required><span>Это состояние тарифа, а не команда списать деньги.</span></label><button class="portal-glow-button" type="submit">Сохранить тариф</button></form></details>
       {% endif %}
       {% if can_manage_billing and customer_billing_subscription and customer_billing_subscription.status not in ['cancelled', 'expired'] %}
       <details class="public-inline-form"><summary>Изменить состояние тарифа</summary><form method="post" action="/workbench/customer-billing/subscription">
@@ -378,7 +378,7 @@
       {% endif %}
 
       {% if can_manage_billing and not customer_billing_integrity_errors and customer_billing_subscription and customer_billing_subscription.status == 'active' and eligible_billing_usage %}
-      <details class="public-inline-form"><summary>3. Выпустить инвойс по измеримому циклу</summary><form method="post" action="/workbench/customer-billing/invoices"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Цикл и подтверждённый расход<select name="generation_cost_entry_id" required>{% for usage in eligible_billing_usage %}<option value="{{ usage.cost_entry_id }}">Цикл #{{ usage.content_cycle_id }} · {{ usage.sku }} · себестоимость {{ usage.cost_major }} {{ usage.currency }}</option>{% endfor %}</select></label><label>Номер инвойса<input name="invoice_number" maxlength="80" placeholder="INV-2026-001" required></label><label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label><label>Конец периода<input type="date" name="period_end" value="{{ tomorrow }}" required></label><label>Оплатить до<input type="date" name="due_date" value="{{ billing_due_date }}" required></label><label>Начислить клиенту<input name="charge_amount" type="number" min="0.01" step="0.01" required></label><label class="public-form-wide">Описание<input name="description" minlength="3" maxlength="500" value="Контент-цикл с подтверждённой генерацией" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_invoice_only" value="true" required><span>Выпустить только инвойс. Не списывать деньги с клиента.</span></label><button class="altea-glow-button" type="submit">Выпустить инвойс</button></form></details>
+      <details class="public-inline-form"><summary>3. Выпустить инвойс по измеримому циклу</summary><form method="post" action="/workbench/customer-billing/invoices"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Цикл и подтверждённый расход<select name="generation_cost_entry_id" required>{% for usage in eligible_billing_usage %}<option value="{{ usage.cost_entry_id }}">Цикл #{{ usage.content_cycle_id }} · {{ usage.sku }} · себестоимость {{ usage.cost_major }} {{ usage.currency }}</option>{% endfor %}</select></label><label>Номер инвойса<input name="invoice_number" maxlength="80" placeholder="INV-2026-001" required></label><label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label><label>Конец периода<input type="date" name="period_end" value="{{ tomorrow }}" required></label><label>Оплатить до<input type="date" name="due_date" value="{{ billing_due_date }}" required></label><label>Начислить клиенту<input name="charge_amount" type="number" min="0.01" step="0.01" required></label><label class="public-form-wide">Описание<input name="description" minlength="3" maxlength="500" value="Контент-цикл с подтверждённой генерацией" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_invoice_only" value="true" required><span>Выпустить только инвойс. Не списывать деньги с клиента.</span></label><button class="portal-glow-button" type="submit">Выпустить инвойс</button></form></details>
       {% endif %}
 
       {% if customer_invoice_views %}
@@ -429,7 +429,7 @@
           <label>Валюта<select name="currency"><option>RUB</option><option>USD</option><option>EUR</option></select></label>
           <label class="public-form-wide">Основание<input name="external_reference" maxlength="255" placeholder="invoice-2026-07-001 или reconcile/2026-07-11" required></label>
           <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_accounting_fact" value="true" required><span>Это бухгалтерский факт или явная оценка. Я не инициирую оплату этой кнопкой.</span></label>
-          <button class="altea-glow-button" type="submit">Записать в журнал</button>
+          <button class="portal-glow-button" type="submit">Записать в журнал</button>
         </form>
       </details>
       {% elif not can_manage_costs %}<p class="public-safety-note">Изменять учёт расходов могут только владелец или администратор.</p>{% endif %}
@@ -461,7 +461,7 @@
           <label>Штрихкод<input name="barcode" maxlength="80"></label>
           <label class="public-form-wide">Ссылка на карточку<input name="listing_url" type="url" placeholder="https://www.wildberries.ru/catalog/..."></label>
           <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_owned_card" value="true" required><span>Подтверждаю: карточка и кабинет продавца принадлежат нашей организации.</span></label>
-          <button class="altea-glow-button" type="submit">Добавить без автоподтверждения</button>
+          <button class="portal-glow-button" type="submit">Добавить без автоподтверждения</button>
         </form>
         <small>Укажите хотя бы один точный идентификатор. Название кабинета — внутренний псевдоним, не API-ключ и не пароль.</small>
       </details>
@@ -489,7 +489,7 @@
         {% if wb_analytics_error %}<div class="public-guidance public-guidance--warning"><strong>WB Analytics не обновлён</strong><p>{% if 'credential' in wb_analytics_error %}Укажите переменную окружения вида env:WB_SELLER_ANALYTICS_TOKEN и настройте в ней API-ключ кабинета.{% elif 'verified' in wb_analytics_error or 'listing' in wb_analytics_error %}Сначала подтвердите карточку и её nmID для выбранного кабинета.{% elif 'period' in wb_analytics_error %}Выберите период не длиннее семи дней.{% elif 'confirmation' in wb_analytics_error %}Подтвердите безопасное действие в форме.{% else %}Проверьте кабинет, даты, права роли и доступность внешнего API-ключа.{% endif %}</p></div>{% endif %}
 
         {% if can_manage_wb and verified_wb_seller_refs %}
-        <details class="public-inline-form"{% if not wildberries_analytics_readiness.connection_count %} open{% endif %}><summary>Подключить кабинет без сохранения API-ключа</summary><form method="post" action="/workbench/wb-analytics/setup"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Подтверждённый кабинет<select name="seller_account_ref" required>{% for seller_ref in verified_wb_seller_refs %}<option value="{{ seller_ref }}">{{ seller_ref }}</option>{% endfor %}</select></label><label>Имя переменной окружения<input name="credential_ref" value="env:WB_SELLER_ANALYTICS_TOKEN" pattern="env:[A-Z][A-Z0-9_]{2,95}" maxlength="100" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_secret_reference_only" value="true" required><span>Сохранить только имя переменной. API-ключ уже настроен владельцем в окружении процесса.</span></label><button class="altea-glow-button" type="submit">Сохранить безопасное подключение</button></form></details>
+        <details class="public-inline-form"{% if not wildberries_analytics_readiness.connection_count %} open{% endif %}><summary>Подключить кабинет без сохранения API-ключа</summary><form method="post" action="/workbench/wb-analytics/setup"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Подтверждённый кабинет<select name="seller_account_ref" required>{% for seller_ref in verified_wb_seller_refs %}<option value="{{ seller_ref }}">{{ seller_ref }}</option>{% endfor %}</select></label><label>Имя переменной окружения<input name="credential_ref" value="env:WB_SELLER_ANALYTICS_TOKEN" pattern="env:[A-Z][A-Z0-9_]{2,95}" maxlength="100" required></label><label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_secret_reference_only" value="true" required><span>Сохранить только имя переменной. API-ключ уже настроен владельцем в окружении процесса.</span></label><button class="portal-glow-button" type="submit">Сохранить безопасное подключение</button></form></details>
         {% elif can_manage_wb %}<p class="public-safety-note">Чтобы подключить Seller Analytics, сначала создайте и подтвердите хотя бы одну карточку с nmID и именем кабинета.</p>{% endif %}
 
         {% if wildberries_analytics_readiness.connections %}<div class="public-listing-cards">{% for connection in wildberries_analytics_readiness.connections %}<article><div><strong>{{ connection.seller_account_ref }}</strong><small>{{ connection.connection_type }} · credential: {{ connection.credential_reference_status }}</small></div><span class="public-status public-status--{{ 'ready' if connection.ready else 'needs_attention' }}">{{ connection.status_label }}</span><dl><div><dt>Подтверждённые nmID</dt><dd>{{ connection.verified_listing_count }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ connection.last_checked_at or 'ещё не выполнялась' }}</dd></div><div><dt>Последняя синхронизация</dt><dd>{{ connection.last_sync_at or 'ещё не выполнялась' }}</dd></div></dl>{% if can_manage_wb and connection.can_attempt_sync %}<form method="post" action="/workbench/wb-analytics/{{ connection.connection_id }}/sync"><input type="hidden" name="csrf_token" value="{{ form_csrf_token }}"><label>Начало периода<input type="date" name="period_start" value="{{ today }}" required></label><label>Конец периода<input type="date" name="period_end" value="{{ today }}" required></label><label class="recipe-confirm"><input type="checkbox" name="confirm_official_api_call" value="true" required><span>Запросить фактические данные по подтверждённым nmID из официального API.</span></label><button class="public-link-button" type="submit">Проверить ключ и синхронизировать</button></form>{% endif %}</article>{% endfor %}</div>{% endif %}
@@ -507,7 +507,7 @@
           <label>Значение<input name="alias_value" maxlength="200" required></label>
           <label class="public-form-wide">Причина замены<textarea name="reason" minlength="3" maxlength="1000" required></textarea></label>
           <label class="recipe-confirm public-form-wide"><input type="checkbox" name="confirm_replacement" value="true" required><span>Подтверждаю замену и понимаю, что она попадёт в журнал истории.</span></label>
-          <button class="altea-glow-button" type="submit">Сохранить связь</button>
+          <button class="portal-glow-button" type="submit">Сохранить связь</button>
         </form>
       </details>
       {% endif %}
@@ -583,7 +583,7 @@
         {% endfor %}
         </fieldset>
         {% endfor %}
-        <button class="altea-glow-button" type="submit" data-track-event="primary_action_clicked" data-track-target="training-quiz">Проверить ответы</button>
+        <button class="portal-glow-button" type="submit" data-track-event="primary_action_clicked" data-track-target="training-quiz">Проверить ответы</button>
       </form>
       {% else %}
       <p class="public-safety-note">Этот модуль уже подтверждён реальной попыткой. Повторная отправка не создаст дубликат сертификата.</p>
@@ -596,13 +596,13 @@
     {% endfor %}
 
     {% if workspace.blockers %}
-    <details class="altea-card public-technical altea-reveal">
+    <details class="portal-card public-technical portal-reveal">
       <summary>Что сейчас мешает результату · {{ workspace.blockers|length }}</summary>
       <ul class="public-list">{% for item in workspace.blockers[:8] %}<li><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><span class="public-status public-status--{{ item.severity }}">важно</span></li>{% endfor %}</ul>
     </details>
     {% endif %}
 
-    <details class="altea-card public-technical altea-reveal">
+    <details class="portal-card public-technical portal-reveal">
       <summary>Источники состояния</summary>
       <div class="public-technical-grid"><div><span>Control Room snapshot</span><strong>#{{ workspace.control_room_snapshot_id }}</strong></div><div><span>Smoke readiness</span><strong>#{{ workspace.smoke_readiness_run_id or '—' }}</strong></div><div><span>Роль</span><strong>{{ workspace.role }}</strong></div></div>
     </details>

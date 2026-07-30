@@ -15,7 +15,7 @@ from app.publishing import PublishingDestinationService
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Bulk import owned publishing destinations from CSV.")
     parser.add_argument("--file", required=True)
-    parser.add_argument("--default-brand", default="Altea")
+    parser.add_argument("--default-brand", default="ContentEngine")
     return parser.parse_args()
 
 

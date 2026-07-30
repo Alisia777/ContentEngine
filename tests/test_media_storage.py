@@ -90,7 +90,7 @@ def create_scope(db: Session, *, slug: str):
     product = models.Product(
         organization_id=organization.id,
         sku=f"SKU-{slug}",
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         title=f"Product {slug}",
         attributes_json={},
         benefits_json=[],

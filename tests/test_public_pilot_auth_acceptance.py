@@ -232,7 +232,7 @@ def test_public_pilot_env_example_documents_auth_vars():
     ]:
         assert name in env_text
     assert Path("docs/PUBLIC_PILOT_AUTH_SETUP.md").exists()
-    assert Path("docs/ALTEA_PUBLIC_PILOT_BRIEF_EMAIL.md").exists()
+    assert Path("docs/CONTENT_ENGINE_PUBLIC_PILOT_BRIEF_EMAIL.md").exists()
 
 
 def test_local_password_auth_closes_workspaces_media_and_rejects_tampered_cookie(tmp_path):
@@ -1250,10 +1250,10 @@ def test_global_legacy_participant_workspace_is_closed_in_public_mode():
 
 def test_public_pilot_seed_creates_org_profiles_memberships():
     result = seed(with_certifications=True, reset=False)
-    assert result["organization"] == "ALTEA Beauty"
+    assert result["organization"] == "ContentEngine Demo"
     assert result["users"] == 7
     with SessionLocal() as db:
-        assert db.scalar(select(models.Organization).where(models.Organization.slug == "altea-beauty")) is not None
+        assert db.scalar(select(models.Organization).where(models.Organization.slug == "contentengine-demo")) is not None
         assert len(db.scalars(select(models.UserProfile)).all()) == 7
         assert len(db.scalars(select(models.Membership)).all()) == 7
         assert len(db.scalars(select(models.TrainingCertification)).all()) >= 4
@@ -1356,7 +1356,7 @@ def test_legacy_real_generation_api_is_disabled_before_role_gate():
 
 def test_denied_action_writes_audit_log():
     with SessionLocal() as db:
-        user = ensure_public_pilot_user(db, email="trainee@altea.local", display_name="Trainee", role="trainee")
+        user = ensure_public_pilot_user(db, email="trainee@contentengine.local", display_name="Trainee", role="trainee")
         service = PublicPilotAccessService(db)
         with pytest.raises(HTTPException):
             service.require_action(
@@ -1375,7 +1375,7 @@ def test_denied_action_writes_audit_log():
 
 def test_allowed_dangerous_action_writes_sanitized_audit_log():
     with SessionLocal() as db:
-        user = ensure_public_pilot_user(db, email="owner@altea.local", display_name="Owner", role="owner")
+        user = ensure_public_pilot_user(db, email="owner@contentengine.local", display_name="Owner", role="owner")
         service = PublicPilotAccessService(db)
         decision = service.require_action(
             user_profile_id=user.profile.id,
@@ -1401,25 +1401,10 @@ def test_settings_access_ui_renders_gate_matrix():
     assert "spend gate" in response.text
 
 
-def test_altea_motion_demo_routes_are_not_exposed_in_public_mode():
-    client = api_client()
-    for route in [
-        "/altea-motion/splash",
-        "/altea-motion/login",
-        "/altea-motion/auth-loading",
-        "/altea-motion/dashboard-loading",
-        "/altea-motion/dashboard",
-    ]:
-        response = client.get(route)
-        assert response.status_code == 409
-        assert response.json()["detail"] == "legacy_global_workspace_disabled"
-
-
-def test_altea_motion_uses_local_assets_no_external_cdn():
+def test_portal_ui_uses_local_assets_no_external_cdn():
     for path in [
-        Path("app/templates/altea_motion/base.html"),
-        Path("app/static/altea_motion/altea_motion.css"),
-        Path("app/static/altea_motion/altea_motion.js"),
+        Path("app/templates/public_pilot_base.html"),
+        Path("app/static/portal_ui/portal_ui.css"),
     ]:
         text = path.read_text(encoding="utf-8")
         assert "https://" not in text
@@ -1427,8 +1412,8 @@ def test_altea_motion_uses_local_assets_no_external_cdn():
         assert "cdn" not in text.lower()
 
 
-def test_altea_motion_has_reduced_motion_support():
-    text = Path("app/static/altea_motion/altea_motion.css").read_text(encoding="utf-8")
+def test_portal_ui_has_reduced_motion_support():
+    text = Path("app/static/portal_ui/portal_ui.css").read_text(encoding="utf-8")
     assert "prefers-reduced-motion" in text
     assert "animation: none" in text
 
@@ -1437,7 +1422,7 @@ def test_control_room_uses_premium_shell():
     response = api_client().get("/control-room")
     assert response.status_code == 200
     assert "public-pilot-body" in response.text
-    assert "altea_motion/altea_motion.css" in response.text
+    assert "portal_ui/portal_ui.css" in response.text
     assert "Public Pilot Control Room" in response.text
 
 

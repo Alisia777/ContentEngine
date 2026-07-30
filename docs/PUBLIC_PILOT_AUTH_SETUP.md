@@ -1,6 +1,6 @@
 # Public Pilot Auth Setup
 
-This document describes the safe public pilot foundation for ContentEngine / ALTEA.
+This document describes the safe public pilot foundation for ContentEngine / CONTENT ENGINE.
 
 ## Environment
 
@@ -74,7 +74,7 @@ python scripts/public_pilot_seed.py --with-certifications
 
 This creates:
 
-- Organization: `ALTEA Beauty`;
+- Organization: `ContentEngine Demo`;
 - profiles and memberships for `owner`, `admin`, `producer`, `reviewer`, `operator`, `trainee`, `viewer`;
 - training modules;
 - optional real, correctly scored quiz attempts and certifications for reviewer/operator/admin/owner demo profiles.
@@ -138,12 +138,6 @@ Open:
 
 - `/login`;
 - `/control-room`;
-- `/settings/access`;
-- `/altea-motion/splash`;
-- `/altea-motion/login`;
-- `/altea-motion/auth-loading`;
-- `/altea-motion/dashboard-loading`;
-- `/altea-motion/dashboard`.
+- `/settings/access`.
 
 Paid providers must not be called during this acceptance.
-

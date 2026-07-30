@@ -15,6 +15,7 @@ EXPERIENCE_CSS = (ROOT / "web" / "app" / "portal-experience.css").read_text(enco
 STYLES = (ROOT / "web" / "app" / "styles.css").read_text(encoding="utf-8")
 THEME_BOOTSTRAP = (ROOT / "web" / "app" / "theme-bootstrap.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web" / "app" / "index.html").read_text(encoding="utf-8")
+INTERFACE_SYSTEM = (ROOT / "web" / "app" / "interface-system.css").read_text(encoding="utf-8")
 
 
 def _node() -> str:
@@ -83,7 +84,7 @@ def _run_theme_bootstrap() -> dict:
             }
 
             process.stdout.write(JSON.stringify({
-              dark: apply("ALTEA-DARK"),
+              dark: apply("OBSIDIAN"),
               unknown: apply("unsafe-theme"),
               blocked: apply(null, true),
             }));
@@ -111,11 +112,11 @@ def _between(source: str, start: str, end: str) -> str:
 
 def _dark_theme_tokens() -> dict[str, str]:
     match = re.search(
-        r':root\[data-portal-theme="altea-dark"\]\s*\{(?P<body>.*?)\n\}',
-        EXPERIENCE_CSS,
+        r':root\[data-portal-theme="obsidian"\]\s*\{(?P<body>.*?)\n\}',
+        INTERFACE_SYSTEM,
         flags=re.DOTALL,
     )
-    assert match is not None, "The ALTEA dark token block is missing"
+    assert match is not None, "The obsidian token block is missing"
     return {
         name.removeprefix("portal-"): value
         for name, value in re.findall(
@@ -142,19 +143,19 @@ def _contrast_ratio(foreground: str, background: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def test_dark_theme_is_a_safe_normalized_and_persisted_fourth_option() -> None:
+def test_obsidian_theme_is_the_safe_normalized_product_palette() -> None:
     result = _run_module_javascript(
         """
         const writes = [];
         const storage = {
-          getItem: () => "ALTEA-DARK",
+          getItem: () => "OBSIDIAN",
           setItem: (key, value) => writes.push([key, value]),
         };
         return {
           ids: subject.PORTAL_THEMES.map((theme) => theme.id),
-          normalized: subject.normalizePortalTheme("  ALTEA-DARK  "),
+          normalized: subject.normalizePortalTheme("  OBSIDIAN  "),
           read: subject.readPortalThemePreference(storage),
-          persisted: subject.persistPortalThemePreference("altea-dark", storage),
+          persisted: subject.persistPortalThemePreference("obsidian", storage),
           fallback: subject.normalizePortalTheme("dark-but-unregistered"),
           writes,
         };
@@ -162,20 +163,20 @@ def test_dark_theme_is_a_safe_normalized_and_persisted_fourth_option() -> None:
     )
 
     assert result == {
-        "ids": ["emerald", "bordeaux", "sapphire", "altea-dark"],
-        "normalized": "altea-dark",
-        "read": "altea-dark",
-        "persisted": "altea-dark",
-        "fallback": "emerald",
-        "writes": [["contentengine.portal-theme.v1", "altea-dark"]],
+        "ids": ["obsidian"],
+        "normalized": "obsidian",
+        "read": "obsidian",
+        "persisted": "obsidian",
+        "fallback": "obsidian",
+        "writes": [["contentengine.portal-theme.v1", "obsidian"]],
     }
 
 
-def test_prepaint_theme_bootstrap_supports_dark_and_fails_open_to_emerald() -> None:
+def test_prepaint_theme_bootstrap_supports_and_fails_open_to_obsidian() -> None:
     assert _run_theme_bootstrap() == {
-        "dark": {"theme": "altea-dark", "browserColor": "#0b1513"},
-        "unknown": {"theme": "emerald", "browserColor": "#183a35"},
-        "blocked": {"theme": "emerald", "browserColor": "#183a35"},
+        "dark": {"theme": "obsidian", "browserColor": "#0b0908"},
+        "unknown": {"theme": "obsidian", "browserColor": "#0b0908"},
+        "blocked": {"theme": "obsidian", "browserColor": "#0b0908"},
     }
     assert INDEX.index("theme-bootstrap.js") < INDEX.index("portal-experience.css")
 
@@ -203,9 +204,9 @@ def test_dark_palette_meets_core_wcag_contrast_budgets() -> None:
     }
     assert required_tokens <= tokens.keys()
     assert "color-scheme: dark" in _between(
-        EXPERIENCE_CSS,
-        ':root[data-portal-theme="altea-dark"]',
-        "html[data-portal-theme] body",
+        INTERFACE_SYSTEM,
+        ':root[data-portal-theme="obsidian"]',
+        "html[data-portal-theme=\"obsidian\"] body",
     )
     assert _relative_luminance(tokens["canvas"]) < 0.03
     assert _relative_luminance(tokens["surface"]) < 0.04
@@ -230,7 +231,7 @@ def test_dark_palette_meets_core_wcag_contrast_budgets() -> None:
     assert failures == {}
 
 
-def test_dark_theme_picker_browser_chrome_and_mobile_grid_are_wired() -> None:
+def test_obsidian_browser_chrome_and_mobile_shell_are_wired() -> None:
     picker = _between(APP, "function themePickerMarkup", "function applyPortalTheme")
     theme_application = _between(APP, "function applyPortalTheme", "function sidebarFooterMarkup")
 
@@ -238,13 +239,12 @@ def test_dark_theme_picker_browser_chrome_and_mobile_grid_are_wired() -> None:
     assert 'aria-label="Оформление портала"' in picker
     assert 'data-theme-value="${escapeHtml(theme.id)}"' in picker
     assert 'aria-pressed="${state.portalTheme === theme.id ? "true" : "false"}"' in picker
-    assert '"altea-dark": "#0b1513"' in theme_application
+    assert 'obsidian: "#0b0908"' in theme_application
     assert "meta[name=\"theme-color\"]" in theme_application
     assert "browserColors" in THEME_BOOTSTRAP
-    assert '"altea-dark": "#0b1513"' in THEME_BOOTSTRAP
-    assert 'data-swatch="altea-dark"' in EXPERIENCE_CSS
-    assert "linear-gradient(135deg, #0b1513" in EXPERIENCE_CSS
-    assert EXPERIENCE_CSS.count("grid-template-columns: repeat(2, minmax(") >= 4
+    assert 'obsidian: "#0b0908"' in THEME_BOOTSTRAP
+    assert ".workspace-contextbar" in INTERFACE_SYSTEM
+    assert "linear-gradient(145deg, #ee955b, #d4642b 76%)" in INTERFACE_SYSTEM
     assert ".mobile-nav-trigger { width: 44px; height: 44px; }" in EXPERIENCE_CSS
 
 
@@ -356,19 +356,15 @@ def test_ready_generated_video_task_routes_decision_through_content_review() -> 
     assert 'action("blocked"' not in generated_branch
 
 
-def test_dark_component_overrides_keep_controls_and_status_icons_readable() -> None:
-    dark_overrides = EXPERIENCE_CSS[EXPERIENCE_CSS.index("/* ALTEA dark theme") :]
+def test_obsidian_component_overrides_keep_controls_and_status_icons_readable() -> None:
+    dark_overrides = INTERFACE_SYSTEM
 
     for selector in (
-        ".direction-next-link",
         ".btn-secondary",
-        ".generation-load-more",
-        ".portal-theme-option:is(.is-active, [aria-pressed=\"true\"])",
-        ".checklist-do",
-        ".checklist-dont",
-        ".first-shift-full__feedback--success span",
-        ".manager-stage > span.manager-stage-pill.manager-stage-danger",
-        ".account-risk-good",
+        ".workspace-contextbar",
+        ".nav-link-stage.active",
+        ".alert-danger",
+        ".alert-success",
     ):
         assert selector in dark_overrides
 
@@ -382,16 +378,13 @@ def test_dark_component_overrides_keep_controls_and_status_icons_readable() -> N
 
 def test_motion_and_touch_contracts_remain_calm_and_accessible() -> None:
     atmosphere = _between(APP, "function brandAtmosphereMarkup", "function themePickerMarkup")
-    reduced_motion = EXPERIENCE_CSS[EXPERIENCE_CSS.rindex("@media (prefers-reduced-motion: reduce)") :]
-    petal_keyframes = _between(EXPERIENCE_CSS, "@keyframes portal-petal-drift", "/* Generation archive")
+    reduced_motion = INTERFACE_SYSTEM[INTERFACE_SYSTEM.rindex("@media (prefers-reduced-motion: reduce)") :]
 
-    assert atmosphere.count("brand-petal brand-petal-") == 3
-    assert "pointer-events: none" in _between(EXPERIENCE_CSS, ".brand-atmosphere {", ".brand-atmosphere__flower")
-    assert "display: none !important" in reduced_motion
-    assert "animation: none !important" in reduced_motion
-    assert "transform" in petal_keyframes and "opacity" in petal_keyframes
-    for layout_property in ("top:", "left:", "width:", "height:", "margin:"):
-        assert layout_property not in petal_keyframes
+    assert "brand-grid" in atmosphere
+    assert atmosphere.count('<span class="brand-glow') == 2
+    assert "pointer-events: none" in _between(EXPERIENCE_CSS, ".brand-atmosphere {", "/* Generation archive")
+    assert "display: none" in reduced_motion
+    assert "petal" not in atmosphere.lower()
     assert "min-height: 46px" in EXPERIENCE_CSS
     assert ".mobile-nav-trigger { width: 44px; height: 44px; }" in EXPERIENCE_CSS
     assert ".generation-archive .btn-small { min-height: 44px; }" in EXPERIENCE_CSS

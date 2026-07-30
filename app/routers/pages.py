@@ -1781,7 +1781,7 @@ def publishing_page(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/publishing/destinations/create")
 def create_publishing_destination_ui(
-    brand: str = Form("Altea"),
+    brand: str = Form("ContentEngine"),
     platform: str = Form(...),
     name: str = Form(...),
     handle: str = Form(""),
@@ -1814,7 +1814,7 @@ def create_publishing_destination_ui(
 @router.post("/publishing/destinations/import")
 async def import_publishing_destinations_ui(
     file: UploadFile = File(...),
-    default_brand: str = Form("Altea"),
+    default_brand: str = Form("ContentEngine"),
     db: Session = Depends(get_db),
 ):
     text = (await file.read()).decode("utf-8-sig")

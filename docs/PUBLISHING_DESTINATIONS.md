@@ -45,7 +45,7 @@ CSV columns:
 
 ```csv
 brand,platform,name,handle,url,owner_name,status,posting_mode,auth_status,allowed_formats,daily_limit,weekly_limit,notes
-Altea,telegram,Altea Telegram,@altea,https://t.me/altea,Content Ops,active,manual,manual_only,vertical_video,1,3,Owned channel
+ContentEngine,telegram,ContentEngine Telegram,@contentengine,https://t.me/contentengine,Content Ops,active,manual,manual_only,vertical_video,1,3,Owned channel
 ```
 
 Import:

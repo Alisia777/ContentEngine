@@ -1,14 +1,14 @@
-# ALTEA Public Pilot Brief Email
+# Content Engine Public Pilot Brief Email
 
-Subject: ALTEA Public Pilot - access, roles, gates and acceptance scope
+Subject: Content Engine Public Pilot - access, roles, gates and acceptance scope
 
 Hi team,
 
-We are preparing the ALTEA public pilot foundation for ContentEngine. This release is not a paid video-generation run yet. It is the controlled access and operations layer that must be accepted before any paid smoke test.
+We are preparing the public pilot foundation for ContentEngine. This release is not a paid video-generation run yet. It is the controlled access and operations layer that must be accepted before any paid smoke test.
 
 Pilot scope:
 
-- premium ALTEA motion shell;
+- premium Content Engine interface;
 - login and public pilot entrypoint;
 - Control Room;
 - role-based access matrix;
@@ -45,12 +45,6 @@ Acceptance routes:
 
 - `/login`;
 - `/control-room`;
-- `/settings/access`;
-- `/altea-motion/splash`;
-- `/altea-motion/login`;
-- `/altea-motion/auth-loading`;
-- `/altea-motion/dashboard-loading`;
-- `/altea-motion/dashboard`.
+- `/settings/access`.
 
 After this is accepted, the next step can be one controlled paid smoke only, with confirmed credits, valid role/certification gates, prompt-only approval, and human review after output.
-

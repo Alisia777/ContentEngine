@@ -1,6 +1,6 @@
 (() => {
-  const allowed = new Set(["emerald", "bordeaux", "sapphire", "altea-dark"]);
-  let theme = "emerald";
+  const allowed = new Set(["obsidian"]);
+  let theme = "obsidian";
   try {
     const saved = String(window.localStorage.getItem("contentengine.portal-theme.v1") || "").toLowerCase();
     if (allowed.has(saved)) theme = saved;
@@ -9,10 +9,7 @@
   }
   document.documentElement.dataset.portalTheme = theme;
   const browserColors = {
-    emerald: "#183a35",
-    bordeaux: "#5a2538",
-    sapphire: "#183b63",
-    "altea-dark": "#0b1513",
+    obsidian: "#0b0908",
   };
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", browserColors[theme]);
 })();

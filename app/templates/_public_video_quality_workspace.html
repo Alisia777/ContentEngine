@@ -41,7 +41,7 @@
           {% if review.score is defined %}<div><dt>Техническая оценка</dt><dd>{{ review.score | round(0) }}/100</dd></div>{% endif %}
           <div><dt>Публикация</dt><dd>{{ 'готова' if review.publishing_readiness == 'ready' else 'заблокирована' }}</dd></div>
         </dl>
-        <a class="altea-outline-button" href="{{ review.target_url }}">Открыть проверку</a>
+        <a class="portal-outline-button" href="{{ review.target_url }}">Открыть проверку</a>
       </div>
     </article>
     {% endfor %}

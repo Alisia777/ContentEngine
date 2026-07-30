@@ -265,7 +265,7 @@ class PublishingPackageRead(OrmModel):
 
 
 class PublishingDestinationCreate(BaseModel):
-    brand: str = "Altea"
+    brand: str = "ContentEngine"
     platform: str
     name: str
     handle: str | None = None

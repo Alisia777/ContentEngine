@@ -68,7 +68,7 @@ def _scope(db: Session, *, slug: str, role: str = "owner"):
     product = models.Product(
         organization_id=organization.id,
         sku=f"SKU-{slug}",
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         title=f"Product {slug}",
         category="beauty",
         product_url="https://shop.test/product",
@@ -115,7 +115,7 @@ def _artifact(
 def _destination(db: Session, organization, *, platform: str = "instagram"):
     destination = models.PublishingDestination(
         organization_id=organization.id,
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform=platform,
         name=f"{platform} owned",
         status="active",

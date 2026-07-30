@@ -182,7 +182,7 @@ def client() -> TestClient:
 
 def create_product(
     api: TestClient,
-    title: str = "Altea Test Bottle",
+    title: str = "ContentEngine Test Bottle",
     benefits: list[str] | None = None,
     images: list[str] | None = None,
 ) -> int:
@@ -190,7 +190,7 @@ def create_product(
         "/api/products",
         json={
             "sku": f"SKU-{abs(hash(title)) % 100000}",
-            "brand": "Altea",
+            "brand": "ContentEngine",
             "marketplace": "Ozon",
             "title": title,
             "description": "Reusable bottle for everyday routines.",
@@ -211,7 +211,7 @@ def create_guide(api: TestClient, forbidden_words: list[str] | None = None) -> i
     response = api.post(
         "/api/brand-guides",
         json={
-            "brand": "Altea",
+            "brand": "ContentEngine",
             "tone_of_voice": "Clear and safe.",
             "visual_style": "Clean product shots.",
             "forbidden_words_json": forbidden_words or ["cure"],
@@ -247,10 +247,10 @@ def create_account(api: TestClient, daily_limit: int = 1, weekly_limit: int = 3)
     response = api.post(
         "/api/publishing-accounts",
         json={
-            "brand": "Altea",
+            "brand": "ContentEngine",
             "platform": "Instagram Reels",
-            "account_name": "Altea Instagram",
-            "account_handle": "@altea",
+            "account_name": "ContentEngine Instagram",
+            "account_handle": "@contentengine",
             "owner_name": "Content Ops",
             "auth_status": "mock_ready",
             "warmup_status": "warming",
@@ -783,7 +783,7 @@ def install_fake_runway_provider(monkeypatch) -> list[int]:
     return scene_counts
 
 
-def create_script(api: TestClient, title: str = "Altea Test Bottle", forbidden_words: list[str] | None = None) -> int:
+def create_script(api: TestClient, title: str = "ContentEngine Test Bottle", forbidden_words: list[str] | None = None) -> int:
     product_id = create_product(api, title=title)
     guide_id = create_guide(api, forbidden_words=forbidden_words)
     template_id = create_template(api)
@@ -826,7 +826,7 @@ def create_approved_package(api: TestClient) -> tuple[int, int]:
 def create_safe_approved_package_and_destination(
     api: TestClient,
     *,
-    title: str = "Altea Test Bottle",
+    title: str = "ContentEngine Test Bottle",
     daily_limit: int = 1,
 ) -> tuple[int, int]:
     script_id = create_script(api, title=title)
@@ -849,9 +849,9 @@ def create_safe_approved_package_and_destination(
     destination = api.post(
         "/api/publishing/destinations",
         json={
-            "brand": "Altea",
+            "brand": "ContentEngine",
             "platform": "telegram",
-            "name": "Altea Telegram",
+            "name": "ContentEngine Telegram",
             "posting_mode": "manual",
             "daily_limit": daily_limit,
             "weekly_limit": 3,
@@ -866,7 +866,7 @@ def test_product_creation():
         product_id = create_product(api)
         response = api.get(f"/api/products/{product_id}")
         assert response.status_code == 200
-        assert response.json()["title"] == "Altea Test Bottle"
+        assert response.json()["title"] == "ContentEngine Test Bottle"
 
 
 def test_script_generation():
@@ -1010,16 +1010,16 @@ def test_create_publishing_destination():
         response = api.post(
             "/api/publishing/destinations",
             json={
-                "brand": "Altea",
+                "brand": "ContentEngine",
                 "platform": "telegram",
-                "name": "Altea Telegram",
+                "name": "ContentEngine Telegram",
                 "posting_mode": "manual",
             },
         )
 
         assert response.status_code == 200, response.text
         payload = response.json()
-        assert payload["name"] == "Altea Telegram"
+        assert payload["name"] == "ContentEngine Telegram"
         assert payload["auth_status"] == "manual_only"
         assert payload["status"] == "active"
 
@@ -1028,7 +1028,7 @@ def test_destination_readiness_manual_mode_ready():
     with client() as api:
         destination = api.post(
             "/api/publishing/destinations",
-            json={"brand": "Altea", "platform": "telegram", "name": "Altea Telegram", "posting_mode": "manual"},
+            json={"brand": "ContentEngine", "platform": "telegram", "name": "ContentEngine Telegram", "posting_mode": "manual"},
         )
 
         response = api.post(f"/api/publishing/destinations/{destination.json()['id']}/readiness-check")
@@ -1041,8 +1041,8 @@ def test_destination_readiness_manual_mode_ready():
 def test_bulk_import_publishing_destinations():
     csv_text = (
         "brand,platform,name,handle,posting_mode,daily_limit,weekly_limit\n"
-        "Altea,telegram,Altea Telegram,@altea,manual,1,3\n"
-        "Altea,youtube,Altea YouTube,@altea_video,manual,2,6\n"
+        "ContentEngine,telegram,ContentEngine Telegram,@contentengine,manual,1,3\n"
+        "ContentEngine,youtube,ContentEngine YouTube,@portal_video,manual,2,6\n"
     )
     with client() as api:
         response = api.post(
@@ -1061,9 +1061,9 @@ def test_api_mode_destination_requires_token_valid():
         destination = api.post(
             "/api/publishing/destinations",
             json={
-                "brand": "Altea",
+                "brand": "ContentEngine",
                 "platform": "youtube",
-                "name": "Altea YouTube",
+                "name": "ContentEngine YouTube",
                 "posting_mode": "api",
                 "auth_status": "not_configured",
             },
@@ -1100,7 +1100,7 @@ def test_package_requires_approval_before_schedule():
         package = api.post("/api/publishing/packages", json={"video_job_id": video_job_id, "platform": "telegram"})
         destination = api.post(
             "/api/publishing/destinations",
-            json={"brand": "Altea", "platform": "telegram", "name": "Altea Telegram", "posting_mode": "manual"},
+            json={"brand": "ContentEngine", "platform": "telegram", "name": "ContentEngine Telegram", "posting_mode": "manual"},
         )
 
         blocked = api.post(
@@ -1216,7 +1216,7 @@ def test_bulk_schedule_blocks_unapproved_package():
         package = api.post("/api/publishing/packages", json={"video_job_id": video_job_id, "platform": "telegram"})
         destination = api.post(
             "/api/publishing/destinations",
-            json={"brand": "Altea", "platform": "telegram", "name": "Altea Telegram", "posting_mode": "manual"},
+            json={"brand": "ContentEngine", "platform": "telegram", "name": "ContentEngine Telegram", "posting_mode": "manual"},
         )
 
         response = api.post(
@@ -8288,10 +8288,10 @@ def test_participant_portal_warns_missing_platform_training():
         with SessionLocal() as db:
             participant = ParticipantService(db).create(display_name="Platform Missing", role="publisher")
             destination = models.PublishingDestination(
-                brand="Altea",
+                brand="ContentEngine",
                 platform="Instagram Reels",
-                name="Altea IG",
-                handle="@altea",
+                name="ContentEngine IG",
+                handle="@contentengine",
                 status="active",
                 posting_mode="manual",
                 auth_status="manual_only",

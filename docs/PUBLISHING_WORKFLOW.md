@@ -30,7 +30,7 @@ approved video artifact
 ## CLI
 
 ```bash
-python scripts/add_publishing_destination.py --platform telegram --name "Altea Telegram" --posting-mode manual
+python scripts/add_publishing_destination.py --platform telegram --name "ContentEngine Telegram" --posting-mode manual
 python scripts/import_publishing_destinations.py --file destinations.csv
 python scripts/create_publishing_package.py --video-job-id 11 --platform telegram
 python scripts/approve_publishing_package.py --package-id 1

@@ -136,7 +136,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260718.1";
+} from "./portal-experience.js?v=20260730.1";
 import {
   normalizeWorkspaceBoard,
   workspaceBoardItemByKey,
@@ -3226,11 +3226,10 @@ function authLayout(panel) {
   return `
     <div class="auth-layout">
       ${brandAtmosphereMarkup()}
-      <div class="auth-theme-control">${themePickerMarkup("auth", true)}</div>
       <section class="auth-story" aria-label="О продукте">
         <div class="auth-brand">
-          <div class="brand-mark" aria-hidden="true"><img src="./assets/brand/logo_mark.svg" alt="" /></div>
-          <div><strong>ALTEA</strong><span>Контент ИИ Завод</span></div>
+          <div class="brand-mark brand-monogram" aria-hidden="true"><span>КИ</span></div>
+          <div><strong>КОНТЕНТ ИИ</strong><span>Завод цифрового производства</span></div>
         </div>
         <div class="auth-message">
           <p class="eyebrow">От товара до результата</p>
@@ -3251,7 +3250,7 @@ function authLayout(panel) {
 function renderBootstrapLoading() {
   app.innerHTML = `
     <main id="main-content" class="boot-screen" tabindex="-1" aria-live="polite">
-      <div class="boot-mark" aria-hidden="true">A</div>
+      <div class="boot-mark" aria-hidden="true">КИ</div>
       <p class="eyebrow">Безопасный вход выполнен</p>
       <h1>Готовим ваше рабочее место…</h1>
       <p class="muted">Проверяем команду, обучение и доступные задачи.</p>
@@ -3422,7 +3421,7 @@ function renderLearningHome() {
     <div class="page-wrap learning-page">
       <section class="card learning-hero">
         <div class="learning-hero-copy">
-          <p class="eyebrow learning-eyebrow">Практическая академия ALTEA</p>
+          <p class="eyebrow learning-eyebrow">Практическая академия контента</p>
           <h1>${heroTitle}</h1>
           <p>${heroDescription}</p>
           <div class="learning-hero-actions">
@@ -5460,6 +5459,7 @@ function learningScaffold(content, activePath) {
       </aside>
       <section class="workspace-main">
         ${brandAtmosphereMarkup()}
+        ${workspaceContextBarMarkup("learning", "Обучение")}
         ${mobileTopbarMarkup("Обучение")}
         ${state.mobileNavOpen ? mobileNavMarkup(true, "", activePath) : ""}
         <main id="main-content" class="${transitionClass}" tabindex="-1">${content}</main>
@@ -5972,15 +5972,15 @@ function workspaceScaffold(content, activeSection) {
       <aside class="sidebar" aria-label="Основная навигация">
         ${brandMarkup()}
         <nav class="workspace-nav">
-          <span class="nav-caption">Рабочий день</span>
+          <span class="nav-caption">Обзор</span>
           ${workspaceNotificationButtonMarkup()}
           ${tabs.map(([key, label, icon]) => `
-            ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производственный цикл</span>` : ""}
-            ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
-            ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
+            ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 7 этапов</span>` : ""}
+            ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Сервис</span>` : ""}
+            ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Администрирование</span>` : ""}
             ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
           `).join("")}
-          <span class="nav-caption nav-caption-spaced">Знания</span>
+          <span class="nav-caption nav-caption-spaced">Знания и запуск</span>
           <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span><span>Обучение</span></a>
           <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span></a>
         </nav>
@@ -5988,6 +5988,7 @@ function workspaceScaffold(content, activeSection) {
       </aside>
       <section class="workspace-main">
         ${brandAtmosphereMarkup()}
+        ${workspaceContextBarMarkup(activeSection, tabLabel)}
         ${mobileTopbarMarkup(tabLabel)}
         ${state.mobileNavOpen ? mobileNavMarkup(false, activeSection) : ""}
         <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
@@ -6060,8 +6061,8 @@ function workspaceNavigationTabs(activeSection = "") {
 function brandMarkup() {
   return `
     <div class="workspace-brand">
-      <div class="brand-mark" aria-hidden="true"><img src="./assets/brand/logo_mark.svg" alt="" /></div>
-      <div><strong>ALTEA</strong><span>Контент ИИ Завод</span></div>
+      <div class="brand-mark brand-monogram" aria-hidden="true"><span>КИ</span></div>
+      <div><strong>КОНТЕНТ ИИ</strong><span>Производственный контур</span></div>
     </div>
   `;
 }
@@ -6069,11 +6070,39 @@ function brandMarkup() {
 function brandAtmosphereMarkup() {
   return `
     <div class="brand-atmosphere" aria-hidden="true">
-      <span class="brand-flower"></span>
-      <span class="brand-petal brand-petal-one"></span>
-      <span class="brand-petal brand-petal-two"></span>
-      <span class="brand-petal brand-petal-three"></span>
+      <span class="brand-grid"></span>
+      <span class="brand-glow brand-glow-one"></span>
+      <span class="brand-glow brand-glow-two"></span>
     </div>
+  `;
+}
+
+function workspaceContextBarMarkup(activeSection, label) {
+  const stage = FACTORY_FLOW.find((item) => item.key === activeSection);
+  const learning = activeSection === "learning";
+  const context = activeSection === "learning"
+    ? "Академия команды"
+    : stage
+      ? `Производственный цикл · этап ${stage.step} из 07`
+      : "Рабочее пространство";
+  return `
+    <header class="workspace-contextbar">
+      <div class="workspace-contextbar__title">
+        <span>${escapeHtml(context)}</span>
+        <strong>${escapeHtml(label)}</strong>
+      </div>
+      <nav class="workspace-contextbar__actions" aria-label="Быстрые действия">
+        ${learning ? `
+          <a href="#/learn">Курсы</a>
+          <a href="#/learn/first-shift">Первая смена</a>
+          <a href="#/learn/exam">Экзамен</a>
+        ` : `
+          <a href="#/workspace/media">Материалы</a>
+          <a class="${activeSection === "generation" ? "is-active" : ""}" href="#/workspace/generation">Создать</a>
+          <a class="${activeSection === "review" ? "is-active" : ""}" href="#/workspace/review">Проверить</a>
+        `}
+      </nav>
+    </header>
   `;
 }
 
@@ -6127,10 +6156,7 @@ function applyPortalTheme(value, { persist = true, announce = false } = {}) {
   state.portalTheme = theme;
   document.documentElement.dataset.portalTheme = theme;
   const browserColors = {
-    emerald: "#183a35",
-    bordeaux: "#5a2538",
-    sapphire: "#183b63",
-    "altea-dark": "#0b1513",
+    obsidian: "#0b0908",
   };
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", browserColors[theme]);
   if (persist) persistPortalThemePreference(theme);
@@ -6177,7 +6203,6 @@ function sidebarFooterMarkup(profile) {
   return `
     <div class="sidebar-footer">
       ${navigationModePickerMarkup("sidebar")}
-      ${themePickerMarkup("sidebar")}
       <div class="sidebar-status"><span class="status-dot"></span><span>Защищённое соединение</span></div>
       <div class="sidebar-user">
         <span class="avatar" aria-hidden="true">${escapeHtml(profile.initials)}</span>
@@ -6192,7 +6217,7 @@ function mobileTopbarMarkup(label) {
   const menuLabel = state.mobileNavOpen ? "Закрыть меню" : "Открыть меню";
   return `
     <header class="mobile-topbar">
-      <span class="mobile-brand">ALTEA · ${escapeHtml(label)}</span>
+      <span class="mobile-brand">КОНТЕНТ ИИ · ${escapeHtml(label)}</span>
       <button class="mobile-nav-trigger" type="button" data-action="toggle-mobile-nav" aria-label="${menuLabel}" aria-controls="mobile-navigation" aria-expanded="${state.mobileNavOpen}">${state.mobileNavOpen ? "×" : "☰"}</button>
     </header>
   `;
@@ -7320,7 +7345,7 @@ function renderHomeSection(homeState) {
       ${homeState.unavailable?.length ? alertMarkup("Часть свежих данных пока недоступна. Показаны последние сохранённые значения; повторите обновление позже.", "warning") : ""}
       <section class="home-hero">
         <div class="home-hero-copy">
-          <p class="eyebrow">Сегодня в ALTEA</p>
+          <p class="eyebrow">Сегодня в производстве</p>
           <h1>${escapeHtml(firstName)}, всё важное — перед вами</h1>
           <p>Портал сам собирает следующий шаг: от точного исходника до публикации, результата и выплаты.</p>
           <article class="home-next-action">
@@ -7343,7 +7368,7 @@ function renderHomeSection(homeState) {
         <div class="home-hero-visual" role="img" aria-label="${FACTORY_FLOW.length} этапов производственного цикла">
           <span class="home-orbit home-orbit-one"></span>
           <span class="home-orbit home-orbit-two"></span>
-          <div class="home-seal"><strong>A</strong><span>${FACTORY_FLOW.length} этапов</span></div>
+          <div class="home-seal"><strong>${FACTORY_FLOW.length}</strong><span>этапов</span></div>
         </div>
       </section>
 
@@ -8087,8 +8112,8 @@ function renderGenerationSection(sectionState) {
           ? `<span class="badge badge-info">DRY-RUN + ПЛАТНЫЙ</span>`
           : `<span class="badge badge-mock">DRY-RUN · БЕЗ ФАЙЛОВ</span>`,
       )}
-      <div class="split-grid">
-        <section class="card card-pad">
+      <div class="split-grid generation-workspace-layout">
+        <section class="card card-pad generation-launch-card">
           <p class="eyebrow">Новый запуск</p>
           <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
           <p class="muted tiny">Dry-run создаёт задачи и места публикации, но не рендерит фото или видео. Платные режимы создают ровно один медиафайл: квадратное фото 2K, анимацию товара на 2–10 секунд или UGC-ролик с голосом на 4–15 секунд.</p>
@@ -8255,7 +8280,7 @@ function renderGenerationSection(sectionState) {
           ` : ""}
         </section>
 
-        <section class="card">
+        <section class="card generation-archive-card">
           <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Контент по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных запусков каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
           ${sectionBody(sectionState, generationArchiveMarkup(
             batches,

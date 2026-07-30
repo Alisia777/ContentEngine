@@ -4,7 +4,7 @@
 <section class="public-dashboard">
   {% include "_public_product_sidebar.html" %}
   <div class="public-main">
-    <header class="public-topline altea-reveal">
+    <header class="public-topline portal-reveal">
       <div>
         <p class="public-eyebrow">{{ 'Общее защищённое хранилище команды' if team_media_access else 'Ваше защищённое рабочее хранилище' }}</p>
         <h1>Библиотека видео</h1>
@@ -18,7 +18,7 @@
     </header>
 
     {% if created_package %}
-    <article class="altea-card public-guidance altea-reveal">
+    <article class="portal-card public-guidance portal-reveal">
       <strong>Пакет #{{ created_package.id }} готов к размещению</strong>
       <p>Видео прошло явную проверку человеком. Дальше выберите площадку и время в календаре размещения.</p>
       <a class="public-link-button" href="/creator-operations?tab=placement">Открыть размещение</a>
@@ -26,13 +26,13 @@
     {% endif %}
 
     {% if reviewed_artifact %}
-    <article class="altea-card public-guidance altea-reveal">
+    <article class="portal-card public-guidance portal-reveal">
       <strong>Проверка завершена: одобрен именно этот файл</strong>
       <p>Создайте пакет размещения ниже. Отклонённый или заменённый результат система упаковать не позволит.</p>
     </article>
     {% endif %}
 
-    <nav class="workspace-navigation altea-reveal" aria-label="Папки библиотеки видео">
+    <nav class="workspace-navigation portal-reveal" aria-label="Папки библиотеки видео">
       <div class="workspace-navigation__secondary">
         {% for folder in media_folders %}
         <a class="{{ 'is-active' if folder.selected else '' }}" href="{{ folder.url }}" title="{{ folder.detail }}">{{ folder.label }}</a>
@@ -40,7 +40,7 @@
       </div>
     </nav>
 
-    <form class="altea-card public-inline-form altea-reveal" method="get" action="/media-library">
+    <form class="portal-card public-inline-form portal-reveal" method="get" action="/media-library">
       <input type="hidden" name="folder" value="all">
       <input type="hidden" name="page" value="1">
       <label>Товар
@@ -61,7 +61,7 @@
     </form>
 
     {% if artifact_views %}
-    <div class="recipe-video-grid altea-reveal">
+    <div class="recipe-video-grid portal-reveal">
       {% for item in artifact_views %}
       {% set artifact = item.artifact %}
       <article class="recipe-video-item">
@@ -106,7 +106,7 @@
       {% endfor %}
     </div>
     {% if previous_page_url or next_page_url %}
-    <nav class="workspace-navigation altea-reveal" aria-label="Страницы библиотеки">
+    <nav class="workspace-navigation portal-reveal" aria-label="Страницы библиотеки">
       <div class="workspace-navigation__secondary">
         {% if previous_page_url %}<a href="{{ previous_page_url }}">← Предыдущие</a>{% endif %}
         <span class="public-status">Страница {{ page }} · {{ page_start }}–{{ page_end }} из {{ total_artifacts }}</span>
@@ -115,7 +115,7 @@
     </nav>
     {% endif %}
     {% else %}
-    <article class="altea-card public-guidance altea-reveal"><strong>Библиотека пока пуста</strong><p>После успешной генерации worker сохранит видео и технический отчёт сюда автоматически.</p><a class="altea-glow-button" href="/mvp-launch">Создать первое видео</a></article>
+    <article class="portal-card public-guidance portal-reveal"><strong>Библиотека пока пуста</strong><p>После успешной генерации worker сохранит видео и технический отчёт сюда автоматически.</p><a class="portal-glow-button" href="/mvp-launch">Создать первое видео</a></article>
     {% endif %}
   </div>
 </section>

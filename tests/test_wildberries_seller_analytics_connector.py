@@ -97,7 +97,7 @@ def _product_history(
             "nmId": int(nm_id),
             "title": f"Owned product {nm_id}",
             "vendorCode": f"VC-{nm_id}",
-            "brandName": "ALTEA",
+            "brandName": "CONTENT ENGINE",
         },
         "history": [history],
     }
@@ -132,7 +132,7 @@ def _seed_owned_listings(
         product = models.Product(
             organization_id=organization.id,
             sku=f"{slug}-SKU-{index}",
-            brand="ALTEA",
+            brand="CONTENT ENGINE",
             title=f"Owned product {index}",
         )
         db.add(product)

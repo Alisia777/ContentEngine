@@ -1,12 +1,12 @@
 {% extends "public_pilot_base.html" %}
 {% block content %}
 <section class="public-login">
-  <div class="public-login__brand altea-reveal">
-    <img class="altea-logo-mark altea-logo-mark--large" src="{{ url_for('static', path='/altea_motion/assets/logo_mark.svg') }}" alt="ALTEA">
-    <div class="altea-wordmark" aria-label="ALTEA"><span>A</span><span>L</span><span>T</span><span>E</span><span>A</span></div>
-    <p class="altea-subtitle">КОНТЕНТ ИИ ЗАВОД · CONTENT ENGINE</p>
+  <div class="public-login__brand portal-reveal">
+    <div class="portal-product-mark portal-product-mark--large" aria-hidden="true">КИ</div>
+    <div class="portal-wordmark" aria-label="Контент ИИ"><span>К</span><span>О</span><span>Н</span><span>Т</span><span>Е</span><span>Н</span><span>Т</span><span>·</span><span>И</span><span>И</span></div>
+    <p class="portal-subtitle">КОНТЕНТ ИИ ЗАВОД · CONTENT ENGINE</p>
   </div>
-  <form class="altea-card public-login-card altea-reveal" method="post" action="/login">
+  <form class="portal-card public-login-card portal-reveal" method="post" action="/login">
     <input type="hidden" name="login_nonce" value="{{ login_nonce }}">
     <header class="public-card-head">
       <p class="public-eyebrow">Рабочая платформа</p>
@@ -14,21 +14,21 @@
       <p>После входа система покажет один следующий шаг и проведёт от товара до измеримого результата.</p>
     </header>
     {% if error_message %}<p class="public-alert" role="alert">{{ error_message }}</p>{% endif %}
-    <label class="altea-field">
+    <label class="portal-field">
       <span>Логин</span>
-      <span class="altea-input-wrap">
+      <span class="portal-input-wrap">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
         <input name="email" autocomplete="username" inputmode="email" placeholder="name@company.ru" required>
       </span>
     </label>
-    <label class="altea-field">
+    <label class="portal-field">
       <span>Пароль</span>
-      <span class="altea-input-wrap">
+      <span class="portal-input-wrap">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"/></svg>
         <input name="password" type="password" autocomplete="current-password" placeholder="Настроен в защищённом контуре" required>
       </span>
     </label>
-    <button class="altea-glow-button" type="submit">Войти</button>
+    <button class="portal-glow-button" type="submit">Войти</button>
     <p class="public-muted">Рабочие кабинеты, видео и отчёты генерации доступны только после входа.</p>
     <p class="public-muted">Ключи провайдеров и пароли не выводятся в интерфейс и не сохраняются в репозитории.</p>
   </form>

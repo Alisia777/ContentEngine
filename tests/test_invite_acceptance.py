@@ -72,8 +72,8 @@ def app() -> FastAPI:
 def _active_invited_user(
     *,
     subject: str = "invited-user",
-    organization_name: str = "ALTEA Beauty",
-    organization_slug: str = "altea-beauty",
+    organization_name: str = "ContentEngine Demo",
+    organization_slug: str = "contentengine-demo",
 ) -> tuple[int, int]:
     with TestSession() as db:
         organization = models.Organization(
@@ -488,8 +488,8 @@ def test_no_claim_prefers_only_active_membership_over_suspended_default():
     )
     with TestSession() as db:
         default_org = models.Organization(
-            name="ALTEA Beauty",
-            slug="altea-beauty",
+            name="ContentEngine Demo",
+            slug="contentengine-demo",
             status="active",
             settings_json={},
         )
@@ -542,7 +542,7 @@ def test_no_claim_with_multiple_active_memberships_uses_active_default():
     )
     with TestSession() as db:
         user = active_public_pilot_user_from_payload(db, payload)
-    assert user.organization.slug == "altea-beauty"
+    assert user.organization.slug == "contentengine-demo"
 
 
 def test_no_claim_with_multiple_active_non_default_memberships_fails_closed():

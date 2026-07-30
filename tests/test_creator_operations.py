@@ -141,7 +141,7 @@ def _scope(db: Session, slug: str):
     product = models.Product(
         organization_id=organization.id,
         sku=f"SKU-{slug}",
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         title=f"Product {slug}",
         attributes_json={},
         benefits_json=[],
@@ -224,11 +224,11 @@ def _publishing_scope(
             video_job_id=10_000 + index,
             media_artifact_id=artifact.id,
             product_id=product.id,
-            brand="ALTEA",
+            brand="CONTENT ENGINE",
             target_platform="Instagram Reels",
             title=f"Approved package {index}",
             description=f"Measured product publication {index}",
-            hashtags_json=["#altea", "#contentfactory"],
+            hashtags_json=["#contentengine", "#contentfactory"],
             cta="Перейдите по отслеживаемой ссылке",
             product_url=f"https://www.wildberries.ru/catalog/{100000 + index}/detail.aspx",
             video_file_path=str(video_path),
@@ -246,7 +246,7 @@ def _publishing_scope(
         packages.append(package)
     destination = models.PublishingDestination(
         organization_id=organization.id,
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform="Instagram Reels",
         name=f"Destination {slug}",
         status="active",
@@ -687,7 +687,7 @@ def test_placement_matches_platform_alias_brand_and_available_destination(
     instagram_destination.platform = "instagram"
     wrong_platform = models.PublishingDestination(
         organization_id=organization.id,
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform="TikTok",
         name="Wrong TikTok",
         status="active",
@@ -732,7 +732,7 @@ def test_placement_matches_platform_alias_brand_and_available_destination(
     }
     assert all(
         item["matched_destination"]["platform"] == "instagram"
-        and item["matched_destination"]["brand"] == "ALTEA"
+        and item["matched_destination"]["brand"] == "CONTENT ENGINE"
         for item in batch.results_json
     )
 
@@ -772,24 +772,24 @@ def test_naive_placement_time_uses_explicit_browser_timezone_and_dst_rules():
 
 def test_platform_publication_identity_preserves_required_ids_and_rejects_short_links():
     instagram = models.PublishingDestination(
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform="Instagram",
         name="Instagram",
     )
     facebook = models.PublishingDestination(
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform="Facebook",
         name="Facebook",
     )
     pinterest = models.PublishingDestination(
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform="Pinterest",
         name="Pinterest",
     )
-    vk = models.PublishingDestination(brand="ALTEA", platform="VK Clips", name="VK")
-    rutube = models.PublishingDestination(brand="ALTEA", platform="Rutube", name="Rutube")
+    vk = models.PublishingDestination(brand="CONTENT ENGINE", platform="VK Clips", name="VK")
+    rutube = models.PublishingDestination(brand="CONTENT ENGINE", platform="Rutube", name="Rutube")
     telegram = models.PublishingDestination(
-        brand="ALTEA",
+        brand="CONTENT ENGINE",
         platform="Telegram",
         name="Telegram",
     )
@@ -829,14 +829,14 @@ def test_platform_publication_identity_preserves_required_ids_and_rejects_short_
         rutube,
     ) == "https://rutube.ru/video/abcde_12345"
     assert canonical_publication_url(
-        "https://t.me/altea_team/123?single=true",
+        "https://t.me/portal_team/123?single=true",
         telegram,
-    ) == "https://t.me/altea_team/123"
+    ) == "https://t.me/portal_team/123"
     for unsafe_url, destination in (
         ("https://vk.com/feed", vk),
-        ("https://vk.com/altea", vk),
+        ("https://vk.com/contentengine", vk),
         ("https://rutube.ru/channel/123", rutube),
-        ("https://t.me/s/altea", telegram),
+        ("https://t.me/s/contentengine", telegram),
     ):
         with pytest.raises(
             PublicationIdentityError,

@@ -16,10 +16,10 @@
     <article class="card">
       <h2>Destinations</h2>
       <form action="/publishing/destinations/create" method="post">
-        <label>Brand<input name="brand" value="Altea" required></label>
+        <label>Brand<input name="brand" value="ContentEngine" required></label>
         <label>Platform<input name="platform" value="telegram" required></label>
-        <label>Name<input name="name" placeholder="Altea Telegram" required></label>
-        <label>Handle<input name="handle" placeholder="@altea"></label>
+        <label>Name<input name="name" placeholder="ContentEngine Telegram" required></label>
+        <label>Handle<input name="handle" placeholder="@contentengine"></label>
         <label>Owner<input name="owner_name" placeholder="Content Ops"></label>
         <label>Posting mode
           <select name="posting_mode">
@@ -37,7 +37,7 @@
       </form>
       <form action="/publishing/destinations/import" method="post" enctype="multipart/form-data">
         <label>CSV import<input type="file" name="file" accept=".csv,text/csv" required></label>
-        <label>Default brand<input name="default_brand" value="Altea"></label>
+        <label>Default brand<input name="default_brand" value="ContentEngine"></label>
         <div class="actions"><button type="submit">Import destinations</button></div>
       </form>
       <table class="table compact">

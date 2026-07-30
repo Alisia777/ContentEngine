@@ -42,7 +42,7 @@ AUTH_TEMPLATE_SPECS = {
             "{{ .SiteURL }}auth/accept#token_hash={{ .TokenHash }}"
             "&amp;type=invite"
         ),
-        "subject": "ALTEA · Приглашение в Контент ИИ Завод",
+        "subject": "CONTENT ENGINE · Приглашение в Контент ИИ Завод",
     },
     "recovery": {
         "path": REPOSITORY_ROOT
@@ -54,7 +54,7 @@ AUTH_TEMPLATE_SPECS = {
             "{{ .SiteURL }}auth/accept#token_hash={{ .TokenHash }}"
             "&amp;type=recovery"
         ),
-        "subject": "ALTEA · Восстановление доступа",
+        "subject": "CONTENT ENGINE · Восстановление доступа",
     },
 }
 
@@ -84,7 +84,7 @@ class SmtpSettings:
         user = environment.get("SMTP_USER", "").strip()
         password = environment.get("SMTP_PASS", "")
         sender_name = environment.get(
-            "SMTP_SENDER_NAME", "ALTEA · Контент ИИ Завод"
+            "SMTP_SENDER_NAME", "CONTENT ENGINE · Контент ИИ Завод"
         ).strip()
 
         if PROJECT_REF_RE.fullmatch(project_ref) is None:

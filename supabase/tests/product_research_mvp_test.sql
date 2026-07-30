@@ -236,7 +236,7 @@ insert into content_factory.products (
   '93200000-0000-4000-8000-000000000001',
   '93100000-0000-4000-8000-000000000001',
   'RESEARCH-SKU-1', 'Кровавый пилинг', 'active',
-  '{"brand":"ALTEA","description":"AHA 30% BHA 2%"}'::jsonb,
+  '{"brand":"CONTENT ENGINE","description":"AHA 30% BHA 2%"}'::jsonb,
   '93000000-0000-4000-8000-000000000001'
 );
 
@@ -500,7 +500,7 @@ select is(
   'selected photo is coherently bound to the research product without mutating media'
 );
 select is((select value -> 'run' -> 'product' ->> 'sku' from claim_result), 'RESEARCH-SKU-1', 'worker receives trusted product SKU');
-select is((select value -> 'run' -> 'product' ->> 'brand' from claim_result), 'ALTEA', 'worker receives product brand metadata');
+select is((select value -> 'run' -> 'product' ->> 'brand' from claim_result), 'CONTENT ENGINE', 'worker receives product brand metadata');
 select ok(
   not (public.system_claim_product_research(jsonb_build_object(
     'run_id', (select run_id from research_test_context)

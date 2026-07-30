@@ -1,7 +1,7 @@
 {% extends "public_pilot_base.html" %}
 {% block content %}
 <main class="cloud-onboarding">
-  <header class="cloud-onboarding__hero altea-reveal">
+  <header class="cloud-onboarding__hero portal-reveal">
     <div>
       <p class="public-eyebrow">Обязательный onboarding</p>
       <h1>Научитесь работать без ошибок</h1>
@@ -14,11 +14,11 @@
     </div>
   </header>
 
-  <section class="altea-card cloud-onboarding__progress altea-reveal" aria-label="Прогресс обучения">
+  <section class="portal-card cloud-onboarding__progress portal-reveal" aria-label="Прогресс обучения">
     <div><span>Короткие курсы</span><strong>{{ prerequisite_completed }} / {{ prerequisite_count }}</strong></div>
     <div><span>Итоговый экзамен</span><strong>{{ 'пройден' if workspace_open else 'ещё не пройден' }}</strong></div>
     <div><span>Workspace</span><strong>{{ 'открыт' if workspace_open else 'откроется после экзамена' }}</strong></div>
-    {% if workspace_open %}<a class="altea-glow-button" href="{{ next_url }}">Перейти в workspace</a>{% endif %}
+    {% if workspace_open %}<a class="portal-glow-button" href="{{ next_url }}">Перейти в workspace</a>{% endif %}
   </section>
 
   {% if result %}
@@ -41,7 +41,7 @@
 
     {% if selected %}
     {% set module = selected.module %}
-    <article class="altea-card cloud-onboarding__course altea-reveal">
+    <article class="portal-card cloud-onboarding__course portal-reveal">
       <header>
         <div><p class="public-eyebrow">{{ 'Экзамен' if selected.is_exam else 'Короткий курс' }}</p><h2>{{ module.title }}</h2><p>{{ module.description }}</p></div>
         <span class="public-status public-status--{{ 'ready' if selected.completed else ('blocked' if not selected.available else 'in_progress') }}">{{ 'пройден' if selected.completed else ('сначала курсы' if not selected.available else 'доступен') }}</span>
@@ -67,7 +67,7 @@
           {% endfor %}
         </fieldset>
         {% endfor %}
-        <button class="altea-glow-button" type="submit">{{ 'Сдать итоговый экзамен' if selected.is_exam else 'Проверить знания' }}</button>
+        <button class="portal-glow-button" type="submit">{{ 'Сдать итоговый экзамен' if selected.is_exam else 'Проверить знания' }}</button>
       </form>
       {% endif %}
     </article>

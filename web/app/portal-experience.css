@@ -1,5 +1,5 @@
 /*
- * ALTEA portal experience layer.
+ * Content Engine portal experience layer.
  * Loaded after styles.css, this file provides selectable colour themes,
  * restrained botanical motion and scalable generation-archive controls.
  */
@@ -89,7 +89,7 @@
   --portal-browser-color: #183b63;
 }
 
-:root[data-portal-theme="altea-dark"] {
+:root[data-portal-theme="obsidian"] {
   color-scheme: dark;
   --portal-canvas: #0b1513;
   --portal-surface: #13211e;
@@ -349,7 +349,7 @@ html[data-portal-theme] :is(.btn-secondary, input, select, textarea) {
 .portal-theme-swatch[data-swatch="emerald"] { --theme-swatch: #2c6659; }
 .portal-theme-swatch[data-swatch="bordeaux"] { --theme-swatch: #7a314d; }
 .portal-theme-swatch[data-swatch="sapphire"] { --theme-swatch: #315f88; }
-.portal-theme-swatch[data-swatch="altea-dark"] {
+.portal-theme-swatch[data-swatch="obsidian"] {
   --theme-swatch: linear-gradient(135deg, #0b1513 0 54%, #d4b467 55% 100%);
 }
 
@@ -438,7 +438,7 @@ html[data-portal-theme] :is(.btn-secondary, input, select, textarea) {
   object-fit: contain;
 }
 
-/* Restrained brand atmosphere ------------------------------------------- */
+/* Shared background layer ---------------------------------------------- */
 
 .brand-atmosphere {
   position: fixed;
@@ -448,95 +448,6 @@ html[data-portal-theme] :is(.btn-secondary, input, select, textarea) {
   contain: strict;
   pointer-events: none;
   user-select: none;
-}
-
-.brand-atmosphere__flower,
-.brand-flower {
-  position: absolute;
-  right: clamp(-150px, -8vw, -70px);
-  bottom: clamp(-155px, -10vw, -85px);
-  width: clamp(280px, 31vw, 470px);
-  aspect-ratio: 1;
-  background: url("./assets/brand/altea_flower.svg") center / contain no-repeat;
-  opacity: 0.055;
-  transform-origin: 62% 68%;
-}
-
-.brand-atmosphere__petal,
-.brand-petal {
-  position: absolute;
-  top: var(--petal-top, 14%);
-  left: var(--petal-left, 74%);
-  width: var(--petal-size, 44px);
-  aspect-ratio: 120 / 64;
-  background: url("./assets/brand/petal.svg") center / contain no-repeat;
-  opacity: 0;
-  transform: translate3d(0, -5vh, 0) rotate(var(--petal-angle, -14deg));
-}
-
-.brand-atmosphere__petal--one,
-.brand-petal-one {
-  --petal-top: 7%;
-  --petal-left: 76%;
-  --petal-size: 42px;
-  --petal-angle: -18deg;
-  --petal-drift-x: 6vw;
-  animation-delay: -4s;
-  animation-duration: 27s;
-}
-
-.brand-atmosphere__petal--two,
-.brand-petal-two {
-  --petal-top: 32%;
-  --petal-left: 90%;
-  --petal-size: 34px;
-  --petal-angle: 21deg;
-  --petal-drift-x: -5vw;
-  animation-delay: -15s;
-  animation-duration: 31s;
-}
-
-.brand-atmosphere__petal--three,
-.brand-petal-three {
-  --petal-top: 69%;
-  --petal-left: 66%;
-  --petal-size: 29px;
-  --petal-angle: -33deg;
-  --petal-drift-x: 4vw;
-  animation-delay: -22s;
-  animation-duration: 34s;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .brand-atmosphere__flower,
-  .brand-flower {
-    animation: portal-flower-breathe 12s var(--ease-premium, ease-in-out) infinite alternate;
-  }
-
-  .brand-atmosphere__petal,
-  .brand-petal {
-    animation-name: portal-petal-drift;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-  }
-}
-
-@keyframes portal-flower-breathe {
-  from { opacity: 0.045; transform: scale(0.985) rotate(-1deg); }
-  to { opacity: 0.075; transform: scale(1.015) rotate(1deg); }
-}
-
-@keyframes portal-petal-drift {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, -5vh, 0) rotate(var(--petal-angle));
-  }
-  16% { opacity: 0.16; }
-  72% { opacity: 0.11; }
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--petal-drift-x, 5vw), 23vh, 0) rotate(calc(var(--petal-angle) + 52deg));
-  }
 }
 
 /* Generation archive ---------------------------------------------------- */
@@ -773,23 +684,23 @@ html[data-portal-theme] :is(.btn-secondary, input, select, textarea) {
   text-align: center;
 }
 
-/* ALTEA dark theme ------------------------------------------------------ */
+/* Obsidian theme ------------------------------------------------------ */
 
-html[data-portal-theme="altea-dark"] body {
+html[data-portal-theme="obsidian"] body {
   background:
     radial-gradient(circle at 10% 6%, rgba(47, 125, 104, 0.16), transparent 28rem),
     radial-gradient(circle at 92% 0%, rgba(212, 180, 103, 0.1), transparent 24rem),
     var(--portal-canvas);
 }
 
-html[data-portal-theme="altea-dark"] .workspace-main {
+html[data-portal-theme="obsidian"] .workspace-main {
   background:
     radial-gradient(circle at 92% 0%, var(--portal-glow), transparent 26rem),
     radial-gradient(circle at 7% 13%, rgba(47, 125, 104, 0.12), transparent 30rem),
     var(--portal-canvas);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .auth-card,
   .card,
   .workspace-page-intro,
@@ -820,7 +731,7 @@ html[data-portal-theme="altea-dark"] :is(
   background-color: var(--portal-surface);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .auth-card,
   .auth-start-route li,
   .home-flow-list a,
@@ -851,7 +762,7 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   input,
   select,
   textarea,
@@ -863,20 +774,20 @@ html[data-portal-theme="altea-dark"] :is(
   background-color: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] :is(input, textarea)::placeholder {
+html[data-portal-theme="obsidian"] :is(input, textarea)::placeholder {
   color: #82958e;
   opacity: 1;
 }
 
-html[data-portal-theme="altea-dark"] :is(.text-link, .workspace-guide-link, .direction-next-link, .account-sources a) {
+html[data-portal-theme="obsidian"] :is(.text-link, .workspace-guide-link, .direction-next-link, .account-sources a) {
   color: var(--portal-link);
 }
 
-html[data-portal-theme="altea-dark"] .auth-access-guide summary {
+html[data-portal-theme="obsidian"] .auth-access-guide summary {
   color: var(--portal-link);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .muted,
   .auth-card .lead,
   .auth-footer,
@@ -896,33 +807,33 @@ html[data-portal-theme="altea-dark"] :is(
   color: var(--portal-ink-soft);
 }
 
-html[data-portal-theme="altea-dark"] .auth-start-route li > span,
-html[data-portal-theme="altea-dark"] .btn:not(.btn-secondary):not(.btn-light):not(.btn-danger):not(.btn-ghost):not(.btn-ghost-light) {
+html[data-portal-theme="obsidian"] .auth-start-route li > span,
+html[data-portal-theme="obsidian"] .btn:not(.btn-secondary):not(.btn-light):not(.btn-danger):not(.btn-ghost):not(.btn-ghost-light) {
   color: var(--portal-action-ink);
   background: var(--portal-action-bg);
 }
 
-html[data-portal-theme="altea-dark"] .auth-theme-control .portal-theme-picker {
+html[data-portal-theme="obsidian"] .auth-theme-control .portal-theme-picker {
   border-color: var(--portal-line-strong);
   background: rgba(19, 33, 30, 0.94);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.46);
 }
 
-html[data-portal-theme="altea-dark"] .auth-theme-control .portal-theme-option:is(:hover, .is-active, [aria-pressed="true"]) {
+html[data-portal-theme="obsidian"] .auth-theme-control .portal-theme-option:is(:hover, .is-active, [aria-pressed="true"]) {
   border-color: var(--portal-accent);
   color: var(--portal-ink);
   background: var(--portal-primary-soft);
 }
 
-html[data-portal-theme="altea-dark"] .portal-theme-option:is(.is-active, [aria-pressed="true"]),
-html[data-portal-theme="altea-dark"] [data-portal-theme-choice][aria-pressed="true"] {
+html[data-portal-theme="obsidian"] .portal-theme-option:is(.is-active, [aria-pressed="true"]),
+html[data-portal-theme="obsidian"] [data-portal-theme-choice][aria-pressed="true"] {
   border-color: var(--portal-accent);
   color: var(--portal-ink);
   background: var(--portal-primary-soft);
   box-shadow: inset 0 0 0 1px rgba(212, 180, 103, 0.28);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .direction-next-link,
   .btn-secondary,
   .btn-ghost,
@@ -934,7 +845,7 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .direction-next-link,
   .btn-secondary,
   .btn-ghost,
@@ -943,7 +854,7 @@ html[data-portal-theme="altea-dark"] :is(
   .generation-filter-button,
   [data-generation-period]
 ):hover,
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .generation-filter-button[aria-pressed="true"],
   [data-generation-period][aria-pressed="true"]
 ) {
@@ -952,74 +863,74 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-primary-soft);
 }
 
-html[data-portal-theme="altea-dark"] :is(.alert, .alert-danger, .alert-warning, .alert-success, .alert-info) {
+html[data-portal-theme="obsidian"] :is(.alert, .alert-danger, .alert-warning, .alert-success, .alert-info) {
   border-color: var(--portal-line-strong);
   color: var(--portal-ink);
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] .alert-danger,
-html[data-portal-theme="altea-dark"] :is(.generation-failure, .generation-stage .is-error) {
+html[data-portal-theme="obsidian"] .alert-danger,
+html[data-portal-theme="obsidian"] :is(.generation-failure, .generation-stage .is-error) {
   border-color: #70413e;
   color: #ffaaa4;
   background: #351d1c;
 }
 
-html[data-portal-theme="altea-dark"] .alert-warning,
-html[data-portal-theme="altea-dark"] :is(.generation-reconcile-warning, .course-check-gate) {
+html[data-portal-theme="obsidian"] .alert-warning,
+html[data-portal-theme="obsidian"] :is(.generation-reconcile-warning, .course-check-gate) {
   border-color: #65552c;
   color: #f0ca7b;
   background: #302817;
 }
 
-html[data-portal-theme="altea-dark"] .alert-success,
-html[data-portal-theme="altea-dark"] :is(.knowledge-question.correct, .knowledge-check-result.passed) {
+html[data-portal-theme="obsidian"] .alert-success,
+html[data-portal-theme="obsidian"] :is(.knowledge-question.correct, .knowledge-check-result.passed) {
   border-color: #35614f;
   color: #8fd2b6;
   background: #183128;
 }
 
-html[data-portal-theme="altea-dark"] .alert-info {
+html[data-portal-theme="obsidian"] .alert-info {
   border-color: #35546a;
   color: #91c7ee;
   background: #192c3b;
 }
 
-html[data-portal-theme="altea-dark"] :is(.knowledge-question.incorrect, .knowledge-check-result.failed) {
+html[data-portal-theme="obsidian"] :is(.knowledge-question.incorrect, .knowledge-check-result.failed) {
   border-color: #70413e;
   color: #ffaaa4;
   background: #351d1c;
 }
 
-html[data-portal-theme="altea-dark"] .data-table th {
+html[data-portal-theme="obsidian"] .data-table th {
   color: var(--portal-ink-soft);
   background: #182824;
 }
 
-html[data-portal-theme="altea-dark"] .data-table tbody tr:hover {
+html[data-portal-theme="obsidian"] .data-table tbody tr:hover {
   background: #1b2d28;
 }
 
-html[data-portal-theme="altea-dark"] .generation-stage .is-done,
-html[data-portal-theme="altea-dark"] .generation-stage .is-current,
-html[data-portal-theme="altea-dark"] .option:has(input:checked),
-html[data-portal-theme="altea-dark"] .knowledge-options label:has(input:checked) {
+html[data-portal-theme="obsidian"] .generation-stage .is-done,
+html[data-portal-theme="obsidian"] .generation-stage .is-current,
+html[data-portal-theme="obsidian"] .option:has(input:checked),
+html[data-portal-theme="obsidian"] .knowledge-options label:has(input:checked) {
   border-color: #4d8e78;
   color: #a9dbc9;
   background: #203a32;
 }
 
-html[data-portal-theme="altea-dark"] .skeleton {
+html[data-portal-theme="obsidian"] .skeleton {
   background: linear-gradient(90deg, #182824, #263a34, #182824);
 }
 
-html[data-portal-theme="altea-dark"] .learning-page {
+html[data-portal-theme="obsidian"] .learning-page {
   --learning-ivory: var(--portal-surface);
   --learning-gold: var(--portal-accent);
   --learning-line: var(--portal-line);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .learning-section-heading > span,
   .course-card .course-number,
   .course-roadmap button,
@@ -1035,7 +946,7 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .factory-flow a:hover,
   .factory-flow li.active a,
   .workflow-node > span,
@@ -1051,30 +962,30 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] .factory-flow a small,
-html[data-portal-theme="altea-dark"] .lesson-checklist li {
+html[data-portal-theme="obsidian"] .factory-flow a small,
+html[data-portal-theme="obsidian"] .lesson-checklist li {
   color: var(--portal-ink-soft);
 }
 
-html[data-portal-theme="altea-dark"] .checklist-do {
+html[data-portal-theme="obsidian"] .checklist-do {
   color: #ffffff;
   background: #286b59;
 }
 
-html[data-portal-theme="altea-dark"] .checklist-dont {
+html[data-portal-theme="obsidian"] .checklist-dont {
   color: #ffffff;
   background: #8b3b36;
 }
 
-html[data-portal-theme="altea-dark"] :is(.lesson-visual strong, .lesson-heading h2, .course-card h2, .knowledge-question legend) {
+html[data-portal-theme="obsidian"] :is(.lesson-visual strong, .lesson-heading h2, .course-card h2, .knowledge-question legend) {
   color: var(--portal-ink);
 }
 
-html[data-portal-theme="altea-dark"] .completion-ring {
+html[data-portal-theme="obsidian"] .completion-ring {
   background: conic-gradient(var(--portal-success-ink, #8fd2b6) calc(var(--completion) * 1%), #2b3c37 0);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .account-center-hero,
   .account-guide-hero,
   .account-center-promise,
@@ -1093,7 +1004,7 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .account-center-hero h1,
   .account-guide-hero h1,
   .account-guide-section h2,
@@ -1107,7 +1018,7 @@ html[data-portal-theme="altea-dark"] :is(
   color: var(--portal-ink);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .account-center-hero > div > p:last-child,
   .account-guide-hero > div > p:last-child,
   .account-center-promise span,
@@ -1126,29 +1037,29 @@ html[data-portal-theme="altea-dark"] :is(
   color: var(--portal-ink-soft);
 }
 
-html[data-portal-theme="altea-dark"] .account-safety-notice,
-html[data-portal-theme="altea-dark"] .account-ad-checker {
+html[data-portal-theme="obsidian"] .account-safety-notice,
+html[data-portal-theme="obsidian"] .account-ad-checker {
   border-color: #65552c;
   background: #302817;
 }
 
-html[data-portal-theme="altea-dark"] .account-safety-notice p {
+html[data-portal-theme="obsidian"] .account-safety-notice p {
   color: var(--portal-ink-soft);
 }
 
-html[data-portal-theme="altea-dark"] .account-risk-good,
-html[data-portal-theme="altea-dark"] .account-ad-result[data-status="document"] {
+html[data-portal-theme="obsidian"] .account-risk-good,
+html[data-portal-theme="obsidian"] .account-ad-result[data-status="document"] {
   border-color: #35614f;
   background: #183128;
 }
 
-html[data-portal-theme="altea-dark"] .account-risk-stop,
-html[data-portal-theme="altea-dark"] .account-ad-result[data-status="review"] {
+html[data-portal-theme="obsidian"] .account-risk-stop,
+html[data-portal-theme="obsidian"] .account-ad-result[data-status="review"] {
   border-color: #70413e;
   background: #351d1c;
 }
 
-html[data-portal-theme="altea-dark"] .first-shift-full {
+html[data-portal-theme="obsidian"] .first-shift-full {
   --shift-ink: var(--portal-ink);
   --shift-muted: var(--portal-ink-soft);
   --shift-green: #2f7d68;
@@ -1168,12 +1079,12 @@ html[data-portal-theme="altea-dark"] .first-shift-full {
     var(--portal-surface);
 }
 
-html[data-portal-theme="altea-dark"] .first-shift-full__phases .is-current > span {
+html[data-portal-theme="obsidian"] .first-shift-full__phases .is-current > span {
   color: #ffffff;
   background: #6b4f1a;
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .first-shift-full__stop > span,
   .first-shift-full__feedback--error span
 ) {
@@ -1181,23 +1092,23 @@ html[data-portal-theme="altea-dark"] :is(
   background: #8b3b36;
 }
 
-html[data-portal-theme="altea-dark"] .first-shift-full__feedback--success span {
+html[data-portal-theme="obsidian"] .first-shift-full__feedback--success span {
   color: #ffffff;
   background: #286b59;
 }
 
-html[data-portal-theme="altea-dark"] .first-shift-full__sequence small {
+html[data-portal-theme="obsidian"] .first-shift-full__sequence small {
   color: #e1ece8;
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .first-shift-full__button--secondary,
   .first-shift-full__platform-grid a
 ) {
   color: var(--portal-link);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .first-shift-full__progress-copy,
   .first-shift-full__phases li,
   .first-shift-full__lesson,
@@ -1216,17 +1127,17 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface-soft);
 }
 
-html[data-portal-theme="altea-dark"] :is(.first-shift-full__feedback--error, .first-shift-full__stop) {
+html[data-portal-theme="obsidian"] :is(.first-shift-full__feedback--error, .first-shift-full__stop) {
   color: #ffaaa4;
   background: #351d1c;
 }
 
-html[data-portal-theme="altea-dark"] .first-shift-full__feedback--success {
+html[data-portal-theme="obsidian"] .first-shift-full__feedback--success {
   color: #8fd2b6;
   background: #183128;
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .manager-funnel,
   .manager-stage,
   .manager-invite-queue,
@@ -1238,7 +1149,7 @@ html[data-portal-theme="altea-dark"] :is(
   background: var(--portal-surface);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .manager-funnel-head h2,
   .manager-queue-head h3,
   .manager-stage > strong
@@ -1246,7 +1157,7 @@ html[data-portal-theme="altea-dark"] :is(
   color: var(--portal-ink);
 }
 
-html[data-portal-theme="altea-dark"] :is(
+html[data-portal-theme="obsidian"] :is(
   .manager-funnel-head p:not(.eyebrow),
   .manager-stage > span:not(.manager-stage-icon),
   .manager-funnel-refresh small,
@@ -1258,32 +1169,28 @@ html[data-portal-theme="altea-dark"] :is(
   color: var(--portal-ink-soft);
 }
 
-html[data-portal-theme="altea-dark"] .manager-stage-warning :is(.manager-stage-icon, .manager-stage-pill),
-html[data-portal-theme="altea-dark"] .manager-stage > span.manager-stage-pill.manager-stage-warning {
+html[data-portal-theme="obsidian"] .manager-stage-warning :is(.manager-stage-icon, .manager-stage-pill),
+html[data-portal-theme="obsidian"] .manager-stage > span.manager-stage-pill.manager-stage-warning {
   color: var(--portal-warning-ink);
   background: var(--portal-warning-bg);
 }
 
-html[data-portal-theme="altea-dark"] .manager-stage-danger :is(.manager-stage-icon, .manager-stage-pill),
-html[data-portal-theme="altea-dark"] .manager-stage > span.manager-stage-pill.manager-stage-danger {
+html[data-portal-theme="obsidian"] .manager-stage-danger :is(.manager-stage-icon, .manager-stage-pill),
+html[data-portal-theme="obsidian"] .manager-stage > span.manager-stage-pill.manager-stage-danger {
   color: var(--portal-danger-ink);
   background: var(--portal-danger-bg);
 }
 
-html[data-portal-theme="altea-dark"] .manager-stage-success :is(.manager-stage-icon, .manager-stage-pill),
-html[data-portal-theme="altea-dark"] .manager-stage > span.manager-stage-pill.manager-stage-success {
+html[data-portal-theme="obsidian"] .manager-stage-success :is(.manager-stage-icon, .manager-stage-pill),
+html[data-portal-theme="obsidian"] .manager-stage > span.manager-stage-pill.manager-stage-success {
   color: var(--portal-success-ink);
   background: var(--portal-success-bg);
 }
 
-html[data-portal-theme="altea-dark"] .manager-stage-info :is(.manager-stage-icon, .manager-stage-pill),
-html[data-portal-theme="altea-dark"] .manager-stage > span.manager-stage-pill.manager-stage-info {
+html[data-portal-theme="obsidian"] .manager-stage-info :is(.manager-stage-icon, .manager-stage-pill),
+html[data-portal-theme="obsidian"] .manager-stage > span.manager-stage-pill.manager-stage-info {
   color: var(--portal-info-ink);
   background: var(--portal-info-bg);
-}
-
-html[data-portal-theme="altea-dark"] .brand-flower {
-  filter: brightness(1.15) saturate(0.9);
 }
 
 @media (max-width: 960px) {
@@ -1295,13 +1202,6 @@ html[data-portal-theme="altea-dark"] .brand-flower {
 
 @media (max-width: 820px) {
   .brand-atmosphere { left: 0; }
-  .auth-theme-control {
-    position: relative;
-    top: auto;
-    right: auto;
-    width: auto;
-    margin: 12px 18px 0;
-  }
   .portal-theme-picker__options,
   .portal-theme-options { grid-template-columns: repeat(2, minmax(92px, 1fr)); }
   .mobile-nav-trigger { width: 44px; height: 44px; }
@@ -1315,10 +1215,6 @@ html[data-portal-theme="altea-dark"] .brand-flower {
   .generation-archive-summary { align-items: flex-start; flex-direction: column; }
   .generation-mobile-hint { display: inline; }
   .generation-week-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
-  .brand-atmosphere__petal--two,
-  .brand-atmosphere__petal--three,
-  .brand-petal-two,
-  .brand-petal-three { display: none; }
 }
 
 @media (max-width: 430px) {
@@ -1329,19 +1225,4 @@ html[data-portal-theme="altea-dark"] .brand-flower {
   .portal-theme-button,
   .portal-theme-option,
   [data-portal-theme-choice] { min-height: 46px; padding-inline: 6px; justify-items: center; font-size: 0.7rem; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand-atmosphere__petal,
-  .brand-petal {
-    display: none !important;
-    animation: none !important;
-  }
-
-  .brand-atmosphere__flower,
-  .brand-flower {
-    animation: none !important;
-    opacity: 0.045;
-    transform: none;
-  }
 }

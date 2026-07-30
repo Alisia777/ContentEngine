@@ -532,7 +532,7 @@ values
     'RECONCILIATION-SKU',
     'Reconciliation product',
     'active',
-    '{"brand":"ALTEA"}'::jsonb,
+    '{"brand":"CONTENT ENGINE"}'::jsonb,
     '97000000-0000-4000-8000-000000000001'
   ),
   (
@@ -541,7 +541,7 @@ values
     'RECONCILIATION-SKU-OTHER',
     'Other organization product',
     'active',
-    '{"brand":"ALTEA"}'::jsonb,
+    '{"brand":"CONTENT ENGINE"}'::jsonb,
     '97000000-0000-4000-8000-000000000001'
   );
 

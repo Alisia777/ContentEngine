@@ -136,7 +136,7 @@ class EngineAuditScorecardService:
             reasons or ["control_room_and_motion_shell_exist"],
             fixes or ["Keep next actions mapped to role and scorecard blockers."],
             "unified_control_room_role_dashboards",
-            [{"label": "Control Room", "href": "/control-room"}, {"label": "ALTEA dashboard", "href": "/altea-motion/dashboard"}],
+            [{"label": "Control Room", "href": "/control-room"}],
             {
                 "control_room_exists": control_room_exists,
                 "role_based_dashboards_exist": role_dashboards,

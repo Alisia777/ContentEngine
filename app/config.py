@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     session_refresh_cookie_max_age_seconds: int = 2_592_000
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
-    public_pilot_default_org: str = "ALTEA Beauty"
+    public_pilot_default_org: str = "ContentEngine Demo"
     public_pilot_invite_only: bool = True
     public_pilot_real_spend_default_enabled: bool = False
     public_pilot_training_threshold: float = 0.8
