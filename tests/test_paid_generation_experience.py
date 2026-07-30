@@ -82,6 +82,14 @@ def test_ready_video_has_preview_and_fresh_open_download_actions() -> None:
         assert token in APP
     assert "state.api.realGenerationStatus" in APP
     assert "link.download" in APP
+    assert "await fetch(url" in APP
+    assert "URL.createObjectURL" in APP
+    assert "URL.revokeObjectURL" in APP
+    download = APP[
+        APP.index("async function downloadGenerationOutput") :
+        APP.index("function canDecideContentReview")
+    ]
+    assert 'link.target = "_blank"' not in download
     assert ".generation-result-preview video" in CSS
 
 

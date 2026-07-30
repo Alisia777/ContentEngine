@@ -2510,6 +2510,18 @@ function normalizeMedia(raw) {
   return {
     id: text(raw.public_id || raw.id || raw.media_id, 180),
     productId: text(raw.product_id || metadata.product_id, 180),
+    productCategory: text(
+      raw.product_category
+      || metadata.content_review_category
+      || metadata.product_category,
+      60,
+    ).toLowerCase(),
+    platform: text(
+      raw.platform
+      || metadata.platform
+      || metadata.generation_platform,
+      40,
+    ).toLowerCase(),
     name: text(raw.original_filename || raw.name || metadata.original_filename || metadata.filename || metadata.name || "Материал", 300),
     mimeType,
     kind,

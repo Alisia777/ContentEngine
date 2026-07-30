@@ -114,7 +114,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260729.4";
+} from "./content-review-view.js?v=20260730.1";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -9164,16 +9164,40 @@ function openGenerationOutput(url, pendingWindow = null) {
   openExternalDownload(url);
 }
 
-function downloadGenerationOutput(url, jobId, photo = false) {
+async function downloadGenerationOutput(url, jobId, photo = false) {
+  const response = await fetch(url, {
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+  });
+  if (!response.ok) {
+    throw new Error("Защищённый файл временно недоступен для скачивания.");
+  }
+  const blob = await response.blob();
+  const expectedType = photo ? "image/png" : "video/mp4";
+  if (
+    !blob.size
+    || (
+      blob.type
+      && blob.type !== expectedType
+      && blob.type !== "application/octet-stream"
+    )
+  ) {
+    throw new Error("Сервис вернул файл неожиданного формата.");
+  }
+  const objectUrl = URL.createObjectURL(
+    blob.type ? blob : new Blob([blob], { type: expectedType }),
+  );
   const link = document.createElement("a");
-  link.href = url;
-  link.target = "_blank";
+  link.href = objectUrl;
   link.rel = "noopener noreferrer";
-  link.referrerPolicy = "no-referrer";
   link.download = `contentengine-${String(jobId || (photo ? "photo" : "video"))}.${photo ? "png" : "mp4"}`;
   document.body.append(link);
-  link.click();
-  link.remove();
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+  }
 }
 
 function canDecideContentReview() {
@@ -9929,6 +9953,26 @@ function syncContentReviewMediaSelection(form, {
 
 function applyGeneratedMediaReviewDefaults(form, media) {
   if (!(form instanceof HTMLFormElement) || media?.kind !== "generated_video") return;
+  const categoryControl = form.elements.product_category;
+  if (
+    categoryControl instanceof HTMLSelectElement
+    && media.productCategory
+    && Array.from(categoryControl.options).some(
+      (option) => option.value === media.productCategory,
+    )
+  ) {
+    categoryControl.value = media.productCategory;
+  }
+  const platformControl = form.elements.platform;
+  if (
+    platformControl instanceof HTMLSelectElement
+    && media.platform
+    && Array.from(platformControl.options).some(
+      (option) => option.value === media.platform,
+    )
+  ) {
+    platformControl.value = media.platform;
+  }
   if (form.elements.content_kind) form.elements.content_kind.value = "advertising";
   if (form.elements.ai_generated) form.elements.ai_generated.checked = true;
   if (
@@ -12011,7 +12055,7 @@ async function handleClick(event) {
       if (["succeeded", "completed"].includes(status) && signedUrl) {
         if (!isTrustedGenerationDownload(signedUrl)) throw new Error("Сервис вернул небезопасную ссылку на результат.");
         if (outputAction === "download") {
-          downloadGenerationOutput(signedUrl, jobId, photo);
+          await downloadGenerationOutput(signedUrl, jobId, photo);
           toast(`${contentLabel} готов${photo ? "о" : ""}. Браузеру передан свежий ${photo ? "PNG" : "MP4"}-файл.`, "success");
         } else if (outputAction === "open") {
           openGenerationOutput(signedUrl, pendingWindow);
@@ -16479,17 +16523,6 @@ async function submitContentReview(form) {
     if (form.elements.content_kind) form.elements.content_kind.value = "advertising";
     if (form.elements.ai_generated) form.elements.ai_generated.checked = true;
     syncContentReviewFormVisibility(form);
-    if (
-      !input.advertiser_name ||
-      !input.erid ||
-      !input.ad_label_confirmed ||
-      !input.ord_confirmed ||
-      !input.rights_confirmed
-    ) {
-      toast("Готовый платный AI-ролик проверяется только как реклама. Заполните рекламодателя и ERID, подтвердите маркировку, ОРД и права. Claims из approved research сервер свяжет автоматически; итог всё равно проверяет человек.", "error");
-      form.elements.advertiser_name?.focus();
-      return;
-    }
   }
   if (input.people_present === "yes" && !input.person_consent_confirmed) {
     toast("В кадре есть узнаваемые люди, но согласие не подтверждено. Проверка продолжится и зафиксирует это как риск.", "info");

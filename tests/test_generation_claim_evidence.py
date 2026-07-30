@@ -171,7 +171,7 @@ def test_browser_accepts_bound_research_but_not_unavailable_evidence() -> None:
     assert "immutable snapshot approved AI research" in VIEW
 
 
-def test_generated_video_no_longer_requires_redundant_manual_claim_checkbox() -> None:
+def test_generated_video_quality_scan_is_independent_from_release_confirmations() -> None:
     submit_start = APP.index("async function submitContentReview(form)")
     submit_end = APP.index("persistContentReviewDraft(form)", submit_start)
     submit = APP[submit_start:submit_end]
@@ -180,8 +180,11 @@ def test_generated_video_no_longer_requires_redundant_manual_claim_checkbox() ->
         submit.index('if (input.people_present === "yes"')
     ]
     assert "!input.claims_verified" not in generated_gate
-    assert "!input.rights_confirmed" in generated_gate
-    assert "Claims из approved research сервер свяжет автоматически" in generated_gate
+    assert "!input.rights_confirmed" not in generated_gate
+    assert "!input.ad_label_confirmed" not in generated_gate
+    assert "!input.ord_confirmed" not in generated_gate
+    assert "return;" not in generated_gate
+    assert 'input.content_kind = "advertising"' in generated_gate
 
 
 def test_training_explains_research_provenance_and_human_boundary() -> None:
@@ -198,9 +201,9 @@ def test_training_explains_research_provenance_and_human_boundary() -> None:
 
 
 def test_claim_evidence_release_bumps_browser_modules_and_error_copy() -> None:
-    assert "./content-review-view.js?v=20260729.4" in APP
+    assert "./content-review-view.js?v=20260730.1" in APP
     assert "./supabase-api.js?v=20260729.2" in APP
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in APP
-    assert "./app.js?v=20260730.1" in INDEX
+    assert "./app.js?v=20260730.2" in INDEX
     assert "generation_research_claim_evidence_invalid" in ADAPTER
     assert "Платный запуск не создан" in ADAPTER

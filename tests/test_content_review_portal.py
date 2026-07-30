@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260729.4' in APP
+    assert './content-review-view.js?v=20260730.1' in APP
     assert './content-review.css?v=20260729.2' in INDEX
-    assert './app.js?v=20260730.1' in INDEX
+    assert './app.js?v=20260730.2' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -596,7 +596,10 @@ def test_generated_paid_video_is_prefilled_as_advertising_before_paid_review() -
     assert "applyGeneratedMediaReviewDefaults" in APP
     assert 'input.content_kind = "advertising"' in APP
     assert "input.ai_generated = true" in APP
-    assert "Готовый платный AI-ролик проверяется только как реклама" in APP
+    assert "categoryControl.value = media.productCategory" in APP
+    assert "platformControl.value = media.platform" in APP
+    assert "Готовый платный AI-ролик проверяется только как реклама" not in APP
+    assert "Проверка продолжится, но публикация, скорее всего, будет заблокирована" in APP
     assert "external_ai_processing_basis_required" in API
 
 
