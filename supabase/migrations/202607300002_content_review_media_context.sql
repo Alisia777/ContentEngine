@@ -30,6 +30,8 @@ declare
   catalog_value jsonb;
   media_value jsonb;
 begin
+  -- The delegated catalog already includes the privacy-minimized
+  -- repair_next_action added by the previous wrapper.
   catalog_value :=
     content_factory_private
       .creator_content_review_catalog_without_media_context(p_payload);

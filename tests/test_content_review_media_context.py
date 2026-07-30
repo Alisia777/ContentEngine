@@ -16,6 +16,7 @@ APP = (ROOT / "web" / "app" / "app.js").read_text(encoding="utf-8")
 
 def test_review_catalog_exposes_only_exact_category_and_platform_context() -> None:
     assert "creator_content_review_catalog_without_media_context" in MIGRATION
+    assert "repair_next_action" in MIGRATION
     assert "catalog_value -> 'media'" in MIGRATION
     assert "product.metadata ->> 'content_review_category'" in MIGRATION
     assert "product.metadata ->> 'product_category'" in MIGRATION
