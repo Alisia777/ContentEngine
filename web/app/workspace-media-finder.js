@@ -7,7 +7,7 @@
 const MEDIA_ROUTE = "/workspace/media";
 const STATE_KEY = "contentengine.media-finder.v2";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
-const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
+const QUICK_CLOSE_MS = 220;
 
 const ICONS = Object.freeze({
   grid: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
@@ -34,6 +34,7 @@ const runtime = {
   selected: null,
   quickLook: null,
   upload: null,
+  transitionTimer: 0,
   memory: readMemory(),
 };
 
@@ -89,7 +90,13 @@ function mediaFacts(card) {
     : /пример|референс|желаем/u.test(kindText)
       ? "reference"
       : isVideo ? "video" : "image";
-  return { name, meta, isVideo, kind, searchable: `${name} ${meta}`.toLocaleLowerCase("ru-RU") };
+  return {
+    name,
+    meta,
+    isVideo,
+    kind,
+    searchable: `${name} ${meta}`.toLocaleLowerCase("ru-RU"),
+  };
 }
 
 function annotateCards() {
@@ -141,10 +148,17 @@ function sortCards(sort) {
   if (!runtime.grid) return;
   const ordered = [...runtime.cards].sort((left, right) => {
     if (sort === "type") {
-      const byType = String(left.dataset.mediaFinderMeta || "").localeCompare(String(right.dataset.mediaFinderMeta || ""), "ru");
+      const byType = String(left.dataset.mediaFinderMeta || "").localeCompare(
+        String(right.dataset.mediaFinderMeta || ""),
+        "ru",
+      );
       if (byType) return byType;
     }
-    return String(left.dataset.mediaFinderName || "").localeCompare(String(right.dataset.mediaFinderName || ""), "ru", { sensitivity: "base" });
+    return String(left.dataset.mediaFinderName || "").localeCompare(
+      String(right.dataset.mediaFinderName || ""),
+      "ru",
+      { sensitivity: "base" },
+    );
   });
   ordered.forEach((card) => runtime.grid.append(card));
   runtime.cards = ordered;
@@ -152,8 +166,7 @@ function sortCards(sort) {
 
 function refreshFolderCounts() {
   qa("[data-media-folder]", runtime.page).forEach((button) => {
-    const folder = button.dataset.mediaFolder;
-    const count = runtime.cards.filter((card) => folderMatches(card, folder)).length;
+    const count = runtime.cards.filter((card) => folderMatches(card, button.dataset.mediaFolder)).length;
     const target = q("b", button);
     if (target) target.textContent = String(count);
   });
@@ -162,7 +175,9 @@ function refreshFolderCounts() {
 function applyFilters() {
   if (!runtime.page) return;
   const folder = String(runtime.memory.folder || "all");
-  const queryText = String(q("[data-media-search]", runtime.page)?.value || "").trim().toLocaleLowerCase("ru-RU");
+  const queryText = String(q("[data-media-search]", runtime.page)?.value || "")
+    .trim()
+    .toLocaleLowerCase("ru-RU");
   const sort = String(q("[data-media-sort]", runtime.page)?.value || runtime.memory.sort || "name");
   sortCards(sort);
   let shown = 0;
@@ -203,38 +218,56 @@ function quickLookSource(card) {
   const video = q(".media-preview video", card);
   if (video?.src) return { kind: "video", src: video.src };
   const open = q('.media-info a[target="_blank"]', card);
-  return open?.href ? { kind: card.dataset.mediaFinderType || "image", src: open.href } : null;
+  return open?.href
+    ? { kind: card.dataset.mediaFinderType || "image", src: open.href }
+    : null;
 }
 
-function closeQuickLook({ restoreFocus = true } = {}) {
+function closeQuickLook({ restoreFocus = true, immediate = false } = {}) {
   const overlay = runtime.quickLook;
-  if (!overlay) return;
+  if (!overlay) return Promise.resolve();
+  window.clearTimeout(runtime.transitionTimer);
   q("video", overlay)?.pause?.();
   overlay.classList.add("is-closing");
-  const finish = () => {
-    overlay.remove();
-    runtime.quickLook = null;
-    document.body.classList.remove("media-quicklook-open");
-    if (restoreFocus) runtime.selected?.focus?.({ preventScroll: true });
-  };
-  if (REDUCED_MOTION.matches) finish();
-  else window.setTimeout(finish, 220);
+  return new Promise((resolve) => {
+    const finish = () => {
+      overlay.remove();
+      if (runtime.quickLook === overlay) {
+        runtime.quickLook = null;
+        document.body.classList.remove("media-quicklook-open");
+      }
+      if (restoreFocus) runtime.selected?.focus?.({ preventScroll: true });
+      resolve();
+    };
+    if (immediate || REDUCED_MOTION.matches) finish();
+    else runtime.transitionTimer = window.setTimeout(finish, QUICK_CLOSE_MS);
+  });
 }
 
-function quickLookNavigate(direction) {
+async function quickLookNavigate(direction) {
   const cards = visibleCards();
   if (!cards.length) return;
   const current = Math.max(0, cards.indexOf(runtime.selected));
   const next = cards[(current + direction + cards.length) % cards.length];
-  closeQuickLook({ restoreFocus: false });
+  await closeQuickLook({ restoreFocus: false });
   selectCard(next);
-  window.setTimeout(() => openQuickLook(next), REDUCED_MOTION.matches ? 0 : 80);
+  openQuickLook(next);
+}
+
+function quickLookAction(source, label, href, { external = false } = {}) {
+  if (!href) return null;
+  const anchor = elementFrom(`<a>${source || ""}<span>${label}</span></a>`);
+  anchor.href = href;
+  if (external) {
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+  }
+  return anchor;
 }
 
 function openQuickLook(card) {
-  if (!card || card.hidden) return;
+  if (!card || card.hidden || runtime.quickLook) return;
   selectCard(card);
-  closeQuickLook({ restoreFocus: false });
   const source = quickLookSource(card);
   const overlay = elementFrom(`
     <div class="media-quicklook-backdrop">
@@ -255,6 +288,7 @@ function openQuickLook(card) {
   q("#media-quicklook-title", overlay).textContent = card.dataset.mediaFinderName || "Материал";
   q(".media-quicklook__meta strong", overlay).textContent = card.dataset.mediaFinderName || "Материал";
   q(".media-quicklook__meta small", overlay).textContent = card.dataset.mediaFinderMeta || "";
+
   const stage = q(".media-quicklook__stage", overlay);
   if (source?.src) {
     stage.textContent = "";
@@ -272,26 +306,24 @@ function openQuickLook(card) {
       stage.append(image);
     }
   }
+
   const actions = q(".media-quicklook__actions", overlay);
   const open = q('.media-info a[target="_blank"]', card);
-  const review = qa(".media-info a", card).find((link) => String(link.getAttribute("href") || "").includes("/workspace/review"));
-  if (open?.href) {
-    const anchor = elementFrom(`<a target="_blank" rel="noopener noreferrer">${icon("external", 16)}<span>Открыть отдельно</span></a>`);
-    anchor.href = open.href;
-    actions.append(anchor);
-  }
-  if (review?.getAttribute("href")) {
-    const anchor = elementFrom('<a><span>Проверить</span></a>');
-    anchor.href = review.getAttribute("href");
-    actions.append(anchor);
-  }
-  const generate = elementFrom('<a href="#/workspace/generation"><span>В генерацию</span></a>');
-  actions.append(generate);
+  const review = qa(".media-info a", card).find((link) =>
+    String(link.getAttribute("href") || "").includes("/workspace/review")
+  );
+  const openAction = quickLookAction(icon("external", 16), "Открыть отдельно", open?.href, { external: true });
+  const reviewAction = quickLookAction("", "Проверить", review?.getAttribute("href"));
+  const generateAction = quickLookAction("", "В генерацию", "#/workspace/generation");
+  [openAction, reviewAction, generateAction].filter(Boolean).forEach((action) => actions.append(action));
 
   overlay.addEventListener("click", (event) => {
-    if (event.target === overlay || (event.target instanceof Element && event.target.closest("[data-media-quick-close]"))) closeQuickLook();
-    if (event.target instanceof Element && event.target.closest("[data-media-quick-prev]")) quickLookNavigate(-1);
-    if (event.target instanceof Element && event.target.closest("[data-media-quick-next]")) quickLookNavigate(1);
+    if (event.target === overlay || (event.target instanceof Element && event.target.closest("[data-media-quick-close]"))) {
+      void closeQuickLook();
+      return;
+    }
+    if (event.target instanceof Element && event.target.closest("[data-media-quick-prev]")) void quickLookNavigate(-1);
+    if (event.target instanceof Element && event.target.closest("[data-media-quick-next]")) void quickLookNavigate(1);
   });
   document.body.append(overlay);
   runtime.quickLook = overlay;
@@ -299,7 +331,7 @@ function openQuickLook(card) {
   q("[data-media-quick-close]", overlay)?.focus({ preventScroll: true });
 }
 
-function closeUpload({ restoreFocus = true } = {}) {
+function closeUpload({ restoreFocus = true, immediate = false } = {}) {
   const overlay = runtime.upload;
   if (!overlay) return;
   overlay.classList.add("is-closing");
@@ -308,12 +340,14 @@ function closeUpload({ restoreFocus = true } = {}) {
     const parking = q("[data-media-upload-parking]", runtime.page);
     if (card && parking) parking.append(card);
     overlay.remove();
-    runtime.upload = null;
-    document.body.classList.remove("media-upload-sheet-open");
+    if (runtime.upload === overlay) {
+      runtime.upload = null;
+      document.body.classList.remove("media-upload-sheet-open");
+    }
     if (restoreFocus) q("[data-media-open-upload]", runtime.page)?.focus({ preventScroll: true });
   };
-  if (REDUCED_MOTION.matches) finish();
-  else window.setTimeout(finish, 220);
+  if (immediate || REDUCED_MOTION.matches) finish();
+  else window.setTimeout(finish, QUICK_CLOSE_MS);
 }
 
 function openUpload() {
@@ -329,7 +363,9 @@ function openUpload() {
     </div>`);
   q(".media-finder-upload-sheet__body", overlay).append(card);
   overlay.addEventListener("click", (event) => {
-    if (event.target === overlay || (event.target instanceof Element && event.target.closest("[data-media-upload-close]"))) closeUpload();
+    if (event.target === overlay || (event.target instanceof Element && event.target.closest("[data-media-upload-close]"))) {
+      closeUpload();
+    }
   });
   document.body.append(overlay);
   runtime.upload = overlay;
@@ -376,10 +412,26 @@ function createFinder() {
     </section>`);
 }
 
+function clearRouteState() {
+  window.clearTimeout(runtime.transitionTimer);
+  runtime.quickLook?.remove();
+  runtime.upload?.remove();
+  runtime.quickLook = null;
+  runtime.upload = null;
+  runtime.page = null;
+  runtime.grid = null;
+  runtime.cards = [];
+  runtime.selected = null;
+  document.body.classList.remove(
+    "contentengine-media-finder-open",
+    "media-quicklook-open",
+    "media-upload-sheet-open",
+  );
+}
+
 function mountFinder() {
   if (routePath() !== MEDIA_ROUTE) {
-    document.body.classList.remove("contentengine-media-finder-open");
-    runtime.page = null;
+    clearRouteState();
     return;
   }
   const form = q("#media-upload-form");
@@ -390,6 +442,7 @@ function mountFinder() {
     document.body.classList.add("contentengine-media-finder-open");
     return;
   }
+
   page.dataset.mediaFinderReady = "true";
   page.classList.add("media-finder-page");
   document.body.classList.add("contentengine-media-finder-open");
@@ -397,7 +450,9 @@ function mountFinder() {
 
   const layout = q(":scope > .split-grid-media", page);
   const uploadCard = form.closest("section.card");
-  const library = qa(":scope > section", layout).find((section) => section !== uploadCard) || q(".media-grid", page)?.parentElement;
+  const library = qa(":scope > section", layout)
+    .find((section) => section !== uploadCard)
+    || q(".media-grid", page)?.parentElement;
   const topbar = createTopbar();
   const finder = createFinder();
   const anchor = q(":scope > .page-header", page) || layout || page.firstElementChild;
@@ -451,7 +506,9 @@ function mountFinder() {
   });
   runtime.grid.addEventListener("dblclick", (event) => {
     const card = event.target instanceof Element ? event.target.closest(".media-card") : null;
-    if (card && !(event.target instanceof Element && event.target.closest("a, video, .btn"))) openQuickLook(card);
+    if (card && !(event.target instanceof Element && event.target.closest("a, video, .btn"))) {
+      openQuickLook(card);
+    }
   });
 
   setView(String(runtime.memory.view || "grid"));
@@ -463,13 +520,13 @@ function handleKeydown(event) {
   if (runtime.quickLook) {
     if (event.key === "Escape") {
       event.preventDefault();
-      closeQuickLook();
+      void closeQuickLook();
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      quickLookNavigate(-1);
+      void quickLookNavigate(-1);
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      quickLookNavigate(1);
+      void quickLookNavigate(1);
     }
     return;
   }
