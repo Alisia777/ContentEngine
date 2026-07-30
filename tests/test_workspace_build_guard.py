@@ -57,7 +57,7 @@ def test_build_guard_has_accessible_update_and_manual_status() -> None:
         'role", "status"',
         'aria-live", "polite"',
         'Рабочее место обновилось',
-        'Открытые серверные задачи продолжат работу',
+        'открытые серверные задачи продолжат работу',
         'ContentEngineBuildGuard',
         '.ce-build-update',
         '.ce-build-pill',
