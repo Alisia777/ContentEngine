@@ -259,7 +259,7 @@ def test_api_boundary_revalidates_receipt_before_app_state() -> None:
 
 
 def test_release_versions_include_the_readiness_module_and_gate() -> None:
-    assert "./app.js?v=20260730.3" in INDEX
+    assert "./app.js?v=20260730.4" in INDEX
     assert "./supabase-api.js?v=20260729.2" in APP
     assert (
         "./generation-provider-readiness.js?v=20260728.2"

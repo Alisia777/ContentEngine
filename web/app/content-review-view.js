@@ -2500,7 +2500,9 @@ function normalizeMedia(raw) {
   const kind = text(raw.kind || metadata.kind, 80).toLowerCase();
   const isVideo = mimeType === "video/mp4" || kind === "source_video" || kind === "generated_video";
   const isImage = mimeType.startsWith("image/") || ["product_photo", "packshot", "creator_reference"].includes(kind);
-  const url = safeMediaUrl(raw.signed_url || raw.access_url || raw.preview_url);
+  const url = safeMediaUrl(
+    raw.signed_url || raw.access_url || raw.preview_url || raw.url,
+  );
   const model = text(metadata.model, 120).toLowerCase();
   const audioExpected = typeof metadata.audio === "boolean"
     ? metadata.audio
