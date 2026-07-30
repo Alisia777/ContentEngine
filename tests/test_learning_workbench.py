@@ -31,19 +31,23 @@ def test_learning_home_becomes_a_keyboard_accessible_desktop() -> None:
 def test_current_task_advances_only_after_confirmed_course_completion() -> None:
     assert 'data-action="complete-course"' in SCRIPT
     assert "courseIsConfirmedComplete" in SCRIPT
+    assert "homeCourseIsConfirmedComplete" in SCRIPT
     assert "COURSE_ADVANCE_PENDING_KEY" in SCRIPT
     assert "FORCE_TASK_PANEL_KEY" in SCRIPT
     assert 'window.location.hash = "#/learn"' in SCRIPT
     assert "setTimeout" in SCRIPT
 
 
-def test_direct_course_return_consumes_transition_flag_once() -> None:
+def test_failed_completion_cannot_fake_the_next_desk() -> None:
+    assert "completionButton.dataset.moduleCode" in SCRIPT
+    assert "writeStorage(COURSE_ADVANCE_PENDING_KEY, courseCode)" in SCRIPT
+    assert "const pendingCourseCode = readStorage(COURSE_ADVANCE_PENDING_KEY);" in SCRIPT
     assert (
-        'const completedCourseReturn = readStorage(COURSE_ADVANCE_PENDING_KEY) '
-        '=== "true";'
+        "const completedCourseReturn = homeCourseIsConfirmedComplete("
+        "root, pendingCourseCode);"
     ) in SCRIPT
-    assert "const forcedTaskPanel = completedCourseReturn ||" in SCRIPT
     assert SCRIPT.count("removeStorage(COURSE_ADVANCE_PENDING_KEY);") >= 2
+    assert "pendingCourseCode !== currentCourseCode" in SCRIPT
     assert "taskChanged || forcedTaskPanel ? \"task\" : savedPanel" in SCRIPT
 
 
