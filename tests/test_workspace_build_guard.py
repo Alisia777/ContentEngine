@@ -19,7 +19,7 @@ def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
     assert build_id == "20260731.os2.1"
     assert f'content="{build_id}"' in APP_INDEX
-    assert f'?build={build_id}' in ROOT_INDEX
+    assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
 
 
