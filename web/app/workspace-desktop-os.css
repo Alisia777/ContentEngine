@@ -1,0 +1,251 @@
+/*
+ * ContentEngine Desktop OS
+ * Immersive review and academy workspaces plus a macOS-like application Dock.
+ */
+
+:root {
+  --ce-os-bg: #090807;
+  --ce-os-panel: rgba(20, 17, 15, 0.92);
+  --ce-os-panel-solid: #15120f;
+  --ce-os-panel-raised: #1c1814;
+  --ce-os-line: rgba(255, 255, 255, 0.085);
+  --ce-os-line-strong: rgba(255, 255, 255, 0.14);
+  --ce-os-text: #fff7ef;
+  --ce-os-muted: #9e9188;
+  --ce-os-dim: #6f655e;
+  --ce-os-copper: #e88245;
+  --ce-os-copper-bright: #ffad76;
+  --ce-os-copper-soft: rgba(232, 130, 69, 0.11);
+  --ce-os-danger: #ee8177;
+  --ce-os-warning: #dfb165;
+  --ce-os-success: #86bfa4;
+  --ce-os-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ce-mac-dock-height: 74px;
+}
+
+body.ce-os-dock-visible {
+  padding-bottom: calc(var(--ce-mac-dock-height) + env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+/* --------------------------------------------------------------------------
+   macOS-like application Dock
+   -------------------------------------------------------------------------- */
+
+.ce-mac-dock {
+  position: fixed;
+  z-index: 220;
+  right: 0;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 14px;
+  pointer-events: none;
+}
+
+.ce-mac-dock__glass {
+  position: relative;
+  display: flex;
+  min-height: 62px;
+  max-width: min(92vw, 860px);
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 21px;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.025)),
+    rgba(17, 14, 12, 0.78);
+  box-shadow:
+    0 26px 80px rgba(0, 0, 0, 0.52),
+    0 8px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.42);
+  pointer-events: auto;
+  backdrop-filter: blur(30px) saturate(1.35);
+  -webkit-backdrop-filter: blur(30px) saturate(1.35);
+}
+
+.ce-mac-dock__glass::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% -35%, rgba(255, 255, 255, 0.16), transparent 58%);
+  content: "";
+  pointer-events: none;
+}
+
+.ce-mac-dock__item {
+  --ce-dock-scale: 1;
+  --ce-dock-lift: 0px;
+  --ce-dock-z: 2;
+  position: relative;
+  z-index: var(--ce-dock-z);
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  padding: 0;
+  border: 0;
+  align-items: end;
+  justify-items: center;
+  color: #d6cbc3;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transform: translate3d(0, var(--ce-dock-lift), 0) scale(var(--ce-dock-scale));
+  transform-origin: 50% 100%;
+  transition:
+    transform 410ms var(--ce-os-spring),
+    color 180ms ease,
+    filter 220ms ease;
+}
+
+.ce-mac-dock__icon {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 13px;
+  place-items: center;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.018)),
+    #211c18;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  transition:
+    border-color 190ms ease,
+    background 220ms ease,
+    box-shadow 260ms var(--ce-os-spring);
+}
+
+.ce-mac-dock__item:hover,
+.ce-mac-dock__item:focus-visible {
+  color: #fff9f3;
+  outline: none;
+}
+
+.ce-mac-dock__item:hover .ce-mac-dock__icon,
+.ce-mac-dock__item:focus-visible .ce-mac-dock__icon {
+  border-color: rgba(232, 130, 69, 0.3);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 180, 128, 0.18), transparent 72%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(232, 130, 69, 0.08)),
+    #241b16;
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(232, 130, 69, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.11);
+}
+
+.ce-mac-dock__item > i {
+  width: 5px;
+  height: 5px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.ce-mac-dock__item.is-active > i {
+  background: var(--ce-os-copper-bright);
+  box-shadow: 0 0 9px rgba(255, 173, 118, 0.45);
+}
+
+.ce-mac-dock__item.is-active .ce-mac-dock__icon {
+  color: #fff9f3;
+  border-color: rgba(232, 130, 69, 0.34);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 179, 124, 0.2), transparent 70%),
+    linear-gradient(145deg, rgba(232, 130, 69, 0.16), rgba(255, 255, 255, 0.035)),
+    #261b15;
+}
+
+.ce-mac-dock__tooltip {
+  position: absolute;
+  bottom: calc(100% + 13px);
+  left: 50%;
+  max-width: 190px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #f8eee6;
+  background: rgba(17, 14, 12, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+  font-size: 0.65rem;
+  font-weight: 720;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 7px) scale(0.96);
+  transition: opacity 140ms ease, transform 180ms var(--ce-os-spring);
+  white-space: nowrap;
+  backdrop-filter: blur(16px);
+}
+
+.ce-mac-dock__item:hover .ce-mac-dock__tooltip,
+.ce-mac-dock__item:focus-visible .ce-mac-dock__tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.ce-mac-dock__separator {
+  width: 1px;
+  height: 36px;
+  margin: 0 4px 5px;
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.ce-mac-dock__mission {
+  font: inherit;
+}
+
+.ce-os-icon {
+  display: block;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Immersive application geometry
+   -------------------------------------------------------------------------- */
+
+body.contentengine-review-os-open,
+body.contentengine-academy-os-open {
+  overflow-x: hidden;
+  background: var(--ce-os-bg);
+}
+
+body.contentengine-review-os-open .workspace-shell,
+body.contentengine-academy-os-open .workspace-shell {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body.contentengine-review-os-open .workspace-shell > .sidebar,
+body.contentengine-academy-os-open .workspace-shell > .sidebar {
+  display: none !important;
+}
+
+body.contentengine-review-os-open .workspace-main,
+body.contentengine-academy-os-open .workspace-main {
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+body.contentengine-review-os-open .workspace-deckbar,
+body.contentengine-academy-os-open .workspace-deckbar,
+body.contentengine-review-os-open .learning-command-bar,
+body.contentengine-academy-os-open .learning-command-bar,
+body.contentengine-review-os-open .workspace-task-dock,
+body.contentengine-academy-os-open .workspace-task-dock {
+  display: none !important;
+}
+
+body.contentengine-review-os-open #workspace-content,
+body.contentengine-academy-os-open #workspace-content,
+body.contentengine-academy-os-open #main-content {
+  min-width: 0;
+}
