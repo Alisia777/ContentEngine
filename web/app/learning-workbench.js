@@ -319,9 +319,11 @@ function makeMenubar(progress, taskTitle) {
   const bar = element("header", "lwb-menubar");
   bar.innerHTML = `
     <div class="lwb-menubar__brand"><span class="lwb-menubar__mark" aria-hidden="true">КИ</span><div><strong>Учебный рабочий стол</strong><small>Контент ИИ Завод</small></div></div>
-    <div class="lwb-menubar__task"><span>На столе</span><strong>${taskTitle || "Текущая задача"}</strong></div>
-    <div class="lwb-menubar__progress"><span>Готовность</span><strong>${progress || "0%"}</strong></div>
+    <div class="lwb-menubar__task"><span>На столе</span><strong data-lwb-menubar-task></strong></div>
+    <div class="lwb-menubar__progress"><span>Готовность</span><strong data-lwb-menubar-progress></strong></div>
   `;
+  bar.querySelector("[data-lwb-menubar-task]").textContent = taskTitle || "Текущая задача";
+  bar.querySelector("[data-lwb-menubar-progress]").textContent = progress || "0%";
   return bar;
 }
 
@@ -339,7 +341,9 @@ function showAdvanceNotice(shell, title = "Следующий стол гото�
   window.clearTimeout(advanceTimer);
   shell.querySelector(".lwb-advance-notice")?.remove();
   const notice = element("div", "lwb-advance-notice", { role: "status" });
-  notice.innerHTML = `<span aria-hidden="true">✓</span><div><strong>${title}</strong><small>${description}</small></div>`;
+  notice.innerHTML = '<span aria-hidden="true">✓</span><div><strong></strong><small></small></div>';
+  notice.querySelector("strong").textContent = title;
+  notice.querySelector("small").textContent = description;
   shell.append(notice);
   requestAnimationFrame(() => notice.classList.add("is-visible"));
   advanceTimer = window.setTimeout(() => {
@@ -446,9 +450,11 @@ function makeCourseChrome(root) {
   const chrome = element("header", "lwb-course-chrome");
   chrome.innerHTML = `
     <a href="#/learn" aria-label="Вернуться на учебный рабочий стол">← <span>Рабочий стол</span></a>
-    <div><small>Открытая задача</small><strong>${title || "Учебный блок"}</strong></div>
-    <span class="lwb-course-chrome__status"><i></i>${status || "В работе"}</span>
+    <div><small>Открытая задача</small><strong data-lwb-course-title></strong></div>
+    <span class="lwb-course-chrome__status"><i></i><span data-lwb-course-status></span></span>
   `;
+  chrome.querySelector("[data-lwb-course-title]").textContent = title || "Учебный блок";
+  chrome.querySelector("[data-lwb-course-status]").textContent = status || "В работе";
   root.prepend(chrome);
 }
 
