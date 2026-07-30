@@ -114,7 +114,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260730.3";
+} from "./content-review-view.js?v=20260730.4";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -10474,13 +10474,14 @@ function renderTasksSection(sectionState) {
 function taskCard(item) {
   const checklist = Array.isArray(item.checklist) ? item.checklist : item.checklist_json || [];
   const payoutMinor = Math.max(0, Number(item.payout_minor || 0));
+  const instructions = taskInstructions(item);
   return `
     <article class="card task-card" data-task-id="${escapeHtml(item.id || item.task_id || "")}" tabindex="-1">
       <div class="task-top">
         <div>
           <p class="eyebrow">${escapeHtml(humanTaskType(item.task_type))} · приоритет ${Number(item.priority || 3)}</p>
           <h3>${escapeHtml(item.title || `Задача #${item.id}`)}</h3>
-          <p>${escapeHtml(item.instructions || "Следуйте чек-листу и сохраните результат в этой задаче.")}</p>
+          <p>${escapeHtml(instructions)}</p>
         </div>
         ${statusBadge(item.status || "todo")}
       </div>
@@ -10494,6 +10495,21 @@ function taskCard(item) {
       </div>
     </article>
   `;
+}
+
+function taskInstructions(item) {
+  const result = item.result && typeof item.result === "object"
+    ? item.result
+    : item.result_json && typeof item.result_json === "object"
+      ? item.result_json
+      : {};
+  const generatedVideoReady = item.task_type === "video_review"
+    && String(result.generation_status || "").toLowerCase() === "succeeded"
+    && String(result.output_media_id || "").trim();
+  if (generatedVideoReady && ["submitted", "review"].includes(String(item.status || "todo"))) {
+    return "Ролик готов. Откройте проверку контента, полностью просмотрите точный MP4 со звуком и сохраните решение человека. Не принимайте и не блокируйте эту задачу напрямую.";
+  }
+  return item.instructions || "Следуйте чек-листу и сохраните результат в этой задаче.";
 }
 
 function taskActionsMarkup(item) {
@@ -10525,7 +10541,7 @@ function taskActionsMarkup(item) {
     const preparedEvidence = generatedVideoQaEvidenceForMedia(String(result.output_media_id || ""));
     return `
       <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}">${preparedEvidence?.status === "ready" ? "Продолжить готовую проверку" : "Открыть проверку контента"}</button>
-      ${manager ? action("blocked", "Вернуть с блокером", true) : ""}
+      <span class="muted tiny">Итог фиксируется только внутри проверки контента.</span>
     `;
   }
 

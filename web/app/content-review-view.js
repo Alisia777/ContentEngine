@@ -251,17 +251,24 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
       ? normalizeGenerationRepairNextAction(repairNextActionSource)
       : previous?.repairNextAction || null,
     rulesetVersion: text(
-      source.ruleset_version || envelope.ruleset_version || result.rulesetVersion || previous?.rulesetVersion,
+      source.ruleset_version || source.rulesetVersion
+      || envelope.ruleset_version || envelope.rulesetVersion
+      || result.rulesetVersion || previous?.rulesetVersion,
       180,
     ),
     failureMessage: text(
-      source.failure_message || source.error_message || envelope.failure_message || previous?.failureMessage,
+      source.failure_message || source.failureMessage
+      || source.error_message || source.errorMessage
+      || envelope.failure_message || envelope.failureMessage
+      || previous?.failureMessage,
       1000,
     ),
     version: positiveInteger(source.version || source.lock_version || previous?.version, 1),
-    createdAt: source.created_at || previous?.createdAt || null,
-    updatedAt: source.updated_at || previous?.updatedAt || null,
-    completedAt: source.completed_at || source.finished_at || previous?.completedAt || null,
+    createdAt: source.created_at || source.createdAt || previous?.createdAt || null,
+    updatedAt: source.updated_at || source.updatedAt || previous?.updatedAt || null,
+    completedAt: source.completed_at || source.completedAt
+      || source.finished_at || source.finishedAt
+      || previous?.completedAt || null,
   };
 }
 
@@ -2335,6 +2342,11 @@ function frameDifference(left, right) {
 function normalizeResult(raw) {
   const source = objectFrom(raw) || {};
   const complianceStatus = normalizeComplianceStatus(source.compliance_status || source.complianceStatus);
+  const findings = arrayValue(source.findings).slice(0, MAX_FINDINGS).map(normalizeFinding);
+  const recommendations = deduplicateRecommendations(
+    findings,
+    arrayValue(source.recommendations).slice(0, MAX_RECOMMENDATIONS).map(normalizeRecommendation),
+  );
   return {
     overallScore: score(source.overall_score ?? source.overallScore),
     scores: normalizeScores(source.scores),
@@ -2342,12 +2354,27 @@ function normalizeResult(raw) {
     blockersCount: nonNegativeInteger(source.blockers_count ?? source.blockersCount),
     warningsCount: nonNegativeInteger(source.warnings_count ?? source.warningsCount),
     strengths: stringList(source.strengths, 20, 500),
-    findings: arrayValue(source.findings).slice(0, MAX_FINDINGS).map(normalizeFinding),
-    recommendations: arrayValue(source.recommendations).slice(0, MAX_RECOMMENDATIONS).map(normalizeRecommendation),
+    findings,
+    recommendations,
     comparison: normalizeComparison(source.comparison),
     speechAnalysis: normalizeSpeechAnalysis(source.speech_analysis || source.speechAnalysis),
     rulesetVersion: text(source.ruleset_version || source.rulesetVersion, 180),
   };
+}
+
+function deduplicateRecommendations(findings, recommendations) {
+  const findingTitles = new Set(findings.map((item) => normalizedTitle(item.title)).filter(Boolean));
+  const seen = new Set();
+  return recommendations.filter((item) => {
+    const key = normalizedTitle(item.title);
+    if (!key || findingTitles.has(key) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizedTitle(value) {
+  return text(value, 500).toLocaleLowerCase("ru-RU").replace(/\s+/gu, " ").trim();
 }
 
 function normalizeInput(raw) {

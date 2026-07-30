@@ -343,6 +343,19 @@ def test_generation_archive_has_clear_busy_live_empty_retry_and_table_semantics(
     assert "focusGenerationArchiveSummary()" in submit_filters
 
 
+def test_ready_generated_video_task_routes_decision_through_content_review() -> None:
+    tasks = _between(APP, "function renderTasksSection", "function renderProductResearchSection")
+    assert "Ролик готов. Откройте проверку контента" in tasks
+    assert "Не принимайте и не блокируйте эту задачу напрямую." in tasks
+    assert "Итог фиксируется только внутри проверки контента." in tasks
+    generated_branch = _between(
+        tasks,
+        'if (generatedVideoReady && ["submitted", "review"].includes(status))',
+        'if (status === "todo")',
+    )
+    assert 'action("blocked"' not in generated_branch
+
+
 def test_dark_component_overrides_keep_controls_and_status_icons_readable() -> None:
     dark_overrides = EXPERIENCE_CSS[EXPERIENCE_CSS.index("/* ALTEA dark theme") :]
 

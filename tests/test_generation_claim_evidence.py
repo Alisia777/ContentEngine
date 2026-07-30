@@ -183,7 +183,7 @@ def test_generated_video_quality_scan_is_independent_from_release_confirmations(
     assert "!input.rights_confirmed" not in generated_gate
     assert "!input.ad_label_confirmed" not in generated_gate
     assert "!input.ord_confirmed" not in generated_gate
-    assert "return;" not in generated_gate
+    assert "resolveGeneratedVideoReviewMedia(media)" in generated_gate
     assert 'input.content_kind = "advertising"' in generated_gate
 
 
@@ -201,9 +201,9 @@ def test_training_explains_research_provenance_and_human_boundary() -> None:
 
 
 def test_claim_evidence_release_bumps_browser_modules_and_error_copy() -> None:
-    assert "./content-review-view.js?v=20260730.3" in APP
+    assert "./content-review-view.js?v=20260730.4" in APP
     assert "./supabase-api.js?v=20260729.2" in APP
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in APP
-    assert "./app.js?v=20260730.5" in INDEX
+    assert "./app.js?v=20260730.6" in INDEX
     assert "generation_research_claim_evidence_invalid" in ADAPTER
     assert "Платный запуск не создан" in ADAPTER

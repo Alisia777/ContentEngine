@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260730.3' in APP
+    assert './content-review-view.js?v=20260730.4' in APP
     assert './content-review.css?v=20260729.2' in INDEX
-    assert './app.js?v=20260730.5' in INDEX
+    assert './app.js?v=20260730.6' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -471,12 +471,81 @@ def test_quality_compliance_and_recommendations_are_independent_and_escaped() ->
     assert "contentReviewHasBlockers" in VIEW
     assert "Высокий балл качества не отменяет" in VIEW
     assert "Что улучшить по приоритету" in VIEW
+    assert "deduplicateRecommendations" in VIEW
+    assert "findingTitles.has(key)" in VIEW
     assert "Сравнение с прошлой проверкой" in VIEW
     assert "escapeHtml(item.title)" in VIEW
     assert "escapeHtml(item.detail)" in VIEW
     assert "escapeHtml(item.action)" in VIEW
     assert ".innerHTML" not in VIEW
     assert "Это фильтр рисков, а не автоматическая юридическая экспертиза" in VIEW
+
+
+def test_recommendation_list_hides_finding_repeats_and_duplicate_titles() -> None:
+    module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
+    script = f"""
+import {{ normalizeContentReviewRun }} from {json.dumps(module_url)};
+const run = normalizeContentReviewRun({{
+  id: "11111111-1111-4111-8111-111111111111",
+  status: "completed",
+  result: {{
+    findings: [
+      {{ code: "AD.ERID", title: "Нет идентификатора рекламы", detail: "ERID отсутствует" }}
+    ],
+    recommendations: [
+      {{ code: "FIX.AD.ERID", title: "Нет идентификатора рекламы", detail: "Добавить ERID" }},
+      {{ code: "EDIT.HOOK.1", title: "Усилить первые секунды", detail: "Показать результат" }},
+      {{ code: "EDIT.HOOK.2", title: "  УСИЛИТЬ   ПЕРВЫЕ СЕКУНДЫ  ", detail: "Дубликат" }}
+    ]
+  }}
+}});
+if (run.result.recommendations.length !== 1) throw new Error(JSON.stringify(run.result.recommendations));
+if (run.result.recommendations[0].title !== "Усилить первые секунды") throw new Error("wrong recommendation");
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_normalized_review_can_be_rendered_again_without_losing_audit_metadata() -> None:
+    module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
+    script = f"""
+import {{ normalizeContentReviewRun }} from {json.dumps(module_url)};
+const first = normalizeContentReviewRun({{
+  id: "11111111-1111-4111-8111-111111111111",
+  status: "completed",
+  created_at: "2026-07-30T13:20:17.936314Z",
+  finished_at: "2026-07-30T13:23:21.028155Z",
+  ruleset_version: "ru-content-compliance-2026-07-16.1",
+  error_message: "safe failure detail"
+}});
+const second = normalizeContentReviewRun(first);
+for (const [key, expected] of Object.entries({{
+  createdAt: "2026-07-30T13:20:17.936314Z",
+  completedAt: "2026-07-30T13:23:21.028155Z",
+  rulesetVersion: "ru-content-compliance-2026-07-16.1",
+  failureMessage: "safe failure detail"
+}})) {{
+  if (second[key] !== expected) throw new Error(`${{key}}=${{second[key]}}`);
+}}
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_catalog_envelope_and_immutable_human_decision_match_sql_contract() -> None:
