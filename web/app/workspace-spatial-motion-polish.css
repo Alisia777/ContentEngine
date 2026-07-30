@@ -1,5 +1,21 @@
 /* Final transform-composition polish for the spatial motion layer. */
 
+/* The spatial layer owns workspace entry motion. Disable the older stacked
+   page/surface entrance so the user sees one coherent movement, not two. */
+html.workspace-spatial-ready .route-enter,
+html.workspace-spatial-ready .route-enter .page-wrap > :is(
+  .page-header,
+  .workspace-page-intro,
+  .home-hero,
+  .home-metrics,
+  .card,
+  .split-grid,
+  .workspace-direction,
+  .home-guidance-grid
+) {
+  animation: none !important;
+}
+
 @keyframes spatial-dock-enter {
   0% { opacity: 0; translate: 0 32px; scale: 0.94; filter: blur(8px); }
   72% { opacity: 1; translate: 0 -2px; scale: 1.006; filter: blur(0); }
