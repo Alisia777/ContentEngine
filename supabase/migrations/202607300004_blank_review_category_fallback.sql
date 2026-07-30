@@ -40,8 +40,6 @@ begin
       ::regprocedure,
     'content_factory_private.enforce_generated_image_review_input()'
       ::regprocedure,
-    'content_factory_private.guard_video_review_content_approval()'
-      ::regprocedure,
     'public.creator_approve_generated_photo_review_with_context(jsonb)'
       ::regprocedure,
     'content_factory_private.creator_start_real_generation_pre_guard_lineage_v8(jsonb)'
@@ -86,8 +84,6 @@ begin
     'public.creator_approve_generated_video_review_with_context(jsonb)'
       ::regprocedure,
     'content_factory_private.enforce_generated_image_review_input()'
-      ::regprocedure,
-    'content_factory_private.guard_video_review_content_approval()'
       ::regprocedure,
     'public.creator_approve_generated_photo_review_with_context(jsonb)'
       ::regprocedure,

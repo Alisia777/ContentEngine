@@ -31,7 +31,6 @@ def test_all_live_generation_and_review_boundaries_use_shared_resolver() -> None
         "creator_start_generated_video_review(jsonb)",
         "creator_approve_generated_video_review_with_context(jsonb)",
         "enforce_generated_image_review_input()",
-        "guard_video_review_content_approval()",
         "creator_approve_generated_photo_review_with_context(jsonb)",
         "creator_start_real_generation_pre_guard_lineage_v8(jsonb)",
     ):
