@@ -114,7 +114,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260730.4";
+} from "./content-review-view.js?v=20260730.5";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -234,6 +234,7 @@ const HOME_SECTION_TIMEOUT_MS = 8_000;
 const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
 const WORKSPACE_BOARD_VISIBLE_STEP = 80;
 const WORKSPACE_BOARD_MEMORY_CAP = 300;
+const WORKSPACE_BOARD_FALLBACK_NOTICE = "Папки временно недоступны. Ниже показаны свежие материалы и задачи без распределения по папкам; основные рабочие действия продолжают работать.";
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
 const PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY = "contentengine.public-recovery-receipt.v1";
 const PUBLIC_RECOVERY_PENDING_STATUSES = new Set(["requesting", "outcome_unknown", "provider_outcome_unknown"]);
@@ -6531,6 +6532,9 @@ async function loadSection(section, options = {}) {
     target.status = "ready";
     if (section === "board") {
       const meta = data?._meta && typeof data._meta === "object" ? data._meta : {};
+      if (state.workspaceBoard.notice === WORKSPACE_BOARD_FALLBACK_NOTICE) {
+        state.workspaceBoard.notice = "";
+      }
       state.workspaceBoard.loadingMore = false;
       state.workspaceBoard.hasMore = meta.has_more === true;
       state.workspaceBoard.nextCursor = meta.next_cursor || null;
@@ -6600,8 +6604,31 @@ async function loadSection(section, options = {}) {
     }
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
-    target.error = error;
-    target.status = "error";
+    if (section === "board") {
+      try {
+        const fallback = await loadWorkspaceBoardFallback();
+        if (
+          requestEpoch !== state.dataEpoch
+          || requestUserId !== state.user?.id
+          || requestId !== target.requestId
+        ) return;
+        target.data = await hydratePrivateMedia(fallback);
+        target.error = null;
+        target.status = "ready";
+        state.workspaceBoard.loadingMore = false;
+        state.workspaceBoard.hasMore = false;
+        state.workspaceBoard.nextCursor = null;
+        state.workspaceBoard.error = "";
+        state.workspaceBoard.notice = WORKSPACE_BOARD_FALLBACK_NOTICE;
+        console.warn("Workspace folders unavailable; rendered safe fallback", error);
+      } catch (fallbackError) {
+        target.error = fallbackError;
+        target.status = "error";
+      }
+    } else {
+      target.error = error;
+      target.status = "error";
+    }
   }
   if (state.route.path === `/workspace/${section}`) render();
   else if (options.rerenderSection && state.route.path === `/workspace/${options.rerenderSection}`) render();
@@ -7758,7 +7785,7 @@ function generationPaidSafetyState(form) {
       || "Восстановите безопасное ТЗ для выбранного режима.";
   } else if (!learningContextBound) {
     stateName = "context";
-    hint = "Верните автоматически собранное ТЗ: изменённый вручную текст не отправляется.";
+    hint = "Ваш замысел сохранён. Подготовьте безопасную версию: портал добавит ограничения товара и модели, не заменяя сюжет.";
   } else {
     stateName = "ready";
   }
@@ -7829,13 +7856,13 @@ function syncGenerationFormReadiness(form) {
       : sku && !learningReady
         ? "Повторите проверку обученного ТЗ"
       : sku && !learningContextBound
-        ? "Восстановите безопасное авто-ТЗ"
+        ? "Подготовьте безопасную версию ТЗ"
       : sku && !spendAllowed
         ? "Платный запуск остановлен лимитом"
         : !readiness.ready
           ? "Заполните обязательные шаги"
         : !promptReady
-          ? "Восстановите безопасное ТЗ"
+          ? "Проверьте и подготовьте ТЗ"
         : sku
           ? `Создать одно платное ${sku.contentKind === "photo" ? "фото" : "видео"} · около $${sku.estimatedUsd}`
           : "Создать dry-run задач";
@@ -8248,12 +8275,12 @@ function renderGenerationSection(sectionState) {
               </label>
             </div>
             <label class="field">
-              <span id="generation-brief-label">${defaultIsReal ? "Сценарий и главная мысль" : "Заметка для dry-run задачи"}</span>
+              <span id="generation-brief-label">${defaultIsReal ? "Ваш замысел ролика" : "Заметка для dry-run задачи"}</span>
               <textarea name="brief" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Кто в кадре, где происходит действие, как показан товар и какую фразу произносит герой"></textarea>
-              <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Авто-ТЗ добавит короткую дословную реплику; перед оплатой её можно уточнить." : defaultMode === REAL_PHOTO_MODE ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар." : "Авто-ТЗ соберёт один 5-секундный проход камеры без речи и новых надписей."}</small>
+              <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Опишите сюжет обычным языком. Портал сохранит ваш замысел и перед оплатой добавит только ограничения товара, камеры и безопасности." : defaultMode === REAL_PHOTO_MODE ? "Опишите желаемый кадр обычным языком. Портал сохранит композицию и добавит ограничения этикетки, геометрии и точного товара." : "Опишите движение камеры обычным языком. Портал сохранит замысел и добавит ограничения модели."}</small>
             </label>
             <div id="generation-brief-assist" class="generation-brief-assist" ${defaultIsReal ? "" : "hidden"}>
-              <button class="btn btn-secondary btn-small" type="button" data-action="restore-auto-generation-brief" disabled>Собрать безопасное ТЗ автоматически</button>
+              <button class="btn btn-secondary btn-small" type="button" data-action="restore-auto-generation-brief" disabled>Проверить мой замысел и подготовить ТЗ</button>
               <small id="generation-auto-brief-status" class="field-hint" role="status">Выберите проверенное фото товара — ТЗ заполнится само.</small>
             </div>
             ${generationLearningMarkup()}
@@ -8541,7 +8568,7 @@ function generationTable(items) {
             ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно и не повторяйте фото — сначала система проверит, был ли запрос принят сервисом.</span></div>`
           : "";
         const failureMarkup = details.status === "failed"
-          ? `<div class="generation-failure" role="alert"><strong>${contentLabel} не ${details.photo ? "создано" : "создан"}</strong><span>${escapeHtml(failure || "Сервис генерации завершил задачу с ошибкой.")}</span></div>`
+          ? `<div class="generation-failure" role="alert"><strong>${contentLabel} не ${details.photo ? "создано" : "создан"}</strong><span>${escapeHtml(failure || "Сервис генерации завершил задачу с ошибкой.")}</span><small>Запуск ${escapeHtml(details.jobId.slice(0, 8))}… · ${escapeHtml(formatDate(item.created_at, true))}${details.failureCode ? ` · код ${escapeHtml(details.failureCode)}` : ""}</small></div>`
           : "";
         const actions = generationActionsMarkup(details);
         const technicalQa = generatedVideoTechnicalQaMarkup(details);
@@ -8564,7 +8591,7 @@ function generationTable(items) {
               ${preview}
             </td>
             <td>${generationCostMarkup(details)}</td>
-            <td>${formatDate(item.created_at)}<br /><small class="muted">${escapeHtml(generationWeekLabel(item.created_at))}</small>${details.checkedAt ? `<br /><small class="muted">Проверено ${formatDate(details.checkedAt, true)}</small>` : ""}</td>
+            <td>${formatDate(item.created_at, true)}<br /><small class="muted">${escapeHtml(generationWeekLabel(item.created_at))}</small>${details.checkedAt ? `<br /><small class="muted">Проверено ${formatDate(details.checkedAt, true)}</small>` : ""}</td>
           </tr>
         `;
       }).join("")}</tbody>
@@ -11097,6 +11124,44 @@ function sectionBody(sectionState, readyMarkup) {
   return readyMarkup;
 }
 
+async function loadWorkspaceBoardFallback() {
+  const [mediaResult, tasksResult] = await Promise.allSettled([
+    withUiTimeout(
+      state.api.workspaceSection("media"),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "workspace_board_media_fallback_timeout",
+    ),
+    withUiTimeout(
+      state.api.workspaceSection("tasks"),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "workspace_board_tasks_fallback_timeout",
+    ),
+  ]);
+  if (mediaResult.status === "rejected" && tasksResult.status === "rejected") {
+    throw mediaResult.reason || tasksResult.reason || new Error("workspace_board_fallback_unavailable");
+  }
+  const mediaData = mediaResult.status === "fulfilled"
+    ? mediaResult.value?.data ?? mediaResult.value ?? {}
+    : {};
+  const tasksData = tasksResult.status === "fulfilled"
+    ? tasksResult.value?.data ?? tasksResult.value ?? {}
+    : {};
+  return {
+    folders: [],
+    media: listFrom(mediaData, "media", "items"),
+    tasks: listFrom(tasksData, "tasks", "items"),
+    capabilities: {
+      manage_folders: false,
+      move_items: false,
+    },
+    _meta: {
+      has_more: false,
+      next_cursor: null,
+      degraded: true,
+    },
+  };
+}
+
 function emptyState(icon, title, message, action = null) {
   const actionMarkup = action?.href
     ? `<a class="btn btn-secondary btn-small empty-state-action" href="${escapeHtml(action.href)}">${escapeHtml(action.label)} <span aria-hidden="true">→</span></a>`
@@ -11734,6 +11799,31 @@ async function handleClick(event) {
     await pollContentReviewStatus({ silent: true, refreshMedia: true });
     scheduleContentReviewPolling(250);
     window.queueMicrotask(() => document.querySelector("[data-review-result-id], .content-review-progress, .content-review-failed")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    return;
+  }
+
+  if (action === "download-content-review-media") {
+    const reviewId = String(control.dataset.reviewId || state.contentReview.record?.id || "").trim();
+    if (!contentReviewUuid(reviewId)) {
+      toast("Не удалось определить проверку. Обновите страницу и попробуйте снова.", "error");
+      return;
+    }
+    control.disabled = true;
+    try {
+      const response = await state.api.contentReviewStatus(reviewId);
+      const hydrated = await hydratePrivateMedia(response, { refreshSignedUrls: true });
+      const run = normalizeContentReviewRun(hydrated, state.contentReview.record);
+      if (!run.media?.isVideo || !run.media.url || run.mediaIsStale) {
+        throw new Error("Точная защищённая версия MP4 сейчас недоступна.");
+      }
+      state.contentReview.record = run;
+      await downloadGenerationOutput(run.media.url, `review-${reviewId}`, false);
+      toast("MP4 скачан.", "success");
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
     return;
   }
 
@@ -13919,7 +14009,7 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
         : mode === REAL_SEEDANCE_MODE
           ? `Авто-ТЗ готово: ${durationSeconds} секунд, точный товар и короткая дословная реплика.`
           : `Авто-ТЗ готово: ${durationSeconds} секунд, одно движение камеры, без речи и новых надписей.`
-      : "ТЗ изменено вручную. Кнопка слева вернёт безопасную версию для выбранного режима.";
+      : "Ваш замысел сохранён. Нажмите кнопку слева: портал добавит ограничения товара, модели и камеры, не заменяя сюжет.";
   }
   return compiled;
 }
@@ -14223,15 +14313,21 @@ function syncGenerationModeForm(form) {
   }
   if (briefHint) {
     briefHint.textContent = seedance
-      ? "Опишите сцену своими словами, затем нажмите «Собрать безопасное ТЗ»: замысел сохранится, а короткая реплика и ограничения добавятся автоматически."
+      ? "Опишите цельный сюжет обычным языком. Портал сохранит ваш замысел, а перед оплатой добавит только ограничения товара, камеры и безопасности."
       : photo
-        ? "Авто-ТЗ соберёт квадратный 2K packshot и зафиксирует этикетку, геометрию и товар."
+        ? "Опишите желаемый кадр обычным языком. Портал сохранит композицию и добавит ограничения этикетки, геометрии и точного товара."
         : real
-          ? `Авто-ТЗ соберёт один ${sku.durationSeconds}-секундный проход камеры без речи и новых надписей.`
+          ? `Опишите движение камеры обычным языком. Портал сохранит замысел и добавит ограничения модели для ${sku.durationSeconds}-секундного ролика.`
           : "Необязательно: добавьте инструкцию исполнителю. Этот текст не запускает рендер.";
   }
   if (briefLabel) {
-    briefLabel.textContent = real ? "Сценарий и главная мысль" : "Заметка для dry-run задачи";
+    briefLabel.textContent = real
+      ? photo
+        ? "Ваш замысел кадра"
+        : seedance
+          ? "Ваш замысел ролика"
+          : "Ваш замысел анимации"
+      : "Заметка для dry-run задачи";
   }
   const spendSnapshot = form.closest(".card")?.querySelector(".generation-spend-snapshot");
   if (spendSnapshot) {
@@ -15240,7 +15336,7 @@ async function submitRealGeneration(form, values, mode) {
   }
   const learningContext = generationLearningContext(form);
   if (!learningContext) {
-    toast("Восстановите безопасное авто-ТЗ перед платным запуском. Ручной текст не будет отправлен без привязки к обучению.", "error");
+    toast("Ваш замысел сохранён. Перед платным запуском подготовьте безопасную версию ТЗ — портал добавит ограничения и не заменит сюжет.", "error");
     scrollElementIntoView(
       form.querySelector("#generation-handoff-panel, #generation-brief-assist"),
       "center",

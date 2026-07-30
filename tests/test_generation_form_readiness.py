@@ -188,8 +188,8 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert ".generation-readiness__steps" in STYLES
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
-    assert './styles.css?v=20260729.3' in INDEX
-    assert './app.js?v=20260730.10' in INDEX
+    assert './styles.css?v=20260730.4' in INDEX
+    assert './app.js?v=20260730.11' in INDEX
 
 
 def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
@@ -240,4 +240,4 @@ def test_paid_mode_outcome_and_human_brief_are_described_truthfully() -> None:
     assert "Замысел пользователя" in (
         ROOT / "web/app/content-generation-handoff.js"
     ).read_text(encoding="utf-8")
-    assert "Опишите сцену своими словами" in APP
+    assert "Опишите цельный сюжет обычным языком" in APP

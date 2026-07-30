@@ -74,7 +74,8 @@ def test_portal_requires_a_product_specific_script_and_never_auto_submits() -> N
     assert "Это кислотный пилинг AHA тридцать и BHA два процента" not in APP
     assert "compileSafeGenerationBrief" in APP
     assert "productName: identity.productName" in APP
-    assert "Авто-ТЗ добавит короткую дословную реплику" in APP
+    assert "Портал сохранит ваш замысел" in APP
+    assert "короткая дословная реплика" in APP
     assert "SEEDANCE_BLOGGER_BRIEF" not in APP
     assert "requestSubmit()" not in APP
 

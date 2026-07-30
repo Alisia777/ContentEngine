@@ -84,6 +84,28 @@ def test_workspace_release_floor_is_wired_end_to_end() -> None:
     assert 'event.key === "Escape"' in APP
 
 
+def test_workspace_board_recovers_with_media_and_tasks_when_folder_rpc_fails() -> None:
+    assert "const WORKSPACE_BOARD_FALLBACK_NOTICE" in APP
+    assert "async function loadWorkspaceBoardFallback()" in APP
+    fallback = APP[
+        APP.index("async function loadWorkspaceBoardFallback()") :
+        APP.index("function emptyState", APP.index("async function loadWorkspaceBoardFallback()"))
+    ]
+    assert 'state.api.workspaceSection("media")' in fallback
+    assert 'state.api.workspaceSection("tasks")' in fallback
+    assert "Promise.allSettled" in fallback
+    assert "manage_folders: false" in fallback
+    assert "move_items: false" in fallback
+    assert "degraded: true" in fallback
+    recovery = APP[
+        APP.index('if (section === "board")', APP.index("async function loadSection")) :
+        APP.index("if (state.route.path ===", APP.index("async function loadSection"))
+    ]
+    assert "loadWorkspaceBoardFallback()" in recovery
+    assert "target.status = \"ready\"" in recovery
+    assert "WORKSPACE_BOARD_FALLBACK_NOTICE" in recovery
+
+
 def test_workspace_persistence_security_and_scaling_primitives_are_server_owned() -> (
     None
 ):

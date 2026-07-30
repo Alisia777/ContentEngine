@@ -92,7 +92,7 @@ body {
 }
 
 html {
-  min-width: 320px;
+  min-width: 0;
   text-size-adjust: 100%;
 }
 
@@ -123,6 +123,14 @@ html[data-portal-theme="obsidian"] :is(p, li, small, label, td) {
 
 html[data-portal-theme="obsidian"] a {
   color: var(--portal-link);
+}
+
+html[data-portal-theme="obsidian"] a.btn-light {
+  color: #14352f;
+}
+
+html[data-portal-theme="obsidian"] a.btn-light:hover {
+  color: #102d29;
 }
 
 /* Product mark --------------------------------------------------------- */

@@ -1154,6 +1154,21 @@
   object-fit: contain;
 }
 
+.content-review-readonly-preview {
+  border-top: 4px solid var(--portal-accent);
+}
+
+.content-review-readonly-preview__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.content-review-readonly-preview__actions .btn {
+  min-height: 44px;
+}
+
 .content-review-safe-zone {
   --safe-zone-top: 10%;
   --safe-zone-right: 14%;

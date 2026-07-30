@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260730.4' in APP
-    assert './content-review.css?v=20260729.2' in INDEX
-    assert './app.js?v=20260730.10' in INDEX
+    assert './content-review-view.js?v=20260730.5' in APP
+    assert './content-review.css?v=20260730.3' in INDEX
+    assert './app.js?v=20260730.11' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -891,7 +891,8 @@ def test_legal_source_links_use_fixed_allowlist_and_ignore_model_urls() -> None:
 
     module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
     script = f"""
-import {{ contentReviewWorkspaceMarkup }} from {json.dumps(module_url)};
+globalThis.window = {{ location: {{ href: "https://portal.test/" }} }};
+const {{ contentReviewWorkspaceMarkup }} = await import({json.dumps(module_url)});
 const run = {{
   id: "review-1",
   status: "completed",
@@ -928,6 +929,52 @@ if (html.includes("<img src=x")) throw new Error("finding content was not escape
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_completed_readonly_video_can_be_watched_with_sound_and_downloaded() -> None:
+    module_url = (APP_DIR / "content-review-view.js").resolve().as_uri()
+    script = f"""
+globalThis.window = {{ location: {{ href: "https://portal.test/" }} }};
+const {{ contentReviewWorkspaceMarkup }} = await import({json.dumps(module_url)});
+const run = {{
+  id: "00000000-0000-4000-8000-000000000101",
+  status: "completed",
+  media: {{
+    id: "00000000-0000-4000-8000-000000000102",
+    name: "steamer-result.mp4",
+    mime_type: "video/mp4",
+    kind: "generated_video",
+    status: "ready",
+    signed_url: "https://example.test/steamer-result.mp4"
+  }},
+  input: {{ platform: "tiktok", content_kind: "advertising", product_category: "electronics" }},
+  result: {{ overall_score: 82, compliance_status: "human_review", findings: [] }}
+}};
+const html = contentReviewWorkspaceMarkup({{
+  catalog: {{ media: [], runs: [run] }},
+  currentRun: run,
+  canDecide: false
+}});
+if (!html.includes("Просмотрите точный MP4 со звуком")) throw new Error("sound review prompt missing");
+if (!html.includes("<video")) throw new Error("exact video missing");
+if (!html.includes(" controls ")) throw new Error("video controls missing");
+if (html.includes(" muted")) throw new Error("readonly exact video was muted");
+if (!html.includes('data-action="download-content-review-media"')) throw new Error("secure download action missing");
+if (!html.includes(">Скачать MP4</button>")) throw new Error("download label missing");
+if (!html.includes(">Открыть отдельно</a>")) throw new Error("separate open action missing");
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert 'action === "download-content-review-media"' in APP
+    assert "refreshSignedUrls: true" in APP
+    assert "await downloadGenerationOutput(run.media.url" in APP
 
 
 def test_stale_processing_phase_does_not_lock_an_empty_review_form() -> None:

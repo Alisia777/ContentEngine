@@ -869,6 +869,7 @@ function reviewResultMarkup(run, canDecide) {
         <div><p class="eyebrow">Проверка завершена</p><h2>${escapeHtml(run.media?.name || "Материал")}</h2><p>${escapeHtml(PLATFORM_LABELS[run.input.platform] || run.input.platform || "Площадка не указана")} · ${escapeHtml(CONTENT_KIND_LABELS[run.input.contentKind] || run.input.contentKind || "Статус не указан")}</p></div>
         <span class="content-review-result__date">${formatDate(run.completedAt || run.updatedAt || run.createdAt)}</span>
       </header>
+      ${routedCanDecide ? "" : reviewReadonlyMediaMarkup(run)}
       <div class="content-review-score-grid">
         <section class="card content-review-quality" style="--review-score:${result.overallScore}">
           <div class="content-review-score-ring"><strong>${result.overallScore}</strong><small>из 100</small></div>
@@ -894,6 +895,34 @@ function reviewResultMarkup(run, canDecide) {
       ${rulesetMarkup(run)}
     </article>
   `;
+}
+
+function reviewReadonlyMediaMarkup(run) {
+  const media = run?.media || {};
+  const mediaUrl = String(media.url || "");
+  const mediaAvailable = Boolean(mediaUrl)
+    && run.mediaIsStale !== true
+    && (!media.status || media.status === "ready");
+  if (!mediaAvailable) {
+    return `
+      <section class="card content-review-decision-preview content-review-readonly-preview">
+        <div><strong>Точная версия файла временно недоступна</strong><small>Обновите проверку: решение и публикация останутся заблокированы, пока портал не получит свежую защищённую ссылку.</small></div>
+      </section>`;
+  }
+  const isVideo = media.isVideo === true || media.kind === "generated_video";
+  const mediaName = media.name || (isVideo ? "review-video.mp4" : "review-image.png");
+  const exactMedia = isVideo
+    ? `<video class="content-review-decision-preview__media" src="${escapeHtml(mediaUrl)}" controls preload="metadata" playsinline aria-label="Точный проверяемый MP4 ${escapeHtml(mediaName)}"></video>`
+    : `<img class="content-review-decision-preview__media" src="${escapeHtml(mediaUrl)}" alt="Точный проверяемый файл ${escapeHtml(mediaName)}" />`;
+  return `
+    <section class="card content-review-decision-preview content-review-readonly-preview" aria-label="Точный проверяемый файл">
+      <div><strong>${isVideo ? "Просмотрите точный MP4 со звуком" : "Осмотрите точное изображение"}</strong><small>${isVideo ? "Результат AI — только подсказка. Воспроизведите ролик целиком, проверьте речь, звук, титры и товар до любого решения." : "Результат AI — только подсказка. Проверьте товар, этикетку, надписи и композицию в полном размере."}</small></div>
+      ${exactMedia}
+      <div class="content-review-readonly-preview__actions">
+        <a class="btn btn-secondary btn-small" href="${escapeHtml(mediaUrl)}" target="_blank" rel="noopener noreferrer">Открыть отдельно</a>
+        ${isVideo ? `<button class="btn btn-small" type="button" data-action="download-content-review-media" data-review-id="${escapeHtml(run.id)}">Скачать MP4</button>` : ""}
+      </div>
+    </section>`;
 }
 
 function scoreBreakdownMarkup(scores) {

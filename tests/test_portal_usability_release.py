@@ -278,7 +278,20 @@ def test_interface_scales_fluidly_and_motion_stays_accessible() -> None:
     ):
         assert marker in INTERFACE_SYSTEM
 
-    assert "./interface-system.css?v=20260730.9" in INDEX
+    assert "./interface-system.css?v=20260730.10" in INDEX
+
+
+def test_light_cta_keeps_dark_text_and_page_has_no_forced_mobile_overflow() -> None:
+    assert 'html[data-portal-theme="obsidian"] a.btn-light {' in INTERFACE_SYSTEM
+    button_rule = _between(
+        INTERFACE_SYSTEM,
+        'html[data-portal-theme="obsidian"] a.btn-light {',
+        'html[data-portal-theme="obsidian"] a.btn-light:hover',
+    )
+    assert "color: #14352f" in button_rule
+    assert "min-width: 320px" not in INTERFACE_SYSTEM
+    assert "min-width: 320px" not in (ROOT / "web/app/styles.css").read_text(encoding="utf-8")
+    assert "body {" in (ROOT / "web/app/styles.css").read_text(encoding="utf-8")
 
 
 def test_login_error_keeps_safe_email_context_and_moves_focus_to_password() -> None:

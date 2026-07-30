@@ -212,8 +212,8 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
     ):
         assert token in APP
     assert ".generation-learning-status" in STYLES
-    assert "./styles.css?v=20260729.3" in INDEX
-    assert "./app.js?v=20260730.10" in INDEX
+    assert "./styles.css?v=20260730.4" in INDEX
+    assert "./app.js?v=20260730.11" in INDEX
     assert "./supabase-api.js?v=20260729.2" in APP
 
 
@@ -238,7 +238,8 @@ def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call
     paid_start = submit.index("state.api.startRealGeneration(payload)", preflight)
     assert ensure < refresh < preflight < paid_start
     assert "learning_context: learningContext" in submit
-    assert "Ручной текст не будет отправлен без привязки к обучению" in submit
+    assert "Ваш замысел сохранён. Перед платным запуском подготовьте безопасную версию ТЗ" in submit
+    assert "не заменит сюжет" in submit
 
 
 def test_edge_fails_closed_when_learning_cannot_be_verified_before_paid_state() -> None:

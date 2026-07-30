@@ -61,6 +61,18 @@ def test_queue_explains_stages_reconciliation_cost_and_safe_failures() -> None:
     assert "Не запускайте видео повторно" in APP
 
 
+def test_failed_jobs_are_visually_distinguishable_and_manual_intent_is_preserved() -> None:
+    assert "details.jobId.slice(0, 8)" in APP
+    assert "formatDate(item.created_at, true)" in APP
+    assert "Ваш замысел ролика" in APP
+    assert "Ваш замысел кадра" in APP
+    assert "Ваш замысел анимации" in APP
+    assert "не заменяя сюжет" in APP
+    assert "Проверить мой замысел и подготовить ТЗ" in APP
+    assert "Ваш замысел сохранён" in APP
+    assert "Портал сохранит ваш замысел" in APP
+
+
 def test_paid_generation_has_five_explicit_progress_stages() -> None:
     for label in ("Принято", "В очереди", "Создаётся", "Сохраняется", "Готово"):
         assert label in APP
