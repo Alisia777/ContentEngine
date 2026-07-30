@@ -1,0 +1,45 @@
+/* Per-desk state capsule ------------------------------------------------ */
+
+.workspace-capsule-indicator {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  min-height: 22px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(132, 189, 168, 0.2);
+  border-radius: 999px;
+  align-items: center;
+  color: #9fcbb9 !important;
+  background: rgba(56, 111, 91, 0.12);
+  font-size: 0.56rem !important;
+  font-weight: 760;
+  letter-spacing: 0.025em;
+  line-height: 1.1;
+}
+
+.workspace-capsule-indicator::before {
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #78b99f;
+  box-shadow: 0 0 0 4px rgba(120, 185, 159, 0.08);
+  content: "";
+  flex: 0 0 auto;
+}
+
+@media (max-width: 820px) {
+  .workspace-capsule-indicator {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-capsule-indicator,
+  .workspace-capsule-indicator::before {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
