@@ -23,13 +23,15 @@ def test_build_id_is_consistent_across_entrypoints() -> None:
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
 
 
-def test_build_guard_assets_load_last_and_bust_the_os_cache() -> None:
+def test_build_guard_assets_load_last_and_bust_the_new_os_cache() -> None:
     assert './workspace-build-guard.css?v=20260731.1' in APP_INDEX
     assert './workspace-build-guard.js?v=20260731.1' in APP_INDEX
     assert APP_INDEX.index('./workspace-generation-os.css') < APP_INDEX.index('./workspace-build-guard.css')
     assert APP_INDEX.index('./workspace-media-finder.js') < APP_INDEX.index('./workspace-build-guard.js')
-    assert './app.js?v=20260731.1' in APP_INDEX
-    assert './workspace-desktop-os.js?v=20260731.1' in APP_INDEX
+    assert './workspace-generation-os.js?v=20260731.1' in APP_INDEX
+    assert './workspace-media-finder.js?v=20260731.1' in APP_INDEX
+    assert './app.js?v=20260730.11' in APP_INDEX
+    assert './workspace-desktop-os.js?v=20260730.1' in APP_INDEX
 
 
 def test_guard_checks_only_the_same_origin_static_manifest() -> None:
