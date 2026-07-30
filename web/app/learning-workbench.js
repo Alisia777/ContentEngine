@@ -360,9 +360,11 @@ function enhanceLearningHome(root) {
 
   const signature = taskSignature(root);
   const previousSignature = readStorage(TASK_SIGNATURE_KEY);
-  const forcedTaskPanel = readStorage(FORCE_TASK_PANEL_KEY) === "true";
+  const completedCourseReturn = readStorage(COURSE_ADVANCE_PENDING_KEY) === "true";
+  const forcedTaskPanel = completedCourseReturn || readStorage(FORCE_TASK_PANEL_KEY) === "true";
   const taskChanged = Boolean(signature && previousSignature && signature !== previousSignature);
   if (signature) writeStorage(TASK_SIGNATURE_KEY, signature);
+  removeStorage(COURSE_ADVANCE_PENDING_KEY);
   removeStorage(FORCE_TASK_PANEL_KEY);
 
   const hero = directChildren(root, ".learning-hero")[0] || root.querySelector(".learning-hero");
