@@ -114,7 +114,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260730.1";
+} from "./content-review-view.js?v=20260730.2";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -6991,7 +6991,11 @@ async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
         holder.media = { ...item, signed_url: signedUrls.get(String(objectKey)) };
       }
     }
-  } catch {
+  } catch (error) {
+    console.warn(
+      "Private media preview URLs unavailable",
+      error?.code || error?.serverCode || error?.message || "",
+    );
     // Metadata remains usable when a short-lived preview URL cannot be issued.
   }
   return data;
@@ -9497,12 +9501,35 @@ async function loadGeneratedVideoQaMedia(mediaId, fallbackUrl = "") {
   ) {
     throw new Error("Готовый MP4 не прошёл сверку с защищённым каталогом.");
   }
+  return resolveGeneratedVideoReviewMedia(media, fallbackUrl);
+}
+
+async function resolveGeneratedVideoReviewMedia(media, fallbackUrl = "") {
+  const source = media && typeof media === "object" ? media : {};
+  if (source.kind !== "generated_video") return source;
   const safeFallbackUrl = fallbackUrl && isTrustedGenerationDownload(fallbackUrl)
     ? fallbackUrl
     : "";
-  const url = media.url || safeFallbackUrl;
-  if (!url) throw new Error("Для готового MP4 не удалось получить защищённую ссылку.");
-  return { ...media, url };
+  let url = source.url || safeFallbackUrl;
+  if (!url && contentReviewUuid(source.generationJobId)) {
+    const status = await state.api.realGenerationStatus(source.generationJobId);
+    const job = status?.job || {};
+    const outputMediaId = String(
+      job.output_media_id || job.output?.output_media_id || "",
+    ).trim().toLowerCase();
+    const signedUrl = String(status?.signed_url || "");
+    if (
+      ["succeeded", "completed"].includes(String(job.status || "").toLowerCase())
+      && outputMediaId === String(source.id || "").trim().toLowerCase()
+      && isTrustedGenerationDownload(signedUrl)
+    ) {
+      url = signedUrl;
+    }
+  }
+  if (!url) {
+    throw new Error("Для готового MP4 не удалось получить защищённую ссылку.");
+  }
+  return { ...source, url };
 }
 
 async function prepareGeneratedVideoTechnicalQa(entry) {
@@ -16504,8 +16531,16 @@ async function submitContentReview(form) {
     return;
   }
   const selectedMedia = selection.items;
-  const media = selectedMedia[0];
+  let media = selectedMedia[0];
   input.media_id = media.id;
+  if (media.kind === "generated_video" && !media.url) {
+    try {
+      media = await resolveGeneratedVideoReviewMedia(media);
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+      return;
+    }
+  }
   const automaticQaEntry = state.generatedVideoQa.entries.get(String(media.id || "").toLowerCase());
   const automaticEvidence = generatedVideoQaEvidenceForMedia(media);
   if (

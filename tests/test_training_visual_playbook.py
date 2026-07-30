@@ -541,6 +541,6 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
 
     assert './styles.css?v=20260729.3' in INDEX
     assert './config.js?v=20260729.1' in INDEX
-    assert './app.js?v=20260730.2' in INDEX
+    assert './app.js?v=20260730.3' in INDEX
     assert './supabase-api.js?v=20260729.2' in APP
     assert './catalog.js?v=20260724.1' in APP

@@ -2522,6 +2522,10 @@ function normalizeMedia(raw) {
       || metadata.generation_platform,
       40,
     ).toLowerCase(),
+    generationJobId: text(
+      raw.generation_job_id || metadata.generation_job_id,
+      180,
+    ).toLowerCase(),
     name: text(raw.original_filename || raw.name || metadata.original_filename || metadata.filename || metadata.name || "Материал", 300),
     mimeType,
     kind,

@@ -29,6 +29,7 @@ def test_generated_media_defaults_follow_server_bound_context() -> None:
     assert "raw.product_category" in VIEW
     assert "metadata.content_review_category" in VIEW
     assert "raw.platform" in VIEW
+    assert "metadata.generation_job_id" in VIEW
     defaults = APP[
         APP.index("function applyGeneratedMediaReviewDefaults") :
         APP.index("function bindContentReviewDecisionMedia")
@@ -37,6 +38,22 @@ def test_generated_media_defaults_follow_server_bound_context() -> None:
     assert "platformControl.value = media.platform" in defaults
     assert 'form.elements.content_kind.value = "advertising"' in defaults
     assert "form.elements.ai_generated.checked = true" in defaults
+
+
+def test_generated_video_recovers_a_fresh_url_from_its_exact_job() -> None:
+    resolver = APP[
+        APP.index("async function resolveGeneratedVideoReviewMedia") :
+        APP.index("async function prepareGeneratedVideoTechnicalQa")
+    ]
+    assert "state.api.realGenerationStatus(source.generationJobId)" in resolver
+    assert "outputMediaId === String(source.id" in resolver
+    assert "isTrustedGenerationDownload(signedUrl)" in resolver
+    assert '["succeeded", "completed"].includes' in resolver
+    submit = APP[
+        APP.index("async function submitContentReview(") :
+        APP.index("async function submitContentReviewDecision(")
+    ]
+    assert "media = await resolveGeneratedVideoReviewMedia(media)" in submit
 
 
 def test_missing_advertising_identifiers_block_release_not_quality_scan() -> None:
