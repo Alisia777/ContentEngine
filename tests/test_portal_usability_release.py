@@ -248,6 +248,39 @@ def test_obsidian_browser_chrome_and_mobile_shell_are_wired() -> None:
     assert ".mobile-nav-trigger { width: 44px; height: 44px; }" in EXPERIENCE_CSS
 
 
+def test_interface_scales_fluidly_and_motion_stays_accessible() -> None:
+    for marker in (
+        "--page-gutter: clamp(28px, 4vw, 72px)",
+        "@media (min-width: 1500px)",
+        "font-size: clamp(16px, 0.9vw, 19px)",
+        "--sidebar-width: clamp(320px, 17vw, 344px)",
+        "--content-max: 1840px",
+        "@media (min-width: 2200px)",
+        "--content-max: 1960px",
+        "@media (max-width: 820px)",
+        "width: 100%",
+    ):
+        assert marker in INTERFACE_SYSTEM
+
+    for marker in (
+        "@media (prefers-reduced-motion: no-preference)",
+        "luxe-page-enter",
+        "luxe-surface-enter",
+        "luxe-sidebar-enter",
+        "luxe-grid-drift",
+        "luxe-glow-drift",
+        "luxe-drawer-enter",
+        "luxe-toast-enter",
+        "@media (prefers-reduced-motion: reduce)",
+        "animation-duration: 0.01ms !important",
+        "animation-iteration-count: 1 !important",
+        "scroll-behavior: auto !important",
+    ):
+        assert marker in INTERFACE_SYSTEM
+
+    assert "./interface-system.css?v=20260730.9" in INDEX
+
+
 def test_login_error_keeps_safe_email_context_and_moves_focus_to_password() -> None:
     login = _between(APP, "function renderLogin", "function renderResetRequest")
     submit_login = _between(APP, "async function submitLogin", "async function submitReset")
