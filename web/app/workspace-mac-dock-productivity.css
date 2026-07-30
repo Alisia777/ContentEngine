@@ -1,0 +1,73 @@
+/* Task attention belongs to the application Dock, not to a second bottom bar. */
+
+body.ce-os-dock-visible .workspace-task-dock {
+  display: none !important;
+}
+
+.ce-mac-dock__badge {
+  position: absolute;
+  z-index: 14;
+  top: -4px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid #171310;
+  border-radius: 999px;
+  place-items: center;
+  color: #170d08;
+  background: #e9955e;
+  box-shadow:
+    0 7px 18px rgba(0, 0, 0, 0.38),
+    inset 0 1px rgba(255, 255, 255, 0.32);
+  font-size: 0.48rem;
+  font-weight: 880;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+
+.ce-mac-dock__badge[data-tone="waiting"] {
+  background: #d9ad5f;
+}
+
+.ce-mac-dock__badge[data-tone="return"] {
+  background: #f0a064;
+  animation: ce-mac-dock-return 1.8s ease-in-out infinite;
+}
+
+.ce-mac-dock__badge[data-tone="blocked"] {
+  color: #fff9f3;
+  background: #d96961;
+}
+
+.ce-mac-dock__item[data-task-tone="blocked"] .ce-mac-dock__icon {
+  border-color: rgba(217, 105, 97, 0.36);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(217, 105, 97, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.ce-mac-dock__item[data-task-tone="return"] .ce-mac-dock__icon {
+  border-color: rgba(240, 160, 100, 0.34);
+}
+
+@keyframes ce-mac-dock-return {
+  0%, 100% {
+    filter: brightness(1);
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    filter: brightness(1.2);
+    transform: translateY(-3px) scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ce-mac-dock__badge {
+    animation: none !important;
+    transition: none !important;
+  }
+}
