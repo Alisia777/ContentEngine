@@ -9,7 +9,7 @@ with target_owner as materialized (
     on organization.id = membership.organization_id
   join content_factory.profiles profile
     on profile.id = membership.profile_id
-  where organization.slug = 'contentengine-factory'
+  where organization.slug = 'altea-content-factory'
     and organization.status = 'active'
     and membership.role = 'owner'
     and membership.status = 'active'
@@ -31,7 +31,7 @@ with target_owner as materialized (
     on organization.id = membership.organization_id
   join content_factory.profiles profile
     on profile.id = membership.profile_id
-  where organization.slug = 'contentengine-factory'
+  where organization.slug = 'altea-content-factory'
     and organization.status = 'active'
     and membership.role = 'owner'
     and membership.status = 'active'

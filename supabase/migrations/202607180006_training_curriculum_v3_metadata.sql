@@ -55,7 +55,7 @@ set title = 'Старт: роль, вход и первая задача',
     'achievement', jsonb_build_object(
       'code', 'portal_navigator',
       'icon', '✦',
-      'name', 'Навигатор CONTENT ENGINE',
+      'name', 'Навигатор ALTEA',
       'description', 'Вы знаете путь товара от задания до подтверждённого результата.'
     ),
     'glossary', jsonb_build_array(

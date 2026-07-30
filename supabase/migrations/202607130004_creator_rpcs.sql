@@ -1099,11 +1099,11 @@ begin
   );
   organization_name := coalesce(
     nullif(btrim(p_payload ->> 'organization_name'), ''),
-    'ContentEngine Factory'
+    'ALTEA Content Factory'
   );
   organization_slug := lower(coalesce(
     nullif(btrim(p_payload ->> 'organization_slug'), ''),
-    'contentengine-factory'
+    'altea-content-factory'
   ));
 
   if length(organization_name) not between 2 and 180
