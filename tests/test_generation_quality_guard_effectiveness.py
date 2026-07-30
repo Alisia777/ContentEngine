@@ -15,6 +15,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607280003_generation_quality_guard_effectiveness.sql"
 ).read_text(encoding="utf-8")
+CONFLICT_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202607300001_fix_learning_policy_snapshot_conflict_target.sql"
+).read_text(encoding="utf-8")
 PGTAP = (
     ROOT
     / "supabase/tests/generation_quality_guard_effectiveness_test.sql"
@@ -57,6 +61,7 @@ def _run_handoff(body: str) -> dict:
 
 def test_effectiveness_sql_and_pgtap_are_parseable() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(CONFLICT_MIGRATION)
     assert parse_sql(PGTAP)
 
 
@@ -176,6 +181,21 @@ def test_snapshot_is_written_before_the_existing_paid_command() -> None:
     ):
         assert token in wrapper
     assert "or existing_snapshot.created_by" not in wrapper
+
+
+def test_snapshot_conflict_targets_the_named_unique_constraint() -> None:
+    for token in (
+        "generation_learning_policy_snapshots_scope_uq",
+        "unique (organization_id, product_id, platform, model, policy_hash)",
+        (
+            "on conflict on constraint "
+            "generation_learning_policy_snapshots_scope_uq"
+        ),
+        "generation_learning_policy_snapshot_conflict_patch_failed",
+        "generation_learning_policy_snapshot_conflict_contract_invalid",
+        "creator_start_real_generation_pre_mode_prompt_v10(jsonb)",
+    ):
+        assert token in CONFLICT_MIGRATION.lower()
 
 
 def test_browser_compiles_exact_variant_two_and_rejects_forged_variant() -> None:
