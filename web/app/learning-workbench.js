@@ -104,6 +104,13 @@ function workspaceIsUnlocked(root) {
   return Boolean(root.querySelector('a[href="#/workspace/home"]'));
 }
 
+function homeCourseIsConfirmedComplete(root, courseCode) {
+  const expectedHref = `#/learn/${String(courseCode || "").trim()}`;
+  if (expectedHref === "#/learn/") return false;
+  return [...root.querySelectorAll(".course-card.complete a[href]")]
+    .some((link) => link.getAttribute("href") === expectedHref);
+}
+
 function panelById(shell, panelId) {
   return shell?.querySelector(`[data-lwb-panel-view="${CSS.escape(panelId)}"]`) || null;
 }
@@ -360,7 +367,8 @@ function enhanceLearningHome(root) {
 
   const signature = taskSignature(root);
   const previousSignature = readStorage(TASK_SIGNATURE_KEY);
-  const completedCourseReturn = readStorage(COURSE_ADVANCE_PENDING_KEY) === "true";
+  const pendingCourseCode = readStorage(COURSE_ADVANCE_PENDING_KEY);
+  const completedCourseReturn = homeCourseIsConfirmedComplete(root, pendingCourseCode);
   const forcedTaskPanel = completedCourseReturn || readStorage(FORCE_TASK_PANEL_KEY) === "true";
   const taskChanged = Boolean(signature && previousSignature && signature !== previousSignature);
   if (signature) writeStorage(TASK_SIGNATURE_KEY, signature);
@@ -486,8 +494,9 @@ function enhanceCoursePage(root) {
   document.documentElement.dataset.learningWorkbench = "course";
   makeCourseChrome(root);
 
-  const pending = readStorage(COURSE_ADVANCE_PENDING_KEY) === "true";
-  if (!pending || !courseIsConfirmedComplete(root)) return;
+  const pendingCourseCode = readStorage(COURSE_ADVANCE_PENDING_KEY);
+  const currentCourseCode = normalizedPath().split("/").pop() || "";
+  if (pendingCourseCode !== currentCourseCode || !courseIsConfirmedComplete(root)) return;
   removeStorage(COURSE_ADVANCE_PENDING_KEY);
   writeStorage(FORCE_TASK_PANEL_KEY, "true");
   showCourseAdvanceOverlay(root);
@@ -544,7 +553,10 @@ function handlePanelKeydown(event) {
 document.addEventListener("click", (event) => {
   const completionButton = event.target.closest?.('[data-action="complete-course"]');
   if (completionButton && !completionButton.disabled) {
-    writeStorage(COURSE_ADVANCE_PENDING_KEY, "true");
+    const courseCode = String(
+      completionButton.dataset.moduleCode || normalizedPath().split("/").pop() || "",
+    ).trim();
+    if (courseCode) writeStorage(COURSE_ADVANCE_PENDING_KEY, courseCode);
   }
 
   const panelButton = event.target.closest?.("[data-lwb-panel]");
