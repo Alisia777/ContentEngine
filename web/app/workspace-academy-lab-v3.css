@@ -1,0 +1,390 @@
+/*
+ * ContentEngine Academy Lab v3.
+ * Lesson + safe practice in one desktop workspace. Presentation only.
+ */
+
+body.contentengine-academy-lab-open {
+  --academy-lab-line: rgba(255, 255, 255, 0.09);
+  --academy-lab-panel: rgba(19, 16, 14, 0.88);
+  --academy-lab-panel-raised: rgba(27, 22, 18, 0.94);
+  --academy-lab-copper: var(--ce-os-copper, #e88245);
+  --academy-lab-copper-bright: var(--ce-os-copper-bright, #ffad76);
+  overflow-x: hidden;
+}
+
+.academy-lab-page {
+  min-width: 0;
+  padding-bottom: calc(var(--ce-mac-dock-height, 74px) + 22px) !important;
+}
+
+.academy-lab-toolbar {
+  position: sticky;
+  z-index: 64;
+  top: 10px;
+  display: flex;
+  width: min(1480px, calc(100% - 24px));
+  min-height: 58px;
+  margin: 12px auto 14px;
+  padding: 8px 10px 8px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 18px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.018)),
+    rgba(14, 12, 11, 0.82);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+}
+
+.academy-lab-toolbar > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.academy-lab-toolbar small,
+.academy-lab-hint small,
+.academy-lab-real-link small {
+  color: var(--academy-lab-copper-bright);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.academy-lab-toolbar strong {
+  overflow: hidden;
+  color: #fff7ef;
+  font: 650 clamp(1rem, 1.5vw, 1.24rem)/1.15 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.academy-lab-toolbar > div:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.academy-lab-toolbar button,
+.academy-lab-toolbar a {
+  display: inline-flex;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #ded3ca;
+  background: rgba(255, 255, 255, 0.035);
+  font: 700 0.76rem/1 ui-sans-serif, system-ui, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.academy-lab-toolbar button:hover,
+.academy-lab-toolbar button:focus-visible,
+.academy-lab-toolbar a:hover,
+.academy-lab-toolbar a:focus-visible {
+  border-color: rgba(232, 130, 69, 0.34);
+  color: #fff8f1;
+  background: rgba(232, 130, 69, 0.1);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.academy-lab-panel {
+  min-width: 0;
+}
+
+.academy-lab-shell {
+  --ce-v3-split: 0.47;
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: clamp(520px, 68vh, 820px);
+  grid-template-columns:
+    minmax(300px, calc((100% - 18px) * var(--ce-v3-split)))
+    18px
+    minmax(360px, calc((100% - 18px) * (1 - var(--ce-v3-split))));
+  border: 1px solid var(--academy-lab-line);
+  border-radius: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(232, 130, 69, 0.08), transparent 34%),
+    #0e0c0b;
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.academy-lab-theory,
+.academy-lab-practice {
+  min-width: 0;
+  min-height: 0;
+}
+
+.academy-lab-theory {
+  grid-column: 1;
+  padding: clamp(24px, 3vw, 44px);
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 22%),
+    rgba(15, 13, 12, 0.9);
+  scrollbar-color: rgba(232, 130, 69, 0.34) transparent;
+}
+
+.academy-lab-practice {
+  grid-column: 3;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 176, 119, 0.065), transparent 42%),
+    var(--academy-lab-panel-raised);
+}
+
+.academy-lab-practice__scroll {
+  height: 100%;
+  padding: clamp(22px, 2.8vw, 40px);
+  overflow: auto;
+  scrollbar-color: rgba(232, 130, 69, 0.34) transparent;
+}
+
+.academy-lab-shell > .ce-v3-split-handle {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.academy-lab-hint {
+  display: grid;
+  margin: 0 0 26px;
+  padding: 16px 17px;
+  border: 1px solid rgba(232, 130, 69, 0.17);
+  border-radius: 17px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  background: rgba(232, 130, 69, 0.065);
+}
+
+.academy-lab-hint > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(232, 130, 69, 0.25);
+  border-radius: 11px;
+  place-items: center;
+  color: var(--academy-lab-copper-bright);
+  background: rgba(232, 130, 69, 0.1);
+}
+
+.academy-lab-hint > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.academy-lab-hint strong {
+  color: #fff7ef;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.academy-lab-hint p,
+.academy-lab-real-link p {
+  margin: 0;
+  color: #aa9d93;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.academy-lab-theory > :not(.academy-lab-hint) {
+  max-width: 74ch;
+}
+
+.academy-lab-practice__scroll > form,
+.academy-lab-practice__scroll > .training-practical-card,
+.academy-lab-practice__scroll > .training-platform-simulator,
+.academy-lab-practice__scroll > [data-training-walkthrough],
+.academy-lab-practice__scroll > [data-training-course],
+.academy-lab-practice__scroll > #course-check {
+  width: 100%;
+  margin: 0 0 18px !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: none !important;
+}
+
+.academy-lab-real-link {
+  display: grid;
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 17px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  background:
+    linear-gradient(135deg, rgba(232, 130, 69, 0.09), rgba(255, 255, 255, 0.025)),
+    rgba(9, 8, 7, 0.48);
+}
+
+.academy-lab-real-link > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  place-items: center;
+  color: var(--academy-lab-copper-bright);
+  background: rgba(232, 130, 69, 0.12);
+}
+
+.academy-lab-real-link > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.academy-lab-real-link strong {
+  color: #fff7ef;
+  font-size: 0.92rem;
+}
+
+.academy-lab-real-link a {
+  display: inline-flex;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid rgba(232, 130, 69, 0.3);
+  border-radius: 11px;
+  align-items: center;
+  color: #fff7ef;
+  background: rgba(232, 130, 69, 0.12);
+  font-size: 0.76rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.academy-lab-page.academy-lab-collapsed .academy-lab-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.academy-lab-page.academy-lab-collapsed .academy-lab-theory,
+.academy-lab-page.academy-lab-collapsed .academy-lab-shell > .ce-v3-split-handle {
+  display: none !important;
+}
+
+.academy-lab-page.academy-lab-collapsed .academy-lab-practice {
+  grid-column: 1;
+}
+
+@media (max-width: 980px) {
+  .academy-lab-toolbar {
+    top: 6px;
+    width: calc(100% - 16px);
+    margin-top: 8px;
+  }
+
+  .academy-lab-shell {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .academy-lab-theory,
+  .academy-lab-practice {
+    grid-column: 1;
+    overflow: visible;
+  }
+
+  .academy-lab-theory {
+    grid-row: 1;
+  }
+
+  .academy-lab-practice {
+    grid-row: 2;
+    border-top: 1px solid var(--academy-lab-line);
+  }
+
+  .academy-lab-practice__scroll {
+    height: auto;
+    overflow: visible;
+  }
+
+  .academy-lab-shell > .ce-v3-split-handle {
+    display: none !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .academy-lab-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .academy-lab-toolbar > div:last-child {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .academy-lab-toolbar button,
+  .academy-lab-toolbar a {
+    flex: 0 0 auto;
+  }
+
+  .academy-lab-shell {
+    border-radius: 18px;
+  }
+
+  .academy-lab-theory,
+  .academy-lab-practice__scroll {
+    padding: 20px 16px;
+  }
+
+  .academy-lab-real-link {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .academy-lab-real-link a {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+}
+
+@media (max-height: 760px) and (min-width: 981px) {
+  .academy-lab-toolbar {
+    min-height: 50px;
+    margin-block: 7px 9px;
+  }
+
+  .academy-lab-shell {
+    min-height: 500px;
+    height: calc(100vh - 176px);
+  }
+
+  .academy-lab-theory,
+  .academy-lab-practice__scroll {
+    padding: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academy-lab-toolbar,
+  .academy-lab-toolbar *,
+  .academy-lab-shell,
+  .academy-lab-shell * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
