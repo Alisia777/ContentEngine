@@ -208,8 +208,11 @@ def test_reference_function_is_in_main_ci_and_atomic_production_deploy() -> None
         "SUPABASE_ACCESS_TOKEN",
         "EXPECTED_SUPABASE_PROJECT_REF",
         "needs:\n      - migrate\n      - build-pages",
+        "Reject server secrets and local endpoints from Pages artifact",
+        "localhost:[0-9]+",
     ):
         assert marker in DEPLOY
+    assert "127\\.0\\.0\\.1|localhost' _site" not in DEPLOY
 
 
 def test_no_temporary_or_duplicate_reference_workflows_remain() -> None:
