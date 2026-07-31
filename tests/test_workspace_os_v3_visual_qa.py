@@ -1,0 +1,100 @@
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = ROOT / "web" / "app"
+INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
+SCRIPT = (APP_DIR / "workspace-os-v3-visual-qa.js").read_text(encoding="utf-8")
+CSS = (APP_DIR / "workspace-os-v3-visual-qa.css").read_text(encoding="utf-8")
+
+
+def test_visual_qa_assets_load_after_os_v3_and_before_build_guard() -> None:
+    assert './workspace-os-v3-visual-qa.css?v=20260731.1' in INDEX
+    assert './workspace-os-v3-visual-qa.js?v=20260731.1' in INDEX
+    assert INDEX.index('./workspace-os-v3-finish.css') < INDEX.index('./workspace-os-v3-visual-qa.css')
+    assert INDEX.index('./workspace-academy-lab-v3.js') < INDEX.index('./workspace-os-v3-visual-qa.js')
+    assert INDEX.index('./workspace-os-v3-visual-qa.js') < INDEX.index('./workspace-build-guard.js')
+
+
+def test_legacy_visual_layers_are_retained_as_contracts_but_not_executed() -> None:
+    for marker in (
+        '<!-- <script type="module" src="./workspace-desks-v2.js?v=20260730.2"></script> -->',
+        '<!-- <script type="module" src="./workspace-task-productivity.js?v=20260730.1"></script> -->',
+        '<!-- <script type="module" src="./workspace-perception.js?v=20260730.1"></script> -->',
+        '<!-- <link rel="stylesheet" href="./workspace-desks.css?v=20260730.1" /> -->',
+        '<!-- <link rel="stylesheet" href="./workspace-perception.css?v=20260730.1" /> -->',
+    ):
+        assert marker in INDEX
+
+
+def test_one_screen_one_action_home_mission_and_zen_mode_exist() -> None:
+    for marker in (
+        'ОДИН ЭКРАН · ОДНО ДЕЙСТВИЕ',
+        'os-clean-home__route',
+        'openMission',
+        'Рабочие столы',
+        'openZen',
+        'os-clean-zen-surface',
+        'contentengine-os-clean-zen',
+        'removeAttribute("data-workspace-focus-card")',
+    ):
+        assert marker in SCRIPT or marker in CSS
+
+
+def test_scalable_filters_folders_and_video_governor_exist() -> None:
+    for marker in (
+        'Найти задачу',
+        'Поиск по реестру',
+        'Без папки',
+        'os-clean-media-kind',
+        'enhanceReviewRisks',
+        'Риск ${index + 1} из ${cards.length}',
+        'video.autoplay = false',
+        'video.loop = false',
+        'IntersectionObserver',
+    ):
+        assert marker in SCRIPT or marker in CSS
+
+
+def test_cleanup_keeps_business_logic_untouched() -> None:
+    assert 'fetch(' not in SCRIPT
+    assert 'XMLHttpRequest' not in SCRIPT
+    assert '.api.' not in SCRIPT
+    assert 'cloneNode' not in SCRIPT
+    assert 'requestSubmit' not in SCRIPT
+    assert 'data-action="transition-task"' not in SCRIPT
+
+
+def test_single_navigation_clean_geometry_and_accessibility() -> None:
+    for marker in (
+        '.workspace-shell > .sidebar',
+        '.workspace-deckbar',
+        '.workspace-task-dock',
+        '.os-clean-page > :not([data-os-clean-keep="true"])',
+        '.ce-mac-dock',
+        '.academy-v2-dock',
+        '@media (max-width: 680px)',
+        '@media (max-height: 760px)',
+        '@media (prefers-reduced-motion: reduce)',
+    ):
+        assert marker in CSS
+
+
+def test_visual_qa_javascript_parses_when_node_is_available() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is not installed in this test environment")
+    subprocess.run(
+        [node, "--check", str(APP_DIR / "workspace-os-v3-visual-qa.js")],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_visual_qa_css_is_balanced() -> None:
+    assert CSS.count("{") == CSS.count("}")
