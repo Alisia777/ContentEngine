@@ -154,9 +154,11 @@ function schedule() {
 
 const corePromise = (async () => {
   await ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`);
+  await ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`);
   await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-polish.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-surface-guard.js?v=${BUILD}`);
+  await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
 })();
 
 corePromise.then(schedule).catch((error) => {
