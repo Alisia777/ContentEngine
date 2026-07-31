@@ -4,6 +4,10 @@ begin;
 -- publishing feeds read creator_tasks / placements directly. Add the same
 -- active-Trash exclusion to those feeds so a cancelled task cannot reappear
 -- after reload while it is still recoverable from the Trash app.
+--
+-- creator_workspace_section is currently a tracking-enrichment wrapper. Its
+-- original audited feed lives behind creator_workspace_section_tracking_v1,
+-- so the visibility predicate belongs in that delegated function.
 do $workspace_trash_visibility$
 declare
   definition text;
@@ -12,7 +16,7 @@ declare
   replacement text;
 begin
   definition := pg_get_functiondef(
-    'public.creator_workspace_section(jsonb)'::regprocedure
+    'content_factory_private.creator_workspace_section_tracking_v1(jsonb)'::regprocedure
   );
   updated_definition := definition;
 
@@ -202,11 +206,15 @@ end;
 $workspace_trash_visibility$;
 
 -- Re-created SECURITY DEFINER RPCs keep their existing ACLs. Reassert the
--- expected browser boundary explicitly so this migration remains fail closed.
+-- public wrapper and My Work browser boundary explicitly; the delegated feed
+-- remains private and is invoked only by the wrapper owner.
 revoke all on function public.creator_workspace_section(jsonb)
   from public, anon;
 grant execute on function public.creator_workspace_section(jsonb)
   to authenticated;
+revoke all on function
+  content_factory_private.creator_workspace_section_tracking_v1(jsonb)
+  from public, anon, authenticated, service_role;
 revoke all on function public.creator_my_work(jsonb)
   from public, anon;
 grant execute on function public.creator_my_work(jsonb)
