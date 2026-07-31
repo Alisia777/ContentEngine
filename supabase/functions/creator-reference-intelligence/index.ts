@@ -1,4 +1,5 @@
 import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
+// deno-lint-ignore-file no-control-regex
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
