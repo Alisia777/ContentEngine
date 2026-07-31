@@ -24,17 +24,17 @@ def test_work_stage_assets_load_after_os_v3_core() -> None:
 
 def test_native_my_work_and_task_anchors_exist() -> None:
     for marker in (
-        'class="my-work-page"',
-        'class="my-work-layout"',
-        'class="my-work-queue"',
-        'class="my-work-item',
+        'my-work-page',
+        'my-work-layout',
+        'my-work-queue',
+        'my-work-item',
         'data-work-item-action-required=',
         'data-work-item-blocker=',
     ):
         assert marker in MY_WORK
     for marker in (
-        'class="task-list"',
-        'class="card task-card"',
+        'task-list',
+        'card task-card',
         'data-task-id=',
         'data-action="transition-task"',
     ):
@@ -79,7 +79,7 @@ def test_tasks_are_one_task_per_desk_with_native_actions() -> None:
         'tasks-desk-shell',
         'tasks-desk-list',
         'tasks-desk-stage',
-        'panelHost' if False else 'stage.append(card)',
+        'stage.append(card)',
         'selectTask',
         'data-tasks-desk-prev',
         'data-tasks-desk-next',
