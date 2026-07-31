@@ -52,8 +52,7 @@ type ReferencePayload = {
 
 function headers(request: Request): Headers {
   const value = new Headers({
-    "access-control-allow-headers":
-      "authorization, apikey, content-type, x-client-info",
+    "access-control-allow-headers": "authorization, apikey, content-type, x-client-info",
     "access-control-allow-methods": "POST, OPTIONS",
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
@@ -205,9 +204,7 @@ function readPayload(value: unknown): ReferencePayload | null {
     const kind = String(raw.kind) as ReferenceAsset["kind"];
     const parsed = readDataUrl(raw.data_url, kind);
     if (!parsed) return null;
-    const frameSeconds = kind === "video_frame"
-      ? Number(raw.frame_seconds)
-      : null;
+    const frameSeconds = kind === "video_frame" ? Number(raw.frame_seconds) : null;
     if (
       kind === "video_frame" &&
       (!Number.isFinite(frameSeconds) || frameSeconds! < 0 ||
@@ -237,17 +234,13 @@ function readPayload(value: unknown): ReferencePayload | null {
 
 function openAiSecret(): string | null {
   const value = Deno.env.get("OPENAI_API_KEY") ?? "";
-  return value.length >= 20 && value.length <= 512 && value === value.trim()
-    ? value
-    : null;
+  return value.length >= 20 && value.length <= 512 && value === value.trim() ? value : null;
 }
 
 function openAiModel(): string {
   const value = Deno.env.get("OPENAI_REFERENCE_INTELLIGENCE_MODEL") ??
     Deno.env.get("OPENAI_PRODUCT_RESEARCH_MODEL") ?? "gpt-5.5";
-  return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,79}$/u.test(value)
-    ? value
-    : "gpt-5.5";
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,79}$/u.test(value) ? value : "gpt-5.5";
 }
 
 function strictObject(properties: Record<string, Json>): Json {
@@ -582,8 +575,7 @@ const creatorReferenceIntelligence = withSupabase<ContentEngineDatabase>(
   {
     auth: "user",
     cors: {
-      "Access-Control-Allow-Headers":
-        "authorization, apikey, content-type, x-client-info",
+      "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Origin": PUBLIC_APP_ORIGIN,
       Vary: "Origin",
@@ -677,9 +669,7 @@ const creatorReferenceIntelligence = withSupabase<ContentEngineDatabase>(
         request,
         {
           ok: false,
-          code: provider.status === 429
-            ? "provider_rate_limited"
-            : "provider_rejected",
+          code: provider.status === 429 ? "provider_rate_limited" : "provider_rejected",
           request_id: payload.requestId,
         },
         provider.status === 429 ? 429 : 502,
@@ -738,9 +728,7 @@ const creatorReferenceIntelligence = withSupabase<ContentEngineDatabase>(
       );
     }
     const cited = providerUrls(providerValue);
-    const verifiedUrls = payload.urls.filter((url) =>
-      cited.has(canonicalUrl(url))
-    );
+    const verifiedUrls = payload.urls.filter((url) => cited.has(canonicalUrl(url)));
     return json(request, {
       ok: true,
       request_id: payload.requestId,
