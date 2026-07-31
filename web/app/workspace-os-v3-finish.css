@@ -1,0 +1,270 @@
+/* ContentEngine OS v3 final perception, colour and performance pass. */
+
+:root {
+  --os-v3-fast: 150ms;
+  --os-v3-local: 260ms;
+  --os-v3-window: 430ms;
+  --os-v3-space: 540ms;
+}
+
+body.contentengine-os-v3 {
+  background:
+    radial-gradient(circle at 50% -20%, rgba(232, 132, 73, 0.035), transparent 36%),
+    #080706;
+}
+
+body.contentengine-os-v3 :where(button, a, input, select, textarea) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.contentengine-os-v3 :where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid rgba(255, 178, 125, 0.78);
+  outline-offset: 2px;
+}
+
+body.contentengine-os-v3 :where(
+  .review-desktop-os,
+  .academy-desktop-os,
+  .academy-course-desktop-os-v2,
+  .generation-os-page,
+  .media-finder-page,
+  .publishing-os-page,
+  .work-stage-page,
+  .tasks-desk-page,
+  .results-os-page,
+  .payout-ledger-page
+) {
+  isolation: isolate;
+}
+
+body.contentengine-os-v3 :where(
+  .review-os-result-panel,
+  .generation-os-panel,
+  .academy-v2-panel,
+  .publishing-os-step-panel,
+  .work-stage-lane,
+  .tasks-desk-card,
+  .results-ledger-panel,
+  .media-card
+) {
+  contain: layout paint style;
+}
+
+body.contentengine-os-v3 :where(
+  .work-stage-item,
+  .tasks-desk-list-item,
+  .publishing-os-list-item,
+  .media-card,
+  .course-card
+) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 132px;
+}
+
+body.contentengine-os-v3 :where(
+  .badge-info,
+  .badge-mock,
+  .badge:not(.badge-success):not(.badge-danger):not(.badge-warning)
+) {
+  border-color: rgba(232, 132, 73, 0.16) !important;
+  color: #e5d7ce !important;
+  background: rgba(232, 132, 73, 0.055) !important;
+  box-shadow: none !important;
+}
+
+body.contentengine-os-v3 .badge-success {
+  border-color: rgba(133, 191, 162, 0.2) !important;
+  color: #cce5d5 !important;
+  background: rgba(133, 191, 162, 0.075) !important;
+  box-shadow: none !important;
+}
+
+body.contentengine-os-v3 :where(.badge-danger, .alert-danger) {
+  border-color: rgba(239, 129, 120, 0.24) !important;
+  color: #ffd2ce !important;
+  background: rgba(239, 129, 120, 0.075) !important;
+}
+
+body.contentengine-os-v3 :where(.badge-warning, .alert-warning) {
+  border-color: rgba(221, 178, 105, 0.22) !important;
+  color: #f3d9a7 !important;
+  background: rgba(221, 178, 105, 0.07) !important;
+}
+
+body.contentengine-os-v3 :where(.alert-info, .callout) {
+  border-color: rgba(255, 255, 255, 0.085) !important;
+  color: #e8dcd3 !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: none !important;
+}
+
+body.contentengine-os-v3 :where(
+  .work-stage-lane > div,
+  .tasks-desk-list,
+  .publishing-os-list,
+  .publishing-os-step-panel,
+  .results-ledger-panel,
+  .media-finder-library__content,
+  .academy-v2-panel,
+  .review-os-result-panel,
+  .generation-os-panel
+) {
+  scrollbar-color: rgba(232, 132, 73, 0.28) transparent;
+  scrollbar-width: thin;
+}
+
+body.contentengine-os-v3 :where(
+  .work-stage-lane > div,
+  .tasks-desk-list,
+  .publishing-os-list,
+  .publishing-os-step-panel,
+  .results-ledger-panel,
+  .media-finder-library__content,
+  .academy-v2-panel,
+  .review-os-result-panel,
+  .generation-os-panel
+)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+body.contentengine-os-v3 :where(
+  .work-stage-lane > div,
+  .tasks-desk-list,
+  .publishing-os-list,
+  .publishing-os-step-panel,
+  .results-ledger-panel,
+  .media-finder-library__content,
+  .academy-v2-panel,
+  .review-os-result-panel,
+  .generation-os-panel
+)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background: rgba(232, 132, 73, 0.26);
+  background-clip: padding-box;
+}
+
+.os-v3-route-badge {
+  position: absolute;
+  z-index: 5;
+  top: -2px;
+  right: -3px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid rgba(17, 14, 12, 0.96);
+  border-radius: 999px;
+  place-items: center;
+  color: #fff7ef;
+  background: var(--os-v3-copper, #e88449);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  font: 800 0.54rem/1 system-ui, sans-serif;
+}
+
+.os-v3-route-badge[data-tone="danger"] {
+  background: var(--os-v3-danger, #ef8178);
+}
+
+.work-stage-native-extras {
+  display: grid;
+  padding: 8px;
+  gap: 8px;
+}
+
+.work-stage-native-extras :where(button, .btn) {
+  width: 100%;
+}
+
+.work-stage-native-extras :where(.empty-state, .alert) {
+  margin: 0 !important;
+}
+
+.ce-build-pill {
+  z-index: 750 !important;
+}
+
+body.contentengine-os-v3 .ce-mac-dock__glass {
+  max-width: min(96vw, 980px);
+}
+
+body.contentengine-os-v3 .ce-mac-dock__item {
+  transition:
+    transform var(--os-v3-window) var(--os-v3-spring, cubic-bezier(.16,1,.3,1)),
+    color var(--os-v3-fast) ease,
+    filter var(--os-v3-local) ease;
+  will-change: transform;
+}
+
+body.contentengine-os-v3 .ce-mac-dock__glass {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+body.contentengine-os-v3 :where(
+  .review-os-topbar,
+  .generation-os-topbar,
+  .media-finder-topbar,
+  .publishing-os-topbar,
+  .work-stage-topbar,
+  .tasks-desk-topbar,
+  .results-os-topbar,
+  .payout-ledger-topbar,
+  .academy-os-topbar
+) {
+  view-transition-name: ce-os-window-bar;
+}
+
+body.contentengine-os-v3 :where(
+  .review-os-result-panel.is-active,
+  .generation-os-panel.is-active,
+  .publishing-os-step-panel.is-active,
+  .tasks-desk-card.is-selected,
+  .results-ledger-panel.is-active,
+  .academy-v2-panel.is-active
+) {
+  view-transition-name: ce-os-active-surface;
+}
+
+::view-transition-old(ce-os-active-surface),
+::view-transition-new(ce-os-active-surface) {
+  animation-duration: var(--os-v3-space);
+  animation-timing-function: var(--os-v3-spring, cubic-bezier(.16,1,.3,1));
+}
+
+::view-transition-old(ce-os-window-bar),
+::view-transition-new(ce-os-window-bar) {
+  animation-duration: var(--os-v3-window);
+  animation-timing-function: var(--os-v3-spring, cubic-bezier(.16,1,.3,1));
+}
+
+@media (max-width: 620px) {
+  body.contentengine-os-v3 .ce-mac-dock__glass {
+    max-width: calc(100vw - 12px);
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .os-v3-route-badge {
+    top: 0;
+    right: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.contentengine-os-v3 *,
+  body.contentengine-os-v3 *::before,
+  body.contentengine-os-v3 *::after,
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(ce-os-active-surface),
+  ::view-transition-new(ce-os-active-surface),
+  ::view-transition-old(ce-os-window-bar),
+  ::view-transition-new(ce-os-window-bar) {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
