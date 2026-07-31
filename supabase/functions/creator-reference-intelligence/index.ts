@@ -1,12 +1,11 @@
 import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
-// deno-lint-ignore-file no-control-regex
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MAX_BODY_BYTES = 18_874_368;
 const MAX_PROVIDER_JSON_BYTES = 1_048_576;
 const MAX_URLS = 8;
-const MAX_ASSETS = 12;
+const MAX_ASSETS = 16;
 const MAX_TOTAL_ASSET_BYTES = 12_582_912;
 const MAX_SINGLE_IMAGE_BYTES = 3_145_728;
 const MAX_SINGLE_PDF_BYTES = 8_388_608;
@@ -77,6 +76,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (
+      (code >= 0x00 && code <= 0x08) ||
+      code === 0x0b ||
+      code === 0x0c ||
+      (code >= 0x0e && code <= 0x1f) ||
+      code === 0x7f
+    ) return true;
+  }
+  return false;
+}
+
 function boundedText(
   value: unknown,
   minimum: number,
@@ -84,7 +97,7 @@ function boundedText(
 ): value is string {
   return typeof value === "string" && value === value.trim() &&
     value.length >= minimum && value.length <= maximum &&
-    !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value);
+    !hasControlCharacters(value);
 }
 
 function publicHttpsUrl(value: unknown): value is string {
@@ -186,7 +199,7 @@ function readPayload(value: unknown): ReferencePayload | null {
     : String(value.reference_note).trim();
   if (
     note.length > 2_000 ||
-    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(note)
+    hasControlCharacters(note)
   ) return null;
   if (!Array.isArray(value.assets) || value.assets.length > MAX_ASSETS) {
     return null;
