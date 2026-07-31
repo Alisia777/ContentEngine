@@ -11,6 +11,7 @@ const FUNCTION_NAME = "creator-reference-intelligence";
 const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
 const STATE_KEY = "contentengine.reference-intelligence.v2";
 const STATE_VERSION = 2;
+const PAID_ANALYSIS_ACK = "REFERENCE_ANALYSIS_PAID_V1";
 const MAX_SCOPES = 16;
 const MAX_URLS = 8;
 const MAX_FILES = 4;
@@ -85,8 +86,24 @@ function canonicalPublicHttpsUrl(value) {
       /^169\.254\./u.test(host)
     ) return null;
     url.hash = "";
+    const sensitiveParams = new Set([
+      "token",
+      "access_token",
+      "auth",
+      "authorization",
+      "password",
+      "secret",
+      "signature",
+      "sig",
+      "api_key",
+      "apikey",
+      "key",
+      "x-amz-signature",
+      "x-goog-signature",
+    ]);
     for (const key of [...url.searchParams.keys()]) {
       const normalized = key.toLocaleLowerCase("en-US");
+      if (sensitiveParams.has(normalized)) return null;
       if (
         normalized.startsWith("utm_") ||
         [
@@ -723,6 +740,23 @@ function buildPanel(form, purpose) {
   note.dataset.referenceNote = "true";
   noteLabel.append(note);
 
+  const paidAck = create("label", "check-row ce-reference-intelligence__paid-ack");
+  const paidAckInput = create("input");
+  paidAckInput.type = "checkbox";
+  paidAckInput.value = PAID_ANALYSIS_ACK;
+  paidAckInput.dataset.referencePaidAck = "true";
+  const paidAckCopy = create("span");
+  paidAckCopy.append(
+    create("strong", "", "Запускаю отдельный платный ИИ-разбор примеров"),
+    document.createElement("br"),
+    create(
+      "small",
+      "",
+      "Используются модель анализа и web search. Галочка не сохраняется; применение готовой выжимки и запуск Runway — отдельные действия.",
+    ),
+  );
+  paidAck.append(paidAckInput, paidAckCopy);
+
   const actions = create("div", "ce-reference-intelligence__actions");
   const analyzeButton = create("button", "btn btn-secondary btn-small", "Разобрать примеры");
   analyzeButton.type = "button";
@@ -752,7 +786,7 @@ function buildPanel(form, purpose) {
   const result = create("div", "ce-reference-intelligence__result");
   result.dataset.referenceResult = "true";
   result.hidden = true;
-  panel.append(header, grid, noteLabel, actions, status, result);
+  panel.append(header, grid, noteLabel, paidAck, actions, status, result);
 
   const saveDraft = () => {
     restoreScope(form, panel);
@@ -814,12 +848,23 @@ async function analyze(form, panel) {
       verified_urls: state.verifiedUrls,
       input_summary: state.inputSummary,
     });
-    setStatus(panel, "Используем уже готовый разбор этих же вводных.", "ready");
+    setStatus(panel, "Используем уже готовый разбор этих же вводных без нового платного запроса.", "ready");
     updateApplyState(form, panel);
     return;
   }
+  const paidAck = q("[data-reference-paid-ack]", panel);
+  if (!(paidAck instanceof HTMLInputElement) || !paidAck.checked) {
+    setStatus(
+      panel,
+      "Подтвердите отдельный платный ИИ-разбор примеров. Это не запускает Runway и не создаёт контент.",
+      "error",
+    );
+    paidAck?.focus({ preventScroll: true });
+    return;
+  }
+  const sameRequest = state.signature === signature && Boolean(state.requestId);
   state.signature = signature;
-  state.requestId = crypto.randomUUID();
+  if (!sameRequest) state.requestId = crypto.randomUUID();
   state.analysis = null;
   state.verifiedUrls = [];
   state.inputSummary = { urls: 0, assets: 0 };
@@ -849,6 +894,7 @@ async function analyze(form, panel) {
         purpose: panel.dataset.referencePurpose,
         reference_urls: parsed.urls,
         reference_note: note,
+        paid_analysis_ack: PAID_ANALYSIS_ACK,
         assets,
       },
       headers: {
@@ -889,6 +935,8 @@ async function analyze(form, panel) {
     saveScope(panel);
   } finally {
     state.loading = false;
+    const paidAck = q("[data-reference-paid-ack]", panel);
+    if (paidAck instanceof HTMLInputElement) paidAck.checked = false;
     updateApplyState(form, panel);
   }
 }
