@@ -24,9 +24,12 @@ LOADER = (APP / "workspace-os-v4-loader.js").read_text(
     encoding="utf-8"
 )
 CONFIG = (ROOT / "supabase" / "config.toml").read_text(encoding="utf-8")
-DEPLOY = (
-    ROOT / ".github" / "workflows" / "deploy-reference-intelligence.yml"
-).read_text(encoding="utf-8")
+CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+    encoding="utf-8"
+)
+DEPLOY = (ROOT / ".github" / "workflows" / "supabase-pages.yml").read_text(
+    encoding="utf-8"
+)
 
 
 def test_reference_intelligence_is_lazy_loaded_only_where_briefs_exist() -> None:
@@ -168,28 +171,38 @@ def test_client_does_not_submit_business_forms_or_use_html_sinks() -> None:
     assert 'dispatchEvent(new Event("change"' in CLIENT
 
 
-def test_reference_function_is_configured_and_deployed_after_main_release() -> None:
+def test_reference_function_is_in_main_ci_and_atomic_production_deploy() -> None:
     assert "[functions.creator-reference-intelligence]" in CONFIG
     assert (
         "[functions.creator-reference-intelligence]\nverify_jwt = true"
         in CONFIG
     )
     for marker in (
-        "workflows:\n      - Deploy Supabase and GitHub Pages",
+        '"creator-reference-intelligence",',
+        "deno fmt --check --line-width 120 supabase/functions/creator-reference-intelligence",
+        "deno lint supabase/functions/creator-reference-intelligence/index.ts",
+        "deno check supabase/functions/creator-reference-intelligence/index.ts",
+        "deno check web/app/workspace-reference-intelligence.js",
+    ):
+        assert marker in CI
+    for marker in (
+        '"creator-reference-intelligence",',
+        "Deploy authenticated reference intelligence function",
         "supabase functions deploy creator-reference-intelligence",
         "SUPABASE_ACCESS_TOKEN",
         "EXPECTED_SUPABASE_PROJECT_REF",
+        "needs:\n      - migrate\n      - build-pages",
     ):
         assert marker in DEPLOY
 
 
-def test_no_temporary_self_modifying_workflow_remains() -> None:
-    assert not (
-        ROOT
-        / ".github"
-        / "workflows"
-        / "_temporary-control-character-fix.yml"
-    ).exists()
+def test_no_temporary_or_duplicate_reference_workflows_remain() -> None:
+    for name in (
+        "_temporary-control-character-fix.yml",
+        "reference-intelligence-ci.yml",
+        "deploy-reference-intelligence.yml",
+    ):
+        assert not (ROOT / ".github" / "workflows" / name).exists()
 
 
 def test_reference_javascript_parses_when_node_is_available() -> None:
