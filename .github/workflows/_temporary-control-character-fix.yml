@@ -1,0 +1,82 @@
+name: Temporary Reference Intelligence control-character fix
+
+on:
+  push:
+    branches:
+      - agent/reference-intelligence-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-reference-control-character-fix
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: agent/reference-intelligence-v1
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.8.1
+
+      - name: Replace control-character regexes and align asset capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("supabase/functions/creator-reference-intelligence/index.ts")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace("// deno-lint-ignore-file no-control-regex\n", "")
+          text = text.replace("const MAX_ASSETS = 12;", "const MAX_ASSETS = 16;")
+
+          helper = '''function hasControlCharacters(value: string): boolean {
+            for (let index = 0; index < value.length; index += 1) {
+              const code = value.charCodeAt(index);
+              if (
+                (code >= 0x00 && code <= 0x08) ||
+                code === 0x0b ||
+                code === 0x0c ||
+                (code >= 0x0e && code <= 0x1f) ||
+                code === 0x7f
+              ) return true;
+            }
+            return false;
+          }
+
+          '''
+          if "function hasControlCharacters(" not in text:
+              text = text.replace("function boundedText(\n", helper + "function boundedText(\n", 1)
+
+          value_regex = r'!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value);'
+          note_regex = r'/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(note)'
+          text = text.replace(value_regex, "!hasControlCharacters(value);")
+          text = text.replace(note_regex, "hasControlCharacters(note)")
+
+          if value_regex in text or note_regex in text:
+              raise SystemExit("control-character regex replacement was incomplete")
+          if "function hasControlCharacters(" not in text:
+              raise SystemExit("control-character helper was not installed")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          deno fmt --line-width 120 supabase/functions/creator-reference-intelligence/index.ts
+          deno lint supabase/functions/creator-reference-intelligence/index.ts
+          deno check supabase/functions/creator-reference-intelligence/index.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/creator-reference-intelligence/index.ts
+          git commit -m "Harden Reference Intelligence control-character validation"
+          git push origin HEAD:agent/reference-intelligence-v1
