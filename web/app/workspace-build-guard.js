@@ -4,7 +4,8 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260731.os3.2";
+const CURRENT_BUILD = "20260731.os4.0";
+const BUILD_BADGE = "Desktop · 4";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const VALID_BUILD_ID = /^[a-z0-9._-]{4,80}$/iu;
@@ -19,7 +20,7 @@ const runtime = {
 
 window.CONTENTENGINE_BUILD = Object.freeze({
   id: CURRENT_BUILD,
-  label: "ContentEngine OS v3.2 · Visual QA Cleanup",
+  label: "ContentEngine Desktop v4 · System Workspace",
 });
 
 function cleanBuildId(value) {
@@ -40,10 +41,10 @@ function ensurePill() {
   pill.type = "button";
   pill.dataset.buildId = CURRENT_BUILD;
   pill.setAttribute("aria-label", `Версия интерфейса ${CURRENT_BUILD}. Проверить обновление`);
-  pill.title = `ContentEngine OS · ${CURRENT_BUILD}`;
+  pill.title = `ContentEngine Desktop · ${CURRENT_BUILD}`;
   pill.append(
     makeElement("span", "ce-build-pill__dot"),
-    makeElement("span", "ce-build-pill__copy", `OS · ${CURRENT_BUILD.split(".").at(-1)}`),
+    makeElement("span", "ce-build-pill__copy", BUILD_BADGE),
   );
   pill.addEventListener("click", () => void checkForUpdate({ manual: true }));
   document.body.append(pill);
@@ -104,12 +105,11 @@ function flashPill(message, tone = "ok") {
   const pill = ensurePill();
   const copy = pill.querySelector(".ce-build-pill__copy");
   if (!copy) return;
-  const original = `OS · ${CURRENT_BUILD.split(".").at(-1)}`;
   copy.textContent = message;
   pill.dataset.tone = tone;
   window.setTimeout(() => {
     if (!pill.isConnected) return;
-    copy.textContent = original;
+    copy.textContent = BUILD_BADGE;
     delete pill.dataset.tone;
   }, 1600);
 }
