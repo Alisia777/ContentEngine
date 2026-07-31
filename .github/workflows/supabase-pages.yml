@@ -175,6 +175,7 @@ jobs:
               "creator-set-password",
               "creator-generate",
               "creator-product-research",
+              "creator-reference-intelligence",
               "creator-content-review",
               "creator-access",
           ):
@@ -192,7 +193,7 @@ jobs:
                   )
           for function_name in (
               "creator-background-worker",
-               "creator-recovery",
+              "creator-recovery",
               "auth-email-webhook",
           ):
               entrypoint = (
@@ -230,6 +231,13 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-product-research --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy authenticated reference intelligence function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          supabase functions deploy creator-reference-intelligence
+          --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy authenticated content review function
         env:
