@@ -1,0 +1,72 @@
+/* ContentEngine OS v3 · production loop workspaces. */
+
+body.contentengine-publishing-os-open,
+body.contentengine-tasks-stage-open,
+body.contentengine-work-stage-open,
+body.contentengine-results-story-open,
+body.contentengine-payout-ledger-open {
+  overflow-x: hidden;
+  background: var(--ce-v3-bg, #090807);
+}
+
+body.contentengine-publishing-os-open .workspace-shell,
+body.contentengine-tasks-stage-open .workspace-shell,
+body.contentengine-work-stage-open .workspace-shell,
+body.contentengine-results-story-open .workspace-shell,
+body.contentengine-payout-ledger-open .workspace-shell {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body.contentengine-publishing-os-open .workspace-shell > .sidebar,
+body.contentengine-tasks-stage-open .workspace-shell > .sidebar,
+body.contentengine-work-stage-open .workspace-shell > .sidebar,
+body.contentengine-results-story-open .workspace-shell > .sidebar,
+body.contentengine-payout-ledger-open .workspace-shell > .sidebar {
+  display: none !important;
+}
+
+body.contentengine-publishing-os-open .workspace-main,
+body.contentengine-tasks-stage-open .workspace-main,
+body.contentengine-work-stage-open .workspace-main,
+body.contentengine-results-story-open .workspace-main,
+body.contentengine-payout-ledger-open .workspace-main {
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 0 calc(var(--ce-mac-dock-height, 74px) + 22px) !important;
+}
+
+body.contentengine-publishing-os-open .workspace-deckbar,
+body.contentengine-tasks-stage-open .workspace-deckbar,
+body.contentengine-work-stage-open .workspace-deckbar,
+body.contentengine-results-story-open .workspace-deckbar,
+body.contentengine-payout-ledger-open .workspace-deckbar,
+body.contentengine-publishing-os-open .workspace-task-dock,
+body.contentengine-tasks-stage-open .workspace-task-dock,
+body.contentengine-work-stage-open .workspace-task-dock,
+body.contentengine-results-story-open .workspace-task-dock,
+body.contentengine-payout-ledger-open .workspace-task-dock {
+  display: none !important;
+}
+
+.publishing-os-page,
+.tasks-stage-page,
+.work-stage-page,
+.results-story-page,
+.payout-ledger-page {
+  width: 100%;
+  max-width: none !important;
+  min-width: 0;
+  padding: 10px 12px 0 !important;
+}
+
+.publishing-os-page > .workspace-page-intro,
+.publishing-os-page > .workspace-direction,
+.tasks-stage-page > .workspace-page-intro,
+.tasks-stage-page > .workspace-direction,
+.results-story-page > .workspace-page-intro,
+.results-story-page > .workspace-direction,
+.payout-ledger-page > .workspace-page-intro,
+.payout-ledger-page > .workspace-direction {
+  display: none !important;
+}
