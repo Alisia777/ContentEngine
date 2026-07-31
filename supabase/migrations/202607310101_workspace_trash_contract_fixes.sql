@@ -62,6 +62,21 @@ begin
 end;
 $workspace_trash_fix$;
 
+-- The existing creator_* browser contract is intentionally frozen and counted
+-- by pgTAP. Trash is a Desktop system service rather than a legacy workspace
+-- section, so expose it under its own stable namespace without weakening any
+-- grants or changing the one-jsonb-argument contract.
+alter function public.creator_workspace_trash_browser(jsonb)
+  rename to workspace_trash_browser;
+alter function public.creator_trash_workspace_items(jsonb)
+  rename to workspace_trash_items;
+alter function public.creator_restore_workspace_items(jsonb)
+  rename to workspace_restore_items;
+alter function public.creator_purge_workspace_items(jsonb)
+  rename to workspace_purge_items;
+alter function public.creator_complete_workspace_storage_cleanup(jsonb)
+  rename to workspace_complete_storage_cleanup;
+
 -- Private helpers are callable only by their SECURITY DEFINER owners. The
 -- previous migration re-applied an old blanket service-role grant; restore the
 -- repository's final fail-closed contract after adding the new helper.
