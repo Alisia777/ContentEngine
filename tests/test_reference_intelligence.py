@@ -50,6 +50,7 @@ def test_reference_inbox_accepts_links_images_pdf_and_video_frames() -> None:
         "Подготовить безопасное ТЗ",
         "РЕФЕРЕНСЫ — ТОЛЬКО СТИЛЬ, НЕ ФАКТЫ О ТОВАРЕ",
         "Не обучает модель",
+        "Запускаю отдельный платный ИИ-разбор примеров",
     ):
         assert marker in CLIENT
 
@@ -134,6 +135,19 @@ def test_unverified_urls_cannot_be_applied() -> None:
         "provider-citations",
         "Неподтверждённая ссылка не может попасть в ТЗ",
         "parsed.urls.length > state.verifiedUrls.length",
+        "sensitiveParams",
+    ):
+        assert marker in CLIENT
+
+
+def test_paid_reference_analysis_is_explicit_and_retry_id_is_stable() -> None:
+    for marker in (
+        'PAID_ANALYSIS_ACK = "REFERENCE_ANALYSIS_PAID_V1"',
+        "data-reference-paid-ack",
+        "paid_analysis_ack: PAID_ANALYSIS_ACK",
+        "const sameRequest = state.signature === signature",
+        "if (!sameRequest) state.requestId = crypto.randomUUID()",
+        "без нового платного запроса",
     ):
         assert marker in CLIENT
 
