@@ -1,4 +1,4 @@
-/* ContentEngine Reference Intelligence v1 */
+/* ContentEngine Reference Intelligence v1.1 */
 
 .ce-reference-intelligence {
   display: grid;
@@ -20,7 +20,7 @@
   gap: 16px;
 }
 
-.ce-reference-intelligence__header > div {
+.ce-reference-intelligence__header > div:first-child {
   display: grid;
   gap: 5px;
 }
@@ -28,6 +28,7 @@
 .ce-reference-intelligence__header small,
 .ce-reference-intelligence__summary > small,
 .ce-reference-intelligence__guard > small,
+.ce-reference-intelligence__limitations > small,
 .ce-reference-intelligence__dna article small {
   color: var(--ce-v4-copper-bright, #ffb47e);
   font-size: .56rem;
@@ -49,18 +50,44 @@
   line-height: 1.55;
 }
 
-.ce-reference-intelligence__safety {
+.ce-reference-intelligence__badges {
+  display: flex;
+  max-width: min(330px, 42vw);
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ce-reference-intelligence__safety,
+.ce-reference-intelligence__scope {
   display: inline-flex;
   min-height: 30px;
+  max-width: 100%;
   padding: 0 10px;
   border: 1px solid rgba(224,176,102,.22);
   border-radius: 999px;
   align-items: center;
+  overflow: hidden;
   color: var(--ce-v4-warning, #e0b066);
   background: rgba(224,176,102,.065);
   font-size: .58rem;
   font-weight: 780;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ce-reference-intelligence__scope {
+  border-color: rgba(139,196,168,.18);
+  color: var(--ce-v4-muted, #aa9d94);
+  background: rgba(139,196,168,.04);
+}
+
+.ce-reference-intelligence__scope[data-tone="ready"] {
+  color: var(--ce-v4-success, #8bc4a8);
+}
+
+.ce-reference-intelligence__scope[data-tone="warning"] {
+  color: var(--ce-v4-warning, #e0b066);
 }
 
 .ce-reference-intelligence__grid {
@@ -107,10 +134,18 @@
   line-height: 1.45;
 }
 
-.ce-reference-intelligence__status[data-tone="loading"] { color: var(--ce-v4-copper-bright, #ffb47e); }
+.ce-reference-intelligence__status[data-tone="loading"] {
+  color: var(--ce-v4-copper-bright, #ffb47e);
+}
+
 .ce-reference-intelligence__status[data-tone="ready"],
-.ce-reference-intelligence__status[data-tone="applied"] { color: var(--ce-v4-success, #8bc4a8); }
-.ce-reference-intelligence__status[data-tone="error"] { color: var(--ce-v4-danger, #ef8179); }
+.ce-reference-intelligence__status[data-tone="applied"] {
+  color: var(--ce-v4-success, #8bc4a8);
+}
+
+.ce-reference-intelligence__status[data-tone="error"] {
+  color: var(--ce-v4-danger, #ef8179);
+}
 
 .ce-reference-intelligence__result {
   display: grid;
@@ -121,6 +156,7 @@
 
 .ce-reference-intelligence__summary,
 .ce-reference-intelligence__guard,
+.ce-reference-intelligence__limitations,
 .ce-reference-intelligence__dna article {
   padding: 11px 12px;
   border: 1px solid rgba(255,255,255,.075);
@@ -147,8 +183,17 @@
   background: rgba(239,129,121,.035);
 }
 
-.ce-reference-intelligence__guard > small { color: var(--ce-v4-danger, #ef8179); }
-.ce-reference-intelligence__guard ul {
+.ce-reference-intelligence__guard > small {
+  color: var(--ce-v4-danger, #ef8179);
+}
+
+.ce-reference-intelligence__limitations {
+  border-color: rgba(224,176,102,.14);
+  background: rgba(224,176,102,.025);
+}
+
+.ce-reference-intelligence__guard ul,
+.ce-reference-intelligence__limitations ul {
   display: grid;
   margin: 8px 0 0;
   padding-left: 18px;
@@ -167,18 +212,46 @@
 
 @media (max-width: 860px) {
   .ce-reference-intelligence__grid,
-  .ce-reference-intelligence__dna { grid-template-columns: 1fr; }
+  .ce-reference-intelligence__dna {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
-  .ce-reference-intelligence { padding: 12px; border-radius: 15px; }
-  .ce-reference-intelligence__header { grid-template-columns: 1fr; }
-  .ce-reference-intelligence__safety { width: max-content; }
-  .ce-reference-intelligence__actions { align-items: stretch; flex-direction: column; }
-  .ce-reference-intelligence__actions .btn { width: 100%; justify-content: center; }
+  .ce-reference-intelligence {
+    padding: 12px;
+    border-radius: 15px;
+  }
+
+  .ce-reference-intelligence__header {
+    grid-template-columns: 1fr;
+  }
+
+  .ce-reference-intelligence__badges {
+    max-width: 100%;
+    align-items: flex-start;
+  }
+
+  .ce-reference-intelligence__safety,
+  .ce-reference-intelligence__scope {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .ce-reference-intelligence__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ce-reference-intelligence__actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ce-reference-intelligence,
-  .ce-reference-intelligence * { scroll-behavior: auto !important; }
+  .ce-reference-intelligence * {
+    scroll-behavior: auto !important;
+  }
 }
