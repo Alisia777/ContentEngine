@@ -1,15 +1,16 @@
 /*
- * ContentEngine OS v3.2 visual QA hotfix.
+ * ContentEngine OS v3.2 visual QA cleanup.
  *
- * Goals: one screen / one action, one global Dock, no legacy full-screen focus,
- * clean route isolation, practical search/filtering, honest empty states and a
- * lightweight home command surface. Presentation-only: no business API calls,
- * no form submission and no cloning of native controls.
+ * One screen / one action, one global Dock, clean route isolation, scalable
+ * search/folders and a lightweight interactive home. This module is built with
+ * DOM APIs only: no HTML-string reinterpretation, no business API calls, no
+ * native form submission and no cloning of application controls.
  */
 
 const CLEAN_BUILD = "20260731.os3.2";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const TYPING = "input, textarea, select, [contenteditable='true']";
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 const ROUTES = Object.freeze([
   { route: "/workspace/home", label: "Сегодня", hint: "Один следующий шаг", icon: "home" },
@@ -25,24 +26,23 @@ const ROUTES = Object.freeze([
 ]);
 
 const ICONS = Object.freeze({
-  home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/>',
-  work: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M8 6V4h8v2M3 11h18M9 11v2h6v-2"/>',
-  media: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 16 3.5-4 3 3 2-2 2.5 3"/><circle cx="8" cy="8.5" r="1.3"/>',
-  generate: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/>',
-  review: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/><path d="m14 16 1.5 1.5L19 14"/>',
-  tasks: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 4.5M3 12l1.5 1.5L7 10.5M3 18l1.5 1.5L7 16.5"/>',
-  publish: '<path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 13v6h14v-6"/>',
-  stats: '<path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/>',
-  money: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9h10M7 15h4"/><circle cx="16" cy="14" r="2"/>',
-  learn: '<path d="m3 7 9-4 9 4-9 4-9-4Z"/><path d="M6 9v6c3 2 9 2 12 0V9"/>',
-  grid: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
-  expand: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><path d="m3 8 6-6M21 8l-6-6M3 16l6 6M21 16l-6 6"/>',
-  close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  left: '<path d="m15 18-6-6 6-6"/>',
-  right: '<path d="m9 18 6-6-6-6"/>',
-  folder: '<path d="M3 7h7l2 2h9v10H3V7Z"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+  home: [["path", { d: "m3 11 9-8 9 8" }], ["path", { d: "M5 10v10h14V10M9 20v-6h6v6" }]],
+  work: [["rect", { x: "3", y: "6", width: "18", height: "14", rx: "3" }], ["path", { d: "M8 6V4h8v2M3 11h18M9 11v2h6v-2" }]],
+  media: [["rect", { x: "3", y: "4", width: "18", height: "16", rx: "3" }], ["path", { d: "m7 16 3.5-4 3 3 2-2 2.5 3" }], ["circle", { cx: "8", cy: "8.5", r: "1.3" }]],
+  generate: [["path", { d: "M12 3v4M12 17v4M3 12h4M17 12h4" }], ["circle", { cx: "12", cy: "12", r: "3" }]],
+  review: [["rect", { x: "5", y: "4", width: "14", height: "17", rx: "2.5" }], ["path", { d: "M9 8h6M9 12h6M9 16h3" }], ["path", { d: "m14 16 1.5 1.5L19 14" }]],
+  tasks: [["path", { d: "M9 6h11M9 12h11M9 18h11" }], ["path", { d: "m3 6 1.5 1.5L7 4.5M3 12l1.5 1.5L7 10.5M3 18l1.5 1.5L7 16.5" }]],
+  publish: [["path", { d: "M12 3v12" }], ["path", { d: "m7 8 5-5 5 5" }], ["path", { d: "M5 13v6h14v-6" }]],
+  stats: [["path", { d: "M4 20V9M10 20V4M16 20v-7M22 20H2" }]],
+  money: [["rect", { x: "3", y: "5", width: "18", height: "14", rx: "3" }], ["path", { d: "M7 9h10M7 15h4" }], ["circle", { cx: "16", cy: "14", r: "2" }]],
+  learn: [["path", { d: "m3 7 9-4 9 4-9 4-9-4Z" }], ["path", { d: "M6 9v6c3 2 9 2 12 0V9" }]],
+  grid: [["rect", { x: "3", y: "3", width: "7", height: "7", rx: "2" }], ["rect", { x: "14", y: "3", width: "7", height: "7", rx: "2" }], ["rect", { x: "3", y: "14", width: "7", height: "7", rx: "2" }], ["rect", { x: "14", y: "14", width: "7", height: "7", rx: "2" }]],
+  search: [["circle", { cx: "11", cy: "11", r: "7" }], ["path", { d: "m20 20-4-4" }]],
+  close: [["path", { d: "m6 6 12 12M18 6 6 18" }]],
+  left: [["path", { d: "m15 18-6-6 6-6" }]],
+  right: [["path", { d: "m9 18 6-6-6-6" }]],
+  folder: [["path", { d: "M3 7h7l2 2h9v10H3V7Z" }]],
+  info: [["circle", { cx: "12", cy: "12", r: "9" }], ["path", { d: "M12 11v6M12 7h.01" }]],
 });
 
 const runtime = {
@@ -54,8 +54,6 @@ const runtime = {
   zenClose: null,
   zenScroll: 0,
   videoObserver: null,
-  lastVideo: null,
-  taskFilterBound: false,
 };
 
 function q(selector, root = document) {
@@ -75,29 +73,61 @@ function routeMatches(current, target) {
   return current === target || (target === "/learn" && current.startsWith("/learn/"));
 }
 
-function escapeMarkup(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function compact(value, limit = 140) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
 }
 
-function icon(name, size = 20) {
-  const body = ICONS[name] || ICONS.info;
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+function make(tag, options = {}, children = []) {
+  const element = document.createElement(tag);
+  if (options.className) element.className = options.className;
+  if (options.text !== undefined) element.textContent = String(options.text);
+  for (const [name, value] of Object.entries(options.attrs || {})) {
+    if (value !== null && value !== undefined) element.setAttribute(name, String(value));
+  }
+  for (const [name, value] of Object.entries(options.dataset || {})) {
+    if (value !== null && value !== undefined) element.dataset[name] = String(value);
+  }
+  append(element, children);
+  return element;
 }
 
-function elementFrom(markup) {
-  const template = document.createElement("template");
-  template.innerHTML = markup.trim();
-  return template.content.firstElementChild;
+function append(parent, children) {
+  const list = Array.isArray(children) ? children.flat(Infinity) : [children];
+  list.forEach((child) => {
+    if (child === null || child === undefined || child === false) return;
+    parent.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  });
+  return parent;
+}
+
+function textNode(tag, text, className = "") {
+  return make(tag, { text, className });
+}
+
+function icon(name, size = 20) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  (ICONS[name] || ICONS.info).forEach(([tag, attrs]) => {
+    const child = document.createElementNS(SVG_NS, tag);
+    Object.entries(attrs).forEach(([key, value]) => child.setAttribute(key, value));
+    svg.append(child);
+  });
+  return svg;
+}
+
+function buttonWithIcon(label, iconName, className = "") {
+  const button = make("button", { className, attrs: { type: "button" } });
+  append(button, [icon(iconName, 18), textNode("span", label)]);
+  return button;
 }
 
 function isVisible(element) {
@@ -150,7 +180,7 @@ function isolateCurrentPage() {
   page.classList.add("os-clean-page");
   qa(":scope > [data-os-clean-keep]", page).forEach((node) => delete node.dataset.osCleanKeep);
   keepSelectors.forEach((selector) => qa(selector, page).forEach((node) => markKeep(page, node)));
-  qa(":scope > .alert-danger, :scope > .alert-warning", page).forEach((node) => node.dataset.osCleanKeep = "true");
+  qa(":scope > .alert-danger, :scope > .alert-warning", page).forEach((node) => { node.dataset.osCleanKeep = "true"; });
 }
 
 function homeSourceFacts(page) {
@@ -160,36 +190,50 @@ function homeSourceFacts(page) {
   const hint = compact(q("p:not(.eyebrow), .muted, small", source)?.textContent || "Откройте следующий этап и завершите одно понятное действие.", 220);
   const href = action instanceof HTMLAnchorElement ? action.getAttribute("href") || "" : "";
   const route = href.startsWith("#/") ? href.slice(1).split("?")[0] : "";
-  return { source, action, title, hint, route };
+  return { action, title, hint, route };
 }
 
-function homeMarkup(facts) {
-  const selected = ROUTES.findIndex((item) => routeMatches(facts.route, item.route));
-  const current = selected >= 0 ? selected : 0;
-  return `
-    <section class="os-clean-home" data-os-clean-keep="true" data-os-clean-stage="${current}">
-      <header class="os-clean-home__top">
-        <div><small>CONTENTENGINE · РАБОЧЕЕ МЕСТО</small><strong>Сегодня</strong></div>
-        <button type="button" data-os-clean-mission>${icon("grid", 19)}<span>Все столы</span></button>
-      </header>
-      <main class="os-clean-home__body">
-        <section class="os-clean-home__action" aria-labelledby="os-clean-home-title">
-          <small>ОДИН ЭКРАН · ОДНО ДЕЙСТВИЕ</small>
-          <h1 id="os-clean-home-title">${escapeMarkup(facts.title)}</h1>
-          <p data-os-clean-home-hint>${escapeMarkup(facts.hint)}</p>
-          <button type="button" data-os-clean-home-primary>${icon("right", 19)}<span>Открыть следующий шаг</span></button>
-        </section>
-        <aside class="os-clean-home__route" aria-label="Производственный маршрут">
-          <header><small>МАРШРУТ</small><strong>7 этапов без свалки</strong></header>
-          <nav>
-            ${ROUTES.filter((item) => ["/workspace/media", "/workspace/generation", "/workspace/review", "/workspace/tasks", "/workspace/placement", "/workspace/stats", "/workspace/payouts"].includes(item.route)).map((item, index) => `
-              <button type="button" data-os-clean-stage-route="${item.route}" data-stage-index="${index}" aria-label="${escapeMarkup(item.label)}">
-                <span>${String(index + 1).padStart(2, "0")}</span><strong>${escapeMarkup(item.label)}</strong><small>${escapeMarkup(item.hint)}</small>
-              </button>`).join("")}
-          </nav>
-        </aside>
-      </main>
-    </section>`;
+function buildHome(facts) {
+  const home = make("section", { className: "os-clean-home", dataset: { osCleanKeep: "true" } });
+  const top = make("header", { className: "os-clean-home__top" });
+  const topCopy = make("div", {}, [textNode("small", "CONTENTENGINE · РАБОЧЕЕ МЕСТО"), textNode("strong", "Сегодня")]);
+  const mission = buttonWithIcon("Все столы", "grid");
+  mission.dataset.osCleanMission = "true";
+  append(top, [topCopy, mission]);
+
+  const body = make("main", { className: "os-clean-home__body" });
+  const action = make("section", { className: "os-clean-home__action", attrs: { "aria-labelledby": "os-clean-home-title" } });
+  const eyebrow = textNode("small", "ОДИН ЭКРАН · ОДНО ДЕЙСТВИЕ");
+  const title = textNode("h1", facts.title);
+  title.id = "os-clean-home-title";
+  const hint = textNode("p", facts.hint);
+  hint.dataset.osCleanHomeHint = "true";
+  const primary = buttonWithIcon("Открыть следующий шаг", "right");
+  primary.dataset.osCleanHomePrimary = "true";
+  append(action, [eyebrow, title, hint, primary]);
+
+  const routeAside = make("aside", { className: "os-clean-home__route", attrs: { "aria-label": "Производственный маршрут" } });
+  append(routeAside, make("header", {}, [textNode("small", "МАРШРУТ"), textNode("strong", "7 этапов без свалки")]));
+  const nav = make("nav");
+  const productionRoutes = ROUTES.filter((item) => [
+    "/workspace/media", "/workspace/generation", "/workspace/review",
+    "/workspace/tasks", "/workspace/placement", "/workspace/stats", "/workspace/payouts",
+  ].includes(item.route));
+  productionRoutes.forEach((item, index) => {
+    const button = make("button", {
+      attrs: { type: "button", "aria-label": item.label },
+      dataset: { osCleanStageRoute: item.route, stageIndex: index },
+    }, [
+      textNode("span", String(index + 1).padStart(2, "0")),
+      textNode("strong", item.label),
+      textNode("small", item.hint),
+    ]);
+    nav.append(button);
+  });
+  routeAside.append(nav);
+  append(body, [action, routeAside]);
+  append(home, [top, body]);
+  return home;
 }
 
 function setupHome() {
@@ -197,12 +241,11 @@ function setupHome() {
   const page = q("#workspace-content .page-wrap, #workspace-content, .workspace-main .page-wrap");
   if (!page || q(":scope > .os-clean-home", page)) return;
   const facts = homeSourceFacts(page);
-  const home = elementFrom(homeMarkup(facts));
+  const home = buildHome(facts);
   page.prepend(home);
   page.classList.add("os-clean-home-ready", "os-clean-page");
-  qa(":scope > *", page).forEach((node) => {
-    if (node === home) node.dataset.osCleanKeep = "true";
-  });
+  qa(":scope > *", page).forEach((node) => { if (node === home) node.dataset.osCleanKeep = "true"; });
+
   const title = q("#os-clean-home-title", home);
   const hint = q("[data-os-clean-home-hint]", home);
   const primary = q("[data-os-clean-home-primary]", home);
@@ -217,53 +260,74 @@ function setupHome() {
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-current", active ? "step" : "false");
     });
-    primary.querySelector("span").textContent = `Открыть: ${descriptor.label}`;
+    q("span", primary).textContent = `Открыть: ${descriptor.label}`;
   };
   qa("[data-os-clean-stage-route]", home).forEach((button) => {
     button.addEventListener("click", () => updateStage(button.dataset.osCleanStageRoute));
   });
   primary.addEventListener("click", () => {
-    if (facts.action && !selectedRoute) facts.action.click();
+    if (!selectedRoute && facts.action) facts.action.click();
     else navigate(selectedRoute || facts.route || "/workspace/work");
   });
   q("[data-os-clean-mission]", home)?.addEventListener("click", openMission);
   updateStage(selectedRoute);
 }
 
-function missionMarkup() {
-  return `
-    <div class="os-clean-mission-backdrop">
-      <section class="os-clean-mission" role="dialog" aria-modal="true" aria-labelledby="os-clean-mission-title">
-        <header>
-          <div><small>MISSION CONTROL</small><h1 id="os-clean-mission-title">Рабочие столы</h1><p>Откройте одно направление. Остальные не конкурируют за внимание.</p></div>
-          <button type="button" data-os-clean-mission-close aria-label="Закрыть">${icon("close", 20)}</button>
-        </header>
-        <label class="os-clean-mission__search">${icon("search", 18)}<input type="search" placeholder="Найти стол" autocomplete="off" /></label>
-        <div class="os-clean-mission__grid">
-          ${ROUTES.map((item, index) => `
-            <button type="button" data-os-clean-mission-route="${item.route}" data-keywords="${escapeMarkup(`${item.label} ${item.hint}`.toLocaleLowerCase("ru-RU"))}">
-              <span>${icon(item.icon, 24)}</span><small>${String(index + 1).padStart(2, "0")}</small><strong>${escapeMarkup(item.label)}</strong><p>${escapeMarkup(item.hint)}</p>
-            </button>`).join("")}
-        </div>
-      </section>
-    </div>`;
+function buildMission() {
+  const backdrop = make("div", { className: "os-clean-mission-backdrop" });
+  const dialog = make("section", {
+    className: "os-clean-mission",
+    attrs: { role: "dialog", "aria-modal": "true", "aria-labelledby": "os-clean-mission-title" },
+  });
+  const header = make("header");
+  const copy = make("div", {}, [
+    textNode("small", "MISSION CONTROL"),
+    textNode("h1", "Рабочие столы"),
+    textNode("p", "Откройте одно направление. Остальные не конкурируют за внимание."),
+  ]);
+  q("h1", copy).id = "os-clean-mission-title";
+  const close = make("button", { attrs: { type: "button", "aria-label": "Закрыть" }, dataset: { osCleanMissionClose: "true" } }, [icon("close", 20)]);
+  append(header, [copy, close]);
+
+  const searchLabel = make("label", { className: "os-clean-mission__search" }, [icon("search", 18)]);
+  const input = make("input", { attrs: { type: "search", placeholder: "Найти стол", autocomplete: "off" } });
+  searchLabel.append(input);
+
+  const grid = make("div", { className: "os-clean-mission__grid" });
+  ROUTES.forEach((item, index) => {
+    const button = make("button", {
+      attrs: { type: "button" },
+      dataset: {
+        osCleanMissionRoute: item.route,
+        keywords: `${item.label} ${item.hint}`.toLocaleLowerCase("ru-RU"),
+      },
+    }, [
+      make("span", {}, [icon(item.icon, 24)]),
+      textNode("small", String(index + 1).padStart(2, "0")),
+      textNode("strong", item.label),
+      textNode("p", item.hint),
+    ]);
+    grid.append(button);
+  });
+  append(dialog, [header, searchLabel, grid]);
+  backdrop.append(dialog);
+  return backdrop;
 }
 
 function openMission(event) {
   event?.preventDefault?.();
   if (runtime.mission) return;
-  const overlay = elementFrom(missionMarkup());
+  const overlay = buildMission();
   runtime.mission = overlay;
   document.body.append(overlay);
   document.body.classList.add("os-clean-mission-open");
   const input = q("input", overlay);
-  const filter = () => {
+  input.addEventListener("input", () => {
     const query = String(input.value || "").trim().toLocaleLowerCase("ru-RU");
     qa("[data-os-clean-mission-route]", overlay).forEach((button) => {
       button.hidden = Boolean(query) && !String(button.dataset.keywords || "").includes(query);
     });
-  };
-  input.addEventListener("input", filter);
+  });
   overlay.addEventListener("click", (click) => {
     if (click.target === overlay || (click.target instanceof Element && click.target.closest("[data-os-clean-mission-close]"))) closeMission();
     const button = click.target instanceof Element ? click.target.closest("[data-os-clean-mission-route]") : null;
@@ -330,7 +394,8 @@ function openZen(surface = zenSurface()) {
   runtime.zenPlaceholder = placeholder;
   runtime.zenScroll = window.scrollY;
   surface.classList.add("os-clean-zen-surface");
-  const close = elementFrom(`<button class="os-clean-zen-close" type="button" aria-label="Закрыть фокус">${icon("close", 18)}<span>Вернуться</span></button>`);
+  const close = buttonWithIcon("Вернуться", "close", "os-clean-zen-close");
+  close.setAttribute("aria-label", "Закрыть фокус");
   close.addEventListener("click", () => closeZen());
   surface.prepend(close);
   runtime.zenClose = close;
@@ -346,7 +411,7 @@ function closeZen({ restoreFocus = true, immediate = false } = {}) {
   const close = runtime.zenClose;
   const finish = () => {
     close?.remove();
-    surface.classList.remove("os-clean-zen-surface");
+    surface.classList.remove("os-clean-zen-surface", "is-closing");
     if (placeholder?.parentNode) placeholder.before(surface);
     else surface.remove();
     placeholder?.remove?.();
@@ -366,8 +431,13 @@ function closeZen({ restoreFocus = true, immediate = false } = {}) {
 function canonicalDockRoute(anchor) {
   const href = String(anchor.getAttribute("href") || "");
   const route = href.startsWith("#/") ? href.slice(1).split("?")[0].replace(/\/$/, "") : "";
-  if (route.startsWith("/learn/")) return "/learn";
-  return route;
+  return route.startsWith("/learn/") ? "/learn" : route;
+}
+
+function dockTool(label, iconName, className) {
+  const button = make("button", { className: `ce-mac-dock__item ${className}`, attrs: { type: "button", "aria-label": label } });
+  append(button, [textNode("span", label, "ce-mac-dock__tooltip"), make("span", { className: "ce-mac-dock__icon" }, [icon(iconName, 22)])]);
+  return button;
 }
 
 function cleanDock() {
@@ -375,9 +445,8 @@ function cleanDock() {
   if (!glass) return;
   q(".os-v3-dock-tools", glass)?.remove();
   qa(".ce-mac-dock__separator", glass).forEach((node) => node.remove());
-  const links = qa("a.ce-mac-dock__item", glass);
   const byRoute = new Map();
-  links.forEach((link) => {
+  qa("a.ce-mac-dock__item", glass).forEach((link) => {
     const route = canonicalDockRoute(link);
     if (!ROUTES.some((item) => item.route === route) || byRoute.has(route)) {
       link.remove();
@@ -390,17 +459,18 @@ function cleanDock() {
     const tooltip = q(".ce-mac-dock__tooltip", link);
     if (tooltip) tooltip.textContent = descriptor.label;
   });
-  const mission = q(".ce-mac-dock__mission", glass) || elementFrom(`<button class="ce-mac-dock__item ce-mac-dock__mission" type="button" aria-label="Все рабочие столы"><span class="ce-mac-dock__tooltip">Все столы</span><span class="ce-mac-dock__icon">${icon("grid", 22)}</span></button>`);
-  mission.setAttribute("data-os-clean-mission", "true");
+
+  let mission = q(".ce-mac-dock__mission", glass);
+  if (!mission) mission = dockTool("Все столы", "grid", "ce-mac-dock__mission");
+  mission.dataset.osCleanMission = "true";
   ROUTES.forEach((item) => {
     const link = byRoute.get(item.route);
     if (link) glass.append(link);
   });
-  const separator = elementFrom('<span class="ce-mac-dock__separator os-clean-dock-separator" aria-hidden="true"></span>');
-  glass.append(separator, mission);
+  glass.append(make("span", { className: "ce-mac-dock__separator os-clean-dock-separator", attrs: { "aria-hidden": "true" } }), mission);
   let search = q(".os-clean-dock-search", glass);
   if (!search) {
-    search = elementFrom(`<button class="ce-mac-dock__item os-clean-dock-search" type="button" aria-label="Поиск"><span class="ce-mac-dock__tooltip">Поиск · ⌘K</span><span class="ce-mac-dock__icon">${icon("search", 22)}</span></button>`);
+    search = dockTool("Поиск · ⌘K", "search", "os-clean-dock-search");
     search.addEventListener("click", () => window.ContentEngineOSV3?.openSpotlight?.());
   }
   glass.append(search);
@@ -415,31 +485,38 @@ function taskSource(text) {
   return "Ручная задача";
 }
 
+function buildTaskFilter() {
+  const filter = make("div", { className: "os-clean-task-filter" });
+  const label = make("label", {}, [icon("search", 16)]);
+  label.append(make("input", { attrs: { type: "search", placeholder: "Найти задачу", autocomplete: "off" } }));
+  const select = make("select", { attrs: { "aria-label": "Статус задачи" } });
+  [["all", "Все"], ["active", "В работе"], ["blocked", "Блокеры"], ["done", "Готовые"]].forEach(([value, labelText]) => {
+    select.append(make("option", { text: labelText, attrs: { value } }));
+  });
+  append(filter, [label, select, make("span", { dataset: { osCleanTaskCount: "true" } })]);
+  return filter;
+}
+
 function enhanceTasks() {
   const shell = q(".tasks-desk-shell");
   if (!shell) return;
   const list = q(".tasks-desk-list", shell);
   if (list && !q(".os-clean-task-filter", shell)) {
-    const filter = elementFrom(`
-      <div class="os-clean-task-filter">
-        <label>${icon("search", 16)}<input type="search" placeholder="Найти задачу" autocomplete="off" /></label>
-        <select aria-label="Статус задачи"><option value="all">Все</option><option value="active">В работе</option><option value="blocked">Блокеры</option><option value="done">Готовые</option></select>
-        <span data-os-clean-task-count></span>
-      </div>`);
+    const filter = buildTaskFilter();
     list.before(filter);
     const apply = () => {
       const query = String(q("input", filter).value || "").trim().toLocaleLowerCase("ru-RU");
       const status = q("select", filter).value;
       let visible = 0;
-      qa(".tasks-desk-list-item", list).forEach((button) => {
-        const text = String(button.textContent || "").toLocaleLowerCase("ru-RU");
-        const tone = q("i[data-tone]", button)?.dataset.tone || "";
+      qa(".tasks-desk-list-item", list).forEach((item) => {
+        const text = String(item.textContent || "").toLocaleLowerCase("ru-RU");
+        const tone = q("i[data-tone]", item)?.dataset.tone || "";
         const matchStatus = status === "all"
           || (status === "blocked" && tone === "danger")
           || (status === "done" && tone === "success")
           || (status === "active" && !["danger", "success"].includes(tone));
         const show = matchStatus && (!query || text.includes(query));
-        button.hidden = !show;
+        item.hidden = !show;
         if (show) visible += 1;
       });
       q("[data-os-clean-task-count]", filter).textContent = `${visible} видно`;
@@ -452,15 +529,21 @@ function enhanceTasks() {
   }
   qa(".tasks-desk-card", shell).forEach((card) => {
     if (q(":scope > .os-clean-task-origin", card)) return;
-    const text = compact(card.textContent, 1200);
-    const source = taskSource(text);
+    const source = taskSource(compact(card.textContent, 1200));
     const description = compact(q("p:not(.eyebrow), .task-description, .muted", card)?.textContent || "Выполните критерий задачи и используйте штатную кнопку смены статуса.", 190);
-    const origin = elementFrom(`
-      <aside class="os-clean-task-origin"><small>ИСТОЧНИК ЗАДАЧИ</small><strong>${escapeMarkup(source)}</strong><p>${escapeMarkup(description)}</p></aside>`);
+    const origin = make("aside", { className: "os-clean-task-origin" }, [
+      textNode("small", "ИСТОЧНИК ЗАДАЧИ"),
+      textNode("strong", source),
+      textNode("p", description),
+    ]);
     const header = q(":scope > .task-top, :scope > header", card);
     if (header) header.after(origin);
     else card.prepend(origin);
   });
+}
+
+function mediaKindLabel(kind) {
+  return ({ product: "Товар", reference: "Референс", video: "Видео", image: "Без папки" })[kind] || "Без папки";
 }
 
 function enhanceMedia() {
@@ -469,39 +552,48 @@ function enhanceMedia() {
   qa(".media-card", page).forEach((card) => {
     if (q(".os-clean-media-kind", card)) return;
     const kind = String(card.dataset.mediaFinderKind || (card.dataset.mediaFinderType === "video" ? "video" : "image"));
-    const labels = { product: "Товар", reference: "Референс", video: "Видео", image: "Без папки" };
-    const badge = elementFrom(`<span class="os-clean-media-kind" data-kind="${escapeMarkup(kind)}">${escapeMarkup(labels[kind] || "Без папки")}</span>`);
+    const badge = textNode("span", mediaKindLabel(kind), "os-clean-media-kind");
+    badge.dataset.kind = kind;
     q(".media-info", card)?.prepend(badge);
   });
   const nav = q(".media-finder-sidebar nav", page);
-  if (nav && !q("[data-os-media-folder='uncategorized']", nav)) {
-    const button = elementFrom(`<button type="button" data-os-media-folder="uncategorized">${icon("folder", 17)}<span>Без папки</span><b>0</b></button>`);
-    nav.append(button);
-    const applyUnsorted = () => {
-      const active = page.dataset.osMediaCustomFolder === "uncategorized";
-      let count = 0;
-      qa(".media-card", page).forEach((card) => {
-        const match = String(card.dataset.mediaFinderKind || "image") === "image";
-        if (match) count += 1;
-        if (active) card.hidden = !match;
-      });
-      q("b", button).textContent = String(count);
-      button.classList.toggle("is-active", active);
-    };
-    button.addEventListener("click", () => {
-      page.dataset.osMediaCustomFolder = "uncategorized";
-      qa("[data-media-folder]", nav).forEach((item) => item.classList.remove("is-active"));
-      applyUnsorted();
+  if (!nav || q("[data-os-media-folder='uncategorized']", nav)) return;
+  const uncategorized = make("button", { attrs: { type: "button" }, dataset: { osMediaFolder: "uncategorized" } }, [
+    icon("folder", 17), textNode("span", "Без папки"), textNode("b", "0"),
+  ]);
+  nav.append(uncategorized);
+  const applyUnsorted = () => {
+    const active = page.dataset.osMediaCustomFolder === "uncategorized";
+    let count = 0;
+    qa(".media-card", page).forEach((card) => {
+      const match = String(card.dataset.mediaFinderKind || "image") === "image";
+      if (match) count += 1;
+      if (active) card.hidden = !match;
     });
-    nav.addEventListener("click", (event) => {
-      if (event.target instanceof Element && event.target.closest("[data-media-folder]")) {
-        delete page.dataset.osMediaCustomFolder;
-        window.setTimeout(applyUnsorted, 0);
-      }
-    });
-    q("[data-media-search]", page)?.addEventListener("input", () => window.setTimeout(applyUnsorted, 0));
+    q("b", uncategorized).textContent = String(count);
+    uncategorized.classList.toggle("is-active", active);
+  };
+  uncategorized.addEventListener("click", () => {
+    page.dataset.osMediaCustomFolder = "uncategorized";
+    qa("[data-media-folder]", nav).forEach((item) => item.classList.remove("is-active"));
     applyUnsorted();
-  }
+  });
+  nav.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest("[data-media-folder]")) {
+      delete page.dataset.osMediaCustomFolder;
+      window.setTimeout(applyUnsorted, 0);
+    }
+  });
+  q("[data-media-search]", page)?.addEventListener("input", () => window.setTimeout(applyUnsorted, 0));
+  applyUnsorted();
+}
+
+function buildTableSearch() {
+  const toolbar = make("div", { className: "os-clean-table-search" });
+  const label = make("label", {}, [icon("search", 16)]);
+  label.append(make("input", { attrs: { type: "search", placeholder: "Поиск по реестру", autocomplete: "off" } }));
+  append(toolbar, [label, textNode("span", "")]);
+  return toolbar;
 }
 
 function enhanceTableSearch() {
@@ -509,7 +601,7 @@ function enhanceTableSearch() {
     qa(".data-table", shell).forEach((table, index) => {
       const holder = table.closest(".table-wrap, .data-table-wrap") || table;
       if (holder.previousElementSibling?.classList?.contains("os-clean-table-search")) return;
-      const toolbar = elementFrom(`<div class="os-clean-table-search"><label>${icon("search", 16)}<input type="search" placeholder="Поиск по реестру" autocomplete="off" /></label><span></span></div>`);
+      const toolbar = buildTableSearch();
       holder.before(toolbar);
       const rows = qa("tbody tr", table);
       const apply = () => {
@@ -537,18 +629,24 @@ function enhanceReviewRisks() {
     if (cards.length < 4) return;
     container.dataset.osCleanRiskNavigator = "true";
     let index = 0;
-    const nav = elementFrom(`
-      <div class="os-clean-risk-nav"><button type="button" data-risk-prev>${icon("left", 17)}<span>Назад</span></button><strong data-risk-position></strong><button type="button" data-risk-next><span>Далее</span>${icon("right", 17)}</button></div>`);
+    const nav = make("div", { className: "os-clean-risk-nav" });
+    const previous = buttonWithIcon("Назад", "left");
+    previous.dataset.riskPrev = "true";
+    const position = textNode("strong", "");
+    position.dataset.riskPosition = "true";
+    const next = buttonWithIcon("Далее", "right");
+    next.dataset.riskNext = "true";
+    append(nav, [previous, position, next]);
     container.prepend(nav);
-    const show = (next) => {
-      index = Math.max(0, Math.min(cards.length - 1, next));
+    const show = (nextIndex) => {
+      index = Math.max(0, Math.min(cards.length - 1, nextIndex));
       cards.forEach((card, cardIndex) => {
         card.hidden = cardIndex !== index;
         card.classList.toggle("is-active", cardIndex === index);
       });
-      q("[data-risk-position]", nav).textContent = `Риск ${index + 1} из ${cards.length}`;
-      q("[data-risk-prev]", nav).disabled = index <= 0;
-      q("[data-risk-next]", nav).disabled = index >= cards.length - 1;
+      position.textContent = `Риск ${index + 1} из ${cards.length}`;
+      previous.disabled = index <= 0;
+      next.disabled = index >= cards.length - 1;
     };
     nav.addEventListener("click", (event) => {
       if (event.target instanceof Element && event.target.closest("[data-risk-prev]")) show(index - 1);
@@ -556,6 +654,17 @@ function enhanceReviewRisks() {
     });
     show(0);
   });
+}
+
+function buildPublishingEmpty() {
+  const empty = make("div", { className: "os-clean-publishing-empty" });
+  append(empty, [
+    make("span", {}, [icon("publish", 28)]),
+    textNode("strong", "Публикаций пока нет"),
+    textNode("p", "Сначала завершите проверку одного материала — после этого появится маршрут публикации."),
+    make("a", { text: "Открыть проверку", attrs: { href: "#/workspace/review" } }),
+  ]);
+  return empty;
 }
 
 function recoverPublishing() {
@@ -566,8 +675,7 @@ function recoverPublishing() {
   if (cards.length && !visibleCards.length) q("[data-publishing-filter='all']")?.click();
   const queue = q(".publishing-os-queue, .publishing-os-sidebar", shell);
   if (!cards.length && queue && !q(".os-clean-publishing-empty", shell)) {
-    const empty = elementFrom(`<div class="os-clean-publishing-empty"><span>${icon("publish", 28)}</span><strong>Публикаций пока нет</strong><p>Сначала завершите проверку одного материала — после этого появится маршрут публикации.</p><a href="#/workspace/review">Открыть проверку</a></div>`);
-    q(".publishing-os-stage, .publishing-os-workspace", shell)?.append(empty);
+    q(".publishing-os-stage, .publishing-os-workspace", shell)?.append(buildPublishingEmpty());
   }
 }
 
@@ -689,7 +797,6 @@ document.addEventListener("play", (event) => {
   qa("video").forEach((candidate) => {
     if (candidate !== video && !candidate.paused) candidate.pause();
   });
-  runtime.lastVideo = video;
 }, true);
 
 new MutationObserver(scheduleMount).observe(q("#app") || document.body, { childList: true, subtree: true });
