@@ -11,8 +11,8 @@ body.contentengine-desktop-v4 .ce-v4-single-surface > [data-ce-v4-surface-host="
   margin: 0 !important;
 }
 
-/* Routes that have not yet been rebuilt by a dedicated adapter remain usable. */
-body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-header {
+/* Routes without a dedicated desktop adapter remain fully usable. */
+body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header {
   display: flex !important;
   min-height: 56px;
   margin: 0 0 10px !important;
@@ -24,22 +24,22 @@ body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-head
   box-shadow: inset 0 1px rgba(255,255,255,.045);
 }
 
-body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-header h1 {
+body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header h1 {
   color: var(--ce-v4-text);
   font-size: clamp(1.05rem, 2vw, 1.45rem);
 }
 
-body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-header p,
-body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-header small {
+body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header p,
+body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header small {
   color: var(--ce-v4-muted);
   font-size: .68rem;
 }
 
-body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-wrap {
+body.contentengine-desktop-v4 .ce-v4-native-surface {
   min-height: calc(100dvh - var(--ce-v4-top) - var(--ce-v4-dock) - 40px);
 }
 
-body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] :is(.card,.product-research-card,.research-card) {
+body.contentengine-desktop-v4 .ce-v4-native-surface :is(.card,.product-research-card,.research-card) {
   border-color: var(--ce-v4-line) !important;
   border-radius: 18px !important;
   background: linear-gradient(145deg,rgba(255,255,255,.027),rgba(255,255,255,.01)) !important;
@@ -68,7 +68,7 @@ body.contentengine-desktop-v4 .ce-v4-page {
 }
 
 @media (max-width: 680px) {
-  body.contentengine-desktop-v4[data-ce-v4-route="/workspace/research"] .page-header {
+  body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header {
     align-items: flex-start;
     flex-direction: column;
   }
