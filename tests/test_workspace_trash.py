@@ -10,7 +10,11 @@ APP = ROOT / "web" / "app"
 MIGRATION = (
     ROOT / "supabase" / "migrations" / "202607310100_workspace_trash.sql"
 ).read_text(encoding="utf-8")
+FIX = (
+    ROOT / "supabase" / "migrations" / "202607310101_workspace_trash_contract_fixes.sql"
+).read_text(encoding="utf-8")
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
+ALIAS = (APP / "workspace-os-v4-trash-rpc-alias.js").read_text(encoding="utf-8")
 SCRIPT = (APP / "workspace-os-v4-context-trash.js").read_text(encoding="utf-8")
 STYLES = (APP / "workspace-os-v4-context-trash.css").read_text(encoding="utf-8")
 
@@ -69,6 +73,48 @@ def test_workspace_trash_contract_is_fail_closed_and_role_scoped() -> None:
     ):
         assert f"revoke all on function public.{rpc}(jsonb)" in MIGRATION
         assert f"grant execute on function public.{rpc}(jsonb)" in MIGRATION
+
+    assert "revoke execute on all functions in schema content_factory_private" in FIX
+    assert "require_workspace_item_array(jsonb, integer)" in FIX
+
+
+def test_conflict_targets_use_named_primary_keys_after_migration() -> None:
+    for marker in (
+        "workspace_media_locations_pkey",
+        "workspace_task_locations_pkey",
+        "workspace_storage_cleanup_queue_pkey",
+        "pg_get_functiondef",
+        "workspace_restore_conflict_target_fix_failed",
+        "workspace_purge_conflict_target_fix_failed",
+    ):
+        assert marker in FIX
+
+
+def test_trash_uses_a_dedicated_system_rpc_namespace() -> None:
+    for marker in (
+        "rename to workspace_trash_browser",
+        "rename to workspace_trash_items",
+        "rename to workspace_restore_items",
+        "rename to workspace_purge_items",
+        "rename to workspace_complete_storage_cleanup",
+    ):
+        assert marker in FIX
+
+    for source, destination in (
+        ("creator_workspace_trash_browser", "workspace_trash_browser"),
+        ("creator_trash_workspace_items", "workspace_trash_items"),
+        ("creator_restore_workspace_items", "workspace_restore_items"),
+        ("creator_purge_workspace_items", "workspace_purge_items"),
+        (
+            "creator_complete_workspace_storage_cleanup",
+            "workspace_complete_storage_cleanup",
+        ),
+    ):
+        assert source in ALIAS
+        assert destination in ALIAS
+    assert "CreatorApi.prototype.call" in ALIAS
+    assert "CreatorApi.prototype.mutate" in ALIAS
+    assert "Symbol.for" in ALIAS
 
 
 def test_permanent_media_delete_requires_a_purge_receipt() -> None:
@@ -149,29 +195,34 @@ def test_trash_ui_uses_narrow_rpc_boundary_and_safe_dynamic_dom() -> None:
     ):
         assert marker in SCRIPT
 
-    for forbidden in (
-        "innerHTML",
-        "outerHTML",
-        "insertAdjacentHTML",
-        "DOMParser",
-        "createContextualFragment",
-        "cloneNode",
-        "requestSubmit",
-        "service_role",
-        "sb_secret_",
-    ):
-        assert forbidden not in SCRIPT
+    for source in (SCRIPT, ALIAS):
+        for forbidden in (
+            "innerHTML",
+            "outerHTML",
+            "insertAdjacentHTML",
+            "DOMParser",
+            "createContextualFragment",
+            "cloneNode",
+            "requestSubmit",
+            "service_role",
+            "sb_secret_",
+        ):
+            assert forbidden not in source
 
 
-def test_context_trash_loads_after_desktop_surface_guard() -> None:
+def test_context_trash_loads_after_desktop_surface_guard_and_namespace() -> None:
     for marker in (
         "workspace-os-v4-context-trash.css?v=${BUILD}",
+        "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}",
         "workspace-os-v4-context-trash.js?v=${BUILD}",
         "workspace-os-v4-surface-guard.js?v=${BUILD}",
     ):
         assert marker in LOADER
 
     assert LOADER.index("workspace-os-v4-surface-guard.js?v=${BUILD}") < LOADER.index(
+        "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}"
+    )
+    assert LOADER.index("workspace-os-v4-trash-rpc-alias.js?v=${BUILD}") < LOADER.index(
         "workspace-os-v4-context-trash.js?v=${BUILD}"
     )
 
@@ -200,9 +251,13 @@ def test_context_trash_javascript_parses_when_node_is_available() -> None:
     node = shutil.which("node")
     if not node:
         pytest.skip("Node.js is not installed in this environment")
-    subprocess.run(
-        [node, "--check", str(APP / "workspace-os-v4-context-trash.js")],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    for filename in (
+        "workspace-os-v4-trash-rpc-alias.js",
+        "workspace-os-v4-context-trash.js",
+    ):
+        subprocess.run(
+            [node, "--check", str(APP / filename)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
