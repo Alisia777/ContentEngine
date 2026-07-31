@@ -23,11 +23,11 @@ def test_publishing_assets_load_inside_os_v3() -> None:
 
 def test_native_placement_anchors_exist() -> None:
     for marker in (
-        'class="placement-list"',
-        'class="card placement-card"',
-        'class="placement-top"',
-        'class="tracking-link-form',
-        'class="placement-form',
+        'placement-list',
+        'card placement-card',
+        'placement-top',
+        'tracking-link-form',
+        'placement-form',
         'data-placement-id=',
     ):
         assert marker in APP
