@@ -4,7 +4,7 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260731.os2.1";
+const CURRENT_BUILD = "20260731.os3.1";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const VALID_BUILD_ID = /^[a-z0-9._-]{4,80}$/iu;
@@ -19,7 +19,7 @@ const runtime = {
 
 window.CONTENTENGINE_BUILD = Object.freeze({
   id: CURRENT_BUILD,
-  label: "ContentEngine OS v2 · Generation + Finder",
+  label: "ContentEngine OS v3 · Full Production Loop",
 });
 
 function cleanBuildId(value) {

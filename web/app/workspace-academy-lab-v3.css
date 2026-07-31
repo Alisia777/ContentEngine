@@ -1,0 +1,368 @@
+/* ContentEngine Academy Lab v3. */
+
+.academy-lab-open-button {
+  display: inline-flex;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(232, 132, 73, 0.24);
+  border-radius: 10px;
+  align-items: center;
+  gap: 7px;
+  color: #fff3e9;
+  background: rgba(232, 132, 73, 0.085);
+  cursor: pointer;
+  font: 720 0.63rem/1 system-ui, sans-serif;
+}
+
+.academy-lab-open-button:hover,
+.academy-lab-open-button:focus-visible {
+  border-color: rgba(255, 178, 125, 0.42);
+  background: rgba(232, 132, 73, 0.14);
+  outline: none;
+}
+
+.academy-course-os-window--v2.academy-lab-open > .academy-v2-progress,
+.academy-course-os-window--v2.academy-lab-open > .academy-v2-dock {
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.academy-course-os-window--v2.academy-lab-open > .academy-v2-panels {
+  overflow: hidden;
+}
+
+.academy-lab {
+  position: absolute;
+  z-index: 20;
+  inset: 66px 0 0;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  color: var(--os-v3-text, #fff7ef);
+  background:
+    radial-gradient(circle at 78% 0%, rgba(232, 132, 73, 0.08), transparent 34%),
+    rgba(13, 11, 9, 0.985);
+  box-shadow: 0 -20px 70px rgba(0, 0, 0, 0.25);
+}
+
+.academy-lab.is-closing {
+  animation: academy-lab-out 230ms ease both;
+}
+
+.academy-lab > header {
+  display: grid;
+  min-height: 62px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 13px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.academy-lab > header > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.academy-lab > header small,
+.academy-lab-lesson > header small,
+.academy-lab-practice > header small,
+.academy-lab-fallback > small {
+  color: var(--os-v3-copper-bright, #ffb27d);
+  font-size: 0.56rem;
+  font-weight: 820;
+  letter-spacing: 0.13em;
+}
+
+.academy-lab > header strong {
+  overflow: hidden;
+  color: #fff7ef;
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.academy-lab-mode {
+  display: flex;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.academy-lab-mode button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--os-v3-muted, #a99a90);
+  background: transparent;
+  cursor: pointer;
+  font: 700 0.6rem/1 system-ui, sans-serif;
+}
+
+.academy-lab-mode button:hover {
+  color: #fff6ef;
+  background: rgba(232, 132, 73, 0.09);
+}
+
+.academy-lab > header > button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 11px;
+  place-items: center;
+  color: #d9ccc3;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.academy-lab-body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, var(--academy-lab-lesson, 52%)) 1px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.academy-lab-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.academy-lab-lesson,
+.academy-lab-practice {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.academy-lab-lesson > header,
+.academy-lab-practice > header {
+  display: grid;
+  min-height: 54px;
+  padding: 8px 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  background: rgba(255, 255, 255, 0.014);
+}
+
+.academy-lab-lesson > header > span,
+.academy-lab-practice > header > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 10px;
+  place-items: center;
+  color: #cbbab0;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.academy-lab-practice > header > span {
+  color: var(--os-v3-copper-bright, #ffb27d);
+  border-color: rgba(232, 132, 73, 0.22);
+  background: rgba(232, 132, 73, 0.075);
+}
+
+.academy-lab-lesson > header > div,
+.academy-lab-practice > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.academy-lab-lesson > header strong,
+.academy-lab-practice > header strong {
+  color: #fff6ef;
+  font-size: 0.76rem;
+}
+
+[data-academy-lab-lesson],
+[data-academy-lab-practice] {
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(14px, 2.4vw, 28px);
+  overflow-y: auto;
+}
+
+[data-academy-lab-lesson] > [data-course-lesson],
+[data-academy-lab-lesson] > [data-course-lesson-details],
+[data-academy-lab-practice] > form,
+[data-academy-lab-practice] > .training-practical-card,
+[data-academy-lab-practice] > .training-platform-simulator,
+[data-academy-lab-practice] > .learning-assessment-grid,
+[data-academy-lab-practice] > .course-completion-card {
+  display: block !important;
+  width: 100%;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 100%;
+  margin: 0 !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+[data-academy-lab-lesson] [data-course-lesson-details] {
+  display: block !important;
+}
+
+.academy-lab-fallback,
+.academy-lab-fallback-copy {
+  display: grid;
+  min-height: 100%;
+  padding: clamp(18px, 3vw, 36px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  align-content: center;
+  gap: 12px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(232, 132, 73, 0.1), transparent 42%),
+    rgba(255, 255, 255, 0.022);
+}
+
+.academy-lab-fallback > span {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  border: 1px solid rgba(232, 132, 73, 0.23);
+  border-radius: 20px;
+  place-items: center;
+  color: var(--os-v3-copper-bright, #ffb27d);
+  background: rgba(232, 132, 73, 0.075);
+}
+
+.academy-lab-fallback h2,
+.academy-lab-fallback-copy strong {
+  margin: 0;
+  color: #fff8f1;
+  font: 620 clamp(1.7rem, 4vw, 3.6rem)/1 Georgia, serif;
+}
+
+.academy-lab-fallback p,
+.academy-lab-fallback ol,
+.academy-lab-fallback-copy p {
+  color: var(--os-v3-muted, #a99a90);
+  line-height: 1.65;
+}
+
+.academy-lab-fallback button {
+  width: max-content;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid rgba(232, 132, 73, 0.25);
+  border-radius: 12px;
+  color: #fff5ec;
+  background: rgba(232, 132, 73, 0.09);
+  cursor: pointer;
+  font: 720 0.68rem/1 system-ui, sans-serif;
+}
+
+.academy-lab > footer {
+  display: flex;
+  min-height: 54px;
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--os-v3-muted, #a99a90);
+  background: rgba(14, 12, 10, 0.95);
+  font-size: 0.64rem;
+}
+
+.academy-lab > footer button {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid rgba(232, 132, 73, 0.23);
+  border-radius: 10px;
+  color: #fff4eb;
+  background: rgba(232, 132, 73, 0.08);
+  cursor: pointer;
+  font: 720 0.63rem/1 system-ui, sans-serif;
+}
+
+@media (max-width: 900px) {
+  .academy-lab-mode {
+    display: none;
+  }
+
+  .academy-lab-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, auto) 1px minmax(280px, 1fr);
+    overflow-y: auto;
+  }
+
+  .academy-lab-divider {
+    width: auto;
+    height: 1px;
+  }
+
+  .academy-lab-lesson,
+  .academy-lab-practice {
+    min-height: 320px;
+  }
+}
+
+@media (max-width: 620px) {
+  .academy-lab-open-button span {
+    display: none;
+  }
+
+  .academy-lab {
+    inset: 58px 0 0;
+  }
+
+  .academy-lab > header {
+    padding: 0 10px;
+  }
+
+  [data-academy-lab-lesson],
+  [data-academy-lab-practice] {
+    padding: 10px;
+  }
+
+  .academy-lab > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 901px) {
+  .academy-lab {
+    inset: 56px 0 0;
+  }
+
+  .academy-lab > header {
+    min-height: 54px;
+  }
+
+  .academy-lab > footer {
+    min-height: 46px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academy-lab,
+  .academy-lab *,
+  .academy-lab-open-button {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes academy-lab-out {
+  from { opacity: 1; transform: translate3d(0,0,0) scale(1); }
+  to { opacity: 0; transform: translate3d(0,10px,0) scale(.99); }
+}
