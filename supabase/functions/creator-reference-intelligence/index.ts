@@ -15,6 +15,31 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SOURCE_ID_PATTERN = /^(?:url|asset|video):[A-Za-z0-9._:-]{1,80}$/u;
 const ALLOWED_IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_ASSET_KINDS = new Set(["image", "pdf", "video_frame"]);
+const SENSITIVE_URL_PARAMS = new Set([
+  "token",
+  "access_token",
+  "auth",
+  "authorization",
+  "password",
+  "secret",
+  "signature",
+  "sig",
+  "api_key",
+  "apikey",
+  "key",
+  "x-amz-signature",
+  "x-goog-signature",
+]);
+const TRACKING_URL_PARAMS = new Set([
+  "gclid",
+  "fbclid",
+  "yclid",
+  "ysclid",
+  "_openstat",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+]);
 
 type Json =
   | string
@@ -122,6 +147,11 @@ function publicHttpsUrl(value: unknown): value is string {
       /^172\.(1[6-9]|2\d|3[01])\./u.test(host) ||
       /^169\.254\./u.test(host)
     ) return false;
+    for (const key of url.searchParams.keys()) {
+      if (SENSITIVE_URL_PARAMS.has(key.toLocaleLowerCase("en-US"))) {
+        return false;
+      }
+    }
     return true;
   } catch {
     return false;
@@ -135,9 +165,7 @@ function canonicalUrl(value: string): string {
     const normalized = key.toLocaleLowerCase("en-US");
     if (
       normalized.startsWith("utm_") ||
-      ["gclid", "fbclid", "yclid", "ysclid", "_openstat"].includes(
-        normalized,
-      )
+      TRACKING_URL_PARAMS.has(normalized)
     ) url.searchParams.delete(key);
   }
   url.searchParams.sort();
