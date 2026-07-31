@@ -69,6 +69,25 @@ def test_scalable_filters_folders_and_video_governor_exist() -> None:
         assert marker in SCRIPT or marker in CSS
 
 
+def test_cleanup_uses_dom_apis_without_html_string_sinks() -> None:
+    for marker in (
+        'document.createElement(tag)',
+        'document.createElementNS(SVG_NS, "svg")',
+        'element.textContent = String(options.text)',
+        'parent.append(child instanceof Node',
+    ):
+        assert marker in SCRIPT
+    for forbidden in (
+        '.innerHTML',
+        '.outerHTML',
+        'insertAdjacentHTML',
+        'document.write',
+        'DOMParser',
+        'createContextualFragment',
+    ):
+        assert forbidden not in SCRIPT
+
+
 def test_cleanup_keeps_business_logic_untouched() -> None:
     for source in (SCRIPT, ZEN):
         assert 'fetch(' not in source
