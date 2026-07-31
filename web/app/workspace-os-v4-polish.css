@@ -11,7 +11,7 @@ body.contentengine-desktop-v4 .ce-v4-single-surface > [data-ce-v4-surface-host="
   margin: 0 !important;
 }
 
-/* Routes without a dedicated desktop adapter remain fully usable. */
+/* Routes without a dedicated desktop adapter, including /workspace/research, remain fully usable. */
 body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header {
   display: flex !important;
   min-height: 56px;
