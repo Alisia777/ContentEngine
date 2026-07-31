@@ -35,10 +35,12 @@ def test_native_stats_and_payout_anchors_exist() -> None:
 
 def test_results_have_overview_compare_snapshot_and_history_spaces() -> None:
     for marker in (
-        'data-results-ledger-panel="overview"',
-        'data-results-ledger-panel="compare"',
-        'data-results-ledger-panel="snapshot"',
-        'data-results-ledger-panel="history"',
+        '["overview", "Обзор", "overview"]',
+        '["compare", "Сравнение", "compare"]',
+        '["snapshot", "Снимок", "snapshot"]',
+        '["history", "История", "history"]',
+        "[data-results-ledger-panel='overview']",
+        "[data-results-ledger-panel='compare']",
         'createComparison',
         'Сравнение строится только по уже сохранённым снимкам',
         'Что переносим дальше',
@@ -49,9 +51,12 @@ def test_results_have_overview_compare_snapshot_and_history_spaces() -> None:
 
 def test_payout_ledger_has_summary_ledger_and_actionable_issues() -> None:
     for marker in (
-        'data-results-ledger-panel="summary"',
-        'data-results-ledger-panel="ledger"',
-        'data-results-ledger-panel="issues"',
+        '["summary", "Сводка", "money"]',
+        '["ledger", "Реестр", "history"]',
+        '["issues", "Требуют решения", "issue"]',
+        "[data-results-ledger-panel='summary']",
+        "[data-results-ledger-panel='ledger']",
+        "[data-results-ledger-panel='issues']",
         'payoutIssues',
         'Требуют решения',
         'штатную форму решения',
