@@ -894,7 +894,6 @@ async function analyze(form, panel) {
         purpose: panel.dataset.referencePurpose,
         reference_urls: parsed.urls,
         reference_note: note,
-        paid_analysis_ack: PAID_ANALYSIS_ACK,
         assets,
       },
       headers: {
