@@ -49,6 +49,7 @@ jobs:
 
       - name: Format, lint and type-check Edge Function
         run: |
+          # Keep request/schema declarations readable without weakening lint or type checks.
           deno fmt --check --line-width 120 supabase/functions/creator-reference-intelligence
           deno lint supabase/functions/creator-reference-intelligence/index.ts
           deno check supabase/functions/creator-reference-intelligence/index.ts
