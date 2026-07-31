@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b0908" />
-    <meta name="contentengine-build" content="20260731.os3.1" />
+    <meta name="contentengine-build" content="20260731.os3.2" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
@@ -35,23 +35,26 @@
     <link rel="stylesheet" href="./training-practical-review.css?v=20260719.1" />
     <link rel="stylesheet" href="./my-work.css?v=20260716.4" />
     <link rel="stylesheet" href="./interface-system.css?v=20260730.10" />
-    <link rel="stylesheet" href="./learning-premium.css?v=20260730.1" />
-    <link rel="stylesheet" href="./learning-premium-components.css?v=20260730.1" />
-    <link rel="stylesheet" href="./learning-premium-motion.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-desks.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-desks-responsive.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-desks-fixes.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-task-desks.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-desk-drafts.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-state-capsule.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-task-productivity.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-task-productivity-panel.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-task-productivity-responsive.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-spatial-motion.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-spatial-motion-polish.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-perception.css?v=20260730.1" />
+
+    <!-- Retired visual layers stay in source for rollback/contracts, but OS 3.2 does not load them. -->
+    <!-- <link rel="stylesheet" href="./learning-premium.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./learning-premium-components.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./learning-premium-motion.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-desks.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-desks-responsive.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-desks-fixes.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-task-desks.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-desk-drafts.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-state-capsule.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-task-productivity.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-task-productivity-panel.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-task-productivity-responsive.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-spatial-motion.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-spatial-motion-polish.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-perception.css?v=20260730.1" /> -->
+    <!-- <link rel="stylesheet" href="./workspace-mac-dock-productivity.css?v=20260730.1" /> -->
+
     <link rel="stylesheet" href="./workspace-desktop-os.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-mac-dock-productivity.css?v=20260730.1" />
     <link rel="stylesheet" href="./workspace-desktop-review.css?v=20260730.1" />
     <link rel="stylesheet" href="./workspace-desktop-review-form.css?v=20260730.1" />
     <link rel="stylesheet" href="./workspace-desktop-review-result.css?v=20260730.1" />
@@ -67,6 +70,7 @@
     <link rel="stylesheet" href="./workspace-results-ledger.css?v=20260731.1" />
     <link rel="stylesheet" href="./workspace-academy-lab-v3.css?v=20260731.1" />
     <link rel="stylesheet" href="./workspace-os-v3-finish.css?v=20260731.1" />
+    <link rel="stylesheet" href="./workspace-os-v3-visual-qa.css?v=20260731.1" />
     <link rel="stylesheet" href="./workspace-build-guard.css?v=20260731.1" />
   </head>
   <body>
@@ -94,17 +98,20 @@
     <script src="./config.js?v=20260729.1"></script>
     <script src="./boot-watchdog.js?v=20260718.1"></script>
     <script type="module" src="./app.js?v=20260730.11"></script>
-    <script type="module" src="./learning-premium.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-desks-v2.js?v=20260730.2"></script>
-    <script type="module" src="./workspace-task-desks.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-desk-drafts.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-state-capsule.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-task-productivity.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-spatial-motion.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-spatial-close.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-perception.js?v=20260730.1"></script>
+
+    <!-- Retired observers/controllers: kept as explicit rollback markers, not executed. -->
+    <!-- <script type="module" src="./learning-premium.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-desks-v2.js?v=20260730.2"></script> -->
+    <!-- <script type="module" src="./workspace-task-desks.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-desk-drafts.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-state-capsule.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-task-productivity.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-spatial-motion.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-spatial-close.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-perception.js?v=20260730.1"></script> -->
+    <!-- <script type="module" src="./workspace-mac-dock-productivity.js?v=20260730.1"></script> -->
+
     <script type="module" src="./workspace-desktop-os.js?v=20260730.1"></script>
-    <script type="module" src="./workspace-mac-dock-productivity.js?v=20260730.1"></script>
     <script type="module" src="./workspace-academy-os-v2.js?v=20260730.1"></script>
     <script type="module" src="./workspace-desktop-os-polish.js?v=20260730.1"></script>
     <script type="module" src="./workspace-generation-os.js?v=20260731.1"></script>
@@ -115,6 +122,7 @@
     <script type="module" src="./workspace-work-stage-manager.js?v=20260731.1"></script>
     <script type="module" src="./workspace-results-ledger.js?v=20260731.1"></script>
     <script type="module" src="./workspace-academy-lab-v3.js?v=20260731.1"></script>
+    <script type="module" src="./workspace-os-v3-visual-qa.js?v=20260731.1"></script>
     <script type="module" src="./workspace-build-guard.js?v=20260731.1"></script>
   </body>
 </html>
