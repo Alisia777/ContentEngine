@@ -13,6 +13,20 @@ const LOCAL_CHROME = [
   ".academy-v2-topbar",
 ].join(",");
 
+const DEDICATED_SURFACES = [
+  ".review-desktop-os",
+  ".generation-os-shell",
+  ".media-finder-shell",
+  ".work-stage-shell",
+  ".tasks-desk-shell",
+  ".publishing-os-shell",
+  ".results-ledger-shell",
+  ".academy-os-window",
+  ".academy-course-os-window--v2",
+  ".workspace-board",
+  ".ce-v4-home",
+].join(",");
+
 let queued = false;
 
 function q(selector, root = document) {
@@ -36,7 +50,10 @@ function currentPage() {
 
 function preserveLocalChrome() {
   const page = currentPage();
-  if (!page?.classList.contains("ce-v4-single-surface")) return;
+  if (!page) return;
+  const hasDedicatedSurface = page.matches?.(DEDICATED_SURFACES) || Boolean(q(DEDICATED_SURFACES, page));
+  page.classList.toggle("ce-v4-native-surface", !hasDedicatedSurface);
+  if (!page.classList.contains("ce-v4-single-surface")) return;
   [...page.children].forEach((child) => {
     if (child.matches?.(LOCAL_CHROME) || q(LOCAL_CHROME, child)) {
       child.dataset.ceV4SurfaceHost = "true";
