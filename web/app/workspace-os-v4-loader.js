@@ -158,6 +158,7 @@ const corePromise = (async () => {
   await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-polish.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-surface-guard.js?v=${BUILD}`);
+  await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
 })();
 
