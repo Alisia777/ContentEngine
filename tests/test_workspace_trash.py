@@ -1,0 +1,208 @@
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APP = ROOT / "web" / "app"
+MIGRATION = (
+    ROOT / "supabase" / "migrations" / "202607310100_workspace_trash.sql"
+).read_text(encoding="utf-8")
+LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
+SCRIPT = (APP / "workspace-os-v4-context-trash.js").read_text(encoding="utf-8")
+STYLES = (APP / "workspace-os-v4-context-trash.css").read_text(encoding="utf-8")
+
+
+def test_workspace_trash_is_server_backed_and_reversible() -> None:
+    for marker in (
+        "content_factory.workspace_trash_items",
+        "content_factory.workspace_storage_cleanup_queue",
+        "status in ('trashed', 'purged')",
+        "original_folder_id",
+        "original_position",
+        "original_status",
+        "creator_workspace_trash_browser",
+        "creator_trash_workspace_items",
+        "creator_restore_workspace_items",
+        "creator_purge_workspace_items",
+        "creator_complete_workspace_storage_cleanup",
+        "workspace_items_trashed",
+        "workspace_items_restored",
+        "workspace_items_purged",
+        "workspace_trash_emptied",
+    ):
+        assert marker in MIGRATION
+
+    assert "delete from content_factory.workspace_media_locations" in MIGRATION
+    assert "delete from content_factory.workspace_task_locations" in MIGRATION
+    assert "insert into content_factory.workspace_media_locations" in MIGRATION
+    assert "insert into content_factory.workspace_task_locations" in MIGRATION
+    assert "set status = 'deleted'" in MIGRATION
+    assert "set status = 'cancelled'" in MIGRATION
+
+
+def test_workspace_trash_contract_is_fail_closed_and_role_scoped() -> None:
+    for marker in (
+        "alter table content_factory.workspace_trash_items enable row level security",
+        "alter table content_factory.workspace_storage_cleanup_queue enable row level security",
+        "revoke all on content_factory.workspace_trash_items",
+        "revoke all on content_factory.workspace_storage_cleanup_queue",
+        "array['owner', 'admin', 'producer', 'reviewer', 'operator']",
+        "array['owner', 'admin', 'producer']",
+        "array['owner', 'admin']",
+        "workspace_item_access_denied",
+        "workspace_empty_trash_access_denied",
+        "begin_command",
+        "finish_command",
+        "idempotency_key",
+    ):
+        assert marker in MIGRATION
+
+    for rpc in (
+        "creator_workspace_trash_browser",
+        "creator_trash_workspace_items",
+        "creator_restore_workspace_items",
+        "creator_purge_workspace_items",
+        "creator_complete_workspace_storage_cleanup",
+    ):
+        assert f"revoke all on function public.{rpc}(jsonb)" in MIGRATION
+        assert f"grant execute on function public.{rpc}(jsonb)" in MIGRATION
+
+
+def test_permanent_media_delete_requires_a_purge_receipt() -> None:
+    for marker in (
+        "content_factory.storage_trash_delete_allowed",
+        "workspace_storage_cleanup_queue",
+        "queue.status = 'pending'",
+        "media.status = 'deleted'",
+        "content_factory.storage_object_is_unregistered",
+        "content_factory.storage_trash_delete_allowed",
+        "storage_cleanup",
+    ):
+        assert marker in MIGRATION
+
+    # The browser can remove only an object already marked for purge. The row
+    # and audit tombstone remain server-side even after private bytes are gone.
+    assert "drop policy if exists contentengine_private_delete" in MIGRATION
+    assert "create policy contentengine_private_delete" in MIGRATION
+
+
+def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
+    for marker in (
+        'document.addEventListener("contextmenu"',
+        'document.addEventListener("pointerdown"',
+        "560",
+        "finderItemActions",
+        "taskActions",
+        "folderActions",
+        "emptySurfaceActions",
+        "Открыть",
+        "Быстрый просмотр",
+        "Переместить в папку…",
+        "Скопировать ID",
+        "Переместить в Корзину",
+        "Новая папка внутри",
+        "Переименовать",
+        "Архивировать пустую папку",
+    ):
+        assert marker in SCRIPT
+
+
+def test_trash_window_supports_restore_purge_empty_and_quick_look() -> None:
+    for marker in (
+        "createTrashWindow",
+        "Корзина",
+        "Восстановить",
+        "Удалить окончательно…",
+        "Очистить Корзину…",
+        'phrase: "ОЧИСТИТЬ"',
+        "restoreTrashItems",
+        "purgeTrashItems",
+        "emptyTrash",
+        "openTrashPreview",
+        "createSignedUrl",
+        ".storage.from(bucket).remove",
+        "showUndoToast",
+        'label: "Вернуть"',
+        "Shift+Delete",
+        "Space — просмотр",
+        "TRASH_PAGE_SIZE",
+        "next_cursor",
+    ):
+        assert marker in SCRIPT
+
+
+def test_trash_ui_uses_narrow_rpc_boundary_and_safe_dynamic_dom() -> None:
+    for marker in (
+        'import { CreatorApi } from "./supabase-api.js',
+        "api.bootstrap",
+        "api.commitBootstrapContext",
+        "api.call(RPC.browser",
+        "api.mutate(functionName",
+        "creator_workspace_trash_browser",
+        "creator_trash_workspace_items",
+        "creator_restore_workspace_items",
+        "creator_purge_workspace_items",
+        "creator_complete_workspace_storage_cleanup",
+    ):
+        assert marker in SCRIPT
+
+    for forbidden in (
+        "innerHTML",
+        "outerHTML",
+        "insertAdjacentHTML",
+        "DOMParser",
+        "createContextualFragment",
+        "cloneNode",
+        "requestSubmit",
+        "service_role",
+        "sb_secret_",
+    ):
+        assert forbidden not in SCRIPT
+
+
+def test_context_trash_loads_after_desktop_surface_guard() -> None:
+    for marker in (
+        "workspace-os-v4-context-trash.css?v=${BUILD}",
+        "workspace-os-v4-context-trash.js?v=${BUILD}",
+        "workspace-os-v4-surface-guard.js?v=${BUILD}",
+    ):
+        assert marker in LOADER
+
+    assert LOADER.index("workspace-os-v4-surface-guard.js?v=${BUILD}") < LOADER.index(
+        "workspace-os-v4-context-trash.js?v=${BUILD}"
+    )
+
+
+def test_context_trash_styles_are_desktop_mobile_and_accessibility_aware() -> None:
+    for marker in (
+        ".ce-v4-context-menu",
+        ".ce-v4-system-toast",
+        ".ce-v4-trash-dock__badge",
+        ".ce-v4-trash-window",
+        ".ce-v4-trash-grid",
+        ".ce-v4-trash-item",
+        ".ce-v4-trash-preview",
+        ".ce-v4-confirm",
+        "@media (max-width: 680px)",
+        "@media (max-height: 680px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "content-visibility: auto",
+    ):
+        assert marker in STYLES
+
+    assert STYLES.count("{") == STYLES.count("}")
+
+
+def test_context_trash_javascript_parses_when_node_is_available() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is not installed in this environment")
+    subprocess.run(
+        [node, "--check", str(APP / "workspace-os-v4-context-trash.js")],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
