@@ -87,29 +87,34 @@ function enhanceTasks() {
   shell.dataset.ceV4Surface = "true";
   qa(".task-card", shell).forEach(ensureTaskOrigin);
   const sidebar = q(".tasks-desk-sidebar", shell);
-  if (!sidebar || q(":scope > .ce-v4-task-filter", sidebar)) return;
-  const toolbar = create("form", "ce-v4-task-filter");
-  toolbar.setAttribute("role", "search");
-  const input = create("input");
-  input.type = "search";
-  input.placeholder = "Найти задачу, товар или артикул";
-  input.setAttribute("aria-label", "Найти задачу");
-  const select = create("select");
-  select.setAttribute("aria-label", "Статус задачи");
-  [["all", "Все статусы"], ["active", "В работе"], ["blocked", "Блокеры"], ["done", "Готовые"]].forEach(([value, label]) => {
-    const option = create("option", "", label);
-    option.value = value;
-    select.append(option);
-  });
-  const count = create("span", "", "0");
-  count.dataset.ceV4TaskCount = "true";
-  toolbar.append(input, select, count);
-  q(":scope > header", sidebar)?.after(toolbar);
-  const apply = () => filterTasks(shell, input.value, select.value);
-  input.addEventListener("input", apply);
-  select.addEventListener("change", apply);
-  toolbar.addEventListener("submit", (event) => event.preventDefault());
-  apply();
+  if (!sidebar) return;
+  let toolbar = q(":scope > .ce-v4-task-filter", sidebar);
+  if (!toolbar) {
+    toolbar = create("form", "ce-v4-task-filter");
+    toolbar.setAttribute("role", "search");
+    const input = create("input");
+    input.type = "search";
+    input.placeholder = "Найти задачу, товар или артикул";
+    input.setAttribute("aria-label", "Найти задачу");
+    const select = create("select");
+    select.setAttribute("aria-label", "Статус задачи");
+    [["all", "Все статусы"], ["active", "В работе"], ["blocked", "Блокеры"], ["done", "Готовые"]].forEach(([value, label]) => {
+      const option = create("option", "", label);
+      option.value = value;
+      select.append(option);
+    });
+    const count = create("span", "", "0");
+    count.dataset.ceV4TaskCount = "true";
+    toolbar.append(input, select, count);
+    q(":scope > header", sidebar)?.after(toolbar);
+    const apply = () => filterTasks(shell, input.value, select.value);
+    input.addEventListener("input", apply);
+    select.addEventListener("change", apply);
+    toolbar.addEventListener("submit", (event) => event.preventDefault());
+  }
+  const input = q('input[type="search"]', toolbar);
+  const select = q("select", toolbar);
+  filterTasks(shell, input?.value || "", select?.value || "all");
 }
 
 function riskCards(container) {
@@ -175,29 +180,33 @@ function enhanceTableSearch(route, selector, placeholder) {
   if (routePath() !== route) return;
   const shell = q(selector);
   const table = q("table", shell);
-  if (!shell || !table || q(":scope > .ce-v4-table-search", shell)) return;
+  if (!shell || !table) return;
   shell.dataset.ceV4Surface = "true";
-  const toolbar = create("label", "ce-v4-table-search");
-  const input = create("input");
-  input.type = "search";
-  input.placeholder = placeholder;
-  input.setAttribute("aria-label", placeholder);
-  const count = create("span");
-  toolbar.append(input, count);
-  shell.prepend(toolbar);
+  let toolbar = q(":scope > .ce-v4-table-search", shell);
+  if (!toolbar) {
+    toolbar = create("label", "ce-v4-table-search");
+    const input = create("input");
+    input.type = "search";
+    input.placeholder = placeholder;
+    input.setAttribute("aria-label", placeholder);
+    const count = create("span");
+    toolbar.append(input, count);
+    shell.prepend(toolbar);
+    input.addEventListener("input", () => applyTableSearch(shell, table, input, count));
+  }
+  applyTableSearch(shell, table, q("input", toolbar), q("span", toolbar));
+}
+
+function applyTableSearch(shell, table, input, count) {
   const rows = qa("tbody tr", table);
-  const apply = () => {
-    const needle = input.value.trim().toLocaleLowerCase("ru-RU");
-    let shown = 0;
-    rows.forEach((row) => {
-      const matches = !needle || compact(row.textContent, 1800).toLocaleLowerCase("ru-RU").includes(needle);
-      row.hidden = !matches;
-      if (matches) shown += 1;
-    });
-    count.textContent = `${shown} из ${rows.length}`;
-  };
-  input.addEventListener("input", apply);
-  apply();
+  const needle = String(input?.value || "").trim().toLocaleLowerCase("ru-RU");
+  let shown = 0;
+  rows.forEach((row) => {
+    const matches = !needle || compact(row.textContent, 1800).toLocaleLowerCase("ru-RU").includes(needle);
+    row.hidden = !matches;
+    if (matches) shown += 1;
+  });
+  if (count) count.textContent = `${shown} из ${rows.length}`;
 }
 
 function normalizeAcademy() {
