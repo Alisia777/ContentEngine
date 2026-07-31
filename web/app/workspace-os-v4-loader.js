@@ -152,9 +152,11 @@ function schedule() {
   });
 }
 
-const corePromise = Promise.all([
-  ensureModule(`workspace-os-v4.js?v=${BUILD}`),
-]);
+const corePromise = (async () => {
+  await ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`);
+  await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
+  await ensureModule(`workspace-os-v4-polish.js?v=${BUILD}`);
+})();
 
 corePromise.then(schedule).catch((error) => {
   console.error("ContentEngine Desktop v4 failed to start", error);
