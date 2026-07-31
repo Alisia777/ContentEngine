@@ -125,7 +125,7 @@ def test_reference_drafts_are_product_scoped_and_session_only() -> None:
         "referenceScope",
         "form.dataset.identityMediaId",
         "generation:${sku}:${productName}",
-        "data-research-id",
+        "form.dataset.researchId",
         '[data-action="logout"]',
     ):
         assert marker in CLIENT
