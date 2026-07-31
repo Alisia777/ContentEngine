@@ -22,15 +22,15 @@ OPERATIONS_CSS = (APP / "workspace-os-v4-operations.css").read_text(encoding="ut
 
 def test_desktop_v4_is_the_only_eager_workspace_shell() -> None:
     assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260731.4" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260731.4"></script>' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260731.5"></script>' in INDEX
     assert INDEX.index('./app.js') < INDEX.index('./workspace-os-v4-loader.js')
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./workspace-build-guard.js')
 
     active_modules = re.findall(r'^\s*<script type="module" src="([^\"]+)"', INDEX, flags=re.MULTILINE)
     assert active_modules == [
         './app.js?v=20260730.11',
-        './workspace-os-v4-loader.js?v=20260731.4',
-        './workspace-build-guard.js?v=20260731.4',
+        './workspace-os-v4-loader.js?v=20260731.5',
+        './workspace-build-guard.js?v=20260731.5',
     ]
 
 
@@ -44,6 +44,8 @@ def test_route_loader_lazy_loads_heavy_workspaces_from_same_origin() -> None:
         'workspace-os-v4-finder.js?v=20260731.4',
         'workspace-os-v4-operations.css?v=20260731.4',
         'workspace-os-v4-operations.js?v=20260731.4',
+        'workspace-reference-intelligence.css?v=20260731.5',
+        'workspace-reference-intelligence.js?v=20260731.5',
         'route === "/workspace/work" || route === "/workspace/tasks"',
         'workspace-generation-os.js?v=20260731.1',
         'workspace-desktop-os.js?v=20260730.1',
