@@ -338,7 +338,7 @@ jobs:
             --expected-project-ref "$EXPECTED_SUPABASE_PROJECT_REF" \
             --publishable-key "$SUPABASE_PUBLISHABLE_KEY"
 
-      - name: Reject server secrets and localhost from Pages artifact
+      - name: Reject server secrets and local endpoints from Pages artifact
         shell: bash
         run: |
           if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN|RUNWAYML_API_SECRET|OPENAI_API_KEY' _site/config.js; then
@@ -349,7 +349,7 @@ jobs:
             echo "A value shaped like a server credential entered the Pages artifact" >&2
             exit 1
           fi
-          if grep -R -n -E '__SET_SUPABASE_|127\.0\.0\.1|localhost' _site; then
+          if grep -R -n -E '__SET_SUPABASE_|127\.0\.0\.1|((https?|wss?|postgres(ql)?)://localhost([:/]|$))|(^|[^[:alnum:]_])localhost:[0-9]+' _site; then
             echo "A placeholder or local endpoint entered the Pages artifact" >&2
             exit 1
           fi
