@@ -49,7 +49,7 @@ jobs:
 
       - name: Format, lint and type-check Edge Function
         run: |
-          deno fmt --check supabase/functions/creator-reference-intelligence
+          deno fmt --check --line-width 120 supabase/functions/creator-reference-intelligence
           deno lint supabase/functions/creator-reference-intelligence/index.ts
           deno check supabase/functions/creator-reference-intelligence/index.ts
 
