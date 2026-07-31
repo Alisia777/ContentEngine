@@ -13,7 +13,25 @@ let queued = false;
 
 window.CONTENTENGINE_DESKTOP_V4 = true;
 
+const OPERATIONAL_ROUTES = new Set([
+  "/workspace/review",
+  "/workspace/tasks",
+  "/workspace/placement",
+  "/workspace/stats",
+  "/workspace/payouts",
+]);
+
 const ROUTE_ASSETS = Object.freeze({
+  finder: Object.freeze({
+    match: (route) => route === "/workspace/board",
+    styles: ["workspace-os-v4-finder.css?v=20260731.4"],
+    modules: ["workspace-os-v4-finder.js?v=20260731.4"],
+  }),
+  operations: Object.freeze({
+    match: (route) => OPERATIONAL_ROUTES.has(route) || route === "/learn" || route.startsWith("/learn/"),
+    styles: ["workspace-os-v4-operations.css?v=20260731.4"],
+    modules: ["workspace-os-v4-operations.js?v=20260731.4"],
+  }),
   review: Object.freeze({
     match: (route) => route === "/workspace/review",
     styles: [
@@ -59,7 +77,7 @@ const ROUTE_ASSETS = Object.freeze({
     ],
   }),
   work: Object.freeze({
-    match: (route) => route === "/workspace/work",
+    match: (route) => route === "/workspace/work" || route === "/workspace/tasks",
     styles: ["workspace-work-stage-manager.css?v=20260731.1"],
     modules: [
       "workspace-work-stage-manager.js?v=20260731.1",
