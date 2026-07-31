@@ -56,7 +56,7 @@ def test_native_forms_are_moved_not_recreated_and_no_api_is_called() -> None:
         'panel.append(node)',
         'panelHost.append(card)',
         'list.remove()',
-        'form.reportValidity',
+        'invalid.reportValidity',
     ):
         assert marker in SCRIPT
     assert 'cloneNode' not in SCRIPT
