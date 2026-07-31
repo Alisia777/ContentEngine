@@ -11,9 +11,11 @@ APP = ROOT / "web" / "app"
 INDEX = (APP / "index.html").read_text(encoding="utf-8")
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 CORE = (APP / "workspace-os-v4.js").read_text(encoding="utf-8")
+POLISH = (APP / "workspace-os-v4-polish.js").read_text(encoding="utf-8")
 FINDER = (APP / "workspace-os-v4-finder.js").read_text(encoding="utf-8")
 OPERATIONS = (APP / "workspace-os-v4-operations.js").read_text(encoding="utf-8")
 CORE_CSS = (APP / "workspace-os-v4.css").read_text(encoding="utf-8")
+POLISH_CSS = (APP / "workspace-os-v4-polish.css").read_text(encoding="utf-8")
 FINDER_CSS = (APP / "workspace-os-v4-finder.css").read_text(encoding="utf-8")
 OPERATIONS_CSS = (APP / "workspace-os-v4-operations.css").read_text(encoding="utf-8")
 
@@ -36,6 +38,8 @@ def test_route_loader_lazy_loads_heavy_workspaces_from_same_origin() -> None:
     for marker in (
         'new URL(relative, import.meta.url).href',
         'import(href)',
+        'workspace-os-v4-polish.css?v=${BUILD}',
+        'workspace-os-v4-polish.js?v=${BUILD}',
         'workspace-os-v4-finder.css?v=20260731.4',
         'workspace-os-v4-finder.js?v=20260731.4',
         'workspace-os-v4-operations.css?v=20260731.4',
@@ -69,6 +73,15 @@ def test_system_shell_has_one_dock_one_menubar_and_real_desktop_controls() -> No
     ):
         assert marker in CORE
 
+    for marker in (
+        'Разбор товара',
+        'ce-v4-single-surface',
+        'transitionTo',
+        'translate3d',
+        'workspace/media',
+    ):
+        assert marker in POLISH
+
     for forbidden in (
         'innerHTML',
         'outerHTML',
@@ -80,8 +93,11 @@ def test_system_shell_has_one_dock_one_menubar_and_real_desktop_controls() -> No
         'XMLHttpRequest',
     ):
         assert forbidden not in CORE
+        assert forbidden not in POLISH
     assert 'fetch(' not in CORE
+    assert 'fetch(' not in POLISH
     assert '.api.' not in CORE
+    assert '.api.' not in POLISH
 
 
 def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() -> None:
@@ -118,7 +134,7 @@ def test_operational_workspaces_scale_without_changing_business_actions() -> Non
         'Поиск по реестру выплат',
     ):
         assert marker in OPERATIONS
-    for source in (OPERATIONS, FINDER):
+    for source in (OPERATIONS, FINDER, POLISH):
         assert 'fetch(' not in source
         assert 'XMLHttpRequest' not in source
         assert 'requestSubmit' not in source
@@ -140,6 +156,13 @@ def test_desktop_v4_css_has_clean_fullscreen_responsive_geometry() -> None:
         '@media (prefers-reduced-motion: reduce)',
     ):
         assert marker in CORE_CSS
+    for marker in (
+        '.ce-v4-single-surface',
+        '/workspace/research',
+        '.ce-v4-dock__extra',
+        'ce-v4-mission-open',
+    ):
+        assert marker in POLISH_CSS
     for marker in (
         '.workspace-board__layout',
         'content-visibility: auto',
@@ -164,6 +187,7 @@ def test_desktop_v4_javascript_parses_when_node_is_available() -> None:
     for filename in (
         "workspace-os-v4-loader.js",
         "workspace-os-v4.js",
+        "workspace-os-v4-polish.js",
         "workspace-os-v4-finder.js",
         "workspace-os-v4-operations.js",
     ):
@@ -176,5 +200,5 @@ def test_desktop_v4_javascript_parses_when_node_is_available() -> None:
 
 
 def test_desktop_v4_stylesheets_are_balanced() -> None:
-    for stylesheet in (CORE_CSS, FINDER_CSS, OPERATIONS_CSS):
+    for stylesheet in (CORE_CSS, POLISH_CSS, FINDER_CSS, OPERATIONS_CSS):
         assert stylesheet.count("{") == stylesheet.count("}")
