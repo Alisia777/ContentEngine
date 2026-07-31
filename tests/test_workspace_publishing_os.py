@@ -46,7 +46,7 @@ def test_one_publication_becomes_one_spatial_workflow() -> None:
         'publishing-os-step-dock',
         'setCardStep',
         'validatePanel',
-        'Alt',
+        'event.altKey',
     ):
         assert marker in SCRIPT or marker in CSS
 
