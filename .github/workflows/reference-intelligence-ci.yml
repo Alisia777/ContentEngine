@@ -1,0 +1,59 @@
+name: Reference Intelligence checks
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/creator-reference-intelligence/**"
+      - "web/app/workspace-reference-intelligence.*"
+      - "web/app/workspace-os-v4-loader.js"
+      - "supabase/config.toml"
+      - ".github/workflows/reference-intelligence-ci.yml"
+      - ".github/workflows/deploy-reference-intelligence.yml"
+      - "tests/test_reference_intelligence.py"
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/functions/creator-reference-intelligence/**"
+      - "web/app/workspace-reference-intelligence.*"
+      - "web/app/workspace-os-v4-loader.js"
+      - "supabase/config.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.8.1
+
+      - name: Validate authenticated function contract
+        shell: bash
+        run: |
+          grep -F '[functions.creator-reference-intelligence]' supabase/config.toml
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+          config = tomllib.loads(Path("supabase/config.toml").read_text(encoding="utf-8"))
+          if config.get("functions", {}).get("creator-reference-intelligence", {}).get("verify_jwt") is not True:
+              raise SystemExit("creator-reference-intelligence must verify JWT")
+          PY
+
+      - name: Format, lint and type-check Edge Function
+        run: |
+          deno fmt --check supabase/functions/creator-reference-intelligence
+          deno lint supabase/functions/creator-reference-intelligence/index.ts
+          deno check supabase/functions/creator-reference-intelligence/index.ts
+
+      - name: Parse browser modules
+        run: |
+          deno check web/app/workspace-reference-intelligence.js
+          deno check web/app/workspace-os-v4-loader.js
