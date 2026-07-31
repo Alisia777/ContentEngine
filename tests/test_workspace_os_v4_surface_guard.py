@@ -29,7 +29,7 @@ def test_surface_guard_preserves_local_route_tabs_without_business_actions() -> 
         '.publishing-os-topbar',
         '.results-os-topbar',
         '.academy-v2-topbar',
-        'data.ceV4SurfaceHost = "true"',
+        'dataset.ceV4SurfaceHost = "true"',
         'ce-v4-single-surface',
     ):
         assert marker in GUARD
