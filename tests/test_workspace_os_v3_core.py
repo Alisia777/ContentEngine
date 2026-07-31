@@ -66,9 +66,9 @@ def test_core_excludes_secrets_and_does_not_touch_business_api() -> None:
         'SECRET_PATTERN',
         '["password", "hidden", "file"]',
         'field instanceof HTMLInputElement',
-        'server saves only via native form',
+        'сохранится сервером только после штатной отправки формы',
     ):
-        assert marker in CORE or marker.lower() in CORE.lower()
+        assert marker in CORE
     for script in (CORE, BRIDGE):
         assert 'fetch(' not in script
         assert 'XMLHttpRequest' not in script
