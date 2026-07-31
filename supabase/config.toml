@@ -89,6 +89,9 @@ verify_jwt = true
 [functions.creator-product-research]
 verify_jwt = true
 
+[functions.creator-reference-intelligence]
+verify_jwt = true
+
 [functions.creator-content-review]
 verify_jwt = true
 
