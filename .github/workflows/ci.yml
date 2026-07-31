@@ -122,6 +122,7 @@ jobs:
               "creator-set-password",
               "creator-generate",
               "creator-product-research",
+              "creator-reference-intelligence",
               "creator-content-review",
               "creator-access",
           ):
@@ -165,6 +166,7 @@ jobs:
           deno fmt --check supabase/functions/creator-set-password
           deno fmt --check supabase/functions/creator-generate
           deno fmt --check supabase/functions/creator-product-research
+          deno fmt --check --line-width 120 supabase/functions/creator-reference-intelligence
           deno fmt --check supabase/functions/creator-content-review
           deno fmt --check supabase/functions/creator-background-worker
           deno fmt --check supabase/functions/creator-access
@@ -179,6 +181,7 @@ jobs:
           deno lint supabase/functions/creator-set-password/index.ts
           deno lint supabase/functions/creator-generate/index.ts
           deno lint supabase/functions/creator-product-research/index.ts
+          deno lint supabase/functions/creator-reference-intelligence/index.ts
           deno lint supabase/functions/creator-content-review/index.ts
           deno lint supabase/functions/creator-background-worker/index.ts
           deno lint supabase/functions/creator-access/index.ts
@@ -187,12 +190,13 @@ jobs:
           deno lint supabase/functions/auth-email-webhook/index.ts
           deno lint supabase/functions/_shared/internal-worker-auth.ts
 
-      - name: Type-check function
+      - name: Type-check function and reference browser bridge
         run: |
           deno check supabase/functions/creator-invite/index.ts
           deno check supabase/functions/creator-set-password/index.ts
           deno check supabase/functions/creator-generate/index.ts
           deno check supabase/functions/creator-product-research/index.ts
+          deno check supabase/functions/creator-reference-intelligence/index.ts
           deno check supabase/functions/creator-content-review/index.ts
           deno check supabase/functions/creator-background-worker/index.ts
           deno check supabase/functions/creator-access/index.ts
@@ -200,6 +204,8 @@ jobs:
           deno check supabase/functions/creator-click/index.ts
           deno check supabase/functions/auth-email-webhook/index.ts
           deno check supabase/functions/_shared/internal-worker-auth.ts
+          deno check web/app/workspace-reference-intelligence.js
+          deno check web/app/workspace-os-v4-loader.js
 
   reference-postgres-migration:
     name: Validate reference Alembic/PostgreSQL model
