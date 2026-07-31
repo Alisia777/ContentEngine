@@ -9,15 +9,18 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "web" / "app"
 INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
 SCRIPT = (APP_DIR / "workspace-os-v3-visual-qa.js").read_text(encoding="utf-8")
+ZEN = (APP_DIR / "workspace-os-v3-zen-control.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-os-v3-visual-qa.css").read_text(encoding="utf-8")
 
 
 def test_visual_qa_assets_load_after_os_v3_and_before_build_guard() -> None:
     assert './workspace-os-v3-visual-qa.css?v=20260731.1' in INDEX
     assert './workspace-os-v3-visual-qa.js?v=20260731.1' in INDEX
+    assert './workspace-os-v3-zen-control.js?v=20260731.1' in INDEX
     assert INDEX.index('./workspace-os-v3-finish.css') < INDEX.index('./workspace-os-v3-visual-qa.css')
     assert INDEX.index('./workspace-academy-lab-v3.js') < INDEX.index('./workspace-os-v3-visual-qa.js')
-    assert INDEX.index('./workspace-os-v3-visual-qa.js') < INDEX.index('./workspace-build-guard.js')
+    assert INDEX.index('./workspace-os-v3-visual-qa.js') < INDEX.index('./workspace-os-v3-zen-control.js')
+    assert INDEX.index('./workspace-os-v3-zen-control.js') < INDEX.index('./workspace-build-guard.js')
 
 
 def test_legacy_visual_layers_are_retained_as_contracts_but_not_executed() -> None:
@@ -43,6 +46,12 @@ def test_one_screen_one_action_home_mission_and_zen_mode_exist() -> None:
         'removeAttribute("data-workspace-focus-card")',
     ):
         assert marker in SCRIPT or marker in CSS
+    for marker in (
+        'Visible Zen Mode control',
+        'data-os-clean-zen',
+        'Фокус: развернуть рабочее пространство',
+    ):
+        assert marker in ZEN
 
 
 def test_scalable_filters_folders_and_video_governor_exist() -> None:
@@ -61,12 +70,13 @@ def test_scalable_filters_folders_and_video_governor_exist() -> None:
 
 
 def test_cleanup_keeps_business_logic_untouched() -> None:
-    assert 'fetch(' not in SCRIPT
-    assert 'XMLHttpRequest' not in SCRIPT
-    assert '.api.' not in SCRIPT
-    assert 'cloneNode' not in SCRIPT
-    assert 'requestSubmit' not in SCRIPT
-    assert 'data-action="transition-task"' not in SCRIPT
+    for source in (SCRIPT, ZEN):
+        assert 'fetch(' not in source
+        assert 'XMLHttpRequest' not in source
+        assert '.api.' not in source
+        assert 'cloneNode' not in source
+        assert 'requestSubmit' not in source
+        assert 'data-action="transition-task"' not in source
 
 
 def test_single_navigation_clean_geometry_and_accessibility() -> None:
@@ -88,12 +98,16 @@ def test_visual_qa_javascript_parses_when_node_is_available() -> None:
     node = shutil.which("node")
     if not node:
         pytest.skip("Node.js is not installed in this test environment")
-    subprocess.run(
-        [node, "--check", str(APP_DIR / "workspace-os-v3-visual-qa.js")],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    for filename in (
+        "workspace-os-v3-visual-qa.js",
+        "workspace-os-v3-zen-control.js",
+    ):
+        subprocess.run(
+            [node, "--check", str(APP_DIR / filename)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 def test_visual_qa_css_is_balanced() -> None:
