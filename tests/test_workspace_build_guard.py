@@ -17,30 +17,22 @@ MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260731.os3.2"
+    assert build_id == "20260731.os4.0"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
-    assert MANIFEST["label"] == "ContentEngine OS v3.2 · Visual QA Cleanup"
+    assert MANIFEST["label"] == "ContentEngine Desktop v4 · System Workspace"
+    assert 'const BUILD_BADGE = "Desktop · 4"' in SCRIPT
 
 
-def test_build_guard_assets_load_last_and_bust_the_full_os_cache() -> None:
+def test_build_guard_assets_load_after_the_desktop_v4_loader() -> None:
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260731.4" />' in APP_INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260731.4"></script>' in APP_INDEX
     assert './workspace-build-guard.css?v=20260731.1' in APP_INDEX
     assert './workspace-build-guard.js?v=20260731.1' in APP_INDEX
-    assert APP_INDEX.index('./workspace-generation-os.css') < APP_INDEX.index('./workspace-os-v3-core.css')
-    assert APP_INDEX.index('./workspace-os-v3-finish.css') < APP_INDEX.index('./workspace-os-v3-visual-qa.css')
-    assert APP_INDEX.index('./workspace-os-v3-visual-qa.css') < APP_INDEX.index('./workspace-build-guard.css')
-    assert APP_INDEX.index('./workspace-academy-lab-v3.js') < APP_INDEX.index('./workspace-os-v3-visual-qa.js')
-    assert APP_INDEX.index('./workspace-os-v3-visual-qa.js') < APP_INDEX.index('./workspace-build-guard.js')
-    for marker in (
-        './workspace-os-v3-core.js?v=20260731.1',
-        './workspace-publishing-os.js?v=20260731.1',
-        './workspace-work-stage-manager.js?v=20260731.1',
-        './workspace-results-ledger.js?v=20260731.1',
-        './workspace-academy-lab-v3.js?v=20260731.1',
-        './workspace-os-v3-visual-qa.js?v=20260731.1',
-    ):
-        assert marker in APP_INDEX
+    assert APP_INDEX.index('./workspace-os-v4.css?v=20260731.4') < APP_INDEX.index('./workspace-build-guard.css')
+    assert APP_INDEX.index('./app.js') < APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.4')
+    assert APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.4') < APP_INDEX.index('./workspace-build-guard.js')
 
 
 def test_guard_checks_only_the_same_origin_static_manifest() -> None:
