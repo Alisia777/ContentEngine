@@ -29,7 +29,12 @@ SECRET_SHAPE_PATTERNS = (
     re.compile(r"sbp_[A-Za-z0-9._-]{16,}"),
     re.compile(r"postgres(?:ql)?://[^\s\"']+@", re.IGNORECASE),
 )
-LOCAL_ONLY_PATTERN = re.compile(r"__SET_SUPABASE_|127\.0\.0\.1|localhost")
+LOCAL_ONLY_PATTERN = re.compile(
+    r"__SET_SUPABASE_|127\.0\.0\.1|"
+    r"(?:https?|wss?|postgres(?:ql)?)://localhost(?:[:/]|$)|"
+    r"\blocalhost:\d+\b",
+    re.IGNORECASE,
+)
 
 
 def _read_text(path: Path) -> str:
