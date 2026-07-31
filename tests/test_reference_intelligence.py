@@ -94,6 +94,23 @@ def test_reference_parser_has_bounded_authenticated_inputs() -> None:
     assert "SUPABASE_SERVICE_ROLE_KEY" not in EDGE
 
 
+def test_sensitive_reference_urls_are_rejected_on_client_and_server() -> None:
+    for marker in (
+        "sensitiveParams",
+        "x-amz-signature",
+        "x-goog-signature",
+    ):
+        assert marker in CLIENT
+    for marker in (
+        "SENSITIVE_URL_PARAMS",
+        "TRACKING_URL_PARAMS",
+        "SENSITIVE_URL_PARAMS.has",
+        "x-amz-signature",
+        "x-goog-signature",
+    ):
+        assert marker in EDGE
+
+
 def test_research_reference_enters_visual_direction_not_known_facts() -> None:
     for marker in (
         '#product-research-brief-form',
@@ -138,7 +155,6 @@ def test_unverified_urls_cannot_be_applied() -> None:
         "provider-citations",
         "Неподтверждённая ссылка не может попасть в ТЗ",
         "parsed.urls.length > state.verifiedUrls.length",
-        "sensitiveParams",
     ):
         assert marker in CLIENT
 
