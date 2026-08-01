@@ -87,7 +87,7 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
         'LOCAL_TOPBARS',
         'LOCAL_DOCKS',
         'DUPLICATE_GLOBAL_CHROME',
-        'dataCeV4Contextbar',
+        'dataset.ceV4Contextbar',
         'dataset.ceV4LocalDock = "true"',
         'cancelChromeAnimations',
         'contentengine:v4-route-ready',
