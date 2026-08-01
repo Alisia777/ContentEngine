@@ -16,6 +16,7 @@ import os
 import sys
 
 from scripts.bootstrap_supabase_owner import (
+    OWNER_ORGANIZATION_SLUG,
     OwnerBootstrapError,
     SupabaseAuthClient,
     SupabaseManagementClient,
@@ -26,8 +27,8 @@ from scripts.bootstrap_supabase_owner import (
 )
 from scripts.provision_supabase_member import (
     MemberProvisionError,
+    ProvisioningAuthority,
     read_member_state,
-    read_provisioning_authority,
 )
 
 
@@ -46,6 +47,54 @@ def _validated_reason(value: str) -> str:
     if not 10 <= len(reason) <= 1000:
         raise TrainingWaiverError("Training waiver reason is invalid")
     return reason
+
+
+def read_training_waiver_authority(
+    client: SupabaseManagementClient,
+) -> ProvisioningAuthority:
+    """Return one active owner, or an active admin when no owner exists."""
+
+    organization_slug = _sql_literal(OWNER_ORGANIZATION_SLUG)
+    payload = client.execute(
+        f"""
+select
+  organization.id::text as organization_id,
+  membership.profile_id::text as invited_by
+from content_factory.organizations organization
+join content_factory.memberships membership
+  on membership.organization_id = organization.id
+join content_factory.profiles profile
+  on profile.id = membership.profile_id
+join auth.users manager_auth
+  on manager_auth.id = membership.profile_id
+where organization.slug = {organization_slug}
+  and organization.status = 'active'
+  and membership.status = 'active'
+  and membership.role in ('owner', 'admin')
+  and profile.status = 'active'
+  and manager_auth.email_confirmed_at is not null
+  and manager_auth.deleted_at is null
+  and (
+    manager_auth.banned_until is null
+    or manager_auth.banned_until <= now()
+  )
+order by
+  case membership.role when 'owner' then 0 else 1 end,
+  membership.created_at,
+  membership.id
+limit 1
+""".strip(),
+        read_only=True,
+    )
+    rows = _rows_from_response(payload)
+    if len(rows) != 1:
+        raise TrainingWaiverError(
+            "An active owner or admin is required for employee provisioning"
+        )
+    return ProvisioningAuthority(
+        organization_id=_validated_uuid(rows[0].get("organization_id")),
+        invited_by=_validated_uuid(rows[0].get("invited_by")),
+    )
 
 
 def _verify_training_waiver(
@@ -94,7 +143,7 @@ def grant_training_access_waiver(
 ) -> tuple[str, str]:
     normalized_email = _validated_email(email)
     normalized_reason = _validated_reason(reason)
-    authority = read_provisioning_authority(management_client)
+    authority = read_training_waiver_authority(management_client)
     state = read_member_state(
         management_client,
         email=normalized_email,
