@@ -172,6 +172,7 @@ def build_release(
         "STORAGE_BUCKET": "contentengine-private",
         "MOCK_ENABLED": True,
         "REAL_GENERATION_ENABLED": True,
+        "MINI_AI_CONTROL_ENABLED": True,
         "REAL_PROVIDER": "runway",
         "REAL_MODEL": "gen4_turbo",
         "REAL_DURATION_SECONDS": 5,
