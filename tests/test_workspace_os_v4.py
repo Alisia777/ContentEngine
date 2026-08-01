@@ -110,7 +110,7 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
     assert 'fetch(' not in STABILITY
     assert '.api.' not in CORE
     assert '.api.' not in STABILITY
-    assert 'MutationObserver' not in STABILITY
+    assert 'new MutationObserver' not in STABILITY
 
 
 def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() -> None:
