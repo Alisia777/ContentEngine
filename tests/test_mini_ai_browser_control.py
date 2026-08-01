@@ -10,23 +10,36 @@ APP_DIR = ROOT / "web" / "app"
 ENGINE_V1 = (APP_DIR / "mini-ai-control-plane-v1.js").read_text(encoding="utf-8")
 ENGINE_V2 = (APP_DIR / "mini-ai-control-plane-v2.js").read_text(encoding="utf-8")
 DESK = (APP_DIR / "workspace-mini-ai-control-v3.js").read_text(encoding="utf-8")
-BASE_CSS = (APP_DIR / "workspace-mini-ai-control-v1.css").read_text(encoding="utf-8")
-WAVE_CSS = (APP_DIR / "workspace-mini-ai-control-v3.css").read_text(encoding="utf-8")
+JOB_SIGNATURE = (APP_DIR / "workspace-generation-job-signature-v1.js").read_text(
+    encoding="utf-8"
+)
+BASE_CSS = (APP_DIR / "workspace-mini-ai-control-v1.css").read_text(
+    encoding="utf-8"
+)
+WAVE_CSS = (APP_DIR / "workspace-mini-ai-control-v3.css").read_text(
+    encoding="utf-8"
+)
 LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 CONFIG = (APP_DIR / "config.js").read_text(encoding="utf-8")
 EXAMPLE_CONFIG = (APP_DIR / "config.example.js").read_text(encoding="utf-8")
-RELEASE_BUILDER = (ROOT / "scripts" / "build_pages_release.py").read_text(encoding="utf-8")
+RELEASE_BUILDER = (ROOT / "scripts" / "build_pages_release.py").read_text(
+    encoding="utf-8"
+)
 
 
 def test_mini_ai_is_loaded_only_on_generation_and_has_a_kill_switch() -> None:
     for marker in (
         'route === "/workspace/generation"',
         "MINI_AI_CONTROL_ENABLED === true",
-        '"workspace-mini-ai-control-v1.css?v=20260801.3"',
-        '"workspace-mini-ai-control-v3.css?v=20260801.3"',
-        '"workspace-mini-ai-control-v3.js?v=20260801.3"',
+        '"workspace-mini-ai-control-v1.css?v=20260801.4"',
+        '"workspace-mini-ai-control-v3.css?v=20260801.4"',
+        '"workspace-generation-job-signature-v1.js?v=20260801.4"',
+        '"workspace-mini-ai-control-v3.js?v=20260801.4"',
     ):
         assert marker in LOADER
+    assert LOADER.index("workspace-generation-job-signature-v1.js") < LOADER.index(
+        "workspace-mini-ai-control-v3.js"
+    )
     assert "MINI_AI_CONTROL_ENABLED: true" in CONFIG
     assert "MINI_AI_CONTROL_ENABLED: false" in EXAMPLE_CONFIG
     assert '"MINI_AI_CONTROL_ENABLED": True' in RELEASE_BUILDER
@@ -96,11 +109,11 @@ def test_mass_generation_is_wave_gated_instead_of_unbounded_autopilot() -> None:
 
 def test_unknown_provider_outcome_is_fail_closed_and_never_retried() -> None:
     for marker in (
-        'task.status = "unknown"',
+        'savedTask.status = "unknown"',
         "Не повторяйте оплату",
         "За две минуты не найден job",
-        'fresh.autopilot = false',
-        'execution.autopilot = false',
+        "fresh.autopilot = false",
+        "execution.autopilot = false",
     ):
         assert marker in DESK
 
@@ -110,9 +123,26 @@ def test_new_job_must_match_both_exact_sku_and_duration() -> None:
         "function newMatchingJob(before, sku, duration)",
         "text.includes(targetSku)",
         "text.includes(durationText)",
-        "waitForJob(before, plan.context.sku, arm.durationSeconds)",
+        "waitForJob(",
+        "plan.context.sku",
+        "arm.durationSeconds",
     ):
         assert marker in DESK
+
+
+def test_native_job_signature_normalizes_short_russian_duration_copy() -> None:
+    for marker in (
+        "DURATION_PATTERN",
+        'const SIGNATURE_ATTR = "data-mini-ai-job-signature"',
+        "dataMiniAiDurationMarker",
+        "секунд",
+        "function normalizeJob(element)",
+        "element.hasAttribute(SIGNATURE_ATTR)",
+        "item.matches(JOB_SELECTOR)",
+    ):
+        assert marker in JOB_SIGNATURE
+    assert "fetch(" not in JOB_SIGNATURE
+    assert ".functions.invoke" not in JOB_SIGNATURE
 
 
 def test_safe_brief_and_exact_product_are_checked_before_queue() -> None:
@@ -164,6 +194,7 @@ def test_mini_ai_javascript_parses_when_node_is_available() -> None:
     for path in (
         APP_DIR / "mini-ai-control-plane-v1.js",
         APP_DIR / "mini-ai-control-plane-v2.js",
+        APP_DIR / "workspace-generation-job-signature-v1.js",
         APP_DIR / "workspace-mini-ai-control-v3.js",
     ):
         subprocess.run(
