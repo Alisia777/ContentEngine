@@ -1,12 +1,13 @@
 /*
- * ContentEngine Desktop v4 route loader.
+ * ContentEngine Desktop v4.1 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
- * when their workspace is actually opened. Same-origin assets only; no API
- * calls and no business mutations.
+ * when their workspace is opened. Same-origin assets only; no API calls and no
+ * business mutations. Legacy polish/surface observers are deliberately retired
+ * in favour of one deterministic stability coordinator.
  */
 
-const BUILD = "20260731.4";
+const BUILD = "20260801.os4.1";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -24,13 +25,13 @@ const OPERATIONAL_ROUTES = new Set([
 const ROUTE_ASSETS = Object.freeze({
   finder: Object.freeze({
     match: (route) => route === "/workspace/board",
-    styles: ["workspace-os-v4-finder.css?v=20260731.4"],
-    modules: ["workspace-os-v4-finder.js?v=20260731.4"],
+    styles: [`workspace-os-v4-finder.css?v=${BUILD}`],
+    modules: [`workspace-os-v4-finder.js?v=${BUILD}`],
   }),
   operations: Object.freeze({
     match: (route) => OPERATIONAL_ROUTES.has(route) || route === "/learn" || route.startsWith("/learn/"),
-    styles: ["workspace-os-v4-operations.css?v=20260731.4"],
-    modules: ["workspace-os-v4-operations.js?v=20260731.4"],
+    styles: [`workspace-os-v4-operations.css?v=${BUILD}`],
+    modules: [`workspace-os-v4-operations.js?v=${BUILD}`],
   }),
   review: Object.freeze({
     match: (route) => route === "/workspace/review",
@@ -161,15 +162,15 @@ function schedule() {
 const corePromise = (async () => {
   await ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`);
   await ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`);
+  await ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`);
   await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
-  await ensureModule(`workspace-os-v4-polish.js?v=${BUILD}`);
-  await ensureModule(`workspace-os-v4-surface-guard.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
+  await ensureModule(`workspace-os-v4-stability.js?v=${BUILD}`);
 })();
 
 corePromise.then(schedule).catch((error) => {
-  console.error("ContentEngine Desktop v4 failed to start", error);
+  console.error("ContentEngine Desktop v4.1 failed to start", error);
 });
 
 window.addEventListener("hashchange", schedule, { passive: true });
