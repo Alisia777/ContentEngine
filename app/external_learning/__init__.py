@@ -1,0 +1,53 @@
+"""External, category-scoped performance learning for ContentEngine."""
+
+from .schema import (
+    CategoryExperimentPlan,
+    ContentFormat,
+    CreativeCandidate,
+    CreativeObservation,
+    DurationArm,
+    DurationPlan,
+    ExperimentArm,
+    FunnelDecision,
+    FunnelObservation,
+    LearningScope,
+    MODEL_DURATION_OPTIONS,
+    ObservationState,
+    PolicyMode,
+    ProviderModel,
+)
+from .service import (
+    LearningPolicyError,
+    aggregate_feature_prior,
+    build_category_experiment_plan,
+    choose_duration_plan,
+    map_funnel_decision,
+    mark_harly_attribution_state,
+    safe_log_business_value,
+    select_successful_creatives,
+)
+
+__all__ = [
+    "CategoryExperimentPlan",
+    "ContentFormat",
+    "CreativeCandidate",
+    "CreativeObservation",
+    "DurationArm",
+    "DurationPlan",
+    "ExperimentArm",
+    "FunnelDecision",
+    "FunnelObservation",
+    "LearningPolicyError",
+    "LearningScope",
+    "MODEL_DURATION_OPTIONS",
+    "ObservationState",
+    "PolicyMode",
+    "ProviderModel",
+    "aggregate_feature_prior",
+    "build_category_experiment_plan",
+    "choose_duration_plan",
+    "map_funnel_decision",
+    "mark_harly_attribution_state",
+    "safe_log_business_value",
+    "select_successful_creatives",
+]
