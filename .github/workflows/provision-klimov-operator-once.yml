@@ -20,7 +20,7 @@ jobs:
     name: Create account, waive training and send password link
     if: >-
       github.ref == 'refs/heads/main' &&
-      github.event.head_commit.message == 'Run protected Klimov onboarding v8'
+      github.event.head_commit.message == 'Run protected Klimov onboarding v9'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     environment: production
@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-            --body "⏳ Защищённая production-операция запущена: создаю аккаунт без временного пароля, выдаю waiver без теста и отправляю ссылку для установки собственного пароля."
+            --body "⏳ Защищённая production-операция запущена: использую активного owner/admin, создаю аккаунт без временного пароля, выдаю waiver без теста и отправляю ссылку установки пароля."
 
       - name: Check out reviewed main revision
         id: checkout
