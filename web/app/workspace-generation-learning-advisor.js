@@ -1,14 +1,16 @@
 /*
  * ContentEngine generation learning advisor.
  *
- * This module fixes the misleading "8 seconds is the model" behaviour without
- * calling an API or starting a generation. It only exposes the provider's
- * supported durations and a conservative cold-start experiment. A learned
- * duration may be applied later only through a server-signed policy.
+ * Fixes the misleading "8 seconds is the model" behaviour without calling an
+ * API or starting a generation. It exposes supported durations and a bounded
+ * cold-start experiment. A learned plan is displayed only when another trusted
+ * application layer places a server-issued policy hash on the exact form; this
+ * advisor itself is never a payment or provider authority.
  */
 
 const GENERATION_ROUTE = "/workspace/generation";
 const SELECTOR = "#mock-batch-form";
+const POLICY_HASH = /^[0-9a-f]{64}$/u;
 const MODE_SPECS = Object.freeze({
   real_gen4: Object.freeze({
     label: "Gen‑4 Turbo",
@@ -45,7 +47,7 @@ function modelSpec(form) {
   return MODE_SPECS[mode] || null;
 }
 
-function readSignedPolicy(form) {
+function readServerPolicyHint(form) {
   const raw = String(form.dataset.generationDurationPolicy || "").trim();
   if (!raw || raw.length > 4_000) return null;
   try {
@@ -54,7 +56,8 @@ function readSignedPolicy(form) {
       !value
       || typeof value !== "object"
       || Array.isArray(value)
-      || value.signed !== true
+      || value.source !== "creator_generation_learning_policy"
+      || !POLICY_HASH.test(String(value.policy_hash || ""))
       || !Array.isArray(value.arms)
     ) return null;
     const spec = modelSpec(form);
@@ -70,12 +73,16 @@ function readSignedPolicy(form) {
         && arm.allocation > 0
         && arm.allocation <= 1
       );
-    if (arms.length < 1 || Math.abs(arms.reduce((sum, arm) => sum + arm.allocation, 0) - 1) > 0.001) {
-      return null;
-    }
+    if (
+      arms.length < 1
+      || arms.length > 4
+      || new Set(arms.map((arm) => arm.seconds)).size !== arms.length
+      || Math.abs(arms.reduce((sum, arm) => sum + arm.allocation, 0) - 1) > 0.001
+    ) return null;
     return Object.freeze({
       mode: value.mode === "exploit" ? "exploit" : "explore",
       scope: String(value.scope || "").slice(0, 80),
+      policyHash: String(value.policy_hash),
       arms: Object.freeze(arms),
     });
   } catch {
@@ -122,7 +129,10 @@ function buildPanel(form) {
     "Чужая категория не передаёт winner. Без matched evidence остаются control и две ограниченные гипотезы.",
   );
   panel.append(header, message, arms, guard);
-  durationField.append(panel);
+
+  // The duration field is a <label>. Interactive advisor buttons must be its
+  // sibling, not invalid nested controls inside that label.
+  durationField.after(panel);
 
   panel.addEventListener("click", (event) => {
     const button = event.target instanceof Element
@@ -141,47 +151,62 @@ function buildPanel(form) {
   return panel;
 }
 
+function renderSignature(form, spec, control, hidden) {
+  return JSON.stringify({
+    mode: String(form.elements.generation_mode?.value || ""),
+    duration: String(control?.value || ""),
+    category: String(form.elements.product_category?.value || ""),
+    sku: String(form.elements.sku?.value || ""),
+    policy: String(form.dataset.generationDurationPolicy || ""),
+    allowed: spec?.allowed || [],
+    hidden,
+  });
+}
+
 function sync(form, panel = buildPanel(form)) {
   if (!panel) return;
   const spec = modelSpec(form);
   const durationField = form.querySelector("#generation-duration-field");
   const control = form.elements.duration_seconds;
-  const message = panel.querySelector("[data-duration-advisor-message]");
-  const arms = panel.querySelector("[data-duration-advisor-arms]");
-  const state = panel.querySelector("[data-duration-advisor-state]");
-  if (!spec || !(control instanceof HTMLSelectElement) || durationField?.hidden) {
-    panel.hidden = true;
-    return;
-  }
-  panel.hidden = false;
+  const hidden = !spec || !(control instanceof HTMLSelectElement) || durationField?.hidden === true;
+  panel.hidden = hidden;
+  if (hidden || !spec || !(control instanceof HTMLSelectElement)) return;
 
   [...control.options].forEach((option) => {
-    option.hidden = !spec.allowed.includes(Number(option.value));
-    option.disabled = option.hidden;
+    const unavailable = !spec.allowed.includes(Number(option.value));
+    if (option.hidden !== unavailable) option.hidden = unavailable;
+    if (option.disabled !== unavailable) option.disabled = unavailable;
   });
   if (!spec.allowed.includes(Number(control.value))) {
     control.value = String(spec.coldStart[0]);
     dispatchSelection(control);
   }
 
+  const signature = renderSignature(form, spec, control, false);
+  if (panel.dataset.renderSignature === signature) return;
+  panel.dataset.renderSignature = signature;
+
   const category = String(form.elements.product_category?.value || "").trim();
   const sku = String(form.elements.sku?.value || "").trim();
-  const signed = readSignedPolicy(form);
-  const plan = signed?.arms || spec.coldStart.map((seconds) => ({
+  const serverPolicy = readServerPolicyHint(form);
+  const plan = serverPolicy?.arms || spec.coldStart.map((seconds) => ({
     seconds,
     allocation: 1 / spec.coldStart.length,
   }));
+  const message = panel.querySelector("[data-duration-advisor-message]");
+  const arms = panel.querySelector("[data-duration-advisor-arms]");
+  const state = panel.querySelector("[data-duration-advisor-state]");
 
   if (state) {
-    state.textContent = signed
-      ? signed.mode === "exploit" ? "Серверный winner + control" : "Серверный A/B"
+    state.textContent = serverPolicy
+      ? serverPolicy.mode === "exploit" ? "Server winner + control" : "Server A/B"
       : "Безопасный cold start";
-    state.dataset.tone = signed ? "ready" : "explore";
+    state.dataset.tone = serverPolicy ? "ready" : "explore";
   }
   if (message) {
     message.textContent = category && sku
-      ? signed
-        ? `${spec.label}: применён подписанный план для текущего SKU. Control сохраняется, чтобы обучение не зацементировало случайность.`
+      ? serverPolicy
+        ? `${spec.label}: показан серверный план для текущего SKU. Control сохраняется, чтобы обучение не зацементировало случайность.`
         : `${spec.label}: для новой или разреженной категории сравниваем ${spec.coldStart.join(" и ")} секунд. Восемь секунд — один arm, а не обязательный результат.`
       : "Сначала выберите точный товар и категорию. До этого мини‑ИИ не переносит решения между товарами.";
   }
@@ -211,7 +236,9 @@ function mount() {
     observer?.disconnect();
     observedForm = form;
     observer = new MutationObserver(schedule);
-    observer.observe(form, { childList: true, subtree: true, attributes: true });
+    // Observe replacement of app-rendered controls. The advisor's own class,
+    // hidden and data changes are attributes and therefore cannot self-loop.
+    observer.observe(form, { childList: true, subtree: true });
     form.addEventListener("input", schedule, { passive: true });
     form.addEventListener("change", schedule, { passive: true });
   }
