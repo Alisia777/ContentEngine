@@ -1,15 +1,16 @@
 /*
  * Adds a hidden, idempotent job signature to native generation rows.
  *
- * Native archive copy currently uses the compact Russian token "5 сек" while
- * the mini-AI matcher deliberately expects an unambiguous duration phrase.
- * This adapter does not read form values or call any API; it only normalizes
- * already-rendered durable job metadata in the DOM.
+ * Native archive copy currently uses compact Russian tokens such as "5 сек"
+ * while the mini-AI matcher deliberately expects an unambiguous duration
+ * phrase. This adapter does not read form values or call any API; it only
+ * normalizes already-rendered durable job metadata in the DOM.
  */
 
 const JOB_SELECTOR = "[data-generation-job-id]";
 const SIGNATURE_ATTR = "data-mini-ai-job-signature";
-const DURATION_PATTERN = /(?:^|[·|\s])(\d{1,2})\s*сек(?:\.|унд(?:а|ы|ов)?)?\b/iu;
+const DURATION_PATTERN =
+  /(?:^|[·|\s])(\d{1,2})\s*сек(?:\.|унд(?:а|ы|ов)?)?(?=$|[\s·|,;])/iu;
 let queued = false;
 
 function normalizeJob(element) {
