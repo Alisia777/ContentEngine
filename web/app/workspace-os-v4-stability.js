@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.1 · single-chrome stability coordinator.
+ * ContentEngine Desktop v4.2 · single-chrome stability coordinator.
  *
  * Presentation only. It does not call business APIs, submit forms, read
  * credentials or clone native controls. The module removes duplicate window
@@ -7,7 +7,7 @@
  * deterministic without a document-wide MutationObserver.
  */
 
-const BUILD = "20260801.os4.1";
+const BUILD = "20260801.os4.2";
 const ROUTE_RESEARCH = Object.freeze({
   route: "/workspace/research",
   label: "Разбор товара",
