@@ -36,16 +36,26 @@ def test_generation_advisor_never_calls_business_api_or_submits_generation() -> 
     assert "eligible_for_direct_prompt" not in ADVISOR
 
 
-def test_generation_advisor_requires_signed_policy_for_learned_duration() -> None:
+def test_generation_advisor_accepts_only_a_server_issued_policy_hint() -> None:
     for token in (
-        "value.signed !== true",
+        'value.source !== "creator_generation_learning_policy"',
+        "POLICY_HASH.test",
         "generationDurationPolicy",
-        "Foreign",
+        "Чужая категория не передаёт winner",
     ):
-        if token == "Foreign":
-            continue
         assert token in ADVISOR
-    assert "Чужая категория не передаёт winner" in ADVISOR
+    assert "value.signed" not in ADVISOR
+
+
+def test_advisor_buttons_are_not_nested_inside_the_duration_label() -> None:
+    assert "durationField.after(panel)" in ADVISOR
+    assert "durationField.append(panel)" not in ADVISOR
+
+
+def test_advisor_observer_cannot_loop_on_its_own_attribute_updates() -> None:
+    assert "panel.dataset.renderSignature" in ADVISOR
+    assert 'observer.observe(form, { childList: true, subtree: true })' in ADVISOR
+    assert "attributes: true" not in ADVISOR
 
 
 def test_generation_route_loads_advisor_lazily() -> None:
