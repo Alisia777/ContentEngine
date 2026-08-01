@@ -6,7 +6,7 @@
  * calls and no business mutations.
  */
 
-const BUILD = "20260731.4";
+const BUILD = "20260801.2";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -63,10 +63,12 @@ const ROUTE_ASSETS = Object.freeze({
     styles: [
       "workspace-generation-os.css?v=20260731.1",
       "workspace-generation-learning-advisor.css?v=20260801.1",
+      "workspace-mini-ai-control-v1.css?v=20260801.2",
     ],
     modules: [
       "workspace-generation-os.js?v=20260731.1",
       "workspace-generation-learning-advisor.js?v=20260801.1",
+      "workspace-mini-ai-control-v1.js?v=20260801.2",
     ],
   }),
   media: Object.freeze({
