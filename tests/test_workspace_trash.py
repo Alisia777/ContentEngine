@@ -210,21 +210,22 @@ def test_trash_ui_uses_narrow_rpc_boundary_and_safe_dynamic_dom() -> None:
             assert forbidden not in source
 
 
-def test_context_trash_loads_after_desktop_surface_guard_and_namespace() -> None:
+def test_context_trash_loads_before_the_single_stability_coordinator() -> None:
     for marker in (
         "workspace-os-v4-context-trash.css?v=${BUILD}",
         "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}",
         "workspace-os-v4-context-trash.js?v=${BUILD}",
-        "workspace-os-v4-surface-guard.js?v=${BUILD}",
+        "workspace-os-v4-stability.js?v=${BUILD}",
     ):
         assert marker in LOADER
 
-    assert LOADER.index("workspace-os-v4-surface-guard.js?v=${BUILD}") < LOADER.index(
-        "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}"
-    )
     assert LOADER.index("workspace-os-v4-trash-rpc-alias.js?v=${BUILD}") < LOADER.index(
         "workspace-os-v4-context-trash.js?v=${BUILD}"
     )
+    assert LOADER.index("workspace-os-v4-context-trash.js?v=${BUILD}") < LOADER.index(
+        "workspace-os-v4-stability.js?v=${BUILD}"
+    )
+    assert "workspace-os-v4-surface-guard.js" not in LOADER
 
 
 def test_context_trash_styles_are_desktop_mobile_and_accessibility_aware() -> None:
