@@ -124,14 +124,15 @@ QA. Видеоряд можно сохранить, речь/субтитры �
 
 - internal captions budget envelope: `$0.05 / minute`;
 - ElevenLabs dubbing without watermark: `$0.50 / minute`;
-- HeyGen audio-only translation: `$0.0167 / second`;
+- HeyGen audio-only translation: `$0.0333 / second`;
 - HeyGen speed lip-sync: `$0.0333 / second`;
 - HeyGen precision lip-sync: `$0.0667 / second`;
 - Seedance full-generation baseline: `$0.29 / second`.
 
 Последняя строка — сравнительный baseline текущего ContentEngine, а не обещание
 провайдера локализации. Перед реальным списанием rate card должен сохраняться в
-server receipt.
+server receipt. Расчёт линейный; налоги, минимумы биллинга, хранение и повторные
+прогоны проверяются отдельно перед production запуском.
 
 ### Пример: 5 исходников по 8 секунд, subtitles + dubbing
 
