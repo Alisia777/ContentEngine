@@ -210,7 +210,7 @@ function normalizeGlobalDock() {
 
 function normalizeTopbars(page) {
   const topbars = qa(LOCAL_TOPBARS, page).filter(isVisible);
-  if (!topbars.length) return;
+  if (!topbars.length) return null;
 
   const ranked = topbars.map((bar) => ({
     bar,
@@ -239,6 +239,34 @@ function normalizeTopbars(page) {
     qa("[class*='mode-switch'], [role='tablist'], [role='group']", bar)
       .forEach((node) => { node.dataset.ceV4ConnectedMenu = "true"; });
   });
+  return primary;
+}
+
+function isolateSurface(page, surface, primaryTopbar) {
+  if (!page) return;
+  const dedicated = surface && surface !== page;
+  page.classList.toggle("ce-v4-native-surface", !dedicated);
+  [...page.children].forEach((child) => {
+    delete child.dataset.ceV4SurfaceHost;
+  });
+  page.classList.remove("ce-v4-single-surface");
+  if (!dedicated) return;
+
+  const surfaceHost = [...page.children].find((child) => (
+    child === surface || child.contains(surface)
+  ));
+  if (!surfaceHost) return;
+  const topbarHost = primaryTopbar
+    ? [...page.children].find((child) => (
+      child === primaryTopbar || child.contains(primaryTopbar)
+    ))
+    : null;
+
+  [...page.children].forEach((child) => {
+    const keep = child === surfaceHost || child === topbarHost;
+    child.dataset.ceV4SurfaceHost = keep ? "true" : "false";
+  });
+  page.classList.add("ce-v4-single-surface");
 }
 
 function normalizeLocalDocks(surface) {
@@ -294,7 +322,8 @@ function mount() {
   ensureResearchMissionCard();
   hideDuplicateGlobalChrome();
   normalizeGlobalDock();
-  if (page) normalizeTopbars(page);
+  const primaryTopbar = page ? normalizeTopbars(page) : null;
+  isolateSurface(page, surface, primaryTopbar);
   if (surface) {
     surface.dataset.ceV4PrimarySurface = "true";
     normalizeLocalDocks(surface);
