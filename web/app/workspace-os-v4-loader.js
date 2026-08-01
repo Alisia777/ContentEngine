@@ -60,8 +60,14 @@ const ROUTE_ASSETS = Object.freeze({
   }),
   generation: Object.freeze({
     match: (route) => route === "/workspace/generation",
-    styles: ["workspace-generation-os.css?v=20260731.1"],
-    modules: ["workspace-generation-os.js?v=20260731.1"],
+    styles: [
+      "workspace-generation-os.css?v=20260731.1",
+      "workspace-generation-learning-advisor.css?v=20260801.1",
+    ],
+    modules: [
+      "workspace-generation-os.js?v=20260731.1",
+      "workspace-generation-learning-advisor.js?v=20260801.1",
+    ],
   }),
   media: Object.freeze({
     match: (route) => route === "/workspace/media",
