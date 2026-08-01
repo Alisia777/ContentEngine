@@ -27,12 +27,12 @@ def test_build_id_is_consistent_across_entrypoints() -> None:
 
 def test_build_guard_assets_load_after_the_desktop_v4_loader() -> None:
     assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260731.4" />' in APP_INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260731.4"></script>' in APP_INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260731.5"></script>' in APP_INDEX
     assert './workspace-build-guard.css?v=20260731.4' in APP_INDEX
     assert './workspace-build-guard.js?v=20260731.4' in APP_INDEX
     assert APP_INDEX.index('./workspace-os-v4.css?v=20260731.4') < APP_INDEX.index('./workspace-build-guard.css')
-    assert APP_INDEX.index('./app.js') < APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.4')
-    assert APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.4') < APP_INDEX.index('./workspace-build-guard.js?v=20260731.4')
+    assert APP_INDEX.index('./app.js') < APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.5')
+    assert APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.5') < APP_INDEX.index('./workspace-build-guard.js')
 
 
 def test_guard_checks_only_the_same_origin_static_manifest() -> None:

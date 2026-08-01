@@ -6,7 +6,7 @@
  * calls and no business mutations.
  */
 
-const BUILD = "20260731.4";
+const BUILD = "20260731.5";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -26,6 +26,11 @@ const ROUTE_ASSETS = Object.freeze({
     match: (route) => route === "/workspace/board",
     styles: ["workspace-os-v4-finder.css?v=20260731.4"],
     modules: ["workspace-os-v4-finder.js?v=20260731.4"],
+  }),
+  referenceIntelligence: Object.freeze({
+    match: (route) => route === "/workspace/research" || route === "/workspace/generation",
+    styles: ["workspace-reference-intelligence.css?v=20260731.5"],
+    modules: ["workspace-reference-intelligence.js?v=20260731.5"],
   }),
   operations: Object.freeze({
     match: (route) => OPERATIONAL_ROUTES.has(route) || route === "/learn" || route.startsWith("/learn/"),

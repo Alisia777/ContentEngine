@@ -8,7 +8,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_pages_release import _safe_output, build_release  # noqa: E402
+from build_pages_release import (  # noqa: E402
+    LOCAL_ONLY_PATTERN,
+    _safe_output,
+    build_release,
+)
 
 
 PROJECT_REF = "iyckwryrucqrxwlowxow"
@@ -56,6 +60,22 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     assert PUBLISHABLE_KEY in config
     assert "RUNWAYML_API_SECRET" not in config
     assert "127.0.0.1" not in config
+
+
+def test_local_coordinate_guard_rejects_endpoints_not_validation_words() -> None:
+    assert LOCAL_ONLY_PATTERN.search('host === "localhost"') is None
+    assert LOCAL_ONLY_PATTERN.search('host.endsWith(".localhost")') is None
+    for value in (
+        "http://localhost:54321",
+        "https://localhost/path",
+        "ws://localhost:54321",
+        "wss://localhost/socket",
+        "postgresql://localhost/database",
+        "localhost:3000",
+        "127.0.0.1",
+        "__SET_SUPABASE_URL__",
+    ):
+        assert LOCAL_ONLY_PATTERN.search(value) is not None
 
 
 def test_pages_release_rejects_client_edge_gate_mismatch(tmp_path: Path) -> None:

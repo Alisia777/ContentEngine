@@ -237,7 +237,7 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
         '--project-ref "$SUPABASE_PROJECT_REF"'
     )
     assert "--no-verify-jwt" not in generate_deploy["run"]
-    assert "--prune" not in generate_deploy["run"]
+    assert "--prune" not in workflow
     research_deploy = next(
         step
         for step in migrate["steps"]
@@ -339,7 +339,9 @@ def test_pages_build_accepts_only_browser_safe_configuration() -> None:
     assert "--source-dir web/app" in workflow
     assert "--output-dir _site" in workflow
     assert "--edge-function supabase/functions/creator-generate/index.ts" in workflow
-    assert "__SET_SUPABASE_|127\\.0\\.0\\.1|localhost" in workflow
+    assert "__SET_SUPABASE_|127\\.0\\.0\\.1|" in workflow
+    assert "://localhost" in workflow
+    assert "localhost:[0-9]+" in workflow
     assert '"MOCK_ONLY"' not in builder
     assert '"MOCK_ENABLED": True' in builder
     assert '"REAL_GENERATION_ENABLED": True' in builder
