@@ -78,3 +78,13 @@ def test_validator_requires_rights_and_qa_for_activation(tmp_path: Path) -> None
 
     with pytest.raises(PackValidationError, match="lacks QA or rights"):
         validate(path)
+
+
+def test_validator_rejects_raw_https_hidden_under_unknown_key(tmp_path: Path) -> None:
+    path = tmp_path / "pack.jsonl"
+    record = valid_record()
+    record["machine_profile"]["innocent_name"] = "https://example.com/reel"
+    write_pack(path, [record])
+
+    with pytest.raises(PackValidationError, match="raw URL-like value"):
+        validate(path)

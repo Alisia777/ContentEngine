@@ -194,10 +194,7 @@ def test_new_category_does_not_copy_a_winner_from_another_category() -> None:
     assert "no_foreign_category_winner" in plan.reason_codes
     assert len(plan.arms) == 3
     assert any(arm.is_control for arm in plan.arms)
-    assert all(
-        arm.source_scope in {LearningScope.GLOBAL_SAFE, LearningScope.NEW_CATEGORY}
-        for arm in plan.arms
-    )
+    assert len({arm.creative_angle for arm in plan.arms}) == 3
 
 
 def test_successful_creative_is_selected_by_orders_not_views() -> None:
@@ -235,6 +232,7 @@ def test_successful_creative_is_selected_by_orders_not_views() -> None:
     assert candidates[0].observation_id == "seller"
 
 
+
 def test_orders_per_day_remains_primary_over_conversion_proxy() -> None:
     high_orders = creative(
         "high-orders",
@@ -268,7 +266,6 @@ def test_orders_per_day_remains_primary_over_conversion_proxy() -> None:
     assert candidates
     assert candidates[0].observation_id == "high-orders"
     assert "orders_per_day_primary" in candidates[0].reason_codes
-
 
 def test_harly_same_day_ww_bundle_is_not_taught_as_three_winners() -> None:
     bundled = creative(
@@ -330,6 +327,7 @@ def test_creator_dominance_is_capped_before_winner_selection() -> None:
         creative("same-b", orders=45, creator="same"),
         creative("same-c", orders=40, creator="same"),
         creative("control", orders=2, creator="other"),
+        creative("third", orders=1, creator="third"),
     ]
 
     candidates = select_successful_creatives(
@@ -339,7 +337,7 @@ def test_creator_dominance_is_capped_before_winner_selection() -> None:
         platform="instagram",
     )
 
-    assert len(candidates) <= 2
+    assert len(candidates) <= 3
     assert sum(item.observation_id.startswith("same-") for item in candidates) <= 1
 
 
@@ -388,3 +386,40 @@ def test_activation_requires_rights_and_human_qa() -> None:
         platform="instagram",
         require_activation_approval=True,
     )
+
+
+def test_two_observations_never_activate_a_winner() -> None:
+    observations = [
+        creative("winner", orders=100, creator="a"),
+        creative("control", orders=1, creator="b"),
+    ]
+
+    assert not select_successful_creatives(
+        observations,
+        category_key="pet_care",
+        sku="PET-1",
+        platform="instagram",
+    )
+
+
+def test_exploit_plan_keeps_three_distinct_angles_when_winner_is_demonstration() -> None:
+    observations = [
+        creative("winner", orders=60, creator="a", angle="demonstration"),
+        creative("middle", orders=8, creator="b", angle="problem_first"),
+        creative("control", orders=1, creator="c", angle="result_first"),
+    ]
+
+    plan = build_category_experiment_plan(
+        observations,
+        category_key="pet_care",
+        sku="PET-1",
+        platform="instagram",
+        model=ProviderModel.SEEDANCE2_FAST,
+        require_activation_approval=True,
+    )
+
+    assert plan.mode is PolicyMode.EXPLOIT
+    assert plan.selected_winner_id == "winner"
+    assert len({arm.creative_angle for arm in plan.arms}) == 3
+    assert sum(arm.is_control for arm in plan.arms) == 1
+    assert "distinct_experiment_angles" in plan.reason_codes

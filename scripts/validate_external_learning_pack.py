@@ -27,8 +27,13 @@ FORBIDDEN_KEYS = {
     "provider_prompt",
     "author_name",
     "creator_name",
+    "href",
+    "link",
+    "source_link",
+    "raw_url",
 }
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+URL_LIKE = re.compile(r"https?://", re.IGNORECASE)
 ALLOWED_SCHEMAS = {
     "external_creative_observation.v1",
     "funnel_observation.v1",
@@ -52,8 +57,8 @@ def walk(value: Any, path: tuple[str, ...] = ()) -> None:
     elif isinstance(value, list):
         for index, child in enumerate(value):
             walk(child, (*path, str(index)))
-    elif isinstance(value, str) and "http://" in value.lower():
-        raise PackValidationError(f"insecure URL-like value at {'.'.join(path)}")
+    elif isinstance(value, str) and URL_LIKE.search(value):
+        raise PackValidationError(f"raw URL-like value at {'.'.join(path)}")
 
 
 def validate_record(value: Any, line_number: int) -> str:
