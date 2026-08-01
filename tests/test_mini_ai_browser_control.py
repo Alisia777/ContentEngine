@@ -13,6 +13,9 @@ DESK = (APP_DIR / "workspace-mini-ai-control-v3.js").read_text(encoding="utf-8")
 JOB_SIGNATURE = (APP_DIR / "workspace-generation-job-signature-v1.js").read_text(
     encoding="utf-8"
 )
+CATEGORY_SCOPE = (APP_DIR / "workspace-mini-ai-category-scope-v1.js").read_text(
+    encoding="utf-8"
+)
 BASE_CSS = (APP_DIR / "workspace-mini-ai-control-v1.css").read_text(
     encoding="utf-8"
 )
@@ -31,14 +34,18 @@ def test_mini_ai_is_loaded_only_on_generation_and_has_a_kill_switch() -> None:
     for marker in (
         'route === "/workspace/generation"',
         "MINI_AI_CONTROL_ENABLED === true",
-        '"workspace-mini-ai-control-v1.css?v=20260801.4"',
-        '"workspace-mini-ai-control-v3.css?v=20260801.4"',
-        '"workspace-generation-job-signature-v1.js?v=20260801.4"',
-        '"workspace-mini-ai-control-v3.js?v=20260801.4"',
+        '"workspace-mini-ai-control-v1.css?v=20260801.5"',
+        '"workspace-mini-ai-control-v3.css?v=20260801.5"',
+        '"workspace-generation-job-signature-v1.js?v=20260801.5"',
+        '"workspace-mini-ai-control-v3.js?v=20260801.5"',
+        '"workspace-mini-ai-category-scope-v1.js?v=20260801.5"',
     ):
         assert marker in LOADER
     assert LOADER.index("workspace-generation-job-signature-v1.js") < LOADER.index(
         "workspace-mini-ai-control-v3.js"
+    )
+    assert LOADER.index("workspace-mini-ai-control-v3.js") < LOADER.index(
+        "workspace-mini-ai-category-scope-v1.js"
     )
     assert "MINI_AI_CONTROL_ENABLED: true" in CONFIG
     assert "MINI_AI_CONTROL_ENABLED: false" in EXAMPLE_CONFIG
@@ -56,6 +63,9 @@ def test_browser_engine_is_deterministic_and_does_not_use_business_transport() -
         "viewsCanSelectWinner: false",
         "crossCategoryTransferAllowed: false",
         "humanApprovalRequiredForScale: true",
+        "function failClosedContext(rawContext)",
+        "approvedWinnerDuration: null",
+        "durationPolicy: null",
     ):
         assert marker in ENGINE_V1 + ENGINE_V2
     for forbidden in (
@@ -147,6 +157,27 @@ def test_native_job_signature_normalizes_short_russian_duration_copy() -> None:
     assert ".functions.invoke" not in JOB_SIGNATURE
 
 
+def test_learning_category_is_narrow_persistent_and_never_falls_back_to_compliance() -> None:
+    for marker in (
+        'const POINTER_KEY = "contentengine.mini-ai-learning-category-pointer.v1"',
+        '"electronics"',
+        '"cosmetics"',
+        "Compliance-категория слишком широка для обучения",
+        "car_audio_amplifier",
+        'input.value = " "',
+        "pointers[baseScope(form)] = category",
+        'source: "mini-ai-category-scope"',
+    ):
+        assert marker in CATEGORY_SCOPE
+    for forbidden in (
+        "fetch(",
+        ".functions.invoke",
+        "requestSubmit(",
+        "service_role",
+    ):
+        assert forbidden not in CATEGORY_SCOPE
+
+
 def test_safe_brief_and_exact_product_are_checked_before_queue() -> None:
     for marker in (
         "Сначала подготовьте безопасное ТЗ",
@@ -190,17 +221,18 @@ def test_reload_recovery_marks_inflight_task_unknown() -> None:
 
 
 def test_mini_ai_javascript_parses_when_node_is_available() -> None:
-    node = shutil.which("node")
-    if not node:
+    node_binary = shutil.which("node")
+    if not node_binary:
         pytest.skip("Node.js is not installed in this test environment")
     for path in (
         APP_DIR / "mini-ai-control-plane-v1.js",
         APP_DIR / "mini-ai-control-plane-v2.js",
         APP_DIR / "workspace-generation-job-signature-v1.js",
         APP_DIR / "workspace-mini-ai-control-v3.js",
+        APP_DIR / "workspace-mini-ai-category-scope-v1.js",
     ):
         subprocess.run(
-            [node, "--check", str(path)],
+            [node_binary, "--check", str(path)],
             check=True,
             capture_output=True,
             text=True,
