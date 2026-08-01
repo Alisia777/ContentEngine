@@ -6,7 +6,7 @@
  * calls and no business mutations.
  */
 
-const BUILD = "20260801.3";
+const BUILD = "20260801.4";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -75,10 +75,13 @@ const ROUTE_ASSETS = Object.freeze({
       && window.CONTENTENGINE_CONFIG?.MINI_AI_CONTROL_ENABLED === true
     ),
     styles: [
-      "workspace-mini-ai-control-v1.css?v=20260801.3",
-      "workspace-mini-ai-control-v3.css?v=20260801.3",
+      "workspace-mini-ai-control-v1.css?v=20260801.4",
+      "workspace-mini-ai-control-v3.css?v=20260801.4",
     ],
-    modules: ["workspace-mini-ai-control-v3.js?v=20260801.3"],
+    modules: [
+      "workspace-generation-job-signature-v1.js?v=20260801.4",
+      "workspace-mini-ai-control-v3.js?v=20260801.4",
+    ],
   }),
   media: Object.freeze({
     match: (route) => route === "/workspace/media",
