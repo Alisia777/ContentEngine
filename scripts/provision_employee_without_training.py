@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Create or verify one protected employee account and waive final training.
 
-The orchestration is idempotent for an account already provisioned by the
-reviewed ContentEngine flow.  It creates a confirmed trainee only when needed,
-promotes the active member to ``operator`` through the audited training-waiver
-RPC, verifies the waiver, and sends the standard password-recovery email.
+The employee is created as a confirmed Auth identity without a temporary
+password.  Supabase then sends the standard recovery link so the employee sets
+their own password.  The active trainee membership is promoted to ``operator``
+through the audited and reversible training-waiver RPC.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from scripts.bootstrap_supabase_owner import (
     OwnerBootstrapError,
     SupabaseAuthClient,
     SupabaseManagementClient,
+    _validated_email,
 )
 from scripts.grant_training_access_waiver import (
     DEFAULT_REASON,
@@ -24,8 +25,12 @@ from scripts.grant_training_access_waiver import (
     grant_training_access_waiver,
 )
 from scripts.provision_supabase_member import (
+    MEMBER_PROVISION_MARKER,
+    PASSWORD_CHANGE_REQUIRED_MARKER,
     MemberProvisionError,
-    provision_member,
+    _require_distinct_account_email,
+    _validated_display_name,
+    initialize_member_membership,
     read_member_state,
     read_provisioning_authority,
 )
@@ -35,55 +40,114 @@ class EmployeeOnboardingError(RuntimeError):
     """A non-sensitive onboarding failure safe for Actions logs."""
 
 
+def _create_confirmed_member_for_recovery(
+    auth_client: SupabaseAuthClient,
+    *,
+    email: str,
+    display_name: str,
+) -> None:
+    """Create a confirmed limited identity without manufacturing a password."""
+
+    admin_request = getattr(auth_client, "_admin_request", None)
+    if not callable(admin_request):
+        raise EmployeeOnboardingError("Supabase Auth admin client is unavailable")
+    admin_request(
+        "/auth/v1/admin/users",
+        method="POST",
+        payload={
+            "email": email,
+            "email_confirm": True,
+            "user_metadata": {"display_name": display_name},
+            "app_metadata": {
+                MEMBER_PROVISION_MARKER: True,
+                PASSWORD_CHANGE_REQUIRED_MARKER: True,
+            },
+        },
+    )
+
+
 def provision_employee_without_training(
     *,
     management_client: SupabaseManagementClient,
     email: str,
     display_name: str,
-    temporary_password: str,
-    password_dispatch_id: str,
-    account_slot: str,
     distinct_from: list[str],
     reason: str,
     publishable_key: str,
 ) -> tuple[str, str, str]:
+    normalized_email = _validated_email(email)
+    validated_display_name = _validated_display_name(display_name)
+    _require_distinct_account_email(normalized_email, distinct_from)
+
     authority = read_provisioning_authority(management_client)
     state = read_member_state(
         management_client,
-        email=email,
+        email=normalized_email,
         organization_id=authority.organization_id,
     )
 
     identity_status = "existing"
     membership_status = "existing"
-    if not (
-        state.user_id is not None
-        and state.membership_status == "active"
-        and state.membership_role == "operator"
-    ):
-        result = provision_member(
-            management_client=management_client,
-            auth_client_factory=lambda server_key: SupabaseAuthClient(
-                project_ref=os.environ.get("SUPABASE_PROJECT_REF", "").strip(),
-                server_key=server_key,
-                publishable_key=publishable_key,
-            ),
-            email=email,
-            display_name=display_name,
-            temporary_password=temporary_password,
-            password_dispatch_id=password_dispatch_id,
-            account_slot=account_slot,
-            role="trainee",
-            claim_existing=False,
-            reset_signed_in=False,
-            distinct_from=distinct_from,
+    if state.user_id is None:
+        server_key = management_client.get_server_key()
+        auth_client = SupabaseAuthClient(
+            project_ref=os.environ.get("SUPABASE_PROJECT_REF", "").strip(),
+            server_key=server_key,
+            publishable_key=publishable_key,
         )
-        identity_status = result.identity_status
-        membership_status = result.membership_status
+        _create_confirmed_member_for_recovery(
+            auth_client,
+            email=normalized_email,
+            display_name=validated_display_name,
+        )
+        identity_status = "created"
+        state = read_member_state(
+            management_client,
+            email=normalized_email,
+            organization_id=authority.organization_id,
+        )
+
+    if (
+        state.user_id is None
+        or not state.email_confirmed
+        or not state.auth_active
+    ):
+        raise EmployeeOnboardingError(
+            "Employee identity is not active and confirmed"
+        )
+    if (state.app_metadata or {}).get(MEMBER_PROVISION_MARKER) is not True:
+        raise EmployeeOnboardingError(
+            "Pre-existing employee identity is not owned by this provisioning flow"
+        )
+
+    if state.membership_role is None:
+        if state.membership_count != 0:
+            raise EmployeeOnboardingError(
+                "Employee identity already belongs to another organization"
+            )
+        initialize_member_membership(
+            management_client,
+            authority=authority,
+            user_id=state.user_id,
+            role="trainee",
+        )
+        membership_status = "created"
+        state = read_member_state(
+            management_client,
+            email=normalized_email,
+            organization_id=authority.organization_id,
+        )
+
+    if state.membership_status != "active":
+        raise EmployeeOnboardingError("Employee membership is not active")
+    if state.membership_role not in {"trainee", "operator"}:
+        raise EmployeeOnboardingError(
+            "Employee membership has an unexpected role"
+        )
 
     role, recovery_status = grant_training_access_waiver(
         management_client=management_client,
-        email=email,
+        email=normalized_email,
         reason=reason,
         send_recovery=True,
         publishable_key=publishable_key,
@@ -97,8 +161,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--email", required=True)
     parser.add_argument("--display-name", required=True)
-    parser.add_argument("--account-slot", required=True)
-    parser.add_argument("--password-dispatch-id", required=True)
     parser.add_argument("--distinct-from", action="append", default=[])
     parser.add_argument("--reason", default=DEFAULT_REASON)
     return parser
@@ -106,12 +168,6 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    temporary_password = os.environ.get(
-        "CONTENTENGINE_MEMBER_DISPATCH_PASSWORD",
-        "",
-    )
-    if os.environ.get("GITHUB_ACTIONS") == "true" and temporary_password:
-        print(f"::add-mask::{temporary_password}", flush=True)
     try:
         management_client = SupabaseManagementClient(
             project_ref=os.environ.get("SUPABASE_PROJECT_REF", "").strip(),
@@ -121,9 +177,6 @@ def main(argv: list[str] | None = None) -> int:
             management_client=management_client,
             email=args.email,
             display_name=args.display_name,
-            temporary_password=temporary_password,
-            password_dispatch_id=args.password_dispatch_id,
-            account_slot=args.account_slot,
             distinct_from=args.distinct_from,
             reason=args.reason,
             publishable_key=os.environ.get("SUPABASE_PUBLISHABLE_KEY", ""),
