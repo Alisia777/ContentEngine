@@ -150,13 +150,17 @@ function ensureResearchDockItem() {
   else glass.prepend(makeResearchDockItem());
 }
 
-function makeResearchMissionCard() {
+function makeResearchMissionCard(number) {
   const button = create("button", "ce-v4-mission-card ce-v4-mission-card--extra");
   button.type = "button";
   button.dataset.route = ROUTE_RESEARCH.route;
   button.dataset.search = `${ROUTE_RESEARCH.label} ${ROUTE_RESEARCH.description}`
     .toLocaleLowerCase("ru-RU");
-  button.append(create("span", "ce-v4-mission-card__number", "03"));
+  button.append(create(
+    "span",
+    "ce-v4-mission-card__number",
+    String(number).padStart(2, "0"),
+  ));
   const copy = create("span");
   const tile = create("span", "ce-v4-mission-card__icon");
   tile.append(icon(ROUTE_RESEARCH.icon, 22));
@@ -175,7 +179,8 @@ function makeResearchMissionCard() {
 function ensureResearchMissionCard() {
   const grid = q(".ce-v4-mission__grid");
   if (!grid || q(`[data-route="${ROUTE_RESEARCH.route}"]`, grid)) return;
-  grid.append(makeResearchMissionCard());
+  const number = qa(":scope > .ce-v4-mission-card", grid).length + 1;
+  grid.append(makeResearchMissionCard(number));
 }
 
 function activeSurface(page) {
