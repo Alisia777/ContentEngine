@@ -17,18 +17,19 @@ concurrency:
 
 jobs:
   provision:
-    name: Create account, waive training and send password link
+    name: Restore owner, create employee and waive training
     if: >-
       github.ref == 'refs/heads/main' &&
-      github.event.head_commit.message == 'Run protected Klimov onboarding v9'
+      github.event.head_commit.message == 'Run protected Klimov onboarding v10'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     environment: production
     env:
       SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
       SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
       EXPECTED_SUPABASE_PROJECT_REF: iyckwryrucqrxwlowxow
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
       MEMBER_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
       MEMBER_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
       DISTINCT_FROM_ONE: ${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}
@@ -40,7 +41,7 @@ jobs:
         shell: bash
         run: |
           gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-            --body "⏳ Защищённая production-операция запущена: использую активного owner/admin, создаю аккаунт без временного пароля, выдаю waiver без теста и отправляю ссылку установки пароля."
+            --body "⏳ Защищённая операция запущена: восстанавливаю управляющего owner, затем создаю сотрудника, выдаю operator-waiver без теста и отправляю ссылку установки пароля."
 
       - name: Check out reviewed main revision
         id: checkout
@@ -55,8 +56,34 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Restore or verify active portal owner
+        id: owner
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          log="$RUNNER_TEMP/contentengine-owner-safe.log"
+          (
+            set -euo pipefail
+            : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+            : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
+            : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
+            : "${SUPABASE_OWNER_EMAIL:?Configure SUPABASE_OWNER_EMAIL in production}"
+            if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
+              echo "Production project binding mismatch" >&2
+              exit 1
+            fi
+            echo "::add-mask::$SUPABASE_OWNER_EMAIL"
+            python scripts/bootstrap_supabase_owner.py --display-name="Сергей"
+          ) >"$log" 2>&1
+          code=$?
+          cat "$log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
       - name: Create or verify employee, waive final test and send password link
         id: onboard
+        if: steps.owner.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -64,17 +91,10 @@ jobs:
           log="$RUNNER_TEMP/contentengine-onboarding-safe.log"
           (
             set -euo pipefail
-            : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
-            : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
-            : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
             : "${MEMBER_EMAIL:?Configure SUPABASE_MEMBER_KLIMOV_EMAIL in production}"
             : "${MEMBER_DISPLAY_NAME:?Configure SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME in production}"
             : "${DISTINCT_FROM_ONE:?Configure SUPABASE_MEMBER_GUEST_EMAIL in production}"
             : "${DISTINCT_FROM_TWO:?Configure SUPABASE_MEMBER_PAVLENKO_EMAIL in production}"
-            if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
-              echo "Production project binding mismatch" >&2
-              exit 1
-            fi
             echo "::add-mask::$MEMBER_EMAIL"
             echo "::add-mask::$MEMBER_DISPLAY_NAME"
             echo "::add-mask::$DISTINCT_FROM_ONE"
@@ -96,31 +116,43 @@ jobs:
         env:
           CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
           PYTHON_OUTCOME: ${{ steps.python.outcome }}
+          OWNER_OUTCOME: ${{ steps.owner.outcome }}
+          OWNER_EXIT_CODE: ${{ steps.owner.outputs.exit_code }}
           ONBOARD_OUTCOME: ${{ steps.onboard.outcome }}
           ONBOARD_EXIT_CODE: ${{ steps.onboard.outputs.exit_code }}
         shell: bash
         run: |
-          if [ "$ONBOARD_OUTCOME" = "success" ] && [ "${ONBOARD_EXIT_CODE:-0}" = "0" ]; then
+          if [ "$OWNER_OUTCOME" = "success" ] \
+             && [ "${OWNER_EXIT_CODE:-0}" = "0" ] \
+             && [ "$ONBOARD_OUTCOME" = "success" ] \
+             && [ "${ONBOARD_EXIT_CODE:-0}" = "0" ]; then
             gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-              --body "✅ Production-проверка завершена: аккаунт создан или подтверждён, членство активно, роль **operator**, итоговый тест пропущен через аудируемый waiver, ссылка для установки пароля отправлена на защищённую почту сотрудника."
+              --body "✅ Готово: управляющий owner подтверждён, аккаунт сотрудника создан или проверен, членство активно, роль **operator**, итоговый тест пропущен через аудируемый waiver, ссылка для установки пароля отправлена на почту сотрудника."
             exit 0
           fi
 
-          log="$RUNNER_TEMP/contentengine-onboarding-safe.log"
-          diagnostic=""
-          if [ -f "$log" ]; then
-            diagnostic="$(tail -n 16 "$log" | sed -E \
-              -e 's/[A-Za-z0-9.!#$%&*+/?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}/[email]/g' \
-              -e 's/sb_(secret|publishable)_[A-Za-z0-9._-]+/[supabase-key]/g' \
-              -e 's/[A-Za-z0-9._-]{64,}/[redacted]/g')"
-          fi
-          if [ -z "$diagnostic" ]; then
-            diagnostic="Нет безопасной прикладной диагностики: сбой произошёл до шага onboarding."
+          diagnostics=""
+          for log in \
+            "$RUNNER_TEMP/contentengine-owner-safe.log" \
+            "$RUNNER_TEMP/contentengine-onboarding-safe.log"
+          do
+            if [ -f "$log" ]; then
+              safe="$(tail -n 16 "$log" | sed -E \
+                -e 's/[A-Za-z0-9.!#$%&*+/?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}/[email]/g' \
+                -e 's/sb_(secret|publishable)_[A-Za-z0-9._-]+/[supabase-key]/g' \
+                -e 's/[A-Za-z0-9._-]{64,}/[redacted]/g')"
+              diagnostics="$diagnostics\n$safe"
+            fi
+          done
+          if [ -z "${diagnostics//[[:space:]]/}" ]; then
+            diagnostics="Нет безопасной прикладной диагностики."
           fi
           gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-            --body "❌ Production-onboarding остановлен fail-closed. Аккаунт не считаем готовым. Этапы: checkout=**$CHECKOUT_OUTCOME**, python=**$PYTHON_OUTCOME**, onboarding=**$ONBOARD_OUTCOME**, exit=**${ONBOARD_EXIT_CODE:-нет}**.\n\nБезопасная диагностика:\n\n\`\`\`text\n$diagnostic\n\`\`\`"
+            --body "❌ Операция остановлена fail-closed. Аккаунт сотрудника не считаем готовым. Этапы: checkout=**$CHECKOUT_OUTCOME**, python=**$PYTHON_OUTCOME**, owner=**$OWNER_OUTCOME/${OWNER_EXIT_CODE:-нет}**, onboarding=**$ONBOARD_OUTCOME/${ONBOARD_EXIT_CODE:-нет}**.\n\nБезопасная диагностика:\n\n\`\`\`text\n$diagnostics\n\`\`\`"
 
-      - name: Fail closed when onboarding is not confirmed
-        if: always() && steps.onboard.outcome != 'success'
+      - name: Fail closed when full onboarding is not confirmed
+        if: >-
+          always() &&
+          (steps.owner.outcome != 'success' || steps.onboard.outcome != 'success')
         shell: bash
         run: exit 1
