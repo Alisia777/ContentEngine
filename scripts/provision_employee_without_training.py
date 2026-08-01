@@ -23,6 +23,7 @@ from scripts.grant_training_access_waiver import (
     DEFAULT_REASON,
     TrainingWaiverError,
     grant_training_access_waiver,
+    read_training_waiver_authority,
 )
 from scripts.provision_supabase_member import (
     MEMBER_PROVISION_MARKER,
@@ -32,7 +33,6 @@ from scripts.provision_supabase_member import (
     _validated_display_name,
     initialize_member_membership,
     read_member_state,
-    read_provisioning_authority,
 )
 
 
@@ -79,7 +79,7 @@ def provision_employee_without_training(
     validated_display_name = _validated_display_name(display_name)
     _require_distinct_account_email(normalized_email, distinct_from)
 
-    authority = read_provisioning_authority(management_client)
+    authority = read_training_waiver_authority(management_client)
     state = read_member_state(
         management_client,
         email=normalized_email,
