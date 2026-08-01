@@ -64,7 +64,7 @@ jobs:
         run: |
           set +e
           log="$RUNNER_TEMP/contentengine-onboarding-safe.log"
-          {
+          (
             set -euo pipefail
             : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
             : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
@@ -87,11 +87,11 @@ jobs:
               --email="$MEMBER_EMAIL" \
               --display-name="$MEMBER_DISPLAY_NAME" \
               --account-slot=klimov \
-              --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v4" \
+              --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v5" \
               --distinct-from="$DISTINCT_FROM_ONE" \
               --distinct-from="$DISTINCT_FROM_TWO" \
               --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста."
-          } >"$log" 2>&1
+          ) >"$log" 2>&1
           code=$?
           cat "$log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
