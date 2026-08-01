@@ -20,7 +20,7 @@ jobs:
     name: Create account, waive training and send password link
     if: >-
       github.ref == 'refs/heads/main' &&
-      github.event.head_commit.message == 'Run protected Klimov onboarding v7'
+      github.event.head_commit.message == 'Run protected Klimov onboarding v8'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     environment: production
@@ -31,7 +31,6 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       MEMBER_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
       MEMBER_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
-      MEMBER_TEMP_PASSWORD: ${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}
       DISTINCT_FROM_ONE: ${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}
       DISTINCT_FROM_TWO: ${{ secrets.SUPABASE_MEMBER_PAVLENKO_EMAIL }}
       GH_TOKEN: ${{ github.token }}
@@ -41,7 +40,7 @@ jobs:
         shell: bash
         run: |
           gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-            --body "⏳ Защищённая production-операция запущена. Проверяю account slot, создание/членство, waiver без теста и доставку ссылки на пароль."
+            --body "⏳ Защищённая production-операция запущена: создаю аккаунт без временного пароля, выдаю waiver без теста и отправляю ссылку для установки собственного пароля."
 
       - name: Check out reviewed main revision
         id: checkout
@@ -59,8 +58,6 @@ jobs:
       - name: Create or verify employee, waive final test and send password link
         id: onboard
         continue-on-error: true
-        env:
-          CONTENTENGINE_MEMBER_DISPATCH_PASSWORD: ${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}
         shell: bash
         run: |
           set +e
@@ -72,7 +69,6 @@ jobs:
             : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
             : "${MEMBER_EMAIL:?Configure SUPABASE_MEMBER_KLIMOV_EMAIL in production}"
             : "${MEMBER_DISPLAY_NAME:?Configure SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME in production}"
-            : "${MEMBER_TEMP_PASSWORD:?Configure SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD in production}"
             : "${DISTINCT_FROM_ONE:?Configure SUPABASE_MEMBER_GUEST_EMAIL in production}"
             : "${DISTINCT_FROM_TWO:?Configure SUPABASE_MEMBER_PAVLENKO_EMAIL in production}"
             if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
@@ -81,14 +77,11 @@ jobs:
             fi
             echo "::add-mask::$MEMBER_EMAIL"
             echo "::add-mask::$MEMBER_DISPLAY_NAME"
-            echo "::add-mask::$MEMBER_TEMP_PASSWORD"
             echo "::add-mask::$DISTINCT_FROM_ONE"
             echo "::add-mask::$DISTINCT_FROM_TWO"
             python -m scripts.provision_employee_without_training \
               --email="$MEMBER_EMAIL" \
               --display-name="$MEMBER_DISPLAY_NAME" \
-              --account-slot=klimov \
-              --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v7" \
               --distinct-from="$DISTINCT_FROM_ONE" \
               --distinct-from="$DISTINCT_FROM_TWO" \
               --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста."
@@ -109,7 +102,7 @@ jobs:
         run: |
           if [ "$ONBOARD_OUTCOME" = "success" ] && [ "${ONBOARD_EXIT_CODE:-0}" = "0" ]; then
             gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-              --body "✅ Production-проверка завершена: защищённый account slot создан или подтверждён, членство активно, роль **operator**, итоговый тест пропущен через аудируемый waiver, письмо для установки пароля запрошено."
+              --body "✅ Production-проверка завершена: аккаунт создан или подтверждён, членство активно, роль **operator**, итоговый тест пропущен через аудируемый waiver, ссылка для установки пароля отправлена на защищённую почту сотрудника."
             exit 0
           fi
 
