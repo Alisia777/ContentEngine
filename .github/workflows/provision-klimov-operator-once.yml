@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: production-klimov-operator-onboarding
@@ -32,6 +33,7 @@ jobs:
       MEMBER_TEMP_PASSWORD: ${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}
       DISTINCT_FROM_ONE: ${{ secrets.SUPABASE_MEMBER_GUEST_EMAIL }}
       DISTINCT_FROM_TWO: ${{ secrets.SUPABASE_MEMBER_PAVLENKO_EMAIL }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out reviewed main revision
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -66,38 +68,31 @@ jobs:
           echo "::add-mask::$DISTINCT_FROM_ONE"
           echo "::add-mask::$DISTINCT_FROM_TWO"
 
-      - name: Preview account creation plan
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m scripts.provision_supabase_member \
-            --email="$MEMBER_EMAIL" \
-            --display-name="$MEMBER_DISPLAY_NAME" \
-            --role=trainee \
-            --distinct-from="$DISTINCT_FROM_ONE" \
-            --distinct-from="$DISTINCT_FROM_TWO" \
-            --dry-run
-
-      - name: Create confirmed employee identity and trainee membership
+      - name: Create or verify employee, waive final test and send password link
         env:
           CONTENTENGINE_MEMBER_DISPATCH_PASSWORD: ${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          python -m scripts.provision_supabase_member \
+          python -m scripts.provision_employee_without_training \
             --email="$MEMBER_EMAIL" \
             --display-name="$MEMBER_DISPLAY_NAME" \
             --account-slot=klimov \
-            --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v1" \
-            --role=trainee \
+            --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v2" \
             --distinct-from="$DISTINCT_FROM_ONE" \
-            --distinct-from="$DISTINCT_FROM_TWO"
+            --distinct-from="$DISTINCT_FROM_TWO" \
+            --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста."
 
-      - name: Grant operator workspace access without final test
+      - name: Report successful onboarding
+        if: success()
         shell: bash
         run: |
-          set -euo pipefail
-          python -m scripts.grant_training_access_waiver \
-            --email="$MEMBER_EMAIL" \
-            --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста." \
-            --send-recovery
+          gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
+            --body "✅ Production-проверка завершена: защищённый account slot создан или подтверждён, членство активно, роль **operator**, итоговый тест пропущен через аудируемый waiver, письмо для установки пароля запрошено."
+
+      - name: Report failed onboarding
+        if: failure()
+        shell: bash
+        run: |
+          gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
+            --body "❌ Production-onboarding остановлен fail-closed. Аккаунт не считаем готовым; причина находится в защищённом Actions-логе без вывода персональных данных или пароля."
