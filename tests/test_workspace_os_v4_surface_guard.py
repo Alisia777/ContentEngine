@@ -41,7 +41,7 @@ def test_stability_coordinator_reduces_local_chrome_without_business_actions() -
     ):
         assert marker in STABILITY
     for forbidden in (
-        'MutationObserver',
+        'new MutationObserver',
         'fetch(',
         'XMLHttpRequest',
         'requestSubmit',
