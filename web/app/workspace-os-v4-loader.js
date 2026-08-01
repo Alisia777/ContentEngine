@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.1 route loader.
+ * ContentEngine Desktop v4.2 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,7 +7,7 @@
  * in favour of one deterministic stability coordinator.
  */
 
-const BUILD = "20260801.os4.1";
+const BUILD = "20260801.os4.2";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -163,14 +163,16 @@ const corePromise = (async () => {
   await ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`);
   await ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`);
   await ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`);
+  await ensureStyle(`workspace-ui-bug-checkin.css?v=${BUILD}`);
   await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-stability.js?v=${BUILD}`);
+  await ensureModule(`workspace-ui-bug-checkin.js?v=${BUILD}`);
 })();
 
 corePromise.then(schedule).catch((error) => {
-  console.error("ContentEngine Desktop v4.1 failed to start", error);
+  console.error("ContentEngine Desktop v4.2 failed to start", error);
 });
 
 window.addEventListener("hashchange", schedule, { passive: true });
