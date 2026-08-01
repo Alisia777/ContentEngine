@@ -2,8 +2,8 @@
 
 from .controller import MiniAiController
 from .evaluator import evaluate_mass_generation
-from .planner import build_mass_generation_plan
 from .rulebook import DEFAULT_RULES, RULES_RU, rulebook_ru, rules_for_preset
+from .safe_planner import build_mass_generation_plan
 from .schema import (
     ArmOutcome,
     ArmSummary,
