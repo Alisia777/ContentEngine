@@ -190,8 +190,8 @@ function hideDuplicateGlobalChrome() {
   });
 }
 
-function normalizeTopbars(surface) {
-  const topbars = qa(LOCAL_TOPBARS, surface).filter(isVisible);
+function normalizeTopbars(page) {
+  const topbars = qa(LOCAL_TOPBARS, page).filter(isVisible);
   if (!topbars.length) return;
 
   const ranked = topbars.map((bar) => ({
@@ -273,9 +273,9 @@ function mount() {
   ensureResearchDockItem();
   ensureResearchMissionCard();
   hideDuplicateGlobalChrome();
+  if (page) normalizeTopbars(page);
   if (surface) {
     surface.dataset.ceV4PrimarySurface = "true";
-    normalizeTopbars(surface);
     normalizeLocalDocks(surface);
   }
   updateRouteChrome();
