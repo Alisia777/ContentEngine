@@ -15,7 +15,10 @@ CREATOR = (
 PROVIDER = (
     MIGRATIONS / "202608010003_video_localization_provider_receipts.sql"
 ).read_text(encoding="utf-8")
-ALL_SQL = "\n".join((STORAGE, CREATOR, PROVIDER))
+GUARDS = (
+    MIGRATIONS / "202608010004_video_localization_state_guards.sql"
+).read_text(encoding="utf-8")
+ALL_SQL = "\n".join((STORAGE, CREATOR, PROVIDER, GUARDS))
 
 
 def test_localization_storage_is_private_and_durable() -> None:
@@ -97,12 +100,28 @@ def test_provider_operation_is_one_at_a_time_and_fail_closed() -> None:
         assert marker in PROVIDER
 
 
+def test_database_guards_protect_plans_and_receipts_even_from_service_code() -> None:
+    for marker in (
+        "video_localization_batch_plan_immutable",
+        "video_localization_assignment_plan_immutable",
+        "localization_provider_receipt_identity_immutable",
+        "localization_provider_task_receipt_mismatch",
+        "localization_provider_receipt_replay_mismatch",
+        "localization_provider_operation_terminal",
+        "guard_video_localization_batch_state",
+        "guard_video_localization_assignment_state",
+        "guard_video_localization_provider_operation",
+    ):
+        assert marker in GUARDS
+
+
 def test_unknown_provider_outcome_cannot_be_automatically_retried() -> None:
     assert "operation_row.status in ('settled', 'frozen', 'failed')" in PROVIDER
     assert "operation_row.status = 'released'" in PROVIDER
     assert "requested_status <> 'reserved'" in PROVIDER
     assert "requested_status = 'unknown'" in PROVIDER
     assert "provider_outcome_replay_forbidden', requested_status = 'unknown'" in PROVIDER
+    assert "old.status in ('settled', 'failed', 'frozen')" in GUARDS
 
 
 def test_creator_and_service_privilege_boundaries_are_separate() -> None:
@@ -150,9 +169,10 @@ def test_all_security_definer_functions_pin_an_empty_search_path() -> None:
 
 
 def test_migrations_are_transactional_and_ordered() -> None:
-    for source in (STORAGE, CREATOR, PROVIDER):
+    for source in (STORAGE, CREATOR, PROVIDER, GUARDS):
         assert source.startswith("begin;\n")
         assert source.rstrip().endswith("commit;")
     assert "video_source_approvals" in STORAGE
     assert "creator_create_video_localization_batch" in CREATOR
     assert "system_update_video_localization_assignment" in PROVIDER
+    assert "guard_video_localization_provider_operation" in GUARDS
