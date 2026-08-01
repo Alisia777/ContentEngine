@@ -251,8 +251,8 @@ def test_desktop_v4_2_css_has_readable_stable_responsive_geometry() -> None:
         '.ce-ui-checkin-field',
         '.ce-ui-checkin-diagnostics',
         '.ce-ui-checkin-preview',
-        '@media (max-width: 760px)',
-        '@media (max-height: 720px)',
+        '@media (max-width: 680px)',
+        '@media (max-height: 680px)',
         '@media (prefers-reduced-motion: reduce)',
     ):
         assert marker in BUG_CHECKIN_CSS
