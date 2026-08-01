@@ -46,42 +46,46 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate protected production inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
-          : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
-          : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
-          : "${MEMBER_EMAIL:?Configure SUPABASE_MEMBER_KLIMOV_EMAIL in production}"
-          : "${MEMBER_DISPLAY_NAME:?Configure SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME in production}"
-          : "${MEMBER_TEMP_PASSWORD:?Configure SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD in production}"
-          : "${DISTINCT_FROM_ONE:?Configure SUPABASE_MEMBER_GUEST_EMAIL in production}"
-          : "${DISTINCT_FROM_TWO:?Configure SUPABASE_MEMBER_PAVLENKO_EMAIL in production}"
-          if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
-            echo "Production project binding mismatch" >&2
-            exit 1
-          fi
-          echo "::add-mask::$MEMBER_EMAIL"
-          echo "::add-mask::$MEMBER_DISPLAY_NAME"
-          echo "::add-mask::$MEMBER_TEMP_PASSWORD"
-          echo "::add-mask::$DISTINCT_FROM_ONE"
-          echo "::add-mask::$DISTINCT_FROM_TWO"
-
       - name: Create or verify employee, waive final test and send password link
+        id: onboard
         env:
           CONTENTENGINE_MEMBER_DISPATCH_PASSWORD: ${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}
         shell: bash
         run: |
-          set -euo pipefail
-          python -m scripts.provision_employee_without_training \
-            --email="$MEMBER_EMAIL" \
-            --display-name="$MEMBER_DISPLAY_NAME" \
-            --account-slot=klimov \
-            --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v2" \
-            --distinct-from="$DISTINCT_FROM_ONE" \
-            --distinct-from="$DISTINCT_FROM_TWO" \
-            --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста."
+          set +e
+          log="$RUNNER_TEMP/contentengine-onboarding-safe.log"
+          {
+            set -euo pipefail
+            : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+            : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
+            : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY as a repository variable}"
+            : "${MEMBER_EMAIL:?Configure SUPABASE_MEMBER_KLIMOV_EMAIL in production}"
+            : "${MEMBER_DISPLAY_NAME:?Configure SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME in production}"
+            : "${MEMBER_TEMP_PASSWORD:?Configure SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD in production}"
+            : "${DISTINCT_FROM_ONE:?Configure SUPABASE_MEMBER_GUEST_EMAIL in production}"
+            : "${DISTINCT_FROM_TWO:?Configure SUPABASE_MEMBER_PAVLENKO_EMAIL in production}"
+            if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
+              echo "Production project binding mismatch" >&2
+              exit 1
+            fi
+            echo "::add-mask::$MEMBER_EMAIL"
+            echo "::add-mask::$MEMBER_DISPLAY_NAME"
+            echo "::add-mask::$MEMBER_TEMP_PASSWORD"
+            echo "::add-mask::$DISTINCT_FROM_ONE"
+            echo "::add-mask::$DISTINCT_FROM_TWO"
+            python -m scripts.provision_employee_without_training \
+              --email="$MEMBER_EMAIL" \
+              --display-name="$MEMBER_DISPLAY_NAME" \
+              --account-slot=klimov \
+              --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v3" \
+              --distinct-from="$DISTINCT_FROM_ONE" \
+              --distinct-from="$DISTINCT_FROM_TWO" \
+              --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста."
+          } >"$log" 2>&1
+          code=$?
+          cat "$log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
 
       - name: Report successful onboarding
         if: success()
@@ -94,5 +98,13 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          log="$RUNNER_TEMP/contentengine-onboarding-safe.log"
+          diagnostic=""
+          if [ -f "$log" ]; then
+            diagnostic="$(grep -E 'stopped:|required|mismatch|invalid|unavailable|does not exist|not active|unexpected' "$log" | tail -n 4 || true)"
+          fi
+          if [ -z "$diagnostic" ]; then
+            diagnostic="Защищённая операция завершилась с ошибкой до формирования безопасной диагностики."
+          fi
           gh issue comment 121 --repo "$GITHUB_REPOSITORY" \
-            --body "❌ Production-onboarding остановлен fail-closed. Аккаунт не считаем готовым; причина находится в защищённом Actions-логе без вывода персональных данных или пароля."
+            --body "❌ Production-onboarding остановлен fail-closed. Аккаунт не считаем готовым. Безопасная диагностика:\n\n\`\`\`text\n$diagnostic\n\`\`\`"
