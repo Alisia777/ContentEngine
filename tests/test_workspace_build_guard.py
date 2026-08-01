@@ -17,22 +17,22 @@ MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260731.os4.0"
+    assert build_id == "20260801.os4.2"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
-    assert MANIFEST["label"] == "ContentEngine Desktop v4 · System Workspace"
-    assert 'const BUILD_BADGE = "Desktop · 4"' in SCRIPT
+    assert MANIFEST["label"] == "ContentEngine Desktop v4.2 · Mini-AI Control Plane"
+    assert 'const BUILD_BADGE = "Desktop · 4.2"' in SCRIPT
 
 
 def test_build_guard_assets_load_after_the_desktop_v4_loader() -> None:
     assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260731.4" />' in APP_INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260731.4"></script>' in APP_INDEX
-    assert './workspace-build-guard.css?v=20260731.4' in APP_INDEX
-    assert './workspace-build-guard.js?v=20260731.4' in APP_INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260801.5"></script>' in APP_INDEX
+    assert './workspace-build-guard.css?v=20260801.1' in APP_INDEX
+    assert './workspace-build-guard.js?v=20260801.1' in APP_INDEX
     assert APP_INDEX.index('./workspace-os-v4.css?v=20260731.4') < APP_INDEX.index('./workspace-build-guard.css')
-    assert APP_INDEX.index('./app.js') < APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.4')
-    assert APP_INDEX.index('./workspace-os-v4-loader.js?v=20260731.4') < APP_INDEX.index('./workspace-build-guard.js?v=20260731.4')
+    assert APP_INDEX.index('./app.js') < APP_INDEX.index('./workspace-os-v4-loader.js?v=20260801.5')
+    assert APP_INDEX.index('./workspace-os-v4-loader.js?v=20260801.5') < APP_INDEX.index('./workspace-build-guard.js?v=20260801.1')
 
 
 def test_guard_checks_only_the_same_origin_static_manifest() -> None:
