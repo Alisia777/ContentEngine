@@ -8,8 +8,8 @@ from typing import Iterable
 from app.external_learning import CreativeObservation
 
 from .evaluator import evaluate_mass_generation
-from .planner import build_mass_generation_plan
 from .rulebook import rulebook_ru, rules_for_preset
+from .safe_planner import build_mass_generation_plan
 from .schema import (
     ArmOutcome,
     ExperimentDimension,
@@ -64,20 +64,27 @@ class MiniAiController:
         requested_dimension = conclusion.next_dimension
         if requested_dimension is ExperimentDimension.AUTO:
             requested_dimension = plan.dimension
+        promoted = (
+            winner is not None
+            and conclusion.decision is MiniAiDecision.PROMOTE_WITH_CONTROL
+        )
         return replace(
             plan.context,
             requested_dimension=requested_dimension,
             approved_winner_angle=(
                 winner.creative_angle
-                if winner and conclusion.decision is MiniAiDecision.PROMOTE_WITH_CONTROL
+                if promoted
                 else plan.context.approved_winner_angle
             ),
             approved_winner_duration=(
                 winner.duration_seconds
-                if winner and conclusion.decision is MiniAiDecision.PROMOTE_WITH_CONTROL
+                if promoted
                 else plan.context.approved_winner_duration
             ),
-            # A new cycle requires a fresh explicit batch and budget decision.
+            # Once this exact category has produced a human-confirmable winner,
+            # the next cycle is no longer a foreign-category cold start.
+            category_is_new=False if promoted else plan.context.category_is_new,
+            # A new cycle still requires a fresh explicit batch and budget choice.
             requested_batch_size=plan.context.requested_batch_size,
         )
 
