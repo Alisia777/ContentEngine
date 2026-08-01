@@ -44,8 +44,21 @@ export function canonicalMiniAiHash(value) {
   return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+function failClosedContext(rawContext) {
+  if (!rawContext || typeof rawContext !== "object" || Array.isArray(rawContext)) {
+    return rawContext;
+  }
+  if (rawContext.categoryIsNew !== true) return rawContext;
+  return {
+    ...rawContext,
+    approvedWinnerAngle: "",
+    approvedWinnerDuration: null,
+    durationPolicy: null,
+  };
+}
+
 export function buildMiniAiPlan(rawContext) {
-  const plan = buildLegacyPlan(rawContext);
+  const plan = buildLegacyPlan(failClosedContext(rawContext));
   const identity = {
     version: plan.version,
     executable: plan.executable,
