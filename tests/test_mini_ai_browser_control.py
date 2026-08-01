@@ -134,13 +134,15 @@ def test_native_job_signature_normalizes_short_russian_duration_copy() -> None:
     for marker in (
         "DURATION_PATTERN",
         'const SIGNATURE_ATTR = "data-mini-ai-job-signature"',
-        "dataMiniAiDurationMarker",
+        "miniAiDurationMarker",
+        "(?=$|[\\s·|,;])",
         "секунд",
         "function normalizeJob(element)",
         "element.hasAttribute(SIGNATURE_ATTR)",
         "item.matches(JOB_SELECTOR)",
     ):
         assert marker in JOB_SIGNATURE
+    assert "\\b/iu" not in JOB_SIGNATURE
     assert "fetch(" not in JOB_SIGNATURE
     assert ".functions.invoke" not in JOB_SIGNATURE
 
