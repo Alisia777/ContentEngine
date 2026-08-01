@@ -1,9 +1,11 @@
 name: Provision Klimov operator once
 
 on:
-  issue_comment:
-    types:
-      - created
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/provision-klimov-operator-once.yml
 
 permissions:
   contents: read
@@ -17,9 +19,8 @@ jobs:
   provision:
     name: Create account, waive training and send password link
     if: >-
-      github.event.issue.number == 121 &&
-      github.event.comment.body == '/provision-klimov-no-test' &&
-      github.event.comment.user.login == 'Alisia777'
+      github.ref == 'refs/heads/main' &&
+      github.event.head_commit.message == 'Run protected Klimov onboarding v7'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     environment: production
@@ -87,7 +88,7 @@ jobs:
               --email="$MEMBER_EMAIL" \
               --display-name="$MEMBER_DISPLAY_NAME" \
               --account-slot=klimov \
-              --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v6" \
+              --password-dispatch-id="${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:klimov:no-test-v7" \
               --distinct-from="$DISTINCT_FROM_ONE" \
               --distinct-from="$DISTINCT_FROM_TWO" \
               --reason="По решению владельца сотрудник допущен к рабочему кабинету без прохождения итогового теста."
@@ -115,15 +116,10 @@ jobs:
           log="$RUNNER_TEMP/contentengine-onboarding-safe.log"
           diagnostic=""
           if [ -f "$log" ]; then
-            diagnostic="$(tail -n 14 "$log" | python -c '
-import re
-import sys
-text = sys.stdin.read()
-text = re.sub(r"[A-Za-z0-9.!#$%&\x27*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}", "[email]", text)
-text = re.sub(r"\bsb_(?:secret|publishable)_[A-Za-z0-9._-]+\b", "[supabase-key]", text)
-text = re.sub(r"\b(?:eyJ[A-Za-z0-9._-]{20,}|[A-Za-z0-9._-]{64,})\b", "[redacted]", text)
-print(text.strip())
-')"
+            diagnostic="$(tail -n 16 "$log" | sed -E \
+              -e 's/[A-Za-z0-9.!#$%&*+/?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}/[email]/g' \
+              -e 's/sb_(secret|publishable)_[A-Za-z0-9._-]+/[supabase-key]/g' \
+              -e 's/[A-Za-z0-9._-]{64,}/[redacted]/g')"
           fi
           if [ -z "$diagnostic" ]; then
             diagnostic="Нет безопасной прикладной диагностики: сбой произошёл до шага onboarding."
