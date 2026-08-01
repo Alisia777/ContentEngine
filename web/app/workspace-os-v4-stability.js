@@ -14,6 +14,10 @@ const ROUTE_RESEARCH = Object.freeze({
   description: "Товар, факты и безопасная гипотеза",
   icon: "search",
 });
+const SECONDARY_DOCK_ROUTES = new Set([
+  "/workspace/tasks",
+  "/workspace/payouts",
+]);
 
 const DEDICATED_SURFACES = [
   ".review-desktop-os",
@@ -190,6 +194,15 @@ function hideDuplicateGlobalChrome() {
   });
 }
 
+function normalizeGlobalDock() {
+  qa(".ce-v4-dock [data-ce-v4-route]").forEach((node) => {
+    const secondary = SECONDARY_DOCK_ROUTES.has(node.dataset.ceV4Route || "");
+    node.hidden = secondary;
+    node.setAttribute("aria-hidden", secondary ? "true" : "false");
+    node.dataset.ceV4SecondaryDock = secondary ? "true" : "false";
+  });
+}
+
 function normalizeTopbars(page) {
   const topbars = qa(LOCAL_TOPBARS, page).filter(isVisible);
   if (!topbars.length) return;
@@ -247,6 +260,8 @@ function updateRouteChrome() {
     const expected = node.dataset.ceV4Route;
     const active = expected === route
       || (expected === "/workspace/board" && route === "/workspace/media")
+      || (expected === "/workspace/work" && route === "/workspace/tasks")
+      || (expected === "/workspace/stats" && route === "/workspace/payouts")
       || (expected === "/learn" && route.startsWith("/learn/"));
     node.classList.toggle("is-active", active);
     node.setAttribute("aria-current", active ? "page" : "false");
@@ -273,6 +288,7 @@ function mount() {
   ensureResearchDockItem();
   ensureResearchMissionCard();
   hideDuplicateGlobalChrome();
+  normalizeGlobalDock();
   if (page) normalizeTopbars(page);
   if (surface) {
     surface.dataset.ceV4PrimarySurface = "true";
