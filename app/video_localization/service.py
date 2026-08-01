@@ -42,7 +42,7 @@ def default_rate_card_2026_08_01() -> LocalizationRateCard:
         snapshot_id="2026-08-01.public-provider-rate-card.v1",
         internal_captions_microusd_per_minute=50_000,
         elevenlabs_dubbing_microusd_per_minute=500_000,
-        heygen_audio_microusd_per_second=16_700,
+        heygen_audio_microusd_per_second=33_300,
         heygen_lipsync_speed_microusd_per_second=33_300,
         heygen_lipsync_precision_microusd_per_second=66_700,
         seedance_baseline_microusd_per_second=290_000,
