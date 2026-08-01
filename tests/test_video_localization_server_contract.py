@@ -158,7 +158,7 @@ def test_localization_contract_never_stores_raw_competitor_or_prompt_text() -> N
 
 def test_all_security_definer_functions_pin_an_empty_search_path() -> None:
     functions = re.findall(
-        r"create or replace function\s+[^;]+?\$\$;",
+        r"create or replace function\s+.*?\$\$;",
         CREATOR + "\n" + PROVIDER,
         flags=re.IGNORECASE | re.DOTALL,
     )
