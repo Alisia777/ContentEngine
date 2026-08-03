@@ -334,6 +334,21 @@ values (
   repeat('2', 64), 'youtube-research-run-fixture', now() - interval '2 hours',
   now() - interval '3 hours', now() - interval '2 hours'
 );
+insert into content_factory.product_research_sources (
+  id, organization_id, run_id, product_id, created_by, source_type,
+  title, content_hash, trust_level, extracted_facts, metadata, fetched_at
+)
+values (
+  'f6f00000-0000-4000-8000-000000000001',
+  'f6100000-0000-4000-8000-000000000001',
+  'f6300000-0000-4000-8000-000000000001',
+  'f6200000-0000-4000-8000-000000000001',
+  'f6000000-0000-4000-8000-000000000001',
+  'user_input', 'YouTube ingestion fixture source', repeat('f', 64),
+  'first_party', '[]'::jsonb,
+  '{"model_source_id":"fixture-source"}'::jsonb,
+  now() - interval '2 hours'
+);
 insert into content_factory.creative_brief_drafts (
   id, organization_id, run_id, product_id, created_by, origin, version,
   status, title, brief, source_ids, task_blueprint, content_hash, created_at
@@ -345,7 +360,8 @@ values (
   'f6200000-0000-4000-8000-000000000001',
   'f6000000-0000-4000-8000-000000000001',
   'human', 1, 'draft', 'YouTube ingestion fixture brief', '{}',
-  '["fixture-source"]', '[{"title":"Fixture task"}]', repeat('3', 64),
+  jsonb_build_array('f6f00000-0000-4000-8000-000000000001'::text),
+  '[{"title":"Fixture task"}]', repeat('3', 64),
   now() - interval '90 minutes'
 );
 insert into content_factory.research_market_categories (

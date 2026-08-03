@@ -312,7 +312,8 @@ values
 
 insert into content_factory.research_stage_artifacts (
   id, organization_id, run_id, stage, version, parent_artifact_id,
-  payload, content_hash, actor_id, origin, created_at
+  payload, content_hash, input_dependencies, input_dependency_hash,
+  actor_id, origin, created_at
 )
 select
   fixture.id::uuid,
@@ -321,6 +322,8 @@ select
   'scenarios', fixture.version, fixture.parent_id::uuid,
   jsonb_build_object('scenarios', draft.brief -> 'scenarios'),
   fixture.content_hash,
+  input_snapshot.value,
+  content_factory_private.json_hash(input_snapshot.value - 'schema_version'),
   'e7000000-0000-4000-8000-000000000001'::uuid,
   'human', draft.created_at
 from (values
@@ -342,7 +345,19 @@ from (values
   )
 ) fixture(id, run_id, version, parent_id, content_hash, draft_id)
 join content_factory.creative_brief_drafts draft
-  on draft.id = fixture.draft_id::uuid;
+  on draft.id = fixture.draft_id::uuid
+cross join lateral (
+  select jsonb_build_object(
+    'schema_version', 'research-stage-input-v2',
+    'evidence', jsonb_build_array(jsonb_build_object(
+      'source_id', (draft.source_ids ->> 0)::uuid,
+      'content_hash', content_factory_private.json_hash(jsonb_build_object(
+        'fixture_source_id', (draft.source_ids ->> 0)::uuid
+      ))
+    )),
+    'upstream_artifacts', '[]'::jsonb
+  ) as value
+) input_snapshot;
 
 insert into content_factory.research_stage_draft_bindings (
   organization_id, run_id, draft_id, stage, artifact_id,
@@ -353,7 +368,10 @@ values
     'e7100000-0000-4000-8000-000000000001',
     'e7300000-0000-4000-8000-000000000001',
     'e7400000-0000-4000-8000-000000000001', 'scenarios',
-    'e7500000-0000-4000-8000-000000000001', repeat('f', 64),
+    'e7500000-0000-4000-8000-000000000001',
+    (select artifact.input_dependency_hash
+     from content_factory.research_stage_artifacts artifact
+     where artifact.id = 'e7500000-0000-4000-8000-000000000001'),
     'e7000000-0000-4000-8000-000000000001', 'human',
     now() - interval '8 days'
   ),
@@ -361,7 +379,10 @@ values
     'e7100000-0000-4000-8000-000000000001',
     'e7300000-0000-4000-8000-000000000001',
     'e7400000-0000-4000-8000-000000000002', 'scenarios',
-    'e7500000-0000-4000-8000-000000000002', repeat('0', 64),
+    'e7500000-0000-4000-8000-000000000002',
+    (select artifact.input_dependency_hash
+     from content_factory.research_stage_artifacts artifact
+     where artifact.id = 'e7500000-0000-4000-8000-000000000002'),
     'e7000000-0000-4000-8000-000000000001', 'human',
     now() - interval '7 days'
   ),
@@ -369,7 +390,10 @@ values
     'e7100000-0000-4000-8000-000000000001',
     'e7300000-0000-4000-8000-000000000003',
     'e7400000-0000-4000-8000-000000000003', 'scenarios',
-    'e7500000-0000-4000-8000-000000000003', repeat('1', 64),
+    'e7500000-0000-4000-8000-000000000003',
+    (select artifact.input_dependency_hash
+     from content_factory.research_stage_artifacts artifact
+     where artifact.id = 'e7500000-0000-4000-8000-000000000003'),
     'e7000000-0000-4000-8000-000000000001', 'human',
     now() - interval '8 days'
   );

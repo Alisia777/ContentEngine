@@ -67,7 +67,7 @@ begin
         'module_code', module_row.code,
         'answers', answers_value
       )),
-      left('provider-control-course:' || p_key_prefix || ':' || module_row.code, 180)
+      left('course-check:' || p_key_prefix || ':' || module_row.code, 180)
     )
     on conflict (organization_id, profile_id, idempotency_key) do update set
       module_code = excluded.module_code,

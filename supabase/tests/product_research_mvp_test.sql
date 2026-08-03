@@ -532,6 +532,46 @@ insert into content_factory.product_research_runs (
   repeat('e', 64), 'research-stale-worker-0001'
 );
 
+-- This hand-built queued run models a post-gate paid request. Bind the exact
+-- immutable authorization receipt that the production start wrapper writes.
+insert into content_factory.research_execution_authorizations (
+  organization_id, run_id, authorized_by, authorization_kind,
+  paid_analysis_ack, provider_key, adapter_version, run_request_hash,
+  max_provider_attempts, automatic_fallback_allowed, reason_code,
+  authorized_at, authorization_hash
+)
+select
+  run.organization_id,
+  run.id,
+  run.created_by,
+  'explicit_paid_analysis',
+  true,
+  'openai_web_search',
+  'openai-responses-web-search-v1',
+  run.request_hash,
+  1,
+  false,
+  'user_confirmed_paid_analysis',
+  run.created_at,
+  content_factory_private.json_hash(jsonb_build_object(
+    'version', 'research-execution-authorization-v1',
+    'organization_id', run.organization_id,
+    'run_id', run.id,
+    'authorized_by', run.created_by,
+    'authorization_kind', 'explicit_paid_analysis',
+    'paid_analysis_ack', true,
+    'provider_key', 'openai_web_search',
+    'adapter_version', 'openai-responses-web-search-v1',
+    'run_request_hash', run.request_hash,
+    'max_provider_attempts', 1,
+    'automatic_fallback_allowed', false,
+    'reason_code', 'user_confirmed_paid_analysis',
+    'authorized_at', run.created_at
+  ))
+from content_factory.product_research_runs run
+where run.organization_id = '93100000-0000-4000-8000-000000000001'
+  and run.id = '93400000-0000-4000-8000-000000000001';
+
 create temporary table stale_claim_result on commit drop as
 select public.system_claim_product_research(jsonb_build_object(
   'run_id', '93400000-0000-4000-8000-000000000001'

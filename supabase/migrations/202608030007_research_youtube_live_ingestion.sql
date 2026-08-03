@@ -312,7 +312,7 @@ create table if not exists content_factory.research_youtube_candidate_decisions 
   decision text not null check (decision in ('confirm_candidate', 'exclude_candidate')),
   reason text check (reason is null or length(btrim(reason)) between 3 and 500),
   decided_by uuid not null,
-  decided_at timestamptz not null default now(),
+  decided_at timestamptz not null default clock_timestamp(),
   retention_expires_at timestamptz not null,
   idempotency_key text not null check (length(idempotency_key) between 8 and 180),
   decision_hash text not null check (decision_hash ~ '^[0-9a-f]{64}$'),

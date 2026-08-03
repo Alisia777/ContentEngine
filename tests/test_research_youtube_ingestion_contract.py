@@ -313,6 +313,7 @@ def test_raw_observations_have_no_generic_candidate_or_delta_contract() -> None:
     assert "candidate_key" not in decisions
     assert "observation_id uuid not null" in decisions
     assert "observation_hash text not null" in decisions
+    assert "decided_at timestamptz not null default clock_timestamp()" in decisions
     for forbidden in (
         "candidate_key",
         "view_delta",

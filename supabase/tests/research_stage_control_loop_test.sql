@@ -253,6 +253,19 @@ insert into content_factory.memberships (
   'fa000000-0000-4000-8000-000000000001',
   'f9000000-0000-4000-8000-000000000002', 'reviewer', 'active'
 );
+-- This test exercises stage concurrency and correction semantics, not course
+-- grading. Use the same explicit, attributable owner waiver supported by the
+-- production selected-waiver workflow instead of fabricating training proof.
+insert into content_factory.training_access_waivers (
+  organization_id, profile_id, scope, status, previous_role, granted_role,
+  grant_reason, granted_by
+) values (
+  'fa000000-0000-4000-8000-000000000001',
+  'f9000000-0000-4000-8000-000000000001',
+  'workspace_generation', 'active', 'owner', 'owner',
+  'TEST-ONLY owner waiver for research stage-control pgTAP coverage.',
+  'f9000000-0000-4000-8000-000000000001'
+);
 insert into content_factory.products (
   id, organization_id, sku, title, status, metadata, created_by
 ) values (

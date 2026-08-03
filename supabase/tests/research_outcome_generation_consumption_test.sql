@@ -246,6 +246,10 @@ declare
   batch_id_value uuid := 'e8900000-0000-4000-8000-000000000001';
   campaign_id_value uuid := 'e8a00000-0000-4000-8000-000000000001';
   brief_value jsonb;
+  input_dependencies_value jsonb;
+  input_dependency_hash_value text;
+  input_dependencies_two_value jsonb;
+  input_dependency_hash_two_value text;
   position integer;
   job_id_value uuid;
   output_media_id_value uuid;
@@ -273,6 +277,32 @@ begin
       jsonb_build_object('title', 'Two', 'hook', 'SECRET_RAW_HOOK_TWO'),
       jsonb_build_object('title', 'Three', 'hook', 'SECRET_RAW_HOOK_THREE')
     )
+  );
+  input_dependencies_value := jsonb_build_object(
+    'schema_version', 'research-stage-input-v2',
+    'evidence', jsonb_build_array(jsonb_build_object(
+      'source_id', 'e8b00000-0000-4000-8000-000000000001'::uuid,
+      'content_hash', content_factory_private.json_hash(jsonb_build_object(
+        'fixture_source_id', 'e8b00000-0000-4000-8000-000000000001'::uuid
+      ))
+    )),
+    'upstream_artifacts', '[]'::jsonb
+  );
+  input_dependency_hash_value := content_factory_private.json_hash(
+    input_dependencies_value - 'schema_version'
+  );
+  input_dependencies_two_value := jsonb_build_object(
+    'schema_version', 'research-stage-input-v2',
+    'evidence', jsonb_build_array(jsonb_build_object(
+      'source_id', 'e8b00000-0000-4000-8000-000000000002'::uuid,
+      'content_hash', content_factory_private.json_hash(jsonb_build_object(
+        'fixture_source_id', 'e8b00000-0000-4000-8000-000000000002'::uuid
+      ))
+    )),
+    'upstream_artifacts', '[]'::jsonb
+  );
+  input_dependency_hash_two_value := content_factory_private.json_hash(
+    input_dependencies_two_value - 'schema_version'
   );
 
   insert into content_factory.product_research_runs (
@@ -323,12 +353,13 @@ begin
 
   insert into content_factory.research_stage_artifacts (
     id, organization_id, run_id, stage, version, payload, content_hash,
-    actor_id, origin, created_at
+    input_dependencies, input_dependency_hash, actor_id, origin, created_at
   ) values
   (
     artifact_id_value, context_row.organization_id, run_id_value,
     'scenarios', 1, brief_value -> 'scenarios',
     content_factory_private.json_hash(brief_value -> 'scenarios'),
+    input_dependencies_value, input_dependency_hash_value,
     context_row.actor_id, 'human', now() - interval '10 days'
   ),
   (
@@ -336,7 +367,8 @@ begin
     'scenarios', 1, brief_value -> 'scenarios',
     content_factory_private.json_hash(
       (brief_value -> 'scenarios') || jsonb_build_array('product-two')
-    ), context_row.actor_id, 'human', now() - interval '10 days'
+    ), input_dependencies_two_value, input_dependency_hash_two_value,
+    context_row.actor_id, 'human', now() - interval '10 days'
   );
 
   insert into content_factory.research_stage_draft_bindings (
@@ -345,12 +377,13 @@ begin
   ) values
   (
     context_row.organization_id, run_id_value, draft_id_value, 'scenarios',
-    artifact_id_value, repeat('5', 64), context_row.actor_id, 'human',
+    artifact_id_value, input_dependency_hash_value,
+    context_row.actor_id, 'human',
     now() - interval '10 days'
   ),
   (
     context_row.organization_id, run_two_id_value, draft_two_id_value,
-    'scenarios', artifact_two_id_value, repeat('6', 64),
+    'scenarios', artifact_two_id_value, input_dependency_hash_two_value,
     context_row.actor_id, 'human', now() - interval '10 days'
   );
 

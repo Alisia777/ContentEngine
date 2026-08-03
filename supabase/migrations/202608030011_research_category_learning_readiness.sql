@@ -665,8 +665,7 @@ begin
   select count(*)::integer,
          count(distinct source.platform)::integer,
          count(distinct source.source_identity_key) filter (
-           where source.source_type in ('competitor', 'social_video')
-             or source.classification = 'competitor'
+           where source.classification = 'competitor'
          )::integer,
          coalesce(
            jsonb_agg(source.lineage_hash order by source.lineage_hash),

@@ -836,7 +836,8 @@ insert into content_factory.product_research_runs (
 
 insert into content_factory.product_research_sources (
   id, organization_id, run_id, product_id, created_by, source_type,
-  title, content_hash, trust_level, extracted_facts, metadata, fetched_at
+  source_url, title, content_hash, trust_level, extracted_facts, metadata,
+  fetched_at
 ) values
   (
     '98400000-0000-4000-8000-000000000004',
@@ -844,7 +845,7 @@ insert into content_factory.product_research_sources (
     '98300000-0000-4000-8000-000000000003',
     '98200000-0000-4000-8000-000000000001',
     '98000000-0000-4000-8000-000000000001',
-    'user_input', 'Approval source one', repeat('e', 64), 'first_party',
+    'user_input', null, 'Approval source one', repeat('e', 64), 'first_party',
     '[]'::jsonb, '{"model_source_id":"source-approval-1"}'::jsonb, now()
   ),
   (
@@ -853,7 +854,8 @@ insert into content_factory.product_research_sources (
     '98300000-0000-4000-8000-000000000003',
     '98200000-0000-4000-8000-000000000001',
     '98000000-0000-4000-8000-000000000001',
-    'competitor', 'Approval source two', repeat('f', 64), 'public',
+    'competitor', 'https://competitor.example/approval-source-two',
+    'Approval source two', repeat('f', 64), 'public',
     '[]'::jsonb, '{"model_source_id":"source-approval-2"}'::jsonb, now()
   );
 

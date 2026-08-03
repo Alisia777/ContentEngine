@@ -109,6 +109,8 @@ def test_readiness_is_evidence_coverage_not_model_iq() -> None:
     assert "observation.retention_expires_at > as_of_value" in readiness
     assert "observation.observed_at <= as_of_value" in readiness
     assert "analysis.classification is distinct from 'irrelevant'" in readiness
+    assert "source.classification = 'competitor'" in readiness
+    assert "source.source_type in ('competitor', 'social_video')" not in readiness
 
 
 def test_persisted_parser_is_bounded_allowlisted_and_anti_copy() -> None:
