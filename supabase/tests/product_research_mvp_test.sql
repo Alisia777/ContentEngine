@@ -342,7 +342,8 @@ select public.creator_start_product_research(jsonb_build_object(
   'objective', 'Составить доказательное ТЗ для восьмисекундного ролика',
   'marketplace_url', 'https://example.test/product/1',
   'source_media_ids', jsonb_build_array('93300000-0000-4000-8000-000000000001'::text),
-  'platforms', jsonb_build_array('instagram', 'vk')
+  'platforms', jsonb_build_array('instagram', 'vk'),
+  'paid_analysis_ack', true
 ));
 update research_test_context
 set run_id = (start_result -> 'run' ->> 'id')::uuid;
@@ -375,7 +376,8 @@ select throws_ok(
       '93300000-0000-4000-8000-000000000001'::text,
       '93300000-0000-4000-8000-000000000001'::text,
       '93300000-0000-4000-8000-000000000001'::text
-    )
+    ),
+    'paid_analysis_ack', true
   ))$$,
   '22023', 'source_media_ids_invalid',
   'research accepts at most five photos, matching the Edge limit'
@@ -388,7 +390,8 @@ select throws_ok(
     'product_id', '93200000-0000-4000-8000-000000000001',
     'objective', 'platform is required for a usable research brief',
     'marketplace_url', 'https://example.test/product/platform-required',
-    'platforms', '[]'::jsonb
+    'platforms', '[]'::jsonb,
+    'paid_analysis_ack', true
   ))$$,
   '22023', 'platforms_invalid',
   'research requires at least one supported publishing platform'
@@ -416,7 +419,8 @@ select is(
     'objective', 'Составить доказательное ТЗ для восьмисекундного ролика',
     'marketplace_url', 'https://example.test/product/1',
     'source_media_ids', jsonb_build_array('93300000-0000-4000-8000-000000000001'::text),
-    'platforms', jsonb_build_array('instagram', 'vk')
+    'platforms', jsonb_build_array('instagram', 'vk'),
+    'paid_analysis_ack', true
   )) -> 'run' ->> 'id',
   (select run_id::text from research_test_context),
   'idempotent replay bypasses a now-exhausted quota'
@@ -429,7 +433,8 @@ select throws_ok(
     'product_id', '93200000-0000-4000-8000-000000000001',
     'objective', 'one more paid research',
     'marketplace_url', 'https://example.test/product/over-limit',
-    'platforms', jsonb_build_array('instagram')
+    'platforms', jsonb_build_array('instagram'),
+    'paid_analysis_ack', true
   ))$$,
   '54000', 'research_user_daily_limit',
   'an eleventh user research request is rejected'
@@ -461,7 +466,8 @@ select throws_ok(
     'product_id', '93200000-0000-4000-8000-000000000001',
     'objective', 'organization paid research over limit',
     'marketplace_url', 'https://example.test/product/org-over-limit',
-    'platforms', jsonb_build_array('instagram')
+    'platforms', jsonb_build_array('instagram'),
+    'paid_analysis_ack', true
   ))$$,
   '54000', 'research_org_daily_limit',
   'a fifty-first organization research request is rejected'
@@ -882,7 +888,8 @@ select throws_ok(
     'idempotency_key', 'viewer-research-start-0001',
     'product_id', '93200000-0000-4000-8000-000000000001',
     'objective', 'viewer must not spend',
-    'marketplace_url', 'https://example.test/viewer'
+    'marketplace_url', 'https://example.test/viewer',
+    'paid_analysis_ack', true
   ))$$,
   '42501', 'role_not_allowed',
   'viewer cannot start a potentially paid analysis'

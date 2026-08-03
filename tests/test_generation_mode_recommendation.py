@@ -135,6 +135,10 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
           productName: "Точный товар",
           sku: "SKU-MODE-1",
           sourceIds: ["source-1"],
+          stageCorrections: {
+            ...normalized.stageCorrections,
+            strategy: "Начать с ограниченного теста статичного сценария",
+          },
           brief: {
             ...normalized.brief,
             proofPoints: ["Факт подтверждён упаковкой"],
@@ -347,7 +351,7 @@ def test_research_edge_returns_only_server_validated_generation_modes() -> None:
         'new Set(["real_photo", "real_gen4", "real_seedance"]).has(',
         "Для каждого сценария выбери recommended_generation_mode",
         "real_photo — одно квадратное статичное товарное фото",
-        'enum: ["instagram", "youtube", "vk", "wildberries"]',
+        'enum: ["instagram", "youtube", "vk", "wildberries", "ozon"]',
         "const normalizedPlatforms = new Set(",
         "!normalizedPlatforms.has(",
         "claim.run.platforms,",
@@ -399,12 +403,12 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     assert "checked" not in confirmation
     assert "required" in confirmation
     assert (
-        'from "./product-research-view.js?v=20260728.5"'
+        'from "./product-research-view.js?v=20260803.9"'
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260730.1"'
+        'from "./content-generation-handoff.js?v=20260803.1"'
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260729.1"' in APP
-    assert './app.js?v=20260803.os4.6' in INDEX
+    assert './app.js?v=20260803.os4.10' in INDEX

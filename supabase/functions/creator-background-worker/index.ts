@@ -10,9 +10,11 @@ const MAX_TOTAL_DISPATCHES = 8;
 const DEFAULT_GENERATION_LIMIT = 4;
 const DEFAULT_RESEARCH_LIMIT = 1;
 const DEFAULT_REVIEW_LIMIT = 1;
+const DEFAULT_YOUTUBE_LIMIT = 1;
 const LEASE_RECONCILE_LIMIT = 50;
 const NOTIFICATION_OUTBOX_LIMIT = 12;
 const STORAGE_CLEANUP_LIMIT = 6;
+const WATCHLIST_REFRESH_PROPOSAL_LIMIT = 50;
 const WORKER_LEASE_SECONDS = 210;
 const DISPATCH_TIMEOUT_MS = 135_000;
 const RESPONSE_BODY_LIMIT = 65_536;
@@ -167,16 +169,18 @@ type WorkerPayload = {
   generation_limit: number;
   research_limit: number;
   review_limit: number;
+  youtube_limit: number;
 };
 
-type DispatchKind = "generation" | "research" | "review";
+type DispatchKind = "generation" | "research" | "review" | "youtube";
 
 type DispatchTarget = {
   kind: DispatchKind;
   functionName:
     | "creator-generate"
     | "creator-product-research"
-    | "creator-content-review";
+    | "creator-content-review"
+    | "creator-research-ingestion";
   body: Record<string, Json>;
   organizationId: string;
   recipientId: string;
@@ -230,6 +234,30 @@ type NotificationOutboxSummary = {
 type LeaseReconciliation = {
   research: number;
   review: number;
+};
+
+type WatchlistRefreshProposalSummary = {
+  ok: boolean;
+  selected: number;
+  created: number;
+  existing: number;
+  due: number;
+  code?: string;
+};
+
+type AutomaticYoutubeIngestion = {
+  ingestionId: string;
+  organizationId: string;
+  requestedBy: string;
+};
+
+type AutomaticYoutubeCollectionSummary = {
+  ok: boolean;
+  selected: number;
+  claimed: number;
+  expired: number;
+  ingestions: AutomaticYoutubeIngestion[];
+  code?: string;
 };
 
 function json(body: unknown, status = 200): Response {
@@ -304,12 +332,13 @@ function boundedInteger(
     : null;
 }
 
-function readPayload(value: unknown): WorkerPayload | null {
+export function readPayload(value: unknown): WorkerPayload | null {
   if (value === null || value === undefined) {
     return {
       generation_limit: DEFAULT_GENERATION_LIMIT,
       research_limit: DEFAULT_RESEARCH_LIMIT,
       review_limit: DEFAULT_REVIEW_LIMIT,
+      youtube_limit: DEFAULT_YOUTUBE_LIMIT,
     };
   }
   if (!isRecord(value)) return null;
@@ -317,6 +346,7 @@ function readPayload(value: unknown): WorkerPayload | null {
     "generation_limit",
     "research_limit",
     "review_limit",
+    "youtube_limit",
   ]);
   if (!Object.keys(value).every((key) => allowed.has(key))) return null;
   const generation = boundedInteger(
@@ -331,14 +361,20 @@ function readPayload(value: unknown): WorkerPayload | null {
     value.review_limit,
     DEFAULT_REVIEW_LIMIT,
   );
+  // Existing explicit operational payloads predate automatic source
+  // collection. Missing youtube_limit therefore remains provider-free; the
+  // empty/default worker request opts into one bounded collection.
+  const youtube = boundedInteger(value.youtube_limit, 0);
   if (
     generation === null || research === null || review === null ||
-    generation + research + review > MAX_TOTAL_DISPATCHES
+    youtube === null ||
+    generation + research + review + youtube > MAX_TOTAL_DISPATCHES
   ) return null;
   return {
     generation_limit: generation,
     research_limit: research,
     review_limit: review,
+    youtube_limit: youtube,
   };
 }
 
@@ -432,6 +468,8 @@ function dispatchStatus(value: unknown): string | null {
     ? value.job
     : isRecord(value.run)
     ? value.run
+    : isRecord(value.ingestion)
+    ? value.ingestion
     : null;
   return envelope !== null && typeof envelope.status === "string"
     ? envelope.status
@@ -541,6 +579,82 @@ function safeCount(value: unknown): number | null {
   return Number.isSafeInteger(value) && Number(value) >= 0
     ? Number(value)
     : null;
+}
+
+function readWatchlistRefreshProposalSummary(
+  value: unknown,
+): WatchlistRefreshProposalSummary | null {
+  if (!isRecord(value) || value.ok !== true) return null;
+  const selected = safeCount(value.selected);
+  const created = safeCount(value.created);
+  const existing = safeCount(value.existing);
+  const due = safeCount(value.due);
+  if (
+    selected === null || created === null || existing === null ||
+    due === null ||
+    selected > WATCHLIST_REFRESH_PROPOSAL_LIMIT ||
+    created > selected || existing > due
+  ) return null;
+  return { ok: true, selected, created, existing, due };
+}
+
+export function readAutomaticYoutubeCollectionSummary(
+  value: unknown,
+  limit: number,
+): AutomaticYoutubeCollectionSummary | null {
+  if (
+    !Number.isSafeInteger(limit) || limit < 1 || limit > MAX_LIMIT_PER_QUEUE
+  ) {
+    return null;
+  }
+  const expectedKeys = new Set([
+    "ok",
+    "selected",
+    "claimed",
+    "expired",
+    "items",
+    "external_call_started",
+    "automatic_retry_started",
+  ]);
+  if (
+    !isRecord(value) || Object.keys(value).length !== expectedKeys.size ||
+    !Object.keys(value).every((key) => expectedKeys.has(key)) ||
+    value.ok !== true ||
+    value.external_call_started !== false ||
+    value.automatic_retry_started !== false ||
+    !Array.isArray(value.items) || value.items.length > limit
+  ) return null;
+  const selected = safeCount(value.selected);
+  const claimed = safeCount(value.claimed);
+  const expired = safeCount(value.expired);
+  if (
+    selected === null || claimed === null || expired === null ||
+    selected > limit || claimed > selected || claimed !== value.items.length ||
+    expired > 100
+  ) return null;
+  const ingestions: AutomaticYoutubeIngestion[] = [];
+  for (const item of value.items) {
+    if (
+      !isRecord(item) || Object.keys(item).length !== 8 ||
+      !isUuid(item.ingestion_id) || !isUuid(item.organization_id) ||
+      !isUuid(item.requested_by) || item.status !== "processing" ||
+      item.mode !== "category_refresh" ||
+      item.provider_key !== "youtube_data_api_v3" ||
+      item.max_http_requests !== 2 || item.max_quota_units !== 2
+    ) return null;
+    ingestions.push({
+      ingestionId: item.ingestion_id,
+      organizationId: item.organization_id,
+      requestedBy: item.requested_by,
+    });
+  }
+  return {
+    ok: true,
+    selected,
+    claimed,
+    expired,
+    ingestions,
+  };
 }
 
 function readLeaseReconciliation(value: unknown): LeaseReconciliation | null {
@@ -824,6 +938,82 @@ async function reconcileExpiredLeases(
   } catch {
     return null;
   }
+}
+
+async function proposeDueResearchRefreshes(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+): Promise<WatchlistRefreshProposalSummary> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_propose_due_research_refreshes",
+      { p_payload: { limit: WATCHLIST_REFRESH_PROPOSAL_LIMIT } },
+    );
+    const parsed = error === null
+      ? readWatchlistRefreshProposalSummary(data)
+      : null;
+    return parsed ?? {
+      ok: false,
+      selected: 0,
+      created: 0,
+      existing: 0,
+      due: 0,
+      code: "research_refresh_proposal_failed",
+    };
+  } catch {
+    return {
+      ok: false,
+      selected: 0,
+      created: 0,
+      existing: 0,
+      due: 0,
+      code: "research_refresh_proposal_failed",
+    };
+  }
+}
+
+async function prepareAutomaticYoutubeCollection(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  limit: number,
+): Promise<AutomaticYoutubeCollectionSummary> {
+  if (limit === 0) {
+    return {
+      ok: true,
+      selected: 0,
+      claimed: 0,
+      expired: 0,
+      ingestions: [],
+    };
+  }
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_claim_due_research_youtube_collection",
+      { p_payload: { limit } },
+    );
+    const parsed = error === null
+      ? readAutomaticYoutubeCollectionSummary(data, limit)
+      : null;
+    if (parsed !== null) return parsed;
+  } catch {
+    // Fall through to one bounded, secret-free failure summary.
+  }
+  return {
+    ok: false,
+    selected: 0,
+    claimed: 0,
+    expired: 0,
+    ingestions: [],
+    code: "youtube_collection_claim_failed",
+  };
 }
 
 async function completeNotificationOutbox(
@@ -1158,10 +1348,15 @@ const creatorBackgroundWorker = withSupabase<Database>({
     return json({
       ok: true,
       code: "worker_already_running",
-      selected: { generation: 0, research: 0, review: 0 },
-      completed: { generation: 0, research: 0, review: 0 },
-      pending: { generation: 0, research: 0, review: 0 },
-      failed: { generation: 0, research: 0, review: 0 },
+      selected: { generation: 0, research: 0, review: 0, youtube: 0 },
+      completed: { generation: 0, research: 0, review: 0, youtube: 0 },
+      pending: { generation: 0, research: 0, review: 0, youtube: 0 },
+      failed: { generation: 0, research: 0, review: 0, youtube: 0 },
+      youtube_collection: {
+        selected: 0,
+        expired: 0,
+        claimed: 0,
+      },
       storage_cleanup: {
         selected: 0,
         completed: 0,
@@ -1199,6 +1394,10 @@ const creatorBackgroundWorker = withSupabase<Database>({
         code: "lease_reconciliation_failed",
       }, 503);
     }
+    // This provider-free RPC only records that a human should consider a
+    // refresh. It must never create a queued product_research_run: queued rows
+    // below are dispatched to the paid research provider automatically.
+    const watchlistRefresh = await proposeDueResearchRefreshes(supabaseAdmin);
 
     const queueNow = new Date().toISOString();
     const generationQuery = supabaseAdmin
@@ -1334,6 +1533,24 @@ const creatorBackgroundWorker = withSupabase<Database>({
       reviewRows.length - eligibleReviews.length - legacyMissingEvidence,
     );
 
+    if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
+      await finishBackgroundWorker(
+        supabaseAdmin,
+        workerRun,
+        "failed",
+        { stage: "before_youtube_claim" },
+        "worker_heartbeat_failed",
+      );
+      return json({ ok: false, code: "worker_heartbeat_failed" }, 503);
+    }
+    // This RPC may recover never-claimed queued work, then atomically claims
+    // each returned row before HTTP. From this point on, a lost response must
+    // expire to failed and can never cause a later automatic dispatch.
+    const youtubeCollection = await prepareAutomaticYoutubeCollection(
+      supabaseAdmin,
+      payload.youtube_limit,
+    );
+
     const targets: DispatchTarget[] = [
       ...generationRows.map((row): DispatchTarget => ({
         kind: "generation",
@@ -1363,18 +1580,16 @@ const creatorBackgroundWorker = withSupabase<Database>({
         recipientId: row.recipient_id as string,
         entityId: row.id,
       })),
+      ...youtubeCollection.ingestions.map((row): DispatchTarget => ({
+        kind: "youtube",
+        functionName: "creator-research-ingestion",
+        body: { action: "ingest", ingestion_id: row.ingestionId },
+        organizationId: row.organizationId,
+        recipientId: row.requestedBy,
+        entityId: row.ingestionId,
+      })),
     ];
 
-    if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
-      await finishBackgroundWorker(
-        supabaseAdmin,
-        workerRun,
-        "failed",
-        { stage: "before_dispatch" },
-        "worker_heartbeat_failed",
-      );
-      return json({ ok: false, code: "worker_heartbeat_failed" }, 503);
-    }
     const outcomes = await Promise.all(
       targets.map((target) => dispatch(target, origin, serviceKey, secret)),
     );
@@ -1383,7 +1598,12 @@ const creatorBackgroundWorker = withSupabase<Database>({
       workerRun,
       outcomes,
     );
-    const kinds: DispatchKind[] = ["generation", "research", "review"];
+    const kinds: DispatchKind[] = [
+      "generation",
+      "research",
+      "review",
+      "youtube",
+    ];
     const selected = Object.fromEntries(
       kinds.map((kind) => [
         kind,
@@ -1430,6 +1650,12 @@ const creatorBackgroundWorker = withSupabase<Database>({
         research: reconciliation.research,
         review: reconciliation.review,
       },
+      research_refresh_proposals: watchlistRefresh,
+      youtube_collection: {
+        selected: youtubeCollection.selected,
+        expired: youtubeCollection.expired,
+        claimed: youtubeCollection.claimed,
+      },
     };
     if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
       await finishBackgroundWorker(
@@ -1449,7 +1675,8 @@ const creatorBackgroundWorker = withSupabase<Database>({
     const notification = await deliverNotificationOutbox(supabaseAdmin);
     const hasFailure = Object.values(failed).some((count) => count > 0) ||
       pollRecords.failed > 0 || startingWatchdog.failed > 0 ||
-      storageCleanup.failed > 0 || !notification.ok;
+      storageCleanup.failed > 0 || !notification.ok || !watchlistRefresh.ok ||
+      !youtubeCollection.ok;
     const fullSummary: Record<string, Json> = { ...summary, notification };
     const finished = await finishBackgroundWorker(
       supabaseAdmin,

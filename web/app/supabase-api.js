@@ -50,6 +50,28 @@ export const RPC = Object.freeze({
   savedWorkViews: "creator_saved_work_views",
   startProductResearch: "creator_start_product_research",
   productResearchStatus: "creator_product_research_status",
+  researchStageControlStatus: "creator_research_stage_control_status",
+  controlResearchStage: "creator_control_research_stage",
+  researchCategoryLearningStatus: "creator_research_category_learning_status",
+  captureResearchCategoryReadiness: "creator_capture_research_category_readiness",
+  correctResearchSourceAnalysis: "creator_correct_research_source_analysis",
+  configureResearchSourceCollectionPolicy:
+    "creator_configure_research_source_collection_policy",
+  researchWatchlistStatus: "creator_research_watchlist_status",
+  configureResearchWatchlist: "creator_configure_research_watchlist",
+  researchProviderStatus: "creator_research_provider_status",
+  researchMarketCategoryRegistry: "creator_research_market_category_registry",
+  resolveResearchMarketCategory: "creator_resolve_research_market_category",
+  researchOutcomeLearningScopes: "creator_research_outcome_learning_scopes",
+  researchOutcomeLearningStatus: "creator_research_outcome_learning_status",
+  refreshResearchOutcomeLearning: "creator_refresh_research_outcome_learning",
+  decideResearchOutcomeLearning: "creator_decide_research_outcome_learning",
+  researchYoutubeOverview: "creator_research_youtube_overview",
+  researchYoutubeStatus: "creator_research_youtube_status",
+  requestResearchYoutubeCanary: "creator_request_research_youtube_canary",
+  requestResearchYoutubeRefresh: "creator_request_research_youtube_refresh",
+  decideResearchYoutubeRollout: "creator_decide_research_youtube_rollout",
+  decideResearchYoutubeCandidate: "creator_decide_research_youtube_candidate",
   saveCreativeBriefDraft: "creator_save_creative_brief_draft",
   approveCreativeBrief: "creator_approve_creative_brief",
   contentReviewCatalog: "creator_content_review_catalog",
@@ -70,11 +92,78 @@ export const PRODUCT_RESEARCH_PLATFORMS = Object.freeze([
   "youtube",
   "vk",
   "wildberries",
+  "ozon",
 ]);
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
+const RESEARCH_STAGE_SET = new Set([
+  "sources",
+  "category",
+  "competitors",
+  "trends",
+  "guidance",
+  "brief",
+  "scenarios",
+]);
+const RESEARCH_STAGE_ACTION_SET = new Set([
+  "patch",
+  "reject",
+  "revert",
+  "fork",
+  "recompute",
+  "cancel",
+]);
+const RESEARCH_STAGE_HASH_PATTERN = /^[0-9a-f]{64}$/u;
+const RESEARCH_STAGE_BRANCH_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
+const RESEARCH_COLLECTION_PROVIDER_PATTERN = /^[a-z][a-z0-9_.-]{1,79}$/u;
+const RESEARCH_ANALYSIS_FORBIDDEN_KEYS = new Set([
+  "caption",
+  "captions",
+  "raw_caption",
+  "raw_captions",
+  "transcript",
+  "transcripts",
+  "raw_transcript",
+  "raw_transcripts",
+  "raw_text",
+  "source_text",
+  "full_text",
+]);
+const RESEARCH_SOURCE_ANALYSIS_SCHEMA_VERSION =
+  "research-source-interpretation-v1";
+const RESEARCH_SOURCE_ANALYSIS_CLASSIFICATIONS = new Set([
+  "competitor",
+  "adjacent",
+  "trend_signal",
+  "reference",
+  "irrelevant",
+  "unknown",
+]);
+const RESEARCH_SOURCE_ANALYSIS_CONFIDENCE = new Set([
+  "low",
+  "medium",
+  "high",
+]);
+const RESEARCH_SOURCE_STRUCTURAL_SIGNAL_PATTERN =
+  /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/u;
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
+const RESEARCH_INGESTION_FUNCTION = "creator-research-ingestion";
+const RESEARCH_SATELLITE_TIMEOUT_MS = 3500;
+const RESEARCH_YOUTUBE_TERMS_VERSION = "youtube-developer-policies-2026-08-03-v1";
+const RESEARCH_OUTCOME_PLATFORMS = new Set([
+  "instagram",
+  "tiktok",
+  "youtube",
+  "vk",
+  "telegram",
+  "wildberries",
+]);
+const RESEARCH_OUTCOME_MODELS = new Set([
+  "gen4_turbo",
+  "seedance2_fast",
+  "seedream5_lite",
+]);
 const CONTENT_REVIEW_FUNCTION = "creator-content-review";
 const ACCESS_FUNCTION = "creator-access";
 const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
@@ -207,6 +296,95 @@ export function mediaKindRequiresProduct(kind) {
   return ["product_photo", "packshot"].includes(String(kind || "").trim());
 }
 
+async function settleResearchSatellite(callPromise, code) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      Promise.resolve(callPromise).then(
+        (value) => ({ ok: true, value }),
+        (error) => ({ ok: false, error }),
+      ),
+      new Promise((resolve) => {
+        timeoutId = globalThis.setTimeout(() => resolve({
+          ok: false,
+          error: { code: `${code}_timeout` },
+        }), RESEARCH_SATELLITE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
+  }
+}
+
+function requireResearchOutcomeScope(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const marketCategoryId = String(
+    source.market_category_id || source.marketCategoryId || "",
+  ).trim().toLowerCase();
+  const platform = String(source.platform || "").trim().toLowerCase();
+  const model = String(source.model || "").trim().toLowerCase();
+  if (
+    !isUuid(marketCategoryId)
+    || !RESEARCH_OUTCOME_PLATFORMS.has(platform)
+    || !RESEARCH_OUTCOME_MODELS.has(model)
+  ) {
+    throw new CreatorApiError("Обновите исследование и выберите точный контур результата.", {
+      code: "research_outcome_scope_invalid",
+    });
+  }
+  return { market_category_id: marketCategoryId, platform, model };
+}
+
+function researchOutcomeScopeKey(scope) {
+  const exact = requireResearchOutcomeScope(scope);
+  return `${exact.market_category_id}:${exact.platform}:${exact.model}`;
+}
+
+function readResearchOutcomeScopeRegistry(value, expectedRunId) {
+  const source = value?.data && typeof value.data === "object" && !Array.isArray(value.data)
+    ? value.data
+    : value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : null;
+  if (
+    !source
+    || source.ok !== true
+    || source.version !== "research-outcome-scope-registry-v1"
+    || String(source.run_id || "").toLowerCase() !== expectedRunId
+    || !isUuid(String(source.product_id || ""))
+    || typeof source.truncated !== "boolean"
+    || !Array.isArray(source.scopes)
+    || source.scopes.length > 50
+    || Number(source.returned_scope_count) !== source.scopes.length
+  ) return null;
+  const seen = new Set();
+  const scopes = [];
+  for (const item of source.scopes) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    let scope;
+    try {
+      scope = requireResearchOutcomeScope(item.scope);
+    } catch {
+      return null;
+    }
+    const key = researchOutcomeScopeKey(scope);
+    if (item.scope_key !== key || seen.has(key)) return null;
+    const category = item.market_category;
+    if (
+      !category
+      || typeof category !== "object"
+      || Array.isArray(category)
+      || String(category.market_category_id || "").toLowerCase()
+        !== scope.market_category_id
+      || typeof category.canonical_name !== "string"
+      || !["active", "retired"].includes(String(category.status || ""))
+    ) return null;
+    seen.add(key);
+    scopes.push({ key, scope, raw: item });
+  }
+  return { raw: source, scopes, truncated: source.truncated };
+}
+
 export class CreatorApiError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -232,6 +410,7 @@ export class CreatorApi {
     this.storageBucket = config.STORAGE_BUCKET;
     this.storagePrefix = null;
     this.mutationKeys = readMutationKeys();
+    this.researchRecomputeInvocations = new Set();
   }
 
   async call(functionName, payload = {}) {
@@ -1101,6 +1280,11 @@ export class CreatorApi {
         code: "product_research_input_invalid",
       });
     }
+    if (input?.paid_analysis_ack !== true) {
+      throw new CreatorApiError("Подтвердите платный ИИ-анализ перед запуском.", {
+        code: "product_research_paid_confirmation_required",
+      });
+    }
     if (
       !Array.isArray(input?.platforms)
       || input.platforms.length < 1
@@ -1143,10 +1327,1226 @@ export class CreatorApi {
     return { ...source, run: { ...run, id: runId }, analysis_request: accepted };
   }
 
-  productResearchStatus(runId) {
-    return this.call(RPC.productResearchStatus, this.withOrganization({
-      run_id: this.requireResearchRunId(runId),
-    }));
+  async productResearchStatus(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const scopedPayload = this.withOrganization({ run_id: normalizedRunId });
+    const requestedOutcomeScope = options?.outcome_scope
+      ? requireResearchOutcomeScope(options.outcome_scope)
+      : null;
+    const [
+      status,
+      monitorResult,
+      providerResult,
+      marketRegistryResult,
+      outcomeScopeRegistryResult,
+      youtubeOverviewResult,
+      categoryLearningResult,
+    ] = await Promise.all([
+      this.call(RPC.productResearchStatus, scopedPayload),
+      settleResearchSatellite(
+        this.call(RPC.researchWatchlistStatus, scopedPayload),
+        "research_watchlist_status",
+      ),
+      settleResearchSatellite(
+        this.call(RPC.researchProviderStatus, scopedPayload),
+        "research_provider_status",
+      ),
+      settleResearchSatellite(
+        this.call(RPC.researchMarketCategoryRegistry, scopedPayload),
+        "research_market_registry",
+      ),
+      settleResearchSatellite(
+        this.call(RPC.researchOutcomeLearningScopes, {
+          ...scopedPayload,
+          limit: 50,
+        }),
+        "research_outcome_scope_registry",
+      ),
+      settleResearchSatellite(
+        this.call(RPC.researchYoutubeOverview, {
+          ...scopedPayload,
+          limit: 12,
+        }),
+        "research_youtube_overview",
+      ),
+      settleResearchSatellite(
+        this.call(RPC.researchCategoryLearningStatus, scopedPayload),
+        "research_category_learning_status",
+      ),
+    ]);
+    const statusRoot = status?.data && typeof status.data === "object"
+      && !Array.isArray(status.data)
+      ? status.data
+      : status;
+    const result = {
+      ...(statusRoot && typeof statusRoot === "object" ? statusRoot : {}),
+    };
+    if (!monitorResult.ok) {
+      console.warn(
+        "Research watchlist status unavailable",
+        monitorResult.error?.serverCode || monitorResult.error?.code || "",
+      );
+      result.watchlist_monitor_unavailable = true;
+    } else {
+      const monitor = monitorResult.value?.data
+        && typeof monitorResult.value.data === "object"
+        && !Array.isArray(monitorResult.value.data)
+        ? monitorResult.value.data
+        : monitorResult.value;
+      result.watchlist = monitor?.watchlist ?? null;
+      result.watchlist_history = Array.isArray(monitor?.snapshots)
+        ? monitor.snapshots
+        : [];
+      result.watchlist_proposal = monitor?.proposal ?? null;
+      result.watchlist_guidance = monitor?.guidance ?? null;
+      result.watchlist_monitor_unavailable = false;
+    }
+    if (!providerResult.ok) {
+      console.warn(
+        "Research provider control status unavailable",
+        providerResult.error?.serverCode || providerResult.error?.code || "",
+      );
+      result.research_provider_control = null;
+      result.research_provider_control_unavailable = true;
+    } else {
+      result.research_provider_control = providerResult.value?.data
+        && typeof providerResult.value.data === "object"
+        && !Array.isArray(providerResult.value.data)
+        ? providerResult.value.data
+        : providerResult.value;
+      result.research_provider_control_unavailable = false;
+    }
+    if (!marketRegistryResult.ok) {
+      console.warn(
+        "Research market category registry unavailable",
+        marketRegistryResult.error?.serverCode || marketRegistryResult.error?.code || "",
+      );
+      result.research_market_registry = null;
+      result.research_market_registry_unavailable = true;
+    } else {
+      result.research_market_registry = marketRegistryResult.value?.data
+        && typeof marketRegistryResult.value.data === "object"
+        && !Array.isArray(marketRegistryResult.value.data)
+        ? marketRegistryResult.value.data
+        : marketRegistryResult.value;
+      result.research_market_registry_unavailable = false;
+    }
+    if (!categoryLearningResult.ok) {
+      console.warn(
+        "Research category evidence readiness unavailable",
+        categoryLearningResult.error?.serverCode
+          || categoryLearningResult.error?.code
+          || "",
+      );
+      result.research_category_learning = null;
+      result.research_category_learning_unavailable = true;
+    } else {
+      result.research_category_learning = categoryLearningResult.value?.data
+        && typeof categoryLearningResult.value.data === "object"
+        && !Array.isArray(categoryLearningResult.value.data)
+        ? categoryLearningResult.value.data
+        : categoryLearningResult.value;
+      result.research_category_learning_unavailable = false;
+    }
+    let outcomeScopeRegistry = null;
+    if (!outcomeScopeRegistryResult.ok) {
+      console.warn(
+        "Research outcome scope registry unavailable",
+        outcomeScopeRegistryResult.error?.serverCode
+          || outcomeScopeRegistryResult.error?.code
+          || "",
+      );
+      result.research_outcome_scope_registry = null;
+      result.research_outcome_scope_registry_unavailable = true;
+    } else {
+      outcomeScopeRegistry = readResearchOutcomeScopeRegistry(
+        outcomeScopeRegistryResult.value,
+        normalizedRunId,
+      );
+      result.research_outcome_scope_registry = outcomeScopeRegistry?.raw || null;
+      result.research_outcome_scope_registry_unavailable = !outcomeScopeRegistry;
+    }
+    let outcomeScope = null;
+    if (outcomeScopeRegistry) {
+      if (requestedOutcomeScope) {
+        const requestedKey = researchOutcomeScopeKey(requestedOutcomeScope);
+        outcomeScope = outcomeScopeRegistry.scopes
+          .find((entry) => entry.key === requestedKey)?.scope || null;
+      } else if (!outcomeScopeRegistry.truncated && outcomeScopeRegistry.scopes.length === 1) {
+        outcomeScope = outcomeScopeRegistry.scopes[0].scope;
+      }
+    }
+    result.research_outcome_learning_scope = outcomeScope;
+    result.research_outcome_learning_scope_missing = outcomeScope === null;
+    if (outcomeScope) {
+      const outcomeResult = await settleResearchSatellite(
+        this.call(
+          RPC.researchOutcomeLearningStatus,
+          this.withOrganization(outcomeScope),
+        ),
+        "research_outcome_learning_status",
+      );
+      if (!outcomeResult.ok) {
+        console.warn(
+          "Research outcome learning status unavailable",
+          outcomeResult.error?.serverCode || outcomeResult.error?.code || "",
+        );
+        result.research_outcome_learning = null;
+        result.research_outcome_learning_unavailable = true;
+      } else {
+        result.research_outcome_learning = outcomeResult.value?.data
+          && typeof outcomeResult.value.data === "object"
+          && !Array.isArray(outcomeResult.value.data)
+          ? outcomeResult.value.data
+          : outcomeResult.value;
+        result.research_outcome_learning_unavailable = false;
+      }
+    } else {
+      result.research_outcome_learning = null;
+      result.research_outcome_learning_unavailable = false;
+    }
+    let youtubeOverview = null;
+    if (!youtubeOverviewResult.ok) {
+      console.warn(
+        "Research YouTube overview unavailable",
+        youtubeOverviewResult.error?.serverCode
+          || youtubeOverviewResult.error?.code
+          || "",
+      );
+      result.research_youtube_overview = null;
+      result.research_youtube_overview_unavailable = true;
+      result.research_youtube_latest = null;
+      result.research_youtube_latest_unavailable = true;
+    } else {
+      const candidate = youtubeOverviewResult.value?.data
+        && typeof youtubeOverviewResult.value.data === "object"
+        && !Array.isArray(youtubeOverviewResult.value.data)
+        ? youtubeOverviewResult.value.data
+        : youtubeOverviewResult.value;
+      youtubeOverview = candidate
+        && typeof candidate === "object"
+        && !Array.isArray(candidate)
+        && candidate.ok === true
+        && candidate.version === "research-youtube-live-ingestion-v1"
+        && String(candidate.run_id || "").toLowerCase() === normalizedRunId
+        && Array.isArray(candidate.ingestions)
+        && candidate.ingestions.length <= 20
+        ? candidate
+        : null;
+      result.research_youtube_overview = youtubeOverview;
+      result.research_youtube_overview_unavailable = !youtubeOverview;
+      const latestIngestionId = String(
+        youtubeOverview?.ingestions?.[0]?.ingestion_id || "",
+      ).trim().toLowerCase();
+      if (isUuid(latestIngestionId)) {
+        const youtubeStatusResult = await settleResearchSatellite(
+          this.call(RPC.researchYoutubeStatus, {
+            ingestion_id: latestIngestionId,
+          }),
+          "research_youtube_status",
+        );
+        if (youtubeStatusResult.ok) {
+          result.research_youtube_latest = youtubeStatusResult.value?.data
+            && typeof youtubeStatusResult.value.data === "object"
+            && !Array.isArray(youtubeStatusResult.value.data)
+            ? youtubeStatusResult.value.data
+            : youtubeStatusResult.value;
+          result.research_youtube_latest_unavailable = false;
+        } else {
+          result.research_youtube_latest = null;
+          result.research_youtube_latest_unavailable = true;
+        }
+      } else {
+        result.research_youtube_latest = null;
+        result.research_youtube_latest_unavailable = false;
+      }
+    }
+    return result;
+  }
+
+  researchStageControlStatus(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const payload = { run_id: normalizedRunId };
+    if (options.branch_id !== undefined || options.branchId !== undefined) {
+      const branchId = String(
+        options.branch_id ?? options.branchId ?? "",
+      ).trim().toLowerCase();
+      if (!isUuid(branchId)) {
+        throw new CreatorApiError("Не удалось определить ветку исправлений.", {
+          code: "research_stage_branch_invalid",
+        });
+      }
+      payload.branch_id = branchId;
+    }
+    if (options.history_limit !== undefined || options.historyLimit !== undefined) {
+      const historyLimit = Number(
+        options.history_limit ?? options.historyLimit,
+      );
+      if (!Number.isInteger(historyLimit) || historyLimit < 1 || historyLimit > 100) {
+        throw new CreatorApiError("История этапов может содержать от 1 до 100 событий.", {
+          code: "research_stage_history_limit_invalid",
+        });
+      }
+      payload.history_limit = historyLimit;
+    }
+    return this.call(
+      RPC.researchStageControlStatus,
+      this.withOrganization(payload),
+    );
+  }
+
+  async controlResearchStage(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const branchId = String(
+      options.branch_id ?? options.branchId ?? "",
+    ).trim().toLowerCase();
+    const stage = String(options.stage || "").trim().toLowerCase();
+    const action = String(options.action || "").trim().toLowerCase();
+    const expectedHeadEventId = String(
+      options.expected_head_event_id ?? options.expectedHeadEventId ?? "",
+    ).trim().toLowerCase();
+    const expectedArtifactId = String(
+      options.expected_artifact_id ?? options.expectedArtifactId ?? "",
+    ).trim().toLowerCase();
+    const expectedContentHash = String(
+      options.expected_content_hash ?? options.expectedContentHash ?? "",
+    ).trim().toLowerCase();
+    const expectedBranchRevisionHash = String(
+      options.expected_branch_revision_hash
+        ?? options.expectedBranchRevisionHash
+        ?? "",
+    ).trim().toLowerCase();
+    const reason = String(options.reason || "").trim();
+    if (
+      !isUuid(branchId)
+      || !RESEARCH_STAGE_SET.has(stage)
+      || !RESEARCH_STAGE_ACTION_SET.has(action)
+      || !isUuid(expectedHeadEventId)
+      || !isUuid(expectedArtifactId)
+      || !RESEARCH_STAGE_HASH_PATTERN.test(expectedContentHash)
+      || !RESEARCH_STAGE_HASH_PATTERN.test(expectedBranchRevisionHash)
+      || reason.length < 3
+      || reason.length > 500
+      || options.confirmation !== true
+    ) {
+      throw new CreatorApiError("Снимок этапа изменился или команда заполнена не полностью.", {
+        code: "research_stage_control_invalid",
+      });
+    }
+
+    const payload = {
+      run_id: normalizedRunId,
+      branch_id: branchId,
+      stage,
+      action,
+      expected_head_event_id: expectedHeadEventId,
+      expected_artifact_id: expectedArtifactId,
+      expected_content_hash: expectedContentHash,
+      expected_branch_revision_hash: expectedBranchRevisionHash,
+      reason,
+      confirmation: true,
+    };
+    if (action === "patch") {
+      const replacement = options.replacement;
+      const userInput = String(
+        options.user_input ?? options.userInput ?? "",
+      ).trim();
+      if (
+        !replacement
+        || typeof replacement !== "object"
+        || Array.isArray(replacement)
+        || stableStringify(replacement).length > 524_288
+        || userInput.length < 3
+        || userInput.length > 4_000
+      ) {
+        throw new CreatorApiError("Для правки нужен структурированный JSON и объяснение от 3 до 4000 символов.", {
+          code: "research_stage_patch_invalid",
+        });
+      }
+      payload.replacement = replacement;
+      payload.user_input = userInput;
+    } else if (action === "revert") {
+      const targetArtifactId = String(
+        options.target_artifact_id ?? options.targetArtifactId ?? "",
+      ).trim().toLowerCase();
+      if (!isUuid(targetArtifactId) || targetArtifactId === expectedArtifactId) {
+        throw new CreatorApiError("Выберите другую точную версию этапа для отката.", {
+          code: "research_stage_revert_invalid",
+        });
+      }
+      payload.target_artifact_id = targetArtifactId;
+    } else if (action === "fork") {
+      const newBranchKey = String(
+        options.new_branch_key ?? options.newBranchKey ?? "",
+      ).trim().toLowerCase();
+      if (
+        newBranchKey === "main"
+        || newBranchKey.length < 3
+        || !RESEARCH_STAGE_BRANCH_KEY_PATTERN.test(newBranchKey)
+      ) {
+        throw new CreatorApiError("Ключ новой ветки: 3–64 строчных латинских символа, цифры, _ или -.", {
+          code: "research_stage_fork_invalid",
+        });
+      }
+      payload.new_branch_key = newBranchKey;
+    } else if (action === "recompute") {
+      const userInput = String(
+        options.user_input ?? options.userInput ?? "",
+      ).trim();
+      if (
+        stage === "sources"
+        || options.paid_analysis_ack !== true
+        || userInput.length < 3
+        || userInput.length > 4_000
+      ) {
+        throw new CreatorApiError("Для пересчёта опишите изменение и отдельно подтвердите платный анализ.", {
+          code: "research_stage_recompute_invalid",
+        });
+      }
+      payload.user_input = userInput;
+      payload.paid_analysis_ack = true;
+    }
+
+    const prepared = await this.mutate(RPC.controlResearchStage, payload);
+    if (action !== "recompute") return prepared;
+
+    const source = prepared?.data && typeof prepared.data === "object"
+      && !Array.isArray(prepared.data)
+      ? prepared.data
+      : prepared;
+    const recompute = source?.recompute_request;
+    const requestId = String(recompute?.request_id || "").trim().toLowerCase();
+    const childRunId = String(recompute?.child_run_id || "").trim().toLowerCase();
+    if (
+      !recompute
+      || typeof recompute !== "object"
+      || Array.isArray(recompute)
+      || !isUuid(requestId)
+      || !isUuid(childRunId)
+      || recompute.status !== "queued"
+      || recompute.paid_analysis_ack !== true
+      || recompute.automatic_provider_action !== false
+      || recompute.max_provider_attempts !== 1
+      || recompute.invoke?.action !== "analyze"
+      || String(recompute.invoke?.research_id || "").toLowerCase() !== childRunId
+    ) {
+      throw new CreatorApiError("Запрос пересчёта сохранён, но точный дочерний запуск не подтверждён. Не повторяйте команду.", {
+        code: "research_stage_recompute_prepare_invalid",
+      });
+    }
+
+    if (this.researchRecomputeInvocations.has(requestId)) {
+      return {
+        ...source,
+        analysis_request: {
+          ok: true,
+          skipped: true,
+          reason: "recompute_invoke_already_attempted",
+        },
+      };
+    }
+    this.researchRecomputeInvocations.add(requestId);
+    try {
+      const accepted = await this.invokeProductResearch({
+        action: "analyze",
+        research_id: childRunId,
+      });
+      return { ...source, analysis_request: accepted };
+    } catch (error) {
+      error.job = {
+        id: childRunId,
+        status: "queued",
+        recompute_request_id: requestId,
+      };
+      error.stageControl = source;
+      throw error;
+    }
+  }
+
+  async resumeResearchStageRecompute(childRunId, requestId) {
+    const normalizedChildRunId = String(childRunId || "").trim().toLowerCase();
+    const normalizedRequestId = String(requestId || "").trim().toLowerCase();
+    if (!isUuid(normalizedChildRunId) || !isUuid(normalizedRequestId)) {
+      throw new CreatorApiError("Сохранённый пересчёт изменился. Сначала обновите его статус.", {
+        code: "research_stage_recompute_resume_invalid",
+      });
+    }
+    try {
+      return await this.invokeProductResearch({
+        action: "analyze",
+        research_id: normalizedChildRunId,
+      });
+    } catch (error) {
+      error.job = {
+        id: normalizedChildRunId,
+        status: "queued",
+        recompute_request_id: normalizedRequestId,
+      };
+      throw error;
+    }
+  }
+
+  researchCategoryLearningStatus(runId) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    return this.call(
+      RPC.researchCategoryLearningStatus,
+      this.withOrganization({ run_id: normalizedRunId }),
+    );
+  }
+
+  async captureResearchCategoryReadiness(runId, expectedEvidenceHash) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const normalizedHash = String(expectedEvidenceHash || "")
+      .trim()
+      .toLowerCase();
+    if (!RESEARCH_STAGE_HASH_PATTERN.test(normalizedHash)) {
+      throw new CreatorApiError(
+        "Снимок готовности устарел. Обновите доказательную базу категории.",
+        { code: "research_category_readiness_hash_invalid" },
+      );
+    }
+    const response = await this.mutate(RPC.captureResearchCategoryReadiness, {
+      run_id: normalizedRunId,
+      expected_evidence_hash: normalizedHash,
+    });
+    const source = response?.data && typeof response.data === "object"
+      && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    const snapshot = source?.snapshot;
+    if (
+      !hasExactObjectKeys(source, [
+        "ok",
+        "metric_kind",
+        "source_ledger_rows_registered",
+        "snapshot",
+        "external_call_started",
+      ])
+      || source.ok !== true
+      || source.metric_kind !== "category_evidence_readiness_not_model_iq"
+      || source.external_call_started !== false
+      || !Number.isInteger(source.source_ledger_rows_registered)
+      || source.source_ledger_rows_registered < 0
+      || !hasExactObjectKeys(snapshot, [
+        "snapshot_id",
+        "score",
+        "dimensions",
+        "evidence_hash",
+        "snapshot_hash",
+        "captured_at",
+      ])
+      || !isUuid(String(snapshot.snapshot_id || "").toLowerCase())
+      || !Number.isInteger(snapshot.score)
+      || snapshot.score < 0
+      || snapshot.score > 100
+      || !Array.isArray(snapshot.dimensions)
+      || snapshot.dimensions.length !== 6
+      || !RESEARCH_STAGE_HASH_PATTERN.test(String(snapshot.evidence_hash || ""))
+      || !RESEARCH_STAGE_HASH_PATTERN.test(String(snapshot.snapshot_hash || ""))
+      || typeof snapshot.captured_at !== "string"
+      || !Number.isFinite(Date.parse(snapshot.captured_at))
+    ) {
+      throw new CreatorApiError(
+        "Снимок готовности сохранён с неожиданным ответом. Не повторяйте действие автоматически.",
+        { code: "research_category_readiness_capture_invalid" },
+      );
+    }
+    return source;
+  }
+
+  async correctResearchSourceAnalysis(options = {}) {
+    const sourceLedgerId = String(
+      options.source_ledger_id ?? options.sourceLedgerId ?? "",
+    ).trim().toLowerCase();
+    const expectedHeadEventId = String(
+      options.expected_head_event_id ?? options.expectedHeadEventId ?? "",
+    ).trim().toLowerCase();
+    const expectedHeadHash = String(
+      options.expected_head_hash ?? options.expectedHeadHash ?? "",
+    ).trim().toLowerCase();
+    const correctionReason = String(
+      options.correction_reason ?? options.correctionReason ?? "",
+    ).replace(/\s+/gu, " ").trim();
+    const analysis = options.analysis;
+    let analysisBytes = Number.POSITIVE_INFINITY;
+    try {
+      analysisBytes = new TextEncoder().encode(stableStringify(analysis)).length;
+    } catch {
+      analysisBytes = Number.POSITIVE_INFINITY;
+    }
+    if (
+      !isUuid(sourceLedgerId)
+      || !isUuid(expectedHeadEventId)
+      || !RESEARCH_STAGE_HASH_PATTERN.test(expectedHeadHash)
+      || !researchSourceAnalysisIsValid(analysis)
+      || analysisBytes > 32_768
+      || correctionReason.length < 3
+      || correctionReason.length > 1_000
+    ) {
+      throw new CreatorApiError(
+        "Проверьте структурированный разбор, точную версию источника и причину исправления.",
+        { code: "research_source_correction_invalid" },
+      );
+    }
+    const response = await this.mutate(RPC.correctResearchSourceAnalysis, {
+      source_ledger_id: sourceLedgerId,
+      expected_head_event_id: expectedHeadEventId,
+      expected_head_hash: expectedHeadHash,
+      analysis,
+      correction_reason: correctionReason,
+    });
+    const source = response?.data && typeof response.data === "object"
+      && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    if (
+      !hasExactObjectKeys(source, [
+        "ok",
+        "event_id",
+        "event_hash",
+        "analysis_version",
+        "origin",
+        "external_call_started",
+      ])
+      || source.ok !== true
+      || !isUuid(String(source.event_id || "").toLowerCase())
+      || !RESEARCH_STAGE_HASH_PATTERN.test(String(source.event_hash || ""))
+      || !Number.isInteger(source.analysis_version)
+      || source.analysis_version < 2
+      || source.origin !== "human_correction"
+      || source.external_call_started !== false
+    ) {
+      throw new CreatorApiError(
+        "Исправление сохранено с неожиданным ответом. Не повторяйте его автоматически.",
+        { code: "research_source_correction_response_invalid" },
+      );
+    }
+    return source;
+  }
+
+  async configureResearchSourceCollectionPolicy(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const platform = String(options.platform || "").trim().toLowerCase();
+    const providerKey = String(
+      options.provider_key ?? options.providerKey ?? "",
+    ).trim().toLowerCase();
+    const status = String(options.status || "").trim().toLowerCase();
+    const cadenceHours = Number(
+      options.cadence_hours ?? options.cadenceHours,
+    );
+    const maxRecords = Number(options.max_records ?? options.maxRecords);
+    const monthlyHardBudgetUnits = Number(
+      options.monthly_hard_budget_units ?? options.monthlyHardBudgetUnits,
+    );
+    const termsVersion = String(
+      options.terms_version ?? options.termsVersion ?? "",
+    ).trim();
+    const termsAck = options.terms_ack;
+    const quotaAck = options.quota_ack;
+    const noRetryAck = options.no_retry_ack;
+    const legalReviewReference = String(
+      options.legal_review_reference ?? options.legalReviewReference ?? "",
+    ).replace(/\s+/gu, " ").trim();
+    const reason = String(options.reason || "").replace(/\s+/gu, " ").trim();
+    const expectedPolicyId = options.expected_policy_id
+      ?? options.expectedPolicyId
+      ?? null;
+    const expectedPolicyHash = options.expected_policy_hash
+      ?? options.expectedPolicyHash
+      ?? null;
+    const normalizedPolicyId = expectedPolicyId === null
+      ? null
+      : String(expectedPolicyId).trim().toLowerCase();
+    const normalizedPolicyHash = expectedPolicyHash === null
+      ? null
+      : String(expectedPolicyHash).trim().toLowerCase();
+    const expectedPairValid = normalizedPolicyId === null
+      ? normalizedPolicyHash === null
+      : isUuid(normalizedPolicyId)
+        && RESEARCH_STAGE_HASH_PATTERN.test(normalizedPolicyHash || "");
+    if (
+      !["youtube", "instagram"].includes(platform)
+      || !RESEARCH_COLLECTION_PROVIDER_PATTERN.test(providerKey)
+      || !["paused", "enabled"].includes(status)
+      || typeof options.automatic_collection_ack !== "boolean"
+      || termsVersion.length < 3
+      || termsVersion.length > 80
+      || typeof termsAck !== "boolean"
+      || typeof quotaAck !== "boolean"
+      || typeof noRetryAck !== "boolean"
+      || !Number.isInteger(cadenceHours)
+      || cadenceHours < 24
+      || cadenceHours > 720
+      || !Number.isInteger(maxRecords)
+      || maxRecords < 1
+      || maxRecords > 25
+      || !Number.isInteger(monthlyHardBudgetUnits)
+      || monthlyHardBudgetUnits < 0
+      || monthlyHardBudgetUnits > 100
+      || (legalReviewReference && (
+        legalReviewReference.length < 3
+        || legalReviewReference.length > 160
+      ))
+      || reason.length < 3
+      || reason.length > 500
+      || !expectedPairValid
+      || (status === "enabled" && (
+        platform !== "youtube"
+        || providerKey !== "youtube_data_api_v3"
+        || options.automatic_collection_ack !== true
+        || termsVersion !== RESEARCH_YOUTUBE_TERMS_VERSION
+        || termsAck !== true
+        || quotaAck !== true
+        || noRetryAck !== true
+        || monthlyHardBudgetUnits < 2
+        || !legalReviewReference
+      ))
+    ) {
+      throw new CreatorApiError(
+        "Политика автосбора заполнена не полностью или не поддерживается выбранным provider-контуром.",
+        { code: "research_collection_policy_invalid" },
+      );
+    }
+    const response = await this.mutate(
+      RPC.configureResearchSourceCollectionPolicy,
+      {
+        run_id: normalizedRunId,
+        platform,
+        provider_key: providerKey,
+        status,
+        automatic_collection_ack: options.automatic_collection_ack,
+        terms_version: termsVersion,
+        terms_ack: termsAck,
+        quota_ack: quotaAck,
+        no_retry_ack: noRetryAck,
+        cadence_hours: cadenceHours,
+        max_records: maxRecords,
+        monthly_hard_budget_units: monthlyHardBudgetUnits,
+        legal_review_reference: legalReviewReference || null,
+        reason,
+        expected_policy_id: normalizedPolicyId,
+        expected_policy_hash: normalizedPolicyHash,
+      },
+    );
+    const source = response?.data && typeof response.data === "object"
+      && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    const policy = source?.policy;
+    const capability = source?.capability;
+    if (
+      !hasExactObjectKeys(source, ["ok", "policy", "capability"])
+      || source.ok !== true
+      || !hasExactObjectKeys(policy, [
+        "policy_id",
+        "policy_hash",
+        "policy_version",
+        "platform",
+        "provider_key",
+        "status",
+        "automatic_collection_ack",
+        "terms_version",
+        "terms_ack",
+        "quota_ack",
+        "no_retry_ack",
+        "cadence_hours",
+        "max_records",
+        "monthly_hard_budget_units",
+      ])
+      || !isUuid(String(policy.policy_id || "").toLowerCase())
+      || !RESEARCH_STAGE_HASH_PATTERN.test(String(policy.policy_hash || ""))
+      || !Number.isInteger(policy.policy_version)
+      || policy.policy_version < 1
+      || policy.platform !== platform
+      || policy.provider_key !== providerKey
+      || policy.status !== status
+      || policy.automatic_collection_ack !== options.automatic_collection_ack
+      || policy.terms_version !== termsVersion
+      || policy.terms_ack !== termsAck
+      || policy.quota_ack !== quotaAck
+      || policy.no_retry_ack !== noRetryAck
+      || policy.cadence_hours !== cadenceHours
+      || policy.max_records !== maxRecords
+      || policy.monthly_hard_budget_units !== monthlyHardBudgetUnits
+      || !hasExactObjectKeys(capability, [
+        "automatic_enqueue_supported",
+        "external_call_started",
+        "queued_ingestion_is_claimed_by_internal_worker",
+        "instagram_enabled",
+      ])
+      || capability.automatic_enqueue_supported !== (status === "enabled")
+      || capability.external_call_started !== false
+      || capability.queued_ingestion_is_claimed_by_internal_worker !== true
+      || capability.instagram_enabled !== false
+    ) {
+      throw new CreatorApiError(
+        "Политика сохранена с неожиданным ответом. Не повторяйте изменение автоматически.",
+        { code: "research_collection_policy_response_invalid" },
+      );
+    }
+    return source;
+  }
+
+  async configureResearchWatchlist(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const action = String(options.action || "").trim().toLowerCase();
+    if (!["enable", "update", "pause", "resume"].includes(action)) {
+      throw new CreatorApiError("Выберите действие для наблюдения за исследованием.", {
+        code: "research_watchlist_action_invalid",
+      });
+    }
+    const payload = { run_id: normalizedRunId, action };
+    if (["enable", "update", "resume"].includes(action)) {
+      const intervalDays = Number(options.refresh_interval_days);
+      if (!Number.isInteger(intervalDays) || intervalDays < 3 || intervalDays > 90) {
+        throw new CreatorApiError("Интервал наблюдения должен быть от 3 до 90 дней.", {
+          code: "research_watchlist_interval_invalid",
+        });
+      }
+      payload.refresh_interval_days = intervalDays;
+    }
+    await this.mutate(RPC.configureResearchWatchlist, payload);
+    return this.productResearchStatus(normalizedRunId);
+  }
+
+  async resolveResearchMarketCategory(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const action = String(options.action || "").trim().toLowerCase();
+    const createActions = new Set(["create_and_bind", "create_and_reclassify"]);
+    const existingActions = new Set(["bind_existing", "reclassify"]);
+    if (!createActions.has(action) && !existingActions.has(action)) {
+      throw new CreatorApiError("Выберите, как подтвердить рыночную категорию.", {
+        code: "research_market_decision_action_invalid",
+      });
+    }
+    if (options.confirmation !== true) {
+      throw new CreatorApiError("Подтвердите решение по рыночной категории.", {
+        code: "research_market_decision_confirmation_required",
+      });
+    }
+    const candidateHash = String(options.candidate_hash || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/u.test(candidateHash)) {
+      throw new CreatorApiError("Предложение категории устарело. Обновите исследование.", {
+        code: "research_market_category_candidate_stale",
+      });
+    }
+    const payload = {
+      run_id: normalizedRunId,
+      action,
+      candidate_hash: candidateHash,
+      confirmation: true,
+    };
+    if (existingActions.has(action)) {
+      const categoryId = String(options.category_id || "").trim();
+      if (!isUuid(categoryId)) {
+        throw new CreatorApiError("Выберите сохранённую рыночную категорию.", {
+          code: "research_market_category_not_found",
+        });
+      }
+      payload.category_id = categoryId;
+    } else {
+      const canonicalName = String(options.canonical_name || "").replace(/\s+/gu, " ").trim();
+      const definition = String(options.definition || "").trim();
+      const aliases = [];
+      const aliasKeys = new Set();
+      (Array.isArray(options.aliases) ? options.aliases : []).forEach((item) => {
+        const alias = String(item || "").replace(/\s+/gu, " ").trim();
+        const aliasKey = alias.toLocaleLowerCase("ru-RU");
+        if (alias && !aliasKeys.has(aliasKey)) {
+          aliasKeys.add(aliasKey);
+          aliases.push(alias);
+        }
+      });
+      if (canonicalName.length < 2 || canonicalName.length > 160) {
+        throw new CreatorApiError("Укажите название рыночной категории длиной 2–160 символов.", {
+          code: "canonical_name_invalid",
+        });
+      }
+      if (definition.length < 10 || definition.length > 2000) {
+        throw new CreatorApiError("Опишите границы категории длиной 10–2000 символов.", {
+          code: "research_market_category_definition_invalid",
+        });
+      }
+      if (aliases.length > 10 || aliases.some((value) => value.length < 2 || value.length > 160)) {
+        throw new CreatorApiError("Добавьте не более 10 корректных названий-синонимов.", {
+          code: "research_market_aliases_invalid",
+        });
+      }
+      payload.canonical_name = canonicalName;
+      payload.definition = definition;
+      payload.aliases = aliases;
+    }
+    const reason = String(options.reason || "").trim();
+    if (reason) {
+      if (reason.length < 3 || reason.length > 500) {
+        throw new CreatorApiError("Кратко объясните решение по категории (3–500 символов).", {
+          code: "research_market_decision_reason_invalid",
+        });
+      }
+      payload.reason = reason;
+    }
+    return this.mutate(RPC.resolveResearchMarketCategory, payload);
+  }
+
+  searchResearchMarketCategories(runId, query) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const normalizedQuery = String(query || "").replace(/\s+/gu, " ").trim();
+    if (normalizedQuery.length < 2 || normalizedQuery.length > 160) {
+      throw new CreatorApiError("Введите точное название или синоним категории.", {
+        code: "research_market_registry_query_invalid",
+      });
+    }
+    return this.call(
+      RPC.researchMarketCategoryRegistry,
+      this.withOrganization({
+        run_id: normalizedRunId,
+        query: normalizedQuery,
+        limit: 20,
+      }),
+    );
+  }
+
+  researchOutcomeLearningScopes(runId) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    return this.call(
+      RPC.researchOutcomeLearningScopes,
+      this.withOrganization({ run_id: normalizedRunId, limit: 50 }),
+    );
+  }
+
+  researchOutcomeLearningStatus(scope) {
+    return this.call(
+      RPC.researchOutcomeLearningStatus,
+      this.withOrganization(requireResearchOutcomeScope(scope)),
+    );
+  }
+
+  refreshResearchOutcomeLearning(scope) {
+    return this.mutate(
+      RPC.refreshResearchOutcomeLearning,
+      requireResearchOutcomeScope(scope),
+    );
+  }
+
+  decideResearchOutcomeLearning(scope, options = {}) {
+    requireResearchOutcomeScope(scope);
+    const action = String(options.action || "").trim().toLowerCase();
+    if (!["activate", "reject", "quarantine", "deactivate", "revert"].includes(action)) {
+      throw new CreatorApiError("Выберите допустимое решение по обучающей памяти.", {
+        code: "research_outcome_decision_action_invalid",
+      });
+    }
+    if (options.confirmation !== true) {
+      throw new CreatorApiError("Подтвердите решение по обучающей памяти.", {
+        code: "research_outcome_decision_confirmation_required",
+      });
+    }
+    const candidateId = String(options.candidate_id || "").trim().toLowerCase();
+    const candidateHash = String(options.candidate_hash || "").trim().toLowerCase();
+    const candidateVersion = Number(options.candidate_version);
+    const expectedScopeVersion = Number(options.expected_scope_version);
+    const reason = String(options.reason || "").replace(/\s+/gu, " ").trim();
+    if (!isUuid(candidateId)) {
+      throw new CreatorApiError("Кандидат обучения устарел. Обновите статус.", {
+        code: "research_outcome_candidate_not_found",
+      });
+    }
+    if (!/^[0-9a-f]{64}$/u.test(candidateHash)) {
+      throw new CreatorApiError("Кандидат обучения изменился. Обновите статус.", {
+        code: "research_outcome_candidate_stale",
+      });
+    }
+    if (
+      !Number.isInteger(candidateVersion)
+      || candidateVersion < 1
+      || candidateVersion > 100000
+      || !Number.isInteger(expectedScopeVersion)
+      || expectedScopeVersion < 0
+      || expectedScopeVersion > 100000
+    ) {
+      throw new CreatorApiError("Версия обучающей памяти изменилась. Обновите статус.", {
+        code: "research_outcome_decision_version_invalid",
+      });
+    }
+    if (reason.length < 3 || reason.length > 500) {
+      throw new CreatorApiError("Кратко объясните решение (3–500 символов).", {
+        code: "research_outcome_decision_reason_invalid",
+      });
+    }
+    const payload = {
+      candidate_id: candidateId,
+      action,
+      candidate_version: candidateVersion,
+      candidate_hash: candidateHash,
+      expected_scope_version: expectedScopeVersion,
+      reason,
+      confirmation: true,
+    };
+    if (action === "revert") {
+      const rollbackId = String(options.rollback_memory_version_id || "")
+        .trim().toLowerCase();
+      if (!isUuid(rollbackId)) {
+        throw new CreatorApiError("Точная версия для отката больше недоступна.", {
+          code: "research_outcome_rollback_target_invalid",
+        });
+      }
+      payload.rollback_memory_version_id = rollbackId;
+    } else if (options.rollback_memory_version_id) {
+      throw new CreatorApiError("Версия отката допустима только для действия «откатить».", {
+        code: "research_outcome_rollback_target_unexpected",
+      });
+    }
+    return this.mutate(RPC.decideResearchOutcomeLearning, payload);
+  }
+
+  researchYoutubeStatus(ingestionId) {
+    const normalizedId = String(ingestionId || "").trim().toLowerCase();
+    if (!isUuid(normalizedId)) {
+      throw new CreatorApiError("Не удалось определить запуск YouTube‑проверки.", {
+        code: "research_youtube_ingestion_not_found",
+      });
+    }
+    return this.call(RPC.researchYoutubeStatus, { ingestion_id: normalizedId });
+  }
+
+  async requestResearchYoutube(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const mode = String(options.mode || "").trim().toLowerCase();
+    if (!["manual_canary", "category_refresh"].includes(mode)) {
+      throw new CreatorApiError("Выберите ручной canary или явное обновление категории.", {
+        code: "research_youtube_request_payload_invalid",
+      });
+    }
+    const queryText = String(options.query_text || "")
+      .replace(/\s+/gu, " ")
+      .trim();
+    const regionCode = String(options.region_code || "").trim().toUpperCase();
+    const relevanceLanguage = String(options.relevance_language || "").trim();
+    const publishedAfterRaw = String(options.published_after || "").trim();
+    const maxResults = Number(options.max_results);
+    const expectedResults = mode === "manual_canary" ? 1 : maxResults;
+    if (
+      queryText.length < 2
+      || queryText.length > 200
+      || /[\u0000-\u001f\u007f]/u.test(queryText)
+    ) {
+      throw new CreatorApiError("Укажите точный YouTube‑запрос длиной 2–200 символов.", {
+        code: "research_youtube_query_invalid",
+      });
+    }
+    if (regionCode && !/^[A-Z]{2}$/u.test(regionCode)) {
+      throw new CreatorApiError("Код региона должен состоять из двух латинских букв.", {
+        code: "research_youtube_locale_invalid",
+      });
+    }
+    if (
+      relevanceLanguage
+      && !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u.test(relevanceLanguage)
+    ) {
+      throw new CreatorApiError("Проверьте языковой код YouTube, например ru или zh-Hans.", {
+        code: "research_youtube_locale_invalid",
+      });
+    }
+    let publishedAfter = null;
+    if (publishedAfterRaw) {
+      const timestamp = Date.parse(publishedAfterRaw);
+      if (
+        !Number.isFinite(timestamp)
+        || timestamp < Date.now() - 366 * 86_400_000
+        || timestamp > Date.now() + 60_000
+      ) {
+        throw new CreatorApiError("Дата начала поиска должна быть в пределах последних 366 дней.", {
+          code: "research_youtube_published_after_invalid",
+        });
+      }
+      publishedAfter = new Date(timestamp).toISOString();
+    }
+    if (
+      !Number.isInteger(expectedResults)
+      || expectedResults < 1
+      || expectedResults > 25
+      || (mode === "manual_canary" && maxResults !== 1)
+    ) {
+      throw new CreatorApiError("Canary проверяет 1 видео, обновление — от 1 до 25.", {
+        code: "research_youtube_quota_plan_invalid",
+      });
+    }
+    if (
+      options.quota_ack !== true
+      || options.no_retry_ack !== true
+      || options.terms_ack !== true
+      || String(options.terms_version || "") !== RESEARCH_YOUTUBE_TERMS_VERSION
+    ) {
+      throw new CreatorApiError("Подтвердите квоту, отсутствие повтора и актуальные условия YouTube API.", {
+        code: "research_youtube_confirmation_required",
+      });
+    }
+    const payload = {
+      run_id: normalizedRunId,
+      query_text: queryText,
+      region_code: regionCode || null,
+      relevance_language: relevanceLanguage || null,
+      published_after: publishedAfter,
+      max_results: expectedResults,
+      max_http_requests: 2,
+      max_quota_units: 2,
+      quota_ack: true,
+      no_retry_ack: true,
+      terms_ack: true,
+      terms_version: RESEARCH_YOUTUBE_TERMS_VERSION,
+    };
+    const rpcName = mode === "manual_canary"
+      ? RPC.requestResearchYoutubeCanary
+      : RPC.requestResearchYoutubeRefresh;
+    const requested = await this.mutate(rpcName, payload);
+    const source = requested?.data && typeof requested.data === "object"
+      && !Array.isArray(requested.data)
+      ? requested.data
+      : requested;
+    const ingestion = source?.ingestion;
+    const ingestionId = String(ingestion?.id || "").trim().toLowerCase();
+    if (
+      source?.ok !== true
+      || source?.version !== "research-youtube-live-ingestion-v1"
+      || !isUuid(ingestionId)
+      || ingestion?.status !== "queued"
+      || ingestion?.mode !== mode
+      || Number(ingestion?.max_http_requests) !== 2
+      || Number(ingestion?.max_quota_units) !== 2
+    ) {
+      throw new CreatorApiError("Сервер не подтвердил ограниченный план YouTube‑запроса.", {
+        code: "research_youtube_request_response_invalid",
+      });
+    }
+    let execution;
+    try {
+      execution = await this.invokeResearchIngestion(ingestionId);
+    } catch (error) {
+      error.job = { id: ingestionId, status: "queued", kind: "youtube_ingestion" };
+      throw error;
+    }
+    return { request: source, execution };
+  }
+
+  decideResearchYoutubeRollout(options = {}) {
+    const decision = String(options.decision || "").trim().toLowerCase();
+    const reason = String(options.reason || "").replace(/\s+/gu, " ").trim();
+    if (!["enable_category_refresh", "pause_category_refresh"].includes(decision)) {
+      throw new CreatorApiError("Выберите включение или паузу обновлений YouTube.", {
+        code: "research_youtube_rollout_decision_invalid",
+      });
+    }
+    if (reason.length < 3 || reason.length > 500) {
+      throw new CreatorApiError("Кратко объясните решение по rollout (3–500 символов).", {
+        code: "research_youtube_rollout_payload_invalid",
+      });
+    }
+    if (
+      options.terms_ack !== true
+      || String(options.terms_version || "") !== RESEARCH_YOUTUBE_TERMS_VERSION
+    ) {
+      throw new CreatorApiError("Подтвердите актуальную версию условий YouTube API.", {
+        code: "research_youtube_confirmation_required",
+      });
+    }
+    const payload = {
+      decision,
+      reason,
+      terms_ack: true,
+      terms_version: RESEARCH_YOUTUBE_TERMS_VERSION,
+    };
+    if (decision === "enable_category_refresh") {
+      const canaryId = String(options.canary_ingestion_id || "").trim().toLowerCase();
+      if (!isUuid(canaryId)) {
+        throw new CreatorApiError("Сначала завершите свежий двухэтапный canary.", {
+          code: "research_youtube_fresh_canary_required",
+        });
+      }
+      payload.canary_ingestion_id = canaryId;
+    }
+    return this.mutate(RPC.decideResearchYoutubeRollout, payload);
+  }
+
+  decideResearchYoutubeCandidate(options = {}) {
+    const ingestionId = String(options.ingestion_id || "").trim().toLowerCase();
+    const observationId = String(options.observation_id || "").trim().toLowerCase();
+    const observationHash = String(options.observation_hash || "").trim().toLowerCase();
+    const decision = String(options.decision || "").trim().toLowerCase();
+    const reason = String(options.reason || "").replace(/\s+/gu, " ").trim();
+    if (
+      !isUuid(ingestionId)
+      || !isUuid(observationId)
+      || !/^[0-9a-f]{64}$/u.test(observationHash)
+      || !["confirm_candidate", "exclude_candidate"].includes(decision)
+    ) {
+      throw new CreatorApiError("Кандидат YouTube изменился. Обновите статус.", {
+        code: "research_youtube_candidate_stale",
+      });
+    }
+    if (options.confirmation !== true || reason.length < 3 || reason.length > 500) {
+      throw new CreatorApiError("Подтвердите временное решение и укажите причину (3–500 символов).", {
+        code: "research_youtube_candidate_payload_invalid",
+      });
+    }
+    return this.mutate(RPC.decideResearchYoutubeCandidate, {
+      ingestion_id: ingestionId,
+      observation_id: observationId,
+      observation_hash: observationHash,
+      decision,
+      reason,
+      confirmation: true,
+    });
+  }
+
+  async invokeResearchIngestion(ingestionId) {
+    const normalizedId = String(ingestionId || "").trim().toLowerCase();
+    if (!isUuid(normalizedId)) {
+      throw new CreatorApiError("Не удалось определить YouTube‑запуск.", {
+        code: "research_youtube_ingestion_not_found",
+      });
+    }
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      throw new CreatorApiError("Сессия истекла перед ручным YouTube‑запросом.", {
+        code: "auth_session_required",
+      });
+    }
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(
+        RESEARCH_INGESTION_FUNCTION,
+        {
+          body: { action: "ingest", ingestion_id: normalizedId },
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      ));
+    } catch {
+      throw new CreatorApiError("Запуск сохранён, но транспорт YouTube не подтвердил начало.", {
+        code: "research_youtube_ingestion_unavailable",
+      });
+    }
+    if (error) throw await researchIngestionFunctionError(error);
+    const source = data?.data && typeof data.data === "object" && !Array.isArray(data.data)
+      ? data.data
+      : data;
+    if (
+      !source
+      || typeof source !== "object"
+      || Array.isArray(source)
+      || source.ok !== true
+      || source.version !== "research-youtube-live-ingestion-v1"
+      || String(source.ingestion?.id || "").toLowerCase() !== normalizedId
+      || !["queued", "processing", "completed", "failed"].includes(
+        String(source.ingestion?.status || ""),
+      )
+    ) {
+      throw new CreatorApiError("YouTube‑транспорт вернул неполный статус. Не повторяйте запрос автоматически.", {
+        code: "research_youtube_ingestion_response_invalid",
+      });
+    }
+    return source;
   }
 
   saveCreativeBriefDraft(runId, draft) {
@@ -2367,6 +3767,14 @@ function writeMutationKeys(keys) {
   }
 }
 
+function hasExactObjectKeys(value, keys) {
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object") {
@@ -2376,6 +3784,74 @@ function stableStringify(value) {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function researchAnalysisHasForbiddenKeys(value) {
+  const pending = [value];
+  let visitedNodes = 0;
+  while (pending.length) {
+    const current = pending.pop();
+    if (!current || typeof current !== "object") continue;
+    visitedNodes += 1;
+    if (visitedNodes > 10_000) return true;
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    for (const [key, child] of Object.entries(current)) {
+      if (RESEARCH_ANALYSIS_FORBIDDEN_KEYS.has(key.toLowerCase())) return true;
+      if (child && typeof child === "object") pending.push(child);
+    }
+  }
+  return false;
+}
+
+function researchSourceAnalysisIsValid(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const exactKeys = [
+    "schema_version",
+    "classification",
+    "relevance_score",
+    "confidence",
+    "summary",
+    "structural_signal_keys",
+    "limitations",
+  ];
+  if (
+    Object.keys(value).length !== exactKeys.length
+    || exactKeys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))
+    || value.schema_version !== RESEARCH_SOURCE_ANALYSIS_SCHEMA_VERSION
+    || !RESEARCH_SOURCE_ANALYSIS_CLASSIFICATIONS.has(value.classification)
+    || !Number.isInteger(value.relevance_score)
+    || value.relevance_score < 0
+    || value.relevance_score > 100
+    || !RESEARCH_SOURCE_ANALYSIS_CONFIDENCE.has(value.confidence)
+    || typeof value.summary !== "string"
+    || value.summary.trim().length < 20
+    || value.summary.trim().length > 2_000
+    || !Array.isArray(value.structural_signal_keys)
+    || value.structural_signal_keys.length > 20
+    || !Array.isArray(value.limitations)
+    || value.limitations.length > 20
+    || researchAnalysisHasForbiddenKeys(value)
+  ) return false;
+  const structuralSignals = value.structural_signal_keys.map((item) =>
+    typeof item === "string" ? item.trim() : ""
+  );
+  if (
+    structuralSignals.some((item) =>
+      item.length < 3
+      || item.length > 100
+      || !RESEARCH_SOURCE_STRUCTURAL_SIGNAL_PATTERN.test(item)
+    )
+    || new Set(structuralSignals).size !== structuralSignals.length
+    || value.limitations.some((item) =>
+      typeof item !== "string"
+      || item.trim().length < 3
+      || item.trim().length > 500
+    )
+  ) return false;
+  return true;
 }
 
 function normalizeStringArray(value) {
@@ -2807,6 +4283,55 @@ function safeAccessMessage(code, retryAfterSeconds = 0) {
   return messages[code] || "Не удалось безопасно проверить доступ. Обновите сводку и повторите позже.";
 }
 
+async function researchIngestionFunctionError(error) {
+  let code = String(error?.code || "research_youtube_ingestion_unavailable");
+  const response = error?.context;
+  if (response && typeof response.clone === "function") {
+    try {
+      const body = await response.clone().json();
+      if (body && typeof body === "object" && !Array.isArray(body)) {
+        const candidate = String(
+          body.code
+          || (body.error && typeof body.error === "object" ? body.error.code : body.error)
+          || "",
+        );
+        if (/^[a-z0-9_]{3,96}$/u.test(candidate)) code = candidate;
+      }
+    } catch {
+      // Never expose raw provider or infrastructure responses to the browser.
+    }
+  }
+  const messages = {
+    authentication_required: "Сессия завершилась. Войдите снова перед ручной YouTube‑проверкой.",
+    auth_session_required: "Сессия завершилась. Войдите снова перед ручной YouTube‑проверкой.",
+    authorization_required: "У этой роли нет права запускать внешний YouTube‑запрос.",
+    research_youtube_invoke_not_authorized: "Сервер не подтвердил право этого пользователя на сохранённый YouTube‑запуск.",
+    research_youtube_global_rollout_gate_required: "Глобальный контур YouTube пока закрыт оператором.",
+    research_youtube_rollout_gate_required: "Обновление категории ещё не включено после успешного canary.",
+    research_youtube_retention_control_required: "YouTube‑запрос остановлен: сервер не подтвердил свежую очистку API‑данных.",
+    research_youtube_transport_gate_closed: "Условия запуска изменились до внешнего вызова. Запрос остановлен без автоматического повтора.",
+    research_youtube_ingestion_lease_inactive: "Безопасная аренда запуска истекла. Запрос завершён без автоматического повтора.",
+    research_youtube_local_daily_quota_exhausted: "Дневной лимит YouTube‑запросов по тихоокеанскому времени исчерпан.",
+    provider_configuration_error: "Ключ YouTube Data API не настроен. Внешний запрос не выполнен.",
+    provider_authentication_failed: "YouTube Data API отклонил ключ. Внешний запрос остановлен.",
+    provider_quota_exhausted: "Квота YouTube Data API исчерпана. Автоматического повтора не будет.",
+    provider_rate_limited: "YouTube временно ограничил запрос. Автоматического повтора не будет.",
+    provider_request_rejected: "YouTube отклонил параметры запроса. Проверьте статус запуска.",
+    provider_unavailable: "YouTube Data API временно не ответил. Автоматического повтора не будет.",
+    provider_response_invalid: "YouTube вернул неполный ответ. Данные не приняты.",
+    provider_outcome_unknown: "Результат внешнего вызова не подтверждён. Не повторяйте запрос до обновления статуса.",
+    youtube_transport_receipt_failed: "Квитанция внешнего вызова не сохранена. Не повторяйте запрос до проверки статуса.",
+    ingestion_rejected: "Сервер остановил YouTube‑запуск до безопасного завершения.",
+    ingestion_unavailable: "Запуск сохранён, но транспорт YouTube временно недоступен. Проверьте статус перед новым запросом.",
+    research_youtube_ingestion_unavailable: "Запуск сохранён, но транспорт YouTube временно недоступен. Проверьте статус перед новым запросом.",
+  };
+  return new CreatorApiError(
+    messages[code]
+      || "YouTube‑запуск не завершён. Обновите статус и не повторяйте внешний запрос автоматически.",
+    { code, message: /^[a-z0-9_]{3,96}$/u.test(code) ? code : null },
+  );
+}
+
 async function creatorFunctionError(error) {
   let details = {
     code: error?.code || "real_generation_request_failed",
@@ -2997,16 +4522,112 @@ function toFriendlyMessage(error) {
     generation_rejected: "Сервер отклонил платный запуск. Проверьте доступ, исходник и подтверждение расходов.",
     generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
     product_research_input_invalid: "Проверьте название товара и артикул.",
-    product_research_platform_required: "Выберите хотя бы одну площадку для будущих роликов.",
+    product_research_paid_confirmation_required: "Подтвердите платный ИИ-анализ перед запуском.",
+    paid_analysis_ack_required: "Подтвердите платный ИИ-анализ перед запуском.",
+    research_execution_authorization_required: "Сервер не получил подтверждение платного анализа. Начните новый запуск и подтвердите расход ещё раз.",
+    research_provider_attempt_not_authorized: "Платный вызов не авторизован сервером. Новый внешний запрос не выполнен.",
+    research_provider_attempt_conflict: "Провайдер уже привязан к этому запуску с другими параметрами. Обновите статус.",
+    research_provider_not_active: "Выбранный исследовательский провайдер не активен. Новый внешний запрос не выполнен.",
+    research_market_decision_confirmation_required: "Подтвердите решение по рыночной категории.",
+    research_market_decision_action_invalid: "Выберите допустимое действие с рыночной категорией.",
+    research_market_decision_action_payload_invalid: "Проверьте поля выбранного действия с рыночной категорией.",
+    research_market_category_candidate_stale: "Предложение категории изменилось. Обновите исследование и подтвердите его заново.",
+    research_market_category_not_found: "Выбранная рыночная категория больше недоступна. Обновите список.",
+    research_market_category_reclassify_required: "У товара уже есть категория. Используйте явную переклассификацию.",
+    research_market_category_binding_required: "Сначала подтвердите исходную рыночную категорию товара.",
+    research_market_category_unchanged: "Выберите категорию, отличную от текущей.",
+    research_market_category_alias_conflict: "Такое название уже принадлежит другой рыночной категории.",
+    research_market_aliases_invalid: "Добавьте не более 10 корректных названий-синонимов.",
+    research_market_registry_query_invalid: "Введите точное название или сохранённый синоним категории.",
+    research_outcome_refresh_payload_invalid: "Не удалось определить точный контур результатов. Обновите исследование.",
+    research_outcome_scope_invalid: "Выберите точную рыночную категорию, площадку и модель.",
+    research_outcome_status_payload_invalid: "Статус обучающей памяти запрошен с некорректным контуром.",
+    research_outcome_decision_payload_invalid: "Проверьте поля решения по обучающей памяти.",
+    research_outcome_decision_action_invalid: "Выберите допустимое решение по обучающей памяти.",
+    research_outcome_decision_confirmation_required: "Подтвердите решение по обучающей памяти.",
+    research_outcome_decision_version_invalid: "Версия обучающей памяти изменилась. Обновите статус.",
+    research_outcome_candidate_not_found: "Кандидат обучения больше недоступен. Обновите статус.",
+    research_outcome_refresh_required: "Появились новые зрелые результаты. Сначала явно обновите evidence и проверьте нового кандидата.",
+    research_outcome_candidate_stale: "Доказательства кандидата изменились. Обновите и проверьте их заново.",
+    research_outcome_candidate_superseded: "Появился более новый кандидат. Проверьте его перед активацией.",
+    research_outcome_scope_version_stale: "Активная версия памяти уже изменилась. Обновите статус.",
+    research_outcome_candidate_already_decided: "По этому кандидату уже принято решение. Обновите историю.",
+    research_outcome_active_memory_mismatch: "Выбранный кандидат сейчас не активен. Обновите статус.",
+    research_outcome_rollback_target_invalid: "Точная версия для отката больше недоступна.",
+    research_outcome_rollback_target_unexpected: "Версия отката допустима только для действия «откатить».",
+    research_youtube_request_payload_invalid: "Параметры YouTube‑проверки устарели. Обновите исследование.",
+    research_youtube_query_invalid: "Укажите точный YouTube‑запрос длиной 2–200 символов.",
+    research_youtube_locale_invalid: "Проверьте код региона и язык YouTube‑запроса.",
+    research_youtube_published_after_invalid: "Дата начала поиска должна быть в пределах последних 366 дней.",
+    research_youtube_quota_plan_invalid: "Canary допускает ровно 1 результат и 2 запроса; обновление — 1–25 результатов и 2 запроса.",
+    research_youtube_confirmation_required: "Подтвердите квоту, отсутствие автоматического повтора и условия YouTube API.",
+    research_youtube_terms_version_invalid: "Версия подтверждённых условий YouTube API устарела. Обновите раздел.",
+    research_youtube_market_category_required: "Сначала подтвердите актуальную рыночную категорию товара.",
+    research_youtube_provider_contract_invalid: "Контракт провайдера YouTube ещё не разрешён оператором.",
+    research_youtube_retention_control_required: "Сервер не подтвердил свежую очистку YouTube API‑данных.",
+    research_youtube_global_rollout_gate_required: "Глобальный контур YouTube пока закрыт оператором.",
+    research_youtube_rollout_gate_required: "Сначала завершите canary и явно включите обновление категории.",
+    research_youtube_fresh_canary_required: "Для включения нужен свежий успешный canary через search.list и videos.list.",
+    research_youtube_rollout_decision_invalid: "Выберите включение или паузу обновлений YouTube.",
+    research_youtube_rollout_payload_invalid: "Кратко объясните решение по YouTube rollout.",
+    research_youtube_rollout_canary_unexpected: "Для паузы не нужно указывать canary. Обновите раздел.",
+    research_youtube_ingestion_not_found: "YouTube‑запуск больше недоступен. Обновите исследование.",
+    research_youtube_ingestion_lease_inactive: "Безопасная аренда YouTube‑запуска истекла; автоматического повтора не будет.",
+    research_youtube_invoke_not_authorized: "Сервер не подтвердил право этого пользователя на сохранённый YouTube‑запуск.",
+    research_youtube_local_daily_quota_exhausted: "Дневной лимит YouTube‑запросов по тихоокеанскому времени исчерпан.",
+    research_youtube_transport_gate_closed: "Условия запуска изменились до внешнего вызова. Запрос остановлен.",
+    research_youtube_candidate_payload_invalid: "Подтвердите временное решение по наблюдению и укажите причину.",
+    research_youtube_candidate_stale: "Наблюдение YouTube изменилось или удалено по сроку хранения. Обновите статус.",
+    research_youtube_overview_payload_invalid: "Не удалось определить исследование для YouTube‑сводки.",
+    research_youtube_overview_limit_invalid: "Лимит истории YouTube‑запусков должен быть от 1 до 20.",
+    research_youtube_status_payload_invalid: "Не удалось определить точный YouTube‑запуск.",
+    canonical_name_invalid: "Укажите корректное каноническое название рыночной категории.",
+    candidate_hash_invalid: "Предложение категории устарело. Обновите исследование.",
+    product_research_platform_required: "Выберите хотя бы одну площадку для будущего контента.",
     product_research_run_missing: "Сервер не вернул номер исследования. Обновите раздел и повторите.",
     product_research_run_invalid: "Не удалось определить исследование. Начните новый разбор.",
     product_research_request_failed: "Не удалось запустить анализ товара. Повторите попытку позже.",
     product_research_response_invalid: "Сервис анализа товара вернул некорректный ответ.",
+    research_category_learning_status_payload_invalid: "Не удалось определить исследование для готовности доказательной базы.",
+    research_market_category_required: "Сначала подтвердите устойчивую рыночную категорию товара.",
+    research_market_category_inactive: "Рыночная категория больше не активна. Обновите привязку перед сбором доказательств.",
+    research_category_readiness_capture_payload_invalid: "Снимок готовности заполнен не полностью. Обновите статус.",
+    research_category_evidence_changed: "Доказательная база изменилась. Проверьте новый процент перед фиксацией.",
+    research_source_correction_payload_invalid: "Проверьте точный head, JSON-разбор и причину исправления.",
+    research_source_analysis_head_stale: "Разбор источника уже изменился. Обновите ledger и проверьте новую версию.",
+    research_source_analysis_invalid: "Разбор должен соответствовать schema v1 и не содержать raw captions, transcript или полный чужой текст.",
+    research_source_ledger_not_found: "Источник больше не доступен в выбранной категории. Обновите ledger.",
+    research_collection_policy_payload_invalid: "Политика автосбора заполнена не полностью. Обновите статус.",
+    research_collection_policy_invalid: "Проверьте provider, период, hard budget и четыре явных подтверждения.",
+    research_collection_expected_policy_invalid: "Точная версия политики не определена. Обновите статус.",
+    research_collection_policy_head_stale: "Политика уже изменилась. Обновите статус перед новым решением.",
+    research_instagram_provider_legal_choice_required: "Автосбор Instagram остаётся paused до выбора provider и подтверждённой legal-политики.",
+    research_youtube_automatic_policy_ack_required: "Для YouTube подтвердите terms, quota, no-retry, hard budget и legal review.",
+    legal_review_reference_invalid: "Укажите корректный номер или ссылку на legal review длиной 3–160 символов.",
+    research_stage_branch_not_found: "Ветка исправлений больше недоступна. Обновите снимок этапов.",
+    research_stage_branch_revision_stale: "Ветка изменилась после загрузки. Обновите точный снимок всей ветки перед решением.",
+    research_stage_head_missing: "Точная версия этапа не найдена. Обновите снимок перед решением.",
+    research_stage_head_stale: "Этап уже изменился в другой вкладке. Обновите снимок и повторно проверьте решение.",
+    research_stage_run_locked: "Main-версия уже утверждена. Ветки доступны только для сравнения; для новой управляемой версии начните отдельное исследование.",
+    research_stage_recompute_main_branch_required: "Пересчёт разрешён только для main-ветки. Сравните текущую ветку отдельно.",
+    research_stage_recompute_pending: "Сохранённый пересчёт ещё не завершён. Проверьте его статус без нового запуска.",
+    research_stage_recompute_active: "В ветке уже есть сохранённый пересчёт. Проверьте или явно отмените его без нового запуска.",
+    research_stage_recompute_not_active: "Сохранённый пересчёт уже завершён или изменился. Обновите его статус.",
+    research_stage_recompute_lease_active: "Попытка провайдера ещё защищена активной серверной блокировкой. Отмена сейчас закрыта.",
+    research_stage_recompute_cancel_invalid: "Условия безопасной отмены изменились. Обновите сохранённый статус без повторного запуска.",
+    research_stage_recompute_cancel_not_allowed: "Этот пересчёт нельзя отменить в текущем состоянии. Обновите сохранённый статус.",
+    research_stage_comparison_branch_read_only: "Ветка сравнения доступна только для чтения. Вернитесь в main для управляемых изменений.",
+    research_stage_revert_target_invalid: "Выбранная версия не подходит для отката. Обновите ограниченную историю этапа.",
+    research_stage_replacement_schema_invalid: "Структурная версия не соответствует схеме этапа. Исправьте JSON, не меняя типы обязательных полей.",
+    research_stage_rejected: "Один из этапов отклонён. Исправьте или верните его до утверждения.",
+    research_stage_dependencies_stale: "Зависимый этап устарел после правки. Начните с самого раннего проблемного этапа.",
+    research_stage_snapshot_mismatch: "Семь этапов не привязаны к одному точному черновику. Восстановите снимок перед утверждением.",
+    research_v2_human_draft_required: "ИИ-версию должен проверить человек и сохранить как точный review-снимок.",
     research_payload_too_large: "Слишком много вводных для одного разбора. Сократите текст или количество фотографий.",
     research_payload_invalid: "Проверьте название, артикул, ссылку и вводные товара.",
     marketplace_url_invalid: "Укажите полную публичную ссылку на карточку товара, начиная с https://.",
     source_media_ids_invalid: "Можно выбрать не более пяти фотографий товара.",
-    platforms_invalid: "Выберите хотя бы одну площадку: Instagram, YouTube или VK.",
+    platforms_invalid: "Выберите хотя бы одну площадку: Instagram, YouTube, VK, Wildberries или Ozon.",
     content_review_limit_invalid: "История проверки может содержать от 1 до 50 записей.",
     content_review_media_required: "Выберите точное изображение или MP4 из раздела «Материалы».",
     content_review_context_invalid: "Проверьте площадку, статус публикации, категорию товара и наличие людей.",
@@ -3132,6 +4753,12 @@ function toFriendlyMessage(error) {
     research_run_not_found: "Исследование не найдено. Начните новый разбор.",
     research_run_not_allowed: "У вас нет доступа к этому исследованию.",
     research_run_not_completed: "Анализ ещё не завершён. Сначала обновите его статус.",
+    research_watchlist_payload_invalid: "Параметры наблюдения устарели. Обновите раздел и повторите действие.",
+    research_watchlist_action_invalid: "Выберите доступное действие: подключить, изменить, поставить на паузу или возобновить.",
+    refresh_interval_days_invalid: "Интервал наблюдения должен быть от 3 до 90 дней.",
+    approved_research_v2_draft_required: "Для наблюдения нужен утверждённый человеком результат с категорией, конкурентами, трендами и рекомендацией.",
+    research_watchlist_use_resume: "Наблюдение уже существует и стоит на паузе. Используйте «Возобновить».",
+    research_watchlist_not_found: "Наблюдение для этого товара ещё не подключено.",
     input_validation_failed: "Сервис не смог безопасно прочитать исходные данные. Проверьте товар и начните новый разбор.",
     processing_lease_expired: "Анализ завершён по безопасному таймауту и не будет запущен повторно автоматически. Новый запуск требует отдельного подтверждения.",
     provider_outcome_unknown: "Провайдер мог принять платный запрос, но результат не подтверждён. Автоматического повторного списания нет — перед новым запуском проверьте расходы.",

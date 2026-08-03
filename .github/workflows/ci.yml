@@ -122,6 +122,7 @@ jobs:
               "creator-set-password",
               "creator-generate",
               "creator-product-research",
+              "creator-research-ingestion",
               "creator-content-review",
               "creator-access",
           ):
@@ -165,6 +166,8 @@ jobs:
           deno fmt --check supabase/functions/creator-set-password
           deno fmt --check supabase/functions/creator-generate
           deno fmt --check supabase/functions/creator-product-research
+          deno fmt --check supabase/functions/creator-research-ingestion
+          deno fmt --check supabase/functions/_shared/youtube-data-api-v3.ts
           deno fmt --check supabase/functions/creator-content-review
           deno fmt --check supabase/functions/creator-background-worker
           deno fmt --check supabase/functions/creator-access
@@ -178,9 +181,10 @@ jobs:
           deno lint supabase/functions/creator-invite/index.ts
           deno lint supabase/functions/creator-set-password/index.ts
           deno lint supabase/functions/creator-generate/index.ts
-          deno lint supabase/functions/creator-product-research/index.ts
+          deno lint supabase/functions/creator-product-research/index.ts supabase/functions/creator-product-research/index_test.ts
+          deno lint supabase/functions/creator-research-ingestion/index.ts supabase/functions/creator-research-ingestion/index_test.ts supabase/functions/_shared/youtube-data-api-v3.ts
           deno lint supabase/functions/creator-content-review/index.ts
-          deno lint supabase/functions/creator-background-worker/index.ts
+          deno lint supabase/functions/creator-background-worker/index.ts supabase/functions/creator-background-worker/index_test.ts
           deno lint supabase/functions/creator-access/index.ts
           deno lint supabase/functions/creator-recovery/index.ts
           deno lint supabase/functions/creator-click/index.ts
@@ -192,14 +196,24 @@ jobs:
           deno check supabase/functions/creator-invite/index.ts
           deno check supabase/functions/creator-set-password/index.ts
           deno check supabase/functions/creator-generate/index.ts
-          deno check supabase/functions/creator-product-research/index.ts
+          deno check supabase/functions/creator-product-research/index.ts supabase/functions/creator-product-research/index_test.ts
+          deno check supabase/functions/creator-research-ingestion/index.ts supabase/functions/creator-research-ingestion/index_test.ts supabase/functions/_shared/youtube-data-api-v3.ts
           deno check supabase/functions/creator-content-review/index.ts
-          deno check supabase/functions/creator-background-worker/index.ts
+          deno check supabase/functions/creator-background-worker/index.ts supabase/functions/creator-background-worker/index_test.ts
           deno check supabase/functions/creator-access/index.ts
           deno check supabase/functions/creator-recovery/index.ts
           deno check supabase/functions/creator-click/index.ts
           deno check supabase/functions/auth-email-webhook/index.ts
           deno check supabase/functions/_shared/internal-worker-auth.ts
+
+      - name: Test creator product research
+        run: deno test supabase/functions/creator-product-research/index_test.ts
+
+      - name: Test creator research ingestion
+        run: deno test supabase/functions/creator-research-ingestion/index_test.ts
+
+      - name: Test automatic research source dispatch
+        run: deno test supabase/functions/creator-background-worker/index_test.ts
 
   reference-postgres-migration:
     name: Validate reference Alembic/PostgreSQL model

@@ -33,6 +33,14 @@ def test_runbook_names_only_the_reviewed_vault_secret_aliases() -> None:
     assert "sb_secret_" not in RUNBOOK
 
 
+def test_runbook_distinguishes_youtube_production_opt_in_from_health_check() -> None:
+    assert "youtube_limit=1" in RUNBOOK
+    assert "youtube_limit=0" in RUNBOOK
+    assert "hard batch cap of eight" in RUNBOOK
+    assert "never requeued" in RUNBOOK
+    assert "fallback provider" in RUNBOOK
+
+
 def test_cloud_guide_no_longer_claims_github_is_the_production_timer() -> None:
     durable_section = CLOUD_GUIDE.split(
         "### Durable background work and notification delivery", 1

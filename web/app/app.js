@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260729.2";
+} from "./supabase-api.js?v=20260803.7";
 import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6";
 import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
 import {
@@ -52,14 +52,20 @@ import {
   normalizeAccessCenterResult,
 } from "./access-center-view.js?v=20260717.1";
 import {
+  applyResearchMarketCategoryResolution,
+  applyResearchOutcomeLearningMutation,
   normalizeProductResearch,
+  normalizeResearchCategoryLearning,
+  normalizeResearchSourceAnalysisInput,
+  normalizeResearchStageControl,
+  normalizeResearchMarketRegistry,
   inspectResearchScenarioGenerationReadiness,
   productResearchInputMarkup,
   productResearchProgressMarkup,
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260728.5";
+} from "./product-research-view.js?v=20260803.9";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -71,7 +77,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260730.1";
+} from "./content-generation-handoff.js?v=20260803.1";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -261,6 +267,14 @@ const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
+const PRODUCT_RESEARCH_YOUTUBE_PHASES = new Set([
+  "youtube-canary",
+  "youtube-refresh",
+  "youtube-rollout",
+  "youtube-candidate",
+]);
+const PRODUCT_RESEARCH_YOUTUBE_TERMS_VERSION =
+  "youtube-developer-policies-2026-08-03-v1";
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
 const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -1060,6 +1074,17 @@ const state = {
     pollTimer: null,
     requestId: 0,
     restoreAttempted: false,
+    prefill: null,
+    stageControl: {
+      status: "idle",
+      data: null,
+      error: "",
+      notice: "",
+      requestId: 0,
+      runId: "",
+      branchId: "",
+      draftSyncId: "",
+    },
   },
   contentReview: {
     phase: "idle",
@@ -11885,6 +11910,133 @@ function taskActionsMarkup(item) {
   return "";
 }
 
+function resetResearchStageControl({ preserveRequestId = false } = {}) {
+  const current = state.productResearch.stageControl;
+  state.productResearch.stageControl = {
+    status: "idle",
+    data: null,
+    error: "",
+    notice: "",
+    requestId: preserveRequestId ? current.requestId : current.requestId + 1,
+    runId: "",
+    branchId: "",
+    draftSyncId: "",
+  };
+}
+
+function syncProductResearchAfterStageSnapshot(snapshot) {
+  const currentDraftId = String(
+    snapshot?.guidance?.currentDraftId || "",
+  ).trim().toLowerCase();
+  const research = state.productResearch;
+  const control = research.stageControl;
+  if (
+    !currentDraftId
+    || currentDraftId === String(research.record?.draftId || "").toLowerCase()
+    || control.draftSyncId === currentDraftId
+    || !research.record?.id
+  ) return;
+  const runId = research.record.id;
+  control.draftSyncId = currentDraftId;
+  void state.api.productResearchStatus(
+    runId,
+    productResearchOutcomeStatusOptions(),
+  ).then((raw) => {
+    if (
+      String(state.productResearch.record?.id || "") === runId
+      && state.productResearch.stageControl.draftSyncId === currentDraftId
+    ) {
+      state.productResearch.record = normalizeProductResearch(
+        raw,
+        state.productResearch.record,
+      );
+    }
+  }).catch(() => {
+    if (state.productResearch.stageControl.draftSyncId === currentDraftId) {
+      state.productResearch.stageControl.notice = "Новый точный снимок найден. Если ТЗ ещё показывает старую версию, обновите общий статус исследования; stage-команду повторять не нужно.";
+    }
+  }).finally(() => {
+    if (state.productResearch.stageControl.draftSyncId === currentDraftId) {
+      state.productResearch.stageControl.draftSyncId = "";
+    }
+    if (state.route.path === "/workspace/research") renderWorkspace("research");
+  });
+}
+
+async function loadResearchStageControl({
+  runId = state.productResearch.record?.id,
+  branchId = "",
+  silent = false,
+} = {}) {
+  const normalizedRunId = String(runId || "").trim().toLowerCase();
+  const normalizedBranchId = String(branchId || "").trim().toLowerCase();
+  if (!normalizedRunId || !state.api) return null;
+  const control = state.productResearch.stageControl;
+  const requestId = control.requestId + 1;
+  control.requestId = requestId;
+  control.runId = normalizedRunId;
+  control.branchId = normalizedBranchId;
+  control.status = silent && control.data ? "refreshing" : "loading";
+  control.error = "";
+  if (!silent && state.route.path === "/workspace/research") {
+    renderWorkspace("research");
+  }
+  try {
+    const raw = await withUiTimeout(
+      state.api.researchStageControlStatus(normalizedRunId, {
+        ...(normalizedBranchId ? { branch_id: normalizedBranchId } : {}),
+        history_limit: 30,
+      }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "research_stage_control_status_timeout",
+    );
+    if (
+      requestId !== control.requestId
+      || normalizedRunId !== String(state.productResearch.record?.id || "").toLowerCase()
+    ) return null;
+    const normalized = normalizeResearchStageControl(raw, normalizedRunId);
+    if (!normalized.available) {
+      throw new Error("research_stage_control_response_invalid");
+    }
+    control.data = normalized;
+    control.status = "ready";
+    control.error = "";
+    control.runId = normalizedRunId;
+    control.branchId = normalized.selectedBranch.branchId;
+    syncProductResearchAfterStageSnapshot(normalized);
+    return normalized;
+  } catch (error) {
+    if (requestId !== control.requestId) return null;
+    control.status = "error";
+    control.error = String(error?.message || "") === "research_stage_control_status_timeout"
+      ? "Статус этапов не ответил вовремя. Никаких команд и платных запусков не повторялось."
+      : actionErrorMessage(error);
+    return null;
+  } finally {
+    if (
+      requestId === control.requestId
+      && state.route.path === "/workspace/research"
+      && state.route.query.get("view") === "corrections"
+    ) renderWorkspace("research");
+  }
+}
+
+function ensureResearchStageControlLoaded(runId) {
+  const normalizedRunId = String(runId || "").trim().toLowerCase();
+  const control = state.productResearch.stageControl;
+  if (!normalizedRunId) return;
+  if (control.runId && control.runId !== normalizedRunId) {
+    resetResearchStageControl();
+  }
+  if (state.productResearch.stageControl.status !== "idle") return;
+  state.productResearch.stageControl.status = "loading";
+  state.productResearch.stageControl.runId = normalizedRunId;
+  window.queueMicrotask(() => loadResearchStageControl({
+    runId: normalizedRunId,
+    silent: true,
+  }));
+}
+
 function renderProductResearchSection() {
   if (!canManageProductResearch()) {
     return `<div class="page-wrap">${alertMarkup("Разбор товара доступен руководителю и продюсеру.", "danger")}</div>`;
@@ -11909,6 +12061,13 @@ function renderProductResearchSection() {
     : statusKind === "approved"
       ? "handoff"
       : "evidence";
+  if (
+    researchView === "corrections"
+    && research.record?.id
+    && ["ready", "approved"].includes(statusKind)
+  ) {
+    ensureResearchStageControlLoaded(research.record.id);
+  }
   let content;
   if (["starting", "processing"].includes(research.phase) || statusKind === "active") {
     content = productResearchProgressMarkup(research.record, research.error);
@@ -11929,7 +12088,18 @@ function renderProductResearchSection() {
       approving: research.phase === "approving",
       watchlistSaving: research.phase === "watchlist",
       marketCategorySaving: ["market-category", "market-category-search"].includes(research.phase),
-      outcomeLearningSaving: research.phase === "outcome-learning",
+      outcomeLearningSaving: ["outcome-learning", "outcome-scope"].includes(research.phase),
+      categoryLearningSaving: [
+        "category-learning-capture",
+        "category-learning-correction",
+        "category-learning-policy",
+      ].includes(research.phase),
+      categoryLearningPolicyWritable: ["owner", "admin"].includes(
+        state.bootstrap?.membership?.role,
+      ),
+      youtubeSavingPhase: PRODUCT_RESEARCH_YOUTUBE_PHASES.has(research.phase)
+        ? research.phase
+        : "",
       notice: research.notice,
       error: research.error,
       members: productResearchAssignableMembers(),
@@ -11941,6 +12111,13 @@ function renderProductResearchSection() {
         && activeHandoff.draftId === research.record.draftId
         && activeHandoff.scenario?.position === recommendedPosition
       ),
+      stageControl: research.stageControl.data,
+      stageControlLoading: ["loading", "refreshing"].includes(
+        research.stageControl.status,
+      ),
+      stageControlSaving: research.stageControl.status !== "ready",
+      stageControlError: research.stageControl.error,
+      stageControlNotice: research.stageControl.notice,
       view: researchView,
     })}`;
   } else if (research.phase === "error" && research.record) {
@@ -12002,15 +12179,18 @@ function restoreProductResearchSession() {
   const research = state.productResearch;
   if (research.restoreAttempted || research.record) return;
   research.restoreAttempted = true;
-  const key = productResearchRunStorageKey();
-  if (!key) return;
-  let runId = "";
-  try {
-    runId = String(window.sessionStorage.getItem(key) || "").trim();
-  } catch {
-    return;
+  let runId = safeWorkspaceRouteEntityId("research");
+  if (!runId) {
+    const key = productResearchRunStorageKey();
+    if (!key) return;
+    try {
+      runId = String(window.sessionStorage.getItem(key) || "").trim();
+    } catch {
+      return;
+    }
   }
   if (!runId) return;
+  persistProductResearchRunId(runId);
   research.record = normalizeProductResearch({ run: { id: runId, status: "queued" } });
   research.phase = "processing";
   window.queueMicrotask(() => pollProductResearchStatus({ silent: true }));
@@ -12032,7 +12212,14 @@ function scheduleProductResearchPolling(delay = PRODUCT_RESEARCH_POLL_INTERVAL_M
 async function pollProductResearchStatus({ silent = false } = {}) {
   const research = state.productResearch;
   const runId = String(research.record?.id || "");
-  if (!runId || ["starting", "saving", "approving"].includes(research.phase)) return;
+  if (
+    !runId
+    || [
+      "starting", "saving", "approving", "watchlist", "market-category",
+      "market-category-search", "outcome-learning", "outcome-scope",
+      ...PRODUCT_RESEARCH_YOUTUBE_PHASES,
+    ].includes(research.phase)
+  ) return;
   const requestId = research.requestId + 1;
   research.requestId = requestId;
   if (!silent) {
@@ -12042,12 +12229,15 @@ async function pollProductResearchStatus({ silent = false } = {}) {
   }
   try {
     const raw = await withUiTimeout(
-      state.api.productResearchStatus(runId),
+      state.api.productResearchStatus(runId, productResearchOutcomeStatusOptions()),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "product_research_status_timeout",
     );
     if (requestId !== research.requestId || runId !== String(research.record?.id || "")) return;
-    research.record = normalizeProductResearch(raw, research.record);
+    research.record = {
+      ...normalizeProductResearch(raw, research.record),
+      statusNotice: "",
+    };
     prepareRecommendedResearchHandoff(research.record);
     const kind = productResearchStatusKind(research.record.status);
     research.phase = kind === "failed" ? "error" : kind === "active" ? "processing" : kind;
@@ -12056,10 +12246,17 @@ async function pollProductResearchStatus({ silent = false } = {}) {
       : "";
   } catch (error) {
     if (requestId !== research.requestId) return;
-    research.phase = "error";
-    research.error = String(error?.message || "") === "product_research_status_timeout"
+    const statusMessage = String(error?.message || "") === "product_research_status_timeout"
       ? "Сервер не ответил вовремя. Запуск не потерян — проверьте статус ещё раз."
       : actionErrorMessage(error);
+    if (productResearchStatusKind(research.record?.status) === "active") {
+      research.phase = "processing";
+      research.error = "";
+      research.record = { ...research.record, statusNotice: statusMessage };
+    } else {
+      research.phase = "error";
+      research.error = statusMessage;
+    }
   }
   if (state.route.path === "/workspace/research") renderWorkspace("research");
   scheduleProductResearchPolling();
@@ -13095,6 +13292,70 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "refresh-research-stage-control") {
+    const runId = String(state.productResearch.record?.id || "").trim();
+    const branchId = String(
+      state.productResearch.stageControl.data?.selectedBranch?.branchId || "",
+    ).trim();
+    if (!runId) {
+      toast("Не удалось определить исследование. Обновите раздел.", "error");
+      return;
+    }
+    await loadResearchStageControl({ runId, branchId });
+    return;
+  }
+
+  if (action === "select-research-stage-branch") {
+    const runId = String(state.productResearch.record?.id || "").trim();
+    const branchId = String(control.dataset.branchId || "").trim().toLowerCase();
+    const knownBranch = state.productResearch.stageControl.data?.branches
+      ?.some((branch) => branch.branchId === branchId);
+    if (!runId || !knownBranch) {
+      toast("Ветка изменилась. Обновите снимок этапов.", "error");
+      return;
+    }
+    await loadResearchStageControl({ runId, branchId });
+    return;
+  }
+
+  if (action === "resume-research-stage-recompute") {
+    const stageControl = state.productResearch.stageControl;
+    const active = stageControl.data?.activeRecompute;
+    const requestId = String(control.dataset.requestId || "").trim().toLowerCase();
+    const childRunId = String(control.dataset.childRunId || "").trim().toLowerCase();
+    if (
+      !active
+      || active.requestId !== requestId
+      || active.childRunId !== childRunId
+      || active.status !== "queued"
+      || active.providerAttemptCount !== 0
+      || active.cancelReason === "branch_changed_after_prepare"
+    ) {
+      toast("Сохранённый пересчёт изменился. Сначала проверьте его статус.", "error");
+      await loadResearchStageControl({
+        runId: state.productResearch.record?.id,
+        branchId: stageControl.data?.selectedBranch?.branchId,
+      });
+      return;
+    }
+    stageControl.status = "mutating";
+    stageControl.error = "";
+    stageControl.notice = "Вручную проверяем сохранённый дочерний запуск. Новый recompute-запрос не создаётся.";
+    renderWorkspace("research");
+    try {
+      await state.api.resumeResearchStageRecompute(childRunId, requestId);
+      stageControl.notice = "Сохранённый запуск принят. Проверьте статус; повторный платный запрос не создавался.";
+    } catch (error) {
+      stageControl.error = `${actionErrorMessage(error)} Запрос ${requestId.slice(0, 8)}… сохранён; не повторяйте его автоматически.`;
+    }
+    await loadResearchStageControl({
+      runId: state.productResearch.record?.id,
+      branchId: stageControl.data?.selectedBranch?.branchId,
+      silent: true,
+    });
+    return;
+  }
+
   if (action === "refresh-product-research") {
     await pollProductResearchStatus();
     return;
@@ -13342,6 +13603,12 @@ async function handleClick(event) {
   }
 
   if (action === "new-product-research") {
+    if (productResearchStatusKind(state.productResearch.record?.status) === "active") {
+      toast("Текущий платный анализ ещё не получил терминальный статус. Сначала обновите его, чтобы не создать второй запуск.", "error");
+      await pollProductResearchStatus({ silent: false });
+      return;
+    }
+    const previousRecord = state.productResearch.record;
     stopProductResearchPolling();
     clearProductResearchRunId();
     state.productResearch.requestId += 1;
@@ -13350,7 +13617,16 @@ async function handleClick(event) {
     state.productResearch.error = "";
     state.productResearch.notice = "";
     state.productResearch.restoreAttempted = true;
-    renderWorkspace("research");
+    resetResearchStageControl();
+    state.productResearch.prefill = previousRecord
+      ? {
+        productName: previousRecord.productName || "",
+        sku: previousRecord.sku || "",
+        categoryName: previousRecord.categoryAnalysis?.categoryName || "",
+      }
+      : null;
+    if (state.route.query.has("research")) navigate("/workspace/research", true);
+    else renderWorkspace("research");
     window.queueMicrotask(() => document.querySelector('#product-research-start-form input[name="product_name"]')?.focus());
     return;
   }
@@ -13781,6 +14057,20 @@ async function handleSubmit(event) {
   else if (form.id === "save-my-work-view-form") await submitSavedMyWorkView(form);
   else if (form.id === "generation-archive-filter-form") await submitGenerationArchiveFilters(form);
   else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
+  else if (form.id === "product-research-watchlist-form") await submitProductResearchWatchlist(form, event.submitter);
+  else if (form.id === "product-research-market-category-search-form") await submitProductResearchMarketCategorySearch(form);
+  else if (form.classList.contains("product-research-market-category-form")) await submitProductResearchMarketCategory(form, event.submitter);
+  else if (form.id === "product-research-outcome-scope-form") await submitProductResearchOutcomeScope(form);
+  else if (form.id === "product-research-outcome-refresh-form") await submitProductResearchOutcomeRefresh(form);
+  else if (form.classList.contains("product-research-outcome-form")) await submitProductResearchOutcomeDecision(form, event.submitter);
+  else if (form.id === "product-research-youtube-request-form") await submitProductResearchYoutubeRequest(form, event.submitter);
+  else if (form.id === "product-research-youtube-rollout-form") await submitProductResearchYoutubeRollout(form, event.submitter);
+  else if (form.classList.contains("product-research-youtube-candidate-form")) await submitProductResearchYoutubeCandidate(form, event.submitter);
+  else if (form.classList.contains("product-research-readiness-capture-form")) await submitProductResearchReadinessCapture(form);
+  else if (form.classList.contains("product-research-source-correction-form")) await submitProductResearchSourceCorrection(form);
+  else if (form.classList.contains("product-research-collection-policy-form")) await submitProductResearchCollectionPolicy(form, event.submitter);
+  else if (form.classList.contains("product-research-stage-cancel-form")) await submitProductResearchStageCancel(form, event.submitter);
+  else if (form.classList.contains("product-research-stage-control-form")) await submitProductResearchStageControl(form, event.submitter);
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
   else if (form.id === "content-review-form") await submitContentReview(form);
   else if (form.classList.contains("content-review-decision-form")) await submitContentReviewDecision(form, event.submitter);
@@ -17650,15 +17940,26 @@ async function normalizePasswordFunctionError(error) {
 
 async function submitProductResearchStart(form) {
   const values = new FormData(form);
+  const paidAnalysisConfirmed = values.has("paid_analysis_ack");
   const productName = String(values.get("product_name") || "").trim();
   const sku = String(values.get("sku") || "").trim();
+  const categoryName = String(values.get("category_name") || "").trim();
+  const researchFocus = String(values.get("research_focus") || "").trim();
+  const competitorReferences = String(
+    values.get("competitor_references") || "",
+  ).trim();
   const marketplaceUrl = String(values.get("marketplace_url") || "").trim();
   const sourceMediaIds = values.getAll("source_media_ids").map(String).filter(Boolean);
   const platforms = values.getAll("platforms").map(String).filter((item) =>
     PRODUCT_RESEARCH_PLATFORM_SET.has(item)
   );
+  if (!paidAnalysisConfirmed) {
+    toast("Подтвердите платный ИИ-анализ перед запуском.", "error");
+    form.elements.paid_analysis_ack?.focus();
+    return;
+  }
   if (!platforms.length) {
-    toast("Выберите хотя бы одну площадку: Instagram, YouTube, VK или Wildberries.", "error");
+    toast("Выберите хотя бы одну площадку: Instagram, YouTube, VK, Wildberries или Ozon.", "error");
     form.querySelector(".product-research-platforms")?.scrollIntoView({ block: "center" });
     return;
   }
@@ -17683,15 +17984,31 @@ async function submitProductResearchStart(form) {
   };
   const objectiveKey = String(values.get("objective") || "conversion");
   const knownFacts = String(values.get("known_facts") || "").trim();
-  const objective = [objectiveLabels[objectiveKey] || objectiveLabels.conversion, knownFacts ? `Подтверждённые вводные пользователя: ${knownFacts}` : ""]
+  const objective = [
+    objectiveLabels[objectiveKey] || objectiveLabels.conversion,
+    categoryName
+      ? `Категория пользователя: ${categoryName}`
+      : "Категория пользователем не задана: предложить точное определение и явно отметить неопределённость.",
+    researchFocus ? `Приоритет исследования: ${researchFocus}` : "",
+    competitorReferences
+      ? `Ориентиры конкурентов пользователя (проверить публичными источниками, не копировать):\n${competitorReferences}`
+      : "Конкуренты пользователем не заданы: самостоятельно найти сопоставимые публичные предложения и оценить полноту выборки.",
+    knownFacts ? `Подтверждённые вводные пользователя: ${knownFacts}` : "",
+  ]
     .filter(Boolean)
     .join("\n");
+  if (objective.length > 2000) {
+    toast("Сократите вводные, ориентиры конкурентов или фокус исследования: вместе они должны занимать не более 2000 символов.", "error");
+    form.elements.competitor_references?.focus();
+    return;
+  }
   const previous = normalizeProductResearch({ run: { status: "queued" } }, {
     productName,
     sku,
     status: "queued",
   });
   stopProductResearchPolling();
+  resetResearchStageControl();
   state.productResearch.requestId += 1;
   state.productResearch.phase = "starting";
   state.productResearch.record = previous;
@@ -17707,6 +18024,7 @@ async function submitProductResearchStart(form) {
         marketplace_url: marketplaceUrl || null,
         source_media_ids: sourceMediaIds,
         platforms,
+        paid_analysis_ack: true,
       },
       {
         onRunCreated: (run) => {
@@ -17723,17 +18041,1371 @@ async function submitProductResearchStart(form) {
       run_id: state.productResearch.record.id,
       source_media_count: sourceMediaIds.length,
       platform_count: platforms.length,
+      category_provided: Boolean(categoryName),
+      competitor_references_provided: Boolean(competitorReferences),
     });
   } catch (error) {
     const recoverableRun = error?.job?.id
       ? normalizeProductResearch({ run: error.job }, previous)
       : null;
-    state.productResearch.record = recoverableRun;
-    state.productResearch.phase = "error";
-    state.productResearch.error = actionErrorMessage(error);
+    if (recoverableRun) {
+      state.productResearch.record = {
+        ...recoverableRun,
+        statusNotice: `${actionErrorMessage(error)} Запуск сохранён — дождитесь терминального статуса перед новым анализом.`,
+      };
+      state.productResearch.phase = "processing";
+      state.productResearch.error = "";
+    } else {
+      state.productResearch.record = null;
+      state.productResearch.phase = "error";
+      state.productResearch.error = actionErrorMessage(error);
+    }
   }
   if (state.route.path === "/workspace/research") renderWorkspace("research");
   scheduleProductResearchPolling(800);
+}
+
+async function submitProductResearchMarketCategory(form, submitter) {
+  const research = state.productResearch;
+  const runId = String(form.dataset.researchId || research.record?.id || "").trim();
+  const values = new FormData(form);
+  const action = String(
+    submitter?.dataset?.marketCategoryAction
+      || values.get("market_category_action")
+      || "",
+  ).trim().toLowerCase();
+  const allowedActions = new Set([
+    "bind_existing",
+    "create_and_bind",
+    "reclassify",
+    "create_and_reclassify",
+  ]);
+  if (!runId || !allowedActions.has(action)) {
+    toast("Не удалось определить решение по рыночной категории. Обновите раздел.", "error");
+    return;
+  }
+  const registry = research.record?.marketRegistry;
+  const currentBinding = registry?.currentBinding || null;
+  const allowedForState = currentBinding
+    ? new Set(["reclassify", "create_and_reclassify"])
+    : new Set(["bind_existing", "create_and_bind"]);
+  if (!registry?.available || registry.canResolve === false || !allowedForState.has(action)) {
+    toast("Состояние категории изменилось. Обновите исследование перед решением.", "error");
+    return;
+  }
+  if (form.elements.market_category_confirmation?.checked !== true) {
+    toast("Подтвердите решение по рыночной категории.", "error");
+    form.elements.market_category_confirmation?.focus();
+    return;
+  }
+  const candidateHash = String(values.get("candidate_hash") || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/u.test(candidateHash)) {
+    toast("Предложение категории устарело. Обновите исследование.", "error");
+    return;
+  }
+  const reason = String(values.get("reason") || "").trim();
+  if (currentBinding && (reason.length < 3 || reason.length > 500)) {
+    toast("Кратко объясните переклассификацию (3–500 символов).", "error");
+    form.elements.reason?.focus();
+    return;
+  }
+  const options = {
+    action,
+    candidate_hash: candidateHash,
+    confirmation: true,
+    reason,
+  };
+  if (["bind_existing", "reclassify"].includes(action)) {
+    options.category_id = String(values.get("category_id") || "").trim();
+  } else {
+    options.canonical_name = String(values.get("canonical_name") || "").trim();
+    options.definition = String(values.get("definition") || "").trim();
+    options.aliases = String(values.get("aliases") || "")
+      .split(/\r?\n/u)
+      .map((item) => item.replace(/\s+/gu, " ").trim())
+      .filter(Boolean);
+  }
+  research.phase = "market-category";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const mutation = await state.api.resolveResearchMarketCategory(runId, options);
+    research.record = applyResearchMarketCategoryResolution(research.record, mutation);
+    let statusRefreshUnavailable = false;
+    try {
+      const refreshed = await state.api.productResearchStatus(runId);
+      research.record = normalizeProductResearch(refreshed, research.record);
+    } catch {
+      statusRefreshUnavailable = true;
+    }
+    research.phase = research.record.approved ? "approved" : "ready";
+    research.notice = statusRefreshUnavailable
+      ? "Рыночная категория сохранена, но общий статус пока не обновился. Не повторяйте решение — просто проверьте статус позже."
+      : "Рыночная категория подтверждена. История решения сохранена; платный анализ не запускался.";
+    await track("product_research_market_category_resolved", {
+      run_id: runId,
+      action,
+      binding_version: research.record.marketRegistry?.currentBinding?.bindingVersion || null,
+      paid_provider_action: false,
+      compliance_category_changed: false,
+    });
+  } catch (error) {
+    const code = String(error?.serverCode || error?.code || "");
+    const refreshConflictCodes = new Set([
+      "research_market_category_candidate_stale",
+      "research_market_category_reclassify_required",
+      "research_market_category_binding_required",
+      "research_market_category_not_found",
+      "research_market_category_unchanged",
+      "research_market_category_alias_conflict",
+    ]);
+    if (refreshConflictCodes.has(code)) {
+      try {
+        const refreshed = await state.api.productResearchStatus(runId);
+        research.record = normalizeProductResearch(refreshed, research.record);
+      } catch {
+        // The stale decision is never retried automatically. Existing data stays visible.
+      }
+      research.error = code === "research_market_category_candidate_stale"
+        ? "Предложение категории изменилось. Проверьте обновлённые границы и подтвердите решение заново."
+        : actionErrorMessage(error);
+    } else {
+      research.error = actionErrorMessage(error);
+    }
+    research.phase = research.record?.approved ? "approved" : "ready";
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchMarketCategorySearch(form) {
+  const research = state.productResearch;
+  const runId = String(form.dataset.researchId || research.record?.id || "").trim();
+  const query = String(new FormData(form).get("category_query") || "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!runId || query.length < 2 || query.length > 160) {
+    toast("Введите точное название или сохранённый синоним категории.", "error");
+    form.elements.category_query?.focus();
+    return;
+  }
+  research.phase = "market-category-search";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const raw = await state.api.searchResearchMarketCategories(runId, query);
+    const source = raw?.data && typeof raw.data === "object" && !Array.isArray(raw.data)
+      ? raw.data
+      : raw;
+    research.record = {
+      ...research.record,
+      marketRegistry: normalizeResearchMarketRegistry({
+        registry: source,
+        unavailable: false,
+      }),
+    };
+    research.phase = research.record?.approved ? "approved" : "ready";
+    research.notice = research.record.marketRegistry.categories.length
+      ? "Найдена точная сохранённая категория. Проверьте границы перед подтверждением."
+      : "Точного названия или синонима нет. При необходимости создайте новую устойчивую категорию.";
+    await track("product_research_market_category_searched", {
+      run_id: runId,
+      result_count: research.record.marketRegistry.categories.length,
+      paid_provider_action: false,
+    });
+  } catch (error) {
+    research.phase = research.record?.approved ? "approved" : "ready";
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+function productResearchOutcomeScopeFromValues(values) {
+  return {
+    marketCategoryId: String(values.get("market_category_id") || "").trim().toLowerCase(),
+    platform: String(values.get("platform") || "").trim().toLowerCase(),
+    model: String(values.get("model") || "").trim().toLowerCase(),
+  };
+}
+
+function productResearchOutcomeScopeMatches(left, right) {
+  return Boolean(
+    left
+    && right
+    && left.marketCategoryId === right.marketCategoryId
+    && left.platform === right.platform
+    && left.model === right.model,
+  );
+}
+
+function productResearchOutcomeStatusOptions(scope = null) {
+  const selected = scope
+    || state.productResearch.record?.outcomeScopeRegistry?.selectedScope
+    || null;
+  return selected
+    ? {
+      outcome_scope: {
+        market_category_id: selected.marketCategoryId,
+        platform: selected.platform,
+        model: selected.model,
+      },
+    }
+    : {};
+}
+
+function productResearchOutcomeRegistryAllows(scope) {
+  const registry = state.productResearch.record?.outcomeScopeRegistry;
+  return Boolean(
+    registry?.available
+    && productResearchOutcomeScopeMatches(scope, registry.selectedScope)
+    && registry.scopes?.some((entry) => (
+      productResearchOutcomeScopeMatches(scope, entry.scope)
+    )),
+  );
+}
+
+async function submitProductResearchOutcomeScope(form) {
+  const research = state.productResearch;
+  const registry = research.record?.outcomeScopeRegistry;
+  const selectedKey = String(new FormData(form).get("scope_key") || "").trim();
+  const selectedEntry = registry?.scopes?.find((entry) => entry.key === selectedKey);
+  if (
+    !research.record?.id
+    || !registry?.available
+    || !registry.selectionRequired
+    || !selectedEntry
+  ) {
+    toast("Выберите точный контур из актуального серверного реестра.", "error");
+    return;
+  }
+  const runId = research.record.id;
+  const requestId = research.requestId + 1;
+  research.requestId = requestId;
+  research.phase = "outcome-scope";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const raw = await state.api.productResearchStatus(
+      runId,
+      productResearchOutcomeStatusOptions(selectedEntry.scope),
+    );
+    if (requestId !== research.requestId || runId !== research.record?.id) return;
+    const next = normalizeProductResearch(raw, research.record);
+    if (next.outcomeScopeRegistry?.selectedScopeKey !== selectedKey) {
+      throw new Error("research_outcome_scope_selection_stale");
+    }
+    research.record = next;
+    research.phase = next.approved ? "approved" : "ready";
+    research.notice = "Открыт точный контур. Это только read-only выбор: провайдер, генерация и публикация не запускались.";
+    await track("product_research_outcome_scope_selected", {
+      scope_key: selectedKey,
+      market_category_id: selectedEntry.scope.marketCategoryId,
+      platform: selectedEntry.scope.platform,
+      model: selectedEntry.scope.model,
+      provider_action: false,
+      spend_action: false,
+      generation_action: false,
+      publication_action: false,
+    });
+  } catch (error) {
+    if (requestId !== research.requestId) return;
+    research.phase = research.record?.approved ? "approved" : "ready";
+    research.error = String(error?.message || "") === "research_outcome_scope_selection_stale"
+      ? "Список контуров изменился. Обновите исследование и выберите его заново."
+      : actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchOutcomeRefresh(form) {
+  const research = state.productResearch;
+  const control = research.record?.outcomeLearning;
+  const values = new FormData(form);
+  const scope = productResearchOutcomeScopeFromValues(values);
+  if (
+    !research.record?.id
+    || !control?.available
+    || !control.canRefresh
+    || !productResearchOutcomeScopeMatches(scope, control.scope)
+    || !productResearchOutcomeRegistryAllows(scope)
+  ) {
+    toast("Контур результатов изменился. Обновите исследование перед проверкой.", "error");
+    return;
+  }
+  research.phase = "outcome-learning";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const mutation = await state.api.refreshResearchOutcomeLearning({
+      market_category_id: scope.marketCategoryId,
+      platform: scope.platform,
+      model: scope.model,
+    });
+    research.record = applyResearchOutcomeLearningMutation(research.record, mutation);
+    let statusRefreshUnavailable = false;
+    try {
+      const refreshed = await state.api.productResearchStatus(
+        research.record.id,
+        productResearchOutcomeStatusOptions(control.scope),
+      );
+      research.record = normalizeProductResearch(refreshed, research.record);
+    } catch {
+      statusRefreshUnavailable = true;
+    }
+    research.phase = research.record.approved ? "approved" : "ready";
+    const hasPending = research.record.outcomeLearning?.candidates
+      ?.some((candidate) => candidate.status === "pending");
+    research.notice = statusRefreshUnavailable
+      ? "Новые зрелые результаты проверены, но общий статус пока не обновился. Не повторяйте действие — проверьте статус позже."
+      : hasPending
+        ? "Система собрала проверяемого кандидата. Он не активирован: проверьте evidence и примите отдельное решение."
+        : "Зрелые собственные результаты проверены. Автоматической активации, генерации или публикации не было.";
+    await track("product_research_outcome_refreshed", {
+      market_category_id: scope.marketCategoryId,
+      platform: scope.platform,
+      model: scope.model,
+      candidate_pending: Boolean(hasPending),
+      paid_provider_action: false,
+      generation_action: false,
+      placement_action: false,
+      publication_action: false,
+    });
+  } catch (error) {
+    research.phase = research.record?.approved ? "approved" : "ready";
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchOutcomeDecision(form, submitter) {
+  const research = state.productResearch;
+  const control = research.record?.outcomeLearning;
+  const values = new FormData(form);
+  const scope = productResearchOutcomeScopeFromValues(values);
+  const action = String(submitter?.dataset?.outcomeAction || "").trim().toLowerCase();
+  const allowedActions = new Set([
+    "activate",
+    "reject",
+    "quarantine",
+    "deactivate",
+    "revert",
+  ]);
+  if (
+    !research.record?.id
+    || !control?.available
+    || !control.canDecide
+    || !allowedActions.has(action)
+    || !productResearchOutcomeScopeMatches(scope, control.scope)
+    || !productResearchOutcomeRegistryAllows(scope)
+  ) {
+    toast("Выберите явное действие и обновите статус обучающей памяти.", "error");
+    return;
+  }
+  if (form.elements.outcome_confirmation?.checked !== true) {
+    toast("Подтвердите решение по обучающей памяти.", "error");
+    form.elements.outcome_confirmation?.focus();
+    return;
+  }
+  const candidateId = String(values.get("candidate_id") || "").trim().toLowerCase();
+  const candidateVersion = Number(values.get("candidate_version"));
+  const candidateHash = String(values.get("candidate_hash") || "").trim().toLowerCase();
+  const expectedScopeVersion = Number(values.get("expected_scope_version"));
+  const knownCandidates = [
+    ...(control.candidates || []),
+    control.currentMemory?.candidate,
+    control.rollbackTarget?.candidate,
+  ].filter(Boolean);
+  const candidate = knownCandidates.find((item) => item.id === candidateId);
+  if (
+    !candidate
+    || candidate.version !== candidateVersion
+    || candidate.hash !== candidateHash
+    || expectedScopeVersion !== (control.currentMemory?.version || 0)
+  ) {
+    toast("Кандидат или версия памяти изменились. Обновите статус.", "error");
+    return;
+  }
+  const stateAllowsAction = ["activate", "reject", "quarantine"].includes(action)
+    ? candidate.status === "pending"
+    : action === "deactivate"
+      ? control.currentMemory?.state === "active"
+        && control.currentMemory.candidateId === candidate.id
+      : control.rollbackTarget?.candidateId === candidate.id
+        && String(values.get("rollback_memory_version_id") || "").trim().toLowerCase()
+          === control.rollbackTarget.memoryId;
+  if (!stateAllowsAction) {
+    toast("Это действие больше не соответствует текущему состоянию памяти.", "error");
+    return;
+  }
+  const reason = String(values.get("reason") || "").replace(/\s+/gu, " ").trim();
+  if (reason.length < 3 || reason.length > 500) {
+    toast("Кратко объясните решение (3–500 символов).", "error");
+    form.elements.reason?.focus();
+    return;
+  }
+  const options = {
+    action,
+    candidate_id: candidate.id,
+    candidate_version: candidate.version,
+    candidate_hash: candidate.hash,
+    expected_scope_version: expectedScopeVersion,
+    reason,
+    confirmation: true,
+  };
+  if (action === "revert") {
+    options.rollback_memory_version_id = control.rollbackTarget.memoryId;
+  }
+  research.phase = "outcome-learning";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const mutation = await state.api.decideResearchOutcomeLearning({
+      market_category_id: scope.marketCategoryId,
+      platform: scope.platform,
+      model: scope.model,
+    }, options);
+    research.record = applyResearchOutcomeLearningMutation(research.record, mutation);
+    let statusRefreshUnavailable = false;
+    try {
+      const refreshed = await state.api.productResearchStatus(
+        research.record.id,
+        productResearchOutcomeStatusOptions(control.scope),
+      );
+      research.record = normalizeProductResearch(refreshed, research.record);
+    } catch {
+      statusRefreshUnavailable = true;
+    }
+    research.phase = research.record.approved ? "approved" : "ready";
+    const actionLabel = {
+      activate: "Кандидат активирован только как управленческий совет.",
+      reject: "Кандидат отклонён.",
+      quarantine: "Кандидат помещён в карантин до новой версии evidence.",
+      deactivate: "Advisory‑версия отключена.",
+      revert: "Точная прежняя advisory‑версия восстановлена.",
+    }[action];
+    research.notice = statusRefreshUnavailable
+      ? `${actionLabel} Общий статус пока не обновился; не повторяйте решение.`
+      : `${actionLabel} Платная генерация и публикация не запускались.`;
+    await track("product_research_outcome_decided", {
+      action,
+      candidate_id: candidate.id,
+      candidate_version: candidate.version,
+      expected_scope_version: expectedScopeVersion,
+      market_category_id: scope.marketCategoryId,
+      platform: scope.platform,
+      model: scope.model,
+      paid_provider_action: false,
+      generation_action: false,
+      placement_action: false,
+      publication_action: false,
+    });
+  } catch (error) {
+    const code = String(error?.serverCode || error?.code || "");
+    const conflictCodes = new Set([
+      "research_outcome_candidate_not_found",
+      "research_outcome_refresh_required",
+      "research_outcome_candidate_stale",
+      "research_outcome_candidate_superseded",
+      "research_outcome_scope_version_stale",
+      "research_outcome_candidate_already_decided",
+      "research_outcome_active_memory_mismatch",
+      "research_outcome_rollback_target_invalid",
+    ]);
+    if (conflictCodes.has(code)) {
+      try {
+        const refreshed = await state.api.productResearchStatus(
+          research.record.id,
+          productResearchOutcomeStatusOptions(control.scope),
+        );
+        research.record = normalizeProductResearch(refreshed, research.record);
+      } catch {
+        // A stale decision is never retried automatically.
+      }
+    }
+    research.phase = research.record?.approved ? "approved" : "ready";
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function refreshProductResearchCategoryLearning(runId) {
+  const raw = await withUiTimeout(
+    state.api.researchCategoryLearningStatus(runId),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "research_category_learning_status_timeout",
+  );
+  const normalized = normalizeResearchCategoryLearning({
+    status: raw?.data && typeof raw.data === "object" && !Array.isArray(raw.data)
+      ? raw.data
+      : raw,
+    unavailable: false,
+    expectedRunId: runId,
+  });
+  if (!normalized.available) {
+    throw new Error("research_category_learning_response_invalid");
+  }
+  state.productResearch.record = {
+    ...state.productResearch.record,
+    categoryLearning: normalized,
+  };
+  return normalized;
+}
+
+async function submitProductResearchReadinessCapture(form) {
+  const research = state.productResearch;
+  const runId = String(research.record?.id || "").trim().toLowerCase();
+  const control = research.record?.categoryLearning;
+  const expectedEvidenceHash = String(
+    new FormData(form).get("expected_evidence_hash") || "",
+  ).trim().toLowerCase();
+  if (
+    !runId
+    || !control?.available
+    || control.runId !== runId
+    || expectedEvidenceHash !== control.evidenceHash
+  ) {
+    toast("Доказательная база изменилась. Обновите статус перед фиксацией.", "error");
+    return;
+  }
+  research.phase = "category-learning-capture";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  let mutationCompleted = false;
+  try {
+    await state.api.captureResearchCategoryReadiness(
+      runId,
+      expectedEvidenceHash,
+    );
+    mutationCompleted = true;
+    await refreshProductResearchCategoryLearning(runId);
+    research.notice = "Снимок готовности доказательной базы сохранён в append-only истории. Provider call не выполнялся.";
+  } catch (error) {
+    if (mutationCompleted) {
+      research.notice = "Снимок сохранён, но свежая история временно недоступна. Не повторяйте фиксацию автоматически.";
+    } else {
+      research.error = actionErrorMessage(error);
+      const code = String(error?.serverCode || error?.code || "");
+      if ([
+        "research_category_evidence_changed",
+        "research_market_category_required",
+      ].includes(code)) {
+        try {
+          await refreshProductResearchCategoryLearning(runId);
+        } catch {
+          // The stale capture is never retried automatically.
+        }
+      }
+    }
+  }
+  research.phase = productResearchRestingPhase();
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchSourceCorrection(form) {
+  const research = state.productResearch;
+  const runId = String(research.record?.id || "").trim().toLowerCase();
+  const control = research.record?.categoryLearning;
+  const sourceLedgerId = String(form.dataset.sourceLedgerId || "")
+    .trim()
+    .toLowerCase();
+  const values = new FormData(form);
+  const source = control?.sources?.find(
+    (item) => item.sourceLedgerId === sourceLedgerId,
+  );
+  const expectedHeadEventId = String(
+    values.get("expected_head_event_id") || "",
+  ).trim().toLowerCase();
+  const expectedHeadHash = String(
+    values.get("expected_head_hash") || "",
+  ).trim().toLowerCase();
+  if (
+    !runId
+    || !control?.available
+    || control.runId !== runId
+    || !source?.currentAnalysis
+    || source.currentAnalysis.eventId !== expectedHeadEventId
+    || source.currentAnalysis.eventHash !== expectedHeadHash
+    || !values.has("correction_confirmation")
+  ) {
+    toast("Head разбора изменился. Обновите статус и проверьте точную версию.", "error");
+    return;
+  }
+  let analysis;
+  try {
+    analysis = JSON.parse(String(values.get("analysis") || ""));
+  } catch {
+    toast("Исправленный разбор должен быть валидным JSON-объектом.", "error");
+    form.elements.analysis?.focus();
+    return;
+  }
+  analysis = normalizeResearchSourceAnalysisInput(analysis);
+  if (!analysis) {
+    toast("Разбор должен точно соответствовать schema v1: classification, relevance 0–100, confidence, summary, structural keys и limitations без raw текста.", "error");
+    form.elements.analysis?.focus();
+    return;
+  }
+  const correctionReason = String(
+    values.get("correction_reason") || "",
+  ).replace(/\s+/gu, " ").trim();
+  research.phase = "category-learning-correction";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  let mutationCompleted = false;
+  try {
+    await state.api.correctResearchSourceAnalysis({
+      source_ledger_id: sourceLedgerId,
+      expected_head_event_id: expectedHeadEventId,
+      expected_head_hash: expectedHeadHash,
+      analysis,
+      correction_reason: correctionReason,
+    });
+    mutationCompleted = true;
+    await refreshProductResearchCategoryLearning(runId);
+    research.notice = "Исправление добавлено новой версией; прежний разбор и lineage сохранены. Внешний provider не вызывался.";
+  } catch (error) {
+    if (mutationCompleted) {
+      research.notice = "Исправление сохранено, но свежий ledger временно недоступен. Не отправляйте его повторно.";
+    } else {
+      research.error = actionErrorMessage(error);
+      if (String(error?.serverCode || error?.code || "")
+        === "research_source_analysis_head_stale") {
+        try {
+          await refreshProductResearchCategoryLearning(runId);
+        } catch {
+          // Exact-head conflicts are shown and never retried automatically.
+        }
+      }
+    }
+  }
+  research.phase = productResearchRestingPhase();
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchCollectionPolicy(form, submitter) {
+  const research = state.productResearch;
+  if (!["owner", "admin"].includes(state.bootstrap?.membership?.role)) {
+    toast("Политику автосбора может менять только owner/admin.", "error");
+    return;
+  }
+  const runId = String(research.record?.id || "").trim().toLowerCase();
+  const control = research.record?.categoryLearning;
+  const platform = String(form.dataset.platform || "").trim().toLowerCase();
+  const values = new FormData(form);
+  const status = String(
+    submitter?.dataset?.collectionPolicyStatus || "",
+  ).trim().toLowerCase();
+  const currentPolicy = control?.policies?.find(
+    (item) => item.platform === platform,
+  ) || null;
+  const expectedPolicyId = String(values.get("expected_policy_id") || "")
+    .trim()
+    .toLowerCase();
+  const expectedPolicyHash = String(values.get("expected_policy_hash") || "")
+    .trim()
+    .toLowerCase();
+  if (
+    !runId
+    || !control?.available
+    || control.runId !== runId
+    || !["youtube", "instagram"].includes(platform)
+    || !["paused", "enabled"].includes(status)
+    || (platform === "instagram" && status !== "paused")
+    || (currentPolicy
+      ? currentPolicy.policyId !== expectedPolicyId
+        || currentPolicy.policyHash !== expectedPolicyHash
+      : Boolean(expectedPolicyId || expectedPolicyHash))
+  ) {
+    toast("Политика сбора изменилась. Обновите статус перед сохранением.", "error");
+    return;
+  }
+  const automaticCollectionAck = values.has("automatic_collection_ack");
+  const termsAck = values.has("terms_ack");
+  const quotaAck = values.has("quota_ack");
+  const noRetryAck = values.has("no_retry_ack");
+  if (status === "enabled" && (
+    !automaticCollectionAck
+    || !termsAck
+    || !quotaAck
+    || !noRetryAck
+  )) {
+    toast("Для включения подтвердите terms, quota, hard budget и отсутствие автоматического повтора.", "error");
+    form.querySelector('.product-research-learning-acks input:not(:checked)')?.focus();
+    return;
+  }
+  research.phase = "category-learning-policy";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  let mutationCompleted = false;
+  try {
+    await state.api.configureResearchSourceCollectionPolicy(runId, {
+      platform,
+      provider_key: String(values.get("provider_key") || "").trim(),
+      status,
+      automatic_collection_ack: automaticCollectionAck,
+      cadence_hours: Number(values.get("cadence_hours")),
+      max_records: Number(values.get("max_records")),
+      monthly_hard_budget_units: Number(
+        values.get("monthly_hard_budget_units"),
+      ),
+      legal_review_reference: String(
+        values.get("legal_review_reference") || "",
+      ).trim(),
+      reason: String(values.get("reason") || "").trim(),
+      expected_policy_id: currentPolicy?.policyId || null,
+      expected_policy_hash: currentPolicy?.policyHash || null,
+      terms_version: String(values.get("terms_version") || ""),
+      terms_ack: termsAck,
+      quota_ack: quotaAck,
+      no_retry_ack: noRetryAck,
+    });
+    mutationCompleted = true;
+    await refreshProductResearchCategoryLearning(runId);
+    research.notice = status === "enabled"
+      ? "Политика активирована после явных gates. Status/render ничего не запускали; scheduler создаст только bounded enqueue без retry/fallback."
+      : "Политика сохранена в paused-состоянии. Внешний сбор и расход не запускались.";
+  } catch (error) {
+    if (mutationCompleted) {
+      research.notice = "Политика сохранена, но свежий status временно недоступен. Не повторяйте изменение автоматически.";
+    } else {
+      research.error = actionErrorMessage(error);
+      if (String(error?.serverCode || error?.code || "")
+        === "research_collection_policy_head_stale") {
+        try {
+          await refreshProductResearchCategoryLearning(runId);
+        } catch {
+          // Exact-head conflicts are shown and never retried automatically.
+        }
+      }
+    }
+  }
+  research.phase = productResearchRestingPhase();
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+function productResearchRestingPhase(record = state.productResearch.record) {
+  return record?.approved ? "approved" : "ready";
+}
+
+async function refreshProductResearchAfterYoutubeAction(runId) {
+  const raw = await state.api.productResearchStatus(
+    runId,
+    productResearchOutcomeStatusOptions(),
+  );
+  return normalizeProductResearch(raw, state.productResearch.record);
+}
+
+function productResearchYoutubeRequestMode(values, submitter) {
+  const candidate = String(
+    values.get("mode") || submitter?.dataset?.youtubeAction || "",
+  ).trim().toLowerCase();
+  if (["manual_canary", "canary"].includes(candidate)) return "manual_canary";
+  if (["category_refresh", "refresh"].includes(candidate)) return "category_refresh";
+  return "";
+}
+
+async function submitProductResearchYoutubeRequest(form, submitter) {
+  const research = state.productResearch;
+  const youtube = research.record?.youtubeResearch;
+  const values = new FormData(form);
+  const runId = String(form.dataset.researchId || research.record?.id || "").trim();
+  const mode = productResearchYoutubeRequestMode(values, submitter);
+  const modeAllowed = mode === "manual_canary"
+    ? youtube?.canRequestCanary === true
+    : mode === "category_refresh" && youtube?.canRequestRefresh === true;
+  if (
+    !runId
+    || !youtube?.available
+    || youtube.runId !== runId.toLowerCase()
+    || !modeAllowed
+    || !youtube.currentBinding
+    || youtube.currentBinding.categoryStatus !== "active"
+  ) {
+    toast("YouTube‑контур изменился. Обновите исследование перед внешним запросом.", "error");
+    return;
+  }
+  const quotaAck = values.has("quota_ack");
+  const noRetryAck = values.has("no_retry_ack");
+  const termsAck = values.has("terms_ack");
+  if (!quotaAck || !noRetryAck || !termsAck) {
+    toast("Подтвердите квоту, отсутствие автоматического повтора и условия YouTube API.", "error");
+    form.querySelector("input:not(:checked)[required]")?.focus();
+    return;
+  }
+  const requestId = research.requestId + 1;
+  research.requestId = requestId;
+  research.phase = mode === "manual_canary" ? "youtube-canary" : "youtube-refresh";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const result = await state.api.requestResearchYoutube(runId, {
+      mode,
+      query_text: String(values.get("query_text") || ""),
+      region_code: String(values.get("region_code") || ""),
+      relevance_language: String(values.get("relevance_language") || ""),
+      published_after: String(values.get("published_after") || ""),
+      max_results: mode === "manual_canary"
+        ? 1
+        : Number(values.get("max_results")),
+      quota_ack: true,
+      no_retry_ack: true,
+      terms_ack: true,
+      terms_version: PRODUCT_RESEARCH_YOUTUBE_TERMS_VERSION,
+    });
+    if (requestId !== research.requestId) return;
+    let statusRefreshUnavailable = false;
+    try {
+      research.record = await refreshProductResearchAfterYoutubeAction(runId);
+    } catch {
+      statusRefreshUnavailable = true;
+    }
+    if (requestId !== research.requestId) return;
+    research.phase = productResearchRestingPhase();
+    const executionStatus = String(result?.execution?.ingestion?.status || "");
+    const actionLabel = mode === "manual_canary"
+      ? "Ручной canary"
+      : "Явное обновление категории";
+    research.notice = statusRefreshUnavailable
+      ? `${actionLabel} принят сервером, но сводка пока не обновилась. Лимит — 2 официальных вызова, стоимость 0 ₽; автоматического повтора и передачи в генерацию нет.`
+      : executionStatus === "failed"
+        ? `${actionLabel} завершён fail‑closed. Проверьте квитанции перед новым ручным решением; автоматического повтора и передачи в генерацию нет.`
+        : `${actionLabel} завершён. Лимит — 2 официальных вызова, стоимость 0 ₽; сырые наблюдения не ранжируются и не передаются в генерацию.`;
+    await track("product_research_youtube_requested", {
+      run_id: runId,
+      mode,
+      ingestion_id: result?.request?.ingestion?.id || null,
+      execution_status: executionStatus || null,
+      max_http_requests: 2,
+      monetary_cost_rub: 0,
+      automatic_retry: false,
+      generation_action: false,
+    });
+  } catch (error) {
+    if (requestId !== research.requestId) return;
+    const savedJobId = String(error?.job?.id || "").trim();
+    if (savedJobId) {
+      try {
+        research.record = await refreshProductResearchAfterYoutubeAction(runId);
+      } catch {
+        // The durable ingestion id remains visible in the notice below.
+      }
+    }
+    research.phase = productResearchRestingPhase();
+    research.notice = savedJobId
+      ? `YouTube‑запуск ${savedJobId} сохранён. Не повторяйте внешний запрос автоматически; сначала обновите его статус.`
+      : "";
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchYoutubeRollout(form, submitter) {
+  const research = state.productResearch;
+  const youtube = research.record?.youtubeResearch;
+  const values = new FormData(form);
+  const decision = String(
+    submitter?.dataset?.youtubeDecision
+      || submitter?.dataset?.youtubeAction
+      || values.get("decision")
+      || "",
+  ).trim().toLowerCase();
+  const reason = String(values.get("reason") || "").replace(/\s+/gu, " ").trim();
+  const canaryId = String(values.get("canary_ingestion_id") || "")
+    .trim().toLowerCase();
+  const latest = youtube?.latest;
+  const latestCanaryReady = latest?.ingestion?.id === canaryId
+    && latest.ingestion.mode === "manual_canary"
+    && latest.ingestion.status === "completed"
+    && latest.transports?.length === 2
+    && latest.transports[0]?.requestKind === "search.list"
+    && latest.transports[0]?.receipt?.status === "ready"
+    && latest.transports[0]?.receipt?.itemCount === 1
+    && latest.transports[1]?.requestKind === "videos.list"
+    && latest.transports[1]?.receipt?.status === "ready"
+    && latest.transports[1]?.receipt?.itemCount === 1;
+  if (
+    !youtube?.available
+    || !youtube.canDecideRollout
+    || !["enable_category_refresh", "pause_category_refresh"].includes(decision)
+    || (decision === "enable_category_refresh" && !latestCanaryReady)
+  ) {
+    toast("Rollout‑контур изменился. Обновите статус и проверьте свежий двухэтапный canary.", "error");
+    return;
+  }
+  if (!values.has("terms_ack")) {
+    toast("Подтвердите актуальные условия YouTube API.", "error");
+    form.elements.terms_ack?.focus();
+    return;
+  }
+  if (reason.length < 3 || reason.length > 500) {
+    toast("Кратко объясните решение по rollout (3–500 символов).", "error");
+    form.elements.reason?.focus();
+    return;
+  }
+  const runId = research.record.id;
+  const requestId = research.requestId + 1;
+  research.requestId = requestId;
+  research.phase = "youtube-rollout";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    await state.api.decideResearchYoutubeRollout({
+      decision,
+      reason,
+      terms_ack: true,
+      terms_version: PRODUCT_RESEARCH_YOUTUBE_TERMS_VERSION,
+      canary_ingestion_id: decision === "enable_category_refresh" ? canaryId : null,
+    });
+    if (requestId !== research.requestId) return;
+    let statusRefreshUnavailable = false;
+    try {
+      research.record = await refreshProductResearchAfterYoutubeAction(runId);
+    } catch {
+      statusRefreshUnavailable = true;
+    }
+    if (requestId !== research.requestId) return;
+    research.phase = productResearchRestingPhase();
+    const actionLabel = decision === "enable_category_refresh"
+      ? "Явное обновление категории включено"
+      : "Обновление категории поставлено на паузу";
+    research.notice = statusRefreshUnavailable
+      ? `${actionLabel}, но сводка пока не обновилась. Не повторяйте решение.`
+      : `${actionLabel}. Автоматических запросов, генерации и публикации не запускалось.`;
+    await track("product_research_youtube_rollout_decided", {
+      run_id: runId,
+      decision,
+      canary_ingestion_id: decision === "enable_category_refresh" ? canaryId : null,
+      provider_action: false,
+      generation_action: false,
+    });
+  } catch (error) {
+    if (requestId !== research.requestId) return;
+    try {
+      research.record = await refreshProductResearchAfterYoutubeAction(runId);
+    } catch {
+      // A stale decision is never retried automatically.
+    }
+    research.phase = productResearchRestingPhase();
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchYoutubeCandidate(form, submitter) {
+  const research = state.productResearch;
+  const youtube = research.record?.youtubeResearch;
+  const latest = youtube?.latest;
+  const values = new FormData(form);
+  const decision = String(
+    submitter?.dataset?.youtubeDecision
+      || submitter?.dataset?.youtubeAction
+      || values.get("decision")
+      || "",
+  ).trim().toLowerCase();
+  const ingestionId = String(values.get("ingestion_id") || "").trim().toLowerCase();
+  const observationId = String(values.get("observation_id") || "").trim().toLowerCase();
+  const observationHash = String(values.get("observation_hash") || "")
+    .trim().toLowerCase();
+  const observation = latest?.observations?.find((item) =>
+    item.observationId === observationId
+  );
+  const confirmation = values.has("confirmation")
+    || values.has("candidate_confirmation");
+  const reason = String(values.get("reason") || "").replace(/\s+/gu, " ").trim();
+  if (
+    !youtube?.available
+    || !youtube.canDecideCandidates
+    || latest?.ingestion?.id !== ingestionId
+    || latest.ingestion.status !== "completed"
+    || !observation
+    || observation.observationHash !== observationHash
+    || !["confirm_candidate", "exclude_candidate"].includes(decision)
+  ) {
+    toast("Наблюдение YouTube изменилось или удалено по сроку хранения. Обновите статус.", "error");
+    return;
+  }
+  if (!confirmation || reason.length < 3 || reason.length > 500) {
+    toast("Подтвердите временное решение и укажите причину (3–500 символов).", "error");
+    form.querySelector("input[type=checkbox]")?.focus();
+    return;
+  }
+  const runId = research.record.id;
+  const requestId = research.requestId + 1;
+  research.requestId = requestId;
+  research.phase = "youtube-candidate";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    await state.api.decideResearchYoutubeCandidate({
+      ingestion_id: ingestionId,
+      observation_id: observationId,
+      observation_hash: observationHash,
+      decision,
+      reason,
+      confirmation: true,
+    });
+    if (requestId !== research.requestId) return;
+    let statusRefreshUnavailable = false;
+    try {
+      research.record = await refreshProductResearchAfterYoutubeAction(runId);
+    } catch {
+      statusRefreshUnavailable = true;
+    }
+    if (requestId !== research.requestId) return;
+    research.phase = productResearchRestingPhase();
+    const actionLabel = decision === "confirm_candidate"
+      ? "Наблюдение подтверждено как временный кандидат"
+      : "Наблюдение исключено";
+    research.notice = statusRefreshUnavailable
+      ? `${actionLabel}, но сводка пока не обновилась. Не повторяйте решение.`
+      : `${actionLabel}. Оно не меняет ранжирование и не передаётся в генерацию.`;
+    await track("product_research_youtube_candidate_decided", {
+      run_id: runId,
+      ingestion_id: ingestionId,
+      observation_id: observationId,
+      decision,
+      generation_action: false,
+    });
+  } catch (error) {
+    if (requestId !== research.requestId) return;
+    try {
+      research.record = await refreshProductResearchAfterYoutubeAction(runId);
+    } catch {
+      // The exact observation decision is never retried automatically.
+    }
+    research.phase = productResearchRestingPhase();
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchWatchlist(form, submitter) {
+  const research = state.productResearch;
+  const runId = String(form.dataset.researchId || research.record?.id || "").trim();
+  const action = String(submitter?.dataset?.watchlistAction || "").trim().toLowerCase();
+  if (!runId || !["enable", "update", "pause", "resume"].includes(action)) {
+    toast("Не удалось определить действие с наблюдением. Обновите раздел.", "error");
+    return;
+  }
+  if (research.record?.approved !== true) {
+    toast("Наблюдение можно подключить только после ручного утверждения исследования.", "error");
+    return;
+  }
+  const intervalDays = Number(new FormData(form).get("refresh_interval_days"));
+  research.phase = "watchlist";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  try {
+    const raw = await state.api.configureResearchWatchlist(runId, {
+      action,
+      refresh_interval_days: intervalDays,
+    });
+    research.record = normalizeProductResearch(raw, research.record);
+    research.phase = "approved";
+    research.notice = {
+      enable: "Наблюдение подключено: базовый снимок сохранён, но новый платный анализ не запускался.",
+      update: "Интервал наблюдения обновлён. Платных запросов не было.",
+      pause: "Наблюдение поставлено на паузу. История снимков сохранена.",
+      resume: "Наблюдение возобновлено. Система предложит обновление в выбранный срок.",
+    }[action];
+    await track("product_research_watchlist_configured", {
+      run_id: runId,
+      action,
+      refresh_interval_days: ["enable", "update", "resume"].includes(action)
+        ? intervalDays
+        : null,
+      paid_research_started: false,
+    });
+  } catch (error) {
+    research.phase = "approved";
+    research.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchStageCancel(form, submitter) {
+  const research = state.productResearch;
+  const stageControl = research.stageControl;
+  const control = stageControl.data;
+  const active = control?.activeRecompute;
+  const requestId = String(form.dataset.requestId || "").trim().toLowerCase();
+  const action = String(
+    submitter?.dataset?.stageControlAction || "cancel",
+  ).trim().toLowerCase();
+  const head = active
+    ? control?.heads?.find((candidate) => candidate.stage === active.stage)
+    : null;
+  if (
+    action !== "cancel"
+    || !research.record?.id
+    || !control?.available
+    || control.selectedBranch.branchKey !== "main"
+    || !active
+    || active.requestId !== requestId
+    || active.canCancel !== true
+    || !head
+    || !head.allowedActions.includes("cancel")
+  ) {
+    toast("Условия отмены изменились. Сначала обновите сохранённый статус.", "error");
+    await loadResearchStageControl({
+      runId: research.record?.id,
+      branchId: control?.selectedBranch?.branchId,
+    });
+    return;
+  }
+  const values = new FormData(form);
+  const reason = String(values.get("reason") || "").trim();
+  if (reason.length < 3 || reason.length > 500) {
+    toast("Кратко укажите причину отмены — от 3 до 500 символов.", "error");
+    form.elements.reason?.focus();
+    return;
+  }
+  if (values.get("confirmation") !== "on") {
+    toast("Подтвердите отмену именно сохранённого пересчёта.", "error");
+    form.elements.confirmation?.focus();
+    return;
+  }
+
+  stageControl.status = "mutating";
+  stageControl.error = "";
+  stageControl.notice = "Отмена отправляется один раз. Edge и провайдер не вызываются.";
+  renderWorkspace("research");
+  let mutationError = "";
+  try {
+    await state.api.controlResearchStage(research.record.id, {
+      branch_id: control.selectedBranch.branchId,
+      stage: head.stage,
+      action: "cancel",
+      expected_head_event_id: head.headEventId,
+      expected_artifact_id: head.artifactId,
+      expected_content_hash: head.contentHash,
+      expected_branch_revision_hash:
+        control.selectedBranch.branchRevisionHash,
+      reason,
+      confirmation: true,
+    });
+    stageControl.notice = "Сохранённый пересчёт отменён. Provider/Edge не вызывался, автоматического повтора не было.";
+  } catch (error) {
+    mutationError = actionErrorMessage(error);
+    stageControl.notice = "Команда отмены автоматически не повторялась. Обновлён только сохранённый серверный статус.";
+  }
+  await loadResearchStageControl({
+    runId: research.record?.id,
+    branchId: control.selectedBranch.branchId,
+    silent: true,
+  });
+  if (mutationError) {
+    stageControl.error = stageControl.error
+      ? `${mutationError} ${stageControl.error}`
+      : mutationError;
+  }
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchStageControl(form, submitter) {
+  const research = state.productResearch;
+  const stageControl = research.stageControl;
+  const control = stageControl.data;
+  const headElement = form.closest("[data-stage][data-head-event-id]");
+  const action = String(
+    submitter?.dataset?.stageControlAction || "",
+  ).trim().toLowerCase();
+  const stage = String(headElement?.dataset?.stage || "").trim().toLowerCase();
+  const branchId = String(headElement?.dataset?.branchId || "").trim().toLowerCase();
+  const branchRevisionHash = String(
+    headElement?.dataset?.branchRevisionHash || "",
+  ).trim().toLowerCase();
+  const headEventId = String(
+    headElement?.dataset?.headEventId || "",
+  ).trim().toLowerCase();
+  const artifactId = String(
+    headElement?.dataset?.artifactId || "",
+  ).trim().toLowerCase();
+  const contentHash = String(
+    headElement?.dataset?.contentHash || "",
+  ).trim().toLowerCase();
+  const artifactVersion = Number(headElement?.dataset?.artifactVersion);
+  const currentHead = control?.heads?.find((head) => head.stage === stage);
+  if (
+    !research.record?.id
+    || !control?.available
+    || control.selectedBranch.branchId !== branchId
+    || control.selectedBranch.branchRevisionHash !== branchRevisionHash
+    || !currentHead
+    || currentHead.headEventId !== headEventId
+    || currentHead.artifactId !== artifactId
+    || currentHead.contentHash !== contentHash
+    || currentHead.artifactVersion !== artifactVersion
+    || !currentHead.allowedActions.includes(action)
+    || !["patch", "reject", "revert", "fork", "recompute"].includes(action)
+  ) {
+    toast("Версия этапа уже изменилась. Обновите снимок перед решением.", "error");
+    await loadResearchStageControl({
+      runId: research.record?.id,
+      branchId: control?.selectedBranch?.branchId,
+    });
+    return;
+  }
+  const values = new FormData(form);
+  const reason = String(values.get("reason") || "").trim();
+  if (reason.length < 3 || reason.length > 500) {
+    toast("Кратко укажите причину решения — от 3 до 500 символов.", "error");
+    form.elements.reason?.focus();
+    return;
+  }
+  if (values.get("confirmation") !== "on") {
+    toast("Подтвердите применение команды к показанной версии.", "error");
+    form.elements.confirmation?.focus();
+    return;
+  }
+  const options = {
+    branch_id: branchId,
+    stage,
+    action,
+    expected_head_event_id: headEventId,
+    expected_artifact_id: artifactId,
+    expected_content_hash: contentHash,
+    expected_branch_revision_hash: branchRevisionHash,
+    reason,
+    confirmation: true,
+  };
+  if (action === "patch") {
+    const userInput = String(values.get("user_input") || "").trim();
+    let replacement;
+    try {
+      replacement = JSON.parse(String(values.get("replacement") || ""));
+    } catch {
+      toast("Структурная версия должна быть корректным JSON-объектом.", "error");
+      form.elements.replacement?.focus();
+      return;
+    }
+    if (!replacement || typeof replacement !== "object" || Array.isArray(replacement)) {
+      toast("Структурная версия должна быть JSON-объектом, а не списком или строкой.", "error");
+      form.elements.replacement?.focus();
+      return;
+    }
+    if (userInput.length < 3 || userInput.length > 4_000) {
+      toast("Опишите смысл правки — от 3 до 4000 символов.", "error");
+      form.elements.user_input?.focus();
+      return;
+    }
+    options.replacement = replacement;
+    options.user_input = userInput;
+  } else if (action === "revert") {
+    const targetArtifactId = String(
+      values.get("target_artifact_id") || "",
+    ).trim().toLowerCase();
+    if (!targetArtifactId || targetArtifactId === artifactId) {
+      toast("Выберите предыдущий точный артефакт для отката.", "error");
+      form.elements.target_artifact_id?.focus();
+      return;
+    }
+    options.target_artifact_id = targetArtifactId;
+  } else if (action === "fork") {
+    const newBranchKey = String(
+      values.get("new_branch_key") || "",
+    ).trim().toLowerCase();
+    if (
+      newBranchKey === "main"
+      || !/^[a-z0-9][a-z0-9_-]{2,63}$/u.test(newBranchKey)
+    ) {
+      toast("Ключ ветки: 3–64 строчных латинских символа, цифры, _ или -.", "error");
+      form.elements.new_branch_key?.focus();
+      return;
+    }
+    options.new_branch_key = newBranchKey;
+  } else if (action === "recompute") {
+    const userInput = String(values.get("user_input") || "").trim();
+    if (
+      control.selectedBranch.branchKey !== "main"
+      || stage === "sources"
+      || control.activeRecompute
+    ) {
+      toast("Пересчёт уже сохранён или недоступен для этой ветки.", "error");
+      return;
+    }
+    if (userInput.length < 3 || userInput.length > 4_000) {
+      toast("Опишите, что должен перепроверить ИИ — от 3 до 4000 символов.", "error");
+      form.elements.user_input?.focus();
+      return;
+    }
+    if (values.get("paid_analysis_ack") !== "on") {
+      toast("Отдельно подтвердите один платный пересчёт.", "error");
+      form.elements.paid_analysis_ack?.focus();
+      return;
+    }
+    options.user_input = userInput;
+    options.paid_analysis_ack = true;
+  }
+
+  stageControl.status = "mutating";
+  stageControl.error = "";
+  stageControl.notice = "";
+  renderWorkspace("research");
+  let nextBranchId = branchId;
+  try {
+    const mutation = await state.api.controlResearchStage(
+      research.record.id,
+      options,
+    );
+    const mutationSource = mutation?.data
+      && typeof mutation.data === "object"
+      && !Array.isArray(mutation.data)
+      ? mutation.data
+      : mutation;
+    nextBranchId = String(mutationSource?.branch_id || branchId).trim().toLowerCase();
+    const recompute = mutationSource?.recompute_request;
+    stageControl.notice = recompute
+      ? `Пересчёт сохранён: ${String(recompute.request_id || "").slice(0, 8)}… Дочерний запуск вызван один раз; дальнейшая проверка только по статусу.`
+      : action === "fork"
+        ? "Ветка сравнения создана только для чтения. Main-версия и утверждённые задачи не изменились."
+        : "Новая версия этапа сохранена; зависимые этапы помечены сервером.";
+    await track("product_research_stage_controlled", {
+      run_id: research.record.id,
+      branch_id: nextBranchId,
+      stage,
+      action,
+      artifact_version: artifactVersion,
+      paid_research_started: action === "recompute",
+    });
+    try {
+      const refreshed = await state.api.productResearchStatus(
+        research.record.id,
+        productResearchOutcomeStatusOptions(),
+      );
+      research.record = normalizeProductResearch(refreshed, research.record);
+    } catch {
+      // The exact stage command is durable. The user can refresh the broader
+      // research envelope separately without repeating the mutation.
+    }
+  } catch (error) {
+    const savedRequestId = String(
+      error?.job?.recompute_request_id || "",
+    ).trim();
+    const savedChildRunId = String(error?.job?.id || "").trim();
+    stageControl.error = savedRequestId
+      ? `${actionErrorMessage(error)} Запрос ${savedRequestId.slice(0, 8)}… и запуск ${savedChildRunId.slice(0, 8)}… уже сохранены; автоматического повтора не будет.`
+      : actionErrorMessage(error);
+    stageControl.notice = savedRequestId
+      ? "Используйте только «Проверить сохранённый статус» или явное ручное возобновление этой же дочерней задачи."
+      : "";
+  }
+  await loadResearchStageControl({
+    runId: research.record?.id,
+    branchId: nextBranchId,
+    silent: true,
+  });
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
 }
 
 async function submitProductResearchBrief(form, submitter) {
@@ -17749,6 +19421,21 @@ async function submitProductResearchBrief(form, submitter) {
     return;
   }
   const draft = readProductResearchBrief(form);
+  const guidanceStatus = String(
+    research.record.guidance?.status || "needs_more_evidence",
+  );
+  if (mode === "approve" && guidanceStatus !== "ready_for_brief") {
+    if (!draft.stage_corrections?.strategy) {
+      toast("Исследование отмечено как неполное. Зафиксируйте решение для следующего этапа в блоке ИИ-наставника.", "error");
+      form.elements.strategy_correction?.focus();
+      return;
+    }
+    if (form.elements.research_gap_override_ack?.checked !== true) {
+      toast("Подтвердите осознанный запуск ограниченного теста несмотря на пробелы исследования.", "error");
+      form.elements.research_gap_override_ack?.focus();
+      return;
+    }
+  }
   if (draft.scenarios.some((scenario) =>
     !scenario.hook
     || !scenario.shot_list
@@ -17822,6 +19509,13 @@ async function submitProductResearchBrief(form, submitter) {
         ...localRecord,
         status: "approved",
       });
+      try {
+        const refreshed = await state.api.productResearchStatus(research.record.id);
+        research.record = normalizeProductResearch(refreshed, research.record);
+      } catch {
+        // Approval and its tasks are durable. A transient monitor/status read
+        // must not make the user repeat the state-changing approval command.
+      }
       research.phase = "approved";
       const recommendedHandoff = prepareRecommendedResearchHandoff(
         research.record,
@@ -17870,6 +19564,18 @@ function mergeProductResearchBrief(base, draft) {
     avoid_claims: splitResearchLines(draft.avoid_claims),
     visual_direction: draft.visual_direction,
     cta: draft.cta,
+    human_stage_corrections: {
+      sources: String(draft.stage_corrections?.sources || "").trim(),
+      category: String(draft.stage_corrections?.category || "").trim(),
+      competitors: String(draft.stage_corrections?.competitors || "").trim(),
+      trends: String(draft.stage_corrections?.trends || "").trim(),
+      strategy: String(draft.stage_corrections?.strategy || "").trim(),
+    },
+    human_research_decision: {
+      guidance_status: String(original.guidance?.status || "").trim(),
+      cold_start_override: draft.research_gap_override_ack === true,
+      strategy: String(draft.stage_corrections?.strategy || "").trim(),
+    },
     ...(originalPotential && recommendedScenarioPosition >= 1
       && recommendedScenarioPosition <= 3 && recommendedScenarioReason
       ? {
@@ -17897,19 +19603,36 @@ function mergeProductResearchBrief(base, draft) {
 function productResearchTaskBlueprint(draft) {
   const proofPoints = splitResearchLines(draft.proof_points);
   const avoidClaims = splitResearchLines(draft.avoid_claims);
+  const stageCorrections = draft.stage_corrections || {};
+  const section = (text, minLength, weight) => ({ text, minLength, weight });
   const sharedInstructions = [
-    draft.target_audience ? `Целевая аудитория: ${draft.target_audience}` : "",
-    draft.key_message ? `Главная мысль: ${draft.key_message}` : "",
-    proofPoints.length
+    section(stageCorrections.sources
+      ? `Корректировка источников человеком: ${stageCorrections.sources}`
+      : "", 160, 6),
+    section(stageCorrections.category
+      ? `Корректировка категории человеком: ${stageCorrections.category}`
+      : "", 160, 6),
+    section(stageCorrections.competitors
+      ? `Корректировка разбора конкурентов человеком: ${stageCorrections.competitors}`
+      : "", 160, 6),
+    section(stageCorrections.trends
+      ? `Корректировка трендов человеком: ${stageCorrections.trends}`
+      : "", 160, 6),
+    section(stageCorrections.strategy
+      ? `Решение пользователя для следующего этапа: ${stageCorrections.strategy}`
+      : "", 600, 10),
+    section(draft.target_audience ? `Целевая аудитория: ${draft.target_audience}` : "", 100, 3),
+    section(draft.key_message ? `Главная мысль: ${draft.key_message}` : "", 200, 4),
+    section(proofPoints.length
       ? `Подтверждённые доказательства — использовать только в этой формулировке:\n${proofPoints.map((item) => `• ${item}`).join("\n")}`
-      : "Подтверждённые доказательства: не указаны — не добавлять свойства от себя.",
-    avoidClaims.length
+      : "Подтверждённые доказательства: не указаны — не добавлять свойства от себя.", 3_000, 9),
+    section(avoidClaims.length
       ? `Запрещённые и неподтверждённые обещания — не использовать:\n${avoidClaims.map((item) => `• ${item}`).join("\n")}`
-      : "Запрещённые обещания: отдельно не перечислены — любые новые факты сначала вернуть на проверку.",
-    draft.visual_direction ? `Визуальное направление: ${draft.visual_direction}` : "",
-    draft.cta ? `Разрешённый призыв к действию: ${draft.cta}` : "",
-    "Ручная проверка перед сдачей: сверить товар и упаковку, дословную реплику, доказательства, рекламный статус и запрещённые обещания.",
-  ].filter(Boolean);
+      : "Запрещённые обещания: отдельно не перечислены — любые новые факты сначала вернуть на проверку.", 3_000, 10),
+    section(draft.visual_direction ? `Визуальное направление: ${draft.visual_direction}` : "", 150, 4),
+    section(draft.cta ? `Разрешённый призыв к действию: ${draft.cta}` : "", 100, 5),
+    section("Ручная проверка перед сдачей: сверить товар и упаковку, дословную реплику, доказательства, рекламный статус и запрещённые обещания.", 500, 100),
+  ];
   const recommendedScenarioPosition = Number(
     draft.recommended_scenario_position,
   );
@@ -17917,28 +19640,96 @@ function productResearchTaskBlueprint(draft) {
     task_type: "general",
     assignee_id: scenario.assignee_id,
     title: scenario.task_title,
-    instructions: [
-      `Угол подачи: ${scenario.title}`,
-      `Площадка: ${scenario.platform}`,
-      scenario.generation_mode
+    instructions: fitProductResearchTaskInstructions([
+      section(`Угол подачи: ${scenario.title}`, 100, 4),
+      section(`Площадка: ${scenario.platform}`, 30, 2),
+      section(scenario.generation_mode
         ? `Рекомендованный генератор: ${scenario.generation_mode}${
           scenario.generation_mode_reason
             ? ` — ${scenario.generation_mode_reason}`
             : ""
         }`
-        : "",
-      `Хук: ${scenario.hook}`,
-      scenario.generation_mode === REAL_SEEDANCE_MODE
+        : "", 150, 4),
+      section(`Хук: ${scenario.hook}`, 400, 8),
+      section(scenario.generation_mode === REAL_SEEDANCE_MODE
         ? `Реплика блогера: ${scenario.script}`
-        : "Без речи, дикторского текста и сгенерированных надписей.",
-      scenario.generation_mode === REAL_PHOTO_MODE
+        : "Без речи, дикторского текста и сгенерированных надписей.", 1_400, 10),
+      section(scenario.generation_mode === REAL_PHOTO_MODE
         ? `Композиция одного статичного квадратного фото:\n${scenario.shot_list}`
-        : `Кадры:\n${scenario.shot_list}`,
+        : `Кадры:\n${scenario.shot_list}`, 1_600, 10),
       ...sharedInstructions,
-    ].filter(Boolean).join("\n"),
+    ]),
     priority: scenario.position === recommendedScenarioPosition ? 4 : 3,
     payout_minor: 0,
   }));
+}
+
+function fitProductResearchTaskInstructions(parts, maxLength = 12_000) {
+  const sections = parts.map((part) => {
+    const source = part && typeof part === "object" && !Array.isArray(part)
+      ? part
+      : { text: part };
+    const text = String(source.text || "").trim();
+    return {
+      text,
+      minLength: Math.max(0, Number(source.minLength) || 80),
+      weight: Math.max(1, Number(source.weight) || 1),
+    };
+  }).filter((section) => section.text);
+  const fullText = sections.map((section) => section.text).join("\n");
+  if (fullText.length <= maxLength) return fullText;
+
+  const contentBudget = Math.max(0, maxLength - Math.max(0, sections.length - 1));
+  const safetyIndex = sections.length - 1;
+  const allocations = sections.map((section, index) => index === safetyIndex
+    ? section.text.length
+    : Math.min(section.text.length, section.minLength));
+  let allocated = allocations.reduce((total, value) => total + value, 0);
+  if (allocated > contentBudget) {
+    const reducible = sections.map((section, index) => ({ index, weight: section.weight }))
+      .filter((item) => item.index !== safetyIndex)
+      .sort((left, right) => left.weight - right.weight);
+    for (const item of reducible) {
+      if (allocated <= contentBudget) break;
+      const reduction = Math.min(allocations[item.index], allocated - contentBudget);
+      allocations[item.index] -= reduction;
+      allocated -= reduction;
+    }
+  }
+
+  let remaining = Math.max(0, contentBudget - allocated);
+  while (remaining > 0) {
+    const active = sections.map((section, index) => ({ section, index }))
+      .filter(({ section, index }) => allocations[index] < section.text.length);
+    if (!active.length) break;
+    const totalWeight = active.reduce((total, item) => total + item.section.weight, 0);
+    const roundBudget = remaining;
+    let granted = 0;
+    for (const item of active) {
+      const share = Math.max(
+        1,
+        Math.floor(roundBudget * item.section.weight / totalWeight),
+      );
+      const growth = Math.min(
+        share,
+        item.section.text.length - allocations[item.index],
+        remaining,
+      );
+      allocations[item.index] += growth;
+      remaining -= growth;
+      granted += growth;
+      if (remaining <= 0) break;
+    }
+    if (!granted) break;
+  }
+
+  const marker = " … [полностью — в связанном ТЗ]";
+  return sections.map((section, index) => {
+    const limit = allocations[index];
+    if (section.text.length <= limit) return section.text;
+    if (limit <= marker.length + 8) return section.text.slice(0, limit);
+    return `${section.text.slice(0, limit - marker.length).trimEnd()}${marker}`;
+  }).filter(Boolean).join("\n");
 }
 
 function splitResearchLines(value) {
@@ -19006,6 +20797,8 @@ function clearAuthenticatedState() {
   state.productResearch.error = "";
   state.productResearch.notice = "";
   state.productResearch.restoreAttempted = false;
+  state.productResearch.prefill = null;
+  resetResearchStageControl();
   state.contentReview.requestId += 1;
   state.contentReview.phase = "idle";
   state.contentReview.record = null;

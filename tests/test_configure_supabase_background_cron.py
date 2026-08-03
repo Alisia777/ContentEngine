@@ -121,6 +121,7 @@ def test_sql_atomically_upserts_vault_and_replaces_one_named_native_cron() -> No
     assert '"generation_limit":4' in command
     assert '"research_limit":1' in command
     assert '"review_limit":1' in command
+    assert '"youtube_limit":1' in command
     assert "timeout_milliseconds := 150000" in command
     assert settings.worker_secret not in command
     assert settings.worker_url not in command
@@ -218,11 +219,12 @@ def test_actions_schedule_is_only_hourly_provider_free_health_watchdog() -> None
     assert "workflow_dispatch" in triggers
     assert "inputs" not in (triggers["workflow_dispatch"] or {})
     assert (
-        'payload=\'{"generation_limit":0,"research_limit":0,"review_limit":0}\'' in text
+        'payload=\'{"generation_limit":0,"research_limit":0,"review_limit":0,"youtube_limit":0}\'' in text
     )
     assert '"generation_limit":4' not in text
     assert '"research_limit":1' not in text
     assert '"review_limit":1' not in text
+    assert '"youtube_limit":1' not in text
     assert "SMOKE_ONLY" not in text
     assert "inputs.smoke_only" not in text
     assert "x-contentengine-worker-secret" in text

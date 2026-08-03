@@ -9,7 +9,8 @@ Production provider work is driven by Supabase itself:
    `creator-background-worker`.
 3. The function authenticates the request with the dedicated internal worker
    secret, obtains a database lease, and claims bounded Runway, product
-   research, content-review and notification work.
+   research, content-review, automatic YouTube category-refresh and
+   notification work.
 4. Runway polling never repeats the paid create request. It only continues a
    task that already has a provider task ID.
 5. The database stores the worker heartbeat, every worker run, generation
@@ -41,8 +42,11 @@ recreates the cron schedule idempotently.
 
 The GitHub `Watch background content health` workflow is not the production
 timer. Its hourly run checks the authenticated Edge endpoint and notification
-outbox without selecting any provider work; a manual `workflow_dispatch`
-provides the same zero-provider-work smoke check. It does not validate the Cron
+outbox with `youtube_limit=0` and the other provider limits at zero; a manual
+`workflow_dispatch` provides the same provider-free smoke check. Production
+Supabase Cron explicitly opts into at most one automatic YouTube refresh with
+`youtube_limit=1`. All four dispatch limits share the hard batch cap of eight.
+The health workflow does not validate the Cron
 schedule and cannot replace the normal two-minute dispatch from Supabase Cron,
 whose executions are recorded in `cron.job_run_details`.
 
@@ -56,6 +60,10 @@ work twice.
 - `queued` or `starting` without a provider task ID must never be retried by the
   background worker. An ambiguous paid create remains behind the existing
   reconciliation freeze.
+- Automatic YouTube collection is claimed in PostgreSQL before Edge HTTP.
+  Never-claimed queued work may be recovered once. After claim, a lost Edge or
+  provider response expires the ingestion to `failed`; it is never requeued or
+  sent to a fallback provider.
 - A submitted Runway task is polled according to its database-owned
   `next_poll_at`. Transient GET failures update poll diagnostics and backoff;
   they do not issue another paid POST.
@@ -83,7 +91,8 @@ After deployment, verify all of the following without reading Vault plaintext:
 4. The manager health RPC reports `scheduler.ready=true`, a fresh worker
    heartbeat and `generation.stalled=0`.
 5. A manual smoke dispatch with all queue limits set to zero returns `ok=true`,
-   reports `notification.unresolved=0`, and does not call Runway or OpenAI.
+   reports `notification.unresolved=0`, and does not call Runway, OpenAI or
+   YouTube.
 
 If the cron job is absent, rerun the protected deployment. If cron is present
 but no heartbeat appears, inspect `cron.job_run_details`, the `pg_net` response
