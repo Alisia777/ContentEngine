@@ -491,7 +491,7 @@ set product_one_registry = public.creator_research_market_category_registry(
   )
 );
 select is(
-  (select jsonb_agg(key.value order by key.value)
+  (select jsonb_agg(key.value order by key.value collate "C")
    from market_identity_context context,
      lateral jsonb_object_keys(context.product_one_registry) key(value)),
   '["can_resolve","candidate","categories","current_binding","guidance","ok","product_id","trend_timeline"]'::jsonb,

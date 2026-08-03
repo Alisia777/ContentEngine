@@ -1240,7 +1240,7 @@ select is(
   'status derives active, deactivated, quarantined, and rejected candidate states from append-only history'
 );
 select is(
-  (select jsonb_agg(key.value order by key.value)
+  (select jsonb_agg(key.value order by key.value collate "C")
    from jsonb_object_keys(
      public.creator_research_outcome_learning_status(jsonb_build_object(
        'organization_id', 'd5100000-0000-4000-8000-000000000001',
