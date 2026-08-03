@@ -2069,6 +2069,7 @@ html[data-portal-theme="obsidian"] :is(
 }
 
 .product-research-learning-dimension > summary {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2118,14 +2119,42 @@ html[data-portal-theme="obsidian"] :is(
 }
 
 @media (hover: hover) and (min-width: 821px) {
-  .product-research-learning-dimension:not([open]):is(:hover, :focus-within)
-    > .product-research-learning-dimension-detail {
+  .product-research-learning-dimension > summary::after {
     position: absolute;
     display: block;
+    visibility: hidden;
     width: min(340px, calc(100vw - 40px));
+    padding: 13px;
+    border: 1px solid var(--portal-line, var(--line));
+    border-radius: 11px;
     z-index: 12;
     inset: calc(100% + 6px) auto auto 0;
+    color: var(--portal-ink, var(--ink));
+    background: var(--portal-surface, #fff);
+    box-shadow: 0 16px 34px rgb(28 38 31 / 14%);
+    content: attr(data-gap-tooltip);
+    font-size: .82rem;
+    font-weight: 650;
+    line-height: 1.45;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+    white-space: normal;
   }
+
+  .product-research-learning-dimension:not([open]):hover,
+  .product-research-learning-dimension:not([open]):focus-within {
+    z-index: 13;
+  }
+
+  .product-research-learning-dimension:not([open]):hover > summary::after,
+  .product-research-learning-dimension:not([open]) > summary:focus-visible::after {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+  }
+
 }
 
 .product-research-learning-history,

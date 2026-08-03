@@ -1724,7 +1724,7 @@ function researchCategoryDimensionMarkup(dimension, index) {
   const complete = dimension.missing === 0;
   const hoverSummary = `${researchCategoryDimensionLabel(dimension.key)}: ${dimension.current} из ${dimension.target}; ${complete ? "цель достигнута" : `не хватает ${dimension.missing}; ${researchCategoryNextActionLabel(dimension.nextAction)}`}`;
   return `<details class="product-research-learning-dimension ${complete ? "is-complete" : "needs-evidence"}">
-    <summary aria-describedby="${detailId}" title="${escapeHtml(hoverSummary)}">
+    <summary aria-describedby="${detailId}" title="${escapeHtml(hoverSummary)}" data-gap-tooltip="${escapeHtml(hoverSummary)}">
       <span><strong>${escapeHtml(researchCategoryDimensionLabel(dimension.key))}</strong><small>${dimension.current} из ${dimension.target} · вес ${dimension.weight}%</small></span>
       <span class="product-research-learning-dimension-score">${dimension.score}%</span>
     </summary>
@@ -1841,13 +1841,15 @@ function researchCategoryRetainedYoutubeCardMarkup(item) {
 
 function researchCategoryPolicyState(policy) {
   if (!policy) return "proposed";
-  return policy.status === "enabled" ? "active" : "paused";
+  if (policy.status !== "enabled") return "paused";
+  return policy.automaticEnqueueSupported ? "active" : "rollout_blocked";
 }
 
 function researchCategoryPolicyStateLabel(value) {
   return ({
     proposed: "Предложено, но не включено",
-    active: "Активно",
+    active: "Политика включена",
+    rollout_blocked: "Включено, rollout закрыт",
     paused: "Приостановлено",
   })[value] || value;
 }

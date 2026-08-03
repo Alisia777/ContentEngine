@@ -335,6 +335,12 @@ failedIngestion.collection.history[0].ingestion_completed_at = "2026-08-03T15:05
 failedIngestion.collection.history[0].transport_attempt_count = 1;
 const missingActualIngestion = structuredClone(fixture);
 missingActualIngestion.collection.history[0].ingestion_status = null;
+const rolloutClosedNormalized = structuredClone(normalized);
+rolloutClosedNormalized.policies[0].automaticEnqueueSupported = false;
+const rolloutClosedMarkup = subject.researchCategoryLearningMarkup(rolloutClosedNormalized, {
+  saving: false,
+  policyWritable: true,
+});
 return {
   available: normalized.available,
   score: normalized.score,
@@ -349,7 +355,8 @@ return {
   wording: markup.includes("Готовность доказательной базы категории")
     && markup.includes("Это не IQ, не accuracy модели")
     && !markup.includes("обученность ИИ в процентах"),
-  hover: markup.includes('title="Наблюдения конкурентов / сохранённые YouTube-каналы:'),
+  hover: markup.includes('title="Наблюдения конкурентов / сохранённые YouTube-каналы:')
+    && markup.includes('data-gap-tooltip="Наблюдения конкурентов / сохранённые YouTube-каналы:'),
   keyboardTouch: markup.includes("<details class=\"product-research-learning-dimension")
     && markup.includes("aria-describedby=\"research-category-dimension-2\""),
   sourceLedger: markup.includes("youtube_data_api_v3")
@@ -371,6 +378,9 @@ return {
     && markup.includes("quota_ack")
     && markup.includes("no_retry_ack")
     && markup.includes("Только owner/admin"),
+  policyWording: markup.includes("<h3>Политика включена</h3>")
+    && !markup.includes("<h3>Активно</h3>"),
+  rolloutClosedPolicy: rolloutClosedMarkup.includes("Включено, rollout закрыт"),
   wrongVersion: subject.normalizeResearchCategoryLearning({
     status: wrongVersion, expectedRunId: runId,
   }).available,
@@ -431,6 +441,8 @@ return {
         "actualIngestion": True,
         "exactHead": True,
         "controls": True,
+        "policyWording": True,
+        "rolloutClosedPolicy": True,
         "wrongVersion": False,
         "wrongRun": False,
         "stringScore": False,
@@ -645,10 +657,12 @@ def test_runtime_wiring_is_bounded_honest_and_mobile_safe() -> None:
     assert "status/render без provider call" in view
     assert "automatic retry и provider fallback запрещены" in view
     assert "@media (hover: hover)" in css
-    assert ":focus-within" in css
+    assert "content: attr(data-gap-tooltip)" in css
+    assert "> summary:focus-visible::after" in css
+    assert ":hover > summary::after" in css
     assert "@media (max-width: 620px)" in css
     assert '"./supabase-api.js?v=20260803.7"' in app
-    assert '"./product-research-view.js?v=20260803.9"' in app
-    assert 'href="./product-research.css?v=20260803.8"' in index
-    assert 'src="./app.js?v=20260803.os4.10"' in index
+    assert '"./product-research-view.js?v=20260803.10"' in app
+    assert 'href="./product-research.css?v=20260803.9"' in index
+    assert 'src="./app.js?v=20260803.os4.11"' in index
     assert "20260803.os4.8" not in index

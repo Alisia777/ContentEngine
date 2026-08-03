@@ -227,6 +227,21 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert 'echo "::add-mask::$OPENAI_API_KEY"' in openai_secret["run"]
     assert "supabase secrets set" in openai_secret["run"]
     assert 'OPENAI_API_KEY="$OPENAI_API_KEY"' in openai_secret["run"]
+    youtube_secret = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Synchronize optional YouTube Data API secret"
+    )
+    assert youtube_secret["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+        "YOUTUBE_DATA_API_KEY": "${{ secrets.YOUTUBE_DATA_API_KEY }}",
+    }
+    assert 'echo "::add-mask::$YOUTUBE_DATA_API_KEY"' in youtube_secret["run"]
+    assert "supabase secrets list" in youtube_secret["run"]
+    assert "supabase secrets unset YOUTUBE_DATA_API_KEY" in youtube_secret["run"]
+    assert "supabase secrets set" in youtube_secret["run"]
+    assert 'YOUTUBE_DATA_API_KEY="$YOUTUBE_DATA_API_KEY"' in youtube_secret["run"]
+    assert "^[A-Za-z0-9_-]{20,256}$" in youtube_secret["run"]
     generate_deploy = next(
         step
         for step in migrate["steps"]
@@ -248,6 +263,18 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
         '--project-ref "$SUPABASE_PROJECT_REF"'
     )
     assert "--no-verify-jwt" not in research_deploy["run"]
+    ingestion_deploy = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Deploy authenticated research ingestion function"
+    )
+    assert ingestion_deploy["run"] == (
+        "supabase functions deploy creator-research-ingestion "
+        '--project-ref "$SUPABASE_PROJECT_REF"'
+    )
+    assert "--no-verify-jwt" not in ingestion_deploy["run"]
+    assert '"creator-research-ingestion",' in _text(PRODUCTION_WORKFLOW)
+    assert "YOUTUBE_DATA_API_KEY" in _text(PRODUCTION_WORKFLOW)
     owner_step = next(
         step
         for step in owner["steps"]

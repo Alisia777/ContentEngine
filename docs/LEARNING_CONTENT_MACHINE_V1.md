@@ -1,6 +1,6 @@
 # Learning Content Machine v1
 
-Статус: целевая архитектура и локально реализованный вертикальный срез P0/P1 до миграции `010`; live-rollout выключен
+Статус: целевая архитектура и CI-проверенный вертикальный срез P0/P1 до миграции `011`; live-rollout выключен
 Дата: 2026-08-03
 
 ## 1. Цель
@@ -38,31 +38,32 @@ ContentEngine должен стать управляемой обучающей�
 > Data API. Однако это не означает работающий production parser: provider catalog
 > по умолчанию остаётся `planned/disabled`, отдельный global rollout gate —
 > `disabled`; миграция и Edge не развёрнуты, API key не установлен, внешний
-> runtime canary не выполнялся. Миграция `006` сама по себе не создаёт
-> периодический refresh; локальный opt-in scheduler добавляется только в `010`
+> runtime canary не выполнялся. Миграция `007` сама по себе не создаёт
+> периодический refresh; локальный opt-in scheduler добавляется только в `011`
 > и также default-disabled. Automatic fallback нет. Публичные YouTube API Data
 > показываются только как отдельные
 > наблюдения в порядке выдачи, удаляются в пределах retention и не используются
 > в генерации; derived metrics, рейтинги, дельты и агрегации по ним запрещены.
-> Миграция `007` добавляет read-only registry нескольких точных outcome scopes,
-> а `008` — явную краткоживущую apply/control selection поверх активной advisory
+> Миграция `008` добавляет read-only registry нескольких точных outcome scopes,
+> а `009` — явную краткоживущую apply/control selection поверх активной advisory
 > memory. Но binding selection к generation job намеренно закрыт, effectiveness
 > остаётся `unknown`, `generation_binding_state=gated`, поэтому production
 > generation consumption всё ещё `gated_not_wired`.
-> Миграция `009` локально добавляет корректируемый stage graph: immutable branch
+> Миграция `010` локально добавляет корректируемый stage graph: immutable branch
 > и head events, точные текущие heads, `patch/reject/revert/fork/cancel` и
 > подготовку `recompute` через отдельный дочерний research run. Каждая команда
 > привязана к canonical hash точного snapshot всех семи heads; созданный `fork`
 > остаётся read-only веткой сравнения без merge/promote. Свежая цепочка миграций и
-> focused runtime fixtures проходят на PostgreSQL 17/PGlite, но контур не
-> развёрнут в локальном Supabase или staging; browser E2E и реальный provider
-> recompute не выполнялись. `recompute` требует отдельного подтверждения платного
+> focused runtime fixtures проходят на PostgreSQL 17/PGlite и в GitHub CI.
+> Компонентный browser-canary подтвердил рендер и раскрытие управляющих форм, но
+> authenticated save в staging и реальный provider recompute не выполнялись.
+> `recompute` требует отдельного подтверждения платного
 > анализа, допускает одну provider-попытку и не запускается status RPC или
 > фоновым worker. Queued-запрос можно отменить до provider claim, processing —
 > только после истечения lease; cancel не вызывает provider/Edge, retry или
 > spend. Наличие локального кода не означает production-доступность.
 >
-> Миграция `010` локально добавляет отдельный контур готовности доказательной
+> Миграция `011` локально добавляет отдельный контур готовности доказательной
 > базы категории: долговечный source ledger для источников product research,
 > append-only историю структурированного разбора и человеческих исправлений,
 > детерминированную шкалу 0–100 и bounded историю снимков. Это не «IQ ИИ», не
@@ -218,7 +219,7 @@ ContentEngine должен стать управляемой обучающей�
   истории. Источники конкурентов считаются как дедуплицированные наблюдения, а
   не выдаются за доказанное число независимых конкурентов;
 - retained YouTube observations и решения `confirm/exclude` остаются в
-  ограниченном 29-дневном контуре миграции `006`. Они могут влиять только на
+  ограниченном 29-дневном контуре миграции `007`. Они могут влиять только на
   текущую готовность и теряют этот вклад после физической очистки; raw captions,
   transcript и чужие сценарии в source analysis и learning memory запрещены;
 - versioned collection policy требует точную версию YouTube Terms, явные
@@ -237,11 +238,14 @@ ContentEngine должен стать управляемой обучающей�
 next-action и immutable revision graph. Это проверяемый доменный контракт, но
 не production persistence и не provider ingestion.
 
-Десять migrations этого среза проходят статический PostgreSQL parser, свежий
-PostgreSQL 17/PGlite apply и focused runtime fixtures; pgTAP-контракты
-подготовлены. Полный runtime Supabase/pgTAP и production rollout в этом окружении
-недоступны. Stage-control loop реализован локально, но не применён в локальном
-Supabase или staging и не прошёл реальный patch→stale→recompute→approve
+Одиннадцать migrations этого среза проходят статический PostgreSQL parser,
+свежий PostgreSQL 17/PGlite apply, focused runtime fixtures и полный
+`supabase test db` в GitHub CI. Recorded no-network pgTAP-canary дополнительно
+проходит путь policy → scheduler → claim → две transport-квитанции → completion
+→ readiness delta и доказывает отсутствие retry/duplicate на втором тике. Это
+доказательство control-plane, а не внешний вызов YouTube. Production rollout и
+staging всё ещё не проверены. Stage-control loop не прошёл authenticated
+patch→stale→recompute→approve
 round-trip. Пока также не реализованы работающий лицензированный social metadata
 ingestion, развёрнутый YouTube adapter с ключом и успешным runtime canary,
 метрическая trend velocity, production binding подготовленной selection к
@@ -314,7 +318,7 @@ reference/regression-контуром и не доказывает наличи�
 Пробелы после текущего локального P0-среза:
 
 - семь research stages теперь имеют отдельные immutable artifacts и versioned
-  branch heads в миграции `009`; свежий PostgreSQL 17/PGlite apply проходит, но
+  branch heads в миграции `010`; свежий PostgreSQL 17/PGlite apply проходит, но
   миграция не применена в локальном Supabase/staging, а
   production данные ещё не прошли backfill и tenant-isolation проверку;
 - самостоятельные `patch`, `reject`, `revert`, `fork` и downstream-инвалидация
@@ -425,7 +429,7 @@ reference/regression-контуром и не доказывает наличи�
 - `approve` — фиксирует версию как разрешённый вход downstream-этапа;
 - `reject` — запрещает downstream-использование и требует причины;
 - `fork` — в целевой архитектуре создаёт независимую ветку гипотезы. Локальный
-  контур `009` намеренно ограничивает её read-only сравнением без merge/promote;
+  контур `010` намеренно ограничивает её read-only сравнением без merge/promote;
 - `revert` — создаёт новый head, payload которого равен выбранной старой версии;
   история после неё не удаляется;
 - `recompute` — запускает модель на выбранных upstream-версиях и создаёт новую
@@ -446,7 +450,7 @@ Patch или новая approved-версия upstream-этапа не удал�
 которые были фактически использованы. Поздняя правка исследования не меняет
 происхождение уже опубликованного результата.
 
-### 4.4. Локальный stage-control loop `009`
+### 4.4. Локальный stage-control loop `010`
 
 Текущая реализация использует четыре tenant-scoped сущности:
 
@@ -488,7 +492,7 @@ service RPC либо применяет полный source-backed snapshot к r
 Такой request можно немедленно закрыть как `superseded`; активный child не
 перезапускается, а его поздний результат отбрасывается без применения и нового spend.
 
-`fork` в текущем `009` — только immutable snapshot для сравнения с main. Ветку
+`fork` в текущем `010` — только immutable snapshot для сравнения с main. Ветку
 нельзя править, пересчитывать, утверждать или переносить обратно; merge/promote
 контракт не реализован и не подразумевается интерфейсом.
 
@@ -505,9 +509,9 @@ status возвращает `ai_revision_needs_human_snapshot` и направл
 Edge; Edge затем fail-closed проверяет форму и значение token, но не получает и
 не выдумывает второй дублирующий request-token в своём envelope.
 
-Это локальный контракт, а не подтверждённый rollout: в текущем окружении нет
-доступного PostgreSQL/Docker runtime, поэтому реальная транзакционность,
-concurrency и recovery должны быть проверены pgTAP и browser E2E в staging.
+Это проверенный PostgreSQL/PGlite и CI-контракт, а не подтверждённый rollout:
+транзакционные pgTAP-сценарии проходят, но concurrency/recovery и authenticated
+browser E2E всё ещё должны быть проверены в staging.
 
 ## 5. Dynamic category profiles
 
@@ -833,12 +837,12 @@ source-backed анализ новой категории без создания
   stage и не выполняет внешних или платных действий.
 
 P0-C остаётся default-disabled в практическом смысле: migration/Edge/UI-код не
-развёрнут; свежий PostgreSQL 17/PGlite apply и focused runtime fixtures проходят,
-но локальный Supabase/pgTAP и staging не проверены, provider request не выполнялся.
+развёрнут в staging; свежий PostgreSQL 17/PGlite apply, focused runtime fixtures
+и GitHub CI pgTAP проходят, но provider request не выполнялся.
 
 Следующее расширение P0:
 
-- применить и проверить уже прошедшие PostgreSQL 17/PGlite migrations `001`–`010`
+- применить и проверить уже прошедшие PostgreSQL 17/PGlite migrations `001`–`011`
   в локальном Supabase и staging;
 - пройти реальный `patch → stale → recompute → approve → generation handoff`
   round-trip и проверить recovery без повторного provider spend;
@@ -1007,7 +1011,7 @@ generation lineage.
 платного провайдера. Система сама считает freshness, сравнивает совместимые
 версии, собирает точную цепочку зрелых first-party outcomes и предлагает bounded
 candidate memory; обновление данных и каждое решение о памяти выполняются только
-после отдельного подтверждения. Миграции `006`–`008` дополняют этот срез
+после отдельного подтверждения. Миграции `007`–`009` дополняют этот срез
 управляемым официальным YouTube transport, exact multi-scope registry и
 effectiveness-gated selection foundation. Но YouTube provider/global gates
 остаются default disabled, код не развёрнут, ключ и runtime canary отсутствуют;

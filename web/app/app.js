@@ -65,7 +65,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260803.9";
+} from "./product-research-view.js?v=20260803.10";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
