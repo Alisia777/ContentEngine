@@ -1,6 +1,6 @@
 # Learning Content Machine v1
 
-Статус: целевая архитектура и CI-проверенный вертикальный срез P0/P1 до миграции `011`; live-rollout выключен
+Статус: целевая архитектура и CI-проверенный вертикальный срез P0/P1 до миграции `012`; live-rollout выключен
 Дата: 2026-08-03
 
 ## 1. Цель
@@ -74,6 +74,18 @@ ContentEngine должен стать управляемой обучающей�
 > retention, legal, terms, quota и hard-budget gates. Instagram остаётся
 > fail-closed до выбора поставщика и юридического решения. Ни status RPC, ни
 > рендер интерфейса не начинают внешний вызов.
+>
+> Миграция `012` добавляет append-only числовую историю ширины доказательной
+> поддержки структурных трендовых сигналов. Она сравнивает только соседние
+> human-approved snapshots одного watchlist: долю точных source junctions
+> сигнала в источниках снимка, delta и нормализованную скорость за 30 дней.
+> Интервал меньше 72 часов, новая/исчезнувшая структура или смена category
+> baseline не создают числового velocity claim. Это не YouTube engagement,
+> популярность, продажи или causal winner; API titles/counters/channel IDs в
+> ledger не входят. Та же миграция вводит `category-evidence-readiness-v2`:
+> необработанное YouTube observation повышает только source volume/platform
+> diversity, competitor credit появляется лишь после `confirm_candidate`, а
+> raw metadata никогда не засчитывается как structured analysis.
 
 ### 1.1. Что реализовано в текущих P0, P1-A и P1-B foundation
 
@@ -232,13 +244,29 @@ ContentEngine должен стать управляемой обучающей�
   provider contract отображается пользователю как конкретный пробел, а не
   заменяется скрытым scraper или LLM-догадкой. Кандидаты и условия выбора
   зафиксированы отдельно в `docs/SOCIAL_SOURCE_PROVIDER_DECISION.md`.
+- миграция `202608030012_research_trend_velocity_and_readiness_truth.sql`
+  сохраняет immutable support-velocity events для соседних утверждённых
+  snapshots. Формула использует basis points точных source junctions,
+  минимальный интервал 72 часа, явные `baseline`, `category_reset`,
+  `signal_new`, `signal_removed`, `interval_too_short` и lineage/event hashes;
+- registry возвращает bounded `trend_velocity`, UI объясняет две точные точки,
+  показывает delta/30-day normalization и ведёт прямо к существующей
+  append-only корректировке этапа `trends`. Ни один velocity event не содержит
+  URL, title, channel/video ID, captions, counters или competitor prose;
+- readiness v2 перестаёт считать каждый retained YouTube channel конкурентом и
+  каждое видео разбором. Исторические v1 snapshots сохраняются с исходной
+  definition version, новые explicit snapshots получают v2 и новый hash;
+- текущая версия source identity выбирается по серверному времени исходного
+  source и стабильным tie-breakers. Новый content hash того же URL заменяет
+  прежний head в score/card, а старый разбор остаётся только в lineage history и
+  не переносится на новый контент автоматически.
 
 Дополнительно `app/category_intelligence` содержит pure in-memory reference-core
 для recent-vs-baseline structural trends, coverage/readiness, безопасного
 next-action и immutable revision graph. Это проверяемый доменный контракт, но
 не production persistence и не provider ingestion.
 
-Одиннадцать migrations этого среза проходят статический PostgreSQL parser,
+Двенадцать migrations этого среза проходят статический PostgreSQL parser,
 свежий PostgreSQL 17/PGlite apply, focused runtime fixtures и полный
 `supabase test db` в GitHub CI. Recorded no-network pgTAP-canary дополнительно
 проходит путь policy → scheduler → claim → две transport-квитанции → completion
@@ -248,7 +276,7 @@ staging всё ещё не проверены. Stage-control loop не прош�
 patch→stale→recompute→approve
 round-trip. Пока также не реализованы работающий лицензированный social metadata
 ingestion, развёрнутый YouTube adapter с ключом и успешным runtime canary,
-метрическая trend velocity, production binding подготовленной selection к
+внешняя engagement/performance velocity, production binding подготовленной selection к
 generation job, причинный generation experiment и автоматический effectiveness
 cooldown/revert. Поэтому текущий результат — управляемая
 category/trend/provider/stage-control foundation, default-disabled YouTube
@@ -331,10 +359,12 @@ reference/regression-контуром и не доказывает наличи�
 - `app/category_intelligence` ранжирует уже готовые observations, но сам не
   вызывает provider API, не сохраняет observation history и не подключён к
   production product-research UI;
-- базовый watchlist, immutable history и canonical trend timeline подготовлены,
+- базовый watchlist, immutable history, canonical trend timeline и числовая
+  support-velocity по соседним approved snapshots подготовлены,
   но scheduler пока создаёт только due proposal: нет provider cursor,
   first/last-seen у внешнего content entity и временных рядов внешних engagement
-  metrics. Управляемый официальный YouTube ingestion и локальный auto-enqueue
+  metrics. Текущая support-velocity измеряет только ширину evidence внутри
+  approved snapshot и не подменяет эти внешние метрики. Управляемый официальный YouTube ingestion и локальный auto-enqueue
   по cadence реализованы отдельно, но default gates закрыты, Edge/worker не
   развёрнуты и production runtime не проверен;
 - восемь compliance-значений намеренно остаются закрытым allowlist; новая
@@ -872,7 +902,11 @@ P0-C остаётся default-disabled в практическом смысле:
   metrics. Deployment, API key и успешный runtime canary остаются rollout gate;
 - реализован category evidence readiness foundation: versioned source ledger,
   append-only parser/human interpretation, шесть объяснимых измерений 0–100,
-  retained YouTube evidence и bounded история снимков; процент не является IQ;
+  retained YouTube evidence и bounded история снимков; readiness v2 не даёт
+  competitor/analysis credit необработанным API metadata; процент не является IQ;
+- реализована approved structural support velocity: adjacent snapshot lineage,
+  basis-point support/delta, 30-day normalization, 72-hour gate, category reset,
+  new/removed signals и переход к human correction этапа trends;
 - реализован default-disabled opt-in scheduler для YouTube: latest-policy,
   owner/admin, terms, retention, rollout, quota и hard-budget gates, preclaim до
   Edge HTTP и отсутствие automatic retry/fallback;
@@ -887,7 +921,7 @@ P0-C остаётся default-disabled в практическом смысле:
   entities за пределами ограниченного YouTube-контура;
 - production deployment YouTube adapter, секрет и успешный внешний canary;
 - повторные marketplace snapshots без суммирования cumulative values;
-- trend corroboration и contradiction queue;
+- внешняя engagement trend corroboration и contradiction queue;
 - hypothesis experiment allocation ledger и causal effectiveness windows;
 - manager health: stale sources, quota, cost, failed refresh, reauthorization;
 - безопасное подключение выбранной активной advisory memory к generation job
@@ -995,7 +1029,7 @@ production consumption. Остальные критерии требуют runti
   attribution scopes;
 - замена полного просмотра файла и человеческого QA автоматической оценкой;
 - объявление текущего provider-free watchlist постоянным social monitoring,
-  live competitor parser или доказанным metric-velocity контуром до следующего
+  live competitor parser или доказанным external engagement-velocity контуром до следующего
   live-provider/outcome среза P1/P2.
 
 ## 13. Решение для текущего вертикального среза v2
@@ -1011,11 +1045,13 @@ generation lineage.
 платного провайдера. Система сама считает freshness, сравнивает совместимые
 версии, собирает точную цепочку зрелых first-party outcomes и предлагает bounded
 candidate memory; обновление данных и каждое решение о памяти выполняются только
-после отдельного подтверждения. Миграции `007`–`009` дополняют этот срез
+после отдельного подтверждения. Миграции `007`–`012` дополняют этот срез
 управляемым официальным YouTube transport, exact multi-scope registry и
 effectiveness-gated selection foundation. Но YouTube provider/global gates
 остаются default disabled, код не развёрнут, ключ и runtime canary отсутствуют;
-его API Data не питают генерацию и не образуют derived metrics. Подготовленная
+его API Data не питают генерацию и не образуют engagement-derived metrics.
+Approved snapshot support-velocity остаётся отдельной доказательной метрикой и
+не использует YouTube counters. Подготовленная
 outcome selection также не связана с generation job: binding закрыт,
 effectiveness `unknown`, production consumption `gated_not_wired`. Поэтому live
 licensed social collection, provider-driven periodic refresh, production canary

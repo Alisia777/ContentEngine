@@ -319,14 +319,129 @@ def test_market_identity_ui_keeps_category_decisions_explicit_and_reset_safe() -
           unavailable: false,
         });
         const providerMarkup = subject.researchProviderControlMarkup(nullProvider);
-        const unbound = subject.normalizeResearchMarketRegistry({ registry: {
+        const unboundRegistry = {
           ok: true,
           can_resolve: true,
           candidate: { candidate_hash: hash, category_name: "<script>Новая</script>", definition: "Проверяемые границы новой категории" },
           categories: [{ category_key: otherId, canonical_name: "Сохранённая", definition: "Существующая граница" }],
           trend_timeline: [{ signal_key: "hook.problem_first", canonical_label: "Проблема сначала", direction: "growing", previous_direction: "declining", comparison_mode: "canonical_reset", direction_changed: false, potential_contradiction: false }],
-          guidance: { status: "needs_user_decision", paid_provider_action: false },
-        }});
+          trend_velocity: [{
+            snapshot_id: "40000000-0000-4000-8000-000000000001",
+            previous_snapshot_id: "40000000-0000-4000-8000-000000000002",
+            run_id: "50000000-0000-4000-8000-000000000001",
+            observed_at: "2026-08-03T12:00:00Z",
+            previous_observed_at: "2026-07-20T12:00:00Z",
+            category_key: otherId,
+            signal_key: "hook.problem_first",
+            canonical_label: "Проблема сначала",
+            definition_version: "approved-structural-support-velocity-v1",
+            comparison_mode: "comparable",
+            current_present: true,
+            previous_present: true,
+            current_direction: "growing",
+            previous_direction: "stable",
+            current_source_count: 3,
+            previous_source_count: 1,
+            current_total_source_count: 5,
+            previous_total_source_count: 4,
+            current_support_bps: 6000,
+            previous_support_bps: 2500,
+            support_delta_bps: 3500,
+            elapsed_seconds: 1209600,
+            support_velocity_bps_per_30d: 7500,
+            lineage_hash: "d".repeat(64),
+            event_hash: "e".repeat(64),
+            claim_allowed: true,
+            support_state: "support_breadth_increasing",
+            recommended_next_step: "review_support_velocity",
+          }],
+          guidance: {
+            status: "needs_user_decision",
+            paid_provider_action: false,
+            trend_velocity: {
+              status: "review_support_velocity",
+              recommended_next_step: "review_support_velocity",
+              metric_kind: "approved_structural_evidence_support_not_performance",
+              minimum_interval_hours: 72,
+              human_correction_stage: "trends",
+            },
+          },
+        };
+        const unbound = subject.normalizeResearchMarketRegistry({ registry: unboundRegistry });
+        const wrongDeltaRegistry = structuredClone(unboundRegistry);
+        wrongDeltaRegistry.trend_velocity[0].support_delta_bps = 3499;
+        const stringCountRegistry = structuredClone(unboundRegistry);
+        stringCountRegistry.trend_velocity[0].current_source_count = "3";
+        const wrongStateRegistry = structuredClone(unboundRegistry);
+        wrongStateRegistry.trend_velocity[0].support_state = "support_breadth_stable";
+        const absentCountRegistry = structuredClone(unboundRegistry);
+        Object.assign(absentCountRegistry.trend_velocity[0], {
+          comparison_mode: "category_reset",
+          previous_present: false,
+          previous_direction: null,
+          support_delta_bps: null,
+          support_velocity_bps_per_30d: null,
+          claim_allowed: false,
+          support_state: "no_velocity_claim",
+          recommended_next_step: "establish_new_category_baseline",
+        });
+        Object.assign(absentCountRegistry.guidance.trend_velocity, {
+          status: "establish_new_category_baseline",
+          recommended_next_step: "establish_new_category_baseline",
+        });
+        const zeroIntervalRegistry = structuredClone(unboundRegistry);
+        Object.assign(zeroIntervalRegistry.trend_velocity[0], {
+          previous_observed_at: "2026-08-03T12:00:00Z",
+          comparison_mode: "interval_too_short",
+          support_delta_bps: null,
+          elapsed_seconds: 0,
+          support_velocity_bps_per_30d: null,
+          claim_allowed: false,
+          support_state: "no_velocity_claim",
+          recommended_next_step: "wait_for_minimum_interval",
+        });
+        Object.assign(zeroIntervalRegistry.guidance.trend_velocity, {
+          status: "wait_for_minimum_interval",
+          recommended_next_step: "wait_for_minimum_interval",
+        });
+        const categoryResetRegistry = structuredClone(unboundRegistry);
+        Object.assign(categoryResetRegistry.trend_velocity[0], {
+          comparison_mode: "category_reset",
+          previous_present: false,
+          previous_direction: null,
+          previous_source_count: 0,
+          previous_support_bps: 0,
+          support_delta_bps: null,
+          support_velocity_bps_per_30d: null,
+          claim_allowed: false,
+          support_state: "no_velocity_claim",
+          recommended_next_step: "establish_new_category_baseline",
+        });
+        Object.assign(categoryResetRegistry.guidance.trend_velocity, {
+          status: "establish_new_category_baseline",
+          recommended_next_step: "establish_new_category_baseline",
+        });
+        const microsecondIntervalRegistry = structuredClone(zeroIntervalRegistry);
+        Object.assign(microsecondIntervalRegistry.trend_velocity[0], {
+          previous_observed_at: "2026-08-03T12:00:00.000999Z",
+          observed_at: "2026-08-03T12:00:01.000001Z",
+          elapsed_seconds: 0,
+        });
+        const mixedVelocityRegistry = structuredClone(unboundRegistry);
+        const invalidMixedEvent = structuredClone(
+          mixedVelocityRegistry.trend_velocity[0],
+        );
+        invalidMixedEvent.snapshot_id = "40000000-0000-4000-8000-000000000003";
+        invalidMixedEvent.event_hash = "f".repeat(64);
+        invalidMixedEvent.support_delta_bps = 3499;
+        mixedVelocityRegistry.trend_velocity.unshift(invalidMixedEvent);
+        const mixedVelocity = subject.normalizeResearchMarketRegistry({
+          registry: mixedVelocityRegistry,
+        });
+        const mixedVelocityMarkup = subject.researchMarketCategoryMarkup(
+          mixedVelocity,
+          { runId: "run-1" },
+        );
         const bound = subject.normalizeResearchMarketRegistry({ registry: {
           ok: true,
           can_resolve: true,
@@ -352,6 +467,30 @@ def test_market_identity_ui_keeps_category_decisions_explicit_and_reset_safe() -
           currentIdLeaked: boundMarkup.includes(currentId),
           otherIdSelectable: boundMarkup.includes(`value="${otherId}"`),
           resetLabel: unboundMarkup.includes("новая база") && !unboundMarkup.includes("снижается → растёт"),
+          velocity: unbound.trendVelocity.length === 1
+            && unboundMarkup.includes("25,0% → 60,0%")
+            && unboundMarkup.includes("+35,0 п.п.")
+            && unboundMarkup.includes("+75,0 п.п. / 30 дней")
+            && unboundMarkup.includes('data-action="focus-research-trends-stage"')
+            && unboundMarkup.includes("не просмотры, не продажи"),
+          corruptVelocityFailsClosed: [
+            wrongDeltaRegistry,
+            stringCountRegistry,
+            wrongStateRegistry,
+            absentCountRegistry,
+          ].every((registry) => subject.normalizeResearchMarketRegistry({ registry }).available === false),
+          zeroIntervalAccepted: subject.normalizeResearchMarketRegistry({
+            registry: zeroIntervalRegistry,
+          }).trendVelocity[0].elapsedSeconds === 0,
+          categoryResetNewSignalAccepted: subject.normalizeResearchMarketRegistry({
+            registry: categoryResetRegistry,
+          }).trendVelocity[0].comparisonMode === "category_reset",
+          microsecondIntervalAccepted: subject.normalizeResearchMarketRegistry({
+            registry: microsecondIntervalRegistry,
+          }).trendVelocity[0].elapsedSeconds === 0,
+          mixedVelocityHidden: mixedVelocity.available === false
+            && mixedVelocity.trendVelocity.length === 0
+            && !mixedVelocityMarkup.includes("+75,0 п.п. / 30 дней"),
           noPaidCopy: boundMarkup.includes("не запускает новый анализ") && boundMarkup.includes("не обращается к платному провайдеру"),
         };
         """,
@@ -368,6 +507,12 @@ def test_market_identity_ui_keeps_category_decisions_explicit_and_reset_safe() -
         "currentIdLeaked": False,
         "otherIdSelectable": True,
         "resetLabel": True,
+        "velocity": True,
+        "corruptVelocityFailsClosed": True,
+        "zeroIntervalAccepted": True,
+        "categoryResetNewSignalAccepted": True,
+        "microsecondIntervalAccepted": True,
+        "mixedVelocityHidden": True,
         "noPaidCopy": True,
     }
 

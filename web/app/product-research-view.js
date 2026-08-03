@@ -96,7 +96,21 @@ const RESEARCH_STAGE_CONTROL_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const RESEARCH_CATEGORY_LEARNING_VERSION =
   "research-category-learning-readiness-v1";
 const RESEARCH_CATEGORY_READINESS_DEFINITION =
-  "category-evidence-readiness-v1";
+  "category-evidence-readiness-v2";
+const RESEARCH_CATEGORY_READINESS_DEFINITIONS = new Set([
+  "category-evidence-readiness-v1",
+  RESEARCH_CATEGORY_READINESS_DEFINITION,
+]);
+const RESEARCH_CATEGORY_READINESS_MEANINGS = new Map([
+  [
+    "category-evidence-readiness-v1",
+    "Coverage of durable evidence plus current retention-bound YouTube metadata",
+  ],
+  [
+    RESEARCH_CATEGORY_READINESS_DEFINITION,
+    "Coverage of durable evidence plus retention-bound YouTube metadata; only confirmed candidates add semantic credit",
+  ],
+]);
 const RESEARCH_CATEGORY_READINESS_KIND =
   "category_evidence_readiness_not_model_iq";
 const RESEARCH_CATEGORY_DIMENSIONS = Object.freeze([
@@ -180,6 +194,29 @@ const RESEARCH_CATEGORY_PROVIDER_PATTERN = /^[a-z][a-z0-9_.-]{1,79}$/u;
 const RESEARCH_CATEGORY_ANALYSIS_ORIGINS = new Set([
   "system_parser",
   "human_correction",
+]);
+const RESEARCH_TREND_VELOCITY_VERSION =
+  "approved-structural-support-velocity-v1";
+const RESEARCH_TREND_VELOCITY_MODES = new Set([
+  "baseline",
+  "comparable",
+  "category_reset",
+  "signal_new",
+  "signal_removed",
+  "interval_too_short",
+]);
+const RESEARCH_TREND_SUPPORT_STATES = new Set([
+  "no_velocity_claim",
+  "support_breadth_increasing",
+  "support_breadth_decreasing",
+  "support_breadth_stable",
+]);
+const RESEARCH_TREND_DIRECTIONS = new Set([
+  "emerging",
+  "growing",
+  "stable",
+  "declining",
+  "unclear",
 ]);
 const RESEARCH_CATEGORY_INTENT_BLOCKERS = new Set([
   "category_binding_stale",
@@ -1381,7 +1418,9 @@ export function normalizeResearchCategoryLearning(value) {
     || metric.is_ai_iq !== false
     || !readiness
     || readiness.metric_kind !== RESEARCH_CATEGORY_READINESS_KIND
-    || readiness.definition_version !== RESEARCH_CATEGORY_READINESS_DEFINITION
+    || !RESEARCH_CATEGORY_READINESS_DEFINITIONS.has(
+      readiness.definition_version,
+    )
     || !Number.isSafeInteger(score)
     || score < 0
     || score > 100
@@ -1397,8 +1436,9 @@ export function normalizeResearchCategoryLearning(value) {
     || limits.competitor_metric_is_unique_publishers !== false
     || limits.retained_youtube_uses_unique_channel_ids !== true
     || limits.youtube_retention_days !== 29
-    || limits.meaning
-      !== "Coverage of durable evidence plus current retention-bound YouTube metadata"
+    || limits.meaning !== RESEARCH_CATEGORY_READINESS_MEANINGS.get(
+      readiness.definition_version,
+    )
   ) return invalid();
 
   const category = researchCategoryExactObject(source.category, [
@@ -1502,7 +1542,7 @@ export function normalizeResearchCategoryLearning(value) {
     const capturedBy = researchOutcomeUuid(snapshot.captured_by);
     const capturedAt = researchYoutubeTimestamp(snapshot.captured_at);
     if (
-      snapshot.definition_version !== RESEARCH_CATEGORY_READINESS_DEFINITION
+      !RESEARCH_CATEGORY_READINESS_DEFINITIONS.has(snapshot.definition_version)
       || !snapshotId
       || !Number.isSafeInteger(snapshotScore)
       || snapshotScore < 0
@@ -1517,6 +1557,7 @@ export function normalizeResearchCategoryLearning(value) {
     ) return null;
     return {
       snapshotId,
+      definitionVersion: snapshot.definition_version,
       score: snapshotScore,
       dimensions: snapshotDimensions,
       evidenceHash: snapshotEvidenceHash,
@@ -1632,6 +1673,7 @@ export function normalizeResearchCategoryLearning(value) {
       bindingVersion,
     },
     score,
+    readinessDefinition: readiness.definition_version,
     evidenceHash,
     asOf,
     dimensions,
@@ -1659,7 +1701,7 @@ function researchCategoryDimensionLabel(key) {
   return ({
     source_volume: "Текущий объём проверяемых источников",
     platform_diversity: "Разнообразие площадок",
-    competitor_observations: "Наблюдения конкурентов / сохранённые YouTube-каналы",
+    competitor_observations: "Подтверждённые наблюдения конкурентов",
     trend_recency: "Свежесть трендов",
     analysis_coverage: "Структурированный / нормализованный охват",
     human_validation: "Доказательства, проверенные человеком",
@@ -1673,7 +1715,7 @@ function researchCategoryNextActionLabel(value) {
     add_an_independent_platform:
       "Добавить независимую площадку, а не ещё одну публикацию того же аккаунта.",
     collect_competitor_observations:
-      "Собрать проверяемые наблюдения конкурентов или свежие YouTube-каналы; для YouTube дедупликация идёт по channel_id.",
+      "Разобрать проверяемые источники конкурентов; YouTube-кандидат засчитывается только после подтверждения человеком и дедупликации по channel_id.",
     refresh_canonical_trend_evidence:
       "Обновить канонические трендовые наблюдения за последние 30 дней.",
     analyze_unreviewed_sources:
@@ -1813,9 +1855,11 @@ function researchCategoryRetainedYoutubeCardMarkup(item) {
     : decision.decision === "exclude_candidate"
       ? "Исключено человеком из готовности"
       : "Подтверждено человеком";
-  const readinessLabel = item.includedInReadiness
-    ? "Учитывается в готовности"
-    : "Не учитывается в готовности";
+  const readinessLabel = decision?.decision === "confirm_candidate"
+    ? "Подтверждён: конкурент + human validation"
+    : decision?.decision === "exclude_candidate"
+      ? "Не учитывается в готовности"
+      : "Только объём источников и площадка";
   return `<article class="product-research-learning-source product-research-learning-retained-youtube-card ${item.includedInReadiness ? "is-included" : "is-excluded"}">
     <header>
       <div><span class="badge">YouTube · 29 дней</span><span class="badge">${escapeHtml(RESEARCH_YOUTUBE_PROVIDER_KEY)}</span><span class="badge">${escapeHtml(readinessLabel)}</span></div>
@@ -1834,7 +1878,7 @@ function researchCategoryRetainedYoutubeCardMarkup(item) {
     <aside class="product-research-learning-retained-decision" role="note">
       <strong>${escapeHtml(decisionLabel)}</strong>
       ${decision ? `<span>${escapeHtml(researchYoutubeDateTimeLabel(decision.decidedAt))}${decision.reason ? ` · ${escapeHtml(decision.reason)}` : ""}</span>` : ""}
-      <small>Включение или исключение корректируется append-only решением <code>creator_decide_research_youtube_candidate</code> в YouTube-карточке ниже. Raw captions не хранятся.</small>
+      <small>Confirm_candidate добавляет только одно дедуплицированное наблюдение конкурента и human validation. YouTube-метаданные никогда не повышают analysis coverage. Решение корректируется append-only командой <code>creator_decide_research_youtube_candidate</code>. Raw captions не хранятся.</small>
     </aside>
   </article>`;
 }
@@ -1938,7 +1982,14 @@ export function researchCategoryLearningMarkup(value, {
     </section>`;
   }
   const historyMarkup = control.readinessHistory.length
-    ? `<ol>${control.readinessHistory.map((snapshot) => `<li><strong>${snapshot.score}%</strong><span>${escapeHtml(researchYoutubeDateTimeLabel(snapshot.capturedAt))}</span><code>${escapeHtml(snapshot.snapshotHash.slice(0, 10))}…</code></li>`).join("")}</ol>`
+    ? `<ol>${control.readinessHistory.map((snapshot, index) => {
+      const newerSnapshot = control.readinessHistory[index - 1];
+      const formulaBoundary = newerSnapshot
+          && newerSnapshot.definitionVersion !== snapshot.definitionVersion
+        ? `<li class="product-research-learning-formula-boundary" role="note"><strong>Формула изменена</strong><span>${escapeHtml(newerSnapshot.definitionVersion)} ↔ ${escapeHtml(snapshot.definitionVersion)} · точки напрямую не сравниваются</span></li>`
+        : "";
+      return `${formulaBoundary}<li><strong>${snapshot.score}%</strong><span>${escapeHtml(researchYoutubeDateTimeLabel(snapshot.capturedAt))} · ${escapeHtml(snapshot.definitionVersion)}</span><code>${escapeHtml(snapshot.snapshotHash.slice(0, 10))}…</code></li>`;
+    }).join("")}</ol>`
     : '<p class="muted">История пуста. Она появляется только после явной фиксации снимка и не пишется при простом наведении или status-вызове.</p>';
   return `<section class="card product-research-learning" aria-labelledby="research-category-learning-title">
     <div class="card-header">
@@ -1949,7 +2000,7 @@ export function researchCategoryLearningMarkup(value, {
       <div class="product-research-learning-meter" style="--research-learning-score:${control.score}" role="img" aria-label="Готовность доказательной базы категории: ${control.score} процентов" title="${escapeHtml(`Готовность доказательной базы: ${control.score}%. Это не IQ и не accuracy модели.`)}">
         <strong>${control.score}%</strong><small>доказательства</small>
       </div>
-      <div><h3>Это не IQ, не accuracy модели и не гарантия качества</h3><p>Процент детерминированно показывает покрытие устойчивых источников и свежих YouTube-метаданных с 29-дневным retention выбранной категории на ${escapeHtml(researchYoutubeDateTimeLabel(control.asOf))}.</p><small>Evidence hash <code>${escapeHtml(control.evidenceHash.slice(0, 12))}…</code> · raw captions не хранятся.</small></div>
+      <div><h3>Это не IQ, не accuracy модели и не гарантия качества</h3><p>Процент детерминированно показывает покрытие доказательств выбранной категории на ${escapeHtml(researchYoutubeDateTimeLabel(control.asOf))}. Неутверждённые YouTube-метаданные с 29-дневным retention дают только объём источников и площадку; они не считаются разбором или конкурентом.</p><small>Формула ${escapeHtml(control.readinessDefinition || RESEARCH_CATEGORY_READINESS_DEFINITION)} · Evidence hash <code>${escapeHtml(control.evidenceHash.slice(0, 12))}…</code> · raw captions не хранятся.</small></div>
       <form class="product-research-readiness-capture-form" novalidate>
         <input type="hidden" name="expected_evidence_hash" value="${escapeHtml(control.evidenceHash)}" />
         <button class="btn btn-secondary btn-small" type="submit" ${saving ? "disabled" : ""}>Зафиксировать снимок в истории</button>
@@ -1964,7 +2015,7 @@ export function researchCategoryLearningMarkup(value, {
     <div class="product-research-learning-sources">${control.sources.length
       ? control.sources.map((source) => researchCategorySourceCardMarkup(source, { saving })).join("")
       : '<div class="product-research-empty-note"><strong>Устойчивых источников пока нет</strong><p>Процент остаётся низким; система должна предложить сбор, а не дорисовывать факты.</p></div>'}</div>
-    <div class="product-research-learning-section-heading"><div><p class="eyebrow">Retained YouTube evidence</p><h3>Свежие YouTube-наблюдения категории</h3><small>Метаданные хранятся 29 дней и учитываются по уникальным channel_id. Это не устойчивый source ledger; raw captions не сохраняются.</small></div><span class="badge">${control.retainedYoutubeEvidence.length} из максимум 50</span></div>
+    <div class="product-research-learning-section-heading"><div><p class="eyebrow">Retained YouTube evidence</p><h3>Свежие YouTube-наблюдения категории</h3><small>Метаданные хранятся 29 дней. До human confirm они влияют только на source volume/platform diversity; после confirm добавляют deduped competitor observation и human validation. Analysis coverage YouTube-метаданные не повышают никогда. Это не устойчивый source ledger; raw captions не сохраняются.</small></div><span class="badge">${control.retainedYoutubeEvidence.length} из максимум 50</span></div>
     <div class="product-research-learning-sources product-research-learning-retained-youtube">${control.retainedYoutubeEvidence.length
       ? control.retainedYoutubeEvidence.map(researchCategoryRetainedYoutubeCardMarkup).join("")
       : '<div class="product-research-empty-note"><strong>Сохранённых YouTube-наблюдений пока нет</strong><p>При разрешённой политике внутренний worker может собрать bounded public metadata; status/render ничего не запускают.</p></div>'}</div>
@@ -3297,11 +3348,22 @@ export function normalizeResearchMarketRegistry(value) {
   const bindingSource = objectValue(source.current_binding || source.currentBinding);
   const candidateSource = objectValue(source.candidate);
   const guidanceSource = objectValue(source.guidance) || {};
-  const contractValid = !unavailable
+  const velocityGuidanceSource = objectValue(
+    guidanceSource.trend_velocity || guidanceSource.trendVelocity,
+  ) || {};
+  const hasRawVelocity = Object.prototype.hasOwnProperty.call(
+    source,
+    "trend_velocity",
+  ) || Object.prototype.hasOwnProperty.call(source, "trendVelocity");
+  const rawVelocity = Object.prototype.hasOwnProperty.call(source, "trend_velocity")
+    ? source.trend_velocity
+    : source.trendVelocity;
+  let contractValid = !unavailable
     && source.ok === true
     && typeof (source.can_resolve ?? source.canResolve) === "boolean"
     && Array.isArray(source.categories)
     && Array.isArray(source.trend_timeline || source.trendTimeline)
+    && (!hasRawVelocity || Array.isArray(rawVelocity))
     && Object.keys(guidanceSource).length > 0;
   const category = (item) => {
     const row = objectValue(item) || {};
@@ -3314,6 +3376,341 @@ export function normalizeResearchMarketRegistry(value) {
       createdAt: String(row.created_at || row.createdAt || "").trim(),
     };
   };
+  const field = (row, snakeKey, camelKey) => (
+    Object.prototype.hasOwnProperty.call(row, snakeKey)
+      ? row[snakeKey]
+      : row[camelKey]
+  );
+  const strictInteger = (value, minimum, maximum) => (
+    typeof value === "number"
+      && Number.isSafeInteger(value)
+      && value >= minimum
+      && value <= maximum
+      ? value
+      : false
+  );
+  const strictNumber = (value, minimum, maximum) => (
+    typeof value === "number"
+      && Number.isFinite(value)
+      && value >= minimum
+      && value <= maximum
+      ? value
+      : false
+  );
+  const nullableUuid = (value) => (
+    value === null ? null : researchOutcomeUuid(value) || false
+  );
+  const nullableTimestamp = (value) => (
+    value === null ? null : researchYoutubeTimestamp(value) || false
+  );
+  const nullableInteger = (value, minimum, maximum) => (
+    value === null ? null : strictInteger(value, minimum, maximum)
+  );
+  const nullableNumber = (value, minimum, maximum) => (
+    value === null ? null : strictNumber(value, minimum, maximum)
+  );
+  const roundHalfAwayFromZero = (value, decimals = 0) => {
+    const factor = 10 ** decimals;
+    return Math.sign(value) * Math.round(Math.abs(value) * factor) / factor;
+  };
+  let velocityContractValid = true;
+  const parsedTrendVelocity = arrayValue(rawVelocity).slice(0, 24).map((item) => {
+    const row = objectValue(item) || {};
+    const comparisonMode = String(
+      row.comparison_mode || row.comparisonMode || "",
+    ).trim();
+    const definitionVersion = String(
+      row.definition_version || row.definitionVersion || "",
+    ).trim();
+    const signalKey = String(row.signal_key || row.signalKey || "").trim();
+    const eventHash = String(row.event_hash || row.eventHash || "").trim();
+    const lineageHash = String(row.lineage_hash || row.lineageHash || "").trim();
+    const snapshotId = researchOutcomeUuid(field(row, "snapshot_id", "snapshotId"));
+    const previousSnapshotId = nullableUuid(
+      field(row, "previous_snapshot_id", "previousSnapshotId"),
+    );
+    const runId = researchOutcomeUuid(field(row, "run_id", "runId"));
+    const observedAt = researchYoutubeTimestamp(field(row, "observed_at", "observedAt"));
+    const previousObservedAt = nullableTimestamp(
+      field(row, "previous_observed_at", "previousObservedAt"),
+    );
+    const categoryId = nullableUuid(
+      field(row, "category_key", "categoryId"),
+    );
+    const canonicalLabel = researchYoutubeText(
+      field(row, "canonical_label", "canonicalLabel"),
+      1,
+      160,
+    );
+    const currentPresent = field(row, "current_present", "currentPresent");
+    const previousPresent = field(row, "previous_present", "previousPresent");
+    const currentDirection = field(row, "current_direction", "currentDirection");
+    const previousDirection = field(row, "previous_direction", "previousDirection");
+    const currentSourceCount = strictInteger(
+      field(row, "current_source_count", "currentSourceCount"),
+      0,
+      100,
+    );
+    const previousSourceCount = strictInteger(
+      field(row, "previous_source_count", "previousSourceCount"),
+      0,
+      100,
+    );
+    const currentTotalSourceCount = strictInteger(
+      field(row, "current_total_source_count", "currentTotalSourceCount"),
+      1,
+      100,
+    );
+    const previousTotalSourceCount = nullableInteger(
+      field(row, "previous_total_source_count", "previousTotalSourceCount"),
+      1,
+      100,
+    );
+    const currentSupportBps = strictInteger(
+      field(row, "current_support_bps", "currentSupportBps"),
+      0,
+      10_000,
+    );
+    const previousSupportBps = nullableInteger(
+      field(row, "previous_support_bps", "previousSupportBps"),
+      0,
+      10_000,
+    );
+    const supportDeltaBps = nullableInteger(
+      field(row, "support_delta_bps", "supportDeltaBps"),
+      -10_000,
+      10_000,
+    );
+    const supportVelocity = nullableNumber(
+      field(row, "support_velocity_bps_per_30d", "supportVelocityBpsPer30d"),
+      -100_000,
+      100_000,
+    );
+    const elapsedSeconds = nullableInteger(
+      field(row, "elapsed_seconds", "elapsedSeconds"),
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
+    const claimAllowed = field(row, "claim_allowed", "claimAllowed");
+    const supportState = String(
+      row.support_state || row.supportState || "",
+    ).trim();
+    const recommendedNextStep = String(
+      row.recommended_next_step || row.recommendedNextStep || "",
+    ).trim();
+    const modeShapeValid = ({
+      baseline: previousSnapshotId === null
+        && previousObservedAt === null
+        && previousTotalSourceCount === null
+        && previousSupportBps === null
+        && elapsedSeconds === null
+        && currentPresent === true
+        && previousPresent === false,
+      comparable: previousSnapshotId
+        && previousObservedAt
+        && previousTotalSourceCount !== null
+        && elapsedSeconds >= 259_200
+        && currentPresent === true
+        && previousPresent === true,
+      category_reset: previousSnapshotId
+        && previousObservedAt
+        && previousTotalSourceCount !== null
+        && elapsedSeconds !== null
+        && (currentPresent === true || previousPresent === true),
+      signal_new: previousSnapshotId
+        && previousObservedAt
+        && previousTotalSourceCount !== null
+        && elapsedSeconds !== null
+        && currentPresent === true
+        && previousPresent === false,
+      signal_removed: previousSnapshotId
+        && previousObservedAt
+        && previousTotalSourceCount !== null
+        && elapsedSeconds !== null
+        && currentPresent === false
+        && previousPresent === true,
+      interval_too_short: previousSnapshotId
+        && previousObservedAt
+        && previousTotalSourceCount !== null
+        && elapsedSeconds !== null
+        && elapsedSeconds < 259_200
+        && currentPresent === true
+        && previousPresent === true,
+    })[comparisonMode] === true;
+    const expectedCurrentSupport = Number.isSafeInteger(currentSourceCount)
+        && Number.isSafeInteger(currentTotalSourceCount)
+      ? Math.round(10_000 * currentSourceCount / currentTotalSourceCount)
+      : null;
+    const expectedPreviousSupport = Number.isSafeInteger(previousSourceCount)
+        && Number.isSafeInteger(previousTotalSourceCount)
+      ? Math.round(10_000 * previousSourceCount / previousTotalSourceCount)
+      : null;
+    const expectedDelta = comparisonMode === "comparable"
+        && Number.isSafeInteger(currentSupportBps)
+        && Number.isSafeInteger(previousSupportBps)
+      ? currentSupportBps - previousSupportBps
+      : null;
+    const expectedVelocity = comparisonMode === "comparable"
+        && Number.isSafeInteger(expectedDelta)
+        && Number.isSafeInteger(elapsedSeconds)
+      ? roundHalfAwayFromZero(expectedDelta * 2_592_000 / elapsedSeconds, 2)
+      : null;
+    const expectedSupportState = comparisonMode !== "comparable"
+      ? "no_velocity_claim"
+      : expectedDelta > 0
+        ? "support_breadth_increasing"
+        : expectedDelta < 0
+          ? "support_breadth_decreasing"
+          : "support_breadth_stable";
+    const expectedNextStep = ({
+      baseline: "collect_next_approved_snapshot",
+      comparable: "review_support_velocity",
+      category_reset: "establish_new_category_baseline",
+      signal_new: "collect_next_approved_snapshot",
+      signal_removed: "review_trends_stage",
+      interval_too_short: "wait_for_minimum_interval",
+    })[comparisonMode];
+    const observedElapsed = observedAt && previousObservedAt
+      ? Math.floor((Date.parse(observedAt) - Date.parse(previousObservedAt)) / 1000)
+      : null;
+    const directionShapeValid = typeof currentPresent === "boolean"
+      && typeof previousPresent === "boolean"
+      && (currentPresent
+        ? RESEARCH_TREND_DIRECTIONS.has(currentDirection)
+        : currentDirection === null)
+      && (previousPresent
+        ? RESEARCH_TREND_DIRECTIONS.has(previousDirection)
+        : previousDirection === null);
+    const invalidVelocity = (
+      definitionVersion !== RESEARCH_TREND_VELOCITY_VERSION
+      || !RESEARCH_TREND_VELOCITY_MODES.has(comparisonMode)
+      || !snapshotId
+      || previousSnapshotId === false
+      || !runId
+      || !observedAt
+      || previousObservedAt === false
+      || categoryId === false
+      || !RESEARCH_CATEGORY_STRUCTURAL_SIGNAL_PATTERN.test(signalKey)
+      || !canonicalLabel
+      || !RESEARCH_STAGE_CONTROL_HASH_PATTERN.test(eventHash)
+      || !RESEARCH_STAGE_CONTROL_HASH_PATTERN.test(lineageHash)
+      || !Number.isSafeInteger(currentSourceCount)
+      || !Number.isSafeInteger(previousSourceCount)
+      || !Number.isSafeInteger(currentTotalSourceCount)
+      || previousTotalSourceCount === false
+      || !Number.isSafeInteger(currentSupportBps)
+      || previousSupportBps === false
+      || supportDeltaBps === false
+      || supportVelocity === false
+      || elapsedSeconds === false
+      || currentSourceCount > currentTotalSourceCount
+      || (previousTotalSourceCount !== null
+        && previousSourceCount > previousTotalSourceCount)
+      || (currentPresent ? currentSourceCount < 1 : currentSourceCount !== 0)
+      || (previousPresent ? previousSourceCount < 1 : previousSourceCount !== 0)
+      || currentSupportBps !== expectedCurrentSupport
+      || (previousTotalSourceCount === null
+        ? previousSupportBps !== null
+        : previousSupportBps !== expectedPreviousSupport)
+      || !modeShapeValid
+      || !directionShapeValid
+      || (previousObservedAt !== null
+        && Math.abs(observedElapsed - elapsedSeconds) > 1)
+      || !RESEARCH_TREND_SUPPORT_STATES.has(supportState)
+      || supportState !== expectedSupportState
+      || typeof claimAllowed !== "boolean"
+      || claimAllowed !== (comparisonMode === "comparable")
+      || supportDeltaBps !== expectedDelta
+      || (expectedVelocity === null
+        ? supportVelocity !== null
+        : Math.abs(supportVelocity - expectedVelocity) > 0.005)
+      || recommendedNextStep !== expectedNextStep
+    );
+    if (invalidVelocity) {
+      velocityContractValid = false;
+      return null;
+    }
+    return {
+      snapshotId,
+      previousSnapshotId,
+      runId,
+      observedAt,
+      previousObservedAt,
+      categoryId,
+      signalKey,
+      canonicalLabel,
+      definitionVersion,
+      comparisonMode,
+      currentPresent,
+      previousPresent,
+      currentDirection,
+      previousDirection,
+      currentSourceCount,
+      previousSourceCount,
+      currentTotalSourceCount,
+      previousTotalSourceCount,
+      currentSupportBps,
+      previousSupportBps,
+      supportDeltaBps,
+      supportVelocityBpsPer30d: supportVelocity,
+      elapsedSeconds,
+      lineageHash,
+      eventHash,
+      claimAllowed,
+      supportState,
+      recommendedNextStep,
+    };
+  }).filter(Boolean);
+  if (
+    arrayValue(rawVelocity).length > 24
+    || new Set(parsedTrendVelocity.map((event) => event.eventHash)).size
+      !== parsedTrendVelocity.length
+    || new Set(parsedTrendVelocity.map(
+      (event) => `${event.snapshotId}:${event.signalKey}`,
+    )).size !== parsedTrendVelocity.length
+  ) velocityContractValid = false;
+  const trendVelocity = velocityContractValid ? parsedTrendVelocity : [];
+  const velocityGuidancePresent = Object.keys(velocityGuidanceSource).length > 0;
+  const velocityGuidanceStatus = String(
+    velocityGuidanceSource.status || "",
+  ).trim();
+  const velocityGuidanceNextStep = String(
+    velocityGuidanceSource.recommended_next_step
+      || velocityGuidanceSource.recommendedNextStep
+      || "",
+  ).trim();
+  const velocityGuidanceMetric = String(
+    velocityGuidanceSource.metric_kind
+      || velocityGuidanceSource.metricKind
+      || "",
+  ).trim();
+  const velocityGuidanceInterval = field(
+    velocityGuidanceSource,
+    "minimum_interval_hours",
+    "minimumIntervalHours",
+  );
+  const velocityGuidanceCorrectionStage = String(
+    velocityGuidanceSource.human_correction_stage
+      || velocityGuidanceSource.humanCorrectionStage
+      || "",
+  ).trim();
+  const velocityGuidanceActions = new Set([
+    "collect_next_approved_snapshot",
+    "review_support_velocity",
+    "establish_new_category_baseline",
+    "review_trends_stage",
+    "wait_for_minimum_interval",
+  ]);
+  if (hasRawVelocity && (
+    !velocityContractValid
+    || !velocityGuidancePresent
+    || velocityGuidanceMetric
+      !== "approved_structural_evidence_support_not_performance"
+    || velocityGuidanceInterval !== 72
+    || velocityGuidanceCorrectionStage !== "trends"
+    || velocityGuidanceStatus !== velocityGuidanceNextStep
+    || !velocityGuidanceActions.has(velocityGuidanceStatus)
+  )) contractValid = false;
   return {
     available: contractValid,
     canResolve: contractValid
@@ -3373,6 +3770,7 @@ export function normalizeResearchMarketRegistry(value) {
           sourceCount: boundedCount(row.source_count ?? row.sourceCount, 0),
         };
       }).filter((item) => item.signalKey),
+    trendVelocity,
     guidance: {
       status: String(guidanceSource.status || (unavailable ? "unavailable" : "needs_research_evidence")),
       recommendedNextStep: String(
@@ -3385,6 +3783,13 @@ export function normalizeResearchMarketRegistry(value) {
         && guidanceSource.categoryDecisionRequiresConfirmation !== false,
       paidProviderAction: guidanceSource.paid_provider_action === true
         || guidanceSource.paidProviderAction === true,
+      trendVelocity: velocityGuidancePresent ? {
+        status: velocityGuidanceStatus,
+        recommendedNextStep: velocityGuidanceNextStep,
+        metricKind: velocityGuidanceMetric,
+        minimumIntervalHours: velocityGuidanceInterval,
+        humanCorrectionStage: velocityGuidanceCorrectionStage,
+      } : null,
     },
   };
 }
@@ -5989,6 +6394,48 @@ export function researchMarketCategoryMarkup(value, {
   };
   const categoryOptions = alternativeCategories.map((category) => `
     <option value="${escapeHtml(category.categoryId)}">${escapeHtml(category.canonicalName)}</option>`).join("");
+  const supportPoints = (basisPoints, { signed = false } = {}) => {
+    const points = Number(basisPoints || 0) / 100;
+    const prefix = signed && points > 0 ? "+" : "";
+    return `${prefix}${points.toLocaleString("ru-RU", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 2,
+    })} п.п.`;
+  };
+  const supportPercent = (basisPoints) => `${(
+    Number(basisPoints || 0) / 100
+  ).toLocaleString("ru-RU", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 2,
+  })}%`;
+  const velocityModeLabels = {
+    baseline: "базовый снимок",
+    comparable: "сопоставимо",
+    category_reset: "новая категория",
+    signal_new: "новый сигнал",
+    signal_removed: "сигнал исчез",
+    interval_too_short: "интервал < 72 ч",
+  };
+  const velocityCopy = (event) => {
+    if (event.comparisonMode === "comparable") {
+      return `Поддержка источниками: ${supportPercent(event.previousSupportBps)} → ${supportPercent(event.currentSupportBps)}; изменение ${supportPoints(event.supportDeltaBps, { signed: true })}, скорость ${supportPoints(event.supportVelocityBpsPer30d, { signed: true })} / 30 дней.`;
+    }
+    return ({
+      baseline: "Это первая утверждённая точка. Направление ещё не вычисляется.",
+      category_reset: "Граница категории изменилась. Прежние точки намеренно не продолжают новый ряд.",
+      signal_new: "Сигнала не было в предыдущем утверждённом снимке. Нужна следующая точка.",
+      signal_removed: "Сигнал был в предыдущем снимке, но не подтверждён в текущем. Проверьте этап «Тренды».",
+      interval_too_short: "Между утверждёнными снимками меньше 72 часов — числовая скорость заблокирована.",
+    })[event.comparisonMode] || "Для этого события числовая скорость не заявляется.";
+  };
+  const velocityTimeline = registry.trendVelocity?.length
+    ? `<div class="product-research-market-timeline product-research-market-velocity">${registry.trendVelocity.slice(0, 6).map((event) => `<article data-trend-velocity-mode="${escapeHtml(event.comparisonMode)}">
+        <header><strong>${escapeHtml(event.canonicalLabel)}</strong><span class="badge">${escapeHtml(velocityModeLabels[event.comparisonMode] || "без вывода")}</span></header>
+        <p>${escapeHtml(velocityCopy(event))}</p>
+        <small>${escapeHtml(researchDateLabel(event.previousObservedAt))} → ${escapeHtml(researchDateLabel(event.observedAt))} · ${event.currentSourceCount}/${event.currentTotalSourceCount} ист. поддерживают сигнал</small>
+        <button class="btn btn-ghost btn-small" type="button" data-action="focus-research-trends-stage">Проверить или скорректировать</button>
+      </article>`).join("")}</div>`
+    : `<div class="product-research-empty-note"><strong>Для скорости нужны утверждённые точки</strong><p>Система начнёт считать ширину доказательной поддержки после снимка с каноническими структурными сигналами.</p></div>`;
   const timeline = registry.trendTimeline.length
     ? `<div class="product-research-market-timeline">${registry.trendTimeline.slice(0, 6).map((signal) => {
       const reset = ["canonical_reset", "category_reset"].includes(signal.comparisonMode);
@@ -6059,6 +6506,9 @@ export function researchMarketCategoryMarkup(value, {
       ${decisionForm}
       <div class="product-research-market-history">
         <div><p class="eyebrow">Скорость и противоречия</p><h3>Сигналы внутри подтверждённой категории</h3><p>Смена категории или схемы структурных ID начинает новую базу и не изображается продолжением старого тренда.</p></div>
+        <div><p class="eyebrow">Оцифрованная динамика</p><h3>Скорость доказательной поддержки</h3><p>Доля показывает, сколько источников утверждённого снимка поддерживает структурный сигнал. Это не просмотры, не продажи, не популярность платформы и не causal winner.</p></div>
+        ${velocityTimeline}
+        <div><p class="eyebrow">Семантическая история</p><h3>Заявленные направления и противоречия</h3></div>
         ${timeline}
       </div>
     </section>`;

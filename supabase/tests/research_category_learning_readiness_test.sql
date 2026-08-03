@@ -231,21 +231,18 @@ select is(
 );
 
 select ok(
-  strpos(lower(pg_get_functiondef(
-    'public.creator_research_category_learning_status(jsonb)'::regprocedure
-  )), '''category_evidence_readiness_not_model_iq''') > 0
-  and strpos(lower(pg_get_functiondef(
-    'public.creator_research_category_learning_status(jsonb)'::regprocedure
-  )), '''retained_youtube_evidence''') > 0
-  and strpos(lower(pg_get_functiondef(
-    'public.creator_research_category_learning_status(jsonb)'::regprocedure
-  )), '''lineage_history_limit_per_source'', 10') > 0
-  and strpos(lower(pg_get_functiondef(
-    'public.creator_research_category_learning_status(jsonb)'::regprocedure
-  )), '''analysis_history_limit_per_source'', 10') > 0
-  and strpos(lower(pg_get_functiondef(
-    'public.creator_research_category_learning_status(jsonb)'::regprocedure
-  )), '''item_limit'', 50') > 0,
+  (select strpos(contract.definition, '''category_evidence_readiness_not_model_iq''') > 0
+     and strpos(contract.definition, '''retained_youtube_evidence''') > 0
+     and strpos(contract.definition, '''lineage_history_limit_per_source'', 10') > 0
+     and strpos(contract.definition, '''analysis_history_limit_per_source'', 10') > 0
+     and strpos(contract.definition, '''item_limit'', 50') > 0
+   from (select lower(
+     pg_get_functiondef(
+       'public.creator_research_category_learning_status(jsonb)'::regprocedure
+     ) || pg_get_functiondef(
+       'content_factory_private.creator_research_category_learning_status_pre_truth_v1(jsonb)'::regprocedure
+     )
+   ) definition) contract),
   'status exposes honest metric, bounded lineage and retained YouTube evidence'
 );
 select ok(
@@ -804,10 +801,39 @@ select is(
   30,
   'same-URL content versions do not inflate current source identity volume'
 );
+create temporary table deterministic_source_status on commit drop as
+select public.creator_research_category_learning_status(jsonb_build_object(
+  'organization_id', 'c0100000-0000-4000-8000-000000000002',
+  'run_id', 'c0100000-0000-4000-8000-000000000004'
+)) value;
+select is(
+  (select item.value ->> 'title'
+   from deterministic_source_status status,
+        jsonb_array_elements(status.value #> '{source_ledger,items}') item(value)
+   where item.value ->> 'source_url' = 'https://example.test/category-source/5'),
+  'DO_NOT_COPY_NEW_CONTENT_VERSION',
+  'status deterministically selects the newest same-URL content version'
+);
+select is(
+  (select item.value -> 'current_analysis'
+   from deterministic_source_status status,
+        jsonb_array_elements(status.value #> '{source_ledger,items}') item(value)
+   where item.value ->> 'source_url' = 'https://example.test/category-source/5'),
+  'null'::jsonb,
+  'a superseded parser head is not presented as analysis of newer content'
+);
+select is(
+  (select jsonb_array_length(item.value -> 'lineage_history')
+   from deterministic_source_status status,
+        jsonb_array_elements(status.value #> '{source_ledger,items}') item(value)
+   where item.value ->> 'source_url' = 'https://example.test/category-source/5'),
+  2,
+  'both same-URL content versions remain visible in immutable lineage history'
+);
 
--- Current retention-bound YouTube metadata affects readiness without ever
--- being copied into the durable source ledger.  Three videos from one channel
--- contribute one competitor observation.
+-- Current retention-bound YouTube metadata affects source volume/platform
+-- coverage without ever being copied into the durable source ledger.  Raw,
+-- unconfirmed videos must not manufacture competitor or analysis credit.
 insert into content_factory.research_youtube_ingestion_runs (
   id, organization_id, run_id, product_id, binding_id, market_category_id,
   requested_by, mode, status, provider_key, adapter_version, query_text,
@@ -868,8 +894,21 @@ select is(
    from readiness_same_channel snapshot,
         jsonb_array_elements(snapshot.value -> 'dimensions') dimension(value)
    where dimension.value ->> 'key' = 'competitor_observations'),
-  2,
-  'many retained videos from one channel count once beside one durable competitor'
+  1,
+  'unconfirmed retained channels add no competitor credit beside one durable competitor'
+);
+select is(
+  (select (dimension.value ->> 'current')::integer
+   from readiness_same_channel snapshot,
+        jsonb_array_elements(snapshot.value -> 'dimensions') dimension(value)
+   where dimension.value ->> 'key' = 'analysis_coverage'),
+  23,
+  'raw retained YouTube metadata does not count as structured source analysis; the superseded content version has no current parser head'
+);
+select is(
+  (select value ->> 'definition_version' from readiness_same_channel),
+  'category-evidence-readiness-v2',
+  'truthful YouTube semantics are isolated in readiness definition v2'
 );
 select is(
   (select count(*)::integer
@@ -879,8 +918,8 @@ select is(
   'retention-bound YouTube observations are never copied to durable lineage'
 );
 
--- A fourth video uses a second channel so excluding that one candidate changes
--- the unique-channel component even though the first three remain eligible.
+-- A fourth video uses a second channel.  Excluding an unconfirmed candidate
+-- may remove raw volume, but cannot remove semantic credit it never received.
 insert into content_factory.research_youtube_video_observations (
   id, organization_id, ingestion_id, product_id, binding_id,
   market_category_id, search_position, video_id, channel_id, title,
@@ -925,7 +964,7 @@ select observation.organization_id, observation.ingestion_id, observation.id,
   ))
 from content_factory.research_youtube_video_observations observation
 where observation.video_id = 'AAAAAAA0004';
-select ok(
+select is(
   (select (readiness.value ->> 'score')::integer
    from (select content_factory_private.research_category_evidence_readiness(
      'c0100000-0000-4000-8000-000000000002',
@@ -934,9 +973,56 @@ select ok(
       where binding.product_id = 'c0100000-0000-4000-8000-000000000003'
       order by binding.binding_version desc limit 1),
      clock_timestamp()
-   ) value) readiness)
-  < (select (value ->> 'score')::integer from readiness_before_exclusion),
-  'excluding a current candidate lowers the evidence-readiness score'
+   ) value) readiness),
+  (select (value ->> 'score')::integer from readiness_before_exclusion),
+  'excluding an unconfirmed saturated-volume candidate removes no invented semantic score'
+);
+
+insert into content_factory.research_youtube_candidate_decisions (
+  organization_id, ingestion_id, observation_id, observation_hash, decision,
+  reason, decided_by, retention_expires_at, idempotency_key, decision_hash
+)
+select observation.organization_id, observation.ingestion_id, observation.id,
+  observation.observation_hash, 'confirm_candidate',
+  'Human confirmed one bounded competitor candidate',
+  'c0100000-0000-4000-8000-000000000001',
+  now() + interval '29 days', 'category-readiness-confirm-video-1',
+  content_factory_private.json_hash(jsonb_build_object(
+    'youtube_runtime_confirmation', observation.id
+  ))
+from content_factory.research_youtube_video_observations observation
+where observation.video_id = 'AAAAAAA0001';
+select is(
+  (select (dimension.value ->> 'current')::integer
+   from jsonb_array_elements(
+     content_factory_private.research_category_evidence_readiness(
+       'c0100000-0000-4000-8000-000000000002',
+       (select binding.category_id
+        from content_factory.research_product_market_category_bindings binding
+        where binding.product_id = 'c0100000-0000-4000-8000-000000000003'
+        order by binding.binding_version desc limit 1),
+       clock_timestamp()
+     ) -> 'dimensions'
+   ) dimension(value)
+   where dimension.value ->> 'key' = 'competitor_observations'),
+  2,
+  'one human-confirmed YouTube channel adds one deduplicated competitor observation'
+);
+select is(
+  (select (dimension.value ->> 'current')::integer
+   from jsonb_array_elements(
+     content_factory_private.research_category_evidence_readiness(
+       'c0100000-0000-4000-8000-000000000002',
+       (select binding.category_id
+        from content_factory.research_product_market_category_bindings binding
+        where binding.product_id = 'c0100000-0000-4000-8000-000000000003'
+        order by binding.binding_version desc limit 1),
+       clock_timestamp()
+     ) -> 'dimensions'
+   ) dimension(value)
+   where dimension.value ->> 'key' = 'human_validation'),
+  1,
+  'a confirmed YouTube candidate adds one human-validation credit without analysis credit'
 );
 select ok(
   (select value ->> 'evidence_hash'

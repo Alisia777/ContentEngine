@@ -224,6 +224,144 @@ begin
 end;
 $$;
 
+create or replace function pg_temp.make_market_identity_run_variable(
+  organization_id_value uuid,
+  product_id_value uuid,
+  actor_id_value uuid,
+  run_id_value uuid,
+  source_id_values uuid[],
+  ai_draft_id uuid,
+  human_draft_id uuid,
+  category_name_value text,
+  trend_direction_value text,
+  signal_key_value text,
+  signal_source_count_value integer,
+  extra_signal_key_value text,
+  extra_signal_source_count_value integer,
+  approved_at_value timestamptz
+)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+declare
+  brief_value jsonb;
+  source_ids_json jsonb;
+  signal_source_ids jsonb;
+  extra_signal_source_ids jsonb;
+  extra_signal_value jsonb;
+begin
+  if cardinality(source_id_values) not between 2 and 100
+     or signal_source_count_value not between 1 and cardinality(source_id_values)
+     or (
+       extra_signal_key_value is not null
+       and extra_signal_source_count_value not between 1 and cardinality(source_id_values)
+     ) then
+    raise exception 'variable market fixture bounds invalid';
+  end if;
+
+  select jsonb_agg(source_id::text order by ordinal),
+         jsonb_agg(source_id::text order by ordinal) filter (
+           where ordinal <= signal_source_count_value
+         ),
+         jsonb_agg(source_id::text order by ordinal) filter (
+           where ordinal <= extra_signal_source_count_value
+         )
+    into source_ids_json, signal_source_ids, extra_signal_source_ids
+  from unnest(source_id_values) with ordinality source(source_id, ordinal);
+
+  brief_value := pg_temp.market_identity_brief(
+    source_id_values[1], source_id_values[2], category_name_value,
+    trend_direction_value, signal_key_value
+  );
+  brief_value := jsonb_set(
+    brief_value,
+    '{trend_analysis,signals,0,source_ids}',
+    signal_source_ids
+  );
+  if extra_signal_key_value is not null then
+    extra_signal_value :=
+      (brief_value #> '{trend_analysis,signals,0}') || jsonb_build_object(
+        'signal', 'Second allowlisted structural fixture signal',
+        'signal_key', extra_signal_key_value,
+        'source_ids', extra_signal_source_ids
+      );
+    brief_value := jsonb_set(
+      brief_value,
+      '{trend_analysis,signals}',
+      (brief_value #> '{trend_analysis,signals}')
+        || jsonb_build_array(extra_signal_value)
+    );
+  end if;
+
+  insert into content_factory.product_research_runs (
+    id, organization_id, product_id, created_by, status, input, summary,
+    request_hash, completion_hash, idempotency_key, finished_at,
+    created_at, updated_at
+  ) values (
+    run_id_value, organization_id_value, product_id_value, actor_id_value,
+    'completed', jsonb_build_object('fixture', run_id_value),
+    jsonb_build_object('fixture', true),
+    content_factory_private.json_hash(jsonb_build_object('run', run_id_value)),
+    content_factory_private.json_hash(jsonb_build_object('done', run_id_value)),
+    'market-variable-run-' || run_id_value::text,
+    approved_at_value - interval '1 hour',
+    approved_at_value - interval '2 hours',
+    approved_at_value - interval '1 hour'
+  );
+
+  insert into content_factory.product_research_sources (
+    id, organization_id, run_id, product_id, created_by, source_type,
+    title, content_hash, trust_level, extracted_facts, metadata, created_at
+  )
+  select source.source_id, organization_id_value, run_id_value,
+    product_id_value, actor_id_value, 'user_input',
+    'Variable exact market source ' || source.ordinal,
+    content_factory_private.json_hash(jsonb_build_object(
+      'run', run_id_value, 'source', source.source_id
+    )),
+    'first_party', '[]'::jsonb,
+    jsonb_build_object(
+      'model_source_id', 'market-variable-' || source.ordinal
+    ),
+    approved_at_value - interval '90 minutes'
+  from unnest(source_id_values) with ordinality source(source_id, ordinal);
+
+  insert into content_factory.creative_brief_drafts (
+    id, organization_id, run_id, product_id, previous_draft_id,
+    created_by, origin, version, status, title, brief, source_ids,
+    task_blueprint, content_hash, created_at
+  ) values (
+    ai_draft_id, organization_id_value, run_id_value, product_id_value,
+    null, actor_id_value, 'ai', 1, 'draft', 'Variable market evidence',
+    brief_value, source_ids_json,
+    jsonb_build_array(jsonb_build_object('title', 'Produce bounded test')),
+    content_factory_private.json_hash(jsonb_build_object(
+      'brief', brief_value, 'origin', 'ai'
+    )),
+    approved_at_value - interval '45 minutes'
+  );
+  insert into content_factory.creative_brief_drafts (
+    id, organization_id, run_id, product_id, previous_draft_id,
+    created_by, origin, version, status, title, brief, source_ids,
+    task_blueprint, content_hash, created_at
+  ) values (
+    human_draft_id, organization_id_value, run_id_value, product_id_value,
+    ai_draft_id, actor_id_value, 'human', 2, 'draft',
+    'Variable market evidence', brief_value, source_ids_json,
+    jsonb_build_array(jsonb_build_object('title', 'Produce bounded test')),
+    content_factory_private.json_hash(jsonb_build_object(
+      'brief', brief_value, 'origin', 'human'
+    )),
+    approved_at_value - interval '30 minutes'
+  );
+  update content_factory.creative_brief_drafts draft
+  set status = 'approved', approved_by = actor_id_value,
+      approved_at = approved_at_value
+  where draft.id = human_draft_id;
+end;
+$$;
+
 select has_table(
   'content_factory', 'research_market_categories',
   'tenant market category registry exists'
@@ -248,20 +386,20 @@ select has_table(
   'content_factory', 'research_watchlist_snapshot_trend_signal_sources',
   'exact canonical trend source junction exists'
 );
-select is(
-  (select count(*)::integer
-   from (values
-     ('content_factory.research_market_categories'::regclass),
-     ('content_factory.research_market_category_aliases'::regclass),
-     ('content_factory.research_product_market_category_bindings'::regclass),
-     ('content_factory.research_structural_trend_signal_types'::regclass),
-     ('content_factory.research_watchlist_snapshot_trend_signals'::regclass),
-     ('content_factory.research_watchlist_snapshot_trend_signal_sources'::regclass)
-   ) protected(table_oid)
-   join pg_class relation on relation.oid = protected.table_oid
-   where relation.relrowsecurity),
-  6,
-  'all market identity tables have RLS enabled'
+select has_table(
+  'content_factory', 'research_watchlist_trend_velocity_events',
+  'append-only approved structural support velocity ledger exists'
+);
+select ok(
+  (select relation.relrowsecurity
+   from pg_class relation
+   where relation.oid =
+     'content_factory.research_watchlist_trend_velocity_events'::regclass)
+  and not has_table_privilege(
+    'authenticated',
+    'content_factory.research_watchlist_trend_velocity_events', 'select'
+  ),
+  'velocity lineage is RLS-protected and hidden behind the registry RPC'
 );
 select is(
   (select count(*)::integer
@@ -271,7 +409,24 @@ select is(
      ('content_factory.research_product_market_category_bindings'::regclass),
      ('content_factory.research_structural_trend_signal_types'::regclass),
      ('content_factory.research_watchlist_snapshot_trend_signals'::regclass),
-     ('content_factory.research_watchlist_snapshot_trend_signal_sources'::regclass)
+     ('content_factory.research_watchlist_snapshot_trend_signal_sources'::regclass),
+     ('content_factory.research_watchlist_trend_velocity_events'::regclass)
+   ) protected(table_oid)
+   join pg_class relation on relation.oid = protected.table_oid
+   where relation.relrowsecurity),
+  7,
+  'all market identity and velocity tables have RLS enabled'
+);
+select is(
+  (select count(*)::integer
+   from (values
+     ('content_factory.research_market_categories'::regclass),
+     ('content_factory.research_market_category_aliases'::regclass),
+     ('content_factory.research_product_market_category_bindings'::regclass),
+     ('content_factory.research_structural_trend_signal_types'::regclass),
+     ('content_factory.research_watchlist_snapshot_trend_signals'::regclass),
+     ('content_factory.research_watchlist_snapshot_trend_signal_sources'::regclass),
+     ('content_factory.research_watchlist_trend_velocity_events'::regclass)
    ) protected(table_oid)
    cross join (values ('select'), ('insert'), ('update'), ('delete')) privilege(name)
    where has_table_privilege('authenticated', table_oid, privilege.name)),
@@ -286,7 +441,8 @@ select is(
      ('content_factory.research_product_market_category_bindings'::regclass),
      ('content_factory.research_structural_trend_signal_types'::regclass),
      ('content_factory.research_watchlist_snapshot_trend_signals'::regclass),
-     ('content_factory.research_watchlist_snapshot_trend_signal_sources'::regclass)
+     ('content_factory.research_watchlist_snapshot_trend_signal_sources'::regclass),
+     ('content_factory.research_watchlist_trend_velocity_events'::regclass)
    ) protected(table_oid)
    cross join (values ('select'), ('insert'), ('update'), ('delete')) privilege(name)
    where has_table_privilege('service_role', table_oid, privilege.name)),
@@ -325,6 +481,24 @@ select ok(
     'execute'
   ),
   'service role cannot bypass explicit human category confirmation'
+);
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'content_factory_private.capture_research_snapshot_trend_velocity(uuid)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'content_factory_private.capture_research_watchlist_snapshot(uuid,uuid)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'content_factory_private.research_category_evidence_readiness(uuid,uuid,timestamptz)',
+    'execute'
+  ),
+  'service role cannot bypass the tenant-scoped registry and capture RPCs'
 );
 select is(
   (select count(*)::integer
@@ -408,7 +582,7 @@ select pg_temp.make_market_identity_run(
   'b8500000-0000-4000-8000-000000000001',
   'b8500000-0000-4000-8000-000000000002',
   'Hair styling tools', 'growing', 'format.single_action_demo',
-  now() - interval '4 days'
+  now() - interval '30 days'
 );
 select pg_temp.make_market_identity_run(
   'b8100000-0000-4000-8000-000000000001',
@@ -494,7 +668,7 @@ select is(
   (select jsonb_agg(key.value order by key.value collate "C")
    from market_identity_context context,
      lateral jsonb_object_keys(context.product_one_registry) key(value)),
-  '["can_resolve","candidate","categories","current_binding","guidance","ok","product_id","trend_timeline"]'::jsonb,
+  '["can_resolve","candidate","categories","current_binding","guidance","ok","product_id","trend_timeline","trend_velocity"]'::jsonb,
   'registry response has the exact bounded top-level contract'
 );
 select is(
@@ -867,17 +1041,21 @@ select lives_ok(
   'watchlist may pause while a category is reconsidered'
 );
 
-select pg_temp.make_market_identity_run(
+select pg_temp.make_market_identity_run_variable(
   'b8100000-0000-4000-8000-000000000001',
   'b8200000-0000-4000-8000-000000000001',
   'b8000000-0000-4000-8000-000000000001',
   'b8300000-0000-4000-8000-000000000002',
-  'b8400000-0000-4000-8000-000000000003',
-  'b8400000-0000-4000-8000-000000000004',
+  array[
+    'b8400000-0000-4000-8000-000000000003'::uuid,
+    'b8400000-0000-4000-8000-000000000004'::uuid,
+    'b8400000-0000-4000-8000-000000000011'::uuid,
+    'b8400000-0000-4000-8000-000000000012'::uuid
+  ],
   'b8500000-0000-4000-8000-000000000003',
   'b8500000-0000-4000-8000-000000000004',
   'Heat styling workflows', 'declining', 'format.single_action_demo',
-  now() - interval '1 hour'
+  1, 'format.step_by_step', 1, now() - interval '21 days'
 );
 update market_identity_context
 set explicit_run_count = (
@@ -959,8 +1137,8 @@ select is(
   (select count(*)::integer
    from content_factory.research_watchlist_snapshot_trend_signals observation
    where observation.product_id = 'b8200000-0000-4000-8000-000000000001'),
-  2,
-  'two canonical snapshots produce two immutable observations'
+  3,
+  'two canonical snapshots retain three immutable structural observations'
 );
 select is(
   (select count(distinct observation.market_category_id)::integer
@@ -994,7 +1172,23 @@ select is(
     and observation.signal_key = source_link.signal_key
    where observation.product_id = 'b8200000-0000-4000-8000-000000000001'),
   4,
-  'both observations retain two exact source links'
+  'canonical observations retain their exact two-source and two one-source lineages'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b8300000-0000-4000-8000-000000000002'
+     and event.signal_key = 'format.single_action_demo'),
+  'category_reset',
+  'support velocity resets when the confirmed category binding changes'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b8300000-0000-4000-8000-000000000002'
+     and event.signal_key = 'format.step_by_step'),
+  'category_reset',
+  'a signal introduced across a category boundary is a reset, not a cross-category new-signal claim'
 );
 select ok(
   not (
@@ -1009,6 +1203,329 @@ select is(
   (select count(*)::integer from content_factory.product_research_runs),
   (select explicit_run_count from market_identity_context),
   'bind, reclassify, registry, and timeline operations create no research run'
+);
+
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b8300000-0000-4000-8000-000000000002',
+    'action', 'pause',
+    'idempotency_key', 'velocity-pause-before-comparable'
+  ))$$,
+  'watchlist pauses before the next approved evidence snapshot'
+);
+select pg_temp.make_market_identity_run_variable(
+  'b8100000-0000-4000-8000-000000000001',
+  'b8200000-0000-4000-8000-000000000001',
+  'b8000000-0000-4000-8000-000000000001',
+  'b9300000-0000-4000-8000-000000000001',
+  array[
+    'b9400000-0000-4000-8000-000000000001'::uuid,
+    'b9400000-0000-4000-8000-000000000002'::uuid,
+    'b9400000-0000-4000-8000-000000000003'::uuid,
+    'b9400000-0000-4000-8000-000000000004'::uuid,
+    'b9400000-0000-4000-8000-000000000005'::uuid
+  ],
+  'b9500000-0000-4000-8000-000000000001',
+  'b9500000-0000-4000-8000-000000000002',
+  'Heat styling workflows', 'growing', 'format.single_action_demo',
+  3, 'hook.problem_first', 1, now() - interval '7 days'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9300000-0000-4000-8000-000000000001',
+    'action', 'resume', 'refresh_interval_days', 14,
+    'idempotency_key', 'velocity-resume-comparable'
+  ))$$,
+  'a later approved snapshot creates numeric support velocity'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000001'
+     and event.signal_key = 'format.single_action_demo'),
+  'comparable',
+  'same category and a fourteen-day interval are comparable'
+);
+select is(
+  (select event.previous_support_bps
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000001'
+     and event.signal_key = 'format.single_action_demo'),
+  2500,
+  'one of four previous sources equals 2500 support basis points'
+);
+select is(
+  (select event.current_support_bps
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000001'
+     and event.signal_key = 'format.single_action_demo'),
+  6000,
+  'three of five current sources equals 6000 support basis points'
+);
+select is(
+  (select event.support_delta_bps
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000001'
+     and event.signal_key = 'format.single_action_demo'),
+  3500,
+  'the immutable support delta is 3500 basis points'
+);
+select is(
+  (select event.support_velocity_bps_per_30d
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000001'
+     and event.signal_key = 'format.single_action_demo'),
+  7500.00::numeric,
+  'a fourteen-day 3500-point delta normalizes to 7500 basis points per 30 days'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000001'
+     and event.signal_key = 'hook.problem_first'),
+  'signal_new',
+  'an allowlisted signal absent from the exact previous snapshot is new, not rising'
+);
+
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9300000-0000-4000-8000-000000000001',
+    'action', 'pause',
+    'idempotency_key', 'velocity-pause-before-short-interval'
+  ))$$,
+  'watchlist pauses before a short-interval approved snapshot'
+);
+select pg_temp.make_market_identity_run_variable(
+  'b8100000-0000-4000-8000-000000000001',
+  'b8200000-0000-4000-8000-000000000001',
+  'b8000000-0000-4000-8000-000000000001',
+  'b9300000-0000-4000-8000-000000000002',
+  array[
+    'b9400000-0000-4000-8000-000000000006'::uuid,
+    'b9400000-0000-4000-8000-000000000007'::uuid,
+    'b9400000-0000-4000-8000-000000000008'::uuid,
+    'b9400000-0000-4000-8000-000000000009'::uuid,
+    'b9400000-0000-4000-8000-000000000010'::uuid
+  ],
+  'b9500000-0000-4000-8000-000000000003',
+  'b9500000-0000-4000-8000-000000000004',
+  'Heat styling workflows', 'stable', 'format.single_action_demo',
+  3, null, 0, now() - interval '6 days'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9300000-0000-4000-8000-000000000002',
+    'action', 'resume', 'refresh_interval_days', 14,
+    'idempotency_key', 'velocity-resume-short-interval'
+  ))$$,
+  'a short-interval approval is recorded without a velocity claim'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000002'
+     and event.signal_key = 'format.single_action_demo'),
+  'interval_too_short',
+  'less than 72 hours is explicitly too short for normalized velocity'
+);
+select is(
+  (select event.support_velocity_bps_per_30d
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000002'
+     and event.signal_key = 'format.single_action_demo'),
+  null::numeric,
+  'short intervals never expose a numeric velocity claim'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000002'
+     and event.signal_key = 'hook.problem_first'),
+  'signal_removed',
+  'a missing prior signal remains a visible removal event'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9300000-0000-4000-8000-000000000002',
+    'action', 'pause',
+    'idempotency_key', 'velocity-pause-before-zero-interval'
+  ))$$,
+  'watchlist pauses before an equal-timestamp approved snapshot'
+);
+select pg_temp.make_market_identity_run_variable(
+  'b8100000-0000-4000-8000-000000000001',
+  'b8200000-0000-4000-8000-000000000001',
+  'b8000000-0000-4000-8000-000000000001',
+  'b9300000-0000-4000-8000-000000000003',
+  array[
+    'b9400000-0000-4000-8000-000000000011'::uuid,
+    'b9400000-0000-4000-8000-000000000012'::uuid,
+    'b9400000-0000-4000-8000-000000000013'::uuid,
+    'b9400000-0000-4000-8000-000000000014'::uuid,
+    'b9400000-0000-4000-8000-000000000015'::uuid
+  ],
+  'b9500000-0000-4000-8000-000000000005',
+  'b9500000-0000-4000-8000-000000000006',
+  'Heat styling workflows', 'stable', 'format.single_action_demo',
+  2, null, 0, now() - interval '6 days'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9300000-0000-4000-8000-000000000003',
+    'action', 'resume', 'refresh_interval_days', 14,
+    'idempotency_key', 'velocity-resume-zero-interval'
+  ))$$,
+  'equal approved timestamps stay fail-closed without rolling back approval'
+);
+select is(
+  (select event.elapsed_seconds
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000003'
+     and event.signal_key = 'format.single_action_demo'),
+  0::bigint,
+  'equal approved timestamps retain an exact zero-second interval'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9300000-0000-4000-8000-000000000003'
+     and event.signal_key = 'format.single_action_demo'),
+  'interval_too_short',
+  'a zero-second interval never becomes a numeric velocity claim'
+);
+
+insert into content_factory.products (
+  id, organization_id, sku, title, status, created_by
+) values (
+  'b8200000-0000-4000-8000-000000000006',
+  'b8100000-0000-4000-8000-000000000001',
+  'MARKET-UNBOUND', 'Unbound velocity product', 'active',
+  'b8000000-0000-4000-8000-000000000001'
+);
+select pg_temp.make_market_identity_run_variable(
+  'b8100000-0000-4000-8000-000000000001',
+  'b8200000-0000-4000-8000-000000000006',
+  'b8000000-0000-4000-8000-000000000001',
+  'b9900000-0000-4000-8000-000000000001',
+  array[
+    'b9910000-0000-4000-8000-000000000001'::uuid,
+    'b9910000-0000-4000-8000-000000000002'::uuid
+  ],
+  'b9920000-0000-4000-8000-000000000001',
+  'b9920000-0000-4000-8000-000000000002',
+  'Unbound category evidence', 'growing', 'format.comparison',
+  1, null, 0, now() - interval '5 days'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9900000-0000-4000-8000-000000000001',
+    'action', 'enable', 'refresh_interval_days', 3,
+    'idempotency_key', 'velocity-unbound-enable'
+  ))$$,
+  'an unbound product may capture a fail-closed baseline'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9900000-0000-4000-8000-000000000001',
+    'action', 'pause',
+    'idempotency_key', 'velocity-unbound-pause'
+  ))$$,
+  'the unbound watchlist pauses before its next snapshot'
+);
+select pg_temp.make_market_identity_run_variable(
+  'b8100000-0000-4000-8000-000000000001',
+  'b8200000-0000-4000-8000-000000000006',
+  'b8000000-0000-4000-8000-000000000001',
+  'b9900000-0000-4000-8000-000000000002',
+  array[
+    'b9910000-0000-4000-8000-000000000003'::uuid,
+    'b9910000-0000-4000-8000-000000000004'::uuid
+  ],
+  'b9920000-0000-4000-8000-000000000003',
+  'b9920000-0000-4000-8000-000000000004',
+  'Unbound category evidence', 'stable', 'format.comparison',
+  2, null, 0, now() - interval '1 day'
+);
+select lives_ok(
+  $$select public.creator_configure_research_watchlist(jsonb_build_object(
+    'organization_id', 'b8100000-0000-4000-8000-000000000001',
+    'run_id', 'b9900000-0000-4000-8000-000000000002',
+    'action', 'resume', 'refresh_interval_days', 3,
+    'idempotency_key', 'velocity-unbound-resume'
+  ))$$,
+  'a second unbound snapshot stays operational after the minimum interval'
+);
+select is(
+  (select event.comparison_mode
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9900000-0000-4000-8000-000000000002'
+     and event.signal_key = 'format.comparison'),
+  'category_reset',
+  'two unbound snapshots never manufacture a comparable velocity claim'
+);
+select is(
+  (select event.support_velocity_bps_per_30d
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.run_id = 'b9900000-0000-4000-8000-000000000002'
+     and event.signal_key = 'format.comparison'),
+  null::numeric,
+  'unbound category evidence exposes no numeric velocity'
+);
+select lives_ok(
+  $$select content_factory_private.capture_research_snapshot_trend_velocity(
+    (select snapshot.id
+     from content_factory.research_watchlist_snapshots snapshot
+     where snapshot.run_id = 'b9300000-0000-4000-8000-000000000001')
+  )$$,
+  'velocity backfill is safely idempotent'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_watchlist_trend_velocity_events event
+   where event.product_id = 'b8200000-0000-4000-8000-000000000001'),
+  9,
+  'baseline, reset, comparable, new, short, removed and zero-interval events stay unique'
+);
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(
+      public.creator_research_market_category_registry(jsonb_build_object(
+        'organization_id', 'b8100000-0000-4000-8000-000000000001',
+        'run_id', 'b9300000-0000-4000-8000-000000000002'
+      )) -> 'trend_velocity'
+    ) item(value)
+    where item.value ->> 'signal_key' = 'format.single_action_demo'
+      and item.value ->> 'definition_version'
+        = 'approved-structural-support-velocity-v1'
+      and item.value ->> 'claim_allowed' = 'true'
+      and (item.value ->> 'support_velocity_bps_per_30d')::numeric = 7500
+  ),
+  'registry exposes the comparable numeric event with an explicit claim gate'
+);
+select ok(
+  not (
+    public.creator_research_market_category_registry(jsonb_build_object(
+      'organization_id', 'b8100000-0000-4000-8000-000000000001',
+      'run_id', 'b9300000-0000-4000-8000-000000000002'
+    )) -> 'trend_velocity'
+  )::text ~* 'competitor|caption|transcript|source_url|video_id|channel_id|view_count|title',
+  'support velocity exposes no competitor copy, provider text or API counters'
+);
+select throws_ok(
+  $$update content_factory.research_watchlist_trend_velocity_events
+    set current_support_bps = current_support_bps
+    where product_id = 'b8200000-0000-4000-8000-000000000001'$$,
+  '55000', 'research_watchlist_trend_velocity_events_append_only',
+  'support velocity history rejects every update'
 );
 
 select throws_ok(

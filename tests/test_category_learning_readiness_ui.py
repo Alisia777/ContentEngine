@@ -310,6 +310,22 @@ const markup = subject.researchCategoryLearningMarkup(normalized, {
 });
 const wrongVersion = structuredClone(fixture);
 wrongVersion.version = "research-category-learning-readiness-v2";
+const readinessV2 = structuredClone(fixture);
+readinessV2.metric.readiness.definition_version = "category-evidence-readiness-v2";
+readinessV2.metric.readiness.limits.meaning = "Coverage of durable evidence plus retention-bound YouTube metadata; only confirmed candidates add semantic credit";
+const mixedHistory = structuredClone(readinessV2);
+mixedHistory.readiness_history.items.unshift({
+  ...structuredClone(mixedHistory.readiness_history.items[0]),
+  snapshot_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  definition_version: "category-evidence-readiness-v2",
+  snapshot_hash: "a".repeat(64),
+  captured_at: "2026-08-03T15:02:00.000Z",
+});
+const mixedHistoryMarkup = subject.researchCategoryLearningMarkup(
+  subject.normalizeResearchCategoryLearning({
+    status: mixedHistory, expectedRunId: runId,
+  }),
+);
 const wrongRun = structuredClone(fixture);
 wrongRun.run_id = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const stringScore = structuredClone(fixture);
@@ -355,8 +371,16 @@ return {
   wording: markup.includes("Готовность доказательной базы категории")
     && markup.includes("Это не IQ, не accuracy модели")
     && !markup.includes("обученность ИИ в процентах"),
-  hover: markup.includes('title="Наблюдения конкурентов / сохранённые YouTube-каналы:')
-    && markup.includes('data-gap-tooltip="Наблюдения конкурентов / сохранённые YouTube-каналы:'),
+  hover: markup.includes('title="Подтверждённые наблюдения конкурентов:')
+    && markup.includes('data-gap-tooltip="Подтверждённые наблюдения конкурентов:'),
+  youtubeTruth: markup.includes("До human confirm они влияют только")
+    && markup.includes("они не считаются разбором или конкурентом")
+    && markup.includes("Confirm_candidate добавляет только")
+    && markup.includes("Analysis coverage YouTube-метаданные не повышают никогда"),
+  historyFormulaBoundary: mixedHistoryMarkup.includes("Формула изменена")
+    && mixedHistoryMarkup.includes("category-evidence-readiness-v2")
+    && mixedHistoryMarkup.includes("category-evidence-readiness-v1")
+    && mixedHistoryMarkup.includes("точки напрямую не сравниваются"),
   keyboardTouch: markup.includes("<details class=\"product-research-learning-dimension")
     && markup.includes("aria-describedby=\"research-category-dimension-2\""),
   sourceLedger: markup.includes("youtube_data_api_v3")
@@ -383,6 +407,9 @@ return {
   rolloutClosedPolicy: rolloutClosedMarkup.includes("Включено, rollout закрыт"),
   wrongVersion: subject.normalizeResearchCategoryLearning({
     status: wrongVersion, expectedRunId: runId,
+  }).available,
+  readinessV2: subject.normalizeResearchCategoryLearning({
+    status: readinessV2, expectedRunId: runId,
   }).available,
   wrongRun: subject.normalizeResearchCategoryLearning({
     status: wrongRun, expectedRunId: runId,
@@ -434,6 +461,8 @@ return {
         "ingestionStatus": "queued",
         "wording": True,
         "hover": True,
+        "youtubeTruth": True,
+        "historyFormulaBoundary": True,
         "keyboardTouch": True,
         "sourceLedger": True,
         "retainedLedger": True,
@@ -444,6 +473,7 @@ return {
         "policyWording": True,
         "rolloutClosedPolicy": True,
         "wrongVersion": False,
+        "readinessV2": True,
         "wrongRun": False,
         "stringScore": False,
         "missingIdentity": False,
@@ -662,7 +692,7 @@ def test_runtime_wiring_is_bounded_honest_and_mobile_safe() -> None:
     assert ":hover > summary::after" in css
     assert "@media (max-width: 620px)" in css
     assert '"./supabase-api.js?v=20260803.7"' in app
-    assert '"./product-research-view.js?v=20260803.10"' in app
+    assert '"./product-research-view.js?v=20260803.11"' in app
     assert 'href="./product-research.css?v=20260803.9"' in index
-    assert 'src="./app.js?v=20260803.os4.11"' in index
+    assert 'src="./app.js?v=20260803.os4.12"' in index
     assert "20260803.os4.8" not in index

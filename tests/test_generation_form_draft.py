@@ -130,7 +130,7 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         assert token in APP
     assert "generation-form-draft.js?v=20260729.2" in APP
     assert "form.dataset.generationScenarioIntent" in APP
-    assert "app.js?v=20260803.os4.11" in INDEX
+    assert "app.js?v=20260803.os4.12" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:

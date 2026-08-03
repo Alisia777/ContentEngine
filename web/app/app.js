@@ -65,7 +65,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260803.10";
+} from "./product-research-view.js?v=20260803.11";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -13302,6 +13302,21 @@ async function handleClick(event) {
       return;
     }
     await loadResearchStageControl({ runId, branchId });
+    return;
+  }
+
+  if (action === "focus-research-trends-stage") {
+    const stage = document.querySelector('[data-research-stage="trends"]');
+    if (!stage) {
+      toast("Этап «Тренды» пока не загружен. Обновите исследование.", "error");
+      return;
+    }
+    stage.scrollIntoView({
+      block: "center",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+    const correction = stage.querySelector('textarea[name="trend_correction"]');
+    correction?.focus({ preventScroll: true });
     return;
   }
 

@@ -292,8 +292,9 @@ def test_pgtap_contains_runtime_regressions_for_the_critical_contracts() -> None
         "lost-response replay re-enters registration safely",
         "fallback replay never overwrites or appends after a human head",
         "same-URL content versions do not inflate current source identity volume",
-        "many retained videos from one channel count once",
-        "excluding a current candidate lowers the evidence-readiness score",
+        "unconfirmed retained channels add no competitor credit",
+        "raw retained YouTube metadata does not count as structured source analysis",
+        "one human-confirmed YouTube channel adds one deduplicated competitor observation",
         "readiness drops after retention expiry",
         "lost-response completion replay returns the exact same legacy response",
     )
