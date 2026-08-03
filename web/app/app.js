@@ -3789,6 +3789,8 @@ function renderLearningHome() {
   const practical = normalizeTrainingPracticalProject(state.bootstrap?.training?.practicalProject);
   const examPassed = state.bootstrap?.training?.exam?.passed === true;
   const catalogReady = trainingCatalogReady();
+  const workspaceReady = hasWorkspaceAccess();
+  const rolePending = examPassed && practical.approved && !hasOperationalWorkspaceRole();
   const completedSteps = completedCourses + (practical.approved ? 1 : 0) + (examPassed ? 1 : 0);
   const totalSteps = courses.length + 2;
 
@@ -3825,14 +3827,26 @@ function renderLearningHome() {
     activeKey = "exam";
     stepNumber = totalSteps;
     title = "Пройдите итоговый экзамен";
-    description = "Ответьте на 12 рабочих ситуаций. После успешной попытки рабочий стол откроется автоматически.";
+    description = "Ответьте на 12 рабочих ситуаций. После успешной попытки портал проверит назначенную руководителем рабочую роль и покажет следующий шаг.";
     actionMarkup = '<a class="btn" href="#/learn/exam" data-primary-action="true">Начать экзамен <span aria-hidden="true">→</span></a>';
-  } else if (catalogReady) {
+  } else if (catalogReady && workspaceReady) {
     activeKey = "access";
     stepNumber = totalSteps;
     title = "Допуск готов";
-    description = "Проверяем серверный статус и открываем рабочий стол.";
-    actionMarkup = '<button class="btn" type="button" data-action="retry-bootstrap" data-primary-action="true">Открыть рабочий стол</button>';
+    description = "Обязательная программа завершена. Открывайте рабочий стол и переходите к одному следующему действию.";
+    actionMarkup = '<a class="btn" href="#/workspace/home" data-primary-action="true">Открыть рабочий стол <span aria-hidden="true">→</span></a>';
+  } else if (catalogReady && rolePending) {
+    activeKey = "access";
+    stepNumber = totalSteps;
+    title = "Экзамен сдан — рабочую роль назначает руководитель";
+    description = "Руководитель команды должен назначить вам рабочую роль. Рабочий стол пока закрыт; учебная смена остаётся необязательной тренировкой.";
+    actionMarkup = '<button class="btn" type="button" data-action="retry-bootstrap" data-primary-action="true">Проверить назначение роли</button>';
+  } else if (catalogReady) {
+    activeKey = "access";
+    stepNumber = totalSteps;
+    title = "Проверяем допуск";
+    description = "Рабочий стол пока закрыт. Обновите серверный статус; повторно проходить завершённые шаги не нужно.";
+    actionMarkup = '<button class="btn" type="button" data-action="retry-bootstrap" data-primary-action="true">Проверить допуск</button>';
   }
 
   const steps = [

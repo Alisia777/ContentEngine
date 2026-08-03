@@ -118,6 +118,8 @@ def test_learning_home_executes_one_primary_action_and_compact_role_select() -> 
         function learningCourses() {{ return [{{ code: "intro", title: "Первый блок" }}]; }}
         function normalizeTrainingPracticalProject() {{ return {{ approved: false, status: "not_started" }}; }}
         function trainingCatalogReady() {{ return true; }}
+        function hasWorkspaceAccess() {{ return false; }}
+        function hasOperationalWorkspaceRole() {{ return false; }}
         function renderLearningScaffold(content) {{ html = content; }}
         {role_markup}
         {learning_home}

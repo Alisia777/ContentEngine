@@ -243,18 +243,25 @@ def test_preserved_exam_does_not_claim_a_locked_workspace_is_ready() -> None:
 
     assert "const workspaceReady = hasWorkspaceAccess();" in learning_home
     assert (
-        "const rolePending = examPassed && practicalApproved && !hasOperationalWorkspaceRole();"
+        "const rolePending = examPassed && practical.approved && !hasOperationalWorkspaceRole();"
         in learning_home
     )
-    assert "const nextHref = rolePending" in learning_home
-    assert "const nextLabel = rolePending" in learning_home
-    assert "const nowTitle = rolePending" in learning_home
-    assert "рабочую роль назначает руководитель" in learning_home
-    assert "учебная смена ниже остаётся необязательной тренировкой" in learning_home
+    ready_branch = learning_home.index("else if (catalogReady && workspaceReady)")
+    ready_title = learning_home.index('title = "Допуск готов"', ready_branch)
+    role_branch = learning_home.index("else if (catalogReady && rolePending)")
+    role_title = learning_home.index(
+        'title = "Экзамен сдан — рабочую роль назначает руководитель"',
+        role_branch,
+    )
+    assert ready_branch < ready_title < role_branch < role_title
+    assert "Руководитель команды должен назначить вам рабочую роль" in learning_home
+    assert "Рабочий стол пока закрыт" in learning_home
+    assert "учебная смена остаётся необязательной тренировкой" in learning_home
+    assert "рабочий стол откроется автоматически" not in learning_home
+    assert "портал проверит назначенную руководителем рабочую роль" in learning_home
     assert 'data-action="retry-bootstrap"' in learning_home
-    assert "nextCourse?.code === course.code && !workspaceReady" in learning_home
-    assert "nextCourse?.code === course.code && !examPassed" not in learning_home
-    assert 'workspaceReady\n    ? "#/workspace/home"' in learning_home
+    assert 'href="#/workspace/home"' in learning_home[ready_branch:role_branch]
+    assert 'href="#/workspace/home"' not in learning_home[role_branch:]
 
 
 def test_bootstrap_course_wrapper_preserves_fail_closed_membership_states() -> None:
