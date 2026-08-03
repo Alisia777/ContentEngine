@@ -8015,10 +8015,35 @@ function homeNextAction({
       nextHint: "После решения портал сам подготовит следующий шаг.",
     };
   }
-  // A review without an assigned independent reviewer is a system signal, not
-  // a useful first action for the current person. It remains visible in
-  // notifications and Team, while Today continues to an action the user can
-  // actually complete.
+  const unassignedReview = reviews.find((item) => (
+    ["completed", "succeeded", "ready"].includes(
+      String(item.status || "").toLowerCase(),
+    )
+    && !item.decision
+    && ["unassigned", "cancelled"].includes(
+      String(item.independentAssignment?.status || "").toLowerCase(),
+    )
+  ));
+  if (unassignedReview) {
+    const canInviteReviewer = ["owner", "admin"].includes(
+      String(role || "").toLowerCase(),
+    );
+    return {
+      step: "QA ожидает проверяющего",
+      title: unassignedReview.media?.name || "Готовый результат нельзя оставлять без решения",
+      description: canInviteReviewer
+        ? "AI-проверка завершена, но в команде нет другого участника с действующим допуском. Добавьте или восстановите независимого проверяющего."
+        : "AI-проверка завершена, но подходящий независимый проверяющий пока не назначен. Результат безопасно заблокирован до решения руководителя.",
+      href: canInviteReviewer
+        ? "#/workspace/team"
+        : `#/workspace/review?view=current&review=${encodeURIComponent(unassignedReview.id)}`,
+      cta: canInviteReviewer
+        ? "Открыть команду"
+        : "Открыть статус QA",
+      doneWhen: "Другой допущенный участник назначен и сохранил решение по точному файлу.",
+      nextHint: "Не создавайте замену и не публикуйте этот файл до независимого QA.",
+    };
+  }
   const availableRepair = reviews.find((item) => (
     item.repairNextAction?.status === "available"
   ));

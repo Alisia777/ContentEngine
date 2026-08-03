@@ -114,7 +114,23 @@
           if (drawer) {
             drawer.classList.remove("workspace-board__drawer--empty");
             drawer.dataset.workspaceItemDrawer = "true";
-            drawer.innerHTML = `<header class="workspace-board__drawer-head"><h2>${title}</h2><button type="button" data-action="close-workspace-item">Закрыть</button></header><div class="workspace-board__drawer-preview">Предпросмотр файла</div><p class="workspace-board__drawer-description">Файл открыт в том же рабочем окне Finder.</p>`;
+            drawer.replaceChildren();
+            const header = document.createElement("header");
+            header.className = "workspace-board__drawer-head";
+            const heading = document.createElement("h2");
+            heading.textContent = title;
+            const close = document.createElement("button");
+            close.type = "button";
+            close.dataset.action = "close-workspace-item";
+            close.textContent = "Закрыть";
+            header.append(heading, close);
+            const preview = document.createElement("div");
+            preview.className = "workspace-board__drawer-preview";
+            preview.textContent = "Предпросмотр файла";
+            const description = document.createElement("p");
+            description.className = "workspace-board__drawer-description";
+            description.textContent = "Файл открыт в том же рабочем окне Finder.";
+            drawer.append(header, preview, description);
             card.classList.add("is-selected");
             window.ContentEngineDesktopV4?.requestMount?.();
           }
