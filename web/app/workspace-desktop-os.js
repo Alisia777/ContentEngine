@@ -172,8 +172,12 @@ function dockItemMarkup(item, activeRoute) {
 }
 
 function mountMacDock(shell) {
-  if (!shell) {
-    runtime.dock?.remove();
+  const route = routePath();
+  const retired = window.CONTENTENGINE_DESKTOP_V4 === true
+    || route === LEARN_ROUTE
+    || route.startsWith(`${LEARN_ROUTE}/`);
+  if (!shell || retired) {
+    qa(".ce-mac-dock").forEach((dock) => dock.remove());
     runtime.dock = null;
     document.body.classList.remove("ce-os-dock-visible");
     return;

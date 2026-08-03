@@ -8,7 +8,7 @@
  * Cmd/Ctrl + Shift + B. No new Dock item.
  */
 
-const BUILD = "20260801.os4.2";
+const BUILD = "20260803.os4.2.1";
 const DRAFT_PREFIX = "contentengine.ui-bug-checkin.v1";
 const MAX_RUNTIME_ERRORS = 20;
 const MAX_DESCRIPTOR_EXAMPLES = 8;

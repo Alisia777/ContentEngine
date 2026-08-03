@@ -2905,6 +2905,13 @@ function trainingCatalogReady() {
   );
 }
 
+function authenticatedStartPath() {
+  if (!state.session) return "/login";
+  if (state.forcePassword) return "/set-password";
+  if (membershipLockDetails()) return "/access-locked";
+  return hasWorkspaceAccess() ? "/workspace/home" : "/learn";
+}
+
 function examQuestionsReady() {
   const questions = finalExamQuestions();
   const questionCodes = new Set(questions.map((question) => question.code));
@@ -2924,11 +2931,7 @@ function examQuestionsReady() {
 function establishDefaultRoute() {
   const path = state.route.path;
   if (path !== "/") return;
-  if (!state.session) navigate("/login", true);
-  else if (state.forcePassword) navigate("/set-password", true);
-  else if (membershipLockDetails()) navigate("/access-locked", true);
-  else if (hasWorkspaceAccess()) navigate("/workspace/home", true);
-  else navigate("/learn", true);
+  navigate(authenticatedStartPath(), true);
 }
 
 function destroyAccountVisualController() {
@@ -3033,6 +3036,11 @@ function render() {
       return;
     }
     renderLearningHome();
+    return;
+  }
+
+  if (trainingAccessWaiverActive() && path.startsWith("/learn")) {
+    navigate(authenticatedStartPath(), true);
     return;
   }
 
@@ -5968,6 +5976,11 @@ function workspaceScaffold(content, activeSection) {
   const tabs = workspaceNavigationTabs(activeSection);
   const tabLabel = tabs.find(([key]) => key === activeSection)?.[1] || "Кабинет";
   const transitionClass = consumeRouteTransitionClass();
+  const learningLinks = trainingAccessWaiverActive() ? "" : `
+          <span class="nav-caption nav-caption-spaced">Знания и запуск</span>
+          <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span><span>Обучение</span></a>
+          <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span></a>
+  `;
   return `
     <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}">
       <aside class="sidebar" aria-label="Основная навигация">
@@ -5981,9 +5994,7 @@ function workspaceScaffold(content, activeSection) {
             ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Администрирование</span>` : ""}
             ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
           `).join("")}
-          <span class="nav-caption nav-caption-spaced">Знания и запуск</span>
-          <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span><span>Обучение</span></a>
-          <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span></a>
+          ${learningLinks}
         </nav>
         ${sidebarFooterMarkup(profile)}
       </aside>
@@ -6357,6 +6368,11 @@ function handleKeyDown(event) {
 }
 
 function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = "") {
+  const workspaceLearningLinks = trainingAccessWaiverActive() ? "" : `
+        <span class="nav-caption nav-caption-spaced">Знания</span>
+        <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
+        <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
+  `;
   return `
     <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
@@ -6375,9 +6391,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
           ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
           ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
         `).join("")}
-        <span class="nav-caption nav-caption-spaced">Знания</span>
-        <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
-        <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
+        ${workspaceLearningLinks}
       `}
       ${navigationModePickerMarkup("mobile", true)}
       ${themePickerMarkup("mobile", true)}
@@ -11067,6 +11081,9 @@ function pageHeader(title, description, actions = "") {
     : "home";
   const meta = WORKSPACE_SECTION_META[activeSection] || WORKSPACE_SECTION_META.home;
   const inFactoryFlow = FACTORY_FLOW.some((item) => item.key === activeSection);
+  const guideLink = trainingAccessWaiverActive()
+    ? ""
+    : `<a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>`;
   return `
     <section class="workspace-page-intro">
       <header class="page-header">
@@ -11078,7 +11095,7 @@ function pageHeader(title, description, actions = "") {
         </div>
         <div class="page-actions">
           ${actions}
-          <a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>
+          ${guideLink}
         </div>
       </header>
       ${inFactoryFlow ? factoryFlowMarkup(activeSection) : ""}
@@ -13250,7 +13267,9 @@ function generationRepairMarkup(form = null) {
   const policy = normalizeGenerationRepairPolicy(state.generationRepair.data);
   if (!policy?.applied) return "";
   const active = form ? activeGenerationRepairPolicy(form) : policy;
-  const training = generationQualityTrainingRecommendation(policy);
+  const training = trainingAccessWaiverActive()
+    ? null
+    : generationQualityTrainingRecommendation(policy);
   const labels = policy.guardCodes
     .map(generationQualityGuardLabel)
     .filter(Boolean);
@@ -13296,7 +13315,9 @@ function generationLearningMarkup(form = null) {
   const qualityGuardLabels = (policy?.qualityGuardCodes || [])
     .map(generationQualityGuardLabel)
     .filter(Boolean);
-  const training = generationQualityTrainingRecommendation(policy);
+  const training = trainingAccessWaiverActive()
+    ? null
+    : generationQualityTrainingRecommendation(policy);
   const strongerGuardCount = (policy?.qualityGuardCodes || [])
     .filter((code) => policy?.qualityGuardVariants?.[code] === 2)
     .length;
@@ -14366,9 +14387,7 @@ async function submitLogin(form) {
     if (state.forcePassword) navigate("/set-password", true);
     else {
       await loadBootstrap();
-      if (membershipLockDetails()) navigate("/access-locked", true);
-      else if (hasWorkspaceAccess()) navigate("/workspace/home", true);
-      else navigate("/learn", true);
+      navigate(authenticatedStartPath(), true);
     }
   } catch (error) {
     renderLogin(authErrorMessage(error), email);
@@ -14500,8 +14519,7 @@ async function submitPassword(form) {
     state.authPurpose = null;
     await loadBootstrap();
     toast("Пароль сохранён.", "success");
-    if (membershipLockDetails()) navigate("/access-locked", true);
-    else navigate("/learn", true);
+    navigate(authenticatedStartPath(), true);
   } catch (error) {
     renderSetPassword(authErrorMessage(error));
   }

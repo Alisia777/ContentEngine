@@ -255,7 +255,8 @@ def test_suspended_and_revoked_memberships_are_locked_before_learning_or_workspa
     )
 
     assert 'accessState: String(source.state || "")' in app
-    assert 'membershipLockDetails()) navigate("/access-locked", true)' in app
+    assert 'if (membershipLockDetails()) return "/access-locked";' in app
+    assert 'navigate(authenticatedStartPath(), true);' in app
     assert "state.bootstrap || membershipLockDetails()" in app
     assert "Обратитесь к руководителю вашей команды." in app
     locked_gate = app.index("if (membershipLockDetails())")
@@ -458,7 +459,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260730.11' in index
+    assert './app.js?v=20260803.1' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

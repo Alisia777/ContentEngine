@@ -131,7 +131,7 @@ def test_reset_verifies_exact_authority_before_atomic_one_shot_update() -> None:
     assert read_only is True
     assert "from auth.users auth_user" in sql
     assert "lower(auth_user.email) = 'owner@example.com'" in sql
-    assert "organization.slug = 'portal-content-factory'" in sql
+    assert "organization.slug = 'altea-content-factory'" in sql
     assert "membership.role = 'owner'" in sql
     assert "membership.status = 'active'" in sql
     assert "organization.status = 'active'" in sql
