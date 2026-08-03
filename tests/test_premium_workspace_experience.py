@@ -109,7 +109,7 @@ def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
 
     for key in EXPECTED_FLOW[1:]:
         block = _between(metadata, f"  {key}: Object.freeze({{", "  }),")
-        for field in ("now", "done", "guard", "nextLabel", "nextHref", "guideHref"):
+        for field in ("now", "done", "guard", "nextLabel", "nextHref"):
             assert f"{field}:" in block
 
     assert "Сделайте сейчас" in direction
@@ -118,7 +118,8 @@ def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
     assert "Когда закончите" in direction
     assert 'aria-label="Что делать в этом разделе"' in direction
     assert "workspaceDirectionMarkup(meta)" in header
-    assert 'meta.guideHref || "#/learn"' in header
+    assert "guideHref" not in metadata
+    assert "workspace-guide-link" not in header
 
     for selector in (
         ".workspace-direction",
@@ -162,8 +163,8 @@ def test_home_action_closes_the_loop_through_metrics_and_payouts() -> None:
 
     assert "publications" in home
     assert "payouts" in home
-    assert 'href: "#/workspace/stats"' in home
-    assert 'href: "#/workspace/payouts"' in home
+    assert "#/workspace/stats?view=new" in home
+    assert "#/workspace/payouts?view=next" in home
     assert "doneWhen" in home
     assert "nextHint" in home
     assert 'class="home-next-action-proof"' in rendered_home
@@ -187,7 +188,7 @@ def test_home_action_routes_from_publication_to_metrics_then_payout() -> None:
         "payouts": [],
     }
 
-    assert _run_home_next_action(base)["href"] == "#/workspace/stats"
+    assert _run_home_next_action(base)["href"] == "#/workspace/stats?view=new&placement=placement-1"
 
     with_metric_and_payout = {
         **base,
@@ -201,7 +202,7 @@ def test_home_action_routes_from_publication_to_metrics_then_payout() -> None:
         "payouts": [{"id": "payout-1", "status": "pending"}],
     }
 
-    assert _run_home_next_action(with_metric_and_payout)["href"] == "#/workspace/payouts"
+    assert _run_home_next_action(with_metric_and_payout)["href"] == "#/workspace/payouts?view=next&payout=payout-1"
 
 
 def test_home_action_surfaces_unassigned_generated_media_qa() -> None:
@@ -229,7 +230,7 @@ def test_home_action_surfaces_unassigned_generated_media_qa() -> None:
 
     manager = _run_home_next_action({**base, "role": "owner"})
     assert manager["step"] == "QA ожидает проверяющего"
-    assert manager["href"] == "#/workspace/team"
+    assert manager["href"] == "#/workspace/team?view=invite"
     assert manager["cta"] == "Открыть команду"
     assert "seedance-result.mp4" == manager["title"]
 

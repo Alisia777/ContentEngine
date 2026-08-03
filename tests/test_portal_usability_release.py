@@ -336,6 +336,7 @@ def test_workspace_rerender_preserves_control_identity_selection_and_focus() -> 
         "function renderWorkspace(section) {",
         "function workspaceInitialLoadingMarkup",
     )
+    focus = _between(APP, "function captureWorkspaceFocus", "function workspaceInitialLoadingMarkup")
 
     assert workspace.index("captureWorkspaceFocus(existingContent)") < workspace.index(
         "patchWorkspaceContent(existingContent, content)"
@@ -347,6 +348,7 @@ def test_workspace_rerender_preserves_control_identity_selection_and_focus() -> 
         "restoreWorkspaceScroll(existingContent, scrollSnapshot, section)"
     )
     for identity_hook in (
+        "node: active",
         "active.id",
         "active.dataset?.action",
         'active.getAttribute?.("name")',
@@ -357,13 +359,15 @@ def test_workspace_rerender_preserves_control_identity_selection_and_focus() -> 
         "active.selectionStart",
         "active.selectionEnd",
     ):
-        assert identity_hook in workspace
-    assert "window.queueMicrotask" in workspace
-    assert 'container.querySelector("#generation-archive-summary")' in workspace
-    assert "target.focus({ preventScroll: true })" in workspace
-    assert "target.setSelectionRange" in workspace
-    assert "item.dataset?.jobId === identity.jobId" in workspace
-    assert "formKey === identity.formKey" in workspace
+        assert identity_hook in focus
+    assert "window.queueMicrotask" in focus
+    assert 'container.querySelector("#generation-archive-summary")' in focus
+    assert "target.focus({ preventScroll: true })" in focus
+    assert "target.setSelectionRange" in focus
+    assert "identity.node.isConnected" in focus
+    assert "container.contains(identity.node)" in focus
+    assert "item.dataset?.jobId === identity.jobId" in focus
+    assert "formKey === identity.formKey" in focus
 
 
 def test_generation_archive_has_clear_busy_live_empty_retry_and_table_semantics() -> None:

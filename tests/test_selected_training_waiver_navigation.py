@@ -69,8 +69,9 @@ def test_direct_academy_routes_are_reachable_only_while_the_gate_is_required() -
         assert identity not in APP.casefold()
 
 
-def test_workspace_hides_academy_deep_links_when_the_gate_is_not_reachable() -> None:
+def test_every_workspace_hides_academy_deep_links_that_redirect_to_home() -> None:
     scaffold = _between(APP, "function workspaceScaffold", "function refreshNotificationLayer")
+    mobile = _between(APP, "function mobileNavMarkup", "async function loadSection")
     header = _between(APP, "function pageHeader", "function factoryFlowMarkup")
     generation_repair = _between(
         APP,
@@ -84,11 +85,12 @@ def test_workspace_hides_academy_deep_links_when_the_gate_is_not_reachable() -> 
     )
 
     assert "#/learn" not in scaffold
-    assert "academyRoutesReachable()" in header
-    assert "${guideLink}" in header
+    assert "learningLinks" not in scaffold
+    assert "workspaceLearningLinks" not in mobile
+    assert "workspace-guide-link" not in header
     for generation_markup in (generation_repair, generation_learning):
-        assert "const training = academyRoutesReachable()" in generation_markup
-        assert ": null;" in generation_markup
+        assert "generationQualityTrainingRecommendation" not in generation_markup
+        assert "generation-quality-training-link" not in generation_markup
 
 
 def test_global_desktop_never_mounts_over_academy() -> None:
