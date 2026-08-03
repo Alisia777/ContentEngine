@@ -3,6 +3,7 @@ const MAX_TRANSCRIPT_ITEMS = 12;
 const MAX_FALLBACK_POINTS = 6;
 const MAX_CHECKPOINT_OPTIONS = 5;
 const ALLOWED_CAPTION_STATUSES = new Set(["verified", "draft_needs_audio_qc"]);
+const TRAINING_MEDIA_BINDINGS = new WeakMap();
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -436,6 +437,8 @@ export function evaluateTrainingMediaCheckpoint(root, optionId = "") {
 
 export function bindTrainingMediaCards(root) {
   if (!root || typeof root.addEventListener !== "function") return () => {};
+  const existingBinding = TRAINING_MEDIA_BINDINGS.get(root);
+  if (existingBinding) return existingBinding;
   const onClick = (event) => {
     const action = typeof event.target?.closest === "function"
       ? event.target.closest('[data-action="training-media-focus"]')
@@ -451,5 +454,15 @@ export function bindTrainingMediaCards(root) {
     setTrainingMediaCardFocus(action, action.dataset.trainingMediaFocusValue);
   };
   root.addEventListener("click", onClick);
-  return () => root.removeEventListener("click", onClick);
+  if (root.dataset) root.dataset.trainingMediaBound = "true";
+  let active = true;
+  const unbind = () => {
+    if (!active) return;
+    active = false;
+    root.removeEventListener("click", onClick);
+    if (TRAINING_MEDIA_BINDINGS.get(root) === unbind) TRAINING_MEDIA_BINDINGS.delete(root);
+    if (root.dataset) delete root.dataset.trainingMediaBound;
+  };
+  TRAINING_MEDIA_BINDINGS.set(root, unbind);
+  return unbind;
 }

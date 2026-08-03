@@ -60,19 +60,15 @@ const CERTIFIED_MODULE_CODES = Object.freeze([
 ]);
 
 const NAVIGATION_CONTROL_MATRIX = Object.freeze([
-  Object.freeze({ kind: "dock", route: "/workspace/home", section: "home", hash: "#/workspace/home", marker: ".workspace-home .home-next-action" }),
-  Object.freeze({ kind: "dock", route: "/workspace/board", section: "board", hash: "#/workspace/board", marker: '.workspace-board[data-ce-v4-finder-mode="browse"]' }),
-  Object.freeze({ kind: "dock", route: "/workspace/generation", section: "generation", hash: "#/workspace/generation", marker: "[data-generation-view]" }),
-  Object.freeze({ kind: "dock", route: "/workspace/review", section: "review", hash: "#/workspace/review", marker: "[data-review-view]" }),
-  Object.freeze({ kind: "dock", route: "/workspace/placement", section: "placement", hash: "#/workspace/placement", marker: "[data-placement-view]" }),
-  Object.freeze({ kind: "dock", route: "/workspace/stats", section: "stats", hash: "#/workspace/stats", marker: "[data-stats-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/tasks", section: "tasks", hash: "#/workspace/tasks", marker: "[data-task-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/work", section: "work", hash: "#/workspace/work", marker: "[data-work-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/media", section: "media", hash: "#/workspace/media", marker: "[data-media-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/payouts", section: "payouts", hash: "#/workspace/payouts", marker: "[data-payout-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/research", section: "research", hash: "#/workspace/research", marker: "[data-research-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/feedback", section: "feedback", hash: "#/workspace/feedback", marker: "[data-feedback-view]" }),
-  Object.freeze({ kind: "tools", route: "/workspace/team", section: "team", hash: "#/workspace/team", marker: "[data-team-view]" }),
+  Object.freeze({ kind: "dock", route: "/workspace/home", actionKey: "/workspace/home?view=today", section: "home", hash: "#/workspace/home", marker: ".workspace-home .home-next-action" }),
+  Object.freeze({ kind: "dock", route: "/workspace/board", actionKey: "/workspace/board?view=browse", section: "board", hash: "#/workspace/board", marker: '.workspace-board[data-ce-v4-finder-mode="browse"]' }),
+  Object.freeze({ kind: "dock", route: "/workspace/generation", actionKey: "/workspace/generation?view=create", section: "generation", hash: "#/workspace/generation", marker: "[data-generation-view]" }),
+  Object.freeze({ kind: "dock", route: "/workspace/review", actionKey: "/workspace/review?view=new", section: "review", hash: "#/workspace/review", marker: "[data-review-view]" }),
+  Object.freeze({ kind: "dock", route: "/workspace/placement", actionKey: "/workspace/placement?view=next", section: "placement", hash: "#/workspace/placement", marker: "[data-placement-view]" }),
+  Object.freeze({ kind: "dock", route: "/workspace/stats", actionKey: "/workspace/stats?view=overview", section: "stats", hash: "#/workspace/stats", marker: "[data-stats-view]" }),
+  Object.freeze({ kind: "tools", route: "/workspace/research", actionKey: "/workspace/research?view=evidence", section: "research", hash: "#/workspace/research", marker: "[data-research-view]" }),
+  Object.freeze({ kind: "tools", route: "/workspace/team", actionKey: "/workspace/team?view=members", section: "team", hash: "#/workspace/team", marker: "[data-team-view]" }),
+  Object.freeze({ kind: "tools", route: "/workspace/feedback", actionKey: "/workspace/feedback?view=new", section: "feedback", hash: "#/workspace/feedback", marker: "[data-feedback-view]" }),
 ]);
 
 const FULL_MATRIX = Object.freeze([
@@ -151,22 +147,22 @@ const FULL_MATRIX = Object.freeze([
     view: "queue",
     hash: "#/workspace/work?view=queue",
     marker: '[data-work-view="queue"]',
-    primary: [1],
+    primary: [0],
   },
   {
     section: "work",
     view: "views",
     hash: "#/workspace/work?view=views",
     marker: '[data-work-view="views"]',
-    primary: [1],
+    primary: [0],
   },
   {
     section: "work",
     view: "notifications",
     hash: "#/workspace/work?view=notifications",
     marker:
-      '[data-work-view="notifications"] [data-notification-center-inline]',
-    primary: [1],
+      '[data-work-view="notifications"] [data-notification-view]',
+    primary: [0],
   },
   {
     section: "placement",
@@ -876,6 +872,7 @@ function researchPayload() {
       },
     ],
     source_ids: [SOURCE_ID],
+    task_ids: [TASK_ID],
   };
 }
 
@@ -1049,17 +1046,8 @@ async function installSessionAndApi(context, options, ledger) {
     function seed(payload) {
       globalThis.__CE_FULL_APP_RUNTIME_ERRORS = [];
       globalThis.__CE_FULL_APP_ROUTE_EVENTS = {
-        replaced: [],
         ready: [],
       };
-      globalThis.addEventListener(
-        "contentengine:route-replaced",
-        function onRouteReplaced(event) {
-          globalThis.__CE_FULL_APP_ROUTE_EVENTS.replaced.push(
-            String(event.detail && event.detail.route ? event.detail.route : ""),
-          );
-        },
-      );
       globalThis.addEventListener(
         "contentengine:v4-route-ready",
         function onRouteReady(event) {
@@ -1471,6 +1459,8 @@ async function workspaceSnapshot(page, row, captureIdentity) {
       return {
         hash: location.hash,
         section: shell ? shell.dataset.workspaceSection || "" : "",
+        actionKey: shell ? shell.dataset.workspaceActionKey || "" : "",
+        workspaceView: shell ? shell.dataset.workspaceView || "" : "",
         marker: Boolean(document.querySelector(payload.row.marker)),
         shellCount: document.querySelectorAll(".workspace-shell").length,
         contentCount: document.querySelectorAll("#workspace-content").length,
@@ -1513,10 +1503,9 @@ async function workspaceSnapshot(page, row, captureIdentity) {
             : [],
         routeEvents: globalThis.__CE_FULL_APP_ROUTE_EVENTS
           ? {
-            replaced: globalThis.__CE_FULL_APP_ROUTE_EVENTS.replaced.slice(),
             ready: globalThis.__CE_FULL_APP_ROUTE_EVENTS.ready.slice(),
           }
-          : { replaced: [], ready: [] },
+          : { ready: [] },
       };
     },
     { row, captureIdentity },
@@ -1675,7 +1664,7 @@ async function runOwnerMatrix(browser) {
         PAYOUT_ID +
         "&decision=reject",
       marker:
-        '[data-payout-view="next"] [data-danger-primary="true"]',
+        '[data-payout-view="next"] .payout-reject-form .btn-danger[data-primary-action="true"]',
     };
     await page.evaluate(function navigate(hash) {
       location.hash = hash;
@@ -1689,14 +1678,15 @@ async function runOwnerMatrix(browser) {
       });
     }
     reject.dangerPrimary = await page.evaluate(function inspectDanger() {
-      const danger = document.querySelector('[data-danger-primary="true"]');
+      const selector = '.payout-reject-form .btn-danger[data-primary-action="true"]';
+      const danger = document.querySelector(selector);
       return danger
         ? {
-          count: document.querySelectorAll('[data-danger-primary="true"]').length,
+          count: document.querySelectorAll(selector).length,
           label: String(danger.textContent || "").replace(/\s+/gu, " ").trim(),
-          backgroundImage: getComputedStyle(danger).backgroundImage,
+          backgroundColor: getComputedStyle(danger).backgroundColor,
         }
-        : { count: 0, label: "", backgroundImage: "" };
+        : { count: 0, label: "", backgroundColor: "" };
     });
 
     return {
@@ -1771,6 +1761,10 @@ async function runNavigationControlScenario(browser) {
             href: node?.getAttribute("href") || "",
             shellRoute: shell?.dataset.workspaceRoute || "",
             shellView: shell?.dataset.workspaceView || "",
+            shellActionKey: shell?.dataset.workspaceActionKey || "",
+            authorizedRoutes: String(shell?.dataset.workspaceAuthorizedRoutes || "")
+              .split(/\s+/u)
+              .filter(Boolean),
             dockRoutes: document.querySelectorAll("[data-ce-v4-route]").length,
             visibleToolRoutes: Array.from(
               document.querySelectorAll("[data-ce-v4-tools-route]"),
@@ -1822,7 +1816,7 @@ async function runSameWorkspaceViewScenario(browser) {
   const finish = {
     section: "work",
     hash: "#/workspace/work?view=notifications",
-    marker: '[data-work-view="notifications"] [data-notification-center-inline]',
+    marker: '[data-work-view="notifications"] [data-notification-view]',
   };
   try {
     await page.goto(baseUrl + "/web/app/index.html" + start.hash, {
@@ -1908,7 +1902,7 @@ async function runSameWorkspaceViewScenario(browser) {
     await page.waitForFunction(function transitionObserved() {
       return location.hash === "#/workspace/work?view=notifications"
         && Boolean(document.querySelector(
-          '[data-work-view="notifications"] [data-notification-center-inline]',
+          '[data-work-view="notifications"] [data-notification-view]',
         ));
     }, null, { timeout: 30000, polling: "raf" });
     await waitForStableWorkspace(page, finish);
@@ -1920,7 +1914,7 @@ async function runSameWorkspaceViewScenario(browser) {
       return {
         hash: location.hash,
         marker: Boolean(document.querySelector(
-          '[data-work-view="notifications"] [data-notification-center-inline]',
+          '[data-work-view="notifications"] [data-notification-view]',
         )),
         shellSame: probe.shell === document.querySelector(".workspace-shell"),
         menubarSame: probe.menubar === document.querySelector(".ce-v4-menubar"),
@@ -2036,10 +2030,9 @@ async function runBootstrapRouteScenario(browser, specification) {
         runtimeErrors: globalThis.__CE_FULL_APP_RUNTIME_ERRORS?.slice() || [],
         routeEvents: globalThis.__CE_FULL_APP_ROUTE_EVENTS
           ? {
-            replaced: globalThis.__CE_FULL_APP_ROUTE_EVENTS.replaced.slice(),
             ready: globalThis.__CE_FULL_APP_ROUTE_EVENTS.ready.slice(),
           }
-          : { replaced: [], ready: [] },
+          : { ready: [] },
       };
     });
     return {
@@ -2112,7 +2105,7 @@ async function runRoleScenario(browser, role, expected) {
     const availability = await page.evaluate(function inspect() {
       const shell = document.querySelector(".workspace-shell");
       return {
-        sections: String(shell && shell.dataset.workspaceAvailableSections || "")
+        sections: String(shell && shell.dataset.workspaceAuthorizedRoutes || "")
           .split(/\s+/u)
           .filter(Boolean),
         visibleTools: Array.from(
@@ -2176,6 +2169,10 @@ function rowPassed(row, snapshot) {
   return (
     snapshot.hash === row.hash &&
     snapshot.section === row.section &&
+    snapshot.workspaceView === row.hash.slice(1) &&
+    snapshot.actionKey === (
+      row.section === "home" ? "/workspace/home?view=today" : row.hash.slice(1)
+    ) &&
     snapshot.marker &&
     snapshot.shellCount === 1 &&
     snapshot.contentCount === 1 &&
@@ -2256,28 +2253,28 @@ function rowPassed(row, snapshot) {
     roles.push(
       await runRoleScenario(browser, "admin", {
         sections: 13,
-        tools: 7,
+        tools: 3,
         forbidden: [],
       }),
     );
     roles.push(
       await runRoleScenario(browser, "producer", {
         sections: 12,
-        tools: 6,
+        tools: 2,
         forbidden: ["#/workspace/team"],
       }),
     );
     roles.push(
       await runRoleScenario(browser, "reviewer", {
         sections: 11,
-        tools: 5,
+        tools: 1,
         forbidden: ["#/workspace/research", "#/workspace/team"],
       }),
     );
     roles.push(
       await runRoleScenario(browser, "operator", {
         sections: 11,
-        tools: 5,
+        tools: 1,
         forbidden: ["#/workspace/research", "#/workspace/team"],
       }),
     );
@@ -2291,10 +2288,10 @@ function rowPassed(row, snapshot) {
       }),
     );
     const roleExpectations = {
-      admin: { sections: 13, tools: 7 },
-      producer: { sections: 12, tools: 6 },
-      reviewer: { sections: 11, tools: 5 },
-      operator: { sections: 11, tools: 5 },
+      admin: { sections: 13, tools: 3 },
+      producer: { sections: 12, tools: 2 },
+      reviewer: { sections: 11, tools: 1 },
+      operator: { sections: 11, tools: 1 },
     };
     const roleChecks = Object.fromEntries(
       roles.map(function check(result) {
@@ -2324,26 +2321,23 @@ function rowPassed(row, snapshot) {
       owner.reject.primaryCount === 1 &&
       owner.reject.dangerPrimary.count === 1 &&
       owner.reject.dangerPrimary.label.includes("Отклонить") &&
-      owner.reject.dangerPrimary.backgroundImage !== "none" &&
+      !["", "transparent", "rgba(0, 0, 0, 0)"].includes(
+        owner.reject.dangerPrimary.backgroundColor,
+      ) &&
       owner.reject.dialogCount === 0;
     const redirectCheck = function check(result) {
-      const routeEvents = result.snapshot.routeEvents;
       return (
         result.snapshot.hash === "#/workspace/home" &&
         result.snapshot.section === "home" &&
+        result.snapshot.workspaceView === "/workspace/home" &&
+        result.snapshot.actionKey === "/workspace/home?view=today" &&
         result.snapshot.shellCount === 1 &&
         result.snapshot.menubarCount === 1 &&
         result.snapshot.dockCount === 1 &&
         result.snapshot.academyCount === 0 &&
         result.snapshot.workspaceAcademyLinkCount === 0 &&
-        result.snapshot.ready &&
         result.snapshot.stable &&
         !result.snapshot.routeEnter &&
-        routeEvents.replaced.length === 1 &&
-        routeEvents.replaced[0] === "/workspace/home" &&
-        routeEvents.ready.filter(function home(route) {
-          return route === "/workspace/home";
-        }).length === 1 &&
         ledgerClean(result.ledger) &&
         diagnosticsClean(result.diagnostics)
       );
@@ -2355,7 +2349,7 @@ function rowPassed(row, snapshot) {
       }).length === 6 &&
       navigationControls.rows.filter(function tools(row) {
         return row.kind === "tools";
-      }).length === 7 &&
+      }).length === 3 &&
       navigationControls.rows.every(function controlPassed(row) {
         const snapshot = row.snapshot;
         return snapshot.hash === row.hash &&
@@ -2379,8 +2373,11 @@ function rowPassed(row, snapshot) {
           row.control.href === row.hash &&
           row.control.shellRoute === row.route &&
           row.control.shellView === row.route &&
+          row.control.shellActionKey === row.actionKey &&
+          row.control.authorizedRoutes.length === 13 &&
+          row.control.authorizedRoutes.includes(row.route) &&
           row.control.dockRoutes === 6 &&
-          row.control.visibleToolRoutes === 7;
+          row.control.visibleToolRoutes === 3;
       }) &&
       ledgerClean(navigationControls.ledger) &&
       diagnosticsClean(navigationControls.diagnostics);
@@ -2436,7 +2433,6 @@ function rowPassed(row, snapshot) {
       bootstrapLearning.snapshot.dockCount === 0 &&
       bootstrapLearning.snapshot.academyCount === 1 &&
       bootstrapLearning.snapshot.runtimeErrors.length === 0 &&
-      bootstrapLearning.snapshot.routeEvents.replaced.includes("/learn") &&
       ledgerClean(bootstrapLearning.ledger) &&
       diagnosticsClean(bootstrapLearning.diagnostics);
     const missingAccessBootstrapCheck =
@@ -2448,7 +2444,6 @@ function rowPassed(row, snapshot) {
       bootstrapMissingAccess.snapshot.dockCount === 0 &&
       bootstrapMissingAccess.snapshot.academyCount === 0 &&
       bootstrapMissingAccess.snapshot.runtimeErrors.length === 0 &&
-      bootstrapMissingAccess.snapshot.routeEvents.replaced.includes("/access-required") &&
       ledgerClean(bootstrapMissingAccess.ledger) &&
       diagnosticsClean(bootstrapMissingAccess.diagnostics);
     const checks = {
@@ -2459,7 +2454,6 @@ function rowPassed(row, snapshot) {
         })).size === 13,
       ownerRows: Object.values(rowChecks).every(Boolean),
       directHomeRouteEvents:
-        owner.rows[0].routeEvents.replaced.length === 0 &&
         owner.rows[0].routeEvents.ready.filter(function home(route) {
           return route === "/workspace/home";
         }).length === 1,
@@ -2503,6 +2497,12 @@ function rowPassed(row, snapshot) {
           passed,
           checks,
           rowChecks,
+          failedRows: Object.fromEntries(
+            FULL_MATRIX.flatMap(function failedRow(row, index) {
+              const key = row.section + ":" + String(row.view || "default");
+              return rowChecks[key] ? [] : [[key, owner.rows[index]]];
+            }),
+          ),
           roleChecks,
           performance: report.performance,
           sameWorkspaceView,

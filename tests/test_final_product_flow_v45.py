@@ -165,7 +165,7 @@ def test_learning_home_executes_one_primary_action_and_compact_role_select() -> 
     }
 
 
-def test_academy_reachability_controls_every_workspace_learning_link() -> None:
+def test_workspace_surfaces_never_link_back_into_the_academy_gate() -> None:
     academy_required = _function_source("academyRequired")
     academy_reachable = _function_source("academyRoutesReachable")
     page_header = _function_source("pageHeader")
@@ -207,12 +207,13 @@ def test_academy_reachability_controls_every_workspace_learning_link() -> None:
 
     assert payload == {
         "cases": [True, False, False],
-        "requiredGuide": True,
+        "requiredGuide": False,
         "completedGuide": False,
     }
+    assert "guideHref:" not in APP
     for source in (repair, learning):
-        assert "academyRoutesReachable()" in source
-        assert "trainingAccessWaiverActive()" not in source
+        assert "academyRoutesReachable()" not in source
+        assert 'href="#/learn' not in source
 
 
 def test_course_completion_returns_to_home_without_achievement_subwindow() -> None:

@@ -190,5 +190,6 @@ window.ContentEngineDesktopV4Loader = Object.freeze({
   build: BUILD,
   route: routePath,
   actionKey: workspaceActionKey,
+  syncRoute: schedule,
   load: () => loadRoute(),
 });

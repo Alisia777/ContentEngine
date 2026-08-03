@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>ContentEngine WebKit file selection v4.5 harness</title>
+  </head>
+  <body>
+    <main id="workspace-content">
+      <form id="upload-form" data-ce-patch-key="upload-form">
+        <label for="upload-file">Файл</label>
+        <input id="upload-file" name="file" type="file" />
+        <output id="upload-status">До обновления</output>
+      </form>
+    </main>
+    <script type="module">
+      import { patchWorkspaceContent } from "../../web/app/workspace-dom-patch.js";
+
+      const content = document.querySelector("#workspace-content");
+      const input = document.querySelector("#upload-file");
+      window.originalFileInput = input;
+      window.fileListenerCalls = 0;
+      input.addEventListener("contentengine:file-probe", () => {
+        window.fileListenerCalls += 1;
+      });
+
+      window.runFileSelectionPatch = () => patchWorkspaceContent(content, `
+        <form id="upload-form" data-ce-patch-key="upload-form">
+          <label for="upload-file">Исходный файл</label>
+          <input id="upload-file" name="file" type="file" />
+          <output id="upload-status">После обновления</output>
+        </form>
+      `);
+    </script>
+  </body>
+</html>

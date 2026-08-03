@@ -716,14 +716,14 @@ async function fullscreenResult(browser) {
         && dockMagnification.cleanup
         && dockMagnification.reducedMotionNone
         && dockMagnification.touchNone,
-      permissionAwareTools: permissionAwareTools.reviewer.visible.length === 5
-        && permissionAwareTools.reviewer.hidden.join(",") === "/workspace/research,/workspace/team"
+      permissionAwareTools: permissionAwareTools.reviewer.visible.join(",") === "/workspace/feedback"
+        && permissionAwareTools.reviewer.hidden.length === 0
         && permissionAwareTools.reviewer.lastFocused === "/workspace/feedback"
-        && permissionAwareTools.producer.visible.length === 6
-        && permissionAwareTools.producer.hidden.join(",") === "/workspace/team"
-        && permissionAwareTools.manager.visible.length === 7
+        && permissionAwareTools.producer.visible.join(",") === "/workspace/research,/workspace/feedback"
+        && permissionAwareTools.producer.hidden.length === 0
+        && permissionAwareTools.manager.visible.join(",") === "/workspace/research,/workspace/team,/workspace/feedback"
         && permissionAwareTools.manager.hidden.length === 0
-        && permissionAwareTools.manager.lastFocused === "/workspace/team",
+        && permissionAwareTools.manager.lastFocused === "/workspace/feedback",
       dockViewportResize: dockViewportResize.settled.fillMode === "none"
         && dockViewportResize.settled.transform === "none"
         && dockViewportResize.portrait.scrollLeft > 0

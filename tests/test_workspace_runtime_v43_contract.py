@@ -104,10 +104,12 @@ def test_loader_waits_for_core_css_and_the_latest_coordinated_mount() -> None:
         assert gate in set_loading
 
 
-def test_active_graph_has_one_dom_observer_and_no_delayed_stability_remounts() -> None:
+def test_active_graph_has_only_core_and_dock_observers_without_delayed_remounts() -> None:
     active_sources = (LOADER, CORE, CONTEXT_TRASH, FINDER)
-    assert sum(source.count("new MutationObserver") for source in active_sources) == 1
-    assert CORE.count("new MutationObserver") == 1
+    assert sum(source.count("new MutationObserver") for source in active_sources) == 2
+    assert "runtime.dockMutationObserver ||= new MutationObserver(handleViewportChange)" in CORE
+    assert "runtime.dockMutationObserver?.disconnect()" in CORE
+    assert CORE.count("new MutationObserver") == 2
     assert "new MutationObserver" not in CONTEXT_TRASH
     assert "new MutationObserver" not in FINDER
     assert "[80, 220, 520]" not in "\n".join(active_sources)

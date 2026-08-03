@@ -141,7 +141,7 @@ def test_primary_navigation_is_exactly_six_ordered_workspace_apps() -> None:
         "const SECONDARY_ROUTES = Object.freeze([",
         "const ALL_ROUTES",
     )
-    dock = _between(WORKSPACE_OS, "function ensureDock()", "function updateDock()")
+    dock = _between(WORKSPACE_OS, "function ensureDock()", "function updateDock(")
 
     assert re.findall(r'route: "([^"]+)"', routes) == [
         "/workspace/home",

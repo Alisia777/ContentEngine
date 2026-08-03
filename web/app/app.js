@@ -6330,13 +6330,19 @@ function renderWorkspace(section) {
     const viewChanged = existingShell.dataset.workspaceView !== workspaceViewIdentity(section);
     const preserveWorkspaceContext = existingShell.dataset.workspaceRoute === state.route.path;
     syncPersistentWorkspaceShell(existingShell, section);
+    if (!sameAction && preserveWorkspaceContext) {
+      const main = existingContent.closest("#main-content");
+      if (main instanceof HTMLElement) main.dataset.ceV4ActionEntry = nextActionKey;
+    }
     if (existingContent.dataset.ceV4RenderSignature === contentSignature) {
       if (viewChanged) revealWorkspaceContent(existingContent);
-      if (!preserveWorkspaceContext && !sameAction) {
-        const main = existingContent.closest("#main-content");
-        if (main instanceof HTMLElement) main.className = consumeRouteTransitionClass();
-        resetWorkspaceRouteEntry(existingContent, section);
-        window.ContentEngineDesktopV4?.requestMount?.();
+      if (!sameAction) {
+        if (!preserveWorkspaceContext) {
+          const main = existingContent.closest("#main-content");
+          if (main instanceof HTMLElement) main.className = consumeRouteTransitionClass();
+          resetWorkspaceRouteEntry(existingContent, section);
+          window.ContentEngineDesktopV4?.requestMount?.();
+        }
       }
       refreshNotificationLayer();
       scheduleWorkspaceDeepLinkFocus(section);
@@ -6352,16 +6358,29 @@ function renderWorkspace(section) {
         detail: { source: "workspace-render" },
       }));
     }
-    const focusedControl = preserveWorkspaceContext ? captureWorkspaceFocus(existingContent) : null;
-    const dirtyForms = preserveWorkspaceContext ? captureDirtyWorkspaceForms(existingContent) : [];
-    const scrollSnapshot = preserveWorkspaceContext ? captureWorkspaceScroll(existingContent) : [];
+    const focusedControl = sameAction ? captureWorkspaceFocus(existingContent) : null;
+    const dirtyForms = sameAction ? captureDirtyWorkspaceForms(existingContent) : [];
+    const scrollSnapshot = sameAction ? captureWorkspaceScroll(existingContent) : [];
+    const samePathFocusedControl = !sameAction && preserveWorkspaceContext
+      ? captureWorkspaceFocus(existingContent)
+      : null;
+    const samePathDirtyForms = !sameAction && preserveWorkspaceContext
+      ? captureDirtyWorkspaceForms(existingContent)
+      : [];
+    const samePathScrollSnapshot = !sameAction && preserveWorkspaceContext
+      ? captureWorkspaceScroll(existingContent)
+      : [];
     patchWorkspaceContent(existingContent, content);
     existingContent.dataset.ceV4RenderSignature = contentSignature;
     existingContent.dataset.ceV4InitialLoading = String(initialSectionLoad);
-    if (preserveWorkspaceContext) {
+    if (sameAction) {
       restoreDirtyWorkspaceForms(existingContent, dirtyForms);
       restoreWorkspaceFocus(existingContent, focusedControl, section);
       restoreWorkspaceScroll(existingContent, scrollSnapshot, section);
+    } else if (preserveWorkspaceContext) {
+      restoreDirtyWorkspaceForms(existingContent, samePathDirtyForms);
+      restoreWorkspaceFocus(existingContent, samePathFocusedControl, section);
+      restoreWorkspaceScroll(existingContent, samePathScrollSnapshot, section);
     } else {
       const main = existingContent.closest("#main-content");
       if (main instanceof HTMLElement) main.className = consumeRouteTransitionClass();
@@ -8037,7 +8056,7 @@ function homeNextAction({
         ? "AI-проверка завершена, но в команде нет другого участника с действующим допуском. Добавьте или восстановите независимого проверяющего."
         : "AI-проверка завершена, но подходящий независимый проверяющий пока не назначен. Результат безопасно заблокирован до решения руководителя.",
       href: canInviteReviewer
-        ? "#/workspace/team"
+        ? "#/workspace/team?view=invite"
         : `#/workspace/review?view=current&review=${encodeURIComponent(unassignedReview.id)}`,
       cta: canInviteReviewer
         ? "Открыть команду"
@@ -8112,11 +8131,16 @@ function homeNextAction({
     return !publication?.observed_at;
   });
   if (completedPlacementWithoutMetrics) {
+    const completedPlacementId = String(
+      completedPlacementWithoutMetrics.id
+      || completedPlacementWithoutMetrics.placement_id
+      || "",
+    );
     return {
       step: "Зафиксируйте результат",
       title: "Добавьте первый снимок метрик",
       description: "Ролик уже опубликован. Сохраните показатели вместе с датой и ссылкой на конкретный пост.",
-      href: "#/workspace/stats",
+      href: `#/workspace/stats?view=new${completedPlacementId ? `&placement=${encodeURIComponent(completedPlacementId)}` : ""}`,
       cta: "Внести показатели",
       doneWhen: "В разделе есть дата, источник и первый набор показателей.",
       nextHint: "После проверки результата следите за начислением.",
@@ -8124,11 +8148,12 @@ function homeNextAction({
   }
   const waitingPayout = payouts.find((item) => ["pending", "approved"].includes(String(item.status || "").toLowerCase()));
   if (waitingPayout) {
+    const payoutId = String(waitingPayout.id || waitingPayout.payout_id || "");
     return {
       step: "Проверьте расчёт",
       title: "Начисление ещё не завершено",
       description: "Сверьте сумму и статус. «Одобрено» означает подтверждение, но не завершённый внешний перевод.",
-      href: "#/workspace/payouts",
+      href: `#/workspace/payouts?view=next${payoutId ? `&payout=${encodeURIComponent(payoutId)}` : ""}`,
       cta: "Открыть выплаты",
       doneWhen: "Статус изменился на «Выплачено» или сохранена понятная причина ожидания.",
       nextHint: "После выплаты цикл этой задачи завершён.",
@@ -11735,7 +11760,7 @@ function taskActionsMarkup(item) {
     return '<span class="muted tiny">Видео создаётся. Статус задачи изменится автоматически.</span>';
   }
   const action = (nextStatus, label, secondary = false) =>
-    `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}">${label}</button>`;
+    `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}"${secondary ? "" : ' data-primary-action="true"'}>${label}</button>`;
   const generatedVideoReady = item.task_type === "video_review"
     && String(result.generation_status || "").toLowerCase() === "succeeded"
     && String(result.output_media_id || "").trim();
@@ -11743,7 +11768,7 @@ function taskActionsMarkup(item) {
     restoreGeneratedVideoQaEvidence();
     const preparedEvidence = generatedVideoQaEvidenceForMedia(String(result.output_media_id || ""));
     return `
-      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}">${preparedEvidence?.status === "ready" ? "Продолжить готовую проверку" : "Открыть проверку контента"}</button>
+      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}" data-primary-action="true">${preparedEvidence?.status === "ready" ? "Продолжить готовую проверку" : "Открыть проверку контента"}</button>
       <span class="muted tiny">Итог фиксируется только внутри проверки контента.</span>
     `;
   }
@@ -18723,8 +18748,9 @@ function navigate(path, replace = false) {
     const next = new URL(window.location.href);
     next.hash = hash;
     window.history.replaceState({}, "", next);
-    window.ContentEngineDesktopV4?.syncRoute?.();
     state.route = parseRoute();
+    window.ContentEngineDesktopV4?.syncRoute?.();
+    window.ContentEngineDesktopV4Loader?.syncRoute?.();
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
     const preserveWorkspaceContext = previousPath === state.route.path

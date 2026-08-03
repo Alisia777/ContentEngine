@@ -91,6 +91,10 @@ def test_paused_budget_views_keep_save_as_the_only_visual_primary() -> None:
           { status: "ready", data },
           { canEdit: true, view: "campaign", campaignId: "campaign-1" },
         );
+        const createCampaign = subject.managerGenerationSpendMarkup(
+          { status: "ready", data },
+          { canEdit: true, view: "new-campaign" },
+        );
         return {
           policyPrimary: (policy.match(/data-primary-action="true"/g) || []).length,
           policySavePrimary: policy.includes('class="btn btn-small" type="submit" name="policy_action" value="save" data-primary-action="true"'),
@@ -98,6 +102,7 @@ def test_paused_budget_views_keep_save_as_the_only_visual_primary() -> None:
           campaignPrimary: (campaign.match(/data-primary-action="true"/g) || []).length,
           campaignSavePrimary: campaign.includes('class="btn btn-small" type="submit" name="campaign_policy_action" value="save" data-primary-action="true"'),
           campaignResumeSecondary: campaign.includes('class="btn btn-secondary btn-small" type="submit" name="campaign_policy_action" value="resume"'),
+          createCampaignPrimary: (createCampaign.match(/data-primary-action="true"/g) || []).length,
         };
         """,
     )
@@ -109,6 +114,7 @@ def test_paused_budget_views_keep_save_as_the_only_visual_primary() -> None:
         "campaignPrimary": 1,
         "campaignSavePrimary": True,
         "campaignResumeSecondary": True,
+        "createCampaignPrimary": 1,
     }
 
 
