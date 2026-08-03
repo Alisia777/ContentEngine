@@ -81,17 +81,18 @@ def test_paid_generation_has_five_explicit_progress_stages() -> None:
     assert ".generation-cost" in CSS
 
 
-def test_ready_video_has_preview_and_fresh_open_download_actions() -> None:
+def test_ready_video_has_inline_preview_and_fresh_download_actions() -> None:
     for token in (
         'data-output-action="preview"',
         'data-output-action="download"',
-        'data-output-action="open"',
         "generation-result-preview",
         "downloadGenerationOutput",
-        "openGenerationWaitingWindow",
         "trustedCachedGenerationUrl",
     ):
         assert token in APP
+    assert 'data-output-action="open"' not in APP
+    assert "openGenerationWaitingWindow" not in APP
+    assert "window.open" not in APP
     assert "state.api.realGenerationStatus" in APP
     assert "link.download" in APP
     assert "await fetch(url" in APP
@@ -106,7 +107,7 @@ def test_ready_video_has_preview_and_fresh_open_download_actions() -> None:
 
 
 def test_second_variant_restores_fields_but_requires_new_price_confirmation() -> None:
-    restore = _function("restoreRealGenerationDraft", "openGenerationWaitingWindow")
+    restore = _function("restoreRealGenerationDraft", "downloadGenerationOutput")
     assert "draft.media_ids.includes" in restore
     assert "form.elements.real_spend_confirmation.checked = false" in restore
     assert "real_spend_confirmation.checked = true" not in restore

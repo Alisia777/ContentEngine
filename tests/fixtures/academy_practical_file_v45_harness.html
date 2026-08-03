@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Academy practical file stability v4.5</title>
+    <style>
+      [data-training-timeline] { display: flex; width: 120px; overflow-x: auto; }
+      [data-training-timeline] button { flex: 0 0 90px; }
+    </style>
+  </head>
+  <body>
+    <output id="result" role="status">WAIT</output>
+    <div id="workspace-content">
+      <form id="training-practical-submit-form" data-training-practical-form data-dirty="true">
+        <input name="file" id="practical-file" type="file" accept="video/mp4" />
+        <textarea name="learner_note">Черновик пробной работы</textarea>
+      </form>
+      <article data-training-walkthrough="walkthrough-a">
+        <nav data-training-timeline>
+          <button type="button" data-action="training-walkthrough-jump" data-training-step-target="0">1</button>
+          <button id="focused-step" type="button" data-action="training-walkthrough-jump" data-training-step-target="1">2</button>
+          <button type="button" data-action="training-walkthrough-jump" data-training-step-target="2">3</button>
+        </nav>
+      </article>
+    </div>
+    <script type="module">
+      import { patchWorkspaceContent } from "../../web/app/workspace-dom-patch.js";
+
+      const container = document.querySelector("#workspace-content");
+      const originalFile = document.querySelector("#practical-file");
+      const originalTimeline = document.querySelector("[data-training-timeline]");
+      const originalFocus = document.querySelector("#focused-step");
+
+      window.runAcademyPracticalPatch = () => {
+        originalTimeline.scrollLeft = 73;
+        originalFocus.focus({ preventScroll: true });
+        patchWorkspaceContent(container, `
+          <form id="training-practical-submit-form" data-training-practical-form data-dirty="true">
+            <input name="file" id="practical-file" type="file" accept="video/mp4" />
+            <textarea name="learner_note">Обновлённый серверный текст</textarea>
+          </form>
+          <article data-training-walkthrough="walkthrough-a">
+            <nav data-training-timeline>
+              <button type="button" data-action="training-walkthrough-jump" data-training-step-target="0">1</button>
+              <button id="focused-step" type="button" data-action="training-walkthrough-jump" data-training-step-target="1">2</button>
+              <button type="button" data-action="training-walkthrough-jump" data-training-step-target="2">3</button>
+            </nav>
+          </article>
+        `);
+
+        const file = document.querySelector("#practical-file");
+        const timeline = document.querySelector("[data-training-timeline]");
+        const checks = {
+          fileNodeIdentity: file === originalFile,
+          fileCount: file.files?.length === 1,
+          fileName: file.files?.[0]?.name === "academy-practical.mp4",
+          fileType: file.files?.[0]?.type === "video/mp4",
+          timelineIdentity: timeline === originalTimeline,
+          timelineScroll: timeline.scrollLeft === 73,
+          focusIdentity: document.activeElement === originalFocus,
+          onePracticalForm: container.querySelectorAll("#training-practical-submit-form").length === 1,
+        };
+        const passed = Object.values(checks).every(Boolean);
+        const result = document.querySelector("#result");
+        result.dataset.passed = String(passed);
+        result.dataset.checks = JSON.stringify(checks);
+        result.textContent = passed ? "PASS" : "FAIL";
+        return checks;
+      };
+    </script>
+  </body>
+</html>

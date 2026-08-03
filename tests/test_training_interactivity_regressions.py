@@ -520,13 +520,21 @@ def test_learning_information_architecture_keeps_the_mandatory_path_first() -> N
     assert lessons < walkthrough
     assert walkthrough < knowledge_check
 
-    mandatory_courses = learning_home.index('class="course-grid"')
-    optional_shift = learning_home.index('class="card first-shift-invite"')
-    optional_account_launch = learning_home.index(
-        'class="card first-shift-invite account-launch-invite"'
-    )
-    assert mandatory_courses < optional_shift
-    assert mandatory_courses < optional_account_launch
+    role = learning_home.index("learningGateRoleMarkup()")
+    roadmap = learning_home.index('class="learning-gate-roadmap"')
+    assert role < roadmap
+    assert "const totalSteps = courses.length + 2" in learning_home
+    assert "...courses.map((course, index)" in learning_home
+    assert 'key: "practical"' in learning_home
+    assert 'label: "Пробная работа"' in learning_home
+    assert 'key: "exam"' in learning_home
+    assert 'label: "Итоговый экзамен"' in learning_home
+    assert learning_home.count("${actionMarkup}") == 1
+    assert learning_home.count('class="learning-gate-card__action"') == 1
+    assert 'data-primary-action="true"' in learning_home
+    assert "trainingAchievementShelfMarkup" not in learning_home
+    assert "first-shift-invite" not in learning_home
+    assert "account-launch-invite" not in learning_home
 
 
 def test_walkthrough_keyboard_navigation_is_scoped_and_uses_the_same_save_path() -> None:

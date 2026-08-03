@@ -4,8 +4,8 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260803.os4.2.1";
-const BUILD_BADGE = "Desktop · 4.2.1";
+const CURRENT_BUILD = "20260803.os4.4";
+const BUILD_BADGE = "Desktop · 4.4";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const VALID_BUILD_ID = /^[a-z0-9._-]{4,80}$/iu;
@@ -14,13 +14,14 @@ const runtime = {
   checking: false,
   remote: null,
   pill: null,
+  pillTimer: 0,
   banner: null,
   timer: 0,
 };
 
 window.CONTENTENGINE_BUILD = Object.freeze({
   id: CURRENT_BUILD,
-  label: "ContentEngine Desktop v4.2.1 · Selected Workspace Access",
+  label: "ContentEngine Desktop v4.4",
 });
 
 function cleanBuildId(value) {
@@ -36,6 +37,8 @@ function makeElement(tag, className, text = "") {
 }
 
 function ensurePill() {
+  window.clearTimeout(runtime.pillTimer);
+  runtime.pillTimer = 0;
   if (runtime.pill?.isConnected) return runtime.pill;
   const pill = makeElement("button", "ce-build-pill");
   pill.type = "button";
@@ -50,6 +53,13 @@ function ensurePill() {
   document.body.append(pill);
   runtime.pill = pill;
   return pill;
+}
+
+function removePill() {
+  window.clearTimeout(runtime.pillTimer);
+  runtime.pillTimer = 0;
+  runtime.pill?.remove();
+  runtime.pill = null;
 }
 
 function removeBanner() {
@@ -107,10 +117,9 @@ function flashPill(message, tone = "ok") {
   if (!copy) return;
   copy.textContent = message;
   pill.dataset.tone = tone;
-  window.setTimeout(() => {
-    if (!pill.isConnected) return;
-    copy.textContent = BUILD_BADGE;
-    delete pill.dataset.tone;
+  window.clearTimeout(runtime.pillTimer);
+  runtime.pillTimer = window.setTimeout(() => {
+    if (runtime.pill === pill) removePill();
   }, 1600);
 }
 
@@ -120,7 +129,8 @@ async function checkForUpdate({ manual = false } = {}) {
     return null;
   }
   runtime.checking = true;
-  ensurePill().setAttribute("aria-busy", "true");
+  const pill = manual ? ensurePill() : null;
+  pill?.setAttribute("aria-busy", "true");
   try {
     const url = new URL(MANIFEST_URL);
     url.searchParams.set("t", String(Date.now()));
@@ -133,7 +143,10 @@ async function checkForUpdate({ manual = false } = {}) {
     const manifest = await response.json();
     const remoteId = cleanBuildId(manifest?.id);
     if (!remoteId) throw new Error("build_manifest_invalid");
-    if (remoteId !== CURRENT_BUILD) showUpdate(manifest);
+    if (remoteId !== CURRENT_BUILD) {
+      showUpdate(manifest);
+      if (manual) removePill();
+    }
     else {
       removeBanner();
       if (manual) flashPill("Актуально");
@@ -145,12 +158,11 @@ async function checkForUpdate({ manual = false } = {}) {
     return null;
   } finally {
     runtime.checking = false;
-    runtime.pill?.removeAttribute("aria-busy");
+    pill?.removeAttribute("aria-busy");
   }
 }
 
 function start() {
-  ensurePill();
   void checkForUpdate();
   runtime.timer = window.setInterval(() => {
     if (document.visibilityState === "visible") void checkForUpdate();

@@ -178,6 +178,36 @@ body.notification-center-open {
   gap: 4px;
 }
 
+.my-work-view-row.is-confirming {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.my-work-view-confirm {
+  display: grid;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--my-work-danger) 42%, var(--portal-line));
+  border-radius: 12px;
+  gap: 9px;
+  background: var(--my-work-danger-bg);
+}
+
+.my-work-view-confirm > span {
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.my-work-view-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.my-work-view-confirm__delete {
+  border-color: var(--my-work-danger);
+  background: var(--my-work-danger);
+}
+
 .my-work-view-button,
 .my-work-view-delete {
   min-height: 42px;

@@ -1,4 +1,38 @@
-const RESERVED_FOLDER_IDS = new Set(["all", "root"]);
+const SMART_FOLDER_PREFIX = "smart-";
+const SMART_FOLDER_DEFINITIONS = Object.freeze([
+  Object.freeze({ id: "smart-videos", name: "Видео", icon: "▶" }),
+  Object.freeze({ id: "smart-images", name: "Изображения и исходники", icon: "▧" }),
+  Object.freeze({ id: "smart-in-work", name: "В работе", icon: "◷" }),
+  Object.freeze({ id: "smart-review", name: "На проверке", icon: "✓" }),
+  Object.freeze({ id: "smart-to-publish", name: "К публикации", icon: "↗" }),
+  Object.freeze({ id: "smart-published", name: "Опубликовано", icon: "●" }),
+]);
+const RESERVED_FOLDER_IDS = new Set([
+  "all",
+  "root",
+  ...SMART_FOLDER_DEFINITIONS.map((folder) => folder.id),
+]);
+const ACTIVE_WORK_STATUSES = new Set([
+  "active",
+  "assigned",
+  "blocked",
+  "draft",
+  "in_progress",
+  "mock_ready",
+  "processing",
+  "queued",
+  "starting",
+  "todo",
+]);
+const REVIEW_STATUSES = new Set([
+  "awaiting_review",
+  "moderation",
+  "needs_review",
+  "pending_review",
+  "quality_check",
+  "review",
+]);
+const PUBLISHED_STATUSES = new Set(["completed", "done", "live", "published", "succeeded"]);
 const ENTITY_TYPE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
 const ID_MAX_LENGTH = 180;
 const QUERY_MAX_LENGTH = 120;
@@ -41,7 +75,15 @@ function normalizedEntityType(value, fallback = "media") {
 
 function normalizedFolderReference(value) {
   const normalized = normalizedId(value);
-  return !normalized || RESERVED_FOLDER_IDS.has(normalized) ? null : normalized;
+  return !normalized || RESERVED_FOLDER_IDS.has(normalized) || isWorkspaceSmartFolderId(normalized)
+    ? null
+    : normalized;
+}
+
+export function isWorkspaceSmartFolderId(value) {
+  const normalized = normalizedId(value);
+  return normalized.startsWith(SMART_FOLDER_PREFIX)
+    && SMART_FOLDER_DEFINITIONS.some((folder) => folder.id === normalized);
 }
 
 function normalizedStatus(value, fallback = "ready") {
@@ -140,7 +182,7 @@ function normalizeFolder(folder, index, canManageFolders = false) {
 
 function normalizeItem(item, index, fallbackType = "") {
   const source = asRecord(item);
-  const id = normalizedId(source.id ?? source.public_id ?? source.item_id);
+  const id = normalizedId(source.public_id ?? source.id ?? source.item_id);
   if (!id) return null;
   const entityType = normalizedEntityType(
     source.entity_type ?? source.entityType ?? source.object_type ?? source.type,
@@ -192,6 +234,54 @@ function normalizeItem(item, index, fallbackType = "") {
     sortOrder: finiteNumber(source.position, source.sort_order, source.sortOrder, index),
     movable: source.can_move !== false && source.movable !== false,
   };
+}
+
+function isVideoItem(item) {
+  const kind = `${item.kind} ${item.subtitle}`.toLocaleLowerCase("ru-RU");
+  return item.entityType === "media"
+    && (item.mimeType.startsWith("video/") || /(?:^|[_\s-])video(?:$|[_\s-])|видео/iu.test(kind));
+}
+
+function smartFolderMatchesItem(folderId, item) {
+  const status = String(item.status || "").toLowerCase();
+  if (folderId === "smart-videos") return isVideoItem(item);
+  if (folderId === "smart-images") return item.entityType === "media" && !isVideoItem(item);
+  if (folderId === "smart-in-work") {
+    return ACTIVE_WORK_STATUSES.has(status)
+      || (item.entityType === "generation" && status === "submitted");
+  }
+  if (folderId === "smart-review") {
+    return REVIEW_STATUSES.has(status)
+      || (["media", "task"].includes(item.entityType) && status === "submitted");
+  }
+  if (folderId === "smart-to-publish") {
+    return ["placement", "publication"].includes(item.entityType)
+      ? !PUBLISHED_STATUSES.has(status)
+      : ["approved", "ready_to_publish"].includes(status);
+  }
+  if (folderId === "smart-published") {
+    return status === "published"
+      || (["placement", "publication"].includes(item.entityType)
+        && PUBLISHED_STATUSES.has(status));
+  }
+  return false;
+}
+
+function smartFoldersForItems(items) {
+  return SMART_FOLDER_DEFINITIONS.map((definition, index) => ({
+    ...definition,
+    parentId: null,
+    status: "active",
+    version: 1,
+    colorToken: "system",
+    itemCount: items.filter((item) => smartFolderMatchesItem(definition.id, item)).length,
+    sortOrder: SMART_FOLDER_DEFINITIONS.length - index,
+    editable: false,
+    system: true,
+    smart: true,
+    createdAt: "",
+    updatedAt: "",
+  }));
 }
 
 function normalizeFolderParents(folders) {
@@ -253,14 +343,14 @@ export function normalizeWorkspaceBoard(raw) {
     const normalized = normalizeFolder(folder, index, capabilities.manageFolders);
     if (normalized && !folderMap.has(normalized.id)) folderMap.set(normalized.id, normalized);
   });
-  const folders = normalizeFolderParents([...folderMap.values()])
+  const realFolders = normalizeFolderParents([...folderMap.values()])
     .filter((folder) => folder.status !== "deleted")
     .sort((left, right) => (
       right.sortOrder - left.sortOrder ||
       left.name.localeCompare(right.name, "ru-RU", { sensitivity: "base" }) ||
       left.id.localeCompare(right.id)
     ));
-  const folderIds = new Set(folders.map((folder) => folder.id));
+  const folderIds = new Set(realFolders.map((folder) => folder.id));
 
   const itemMap = new Map();
   itemSources(Array.isArray(payload) ? payload : source).forEach(({ items, fallbackType }) => {
@@ -283,12 +373,18 @@ export function normalizeWorkspaceBoard(raw) {
       String(right.createdAt).localeCompare(String(left.createdAt)) ||
       left.key.localeCompare(right.key)
     ));
+  const smartFolders = smartFoldersForItems(items);
+  const folders = [...smartFolders, ...realFolders];
   const entityTypes = [...new Set(["media", "task", ...items.map((item) => item.entityType)])].sort();
   const counts = {
     all: items.length,
+    files: items.filter((item) => item.entityType === "media").length,
     root: items.filter((item) => !item.folderId).length,
   };
-  folders.forEach((folder) => {
+  smartFolders.forEach((folder) => {
+    counts[folder.id] = folder.itemCount;
+  });
+  realFolders.forEach((folder) => {
     const calculated = items.filter((item) => item.folderId === folder.id).length;
     counts[folder.id] = Math.max(folder.itemCount, calculated);
   });
@@ -402,7 +498,13 @@ function itemMatchesQuery(item, query) {
 function filteredItems(board, folderId, query, entityType) {
   return board.items.filter((item) => {
     if (folderId === "root" && item.folderId) return false;
-    if (folderId !== "all" && folderId !== "root" && item.folderId !== folderId) return false;
+    if (isWorkspaceSmartFolderId(folderId) && !smartFolderMatchesItem(folderId, item)) return false;
+    if (
+      folderId !== "all"
+      && folderId !== "root"
+      && !isWorkspaceSmartFolderId(folderId)
+      && item.folderId !== folderId
+    ) return false;
     if (entityType !== "all" && item.entityType !== entityType) return false;
     return itemMatchesQuery(item, query);
   });
@@ -410,7 +512,9 @@ function filteredItems(board, folderId, query, entityType) {
 
 function folderTreeMarkup(board, selectedFolderId, busy) {
   const children = new Map();
-  board.folders.forEach((folder) => {
+  const smartFolders = board.folders.filter((folder) => folder.smart === true);
+  const realFolders = board.folders.filter((folder) => folder.smart !== true);
+  realFolders.forEach((folder) => {
     const parentId = folder.parentId || "root";
     if (!children.has(parentId)) children.set(parentId, []);
     children.get(parentId).push(folder);
@@ -440,6 +544,12 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
             <span>${escapeHtml(folder.name)}</span>
             <small>${Number(board.counts[folder.id] || 0)}</small>
           </button>
+          <button class="workspace-board__context-trigger"
+                  type="button"
+                  data-ce-v4-context-trigger="folder"
+                  aria-label="Действия с папкой «${escapeHtml(folder.name)}»"
+                  title="Действия с папкой"
+                  ${busy ? "disabled" : ""}>⋯</button>
           ${nested ? `<ul class="workspace-board__folder-branch">${nested}</ul>` : ""}
         </li>`;
     }).join("");
@@ -448,7 +558,10 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
   return `
     <nav class="workspace-board__folders" aria-label="Папки рабочего пространства">
       <ul class="workspace-board__folder-list">
-        <li class="workspace-board__folder-row ${selectedFolderId === "all" ? "is-selected" : ""}">
+        <li class="workspace-board__folder-group-label">Быстрый доступ</li>
+        <li class="workspace-board__folder-row workspace-board__folder-row--system ${selectedFolderId === "all" ? "is-selected" : ""}"
+            data-folder-id="all"
+            data-system-folder="true">
           <button class="workspace-board__folder-button"
                   type="button"
                   data-action="select-workspace-folder"
@@ -456,13 +569,42 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
                   ${selectedFolderId === "all" ? 'aria-current="page"' : ""}
                   ${busy ? "disabled" : ""}>
             <span class="workspace-board__folder-icon" aria-hidden="true">▦</span>
-            <span>Все объекты</span>
-            <small>${Number(board.counts.all || 0)}</small>
+            <span>Все файлы</span>
+            <small>${Number(board.counts.files || 0)}</small>
           </button>
+          <button class="workspace-board__context-trigger"
+                  type="button"
+                  data-ce-v4-context-trigger="folder"
+                  aria-label="Действия с папкой «Все файлы»"
+                  title="Действия с папкой"
+                  ${busy ? "disabled" : ""}>⋯</button>
         </li>
-        <li class="workspace-board__folder-row ${selectedFolderId === "root" ? "is-selected" : ""}"
+        ${smartFolders.map((folder) => `
+          <li class="workspace-board__folder-row workspace-board__folder-row--system ${selectedFolderId === folder.id ? "is-selected" : ""}"
+              data-folder-id="${escapeHtml(folder.id)}"
+              data-system-folder="true">
+            <button class="workspace-board__folder-button"
+                    type="button"
+                    data-action="select-workspace-folder"
+                    data-folder-id="${escapeHtml(folder.id)}"
+                    ${selectedFolderId === folder.id ? 'aria-current="page"' : ""}
+                    ${busy ? "disabled" : ""}>
+              <span class="workspace-board__folder-icon" aria-hidden="true">${escapeHtml(folder.icon)}</span>
+              <span>${escapeHtml(folder.name)}</span>
+              <small>${Number(board.counts[folder.id] || 0)}</small>
+            </button>
+            <button class="workspace-board__context-trigger"
+                    type="button"
+                    data-ce-v4-context-trigger="folder"
+                    aria-label="Действия с папкой «${escapeHtml(folder.name)}»"
+                    title="Действия с папкой"
+                    ${busy ? "disabled" : ""}>⋯</button>
+          </li>`).join("")}
+        <li class="workspace-board__folder-group-label">Ваши папки</li>
+        <li class="workspace-board__folder-row workspace-board__folder-row--system ${selectedFolderId === "root" ? "is-selected" : ""}"
             data-workspace-drop-folder
-            data-folder-id="root">
+            data-folder-id="root"
+            data-system-folder="true">
           <button class="workspace-board__folder-button"
                   type="button"
                   data-action="select-workspace-folder"
@@ -473,14 +615,22 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
             <span>Без папки</span>
             <small>${Number(board.counts.root || 0)}</small>
           </button>
+          <button class="workspace-board__context-trigger"
+                  type="button"
+                  data-ce-v4-context-trigger="folder"
+                  aria-label="Действия с папкой «Без папки»"
+                  title="Действия с папкой"
+                  ${busy ? "disabled" : ""}>⋯</button>
         </li>
         ${renderBranch("root", 0)}
       </ul>
     </nav>`;
 }
 
-function folderManagementMarkup(board, selectedFolderId, busy) {
-  const selected = board.folders.find((folder) => folder.id === selectedFolderId) || null;
+function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFolderId = "") {
+  const selected = board.folders.find(
+    (folder) => folder.id === selectedFolderId && folder.smart !== true,
+  ) || null;
   if (!board.capabilities.manageFolders) {
     return `
       <div class="workspace-board__folder-management">
@@ -488,6 +638,9 @@ function folderManagementMarkup(board, selectedFolderId, busy) {
       </div>`;
   }
   const parentFolderId = selected?.id || "root";
+  const confirmingArchive = Boolean(
+    selected?.editable && String(pendingArchiveFolderId || "") === selected.id,
+  );
   return `
     <div class="workspace-board__folder-management">
       <form id="workspace-folder-create-form" class="workspace-board__compact-form">
@@ -536,6 +689,19 @@ function folderManagementMarkup(board, selectedFolderId, busy) {
                   data-folder-id="${escapeHtml(selected?.id || "")}"
                   data-folder-version="${selected?.version || 1}"
                   ${busy || !selected?.editable ? "disabled" : ""}>Архивировать папку</button>
+          ${confirmingArchive ? `
+            <div class="workspace-board__inline-confirm" role="group" aria-label="Подтверждение архивации папки">
+              <strong>Архивировать «${escapeHtml(selected.name)}»?</strong>
+              <span>Папка должна быть пустой. Это действие не открывает отдельное окно.</span>
+              <div>
+                <button type="button" data-action="cancel-archive-workspace-folder">Отмена</button>
+                <button type="button"
+                        class="workspace-board__text-action--danger"
+                        data-action="confirm-archive-workspace-folder"
+                        data-folder-id="${escapeHtml(selected.id)}"
+                        data-folder-version="${selected.version || 1}">Да, архивировать</button>
+              </div>
+            </div>` : ""}
         </form>
     </div>`;
 }
@@ -578,7 +744,7 @@ function filterMarkup(board, options, resultCount, busy) {
 function itemPreviewMarkup(item, detailed = false) {
   const previewUrl = safePreviewUrl(item.previewUrl);
   if (previewUrl && item.mimeType.startsWith("image/")) {
-    return `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" />`;
+    return `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async" />`;
   }
   if (previewUrl && item.mimeType === "video/mp4" && detailed) {
     return `<video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Видео: ${escapeHtml(item.title)}"></video>`;
@@ -596,7 +762,8 @@ function itemCardMarkup(item, selectedItemKey, busy) {
     <article class="workspace-board__item ${selected ? "is-selected" : ""}"
              data-workspace-item-key="${escapeHtml(item.key)}"
              data-entity-type="${escapeHtml(item.entityType)}"
-             data-entity-id="${escapeHtml(item.id)}">
+             data-entity-id="${escapeHtml(item.id)}"
+             data-entity-kind="${escapeHtml(item.kind)}">
       <button class="workspace-board__item-open"
               type="button"
               data-action="open-workspace-item"
@@ -617,6 +784,12 @@ function itemCardMarkup(item, selectedItemKey, busy) {
           ${escapeHtml(humanStatus(item.status))}
         </span>
       </button>
+      <button class="workspace-board__context-trigger workspace-board__context-trigger--item"
+              type="button"
+              data-ce-v4-context-trigger="item"
+              aria-label="Действия с файлом «${escapeHtml(item.title)}»"
+              title="Действия"
+              ${busy ? "disabled" : ""}>⋯</button>
       ${item.movable ? `
         <button class="workspace-board__drag-handle"
                 type="button"
@@ -649,7 +822,7 @@ function itemDrawerMarkup(board, selectedItem, busy) {
   const currentFolder = board.folders.find((folder) => folder.id === selectedItem.folderId);
   const moveTargets = [
     { id: "root", name: "Без папки" },
-    ...board.folders.filter((folder) => folder.status === "active"),
+    ...board.folders.filter((folder) => folder.status === "active" && folder.smart !== true),
   ].filter((folder) => folder.id !== (selectedItem.folderId || "root"));
   const formattedSize = formatBytes(selectedItem.sizeBytes);
   const formattedDate = formatDate(selectedItem.createdAt);
@@ -671,6 +844,13 @@ function itemDrawerMarkup(board, selectedItem, busy) {
       </div>
       <div class="workspace-board__drawer-preview">${itemPreviewMarkup(selectedItem, true)}</div>
       ${selectedItem.description ? `<p class="workspace-board__drawer-description">${escapeHtml(selectedItem.description)}</p>` : ""}
+      ${selectedItem.entityType === "media" && ["product_photo", "packshot"].includes(selectedItem.kind) ? `
+        <div class="workspace-board__drawer-actions">
+          <button class="btn" type="button"
+                  data-action="create-from-workspace-media"
+                  data-entity-id="${escapeHtml(selectedItem.id)}"
+                  ${busy ? "disabled" : ""}>Создать из этого файла</button>
+        </div>` : ""}
       <dl class="workspace-board__drawer-facts">
         <div><dt>Статус</dt><dd>${escapeHtml(humanStatus(selectedItem.status))}</dd></div>
         <div><dt>Папка</dt><dd>${escapeHtml(currentFolder?.name || "Без папки")}</dd></div>
@@ -707,13 +887,14 @@ export function workspaceBoardMarkup(board, options = {}) {
     selectedFolderId: selectedFolder(options, normalizedBoard),
     selectedItemKey: safeText(options.selectedItemKey, ID_MAX_LENGTH * 2 + 1),
     query: safeText(options.query, QUERY_MAX_LENGTH),
-    entityType: normalizedEntityType(options.entityType, "all"),
+    entityType: normalizedEntityType(options.entityType, "media"),
     busy: options.busy === true,
     notice: safeText(options.notice, 1_000),
     error: safeText(options.error, 1_000),
+    pendingArchiveFolderId: safeText(options.pendingArchiveFolderId, ID_MAX_LENGTH),
     visibleItemLimit: Math.min(300, Math.max(1, Number(options.visibleItemLimit) || 80)),
   };
-  if (options.entityType === "all" || !options.entityType) normalizedOptions.entityType = "all";
+  if (options.entityType === "all") normalizedOptions.entityType = "all";
   if (
     normalizedOptions.entityType !== "all" &&
     !normalizedBoard.entityTypes.includes(normalizedOptions.entityType)
@@ -727,7 +908,7 @@ export function workspaceBoardMarkup(board, options = {}) {
   const visibleItems = items.slice(0, normalizedOptions.visibleItemLimit);
   const selectedItem = workspaceBoardItemByKey(normalizedBoard, normalizedOptions.selectedItemKey);
   const selectedFolderName = normalizedOptions.selectedFolderId === "all"
-    ? "Все объекты"
+    ? "Все файлы"
     : normalizedOptions.selectedFolderId === "root"
       ? "Без папки"
       : normalizedBoard.folders.find((folder) => folder.id === normalizedOptions.selectedFolderId)?.name || "Папка";
@@ -744,8 +925,8 @@ export function workspaceBoardMarkup(board, options = {}) {
       <header class="workspace-board__head">
         <div>
           <p class="workspace-board__eyebrow">Рабочее пространство</p>
-          <h1 id="workspace-board-title">Объекты и папки</h1>
-          <p>Откройте карточку нажатием. Для перемещения используйте ручку, либо выберите папку в панели объекта.</p>
+          <h1 id="workspace-board-title">Файлы и папки</h1>
+          <p>Откройте карточку нажатием. Для быстрых действий нажмите ⋯ или используйте правую кнопку мыши.</p>
         </div>
         <span class="workspace-board__head-count">${normalizedBoard.items.length} объектов</span>
       </header>
@@ -765,7 +946,12 @@ export function workspaceBoardMarkup(board, options = {}) {
             <small>Перетащите объект на папку</small>
           </div>
           ${folderTreeMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
-          ${folderManagementMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
+          ${folderManagementMarkup(
+            normalizedBoard,
+            normalizedOptions.selectedFolderId,
+            normalizedOptions.busy,
+            normalizedOptions.pendingArchiveFolderId,
+          )}
         </aside>
         <section class="workspace-board__content" aria-labelledby="workspace-board-collection-title">
           ${filterMarkup(normalizedBoard, normalizedOptions, items.length, normalizedOptions.busy)}
@@ -774,7 +960,10 @@ export function workspaceBoardMarkup(board, options = {}) {
               <p>Открытая папка</p>
               <h2 id="workspace-board-collection-title">${escapeHtml(selectedFolderName)}</h2>
             </div>
-            <small>${visibleItems.length}${visibleItems.length < items.length ? ` из ${items.length}` : ""} на экране</small>
+            <div class="workspace-board__collection-meta">
+              <small>${visibleItems.length}${visibleItems.length < items.length ? ` из ${items.length}` : ""} на экране</small>
+              <span class="workspace-board__context-hint">ПКМ или ⋯ — быстрые действия</span>
+            </div>
           </div>
           ${items.length ? `
             <div class="workspace-board__grid" aria-label="Объекты папки">

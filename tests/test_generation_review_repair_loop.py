@@ -124,9 +124,7 @@ def test_browser_prefills_repair_but_keeps_price_confirmation_separate() -> None
         "комментарий проверяющего не копируется",
     ):
         assert token in ADAPTER or token in HANDOFF or token in APP
-    repair_decision = APP.index(
-        'if (!contextApproval && decision.decision === "needs_changes")'
-    )
+    repair_decision = APP.index('if (resolvedDecision === "needs_changes")')
     policy_fetch = APP.index(
         "loadGenerationRepairForReview(reviewId)",
         repair_decision,

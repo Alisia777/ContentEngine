@@ -1,0 +1,343 @@
+/* ContentEngine Desktop v4.4 · calm, compositor-only motion system. */
+
+:root {
+  --ce-motion-instant: 90ms;
+  --ce-motion-fast: 140ms;
+  --ce-motion-base: 210ms;
+  --ce-motion-route: 260ms;
+  --ce-motion-overlay: 280ms;
+  --ce-motion-ease: cubic-bezier(.2, .75, .25, 1);
+  --ce-motion-exit: cubic-bezier(.4, 0, 1, 1);
+  --ce-motion-spring: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Route loading must never blank or move the whole desktop. Only the changing
+   work surface softens while the menubar and Dock stay visually anchored. */
+html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 .workspace-main,
+html[data-ce-v4-ready="true"] body.contentengine-desktop-v4 .workspace-main {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 #main-content .ce-v4-page {
+  opacity: .74 !important;
+  transform: translate3d(0, 8px, 0) scale(.995) !important;
+  transition: none !important;
+}
+
+html:not([data-ce-v4-loading="true"]) body.contentengine-desktop-v4 #main-content.route-enter .ce-v4-page {
+  animation: ce-v4-route-enter var(--ce-motion-route) var(--ce-motion-spring) both !important;
+}
+
+html[data-ce-v4-loading="true"] body.contentengine-desktop-v4::after {
+  position: fixed;
+  z-index: 470;
+  top: calc(var(--ce-v4-top) - 2px);
+  right: 0;
+  left: 0;
+  height: 2px;
+  opacity: .9;
+  background: linear-gradient(90deg, transparent, var(--ce-v4-copper-bright), transparent);
+  content: "";
+  pointer-events: none;
+  transform: scaleX(.18);
+  transform-origin: left center;
+  animation: ce-v4-route-progress 900ms var(--ce-motion-ease) both;
+}
+
+/* A server-loaded section replaces its skeleton once, without reanimating on
+   every form update or filter keystroke. */
+body.contentengine-desktop-v4 #workspace-content.ce-v4-content-reveal > .page-wrap {
+  animation: ce-v4-content-reveal var(--ce-motion-base) var(--ce-motion-ease) both !important;
+}
+
+/* The shell enters once after access is confirmed. It is not replayed on route
+   switches because these nodes persist for the whole desktop session. */
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
+  animation: ce-v4-menubar-enter var(--ce-motion-base) var(--ce-motion-ease) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-dock__glass {
+  animation: ce-v4-dock-enter var(--ce-motion-overlay) var(--ce-motion-spring) both !important;
+}
+
+/* Dock feedback changes paint and transforms only the tile, never its layout. */
+body.contentengine-desktop-v4 .ce-v4-dock__tile {
+  transition:
+    transform var(--ce-motion-fast) var(--ce-motion-ease),
+    border-color var(--ce-motion-fast) ease,
+    color var(--ce-motion-fast) ease,
+    background var(--ce-motion-base) ease !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-dock__item:active .ce-v4-dock__tile {
+  transform: translate3d(0, -1px, 0) scale(.965) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-dock__item.is-launching .ce-v4-dock__tile {
+  animation: ce-v4-dock-launch 390ms var(--ce-motion-spring) both !important;
+  will-change: transform;
+}
+
+body.contentengine-desktop-v4 .ce-v4-dock__item > i {
+  opacity: 0;
+  transform: translate3d(0, 2px, 0) scale(.5);
+  transition:
+    opacity var(--ce-motion-fast) ease,
+    transform var(--ce-motion-base) var(--ce-motion-spring),
+    background var(--ce-motion-fast) ease;
+}
+
+body.contentengine-desktop-v4 .ce-v4-dock__item.is-active > i {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+/* One consistent tactile response for actionable controls. */
+body.contentengine-desktop-v4 :is(
+  .btn,
+  .ce-v4-primary-action,
+  .ce-v4-secondary-action,
+  .ce-v4-trash-toolbar__action,
+  .ce-v4-trash-empty,
+  .ce-v4-trash-close
+) {
+  transition:
+    transform var(--ce-motion-fast) var(--ce-motion-ease),
+    color var(--ce-motion-fast) ease,
+    border-color var(--ce-motion-fast) ease,
+    background var(--ce-motion-base) ease,
+    opacity var(--ce-motion-fast) ease !important;
+}
+
+body.contentengine-desktop-v4 :is(
+  .btn,
+  .ce-v4-primary-action,
+  .ce-v4-secondary-action,
+  .ce-v4-trash-toolbar__action,
+  .ce-v4-trash-empty,
+  .ce-v4-trash-close
+):not(:disabled):active {
+  transform: translate3d(0, 1px, 0) scale(.985) !important;
+}
+
+body.contentengine-desktop-v4 :is(button, .btn)[disabled],
+body.contentengine-desktop-v4 :is(button, .btn)[aria-disabled="true"] {
+  transition: opacity var(--ce-motion-fast) ease !important;
+}
+
+/* Local view selectors feel connected without behaving like another Dock. */
+body.contentengine-desktop-v4 :is(
+  .generation-action-switch,
+  .media-action-switch,
+  .review-action-switch,
+  .placement-action-switch,
+  .stats-action-switch,
+  .tasks-action-switch,
+  .work-action-switch,
+  .payout-action-switch,
+  .feedback-action-switch,
+  .team-action-switch,
+  .research-action-switch,
+  .learning-action-switch,
+  [data-ce-v4-connected-menu="true"]
+) :is(a, button) {
+  transition:
+    color var(--ce-motion-fast) ease,
+    border-color var(--ce-motion-fast) ease,
+    background var(--ce-motion-base) ease,
+    box-shadow var(--ce-motion-base) ease !important;
+}
+
+body.contentengine-desktop-v4 :is(
+  .generation-action-switch,
+  .media-action-switch,
+  .review-action-switch,
+  .placement-action-switch,
+  .stats-action-switch,
+  .tasks-action-switch,
+  .work-action-switch,
+  .payout-action-switch,
+  .feedback-action-switch,
+  .team-action-switch,
+  .research-action-switch,
+  .learning-action-switch,
+  [data-ce-v4-connected-menu="true"]
+) :is(a, button):is(.is-active, [aria-current="page"], [aria-selected="true"]) {
+  box-shadow: inset 0 0 0 1px rgba(255, 180, 126, .035) !important;
+}
+
+/* Finder details are the only secondary surface and slide in by a few pixels,
+   preserving the one-window mental model. */
+body.ce-v4-finder-route .workspace-board__drawer:not(.workspace-board__drawer--empty) {
+  animation: ce-v4-drawer-enter var(--ce-motion-base) var(--ce-motion-spring) both;
+}
+
+/* Full-screen dialogs and system feedback have matched entrances and exits. */
+.ce-v4-trash-backdrop,
+.ce-v4-confirm-backdrop {
+  animation: ce-v4-backdrop-enter var(--ce-motion-base) ease-out both;
+}
+
+.ce-v4-confirm {
+  animation: ce-v4-dialog-enter var(--ce-motion-base) var(--ce-motion-spring) both;
+}
+
+.ce-v4-context-menu,
+.ce-v4-trash-backdrop,
+.ce-v4-confirm-backdrop {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.ce-v4-context-menu {
+  background: rgba(20, 17, 15, .985) !important;
+}
+
+.ce-v4-trash-backdrop,
+.ce-v4-confirm-backdrop {
+  background: rgba(3, 3, 3, .88) !important;
+}
+
+.ce-v4-context-menu.is-closing,
+.ce-v4-trash-backdrop.is-closing,
+.ce-v4-confirm-backdrop.is-closing,
+.ce-v4-system-toast.is-closing {
+  pointer-events: none !important;
+}
+
+.ce-v4-system-toast.is-closing {
+  animation: ce-v4-toast-exit var(--ce-motion-fast) var(--ce-motion-exit) both !important;
+}
+
+/* Decorative atmosphere is static inside the operational desktop. Continuous
+   background-position and large glow animations caused full-viewport repaint. */
+body.contentengine-desktop-v4 :is(
+  .brand-grid,
+  .brand-glow-one,
+  .brand-glow-two,
+  .status-dot
+) {
+  animation: none !important;
+}
+
+@keyframes ce-v4-route-enter {
+  from { opacity: .74; transform: translate3d(0, 8px, 0) scale(.995); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes ce-v4-route-progress {
+  0% { opacity: .25; transform: scaleX(.08); }
+  70% { opacity: .9; transform: scaleX(.72); }
+  100% { opacity: .7; transform: scaleX(.88); }
+}
+
+@keyframes ce-v4-content-reveal {
+  from { opacity: .72; transform: translate3d(0, 4px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes ce-v4-menubar-enter {
+  from { opacity: 0; transform: translate3d(0, -5px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes ce-v4-dock-enter {
+  from { opacity: 0; transform: translate3d(0, 7px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes ce-v4-dock-launch {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  38% { transform: translate3d(0, -10px, 0) scale(1.08); }
+  68% { transform: translate3d(0, 1px, 0) scale(.98); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes ce-v4-drawer-enter {
+  from { opacity: .7; transform: translate3d(6px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes ce-v4-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ce-v4-dialog-enter {
+  from { opacity: .7; transform: translate3d(0, 5px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes ce-v4-toast-exit {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to { opacity: 0; transform: translate3d(8px, 3px, 0) scale(.985); }
+}
+
+@media (hover: none), (pointer: coarse) {
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__item:hover .ce-v4-dock__tile,
+  body.contentengine-desktop-v4 .ce-v4-trash-item:hover {
+    transform: none !important;
+  }
+}
+
+@media (max-width: 680px) {
+  body.contentengine-desktop-v4 .ce-v4-menubar__start {
+    display: none !important;
+  }
+
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__location {
+    display: grid !important;
+    justify-items: start !important;
+    text-align: left !important;
+  }
+
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 8px;
+    scroll-snap-type: x proximity;
+  }
+
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__item {
+    scroll-snap-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 #main-content .ce-v4-page,
+  body.contentengine-desktop-v4 #workspace-content.ce-v4-content-reveal > .page-wrap,
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar,
+  body.contentengine-desktop-v4 .ce-v4-dock__glass,
+  body.contentengine-desktop-v4 .ce-v4-dock__item.is-launching .ce-v4-dock__tile,
+  body.ce-v4-finder-route .workspace-board__drawer,
+  .ce-v4-trash-backdrop,
+  .ce-v4-confirm-backdrop,
+  .ce-v4-confirm,
+  .ce-v4-system-toast {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  html[data-ce-v4-loading="true"] body.contentengine-desktop-v4::after {
+    display: none !important;
+  }
+
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"]
+    .ce-v4-dock__glass:is(:hover, :focus-within) .ce-v4-dock__tile {
+    transform: none !important;
+  }
+
+  body.contentengine-desktop-v4 *,
+  body.contentengine-desktop-v4 *::before,
+  body.contentengine-desktop-v4 *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

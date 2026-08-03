@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine review flow v4.5 harness</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/content-review.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell workspace-shell-v4"
+           data-workspace-section="review"
+           data-workspace-authorized-routes="/workspace/research /workspace/team /workspace/feedback">
+        <section class="workspace-main workspace-main-v4">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content"></div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      if (location.hash !== "#/workspace/review?view=new") {
+        location.hash = "#/workspace/review?view=new";
+      }
+    </script>
+    <script type="module">
+      const subject = await import("../../web/app/content-review-view.js");
+      const catalog = subject.normalizeContentReviewCatalog({
+        media: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            product_id: "22222222-2222-4222-8222-222222222222",
+            original_filename: "bombbar-video.mp4",
+            mime_type: "video/mp4",
+            kind: "source_video",
+            status: "ready",
+            size_bytes: 6124000,
+            signed_url: "https://example.test/bombbar-video.mp4"
+          },
+          {
+            id: "33333333-3333-4333-8333-333333333333",
+            product_id: "22222222-2222-4222-8222-222222222222",
+            original_filename: "bombbar-packshot.webp",
+            mime_type: "image/webp",
+            kind: "product_photo",
+            status: "ready",
+            size_bytes: 182000,
+            signed_url: "https://example.test/bombbar-packshot.webp"
+          }
+        ],
+        runs: []
+      });
+      document.querySelector("#workspace-content").innerHTML = `
+        <div class="ce-v4-page">
+          <div class="page-wrap content-review-page">
+            ${subject.contentReviewWorkspaceMarkup({ catalog, view: "new" })}
+          </div>
+        </div>`;
+      subject.hydrateContentReviewWizard(document.querySelector("#content-review-form"));
+      await import("../../web/app/workspace-os-v4.js");
+      await window.ContentEngineDesktopV4.flush();
+
+      const qa = document.querySelector("#runtime-qa");
+      const record = () => {
+        const form = document.querySelector("#content-review-form");
+        qa.dataset.step = form?.dataset.reviewStep || "";
+        qa.dataset.visiblePanels = String(document.querySelectorAll("[data-review-wizard-panel].is-current").length);
+        qa.dataset.flowSteps = String(document.querySelectorAll("[data-ce-v4-flow-route]").length);
+        qa.dataset.dockLabels = [...document.querySelectorAll(".ce-v4-dock__label")]
+          .map((node) => node.textContent).join("|");
+        qa.dataset.dialogs = String(document.querySelectorAll('[role="dialog"]').length);
+      };
+      record();
+      document.addEventListener("content-review:wizard-step", record);
+    </script>
+  </body>
+</html>

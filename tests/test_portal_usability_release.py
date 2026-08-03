@@ -16,6 +16,7 @@ STYLES = (ROOT / "web" / "app" / "styles.css").read_text(encoding="utf-8")
 THEME_BOOTSTRAP = (ROOT / "web" / "app" / "theme-bootstrap.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web" / "app" / "index.html").read_text(encoding="utf-8")
 INTERFACE_SYSTEM = (ROOT / "web" / "app" / "interface-system.css").read_text(encoding="utf-8")
+BUILD_ID = json.loads((ROOT / "web" / "app" / "build.json").read_text(encoding="utf-8"))["id"]
 
 
 def _node() -> str:
@@ -278,7 +279,7 @@ def test_interface_scales_fluidly_and_motion_stays_accessible() -> None:
     ):
         assert marker in INTERFACE_SYSTEM
 
-    assert "./interface-system.css?v=20260730.10" in INDEX
+    assert f"./interface-system.css?v={BUILD_ID}" in INDEX
 
 
 def test_light_cta_keeps_dark_text_and_page_has_no_forced_mobile_overflow() -> None:
@@ -330,11 +331,20 @@ def test_password_reset_copy_describes_the_actual_two_step_flow() -> None:
 
 
 def test_workspace_rerender_preserves_control_identity_selection_and_focus() -> None:
-    workspace = _between(APP, "function renderWorkspace", "function workspaceInitialLoadingMarkup")
+    workspace = _between(
+        APP,
+        "function renderWorkspace(section) {",
+        "function workspaceInitialLoadingMarkup",
+    )
 
-    assert workspace.index("captureWorkspaceFocus(existingContent)") < workspace.index("existingContent.innerHTML = content")
-    assert workspace.index("existingContent.innerHTML = content") < workspace.index(
+    assert workspace.index("captureWorkspaceFocus(existingContent)") < workspace.index(
+        "patchWorkspaceContent(existingContent, content)"
+    )
+    assert workspace.index("patchWorkspaceContent(existingContent, content)") < workspace.index(
         "restoreWorkspaceFocus(existingContent, focusedControl, section)"
+    )
+    assert workspace.index("patchWorkspaceContent(existingContent, content)") < workspace.index(
+        "restoreWorkspaceScroll(existingContent, scrollSnapshot, section)"
     )
     for identity_hook in (
         "active.id",

@@ -14,7 +14,7 @@ import shutil
 PROJECT_REF_PATTERN = re.compile(r"[a-z0-9]{20}")
 PUBLISHABLE_KEY_PATTERN = re.compile(r"sb_publishable_[A-Za-z0-9._-]{16,}")
 APP_SCRIPT_PATTERN = re.compile(
-    r'<script\s+type="module"\s+src="(?P<src>\./app\.js\?v=[0-9.]+)"'
+    r'<script\s+type="module"\s+src="(?P<src>\./app\.js\?v=[A-Za-z0-9][A-Za-z0-9._-]*)"'
 )
 LEARNING_GATE_PATTERN = re.compile(
     r'const GENERATION_LEARNING_GATE_VERSION = "(?P<version>[0-9]{4}-[0-9]{2}-[0-9]{2}\.v[0-9]+)";'

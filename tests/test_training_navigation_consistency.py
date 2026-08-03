@@ -15,7 +15,7 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index : source.index(end, start_index)]
 
 
-def test_learning_and_workspace_process_maps_share_the_same_seven_steps() -> None:
+def test_learning_and_workspace_process_maps_share_the_same_six_steps() -> None:
     flow = _between(APP, "const FACTORY_FLOW", "const HOME_SECTION_KEYS")
     portal = _between(APP, "function portalWorkflowMarkup", "function courseCardMarkup")
     learning_home = _between(APP, "function renderLearningHome", "function renderAccountLaunch")
@@ -23,15 +23,14 @@ def test_learning_and_workspace_process_maps_share_the_same_seven_steps() -> Non
     factory_header = _between(APP, "function factoryFlowMarkup", "function sectionBody")
 
     assert re.findall(r'key:\s*"([a-z]+)"', flow) == [
-        "media",
+        "home",
+        "board",
         "generation",
         "review",
-        "tasks",
         "placement",
         "stats",
-        "payouts",
     ]
-    assert flow.count("learning:") == 7
+    assert flow.count("learning:") == 6
     assert "FACTORY_FLOW.map((item, index)" in portal
     assert "const steps = [" not in portal
     assert portal.count("FACTORY_FLOW.length") >= 2
@@ -44,7 +43,7 @@ def test_learning_and_workspace_process_maps_share_the_same_seven_steps() -> Non
     assert "шесть понятных этапов" not in APP
     assert "по шести рабочим этапам" not in APP
     assert STYLES.count(
-        "repeat(var(--workflow-step-count, 7), minmax(0, 1fr))"
+        "repeat(var(--workflow-step-count, 6), minmax(0, 1fr))"
     ) == 3
 
 

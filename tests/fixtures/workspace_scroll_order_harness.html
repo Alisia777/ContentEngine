@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Desktop scroll-order harness</title>
+    <style>
+      .workspace-board__content { height: 48px; overflow: auto; }
+      .workspace-board__content > div { height: 360px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="workspace-shell" data-workspace-section="board">
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content">
+              <div class="page-wrap">
+                <div class="workspace-board__content" data-ce-v4-scroll-key="board-pane"><div></div></div>
+              </div>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="result" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      localStorage.removeItem("contentengine.desktop-v4.v1");
+      if (location.hash !== "#/workspace/board") {
+        history.replaceState({}, "", `${location.pathname}#/workspace/board`);
+      }
+
+      const workspaceContent = document.querySelector("#workspace-content");
+      const shell = document.querySelector(".workspace-shell");
+      const renderIncomingRoute = () => {
+        const route = location.hash.split("?")[0];
+        if (route === "#/workspace/board") {
+          shell.dataset.workspaceSection = "board";
+          workspaceContent.innerHTML = '<div class="page-wrap"><p data-board-skeleton>Загрузка файлов…</p></div>';
+          return;
+        }
+        shell.dataset.workspaceSection = "generation";
+        workspaceContent.innerHTML = '<div class="page-wrap"><p>Создание</p></div>';
+      };
+
+      /* This listener intentionally matches app.js: it was registered before
+         the dynamically imported Desktop core and replaces the route DOM. */
+      window.addEventListener("hashchange", renderIncomingRoute);
+    </script>
+    <script type="module">
+      const result = document.querySelector("#result");
+      const waitForHash = () => new Promise((resolve) => window.addEventListener("hashchange", resolve, { once: true }));
+      const { workspaceActionKey } = await import("../../web/app/workspace-action-key.js");
+
+      await import("../../web/app/workspace-os-v4.js");
+      await window.ContentEngineDesktopV4.flush();
+
+      const boardActionKey = workspaceActionKey();
+      const originalPane = document.querySelector(".workspace-board__content");
+      originalPane.scrollTop = 137;
+
+      let changed = waitForHash();
+      window.ContentEngineDesktopV4.captureCurrentAction(boardActionKey);
+      location.hash = "#/workspace/generation";
+      await changed;
+      await window.ContentEngineDesktopV4.flush();
+
+      const saved = JSON.parse(localStorage.getItem("contentengine.desktop-v4.v1") || "{}");
+      const capturedTop = saved.scroll?.[boardActionKey]?.nested?.["board-pane"]?.top;
+
+      changed = waitForHash();
+      location.hash = "#/workspace/board";
+      await changed;
+      await window.ContentEngineDesktopV4.flush();
+
+      const latePane = document.createElement("div");
+      latePane.className = "workspace-board__content";
+      latePane.dataset.ceV4ScrollKey = "board-pane";
+      latePane.innerHTML = "<div></div>";
+      document.querySelector("#workspace-content .page-wrap").append(latePane);
+      window.ContentEngineDesktopV4.requestMount();
+      await window.ContentEngineDesktopV4.flush();
+      const restoredTop = latePane.scrollTop;
+
+      latePane.scrollTop = 83;
+      window.ContentEngineDesktopV4.requestMount();
+      await window.ContentEngineDesktopV4.flush();
+      const preservedLiveTop = latePane.scrollTop;
+
+      const passed = capturedTop === 137 && restoredTop === 137 && preservedLiveTop === 83;
+      result.dataset.passed = String(passed);
+      result.dataset.capturedTop = String(capturedTop ?? "");
+      result.dataset.restoredTop = String(restoredTop);
+      result.dataset.preservedLiveTop = String(preservedLiveTop);
+      result.dataset.actionKey = boardActionKey;
+      result.textContent = passed ? "PASS" : "FAIL";
+    </script>
+  </body>
+</html>

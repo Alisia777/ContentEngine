@@ -1,0 +1,608 @@
+/* ContentEngine Desktop v4.4 · one desktop, one surface, one action. */
+
+body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) {
+  width: min(1500px, calc(100vw - clamp(18px, 3vw, 48px))) !important;
+  min-height: 100%;
+  margin: 0 auto !important;
+  padding: clamp(18px, 2.4vw, 36px) !important;
+  border: 1px solid var(--ce-v4-line) !important;
+  border-radius: 26px !important;
+  overflow: clip;
+  color: var(--ce-v4-text);
+  background:
+    radial-gradient(circle at 82% -15%, rgba(236, 136, 75, 0.09), transparent 34rem),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 44%),
+    #0d0b09 !important;
+  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.45), inset 0 1px rgba(255, 255, 255, 0.04) !important;
+}
+
+/* The global menubar names the active desktop. Route-level chrome was the
+   main source of nested-window noise, so it is retired. */
+body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) > :is(
+  .workspace-page-intro,
+  .workspace-direction,
+  .factory-flow,
+  .review-os-topbar,
+  .generation-os-topbar,
+  .media-finder-topbar,
+  .work-stage-topbar,
+  .tasks-desk-topbar,
+  .publishing-os-topbar,
+  .results-os-topbar,
+  .payout-ledger-topbar,
+  .academy-os-topbar,
+  .academy-v2-topbar
+) {
+  display: none !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
+  [class*="window-controls"],
+  [data-ce-open-mission],
+  .generation-os-step-dock,
+  .review-os-step-dock,
+  .review-result-dock,
+  .publishing-os-dock,
+  .work-stage-tabs,
+  .tasks-desk-tabs,
+  .results-os-tabs,
+  .payout-ledger-tabs
+) {
+  display: none !important;
+}
+
+/* Cards are content groups inside the single workspace, not floating windows. */
+body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
+  .card,
+  .workspace-page-intro,
+  .workspace-direction,
+  .product-research-card,
+  .research-card
+) {
+  border-color: rgba(255, 255, 255, 0.075) !important;
+  border-radius: 15px !important;
+  background: rgba(255, 255, 255, 0.018) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Compact instruction strip: one current action, one completion criterion and
+   one next destination. It replaces the old three-card route banner. */
+body.contentengine-desktop-v4 .workspace-action-guide {
+  display: grid;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(236, 136, 75, .18);
+  border-radius: 15px;
+  grid-template-columns: 30px minmax(0, 1fr) minmax(190px, auto);
+  align-items: center;
+  gap: 10px 14px;
+  color: var(--ce-v4-text);
+  background: linear-gradient(100deg, rgba(236, 136, 75, .07), rgba(255, 255, 255, .015));
+}
+
+.workspace-action-guide__step {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(236, 136, 75, .3);
+  border-radius: 9px;
+  place-items: center;
+  color: var(--ce-v4-copper-bright);
+  background: rgba(236, 136, 75, .08);
+  font-weight: 800;
+}
+
+.workspace-action-guide__now,
+.workspace-action-guide__next {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workspace-action-guide small {
+  color: var(--ce-v4-dim);
+  font-size: .61rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workspace-action-guide__now strong {
+  font-size: .82rem;
+  line-height: 1.35;
+}
+
+.workspace-action-guide__now > span,
+.workspace-action-guide > p {
+  color: var(--ce-v4-muted);
+  font-size: .69rem;
+  line-height: 1.4;
+}
+
+.workspace-action-guide__next {
+  justify-items: end;
+  text-align: right;
+}
+
+.workspace-action-guide__next a {
+  color: var(--ce-v4-copper-bright);
+  font-size: .76rem;
+  font-weight: 780;
+  text-decoration: none;
+}
+
+.workspace-action-guide__next a:is(:hover, :focus-visible) {
+  color: #fff;
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.workspace-action-guide > p {
+  grid-column: 2 / -1;
+  margin: -1px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+}
+
+@media (max-width: 720px) {
+  body.contentengine-desktop-v4 .workspace-action-guide {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .workspace-action-guide__next {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .workspace-action-guide > p {
+    grid-column: 1 / -1;
+  }
+}
+
+body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
+  .split-grid,
+  .generation-workspace-layout,
+  .split-grid-media
+) {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
+  input,
+  select,
+  textarea,
+  button,
+  .btn
+) {
+  min-height: 44px;
+}
+
+/* One action selector controls which generation surface exists visually. */
+.generation-action-switch,
+.media-action-switch,
+.review-action-switch,
+.placement-action-switch,
+.stats-action-switch,
+.tasks-action-switch,
+.work-action-switch,
+.payout-action-switch,
+.feedback-action-switch,
+.team-action-switch,
+.research-action-switch,
+.learning-action-switch {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 18px;
+  padding: 4px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 14px;
+  gap: 4px;
+  overflow-x: auto;
+  background: rgba(255, 255, 255, 0.018);
+  scrollbar-width: none;
+}
+
+.generation-action-switch::-webkit-scrollbar,
+.media-action-switch::-webkit-scrollbar,
+.review-action-switch::-webkit-scrollbar,
+.placement-action-switch::-webkit-scrollbar,
+.stats-action-switch::-webkit-scrollbar,
+.tasks-action-switch::-webkit-scrollbar,
+.work-action-switch::-webkit-scrollbar,
+.payout-action-switch::-webkit-scrollbar,
+.feedback-action-switch::-webkit-scrollbar,
+.team-action-switch::-webkit-scrollbar,
+.research-action-switch::-webkit-scrollbar,
+.learning-action-switch::-webkit-scrollbar { display: none; }
+
+.generation-action-switch a,
+.media-action-switch a,
+.review-action-switch a,
+.placement-action-switch a,
+.stats-action-switch a,
+.tasks-action-switch a,
+.work-action-switch a,
+.payout-action-switch a,
+.feedback-action-switch a,
+.team-action-switch a,
+.research-action-switch a,
+.learning-action-switch a {
+  display: inline-flex;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  align-items: center;
+  color: var(--ce-v4-muted);
+  font-size: 0.78rem;
+  font-weight: 760;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.generation-action-switch a:is(.is-active, [aria-current="page"]),
+.media-action-switch a:is(.is-active, [aria-current="page"]),
+.review-action-switch a:is(.is-active, [aria-current="page"]),
+.placement-action-switch a:is(.is-active, [aria-current="page"]),
+.stats-action-switch a:is(.is-active, [aria-current="page"]),
+.tasks-action-switch a:is(.is-active, [aria-current="page"]),
+.work-action-switch a:is(.is-active, [aria-current="page"]),
+.payout-action-switch a:is(.is-active, [aria-current="page"]),
+.feedback-action-switch a:is(.is-active, [aria-current="page"]),
+.team-action-switch a:is(.is-active, [aria-current="page"]),
+.research-action-switch a:is(.is-active, [aria-current="page"]),
+.learning-action-switch a:is(.is-active, [aria-current="page"]) {
+  border-color: rgba(236, 136, 75, 0.28);
+  color: var(--ce-v4-text);
+  background: rgba(236, 136, 75, 0.1);
+}
+
+.workspace-action-sequence {
+  display: grid;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 14px;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  align-items: center;
+  gap: 10px 18px;
+  background: rgba(255, 255, 255, .018);
+}
+
+.workspace-action-sequence > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workspace-action-sequence small {
+  color: var(--ce-v4-dim);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workspace-action-sequence strong {
+  overflow: hidden;
+  color: var(--ce-v4-text);
+  font-size: .86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-action-sequence nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.workspace-action-sequence a {
+  display: inline-flex;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 10px;
+  align-items: center;
+  color: var(--ce-v4-muted);
+  background: rgba(255, 255, 255, .02);
+  font-size: .73rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.workspace-action-sequence a[data-sequence-direction="next"] {
+  border-color: rgba(236, 136, 75, .26);
+  color: var(--ce-v4-copper-bright);
+  background: rgba(236, 136, 75, .07);
+}
+
+.workspace-action-sequence a:is(:hover, :focus-visible) {
+  color: #fff;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.team-action-switch.team-action-switch--groups {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: visible;
+}
+
+.team-action-switch--groups a {
+  justify-content: center;
+}
+
+.team-action-switch.team-action-switch--context {
+  margin-top: -10px;
+  border-color: rgba(255, 255, 255, .065);
+  background: transparent;
+}
+
+@media (max-width: 680px) {
+  .workspace-action-sequence {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-action-sequence nav {
+    justify-content: flex-start;
+  }
+
+  .workspace-action-sequence a {
+    flex: 1 1 150px;
+    justify-content: center;
+  }
+
+  .team-action-switch.team-action-switch--groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .team-action-switch--groups a {
+    justify-content: flex-start;
+  }
+}
+
+[data-generation-view="create"] .generation-archive-card,
+[data-generation-view="create"] .generation-product-tools,
+[data-generation-view="history"] .generation-launch-card,
+[data-generation-view="history"] .generation-product-tools,
+[data-generation-view="products"] .generation-launch-card,
+[data-generation-view="products"] .generation-archive-card {
+  display: none !important;
+}
+
+[data-generation-view="history"] .generation-archive-card,
+[data-generation-view="products"] .generation-product-tools {
+  width: 100%;
+  margin: 0 !important;
+}
+
+/* The free provider probe is automatic. Budget and responsibility remain
+   visible because they change real money and ownership. */
+[data-generation-view="create"] .generation-service-check {
+  display: none !important;
+}
+
+#mock-batch-form > * { order: 50; }
+#mock-batch-form > #generation-draft-status { order: 0; }
+#mock-batch-form > .generation-readiness { order: 5; }
+#mock-batch-form > .generation-result-type-field { order: 10; }
+#mock-batch-form > .generation-duration-field { order: 15; }
+#mock-batch-form > #generation-mock-explanation { order: 20; }
+#mock-batch-form > .generation-source-field { order: 25; }
+#mock-batch-form > .generation-product-identity-field,
+#mock-batch-form > .generation-product-category-field,
+#mock-batch-form > #generation-product-identity-note { order: 30; }
+#mock-batch-form > .generation-intent-fields { order: 35; }
+#mock-batch-form > .generation-brief-field { order: 40; }
+#mock-batch-form > #generation-brief-assist { order: 42; }
+#mock-batch-form > .generation-guidance { order: 45; }
+#mock-batch-form > #generation-campaign-field { order: 50; }
+#mock-batch-form > .generation-assignment-fields { order: 52; }
+#mock-batch-form > #real-generation-confirmation { order: 60; }
+#mock-batch-form > #generation-submit { order: 70; }
+
+#mock-batch-form:not([data-generation-mode="mock"]) .generation-product-identity-field,
+#mock-batch-form:not([data-generation-mode="mock"]) .generation-output-fields {
+  display: none !important;
+}
+
+#mock-batch-form .generation-readiness__steps,
+#mock-batch-form .generation-guidance:empty {
+  display: none !important;
+}
+
+body.ce-v4-finder-route .workspace-board__drawer-actions {
+  display: grid;
+  margin: 14px 0;
+}
+
+[data-media-view="recent"] .media-upload-panel,
+[data-media-view="upload"] .media-library-panel {
+  display: none !important;
+}
+
+[data-review-view] .content-review-hero,
+[data-review-view="new"] .content-review-output,
+[data-review-view="new"] .content-review-history,
+[data-review-view="current"] #content-review-form,
+[data-review-view="current"] .content-review-history,
+[data-review-view="history"] .content-review-layout,
+[data-stats-view="overview"] .stats-entry-panel,
+[data-stats-view="new"] .stats-overview-panel {
+  display: none !important;
+}
+
+[data-work-view="next"] :is(
+  .my-work-hero-actions,
+  .my-work-summary,
+  .my-work-sidebar,
+  .my-work-filter
+) {
+  display: none !important;
+}
+
+[data-work-view="next"] .my-work-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+[data-work-view="queue"] .my-work-sidebar,
+[data-work-view="views"] :is(.my-work-summary, .my-work-main) {
+  display: none !important;
+}
+
+[data-work-view="queue"] .my-work-layout,
+[data-work-view="views"] .my-work-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+[data-research-view="evidence"] :is(
+  .product-research-approved,
+  .product-research-brief
+),
+[data-research-view="brief"] :is(
+  .product-research-approved,
+  .product-research-intelligence,
+  .product-research-scoreboard,
+  .product-research-result-grid
+),
+[data-research-view="corrections"] :is(
+  .product-research-approved,
+  .product-research-scoreboard,
+  .product-research-result-grid,
+  .product-research-brief > .card-header,
+  .product-research-brief-body
+),
+[data-research-view="approve"] :is(
+  .product-research-approved,
+  .product-research-intelligence,
+  .product-research-scoreboard,
+  .product-research-result-grid
+),
+[data-research-view="handoff"] :is(
+  .product-research-intelligence,
+  .product-research-scoreboard,
+  .product-research-result-grid,
+  .product-research-brief
+),
+[data-research-view="brief"] [data-research-submit="approve"],
+[data-research-view="corrections"] [data-research-submit="approve"],
+[data-research-view="approve"] [data-research-submit="save"] {
+  display: none !important;
+}
+
+[data-review-view="new"] .content-review-layout,
+[data-review-view="current"] .content-review-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body.contentengine-desktop-v4 .generation-launch-card {
+  width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+body.contentengine-desktop-v4 .generation-archive-card,
+body.contentengine-desktop-v4 .generation-product-tools,
+body.contentengine-desktop-v4 .media-library-panel,
+body.contentengine-desktop-v4 .media-upload-panel {
+  width: 100%;
+}
+
+/* Academy shares the same stable desktop. Legacy premium glass and tilt were
+   attractive in isolation but repainted large areas and made the Mac surface
+   feel detached from every other route. */
+body.contentengine-desktop-v4 .learning-page :is(
+  .learning-eyebrow,
+  .learning-premium-hero-facts span,
+  .learning-hero-actions .btn-ghost-light,
+  .learning-passport,
+  .learning-command-bar,
+  .course-lesson-player,
+  .first-shift-safety,
+  .exam-submit
+),
+body.contentengine-desktop-v4 .training-achievement {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.contentengine-desktop-v4 .learning-page :is(
+  .learning-passport,
+  .course-card
+) {
+  transform: none !important;
+}
+
+/* Files are the spatial workspace: folders/search remain visible and use the
+   whole application window. */
+body.contentengine-desktop-v4 .workspace-board {
+  min-height: 100%;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body.contentengine-desktop-v4 .workspace-board__layout {
+  min-height: inherit;
+}
+
+@media (max-width: 760px) {
+  body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) {
+    width: calc(100vw - 12px) !important;
+    min-height: 100%;
+    padding: 12px !important;
+    border-radius: 18px !important;
+  }
+
+  .generation-action-switch,
+  .media-action-switch,
+  .review-action-switch,
+  .placement-action-switch,
+  .stats-action-switch,
+  .tasks-action-switch,
+  .work-action-switch,
+  .payout-action-switch,
+  .feedback-action-switch,
+  .team-action-switch,
+  .research-action-switch,
+  .learning-action-switch {
+    width: 100%;
+  }
+
+  .generation-action-switch a,
+  .media-action-switch a,
+  .review-action-switch a,
+  .placement-action-switch a,
+  .stats-action-switch a,
+  .tasks-action-switch a,
+  .work-action-switch a,
+  .payout-action-switch a,
+  .feedback-action-switch a,
+  .team-action-switch a,
+  .research-action-switch a,
+  .learning-action-switch a {
+    flex: 1 0 auto;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generation-action-switch a,
+  .media-action-switch a,
+  .review-action-switch a,
+  .placement-action-switch a,
+  .stats-action-switch a,
+  .tasks-action-switch a,
+  .work-action-switch a,
+  .payout-action-switch a,
+  .feedback-action-switch a,
+  .team-action-switch a,
+  .research-action-switch a,
+  .learning-action-switch a { transition: none !important; }
+}

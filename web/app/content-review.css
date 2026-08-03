@@ -7,6 +7,64 @@
   --review-success-bg: var(--portal-success-bg, #eaf7f1);
 }
 
+.content-review-stage-head {
+  display: flex;
+  max-width: 1180px;
+  margin: 0 auto 18px;
+  padding: clamp(18px, 2.5vw, 28px);
+  border: 1px solid var(--portal-line);
+  border-radius: 20px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background:
+    radial-gradient(circle at 95% 0%, var(--portal-glow), transparent 14rem),
+    var(--portal-surface);
+}
+
+.content-review-stage-head h2 {
+  margin: 4px 0 7px;
+  font: 600 clamp(1.55rem, 3vw, 2.35rem)/1.05 var(--font-display);
+  letter-spacing: -.025em;
+}
+
+.content-review-stage-head p:last-child {
+  max-width: 760px;
+  margin: 0;
+  color: var(--portal-ink-soft);
+  line-height: 1.5;
+}
+
+.content-review-stage-head__rule {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  color: var(--portal-primary);
+  border: 1px solid color-mix(in srgb, var(--portal-primary) 24%, var(--portal-line));
+  border-radius: 999px;
+  background: var(--portal-primary-soft);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .025em;
+  white-space: nowrap;
+}
+
+.content-review-single-action {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.content-review-single-action > .content-review-form {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.content-review-single-action > .content-review-output {
+  position: static;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
 .content-review-hero {
   position: relative;
   display: grid;
@@ -201,6 +259,147 @@
   margin-bottom: 24px;
   gap: 15px;
   align-items: flex-start;
+}
+
+.content-review-wizard {
+  position: relative;
+  display: grid;
+  margin: 0 0 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.content-review-wizard::before {
+  position: absolute;
+  top: 19px;
+  right: 9%;
+  left: 9%;
+  height: 1px;
+  background: var(--portal-line-strong);
+  content: "";
+  pointer-events: none;
+}
+
+.content-review-wizard button {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  min-height: 68px;
+  padding: 7px 8px;
+  color: var(--portal-ink-soft);
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  gap: 5px;
+  justify-items: center;
+  transition: color .2s ease, background-color .2s ease, transform .2s ease;
+}
+
+.content-review-wizard button:hover,
+.content-review-wizard button:focus-visible {
+  color: var(--portal-ink);
+  background: var(--portal-surface-soft);
+}
+
+.content-review-wizard button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--portal-primary) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.content-review-wizard button > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  color: var(--portal-ink-soft);
+  border: 1px solid var(--portal-line-strong);
+  border-radius: 50%;
+  background: var(--portal-surface);
+  font-size: .75rem;
+  font-weight: 900;
+  place-items: center;
+  transition: color .2s ease, border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
+}
+
+.content-review-wizard button > strong {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: .72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-review-wizard button.is-complete > span {
+  color: #fff;
+  border-color: var(--review-success);
+  background: var(--review-success);
+}
+
+.content-review-wizard button.is-current {
+  color: var(--portal-primary);
+  background: var(--portal-primary-soft);
+}
+
+.content-review-wizard button.is-current > span {
+  color: #fff;
+  border-color: var(--portal-primary);
+  background: var(--portal-primary);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--portal-primary) 12%, transparent);
+}
+
+.content-review-wizard__status {
+  min-height: 38px;
+  margin: 0 0 18px;
+  padding: 10px 13px;
+  color: var(--portal-ink-soft);
+  border: 1px solid var(--portal-line);
+  border-radius: 12px;
+  background: var(--portal-surface-soft);
+  font-size: .76rem;
+}
+
+.content-review-wizard__status[data-tone="danger"] {
+  color: var(--review-danger);
+  border-color: color-mix(in srgb, var(--review-danger) 30%, var(--portal-line));
+  background: var(--review-danger-bg);
+}
+
+.content-review-wizard__panel:not(.is-current) {
+  display: none;
+}
+
+.content-review-wizard__panel.is-current {
+  animation: content-review-step-enter .28s cubic-bezier(.22, .75, .2, 1) both;
+}
+
+.content-review-wizard__panel:focus {
+  outline: 0;
+}
+
+.content-review-wizard__actions {
+  display: flex;
+  min-height: 54px;
+  margin-top: 14px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.content-review-wizard__actions > span {
+  margin-right: auto;
+  color: var(--portal-ink-soft);
+  font-size: .74rem;
+}
+
+.content-review-wizard__actions--back {
+  justify-content: flex-start;
+}
+
+@keyframes content-review-step-enter {
+  from { opacity: 0; transform: translateY(8px) scale(.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .content-review-form__header h2,
@@ -1562,6 +1761,12 @@
 }
 
 @media (max-width: 820px) {
+  .content-review-stage-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
   .content-review-hero {
     grid-template-columns: minmax(0, 1fr);
     border-radius: 19px;
@@ -1588,6 +1793,42 @@
 }
 
 @media (max-width: 560px) {
+  .content-review-stage-head {
+    padding: 17px;
+    border-radius: 16px;
+  }
+
+  .content-review-stage-head__rule {
+    white-space: normal;
+  }
+
+  .content-review-wizard {
+    margin-right: -15px;
+    margin-left: -15px;
+    padding: 0 15px 6px;
+    overflow-x: auto;
+    grid-template-columns: repeat(4, minmax(82px, 1fr));
+    scrollbar-width: thin;
+  }
+
+  .content-review-wizard::before {
+    right: 56px;
+    left: 56px;
+  }
+
+  .content-review-wizard__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .content-review-wizard__actions > :is(.btn, span) {
+    width: 100%;
+  }
+
+  .content-review-wizard__actions > span {
+    margin-right: 0;
+  }
+
   .content-review-hero {
     padding: 22px 18px;
   }
@@ -1645,7 +1886,12 @@
 
   .content-review-media-option,
   .content-review-history-card,
-  .content-review-ruleset summary i {
+  .content-review-ruleset summary i,
+  .content-review-wizard button {
     transition: none;
+  }
+
+  .content-review-wizard__panel.is-current {
+    animation: none;
   }
 }

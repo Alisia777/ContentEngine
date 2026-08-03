@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Finder v4.5 inline surfaces</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css" />
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      #fixture { width: 100%; height: 100%; padding: 8px; box-sizing: border-box; }
+      .page-wrap { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+    </style>
+  </head>
+  <body class="ce-v4-finder-route">
+    <main id="fixture">
+      <div class="page-wrap">
+        <section class="workspace-board" data-ce-v4-finder-view="grid">
+          <div class="workspace-board__layout">
+            <aside class="workspace-board__sidebar" aria-label="Папки">
+              <div class="workspace-board__sidebar-head">
+                <p>Папки</p>
+                <small>Выберите одну папку</small>
+                <button class="ce-v4-finder-sidebar-close" type="button">×</button>
+              </div>
+              <label class="ce-v4-folder-search"><input type="search" value="Очень длинное название папки" /></label>
+              <div class="workspace-board__folders">
+                <div class="workspace-board__folder-row is-selected"><button class="workspace-board__folder-button" type="button"><span>◇</span><span>Все материалы и очень длинное название</span><small>25</small></button></div>
+              </div>
+            </aside>
+            <section class="workspace-board__content">
+              <header class="ce-v4-finder-toolbar">
+                <div class="ce-v4-finder-toolbar__title"><small>CONTENTENGINE FINDER</small><strong>Файлы и задачи</strong></div>
+                <div class="ce-v4-finder-toolbar__controls">
+                  <button class="ce-v4-finder-sidebar-toggle" type="button">Папки</button>
+                  <button class="ce-v4-finder-view" type="button">Просмотр</button>
+                  <button class="ce-v4-finder-view" type="button">Организация</button>
+                  <button class="ce-v4-finder-upload" type="button">Добавить материал</button>
+                </div>
+              </header>
+              <form class="workspace-board__filters">
+                <label><span>Поиск</span><input value="Длинный поисковый запрос" /></label>
+                <label><span>Тип</span><select><option>Все материалы</option></select></label>
+                <button type="button">Показать</button>
+              </form>
+              <div class="workspace-board__collection-head"><div><p>Открытая папка</p><h2>Все объекты</h2></div></div>
+              <div class="workspace-board__grid">
+                <article class="workspace-board__item">
+                  <button class="workspace-board__item-open" type="button"><span class="workspace-board__item-preview">◇</span><span class="workspace-board__item-copy"><small>Материал</small><strong>Очень длинное имя файла без выхода за экран</strong></span></button>
+                </article>
+              </div>
+            </section>
+            <aside class="workspace-board__drawer" data-workspace-item-drawer>
+              <header class="ce-v4-finder-detail-bar"><div class="ce-v4-finder-detail-bar__copy"><small>ФАЙЛЫ · ДЕТАЛИ</small><strong>Очень длинное имя файла</strong></div><button class="ce-v4-finder-detail-back" type="button">← Назад к файлам</button></header>
+              <div class="workspace-board__drawer-head"><h2>Очень длинное имя выбранного файла</h2></div>
+              <div class="workspace-board__drawer-preview">Предпросмотр</div>
+              <dl class="workspace-board__drawer-facts"><div><dt>ID</dt><dd><code>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-very-long-identifier</code></dd></div></dl>
+            </aside>
+          </div>
+        </section>
+      </div>
+    </main>
+    <output id="result">WAIT</output>
+    <script>
+      setTimeout(() => {
+        const board = document.querySelector(".workspace-board");
+        const sidebar = document.querySelector(".workspace-board__sidebar");
+        const drawer = document.querySelector(".workspace-board__drawer");
+        const checks = {};
+        const measure = (name) => {
+          checks[name] = {
+            document: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+            body: document.body.scrollWidth <= document.body.clientWidth,
+            board: board.scrollWidth <= board.clientWidth,
+          };
+        };
+        measure("files");
+        board.classList.add("is-sidebar-open");
+        sidebar.classList.add("is-open");
+        measure("folders");
+        board.classList.remove("is-sidebar-open");
+        sidebar.classList.remove("is-open");
+        board.classList.add("is-detail-inline");
+        measure("detail");
+        board.classList.remove("is-detail-inline");
+        board.classList.add("is-quicklook-inline");
+        drawer.classList.add("ce-v4-quicklook-inline");
+        measure("quickLook");
+        const passed = Object.values(checks).every((state) => Object.values(state).every(Boolean));
+        const result = document.querySelector("#result");
+        result.dataset.passed = String(passed);
+        result.dataset.checks = JSON.stringify(checks);
+        result.textContent = passed ? "PASS" : "FAIL";
+      }, 0);
+    </script>
+  </body>
+</html>

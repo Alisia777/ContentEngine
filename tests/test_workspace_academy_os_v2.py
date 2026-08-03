@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -7,15 +8,22 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "web" / "app"
 INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
+LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
+STARTUP_ROUTE = (APP_DIR / "startup-route.js").read_text(encoding="utf-8")
 SCRIPT = (APP_DIR / "workspace-academy-os-v2.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-academy-os-v2.css").read_text(encoding="utf-8")
 
 
-def test_academy_v2_assets_load_after_the_base_desktop_os() -> None:
-    assert './workspace-academy-os-v2.css?v=20260730.1' in INDEX
-    assert './workspace-academy-os-v2.js?v=20260730.1' in INDEX
-    assert INDEX.index('./workspace-desktop-academy.css') < INDEX.index('./workspace-academy-os-v2.css')
-    assert INDEX.index('./workspace-desktop-os.js') < INDEX.index('./workspace-academy-os-v2.js')
+def test_academy_is_a_separate_gate_not_a_workspace_shell_layer() -> None:
+    active_assets = re.findall(
+        r'^\s*<(?:link|script)\b[^>]*\b(?:href|src)="([^"]+)"',
+        INDEX,
+        flags=re.MULTILINE,
+    )
+    assert not any("workspace-academy-" in asset for asset in active_assets)
+    assert 'return route.startsWith("/workspace/");' in LOADER
+    assert 'hash.replace(/^#\\/academy/u, "#/learn")' in STARTUP_ROUTE
+    assert '"/learn"' not in LOADER
 
 
 def test_course_keeps_overview_lessons_practice_and_completion() -> None:

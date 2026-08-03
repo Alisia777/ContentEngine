@@ -6,9 +6,7 @@ ADVISOR = (ROOT / "web/app/workspace-generation-learning-advisor.js").read_text(
     encoding="utf-8"
 )
 LOADER = (ROOT / "web/app/workspace-os-v4-loader.js").read_text(encoding="utf-8")
-STYLES = (ROOT / "web/app/workspace-generation-learning-advisor.css").read_text(
-    encoding="utf-8"
-)
+APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 
 
 def test_generation_advisor_exposes_all_supported_durations_without_eight_second_lock() -> None:
@@ -58,8 +56,18 @@ def test_advisor_observer_cannot_loop_on_its_own_attribute_updates() -> None:
     assert "attributes: true" not in ADVISOR
 
 
-def test_generation_route_loads_advisor_lazily() -> None:
-    assert '"workspace-generation-learning-advisor.css?v=20260801.1"' in LOADER
-    assert '"workspace-generation-learning-advisor.js?v=20260801.1"' in LOADER
-    assert ".generation-duration-advisor" in STYLES
-    assert "prefers-reduced-motion" in STYLES
+def test_generation_route_retires_legacy_advisor_and_keeps_current_learning_inline() -> None:
+    for legacy_asset in (
+        "workspace-generation-learning-advisor.css",
+        "workspace-generation-learning-advisor.js",
+    ):
+        assert legacy_asset not in LOADER
+    for marker in (
+        "durationOptions: Object.freeze([2, 5, 8, 10])",
+        "durationOptions: Object.freeze([4, 8, 12, 15])",
+        'id="generation-duration-field"',
+        "activeGenerationLearningPolicy(form)",
+        "state.api.generationLearningPolicy({",
+        'id="generation-learning-status"',
+    ):
+        assert marker in APP

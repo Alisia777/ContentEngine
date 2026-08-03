@@ -66,7 +66,7 @@ def test_my_work_normalizes_server_counts_items_and_cursor() -> None:
     assert result["counts"]["actionRequired"] == 3
     assert result["counts"]["blockers"] == 2
     assert result["items"][0]["itemType"] == "generation"
-    assert result["items"][0]["deepLink"] == "#/workspace/generation"
+    assert result["items"][0]["deepLink"] == "#/workspace/generation?view=create"
     assert result["items"][0]["actionRequired"] is True
     assert result["items"][0]["blocker"] is True
     assert result["nextCursor"]["id"] == "job-1"
@@ -125,7 +125,7 @@ def test_notification_center_has_unread_actions_and_safe_links() -> None:
 
     assert result == {
         "unread": 1,
-        "safe": "#/workspace/generation",
+        "safe": "#/workspace/generation?view=create",
         "unsafe": "",
         "errorTone": "danger",
         "hasMarkAll": True,
@@ -151,8 +151,8 @@ def test_my_work_is_a_first_class_simple_workspace_route() -> None:
     assert '"work"' in simple_block
     assert 'work: renderMyWorkSection' in APP
     assert 'state.api.myWork(myWorkRequestOptions(state.myWork.filters))' in APP
-    assert 'from "./my-work-view.js?v=20260716.4"' in APP
-    assert './my-work.css?v=20260716.4' in INDEX
+    assert 'from "./my-work-view.js?v=20260803.os4.4"' in APP
+    assert './my-work.css?v=20260803.os4.4' in INDEX
 
 
 def test_my_work_wires_saved_views_notifications_and_keyset_pagination() -> None:
@@ -161,6 +161,8 @@ def test_my_work_wires_saved_views_notifications_and_keyset_pagination() -> None
         'action === "mark-all-notifications-read"',
         'action === "apply-my-work-view"',
         'action === "delete-my-work-view"',
+        'action === "confirm-delete-my-work-view"',
+        'action === "cancel-delete-my-work-view"',
         'action === "load-more-my-work"',
         'form.id === "my-work-filter-form"',
         'form.id === "save-my-work-view-form"',
@@ -182,6 +184,13 @@ def test_my_work_wires_saved_views_notifications_and_keyset_pagination() -> None
         "\nfunction handleChange", 1
     )[0]
     assert 'action: "set_default"' not in submit_saved
+
+
+def test_saved_view_delete_uses_inline_confirmation_not_a_browser_subwindow() -> None:
+    assert "window.confirm" not in APP
+    assert 'data-action="confirm-delete-my-work-view"' in MODULE
+    assert 'data-action="cancel-delete-my-work-view"' in MODULE
+    assert 'class="my-work-view-confirm" role="status"' in MODULE
 
 
 def test_awaiting_decision_is_rendered_as_an_actionable_filter_and_status() -> None:

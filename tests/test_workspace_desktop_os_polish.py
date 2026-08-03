@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -11,11 +12,18 @@ SCRIPT = (APP_DIR / "workspace-desktop-os-polish.js").read_text(encoding="utf-8"
 CSS = (APP_DIR / "workspace-desktop-os-polish.css").read_text(encoding="utf-8")
 
 
-def test_polish_assets_are_the_last_desktop_layer() -> None:
-    assert './workspace-desktop-os-polish.css?v=20260730.1' in INDEX
-    assert './workspace-desktop-os-polish.js?v=20260730.1' in INDEX
-    assert INDEX.index('./workspace-desktop-responsive.css') < INDEX.index('./workspace-desktop-os-polish.css')
-    assert INDEX.index('./workspace-academy-os-v2.js') < INDEX.index('./workspace-desktop-os-polish.js')
+def test_legacy_desktop_polish_is_not_an_active_runtime_layer() -> None:
+    active_assets = re.findall(
+        r'^\s*<(?:link|script)\b[^>]*\b(?:href|src)="([^"]+)"',
+        INDEX,
+        flags=re.MULTILINE,
+    )
+    assert not any("workspace-desktop-os-polish" in asset for asset in active_assets)
+    assert "./workspace-os-v4.css?v=20260803.os4.4" in active_assets
+    assert "./workspace-os-v4-loader.js?v=20260803.os4.4" in active_assets
+    assert active_assets.index("./workspace-os-v4-loader.js?v=20260803.os4.4") < active_assets.index(
+        "./workspace-build-guard.js?v=20260803.os4.4"
+    )
 
 
 def test_mobile_mode_switch_no_longer_overlaps_the_step_dock() -> None:

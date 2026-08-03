@@ -6,36 +6,37 @@
  * reads secrets or clones file inputs.
  */
 
-const BUILD = "20260803.os4.2.1";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.4";
+
+const BUILD = "20260803.os4.4";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
-const WORK_SNAPSHOT_KEY = "contentengine.os-v3.work-snapshot.v1";
+const CLOSE_TRANSIENTS_EVENT = "contentengine:v4-close-transients";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
-const FINE_POINTER = window.matchMedia("(hover: hover) and (pointer: fine)");
 const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
 
+/*
+ * The Dock is the primary production switcher, not a dump of every route.
+ * Secondary tools stay reachable from contextual actions and access gates.
+ */
 const ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/home", label: "Сегодня", icon: "home", description: "Один следующий шаг без шума" }),
-  Object.freeze({ route: "/workspace/board", label: "Finder", icon: "folder", description: "Папки, материалы и задачи" }),
-  Object.freeze({ route: "/workspace/generation", label: "Создание", icon: "spark", description: "Один запуск за раз" }),
-  Object.freeze({ route: "/workspace/review", label: "Проверка", icon: "check", description: "Качество, риски и решение" }),
-  Object.freeze({ route: "/workspace/work", label: "Моя работа", icon: "work", description: "Сейчас, жду и дальше" }),
-  Object.freeze({ route: "/workspace/tasks", label: "Задачи", icon: "tasks", description: "Назначенная работа и источник" }),
-  Object.freeze({ route: "/workspace/placement", label: "Публикации", icon: "upload", description: "Один пост — один маршрут" }),
-  Object.freeze({ route: "/workspace/stats", label: "Результаты", icon: "chart", description: "Цифры и следующая гипотеза" }),
-  Object.freeze({ route: "/workspace/payouts", label: "Выплаты", icon: "money", description: "Основание, решение и перевод" }),
+  Object.freeze({ route: "/workspace/board", label: "Файлы", icon: "folder", description: "Папки, видео, поиск и исходники" }),
+  Object.freeze({ route: "/workspace/generation", label: "Создать", icon: "spark", description: "Один ролик или фото за запуск" }),
+  Object.freeze({ route: "/workspace/review", label: "Проверить", icon: "check", description: "Качество, риски и одно решение" }),
+  Object.freeze({ route: "/workspace/placement", label: "Опубликовать", icon: "upload", description: "Один пост — один маршрут" }),
+  Object.freeze({ route: "/workspace/stats", label: "Результаты", icon: "chart", description: "Метрики и следующая гипотеза" }),
 ]);
 
-const STAGES = Object.freeze([
-  Object.freeze({ number: "01", label: "Материалы", route: "/workspace/board", description: "Соберите точный товар, исходники и референсы." }),
-  Object.freeze({ number: "02", label: "Создание", route: "/workspace/generation", description: "Подготовьте один проверяемый запуск." }),
-  Object.freeze({ number: "03", label: "Проверка", route: "/workspace/review", description: "Проверьте качество, товар и риски." }),
-  Object.freeze({ number: "04", label: "Задачи", route: "/workspace/tasks", description: "Закройте решение, которое требует человека." }),
-  Object.freeze({ number: "05", label: "Публикации", route: "/workspace/placement", description: "Разместите материал и сохраните ссылку." }),
-  Object.freeze({ number: "06", label: "Результаты", route: "/workspace/stats", description: "Зафиксируйте цифры и вывод." }),
-  Object.freeze({ number: "07", label: "Выплаты", route: "/workspace/payouts", description: "Проверьте основание и статус начисления." }),
+const SECONDARY_ROUTES = Object.freeze([
+  Object.freeze({ route: "/workspace/research", label: "Исследования", icon: "search", description: "Факты, источники и сценарии" }),
+  Object.freeze({ route: "/workspace/team", label: "Команда", icon: "work", description: "Доступы и участники" }),
+  Object.freeze({ route: "/workspace/feedback", label: "Помощь", icon: "tasks", description: "Сообщить о препятствии" }),
 ]);
+
+const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES]);
+const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"]);
 
 const ICONS = Object.freeze({
   home: ["M3 10.5 12 3l9 7.5", "M5.5 9.5V21h13V9.5", "M9 21v-6h6v6"],
@@ -47,23 +48,31 @@ const ICONS = Object.freeze({
   upload: ["M12 3v12", "m7 8 5-5 5 5", "M5 13v6h14v-6"],
   chart: ["M4 20V10M10 20V4M16 20v-7M22 20H2"],
   money: ["M3 5h18v14H3z", "M7 9h10M7 15h4", "M16 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"],
-  academy: ["m3 6 9-3 9 3-9 3-9-3Z", "M6 8v6c3 2 9 2 12 0V8M21 6v7"],
   grid: ["M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"],
   search: ["M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z", "m16 16 4 4"],
+  refresh: ["M20 7v5h-5", "M4 17v-5h5", "M6.1 8A7 7 0 0 1 19 10M17.9 16A7 7 0 0 1 5 14"],
+  bell: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z", "M10 21h4"],
   focus: ["M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"],
   close: ["m6 6 12 12M18 6 6 18"],
   left: ["m15 18-6-6 6-6"],
   right: ["m9 18 6-6-6-6"],
   clock: ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z", "M12 8v5l3 2"],
+  trash: ["M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"],
 });
 
 const runtime = {
   route: routePath(),
+  actionKey: workspaceActionKey(),
   queued: false,
+  mounting: false,
+  needsMount: false,
+  observer: null,
+  observerRoot: null,
+  adapters: new Map(),
+  flushWaiters: [],
   menubar: null,
+  flowbar: null,
   dock: null,
-  dockFrame: 0,
-  dockEvent: null,
   mission: null,
   spotlight: null,
   spotlightRecords: [],
@@ -73,7 +82,11 @@ const runtime = {
   observedVideos: new WeakSet(),
   clockTimer: 0,
   scrollTimer: 0,
+  fullscreenListening: false,
   restoredRoute: "",
+  restoredScrollNodes: new WeakSet(),
+  pendingActionReset: "",
+  preNavigationActionKey: "",
   state: readState(),
 };
 
@@ -137,12 +150,24 @@ function routePath() {
   return (`/${raw.split("?")[0] || ""}`).replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
 }
 
+function routeQuery() {
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  return new URLSearchParams(raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "");
+}
+
 function routeMatches(route, expected) {
+  if (expected === "/workspace/home") {
+    return route === expected || route === "/workspace/tasks" || route === "/workspace/work";
+  }
+  if (expected === "/workspace/board") return route === expected || route === "/workspace/media";
+  if (expected === "/workspace/stats") return route === expected || route === "/workspace/payouts";
   return route === expected;
 }
 
 function routeRecord(route = routePath()) {
-  return ROUTES.find((item) => routeMatches(route, item.route)) || ROUTES[0];
+  return ALL_ROUTES.find((item) => route === item.route)
+    || ALL_ROUTES.find((item) => routeMatches(route, item.route))
+    || ROUTES[0];
 }
 
 function isWorkspaceRoute(route = routePath()) {
@@ -150,12 +175,219 @@ function isWorkspaceRoute(route = routePath()) {
 }
 
 function hasAuthenticatedWorkspace() {
-  return Boolean(q("#app")?.querySelector(".workspace-shell[data-workspace-section]"));
+  return Boolean(
+    q(".workspace-shell[data-workspace-section]")
+    && q("#workspace-content"),
+  );
 }
 
 function navigate(route) {
+  captureCurrentAction();
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
   closeTransientOverlays(true);
   window.location.hash = `#${route || "/workspace/home"}`;
+}
+
+function focusFinderSearch() {
+  if (routePath() !== "/workspace/board") navigate("/workspace/board");
+  let attempts = 0;
+  const focus = () => {
+    const input = q('#workspace-board-filter-form input[name="query"]');
+    if (input instanceof HTMLElement) {
+      input.focus({ preventScroll: true });
+      return;
+    }
+    attempts += 1;
+    if (attempts < 24) window.requestAnimationFrame(focus);
+  };
+  window.requestAnimationFrame(focus);
+}
+
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function fullscreenMode() {
+  const root = document.documentElement;
+  const standard = typeof root.requestFullscreen === "function"
+    && typeof document.exitFullscreen === "function"
+    && document.fullscreenEnabled !== false;
+  const webkit = typeof root.webkitRequestFullscreen === "function"
+    && typeof document.webkitExitFullscreen === "function"
+    && document.webkitFullscreenEnabled !== false;
+  if (standard) return "standard";
+  if (webkit) return "webkit";
+  return "";
+}
+
+function fullscreenSupported() {
+  return Boolean(fullscreenMode());
+}
+
+function showSystemToast(message, tone = "warning") {
+  const region = q("#toast-region") || document.body;
+  const toast = create("div", `ce-v4-system-toast is-${tone}`);
+  toast.setAttribute("role", tone === "error" ? "alert" : "status");
+  toast.append(create("span", "", message));
+  region.append(toast);
+  window.setTimeout(() => {
+    if (!toast.isConnected) return;
+    if (REDUCED_MOTION.matches) toast.remove();
+    else {
+      toast.classList.add("is-closing");
+      window.setTimeout(() => toast.remove(), 180);
+    }
+  }, 4200);
+}
+
+function updateFullscreenControl() {
+  const control = q("[data-ce-v4-fullscreen]", runtime.menubar);
+  if (!control) return;
+  const supported = fullscreenSupported();
+  control.hidden = !supported;
+  control.disabled = !supported;
+  if (!supported) {
+    const unavailable = "Полноэкранный режим недоступен в этом браузере";
+    control.setAttribute("aria-label", unavailable);
+    control.setAttribute("aria-pressed", "false");
+    control.title = unavailable;
+    return;
+  }
+  const active = Boolean(fullscreenElement());
+  const label = active ? "Выйти из полноэкранного режима" : "Перейти в полноэкранный режим";
+  control.setAttribute("aria-label", label);
+  control.setAttribute("aria-pressed", String(active));
+  control.title = label;
+}
+
+function toolsMenuParts() {
+  const trigger = q("[data-ce-v4-tools-trigger]", runtime.menubar);
+  const menu = q("[data-ce-v4-tools-menu]", runtime.menubar);
+  const items = qa("[data-ce-v4-tools-route]", menu);
+  return { trigger, menu, items };
+}
+
+function secondaryRouteIsAuthorized(route) {
+  if (!ROLE_GATED_SECONDARY_ROUTES.has(route)) return true;
+  const shell = q(".workspace-shell[data-workspace-section]");
+  const declaredRoutes = String(shell?.dataset.workspaceAuthorizedRoutes || "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (declaredRoutes.length) return declaredRoutes.includes(route);
+  const navigation = q(".workspace-nav", shell);
+  return qa("a[href]", navigation).some((link) => (
+    String(link.getAttribute("href") || "").split("?")[0] === `#${route}`
+  ));
+}
+
+function createToolsMenuItem(item) {
+  const link = create("a", "ce-v4-menubar__tools-item");
+  link.href = `#${item.route}`;
+  link.dataset.ceV4ToolsRoute = item.route;
+  link.setAttribute("role", "menuitem");
+  const tile = create("span", "ce-v4-menubar__tools-icon");
+  tile.append(icon(item.icon, 18));
+  const copy = create("span", "ce-v4-menubar__tools-copy");
+  copy.append(create("strong", "", item.label), create("small", "", item.description));
+  link.append(tile, copy);
+  return link;
+}
+
+function syncToolsMenu() {
+  const menu = q("[data-ce-v4-tools-menu]", runtime.menubar);
+  if (!menu) return;
+  const existing = new Map(qa("[data-ce-v4-tools-route]", menu).map((link) => [link.dataset.ceV4ToolsRoute, link]));
+  SECONDARY_ROUTES.filter((item) => secondaryRouteIsAuthorized(item.route)).forEach((item) => {
+    menu.append(existing.get(item.route) || createToolsMenuItem(item));
+    existing.delete(item.route);
+  });
+  existing.forEach((link) => link.remove());
+}
+
+function closeToolsMenu(restoreFocus = false) {
+  const { trigger, menu } = toolsMenuParts();
+  if (!trigger || !menu) return;
+  const wasOpen = !menu.hidden;
+  menu.hidden = true;
+  trigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus && wasOpen) safeFocus(trigger);
+}
+
+function openToolsMenu(focusIndex = -1) {
+  const { trigger, menu, items } = toolsMenuParts();
+  if (!trigger || !menu) return;
+  menu.hidden = false;
+  trigger.setAttribute("aria-expanded", "true");
+  if (focusIndex >= 0 && items.length) safeFocus(items[Math.min(focusIndex, items.length - 1)]);
+}
+
+function toggleToolsMenu() {
+  const { menu } = toolsMenuParts();
+  if (!menu || menu.hidden) openToolsMenu();
+  else closeToolsMenu();
+}
+
+function handleToolsMenuKeydown(event) {
+  const { trigger, menu, items } = toolsMenuParts();
+  if (!trigger || !menu || !items.length) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target === trigger && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    event.preventDefault();
+    openToolsMenu(event.key === "ArrowUp" ? items.length - 1 : 0);
+    return;
+  }
+  if (menu.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeToolsMenu(true);
+    return;
+  }
+  if (event.key === "Tab") {
+    closeToolsMenu();
+    return;
+  }
+  const current = items.indexOf(target?.closest?.("[data-ce-v4-tools-route]"));
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const next = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? items.length - 1
+      : (Math.max(0, current) + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  safeFocus(items[next]);
+}
+
+async function toggleFullscreen() {
+  const mode = fullscreenMode();
+  if (!mode) {
+    updateFullscreenControl();
+    showSystemToast("Полноэкранный режим не поддерживается этим браузером.", "warning");
+    return;
+  }
+  try {
+    if (document.fullscreenElement && typeof document.exitFullscreen === "function") {
+      await document.exitFullscreen();
+    } else if (document.webkitFullscreenElement && typeof document.webkitExitFullscreen === "function") {
+      await document.webkitExitFullscreen();
+    } else if (mode === "standard") {
+      await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+    } else if (mode === "webkit") {
+      await document.documentElement.webkitRequestFullscreen();
+    }
+  } catch (error) {
+    console.warn("ContentEngine fullscreen request was rejected", error);
+    showSystemToast("Браузер не разрешил полноэкранный режим. Проверьте разрешения сайта.", "error");
+  }
+  updateFullscreenControl();
+}
+
+function refreshWorkspace() {
+  const page = currentPage();
+  const control = q(
+    '[data-action="refresh-section"], [data-action="refresh-home"]',
+    page,
+  );
+  if (control instanceof HTMLElement) control.click();
 }
 
 function storage(kind = "session") {
@@ -212,28 +444,75 @@ function ensureMenubar() {
   const identityCopy = create("span");
   identityCopy.append(create("strong", "", "ContentEngine"), create("small", "", "рабочая система"));
   identity.append(identityCopy);
+  const start = create("div", "ce-v4-menubar__start");
+  const traffic = create("span", "ce-v4-traffic");
+  traffic.setAttribute("aria-hidden", "true");
+  traffic.append(create("i"), create("i"), create("i"));
+  start.append(traffic, identity);
 
   const location = create("div", "ce-v4-menubar__location");
   location.append(create("small", "", "РАБОЧЕЕ ПРОСТРАНСТВО"), create("strong", "", "Сегодня"));
   const actions = create("div", "ce-v4-menubar__actions");
-  const mission = iconButton("", "Рабочие столы", "grid");
-  mission.dataset.ceV4Mission = "true";
-  const focus = iconButton("", "Фокус — на весь экран", "focus");
-  focus.dataset.ceV4Focus = "true";
-  const search = iconButton("", "Spotlight — поиск", "search");
-  search.dataset.ceV4Spotlight = "true";
+  const refresh = iconButton("", "Обновить текущий раздел", "refresh");
+  refresh.dataset.ceV4Refresh = "true";
+  const fullscreen = iconButton("", "Перейти в полноэкранный режим", "focus");
+  fullscreen.dataset.ceV4Fullscreen = "true";
+  fullscreen.setAttribute("aria-pressed", "false");
+  const notifications = iconButton("", "Открыть уведомления", "bell");
+  notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications";
+  notifications.setAttribute("aria-pressed", "false");
+  const tools = create("div", "ce-v4-menubar__tools");
+  const toolsTrigger = iconButton("ce-v4-menubar__tools-trigger", "Другие разделы", "grid");
+  toolsTrigger.dataset.ceV4ToolsTrigger = "true";
+  toolsTrigger.setAttribute("aria-haspopup", "menu");
+  toolsTrigger.setAttribute("aria-expanded", "false");
+  toolsTrigger.setAttribute("aria-controls", "ce-v4-tools-menu");
+  const toolsMenu = create("nav", "ce-v4-menubar__tools-menu");
+  toolsMenu.id = "ce-v4-tools-menu";
+  toolsMenu.dataset.ceV4ToolsMenu = "true";
+  toolsMenu.hidden = true;
+  toolsMenu.setAttribute("role", "menu");
+  toolsMenu.setAttribute("aria-label", "Другие разделы");
+  SECONDARY_ROUTES.forEach((item) => {
+    if (!secondaryRouteIsAuthorized(item.route)) return;
+    const link = create("a", "ce-v4-menubar__tools-item");
+    link.href = `#${item.route}`;
+    link.dataset.ceV4ToolsRoute = item.route;
+    link.setAttribute("role", "menuitem");
+    const tile = create("span", "ce-v4-menubar__tools-icon");
+    tile.append(icon(item.icon, 18));
+    const copy = create("span", "ce-v4-menubar__tools-copy");
+    copy.append(create("strong", "", item.label), create("small", "", item.description));
+    link.append(tile, copy);
+    toolsMenu.append(link);
+  });
+  tools.append(toolsTrigger, toolsMenu);
+  const search = iconButton("", "Найти файл или папку", "search");
+  search.dataset.ceV4FinderSearch = "true";
   const clock = create("time", "ce-v4-menubar__clock");
-  actions.append(mission, focus, search, clock);
-  bar.append(identity, location, actions);
+  actions.append(refresh, fullscreen, notifications, tools, search, clock);
+  bar.append(start, location, actions);
   document.body.append(bar);
   runtime.menubar = bar;
+  syncToolsMenu();
   bar.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("[data-ce-v4-home]")) navigate("/workspace/home");
-    if (target?.closest("[data-ce-v4-mission]")) openMission();
-    if (target?.closest("[data-ce-v4-focus]")) toggleZen();
-    if (target?.closest("[data-ce-v4-spotlight]")) openSpotlight();
+    if (target?.closest("[data-ce-v4-refresh]")) refreshWorkspace();
+    if (target?.closest("[data-ce-v4-fullscreen]")) void toggleFullscreen();
+    const notificationControl = target?.closest("[data-ce-v4-notifications]");
+    if (notificationControl) navigate(notificationControl.dataset.ceV4Notifications);
+    if (target?.closest("[data-ce-v4-tools-trigger]")) toggleToolsMenu();
+    if (target?.closest("[data-ce-v4-tools-route]")) closeToolsMenu();
+    if (target?.closest("[data-ce-v4-finder-search]")) focusFinderSearch();
   });
+  tools.addEventListener("keydown", handleToolsMenuKeydown);
+  if (!runtime.fullscreenListening) {
+    document.addEventListener("fullscreenchange", updateFullscreenControl);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenControl);
+    runtime.fullscreenListening = true;
+  }
+  updateFullscreenControl();
   updateClock();
   if (!runtime.clockTimer) runtime.clockTimer = window.setInterval(updateClock, 30_000);
   return bar;
@@ -247,112 +526,183 @@ function updateClock() {
   clock.textContent = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(now);
 }
 
+function ensureFlowbar() {
+  if (runtime.flowbar?.isConnected) return runtime.flowbar;
+  const flowbar = create("nav", "ce-v4-flowbar");
+  flowbar.setAttribute("aria-label", "Путь создания контента: 6 этапов");
+  const track = create("ol", "ce-v4-flowbar__track");
+  ROUTES.forEach((item, index) => {
+    const step = create("li", "ce-v4-flowbar__step");
+    const link = create("a", "ce-v4-flowbar__link");
+    const number = index + 1;
+    const title = `${number}. ${item.label} — ${item.description}`;
+    link.href = `#${item.route}`;
+    link.dataset.ceV4FlowRoute = item.route;
+    link.setAttribute("aria-label", `${number} из ${ROUTES.length}. ${item.label}. ${item.description}`);
+    link.title = title;
+    link.append(
+      create("span", "ce-v4-flowbar__number", String(number)),
+      create("span", "ce-v4-flowbar__label", item.label),
+    );
+    step.append(link);
+    track.append(step);
+  });
+  flowbar.append(track);
+  document.body.append(flowbar);
+  runtime.flowbar = flowbar;
+  return flowbar;
+}
+
+function updateFlowbar() {
+  const route = routePath();
+  const activeIndex = ROUTES.findIndex((item) => routeMatches(route, item.route));
+  let activeLink = null;
+  qa("[data-ce-v4-flow-route]", runtime.flowbar).forEach((link, index) => {
+    const active = index === activeIndex;
+    const next = activeIndex >= 0 && index === activeIndex + 1;
+    link.classList.toggle("is-active", active);
+    link.classList.toggle("is-next", next);
+    link.dataset.state = active ? "current" : next ? "next" : "available";
+    if (active) {
+      link.setAttribute("aria-current", "step");
+      activeLink = link;
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  });
+  const track = q(".ce-v4-flowbar__track", runtime.flowbar);
+  if (activeLink && track && window.innerWidth <= 680) {
+    window.requestAnimationFrame(() => {
+      const left = activeLink.offsetLeft - (track.clientWidth - activeLink.offsetWidth) / 2;
+      track.scrollTo({
+        left: Math.max(0, left),
+        behavior: REDUCED_MOTION.matches ? "auto" : "smooth",
+      });
+    });
+  }
+}
+
 function ensureDock() {
   if (runtime.dock?.isConnected) return runtime.dock;
   const dock = create("nav", "ce-v4-dock");
-  dock.setAttribute("aria-label", "Приложения ContentEngine");
+  dock.setAttribute("aria-label", "Основные этапы ContentEngine");
   const glass = create("div", "ce-v4-dock__glass");
   ROUTES.forEach((item, index) => {
     const link = create("a", "ce-v4-dock__item");
+    const shortcut = `⌥${Math.min(index + 1, 9)}`;
     link.href = `#${item.route}`;
     link.dataset.ceV4Route = item.route;
-    link.setAttribute("aria-label", item.label);
-    link.append(create("span", "ce-v4-dock__tooltip", `${item.label} · ⌥${Math.min(index + 1, 9)}`));
+    link.setAttribute("aria-label", `${item.label}. ${item.description}. ${shortcut}`);
+    link.title = `${item.label} — ${item.description}`;
+    link.append(create("span", "ce-v4-dock__tooltip", `${item.description} · ${shortcut}`));
     const tile = create("span", "ce-v4-dock__tile");
     tile.append(icon(item.icon, 22));
-    link.append(tile, create("i"));
+    link.append(tile, create("span", "ce-v4-dock__label", item.label), create("i"));
     glass.append(link);
   });
-  glass.append(create("span", "ce-v4-dock__separator"));
-  const mission = iconButton("ce-v4-dock__item ce-v4-dock__utility", "Рабочие столы", "grid");
-  mission.dataset.ceV4Mission = "true";
-  const search = iconButton("ce-v4-dock__item ce-v4-dock__utility", "Spotlight", "search");
-  search.dataset.ceV4Spotlight = "true";
-  [mission, search].forEach((button) => {
-    const tile = create("span", "ce-v4-dock__tile");
-    while (button.firstChild) tile.append(button.firstChild);
-    button.append(tile);
-    glass.append(button);
-  });
+  const separator = create("span", "ce-v4-dock__separator ce-v4-trash-separator");
+  const trash = create("button", "ce-v4-dock__item ce-v4-dock__utility ce-v4-trash-dock");
+  trash.type = "button";
+  trash.setAttribute("aria-label", "Корзина");
+  trash.title = "Корзина — удалённые файлы и папки";
+  trash.append(create("span", "ce-v4-dock__tooltip", "Удалённые файлы и папки"));
+  const trashTile = create("span", "ce-v4-dock__tile");
+  trashTile.append(icon("trash", 22));
+  trash.append(trashTile, create("span", "ce-v4-dock__label", "Корзина"), create("i"));
+  glass.append(separator, trash);
   dock.append(glass);
   document.body.append(dock);
-  runtime.dock = dock;
-  glass.addEventListener("pointermove", handleDockMove, { passive: true });
-  glass.addEventListener("pointerleave", resetDock);
-  glass.addEventListener("focusout", (event) => {
-    if (!(event.relatedTarget instanceof Node) || !glass.contains(event.relatedTarget)) resetDock();
-  });
   dock.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest("[data-ce-v4-mission]")) openMission();
-    if (target?.closest("[data-ce-v4-spotlight]")) openSpotlight();
+    const item = target?.closest(".ce-v4-dock__item");
+    if (!(item instanceof HTMLElement)) return;
+    item.classList.remove("is-launching");
+    window.requestAnimationFrame(() => {
+      if (!item.isConnected) return;
+      item.classList.add("is-launching");
+      window.setTimeout(() => item.classList.remove("is-launching"), 420);
+    });
   });
+  runtime.dock = dock;
   return dock;
 }
 
 function updateDock() {
   const route = routePath();
+  let activeItem = null;
   qa("[data-ce-v4-route]", runtime.dock).forEach((item) => {
     const active = routeMatches(route, item.dataset.ceV4Route);
     item.classList.toggle("is-active", active);
     item.setAttribute("aria-current", active ? "page" : "false");
+    if (active) activeItem = item;
   });
-}
-
-function resetDock() {
-  qa(".ce-v4-dock__item", runtime.dock).forEach((item) => {
-    item.style.removeProperty("--ce-v4-scale");
-    item.style.removeProperty("--ce-v4-lift");
-    item.style.removeProperty("--ce-v4-z");
-  });
-}
-
-function handleDockMove(event) {
-  runtime.dockEvent = event;
-  if (runtime.dockFrame) return;
-  runtime.dockFrame = window.requestAnimationFrame(() => {
-    runtime.dockFrame = 0;
-    if (!FINE_POINTER.matches || REDUCED_MOTION.matches) return resetDock();
-    qa(".ce-v4-dock__item", runtime.dock).forEach((item) => {
-      const rect = item.getBoundingClientRect();
-      const distance = Math.abs(runtime.dockEvent.clientX - (rect.left + rect.width / 2));
-      const influence = Math.max(0, 1 - distance / 132);
-      const eased = influence * influence * (3 - 2 * influence);
-      item.style.setProperty("--ce-v4-scale", String(1 + eased * 0.34));
-      item.style.setProperty("--ce-v4-lift", `${-eased * 13}px`);
-      item.style.setProperty("--ce-v4-z", String(2 + Math.round(eased * 10)));
+  const glass = q(".ce-v4-dock__glass", runtime.dock);
+  if (activeItem && glass && window.innerWidth <= 680) {
+    window.requestAnimationFrame(() => {
+      const left = activeItem.offsetLeft - (glass.clientWidth - activeItem.offsetWidth) / 2;
+      glass.scrollTo({
+        left: Math.max(0, left),
+        behavior: REDUCED_MOTION.matches ? "auto" : "smooth",
+      });
     });
-  });
+  }
 }
 
 function updateMenubar() {
+  syncToolsMenu();
   const item = routeRecord();
   const location = q(".ce-v4-menubar__location strong", runtime.menubar);
   if (location) location.textContent = item.label;
+  const caption = q(".ce-v4-menubar__location small", runtime.menubar);
+  const desktopIndex = ROUTES.findIndex((record) => routeMatches(routePath(), record.route));
+  if (caption) {
+    caption.textContent = desktopIndex >= 0
+      ? `РАБОЧИЙ СТОЛ ${desktopIndex + 1} ИЗ ${ROUTES.length}`
+      : "РАБОЧИЙ ИНСТРУМЕНТ";
+  }
+  qa("[data-ce-v4-tools-route]", runtime.menubar).forEach((link) => {
+    const active = routePath() === link.dataset.ceV4ToolsRoute;
+    link.classList.toggle("is-active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  const notifications = q("[data-ce-v4-notifications]", runtime.menubar);
+  if (notifications) {
+    const active = routePath() === "/workspace/work" && routeQuery().get("view") === "notifications";
+    notifications.classList.toggle("is-active", active);
+    notifications.setAttribute("aria-pressed", String(active));
+  }
 }
 
-function nextAction() {
-  const snapshot = readJson(storage("session"), WORK_SNAPSHOT_KEY, null);
-  const candidates = [
-    [".my-work-item[data-work-item-priority='blocked'], .my-work-item.is-blocked", "/workspace/work", "Разобрать блокер"],
-    [".task-card:not([hidden])", "/workspace/tasks", "Открыть назначенную задачу"],
-    [".content-review-progress, .content-review-result", "/workspace/review", "Продолжить проверку"],
-    ["[data-generation-job-id]", "/workspace/generation", "Открыть генерацию"],
-    [".placement-card:not([hidden])", "/workspace/placement", "Продолжить публикацию"],
-  ];
-  for (const [selector, route, fallback] of candidates) {
-    const node = q(selector);
-    if (!node) continue;
+function homeAction(page) {
+  const source = q(".workspace-home .home-next-action", page);
+  const control = q(".home-next-action-main > a, .home-next-action-main > button", source);
+  if (source && control) {
     return {
-      title: compact(q("h2, h3, strong", node)?.textContent || fallback, 110),
-      description: compact(q("p, small, .muted", node)?.textContent || routeRecord(route).description, 190),
-      route,
-      action: fallback,
+      step: compact(q(".home-next-action-main > div > span", source)?.textContent || "Следующее действие", 80),
+      title: compact(q(".home-next-action-main h2", source)?.textContent || "Продолжите работу", 110),
+      description: compact(q(".home-next-action-main p", source)?.textContent || "Откройте следующий шаг.", 190),
+      action: compact(control.textContent || "Открыть", 70),
+      control,
     };
   }
-  if (Number(snapshot?.blockers || 0) > 0) return { title: `${snapshot.blockers} блокера требуют решения`, description: "Откройте Мою работу и снимите один стоп-фактор.", route: "/workspace/work", action: "Открыть блокеры" };
-  if (Number(snapshot?.now || 0) > 0) return { title: `${snapshot.now} задач сейчас`, description: "Выберите одну работу и завершите её до следующей.", route: "/workspace/work", action: "Открыть Мою работу" };
-  return { title: "Откройте Мою работу", description: "Система соберёт то, что требует решения сейчас, и уберёт ожидающее в отдельный контур.", route: "/workspace/work", action: "Начать работу" };
+  const retry = q('.workspace-home [data-action="refresh-home"]', page);
+  if (retry) {
+    return {
+      step: "Рабочий день",
+      title: "Не удалось собрать следующий шаг",
+      description: "Повторите загрузку. Остальные разделы доступны в Dock.",
+      action: "Попробовать снова",
+      control: retry,
+    };
+  }
+  return {
+    step: "Сегодня",
+    title: "Собираем следующий шаг…",
+    description: "Проверяем задачи, готовые файлы, публикации и результаты.",
+    action: "Подождите",
+    control: null,
+  };
 }
 
 function mountHome() {
@@ -365,52 +715,32 @@ function mountHome() {
     shell = create("section", "ce-v4-home");
     shell.dataset.ceV4Surface = "true";
     const main = create("section", "ce-v4-home__main");
-    const eyebrow = create("small", "ce-v4-eyebrow", "ОДИН ЭКРАН · ОДНО ДЕЙСТВИЕ");
+    const eyebrow = create("small", "ce-v4-eyebrow", "СЕГОДНЯ");
     const title = create("h1", "ce-v4-home__title");
     const description = create("p", "ce-v4-home__description");
     const action = create("button", "ce-v4-primary-action");
     action.type = "button";
     action.dataset.ceV4HomeAction = "true";
+    action.dataset.primaryAction = "true";
     action.append(create("span"), icon("right", 18));
-    const secondary = create("button", "ce-v4-secondary-action", "Открыть все столы");
-    secondary.type = "button";
-    secondary.dataset.ceV4Mission = "true";
     const copy = create("div", "ce-v4-home__copy");
     copy.append(eyebrow, title, description, create("div", "ce-v4-home__actions"));
-    q(".ce-v4-home__actions", copy).append(action, secondary);
+    q(".ce-v4-home__actions", copy).append(action);
     main.append(copy);
-
-    const route = create("aside", "ce-v4-home__route");
-    route.append(create("small", "ce-v4-eyebrow", "ПРОИЗВОДСТВЕННЫЙ МАРШРУТ"), create("h2", "", "От исходника до выплаты"));
-    const rail = create("div", "ce-v4-stage-rail");
-    STAGES.forEach((stage) => {
-      const button = create("button", "ce-v4-stage");
-      button.type = "button";
-      button.dataset.ceV4Stage = stage.route;
-      button.append(create("b", "", stage.number));
-      const stageCopy = create("span");
-      stageCopy.append(create("strong", "", stage.label), create("small", "", stage.description));
-      button.append(stageCopy, icon("right", 16));
-      rail.append(button);
-    });
-    route.append(rail);
-    shell.append(main, route);
+    shell.append(main);
     page.prepend(shell);
     shell.addEventListener("click", (event) => {
       const target = event.target instanceof Element ? event.target : null;
-      const stage = target?.closest("[data-ce-v4-stage]");
-      if (stage) navigate(stage.dataset.ceV4Stage);
-      if (target?.closest("[data-ce-v4-mission]")) openMission();
-      if (target?.closest("[data-ce-v4-home-action]")) navigate(q("[data-ce-v4-home-action]", shell)?.dataset.route || "/workspace/work");
+      if (target?.closest("[data-ce-v4-home-action]")) homeAction(page).control?.click();
     });
   }
-  const action = nextAction();
+  const action = homeAction(page);
+  q(".ce-v4-eyebrow", shell).textContent = action.step.toLocaleUpperCase("ru-RU");
   q(".ce-v4-home__title", shell).textContent = action.title;
   q(".ce-v4-home__description", shell).textContent = action.description;
   const button = q("[data-ce-v4-home-action]", shell);
-  button.dataset.route = action.route;
+  button.disabled = !action.control;
   q("span", button).textContent = action.action;
-  qa("[data-ce-v4-stage]", shell).forEach((stage) => stage.classList.toggle("has-attention", stage.dataset.ceV4Stage === action.route));
 }
 
 function overlayBase(className, label) {
@@ -437,6 +767,7 @@ function closeElementOverlay(name, immediate = false) {
 }
 
 function closeTransientOverlays(immediate = false) {
+  closeToolsMenu();
   if (runtime.mission) closeElementOverlay("mission", immediate);
   if (runtime.spotlight) closeElementOverlay("spotlight", immediate);
   if (runtime.zen) closeZen(immediate);
@@ -444,6 +775,7 @@ function closeTransientOverlays(immediate = false) {
 
 function openMission() {
   if (runtime.mission) return;
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
   const { backdrop, dialog } = overlayBase("ce-v4-mission", "Рабочие столы");
   const header = create("header", "ce-v4-overlay-header");
   const copy = create("div");
@@ -488,11 +820,11 @@ function openMission() {
   });
   backdrop.addEventListener("keydown", (event) => { if (event.key === "Escape") closeElementOverlay("mission"); });
   safeFocus(input);
-  animate(dialog, [{ opacity: 0, transform: "translateY(20px) scale(.975)" }, { opacity: 1, transform: "translateY(0) scale(1)" }], 420);
+  animate(dialog, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }], 200);
 }
 
 function spotlightRecords(query = "") {
-  const records = ROUTES.map((item) => ({
+  const records = ALL_ROUTES.map((item) => ({
     title: item.label,
     subtitle: item.description,
     icon: item.icon,
@@ -551,6 +883,7 @@ function runSpotlight(index = runtime.spotlightIndex) {
 
 function openSpotlight() {
   if (runtime.spotlight) return;
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
   const { backdrop, dialog } = overlayBase("ce-v4-spotlight", "Spotlight");
   const search = create("label", "ce-v4-spotlight__search");
   search.append(icon("search", 21));
@@ -584,18 +917,19 @@ function openSpotlight() {
     if (event.key === "Enter") { event.preventDefault(); runSpotlight(); }
   });
   safeFocus(input);
-  animate(dialog, [{ opacity: 0, transform: "translateY(-18px) scale(.97)" }, { opacity: 1, transform: "translateY(0) scale(1)" }], 360);
+  animate(dialog, [{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "translateY(0)" }], 180);
 }
 
 function zenSurface() {
   return qa(
     ".review-desktop-os, .generation-os-shell, .media-finder-shell, .work-stage-shell, .tasks-desk-shell, "
-      + ".publishing-os-shell, .results-ledger-shell, .academy-os-window, .academy-course-os-window--v2, .workspace-board, .page-wrap",
+      + ".publishing-os-shell, .results-ledger-shell, .workspace-board, .page-wrap",
   ).filter(isVisible).at(-1) || currentPage();
 }
 
 function openZen() {
   if (runtime.zen) return;
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
   const surface = zenSurface();
   if (!surface || surface === document.body || surface === document.documentElement) return;
   const placeholder = document.createComment("contentengine-v4-zen-placeholder");
@@ -619,7 +953,7 @@ function openZen() {
   });
   backdrop.addEventListener("keydown", (event) => { if (event.key === "Escape") closeZen(); });
   safeFocus(close);
-  animate(dialog, [{ opacity: 0, transform: "scale(.975) translateY(14px)" }, { opacity: 1, transform: "scale(1) translateY(0)" }], 420);
+  animate(dialog, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }], 200);
 }
 
 function closeZen(immediate = false) {
@@ -643,41 +977,63 @@ function toggleZen() {
 }
 
 function scrollContainers(page = currentPage()) {
-  return qa(
+  const main = q("#main-content");
+  return [main, ...qa(
     ".workspace-board__content, .workspace-board__sidebar, .generation-os-panels, .review-os-workbench, "
       + ".work-stage-items, .tasks-desk-list, .tasks-desk-main, .publishing-os-list, .publishing-os-panels, "
-      + ".results-ledger-panels, .academy-v2-panels, .academy-os-panels, [data-ce-v4-scroll]",
+      + ".results-ledger-panels, [data-ce-v4-scroll]",
     page,
-  ).filter(isVisible).slice(0, 12);
+  )].filter((node, index, nodes) => node && nodes.indexOf(node) === index && isVisible(node)).slice(0, 12);
 }
 
 function scrollKey(node, index) {
   return (node.dataset.ceV4ScrollKey || node.id || [...node.classList].slice(0, 2).join(".") || `scroll-${index}`).slice(0, 120);
 }
 
-function captureScroll(route = runtime.route) {
-  if (!isWorkspaceRoute(route)) return;
+function captureScroll(route = runtime.route, actionKey = runtime.actionKey) {
+  if (!isWorkspaceRoute(route) || !isWorkspaceActionKey(actionKey)) return;
   const nested = {};
   scrollContainers().forEach((node, index) => { nested[scrollKey(node, index)] = { top: Math.round(node.scrollTop || 0), left: Math.round(node.scrollLeft || 0) }; });
   const states = { ...(runtime.state.scroll || {}) };
-  states[route] = { windowY: Math.round(window.scrollY || 0), nested, at: Date.now() };
+  states[actionKey] = { windowY: Math.round(window.scrollY || 0), nested, at: Date.now() };
   remember({ scroll: states });
 }
 
-function restoreScroll(route = routePath()) {
-  if (runtime.restoredRoute === route) return;
-  const saved = runtime.state.scroll?.[route];
-  if (!saved) { runtime.restoredRoute = route; return; }
-  runtime.restoredRoute = route;
-  window.requestAnimationFrame(() => {
-    window.scrollTo({ top: Math.max(0, Number(saved.windowY) || 0), behavior: "auto" });
-    scrollContainers().forEach((node, index) => {
-      const point = saved.nested?.[scrollKey(node, index)];
-      if (!point) return;
-      node.scrollTop = Math.max(0, Number(point.top) || 0);
-      node.scrollLeft = Math.max(0, Number(point.left) || 0);
-    });
+function captureCurrentAction(expectedActionKey = runtime.actionKey) {
+  const expected = String(expectedActionKey || "");
+  if (!expected || expected !== runtime.actionKey) return false;
+  window.clearTimeout(runtime.scrollTimer);
+  captureScroll(runtime.route, runtime.actionKey);
+  runtime.preNavigationActionKey = runtime.actionKey;
+  return true;
+}
+
+function restoreScroll(actionKey = workspaceActionKey()) {
+  const main = q("#main-content");
+  const appAlreadyReset = main?.dataset?.ceV4ActionEntry === actionKey;
+  const pendingReset = runtime.pendingActionReset === actionKey;
+  const saved = pendingReset ? null : runtime.state.scroll?.[actionKey];
+
+  if (pendingReset && appAlreadyReset) {
+    runtime.restoredRoute = actionKey;
+    runtime.restoredScrollNodes = new WeakSet(scrollContainers());
+    runtime.pendingActionReset = "";
+    return;
+  }
+
+  if (runtime.restoredRoute !== actionKey) {
+    runtime.restoredRoute = actionKey;
+    runtime.restoredScrollNodes = new WeakSet();
+    window.scrollTo({ top: Math.max(0, Number(saved?.windowY) || 0), behavior: "auto" });
+  }
+  scrollContainers().forEach((node, index) => {
+    if (runtime.restoredScrollNodes.has(node)) return;
+    const point = saved?.nested?.[scrollKey(node, index)];
+    node.scrollTop = Math.max(0, Number(point?.top) || 0);
+    node.scrollLeft = Math.max(0, Number(point?.left) || 0);
+    runtime.restoredScrollNodes.add(node);
   });
+  if (runtime.pendingActionReset === actionKey) runtime.pendingActionReset = "";
 }
 
 function governVideo(video) {
@@ -713,7 +1069,7 @@ function markSurface() {
   page.classList.add("ce-v4-page");
   const surface = qa(
     ".review-desktop-os, .generation-os-shell, .media-finder-shell, .work-stage-shell, .tasks-desk-shell, "
-      + ".publishing-os-shell, .results-ledger-shell, .academy-os-window, .academy-course-os-window--v2, .workspace-board, .ce-v4-home",
+      + ".publishing-os-shell, .results-ledger-shell, .workspace-board, .ce-v4-home",
     page,
   ).filter(isVisible).at(-1);
   qa("[data-ce-v4-surface]", page).forEach((node) => { if (node !== surface && !node.classList.contains("ce-v4-home")) node.removeAttribute("data-ce-v4-surface"); });
@@ -725,37 +1081,112 @@ function mount() {
   if (!isWorkspaceRoute(route) || !hasAuthenticatedWorkspace()) {
     closeTransientOverlays(true);
     runtime.menubar?.remove();
+    runtime.flowbar?.remove();
     runtime.dock?.remove();
     runtime.menubar = null;
+    runtime.flowbar = null;
     runtime.dock = null;
     document.body.classList.remove("contentengine-desktop-v4");
-    delete document.documentElement.dataset.contentengineOs;
+    document.body.removeAttribute("data-ce-v4-stable");
+    document.documentElement.removeAttribute("data-contentengine-os");
     return;
   }
   document.documentElement.dataset.contentengineOs = "v4";
   document.body.classList.add("contentengine-desktop-v4");
+  document.body.dataset.ceV4Stable = "true";
   cleanLegacyChrome();
   ensureMenubar();
+  ensureFlowbar();
   ensureDock();
   updateMenubar();
+  updateFlowbar();
   updateDock();
   mountHome();
-  setupVideoGovernor();
-  markSurface();
-  restoreScroll(route);
 }
 
 function scheduleMount() {
+  if (runtime.mounting) {
+    runtime.needsMount = true;
+    return;
+  }
   if (runtime.queued) return;
   runtime.queued = true;
-  window.requestAnimationFrame(() => window.requestAnimationFrame(() => { runtime.queued = false; mount(); }));
+  window.requestAnimationFrame(runMount);
+}
+
+function observeWorkspace() {
+  const root = q("#app") || document.documentElement;
+  if (!runtime.observer) runtime.observer = new MutationObserver(scheduleMount);
+  runtime.observer.disconnect();
+  runtime.observerRoot = root;
+  runtime.observer.observe(root, { childList: true, subtree: true });
+}
+
+function runMount() {
+  runtime.queued = false;
+  if (runtime.mounting) {
+    runtime.needsMount = true;
+    return;
+  }
+  runtime.mounting = true;
+  runtime.needsMount = false;
+  runtime.observer?.disconnect();
+  try {
+    mount();
+    [...runtime.adapters.values()]
+      .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name))
+      .forEach((adapter) => {
+        try { adapter.mount(); }
+        catch (error) { console.error(`ContentEngine adapter ${adapter.name} failed`, error); }
+      });
+    setupVideoGovernor();
+    markSurface();
+    bindScrollOwner();
+    restoreScroll(runtime.actionKey);
+  } finally {
+    runtime.mounting = false;
+    observeWorkspace();
+    const waiters = runtime.flushWaiters.splice(0);
+    waiters.forEach((resolve) => resolve());
+    if (runtime.needsMount) scheduleMount();
+  }
+}
+
+function registerAdapter(name, adapterMount, options = {}) {
+  if (!name || typeof adapterMount !== "function") throw new TypeError("Desktop adapter requires a name and mount function");
+  runtime.adapters.set(name, {
+    name,
+    mount: adapterMount,
+    priority: Number.isFinite(options.priority) ? options.priority : 100,
+  });
+  scheduleMount();
+  return () => {
+    runtime.adapters.delete(name);
+    scheduleMount();
+  };
+}
+
+function flush() {
+  return new Promise((resolve) => {
+    runtime.flushWaiters.push(resolve);
+    scheduleMount();
+  });
 }
 
 function handleHashChange() {
-  captureScroll(runtime.route);
+  window.clearTimeout(runtime.scrollTimer);
+  const previousActionKey = runtime.actionKey;
+  if (runtime.preNavigationActionKey === previousActionKey) {
+    runtime.preNavigationActionKey = "";
+  } else {
+    captureScroll(runtime.route, previousActionKey);
+  }
   closeTransientOverlays(true);
   runtime.route = routePath();
+  runtime.actionKey = workspaceActionKey();
+  runtime.pendingActionReset = previousActionKey === runtime.actionKey ? "" : runtime.actionKey;
   runtime.restoredRoute = "";
+  runtime.restoredScrollNodes = new WeakSet();
   scheduleMount();
 }
 
@@ -766,18 +1197,16 @@ function handleKeydown(event) {
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLocaleLowerCase() === "k") {
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (runtime.spotlight) closeElementOverlay("spotlight"); else openSpotlight();
+    focusFinderSearch();
     return;
   }
-  if (event.ctrlKey && event.key === "ArrowUp" && !editing) { event.preventDefault(); openMission(); return; }
   if (event.key === "Escape") {
     if (runtime.spotlight) closeElementOverlay("spotlight");
     else if (runtime.mission) closeElementOverlay("mission");
     else if (runtime.zen) closeZen();
     return;
   }
-  if (!editing && event.key.toLocaleLowerCase() === "f" && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); toggleZen(); return; }
-  if (!editing && event.altKey && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
+  if (!editing && hasAuthenticatedWorkspace() && event.altKey && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
     const item = ROUTES[Number(event.code.slice(-1)) - 1];
     if (item) { event.preventDefault(); navigate(item.route); }
   }
@@ -785,14 +1214,29 @@ function handleKeydown(event) {
 
 function handleScroll() {
   window.clearTimeout(runtime.scrollTimer);
-  runtime.scrollTimer = window.setTimeout(() => captureScroll(routePath()), 180);
+  runtime.scrollTimer = window.setTimeout(() => captureScroll(routePath(), workspaceActionKey()), 180);
 }
 
-new MutationObserver(scheduleMount).observe(q("#app") || document.documentElement, { childList: true, subtree: true });
-window.addEventListener("hashchange", handleHashChange, { passive: true });
-window.addEventListener("contentengine:v4-route-ready", scheduleMount);
+function handlePointerDown(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest(".ce-v4-menubar__tools")) closeToolsMenu();
+}
+
+function bindScrollOwner() {
+  const owner = q("#main-content");
+  if (!owner || owner.dataset.ceV4ScrollBound === "true") return;
+  owner.dataset.ceV4ScrollBound = "true";
+  owner.addEventListener("scroll", handleScroll, { passive: true });
+}
+
+window.addEventListener("hashchange", handleHashChange, { capture: true, passive: true });
 window.addEventListener("scroll", handleScroll, { passive: true });
+document.addEventListener(CLOSE_TRANSIENTS_EVENT, (event) => {
+  if (event.detail?.source !== "core") closeTransientOverlays(true);
+});
 document.addEventListener("keydown", handleKeydown, true);
+document.addEventListener("pointerdown", handlePointerDown, true);
+observeWorkspace();
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scheduleMount, { once: true });
 else scheduleMount();
 
@@ -800,12 +1244,14 @@ window.ContentEngineDesktopV4 = Object.freeze({
   build: BUILD,
   routes: ROUTES,
   route: routePath,
+  actionKey: workspaceActionKey,
   navigate,
-  openMission,
-  openSpotlight,
-  openZen,
-  closeZen,
   icon,
   create,
+  registerAdapter,
+  captureCurrentAction,
+  syncRoute: handleHashChange,
+  requestMount: scheduleMount,
+  flush,
   scheduleMount,
 });

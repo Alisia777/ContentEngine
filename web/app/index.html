@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#080706" />
-    <meta name="contentengine-build" content="20260803.os4.2.1" />
+    <meta name="contentengine-build" content="20260803.os4.4" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <meta
       name="description"
-      content="ContentEngine — рабочая система производства контента: папки, создание, проверка, публикация, результаты и обучение."
+      content="ContentEngine — рабочая система производства контента: файлы, создание, проверка, публикация и результаты."
     />
     <meta
       http-equiv="Content-Security-Policy"
@@ -18,6 +18,7 @@
     />
     <title>ContentEngine</title>
     <script src="./theme-bootstrap.js?v=20260730.1"></script>
+    <script src="./startup-route.js?v=20260803.entry1"></script>
     <link rel="stylesheet" href="./styles.css?v=20260730.4" />
     <link rel="stylesheet" href="./account-launch.css?v=20260716.2" />
     <link rel="stylesheet" href="./account-launch-visual-examples.css?v=20260716.2" />
@@ -25,24 +26,21 @@
     <link rel="stylesheet" href="./manager-dashboard.css?v=20260717.5" />
     <link rel="stylesheet" href="./access-center.css?v=20260717.1" data-access-center-styles />
     <link rel="stylesheet" href="./product-research.css?v=20260724.1" />
-    <link rel="stylesheet" href="./content-review.css?v=20260730.3" />
+    <link rel="stylesheet" href="./content-review.css?v=20260803.os4.4" />
     <link rel="stylesheet" href="./portal-experience.css?v=20260730.1" />
-    <link rel="stylesheet" href="./workspace-board.css?v=20260716.2" />
+    <link rel="stylesheet" href="./workspace-board.css?v=20260803.os4.4" />
     <link rel="stylesheet" href="./training-interactive.css?v=20260718.2" />
     <link rel="stylesheet" href="./training-journey.css?v=20260718.3" />
     <link rel="stylesheet" href="./training-platform-simulators.css?v=20260719.1" />
     <link rel="stylesheet" href="./training-media-cards.css?v=20260719.1" />
-    <link rel="stylesheet" href="./training-practical-review.css?v=20260719.1" />
-    <link rel="stylesheet" href="./my-work.css?v=20260716.4" />
-    <link rel="stylesheet" href="./interface-system.css?v=20260730.10" />
+    <link rel="stylesheet" href="./training-practical-review.css?v=20260803.os4.4" />
+    <link rel="stylesheet" href="./my-work.css?v=20260803.os4.4" />
+    <link rel="stylesheet" href="./interface-system.css?v=20260803.os4.4" />
 
-    <!-- Desktop v4.2 owns the global shell. Route adapters below are lazy-loaded. -->
-    <link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.2.1" />
+    <!-- Desktop v4.4 owns the global shell. Route adapters below are lazy-loaded. -->
+    <link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.4" />
 
     <!-- Retired/eager visual layers remain explicit rollback markers, not active assets. -->
-    <!-- <link rel="stylesheet" href="./learning-premium.css?v=20260730.1" /> -->
-    <!-- <link rel="stylesheet" href="./learning-premium-components.css?v=20260730.1" /> -->
-    <!-- <link rel="stylesheet" href="./learning-premium-motion.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desks.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desks-responsive.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desks-fixes.css?v=20260730.1" /> -->
@@ -60,8 +58,6 @@
     <!-- <link rel="stylesheet" href="./workspace-desktop-review.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desktop-review-form.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desktop-review-result.css?v=20260730.1" /> -->
-    <!-- <link rel="stylesheet" href="./workspace-desktop-academy.css?v=20260730.1" /> -->
-    <!-- <link rel="stylesheet" href="./workspace-academy-os-v2.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desktop-responsive.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-desktop-os-polish.css?v=20260730.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-generation-os.css?v=20260731.1" /> -->
@@ -70,10 +66,9 @@
     <!-- <link rel="stylesheet" href="./workspace-publishing-os.css?v=20260731.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-work-stage-manager.css?v=20260731.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-results-ledger.css?v=20260731.1" /> -->
-    <!-- <link rel="stylesheet" href="./workspace-academy-lab-v3.css?v=20260731.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-os-v3-finish.css?v=20260731.1" /> -->
     <!-- <link rel="stylesheet" href="./workspace-os-v3-visual-qa.css?v=20260731.1" /> -->
-    <link rel="stylesheet" href="./workspace-build-guard.css?v=20260803.os4.2.1" />
+    <link rel="stylesheet" href="./workspace-build-guard.css?v=20260803.os4.4" />
   </head>
   <body>
     <button class="skip-link" type="button" data-action="skip-to-content">Перейти к содержанию</button>
@@ -99,10 +94,11 @@
     <!-- config.js contains only browser-safe project coordinates. Never add a secret/service key here. -->
     <script src="./config.js?v=20260729.1"></script>
     <script src="./boot-watchdog.js?v=20260718.1"></script>
-    <script type="module" src="./app.js?v=20260803.1"></script>
+    <!-- Sets CONTENTENGINE_DESKTOP_V4 before app.js performs its first render. -->
+    <script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.4"></script>
+    <script type="module" src="./app.js?v=20260803.os4.4"></script>
 
     <!-- Retired observers/controllers: explicit rollback markers, not executed. -->
-    <!-- <script type="module" src="./learning-premium.js?v=20260730.1"></script> -->
     <!-- <script type="module" src="./workspace-desks-v2.js?v=20260730.2"></script> -->
     <!-- <script type="module" src="./workspace-task-desks.js?v=20260730.1"></script> -->
     <!-- <script type="module" src="./workspace-desk-drafts.js?v=20260730.1"></script> -->
@@ -113,7 +109,6 @@
     <!-- <script type="module" src="./workspace-perception.js?v=20260730.1"></script> -->
     <!-- <script type="module" src="./workspace-desktop-os.js?v=20260730.1"></script> -->
     <!-- <script type="module" src="./workspace-mac-dock-productivity.js?v=20260730.1"></script> -->
-    <!-- <script type="module" src="./workspace-academy-os-v2.js?v=20260730.1"></script> -->
     <!-- <script type="module" src="./workspace-desktop-os-polish.js?v=20260730.1"></script> -->
     <!-- <script type="module" src="./workspace-generation-os.js?v=20260731.1"></script> -->
     <!-- <script type="module" src="./workspace-media-finder.js?v=20260731.1"></script> -->
@@ -122,11 +117,9 @@
     <!-- <script type="module" src="./workspace-publishing-os.js?v=20260731.1"></script> -->
     <!-- <script type="module" src="./workspace-work-stage-manager.js?v=20260731.1"></script> -->
     <!-- <script type="module" src="./workspace-results-ledger.js?v=20260731.1"></script> -->
-    <!-- <script type="module" src="./workspace-academy-lab-v3.js?v=20260731.1"></script> -->
     <!-- <script type="module" src="./workspace-os-v3-visual-qa.js?v=20260731.1"></script> -->
     <!-- <script type="module" src="./workspace-os-v3-zen-control.js?v=20260731.1"></script> -->
 
-    <script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.2.1"></script>
-    <script type="module" src="./workspace-build-guard.js?v=20260803.os4.2.1"></script>
+    <script type="module" src="./workspace-build-guard.js?v=20260803.os4.4"></script>
   </body>
 </html>

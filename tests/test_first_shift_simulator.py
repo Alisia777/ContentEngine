@@ -49,16 +49,27 @@ def test_first_shift_uses_the_full_thirteen_decision_scenario() -> None:
         assert term.casefold() in FULL.casefold()
 
 
-def test_first_shift_route_is_handled_before_generic_course_route_for_both_gates() -> None:
+def test_first_shift_route_is_handled_only_inside_the_required_academy_gate() -> None:
     render = _between(APP, "function render()", "function renderLogin")
     route = 'path === "/learn/first-shift"'
-    generic = 'path.startsWith("/learn/") && path !== "/learn/exam"'
+    academy_gate = _between(
+        render,
+        "if (academyRequired()) {",
+        '\n  if (path === "/learn" || path.startsWith("/learn/"))',
+    )
+    after_gate = render[render.index('\n  if (path === "/learn" || path.startsWith("/learn/"))') :]
 
-    assert render.count(route) == 2
-    assert render.count("renderFirstShift();") == 2
-    first_gate, second_gate = render.split('if (path === "/learn")', maxsplit=1)
-    assert first_gate.index(route) < first_gate.index(generic)
-    assert second_gate.index(route) < second_gate.index(generic)
+    assert academy_gate.count(route) == 1
+    assert academy_gate.count("renderFirstShift();") == 1
+    assert academy_gate.index(route) < academy_gate.index(
+        'path === "/learn/practical"'
+    )
+    assert academy_gate.index(route) < academy_gate.index(
+        'path === "/learn/exam"'
+    )
+    assert academy_gate.index(route) < academy_gate.index("renderCourse(")
+    assert "renderFirstShift();" not in after_gate
+    assert 'navigate(authenticatedStartPath(), true);' in after_gate
 
 
 def test_first_shift_progress_is_user_scoped_session_only_and_restartable() -> None:
@@ -133,18 +144,20 @@ def test_first_shift_legacy_simulator_is_fully_removed() -> None:
         assert legacy_contract not in APP
 
 
-def test_first_shift_is_linked_from_home_sidebar_and_mobile_navigation() -> None:
-    home = _between(APP, "function renderLearningHome", "function portalWorkflowMarkup")
-    sidebar = _between(APP, "function learningScaffold", "function renderWorkspace")
-    mobile = _between(APP, "function mobileNavMarkup", "async function loadSection")
+def test_first_shift_does_not_compete_with_the_single_home_action_or_workspace_nav() -> None:
+    home = _between(APP, "function renderLearningHome()", "function renderAccountLaunch")
+    academy_shell = _between(
+        APP,
+        "function learningScaffold(content, activePath)",
+        "function renderLearningScaffold",
+    )
+    workspace = _between(APP, "function workspaceScaffold", "function refreshNotificationLayer")
 
-    assert 'href="#/learn/first-shift"' in home
-    assert "Тренажёр не создаёт задач, не списывает деньги и не влияет на допуск." in home
-    assert 'activePath === "/learn/first-shift"' in sidebar
-    assert 'aria-current="page"' in sidebar
-    assert 'activeLearningPath === "/learn/first-shift"' in mobile
-    assert "Первая смена" in sidebar
-    assert "Первая смена" in mobile
+    assert 'href="#/learn/first-shift"' not in home
+    assert "first-shift-invite" not in home
+    assert home.count("${actionMarkup}") == 1
+    assert 'href="#/learn/first-shift"' not in academy_shell
+    assert 'href="#/learn/first-shift"' not in workspace
 
 
 def test_first_shift_has_keyboard_focus_status_and_360px_safe_layout_contracts() -> None:

@@ -183,7 +183,11 @@ export function productResearchResultMarkup(record, {
   members = [],
   defaultAssigneeId = "",
   recommendedPrepared = false,
+  view = "evidence",
 } = {}) {
+  const researchView = ["evidence", "corrections", "brief", "approve", "handoff"].includes(view)
+    ? view
+    : "evidence";
   const brief = normalizeBrief(record?.brief);
   const scenarios = normalizeScenarios(record?.scenarios);
   const confidence = confidenceCopy(record?.confidence);
@@ -205,10 +209,11 @@ export function productResearchResultMarkup(record, {
   ).trim();
   const approvedActions = recommendedScenarioIndex >= 0
     ? `<div class="inline-actions">${recommendedPrepared
-      ? '<a class="btn" href="#/workspace/generation">Открыть рекомендованный сценарий →</a>'
-      : `<button class="btn" type="button" data-action="generate-research-scenario" data-scenario-index="${recommendedScenarioIndex}">Подготовить рекомендованный сценарий →</button>`}<a class="btn btn-secondary" href="#/workspace/tasks">Все задачи</a></div>`
+      ? '<a class="btn" href="#/workspace/generation?view=create" data-primary-action="true">Открыть рекомендованный сценарий →</a>'
+      : `<button class="btn" type="button" data-action="generate-research-scenario" data-scenario-index="${recommendedScenarioIndex}" data-primary-action="true">Подготовить рекомендованный сценарий →</button>`}</div>`
     : `<a class="btn" href="#/workspace/tasks">Открыть задачи →</a>`;
   return `
+    <div data-research-view="${researchView}">
     ${error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(error)}</span></div>` : ""}
     ${notice ? `<div class="alert alert-success" role="status"><strong aria-hidden="true">✓</strong><span>${escapeHtml(notice)}</span></div>` : ""}
     ${approved ? `<section class="card card-pad product-research-approved" role="status"><span aria-hidden="true">✓</span><div><p class="eyebrow">ТЗ утверждено</p><h2>${taskIds.length ? `Задачи созданы: ${taskIds.length}` : "Задачи созданы"}</h2><p>${recommendedScenarioIndex >= 0 ? recommendedPrepared ? `Сценарий ${recommendedScenarioIndex + 1} уже подготовлен в генераторе как лучший первый безопасный эксперимент. Оплата и рендер не запускались.` : `Сценарий ${recommendedScenarioIndex + 1} рекомендован первым. Автоподготовка не заменила текущий рабочий контекст; при необходимости подготовьте его отдельной кнопкой.` : "Исполнители уже назначены. Повторное сохранение и утверждение заблокированы, чтобы ТЗ не разошлось с созданными задачами."}</p></div>${approvedActions}</section>` : ""}
@@ -258,10 +263,11 @@ export function productResearchResultMarkup(record, {
         <label class="check-row product-research-approval"><input type="checkbox" name="approve_ack" ${approved ? "checked disabled" : ""} /><span><strong>Факты, формулировки и три сценария проверены человеком</strong><br /><small>${approved ? "Проверка завершена: задачи уже созданы и назначены выбранным участникам." : "При утверждении портал создаст задачи и назначит каждую выбранному выше исполнителю."}</small></span></label>
       </div>
       <div class="product-research-brief-actions">
-        <button class="btn btn-secondary" type="submit" data-research-submit="save" ${saving || approving || approved ? "disabled" : ""}>${approved ? "Сохранение заблокировано" : saving ? "Сохраняем…" : "Сохранить черновик"}</button>
-        <button class="btn" type="submit" data-research-submit="approve" ${saving || approving || approved ? "disabled" : ""}>${approving ? "Создаём задачи…" : approved ? "Задачи уже созданы" : "Утвердить и создать 3 задачи →"}</button>
+        <button class="btn" type="submit" data-research-submit="save" data-primary-action="true" ${saving || approving || approved ? "disabled" : ""}>${approved ? "Сохранение заблокировано" : saving ? "Сохраняем…" : "Сохранить черновик"}</button>
+        <button class="btn" type="submit" data-research-submit="approve" data-primary-action="true" ${saving || approving || approved ? "disabled" : ""}>${approving ? "Создаём задачи…" : approved ? "Задачи уже созданы" : "Утвердить и создать 3 задачи →"}</button>
       </div>
-    </form>`;
+    </form>
+    </div>`;
 }
 
 export function readProductResearchBrief(form) {

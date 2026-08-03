@@ -32,9 +32,9 @@ def test_training_preserves_assessment_identity_while_updating_the_scenario() ->
     assert "'{knowledge_remediation,course_check_factory_basics_paid_start,tip}'" in MIGRATION
 
 
-def test_photo_and_video_qa_share_one_generation_navigation_label() -> None:
+def test_training_navigation_maps_to_the_simplified_generation_action() -> None:
     assert '["generation", "Создание контента", "✦"]' in CATALOG
-    assert 'label: "Создание контента"' in APP
+    assert 'label: "Создать"' in APP
     assert 'data-action="restore-auto-generation-brief"' in APP
     assert "compileSafeGenerationBrief" in APP
     assert "generationPromptInspection(form)" in APP

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -13,14 +14,22 @@ ZEN = (APP_DIR / "workspace-os-v3-zen-control.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-os-v3-visual-qa.css").read_text(encoding="utf-8")
 
 
-def test_visual_qa_assets_load_after_os_v3_and_before_build_guard() -> None:
-    assert './workspace-os-v3-visual-qa.css?v=20260731.1' in INDEX
-    assert './workspace-os-v3-visual-qa.js?v=20260731.1' in INDEX
-    assert './workspace-os-v3-zen-control.js?v=20260731.1' in INDEX
-    assert INDEX.index('./workspace-os-v3-finish.css') < INDEX.index('./workspace-os-v3-visual-qa.css')
-    assert INDEX.index('./workspace-academy-lab-v3.js') < INDEX.index('./workspace-os-v3-visual-qa.js')
-    assert INDEX.index('./workspace-os-v3-visual-qa.js') < INDEX.index('./workspace-os-v3-zen-control.js')
-    assert INDEX.index('./workspace-os-v3-zen-control.js') < INDEX.index('./workspace-build-guard.js')
+def test_os_v3_visual_qa_assets_are_retired_from_the_active_graph() -> None:
+    active_assets = re.findall(
+        r'^\s*<(?:link|script)\b[^>]*\b(?:href|src)="([^"]+)"',
+        INDEX,
+        flags=re.MULTILINE,
+    )
+    retired_names = (
+        "workspace-os-v3-visual-qa.css",
+        "workspace-os-v3-visual-qa.js",
+        "workspace-os-v3-zen-control.js",
+    )
+    assert not any(any(name in asset for name in retired_names) for asset in active_assets)
+    assert "./workspace-os-v4.css?v=20260803.os4.4" in active_assets
+    assert active_assets.index("./workspace-os-v4-loader.js?v=20260803.os4.4") < active_assets.index(
+        "./workspace-build-guard.js?v=20260803.os4.4"
+    )
 
 
 def test_legacy_visual_layers_are_retained_as_contracts_but_not_executed() -> None:

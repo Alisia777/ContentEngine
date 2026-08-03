@@ -181,7 +181,7 @@ function statusCopy(project) {
 
 function evidenceSummaryMarkup(project, options = {}) {
   const mediaButton = project.media.objectKey
-    ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-training-practical-media" data-object-key="${escapeHtml(project.media.objectKey)}">Открыть защищённый MP4</button>`
+    ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-training-practical-media" data-object-key="${escapeHtml(project.media.objectKey)}" aria-expanded="false">Показать MP4 здесь</button>`
     : "";
   const link = project.evidenceUrl
     ? `<a class="btn btn-secondary btn-small" href="${escapeHtml(project.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>`
@@ -193,6 +193,10 @@ function evidenceSummaryMarkup(project, options = {}) {
       ${project.media.filename ? `<div><span>Файл</span><strong>${escapeHtml(project.media.filename)}</strong></div>` : ""}
       ${project.learnerNote ? `<p>${escapeHtml(project.learnerNote)}</p>` : ""}
       <div class="inline-actions">${mediaButton}${link}${options.compact ? "" : `<small>${project.submittedAt ? `Отправлено: ${escapeHtml(project.submittedAt)}` : ""}</small>`}</div>
+      ${project.media.objectKey ? `<div class="training-practical__media" data-training-practical-media hidden>
+        <video controls preload="metadata" playsinline data-training-practical-video aria-label="Пробная работа ${escapeHtml(project.media.filename || "MP4")}"></video>
+        <p role="status" data-training-practical-media-status>Защищённый MP4 открыт в этом экране.</p>
+      </div>` : ""}
     </div>
   `;
 }
@@ -246,24 +250,31 @@ export function trainingPracticalProjectMarkup(rawProject, options = {}) {
   `;
 }
 
-export function trainingPracticalReviewQueueMarkup(rawReviews) {
+export function trainingPracticalReviewQueueMarkup(rawReviews, options = {}) {
   const reviews = normalizeTrainingPracticalReviews(rawReviews).filter((item) => item.status === "submitted");
+  const requestedReviewId = cleanUuid(options.reviewId);
+  const interactive = options.interactive !== false;
+  const visibleReviews = requestedReviewId
+    ? reviews.filter((item) => item.id === requestedReviewId)
+    : reviews;
+  const detailMode = Boolean(requestedReviewId && interactive);
   return `
-    <section class="card training-practical-queue" aria-labelledby="training-practical-queue-title">
-      <header class="card-header"><div><p class="eyebrow">Практический допуск</p><h2 id="training-practical-queue-title">Пробные работы на проверке</h2><p>Сначала полностью откройте материал, затем сохраните одно конкретное решение. Финально принять можно только защищённый MP4 — внешняя ссылка подходит для предварительного разбора.</p></div><div class="training-practical-queue__actions"><span class="badge ${reviews.length ? "badge-warning" : "badge-success"}">${reviews.length} в очереди</span><button class="btn btn-secondary btn-small" type="button" data-action="refresh-training-practical-reviews">Обновить пробные работы</button></div></header>
-      ${reviews.length ? `<div class="training-practical-queue__list">${reviews.map((project) => `
+    <section class="card training-practical-queue" data-practical-review-mode="${detailMode ? "detail" : interactive ? "legacy" : "queue"}" aria-labelledby="training-practical-queue-title">
+      <header class="card-header"><div><p class="eyebrow">Практический допуск</p><h2 id="training-practical-queue-title">${detailMode ? "Решение по одной пробной работе" : "Пробные работы на проверке"}</h2><p>${detailMode ? "Полностью откройте материал и сохраните одно конкретное решение по этой работе." : interactive ? "Сначала полностью откройте материал, затем сохраните одно конкретное решение. Финально принять можно только защищённый MP4 — внешняя ссылка подходит для предварительного разбора." : "Очередь остаётся обзором. Откройте одну работу, чтобы принять решение без соседних форм и случайной подмены записи."}</p></div><div class="training-practical-queue__actions"><span class="badge ${reviews.length ? "badge-warning" : "badge-success"}">${reviews.length} в очереди</span><button class="btn btn-secondary btn-small" type="button" data-action="refresh-training-practical-reviews">Обновить пробные работы</button></div></header>
+      ${detailMode ? `<a class="btn btn-ghost btn-small" href="#/workspace/team?view=reviews">← Вернуться к очереди</a>` : ""}
+      ${visibleReviews.length ? `<div class="training-practical-queue__list">${visibleReviews.map((project) => `
         <article class="training-practical-review" data-practical-review-id="${escapeHtml(project.id)}" data-practical-evidence-kind="${escapeHtml(project.evidenceKind)}">
           <div class="training-practical-review__identity"><span aria-hidden="true">${escapeHtml((project.learnerName || project.learnerEmail || "У").slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(project.learnerName || "Участник")}</strong><small>${escapeHtml(project.learnerEmail)}</small></div></div>
           ${evidenceSummaryMarkup(project, { compact: true })}
-          <form class="training-practical-review__form" data-practical-review-id="${escapeHtml(project.id)}" data-practical-evidence-kind="${escapeHtml(project.evidenceKind)}" novalidate>
+          ${interactive ? `<form class="training-practical-review__form" data-practical-review-id="${escapeHtml(project.id)}" data-practical-evidence-kind="${escapeHtml(project.evidenceKind)}" novalidate>
             <input type="hidden" name="expected_version" value="${project.version || ""}" />
             <label class="field"><span>Комментарий решения *</span><textarea name="review_note" required minlength="10" maxlength="2000" rows="3" placeholder="Что принято или что конкретно исправить"></textarea></label>
             <label class="acknowledgement"><input name="media_watched_confirmed" type="checkbox" required /><span>Материал просмотрен полностью; товар, кадр, текст и обещания проверены.</span></label>
             ${project.evidenceKind === "private_file" ? "" : `<p class="training-practical-review__immutable-note" role="note">Для финального принятия попросите участника загрузить MP4 в защищённую папку.</p>`}
-            <div class="inline-actions"><button class="btn" type="submit" name="decision" value="approve" ${project.evidenceKind === "private_file" ? "" : "disabled aria-disabled=\"true\""}>Принять работу</button><button class="btn btn-secondary" type="submit" name="decision" value="request_changes">Вернуть на доработку</button></div>
-          </form>
+            <div class="inline-actions"><button class="btn" type="submit" name="decision" value="approve" ${project.evidenceKind === "private_file" ? "" : "disabled aria-disabled=\"true\""} data-primary-action="true">Принять работу</button><button class="btn btn-secondary" type="submit" name="decision" value="request_changes">Вернуть на доработку</button></div>
+          </form>` : `<a class="btn btn-secondary btn-small" href="#/workspace/team?view=review&amp;review=${encodeURIComponent(project.id)}">Открыть одну работу</a>`}
         </article>
-      `).join("")}</div>` : `<div class="training-practical-queue__empty"><span aria-hidden="true">✓</span><div><strong>Очередь разобрана</strong><p>Новые пробные работы появятся здесь после отправки участником.</p></div></div>`}
+      `).join("")}</div>` : `<div class="training-practical-queue__empty"><span aria-hidden="true">${requestedReviewId ? "?" : "✓"}</span><div><strong>${requestedReviewId ? "Работа по этой ссылке не найдена" : "Очередь разобрана"}</strong><p>${requestedReviewId ? "Портал не открыл другую работу вместо неё. Вернитесь в очередь и выберите доступную запись." : "Новые пробные работы появятся здесь после отправки участником."}</p></div></div>`}
     </section>
   `;
 }

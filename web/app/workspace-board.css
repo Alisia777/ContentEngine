@@ -355,6 +355,51 @@
   color: var(--workspace-board-danger);
 }
 
+.workspace-board__inline-confirm {
+  display: grid;
+  margin-top: 5px;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--workspace-board-danger) 34%, var(--workspace-board-line));
+  border-radius: 11px;
+  gap: 6px;
+  background: color-mix(in srgb, var(--workspace-board-danger) 8%, var(--workspace-board-surface));
+}
+
+.workspace-board__inline-confirm strong {
+  color: var(--workspace-board-danger);
+  font-size: .76rem;
+}
+
+.workspace-board__inline-confirm > span {
+  color: var(--workspace-board-ink-soft);
+  font-size: .67rem;
+  line-height: 1.4;
+}
+
+.workspace-board__inline-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.workspace-board__inline-confirm button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--workspace-board-line-strong);
+  border-radius: 9px;
+  color: var(--workspace-board-ink);
+  background: var(--workspace-board-surface);
+  cursor: pointer;
+  font-size: .68rem;
+  font-weight: 760;
+}
+
+.workspace-board__inline-confirm button.workspace-board__text-action--danger {
+  color: #fff;
+  border-color: var(--workspace-board-danger);
+  background: var(--workspace-board-danger);
+}
+
 .workspace-board__content {
   overflow: clip;
 }
