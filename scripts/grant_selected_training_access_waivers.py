@@ -121,16 +121,29 @@ select
   membership.profile_id::text as user_id,
   membership.role,
   membership.status as membership_status,
+  organization.status as organization_status,
+  profile.status as profile_status,
+  auth_user.email_confirmed_at is not null as email_confirmed,
+  (
+    auth_user.deleted_at is null
+    and (
+      auth_user.banned_until is null
+      or auth_user.banned_until <= now()
+    )
+  ) as auth_active,
   waiver.status as waiver_status,
   waiver.scope,
-  content_factory_private.training_access_waiver_active(
-    membership.organization_id,
-    membership.profile_id
-  ) as waiver_active
+  waiver.granted_role
 from content_factory.memberships membership
 join content_factory.training_access_waivers waiver
   on waiver.organization_id = membership.organization_id
  and waiver.profile_id = membership.profile_id
+join content_factory.organizations organization
+  on organization.id = membership.organization_id
+join content_factory.profiles profile
+  on profile.id = membership.profile_id
+join auth.users auth_user
+  on auth_user.id = membership.profile_id
 where membership.organization_id = {_sql_literal(organization_id)}::uuid
   and membership.profile_id = any(array[{target_ids}])
 order by membership.profile_id
@@ -145,10 +158,14 @@ order by membership.profile_id
         user_id = _validated_uuid(row.get("user_id"))
         if (
             expected.get(user_id) != row.get("role")
+            or row.get("granted_role") != row.get("role")
             or row.get("membership_status") != "active"
+            or row.get("organization_status") != "active"
+            or row.get("profile_status") != "active"
+            or row.get("email_confirmed") is not True
+            or row.get("auth_active") is not True
             or row.get("waiver_status") != "active"
             or row.get("scope") != "workspace_generation"
-            or row.get("waiver_active") is not True
         ):
             raise TrainingWaiverError("Selected waiver verification failed")
 

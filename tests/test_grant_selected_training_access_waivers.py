@@ -87,7 +87,7 @@ class FakeManagement:
                 self.states[KLIMOV_EMAIL], membership_role="operator"
             )
             return [{"result": {"ok": True, "target_count": 3}}]
-        if "training_access_waiver_active" in sql:
+        if "waiver.granted_role" in sql:
             if not self.granted:
                 return []
             return [
@@ -95,25 +95,37 @@ class FakeManagement:
                     "user_id": GUEST_ID,
                     "role": "operator",
                     "membership_status": "active",
+                    "organization_status": "active",
+                    "profile_status": "active",
+                    "email_confirmed": True,
+                    "auth_active": True,
                     "waiver_status": "active",
                     "scope": "workspace_generation",
-                    "waiver_active": True,
+                    "granted_role": "operator",
                 },
                 {
                     "user_id": KLIMOV_ID,
                     "role": "operator",
                     "membership_status": "active",
+                    "organization_status": "active",
+                    "profile_status": "active",
+                    "email_confirmed": True,
+                    "auth_active": True,
                     "waiver_status": "active",
                     "scope": "workspace_generation",
-                    "waiver_active": True,
+                    "granted_role": "operator",
                 },
                 {
                     "user_id": OWNER_ID,
                     "role": "owner",
                     "membership_status": "active",
+                    "organization_status": "active",
+                    "profile_status": "active",
+                    "email_confirmed": True,
+                    "auth_active": True,
                     "waiver_status": "active",
                     "scope": "workspace_generation",
-                    "waiver_active": True,
+                    "granted_role": "owner",
                 },
             ]
         raise AssertionError("unexpected management query")
@@ -160,6 +172,14 @@ def test_selected_slots_are_granted_in_one_mutation_without_email_literals() -> 
     assert "'role', 'owner'" in mutations[0]
     assert "training_certifications" not in mutations[0]
     assert "training_attempts" not in mutations[0]
+
+    verification = next(
+        str(query["sql"])
+        for query in management.queries
+        if query["read_only"] and "waiver.granted_role" in str(query["sql"])
+    )
+    assert "training_access_waiver_active" not in verification
+    assert "waiver.granted_role" in verification
 
 
 def test_duplicate_protected_slots_fail_before_any_database_mutation() -> None:
