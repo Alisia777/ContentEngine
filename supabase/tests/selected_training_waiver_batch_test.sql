@@ -59,27 +59,27 @@ insert into content_factory.organizations (
   'active'
 );
 
-insert into content_factory.profiles (
-  id, email, display_name, status
-) values
+-- The auth trigger provisions profiles for these users. Keep the fixture
+-- explicit without inserting duplicate primary keys over trigger-owned rows.
+update content_factory.profiles profile
+set
+  display_name = fixture.display_name,
+  status = 'active'
+from (values
   (
     'd1000000-0000-4000-8000-000000000001'::uuid,
-    'selected-waiver-owner@example.test',
-    'Selected Waiver Owner',
-    'active'
+    'Selected Waiver Owner'::text
   ),
   (
     'd1000000-0000-4000-8000-000000000002'::uuid,
-    'selected-waiver-viewer@example.test',
-    'Selected Waiver Viewer',
-    'active'
+    'Selected Waiver Viewer'::text
   ),
   (
     'd1000000-0000-4000-8000-000000000003'::uuid,
-    'selected-waiver-trainee@example.test',
-    'Selected Waiver Trainee',
-    'active'
-  );
+    'Selected Waiver Trainee'::text
+  )
+) as fixture(id, display_name)
+where profile.id = fixture.id;
 
 insert into content_factory.memberships (
   organization_id, profile_id, role, status
