@@ -56,8 +56,16 @@ def test_route_motion_keeps_the_desktop_chrome_stable() -> None:
     assert ".workspace-main" in MOTION
     assert "opacity: 1 !important" in MOTION
     assert "#main-content.route-enter .ce-v4-page" in MOTION
-    assert "opacity: .74 !important" in MOTION
-    assert "transform: translate3d(0, 8px, 0) scale(.995) !important" in MOTION
+    loading_selector = (
+        'html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 '
+        '#main-content .ce-v4-page {'
+    )
+    loading_rule = MOTION[
+        MOTION.index(loading_selector) : MOTION.index("\n}", MOTION.index(loading_selector))
+    ]
+    assert "opacity: .96 !important" in loading_rule
+    assert "transform: none !important" in loading_rule
+    assert "scale(" not in loading_rule
     assert "body:not(.contentengine-desktop-v4) .route-enter" in INTERFACE
     eager_loading = INTERFACE[
         INTERFACE.index('html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 .workspace-main {') :
@@ -71,7 +79,7 @@ def test_route_motion_keeps_the_desktop_chrome_stable() -> None:
         assert "opacity: 1" in eager_gate
         assert "transform: none" in eager_gate
         assert "transition: none" in eager_gate
-    assert "ce-v4-route-progress" in MOTION
+    assert "ce-v4-route-progress" not in MOTION
     assert "transition: all" not in MOTION
     assert "backdrop-filter: none !important" in MOTION
     assert "ce-v4-dock-launch" in MOTION
@@ -151,8 +159,11 @@ def test_fullscreen_layout_does_not_reserve_a_second_body_scrollbar_gutter() -> 
 def test_motion_has_reduced_motion_and_mobile_dock_fallbacks() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in MOTION
     assert "@media (max-width: 680px)" in MOTION
-    assert ".ce-v4-menubar__location" in MOTION
-    assert "display: grid !important" in MOTION
+    assert ".ce-v4-menubar__location" not in CORE
+    search_rule_start = CORE_CSS.index(".ce-v4-menubar__search {")
+    search_rule = CORE_CSS[search_rule_start : CORE_CSS.index("\n}", search_rule_start)]
+    assert "display: grid" in search_rule
+    assert "width: 100%" in search_rule
     assert "overflow-x: auto !important" in MOTION
     assert "scroll-snap-type: x proximity" in MOTION
     mobile = MOTION[MOTION.index("@media (max-width: 680px)") : MOTION.index("@media (prefers-reduced-motion: reduce)")]
@@ -174,7 +185,12 @@ def test_workspace_rerender_skips_unchanged_markup_and_reveals_loaded_content_on
 
 def test_keyboard_search_opens_finder_without_a_spotlight_subwindow() -> None:
     handler = CORE[CORE.index("function handleKeydown(") : CORE.index("\nfunction handleScroll(")]
-    assert "focusFinderSearch();" in handler
+    search = CORE[CORE.index("function focusFinderSearch(") : CORE.index("\nfunction fullscreenElement(")]
+    assert 'q(".ce-v4-menubar__search input", runtime.menubar)' in handler
+    assert "safeFocus(search)" in handler
+    assert "search?.select?.()" in handler
+    assert "focusFinderSearch(query)" in search
+    assert 'navigate("/workspace/board")' in search
     assert "openSpotlight();" not in handler
 
 

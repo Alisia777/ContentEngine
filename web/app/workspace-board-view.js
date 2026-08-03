@@ -600,7 +600,7 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
                     title="Действия с папкой"
                     ${busy ? "disabled" : ""}>⋯</button>
           </li>`).join("")}
-        <li class="workspace-board__folder-group-label">Ваши папки</li>
+        <li class="workspace-board__folder-group-label">Проекты и папки</li>
         <li class="workspace-board__folder-row workspace-board__folder-row--system ${selectedFolderId === "root" ? "is-selected" : ""}"
             data-workspace-drop-folder
             data-folder-id="root"
@@ -645,7 +645,7 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
     <div class="workspace-board__folder-management">
       <form id="workspace-folder-create-form" class="workspace-board__compact-form">
         <input type="hidden" name="parent_folder_id" value="${escapeHtml(parentFolderId)}" />
-        <label for="workspace-folder-name">Новая папка</label>
+        <label for="workspace-folder-name">${selected ? "Новая папка" : "Новый проект"}</label>
         <div>
           <input id="workspace-folder-name"
                  name="folder_name"
@@ -653,12 +653,12 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
                  minlength="1"
                  maxlength="120"
                  autocomplete="off"
-                 placeholder="${selected ? "Внутри выбранной папки" : "Например: Июль · Пилинг"}"
+                 placeholder="${selected ? "Внутри выбранной папки" : "Например: Bombbar · Август"}"
                  ${busy ? "disabled" : ""} />
           <button class="workspace-board__icon-button"
                   type="submit"
-                  aria-label="Создать папку"
-                  title="Создать папку"
+                  aria-label="${selected ? "Создать папку" : "Создать проект"}"
+                  title="${selected ? "Создать папку" : "Создать проект"}"
                   ${busy ? "disabled" : ""}>+</button>
         </div>
       </form>
@@ -938,12 +938,13 @@ export function workspaceBoardMarkup(board, options = {}) {
       ${normalizedOptions.notice ? `
         <div class="workspace-board__message workspace-board__message--notice">
           <span>${escapeHtml(normalizedOptions.notice)}</span>
+          <button type="button" data-action="refresh-section" data-section="board">Повторить</button>
         </div>` : ""}
       <div class="workspace-board__layout">
         <aside class="workspace-board__sidebar" aria-label="Управление папками">
           <div class="workspace-board__sidebar-head">
-            <p>Папки</p>
-            <small>Перетащите объект на папку</small>
+            <p>Проекты и папки</p>
+            <small>Корневая папка — отдельный проект</small>
           </div>
           ${folderTreeMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
           ${folderManagementMarkup(

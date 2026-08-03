@@ -3,6 +3,7 @@
 const ROUTE = "/workspace/board";
 const STATE_KEY = "contentengine.desktop-v4.finder.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
+const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
 
@@ -166,7 +167,9 @@ function filterFolders(query) {
 function finderMode() {
   const raw = String(window.location.hash || "").replace(/^#/, "");
   const query = new URLSearchParams(raw.split("?")[1] || "");
-  return query.get("view") === "organize" ? "organize" : "browse";
+  return query.get("view") === "organize" || query.get("create") === "project"
+    ? "organize"
+    : "browse";
 }
 
 function applyMode() {
@@ -314,16 +317,11 @@ function buildToolbar() {
 }
 
 function buildFolderSearch() {
-  const sidebar = q(".workspace-board__sidebar", runtime.board);
-  if (!sidebar || q(":scope > .ce-v4-folder-search", sidebar)) return;
-  const label = create("label", "ce-v4-folder-search");
-  const input = create("input");
-  input.type = "search";
-  input.placeholder = "Найти папку";
-  input.setAttribute("aria-label", "Найти папку");
-  label.append(input);
-  const head = q(".workspace-board__sidebar-head", sidebar);
-  head?.after(label);
+  const input = q('#workspace-board-filter-form input[name="query"]', runtime.board);
+  if (!input || input.dataset.ceV4FolderSearchBound === "true") return;
+  input.dataset.ceV4FolderSearchBound = "true";
+  input.placeholder = "Найти проект, папку, SKU или файл";
+  input.setAttribute("aria-label", "Найти проект, папку, SKU или файл");
   input.addEventListener("input", () => filterFolders(input.value));
 }
 
@@ -339,6 +337,44 @@ function finderQueryHandoff() {
   if (!form || !input) return;
   input.value = value;
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+}
+
+function routeFinderQuery() {
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  return new URLSearchParams(raw.split("?")[1] || "");
+}
+
+function rememberProjectRow(row) {
+  if (!(row instanceof HTMLElement) || row.dataset.systemFolder === "true") return;
+  const depth = Number(row.style.getPropertyValue("--workspace-folder-depth") || 0);
+  if (depth !== 0) return;
+  const id = String(row.dataset.folderId || "");
+  const name = compact(q(".workspace-board__folder-button > span:nth-child(2)", row)?.textContent || "Проект", 80);
+  if (!id) return;
+  try { window.sessionStorage.setItem(PROJECT_CONTEXT_KEY, JSON.stringify({ id, name })); }
+  catch { /* project context is a navigation convenience */ }
+}
+
+function applyRouteFolder() {
+  const query = routeFinderQuery();
+  const folderId = String(query.get("folder") || "").trim();
+  if (folderId) {
+    const row = q(`.workspace-board__folder-row[data-folder-id="${CSS.escape(folderId)}"]`, runtime.board);
+    if (row) {
+      rememberProjectRow(row);
+      if (!row.classList.contains("is-selected")) {
+        q(".workspace-board__folder-button", row)?.click();
+        return;
+      }
+    }
+  }
+  if (query.get("create") === "project") {
+    const input = q("#workspace-folder-create-form input[name='folder_name']", runtime.board);
+    if (input instanceof HTMLElement) {
+      q("#workspace-folder-create-form", runtime.board)?.scrollIntoView({ block: "nearest", behavior: "auto" });
+      input.focus({ preventScroll: true });
+    }
+  }
 }
 
 function ensureSelectedDrawer(card) {
@@ -451,9 +487,27 @@ function handleBoardQuickLookKeydown(event) {
 }
 
 function handleBoardFolderSelection(event) {
-  if (!MOBILE_SIDEBAR.matches || !(event.target instanceof Element)) return;
-  if (!event.target.closest(".workspace-board__folder-button")) return;
-  window.requestAnimationFrame(() => setSidebarOpen(false));
+  if (!(event.target instanceof Element)) return;
+  const button = event.target.closest(".workspace-board__folder-button");
+  if (!button) return;
+  rememberProjectRow(button.closest(".workspace-board__folder-row"));
+  if (MOBILE_SIDEBAR.matches) window.requestAnimationFrame(() => setSidebarOpen(false));
+}
+
+function handleBoardItemSelection(event) {
+  if (!(event.target instanceof Element)) return;
+  const trigger = event.target.closest('[data-action="open-workspace-item"]');
+  const card = trigger?.closest(".workspace-board__item");
+  if (!card) return;
+  const cardKey = String(card.dataset.workspaceItemKey || "");
+  // Let the application's document-level handler render the real detail node,
+  // then replace Finder with that detail in the same surface.
+  window.requestAnimationFrame(() => {
+    const current = cardKey
+      ? q(`[data-workspace-item-key="${CSS.escape(cardKey)}"]`, runtime.board)
+      : card;
+    void openQuickLook(current || card);
+  });
 }
 
 function bindBoard() {
@@ -461,6 +515,7 @@ function bindBoard() {
   runtime.board.dataset.ceV4FinderBound = "true";
   runtime.board.addEventListener("dblclick", handleBoardDoubleClick);
   runtime.board.addEventListener("keydown", handleBoardQuickLookKeydown, true);
+  runtime.board.addEventListener("click", handleBoardItemSelection);
   runtime.board.addEventListener("click", handleBoardFolderSelection);
 }
 
@@ -492,6 +547,7 @@ function mount() {
   filterFolders(q(".ce-v4-folder-search input", board)?.value || "");
   bindBoard();
   finderQueryHandoff();
+  applyRouteFolder();
 }
 
 document.addEventListener("keydown", (event) => {

@@ -3,8 +3,8 @@ import {
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
 } from "./supabase-api.js?v=20260729.2";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.4";
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.4";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -117,7 +117,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260803.os4.4";
+} from "./content-review-view.js?v=20260803.os4.6";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -146,7 +146,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260803.os4.4";
+} from "./workspace-board-view.js?v=20260803.os4.6";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -194,7 +194,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260803.os4.4";
+} from "./training-practical-review.js?v=20260803.os4.6";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -213,7 +213,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260803.os4.4";
+} from "./my-work-view.js?v=20260803.os4.6";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -240,7 +240,7 @@ const HOME_SECTION_TIMEOUT_MS = 8_000;
 const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
 const WORKSPACE_BOARD_VISIBLE_STEP = 80;
 const WORKSPACE_BOARD_MEMORY_CAP = 300;
-const WORKSPACE_BOARD_FALLBACK_NOTICE = "Папки временно недоступны. Ниже показаны свежие материалы и задачи без распределения по папкам; основные рабочие действия продолжают работать.";
+const WORKSPACE_BOARD_FALLBACK_NOTICE = "Не удалось обновить проекты и папки. Показаны последние доступные данные; повторите загрузку.";
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
 const PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY = "contentengine.public-recovery-receipt.v1";
 const PUBLIC_RECOVERY_PENDING_STATUSES = new Set(["requesting", "outcome_unknown", "provider_outcome_unknown"]);
@@ -6272,6 +6272,13 @@ function renderWorkspace(section) {
   if (state.myWork.notificationsStatus === "idle") {
     window.queueMicrotask(() => loadMyWorkNotifications({ silent: true }));
   }
+  if (section === "home" && state.sections.board?.status === "idle") {
+    window.queueMicrotask(() => {
+      if (state.route.path === "/workspace/home" && state.sections.board?.status === "idle") {
+        void loadSection("board", { silent: true, rerenderSection: "home" });
+      }
+    });
+  }
   const sectionState = section === "home" ? state.home : state.sections[section];
   if (section === "research" && sectionState.status === "idle") {
     sectionState.status = "ready";
@@ -7436,7 +7443,32 @@ async function loadSection(section, options = {}) {
           || requestUserId !== state.user?.id
           || requestId !== target.requestId
         ) return;
-        target.data = await hydratePrivateMedia(fallback);
+        const previousBoard = target.data && typeof target.data === "object"
+          ? target.data
+          : {};
+        const previousFolders = Array.isArray(previousBoard.folders)
+          ? previousBoard.folders
+          : Array.isArray(previousBoard.workspace_folders)
+            ? previousBoard.workspace_folders
+            : [];
+        const previousCapabilities = previousBoard.capabilities
+          && typeof previousBoard.capabilities === "object"
+          ? previousBoard.capabilities
+          : {};
+        const canCreateProjects = ["owner", "admin"].includes(
+          String(state.bootstrap?.membership?.role || "").toLowerCase(),
+        );
+        target.data = await hydratePrivateMedia({
+          ...fallback,
+          folders: previousFolders,
+          capabilities: {
+            manage_folders: previousCapabilities.manage_folders === true
+              || previousCapabilities.manageFolders === true
+              || canCreateProjects,
+            move_items: previousCapabilities.move_items === true
+              || previousCapabilities.moveItems === true,
+          },
+        });
         target.error = null;
         target.status = "ready";
         state.workspaceBoard.loadingMore = false;
@@ -8122,30 +8154,150 @@ function homeNextAction({
   };
 }
 
+function readableHomeActionTitle(action) {
+  const title = String(action?.title || "").trim();
+  const opaqueMediaName = /(?:^|[^a-f0-9])[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?:\.[a-z0-9]{2,5})?$/iu.test(title)
+    || /^[a-f0-9-]{28,}(?:\.[a-z0-9]{2,5})?$/iu.test(title);
+  if (!opaqueMediaName) return title || "Продолжите работу";
+  const step = String(action?.step || "").toLocaleLowerCase("ru-RU");
+  if (/qa|провер/u.test(step)) return "Проверить готовое видео";
+  if (/доработ/u.test(step)) return "Исправить готовое видео";
+  return "Продолжить работу с видео";
+}
+
+async function submitHomeProjectCreate(form) {
+  const values = new FormData(form);
+  const name = String(values.get("folder_name") || "").trim();
+  if (!name || state.workspaceBoard.busy) return;
+  state.workspaceBoard.busy = true;
+  state.workspaceBoard.error = "";
+  state.workspaceBoard.notice = "";
+  renderWorkspace("home");
+  try {
+    const response = await state.api.createWorkspaceFolder({ name, parentId: null });
+    const source = response?.data ?? response ?? {};
+    const folderId = String(source.folder?.id || source.folder_id || "");
+    if (!folderId) throw new Error("workspace_project_id_missing");
+    state.workspaceBoard.selectedFolderId = folderId;
+    state.workspaceBoard.notice = `Проект «${name}» создан.`;
+    try {
+      window.sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({
+        id: folderId,
+        name,
+      }));
+    } catch { /* project context is also kept in application state */ }
+    await refreshWorkspaceBoardAfterMutation();
+    window.location.hash = `#/workspace/board?folder=${encodeURIComponent(folderId)}`;
+  } catch (error) {
+    state.workspaceBoard.error = actionErrorMessage(error);
+  } finally {
+    state.workspaceBoard.busy = false;
+    if (state.route.path === "/workspace/home") renderWorkspace("home");
+  }
+}
+
+function homeProjectSwitcherMarkup(action) {
+  const boardState = state.sections.board;
+  const board = normalizeWorkspaceBoard(boardState?.data || {});
+  const projects = board.folders.filter((folder) => folder.smart !== true && !folder.parentId);
+  const role = String(state.bootstrap?.membership?.role || "").toLowerCase();
+  const canCreateProject = board.capabilities.manageFolders || ["owner", "admin"].includes(role);
+  const loading = ["idle", "loading"].includes(String(boardState?.status || "idle")) && !boardState?.data;
+  const projectsUnavailable = state.workspaceBoard.notice === WORKSPACE_BOARD_FALLBACK_NOTICE;
+  const projectCards = loading
+    ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
+    : projects.map((project) => `
+        <a class="home-project-card"
+           href="#/workspace/board?folder=${encodeURIComponent(project.id)}"
+           data-ce-v4-project-id="${escapeHtml(project.id)}"
+           data-ce-v4-project-name="${escapeHtml(project.name)}">
+          <span class="home-project-card__folder" aria-hidden="true">◇</span>
+          <span class="home-project-card__copy">
+            <strong>${escapeHtml(project.name)}</strong>
+            <small>${Number(board.counts[project.id] || 0)} объектов</small>
+          </span>
+          <span class="home-project-card__open">Открыть <i aria-hidden="true">→</i></span>
+        </a>`).join("");
+  const createProject = canCreateProject ? `
+    <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
+      <summary><span aria-hidden="true">＋</span> Новый проект</summary>
+      <form id="home-project-create-form">
+        <label for="home-project-name">Название проекта</label>
+        <div>
+          <input id="home-project-name"
+                 name="folder_name"
+                 required
+                 minlength="1"
+                 maxlength="120"
+                 autocomplete="off"
+                 placeholder="Например: Bombbar · Август"
+                 ${state.workspaceBoard.busy ? "disabled" : ""} />
+          <button class="btn" type="submit" data-primary-action="true" ${state.workspaceBoard.busy ? "disabled" : ""}>
+            ${state.workspaceBoard.busy ? "Создаём…" : "Создать и открыть"}
+          </button>
+        </div>
+        <small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>
+      </form>
+    </details>` : `
+    <p class="home-project-readonly">Новый проект создаёт руководитель. Выберите доступный проект ниже.</p>`;
+  const actionTitle = readableHomeActionTitle(action);
+  const actionControl = action.controlAction
+    ? `<button class="btn btn-secondary" type="button" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
+    : `<a class="btn btn-secondary" href="${escapeHtml(action.href || "#/workspace/board")}">${escapeHtml(action.cta || "Открыть")} <span aria-hidden="true">→</span></a>`;
+  return `
+    <section class="home-project-switcher" data-ce-v4-project-home aria-labelledby="home-projects-title">
+      <header class="home-project-switcher__head">
+        <div>
+          <p class="eyebrow">Рабочие столы</p>
+          <h1 id="home-projects-title">Выберите проект</h1>
+          <p>Один проект хранит свои файлы и проходит понятный путь: создать → проверить → опубликовать → увидеть результат.</p>
+        </div>
+        ${createProject}
+      </header>
+      ${state.workspaceBoard.error ? `<div class="home-project-message" role="alert">${escapeHtml(state.workspaceBoard.error)}</div>` : ""}
+      ${state.workspaceBoard.notice ? `<div class="home-project-message" role="status">${escapeHtml(state.workspaceBoard.notice)}</div>` : ""}
+      ${projectsUnavailable ? `<button class="btn btn-secondary home-project-board-retry" type="button" data-action="refresh-section" data-section="board">Повторить загрузку проектов</button>` : ""}
+      <div class="home-project-grid">
+        ${projectCards || `
+          <div class="home-project-empty">
+            <span aria-hidden="true">◇</span>
+            <strong>Проектов пока нет</strong>
+            <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
+          </div>`}
+      </div>
+      <aside class="home-next-action-compact" aria-label="Следующее доступное действие">
+        <span><small>${escapeHtml(action.step || "Следующее действие")}</small><strong>${escapeHtml(actionTitle)}</strong></span>
+        <p>${escapeHtml(action.description || "Выберите проект, чтобы продолжить.")}</p>
+        ${actionControl}
+      </aside>
+    </section>`;
+}
+
 function renderHomeSection(homeState) {
   if ((homeState.status === "loading" || homeState.status === "idle") && !homeState.data) {
     return `
       <div class="page-wrap workspace-home">
-        <section class="home-hero home-hero-loading" role="status" aria-label="Собираем рабочий день">
-          <span class="sr-only">Собираем рабочий день…</span>
-          <div aria-hidden="true" class="skeleton skeleton-title"></div>
-          <div aria-hidden="true" class="skeleton skeleton-copy"></div>
-          <div aria-hidden="true" class="skeleton skeleton-action"></div>
-        </section>
-        <div aria-hidden="true" class="metrics-grid home-metrics">${Array.from({ length: 4 }, () => '<div class="card metric-card"><div class="skeleton"></div></div>').join("")}</div>
+        ${homeProjectSwitcherMarkup({
+          step: "Следующее действие",
+          title: "Собираем доступную работу…",
+          description: "Проекты уже можно открыть; очередь действий появится следом.",
+          href: "#/workspace/board",
+          cta: "Открыть файлы",
+        })}
       </div>
     `;
   }
   if (homeState.status === "error") {
     return `
       <div class="page-wrap workspace-home">
-        <section class="card home-error-state" role="alert">
-          <span class="home-error-mark" aria-hidden="true">!</span>
-          <p class="eyebrow">Рабочий день</p>
-          <h1>Не удалось собрать сводку</h1>
-          <p>Проверьте соединение и попробуйте ещё раз. Остальные разделы доступны в меню.</p>
-          <button class="btn" type="button" data-action="refresh-home">Попробовать снова</button>
-        </section>
+        ${homeProjectSwitcherMarkup({
+          step: "Сводка временно недоступна",
+          title: "Проекты и файлы продолжают работать",
+          description: "Откройте проект или повторите загрузку рабочей очереди.",
+          href: "#/workspace/board",
+          cta: "Открыть проекты",
+        })}
+        <button class="btn btn-secondary home-project-retry" type="button" data-action="refresh-home">Повторить загрузку сводки</button>
       </div>
     `;
   }
@@ -8195,6 +8347,7 @@ function renderHomeSection(homeState) {
     <div class="page-wrap workspace-home">
       ${homeState.status === "refreshing" ? '<div class="refresh-indicator" role="status"><span aria-hidden="true"></span>Обновляем сводку…</div>' : ""}
       ${homeState.unavailable?.length ? alertMarkup("Часть свежих данных пока недоступна. Показаны последние сохранённые значения; повторите обновление позже.", "warning") : ""}
+      ${homeProjectSwitcherMarkup(action)}
       <section class="home-hero">
         <div class="home-hero-copy">
           <p class="eyebrow">Сегодня в производстве</p>
@@ -12434,7 +12587,9 @@ async function loadWorkspaceBoardFallback() {
     media: listFrom(mediaData, "media", "items"),
     tasks: listFrom(tasksData, "tasks", "items"),
     capabilities: {
-      manage_folders: false,
+      manage_folders: ["owner", "admin"].includes(
+        String(state.bootstrap?.membership?.role || "").toLowerCase(),
+      ),
       move_items: false,
     },
     _meta: {
@@ -12466,6 +12621,20 @@ function reserveManagerEmailAction(cooldowns, email) {
 async function handleClick(event) {
   if (state.mobileNavOpen && !event.target.closest(".mobile-nav, .mobile-nav-trigger")) {
     setMobileNavOpen(false);
+  }
+  const homeProject = event.target.closest("[data-ce-v4-project-id]");
+  if (homeProject) {
+    const projectId = String(homeProject.dataset.ceV4ProjectId || "");
+    const projectName = String(homeProject.dataset.ceV4ProjectName || "Проект");
+    if (projectId) {
+      state.workspaceBoard.selectedFolderId = projectId;
+      try {
+        window.sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({
+          id: projectId,
+          name: projectName,
+        }));
+      } catch { /* application state still preserves the selected folder */ }
+    }
   }
   const workspaceDragHandle = event.target.closest("[data-workspace-drag-item]");
   if (workspaceDragHandle) {
@@ -13604,6 +13773,7 @@ async function handleSubmit(event) {
   else if (form.id === "training-practical-submit-form") await submitTrainingPracticalProject(form);
   else if (form.classList.contains("training-practical-review__form")) await submitTrainingPracticalDecision(form, event.submitter);
   else if (form.id === "exam-form") await submitExam(form);
+  else if (form.id === "home-project-create-form") await submitHomeProjectCreate(form);
   else if (form.id === "workspace-folder-create-form") await submitWorkspaceFolderCreate(form);
   else if (form.id === "workspace-folder-edit-form") await submitWorkspaceFolderEdit(form);
   else if (form.id === "workspace-board-filter-form") await submitWorkspaceBoardFilters(form);

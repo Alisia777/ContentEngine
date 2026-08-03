@@ -29,7 +29,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260803.os4.4"' in INDEX
+    assert 'content="20260803.os4.6"' in INDEX
     assert './startup-route.js?v=20260803.entry1' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP
@@ -489,11 +489,22 @@ def test_workspace_tabs_without_permission_open_an_explicit_access_screen_not_ac
     assert 'data-action="retry-bootstrap"' in screen
 
 
-def test_menubar_search_opens_finder_without_another_window() -> None:
+def test_visible_menubar_search_opens_finder_without_another_window() -> None:
     menubar = _between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
+    search = _between(CORE, "function focusFinderSearch(", "\n}\n\nfunction fullscreenElement")
     public_api = CORE[CORE.index("window.ContentEngineDesktopV4 = Object.freeze({") :]
-    assert "ceV4FinderSearch" in menubar
-    assert "focusFinderSearch();" in menubar
+    assert 'create("form", "ce-v4-menubar__search")' in menubar
+    assert 'globalSearch.setAttribute("role", "search")' in menubar
+    assert 'globalSearchInput.type = "search"' in menubar
+    assert 'globalSearch.addEventListener("submit"' in menubar
+    assert "runGlobalSearch(globalSearch)" in menubar
+    assert "focusFinderSearch(query)" in search
+    assert 'navigate("/workspace/board")' in search
+    assert 'form?.requestSubmit?.()' in search
+    search_rule = _between(CORE_CSS, ".ce-v4-menubar__search {", "\n}")
+    assert "display: grid" in search_rule
+    assert "width: 100%" in search_rule
+    assert "ce-v4-menubar__location" not in CORE
     assert "ceV4Spotlight" not in menubar
     assert "openSpotlight();" not in menubar
     assert "ce-v4-traffic" in menubar
@@ -528,12 +539,18 @@ def test_secondary_menu_is_navigation_not_a_window() -> None:
         assert forbidden not in menubar
 
 
-def test_flowbar_shows_position_and_next_step_without_faking_completion() -> None:
-    update = _between(CORE, "function updateFlowbar() {", "\n}\n\nfunction ensureDock")
-    assert 'link.classList.toggle("is-next", next)' in update
-    assert 'next ? "next" : "available"' in update
-    assert "is-past" not in update
-    assert 'data-state = "past"' not in update
+def test_global_flowbar_is_retired_in_favour_of_contextual_project_progress() -> None:
+    progress = _between(CORE, "function syncProjectProgress() {", "\n}\n\nfunction overlayBase")
+    assert "function ensureFlowbar" not in CORE
+    assert 'create("nav", "ce-v4-flowbar")' not in CORE
+    assert "data-ce-v4-flow-route" not in CORE
+    assert "ce-v4-menubar__location" not in CORE
+    assert CORE.count('const dock = create("nav", "ce-v4-dock");') == 1
+    assert progress.count('create("nav", "ce-v4-project-progress")') == 1
+    assert "progress.dataset.ceV4ProjectProgress = context.id" in progress
+    assert "PROJECT_FLOW.forEach" in progress
+    assert 'link.setAttribute("aria-current", "step")' in progress
+    assert "page.prepend(progress)" in progress
 
 
 def test_nested_academy_chrome_has_a_global_fail_closed_guard() -> None:

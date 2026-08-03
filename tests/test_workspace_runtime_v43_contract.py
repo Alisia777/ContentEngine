@@ -38,8 +38,8 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index:end_index]
 
 
-def test_v43_loader_has_a_single_intentional_route_adapter() -> None:
-    assert 'const BUILD = "20260803.os4.4"' in LOADER
+def test_v46_loader_has_exactly_the_three_intentional_route_adapters() -> None:
+    assert 'const BUILD = "20260803.os4.6"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -50,7 +50,7 @@ def test_v43_loader_has_a_single_intentional_route_adapter() -> None:
         route_assets,
         flags=re.MULTILINE,
     )
-    assert route_keys == ["finder"]
+    assert route_keys == ["finder", "generation", "review"]
 
     loaded_scripts = set(re.findall(r"(workspace[-a-z0-9]+\.js)\?v=", LOADER))
     assert loaded_scripts == {
@@ -59,6 +59,8 @@ def test_v43_loader_has_a_single_intentional_route_adapter() -> None:
         "workspace-os-v4-trash-rpc-alias.js",
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-finder.js",
+        "workspace-os-v4-generation-guided.js",
+        "workspace-os-v4-review-guided.js",
     }
 
     for retired_decorator in (
@@ -142,14 +144,25 @@ def test_core_exposes_one_frame_mount_coordinator() -> None:
     )
 
 
-def test_dock_geometry_is_stable_and_home_has_exactly_one_action() -> None:
+def test_dock_geometry_is_stable_and_home_uses_the_native_project_chooser() -> None:
     ensure_dock = _between(CORE, "function ensureDock(", "\nfunction updateDock(")
     assert "pointermove" not in ensure_dock
     assert "getBoundingClientRect" not in CORE
 
-    home = _between(CORE, "function mountHome(", "\nfunction overlayBase(")
-    assert home.count('dataset.primaryAction = "true"') == 1
-    assert home.count('create("button"') == 1
+    home = _between(CORE, "function mountHome(", "\nfunction projectContext(")
+    project_markup = _between(
+        APP_JS,
+        "function homeProjectSwitcherMarkup(",
+        "\nfunction renderHomeSection(",
+    )
+    assert 'q("[data-ce-v4-project-home]", page)' in home
+    assert "projects.dataset.ceV4Surface = \"true\"" in home
+    assert "home-project-create-form" not in home
+    assert "data-ce-v4-project-home" in project_markup
+    assert "data-ce-v4-project-id" in project_markup
+    assert "home-project-create-form" in project_markup
+    assert "board.folders.filter" in project_markup
+    assert "!folder.parentId" in project_markup
     for retired_home_control in (
         "ce-v4-home__secondary",
         "ce-v4-home__rail",
@@ -181,7 +194,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.4"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',

@@ -157,7 +157,8 @@ def test_research_views_hide_every_competing_primary_action() -> None:
 def test_finder_browse_and_organize_do_not_mix_action_surfaces() -> None:
     mode = _between(FINDER, "function finderMode()", "function sidebarParts()")
     toolbar = _between(FINDER, "function buildToolbar()", "function buildFolderSearch()")
-    assert 'query.get("view") === "organize" ? "organize" : "browse"' in mode
+    assert 'query.get("view") === "organize" || query.get("create") === "project"' in mode
+    assert mode.count('query.get("create") === "project"') == 1
     assert 'runtime.board.dataset.ceV4FinderMode = mode' in mode
     assert 'document.body.dataset.ceV4FinderMode = mode' in mode
     assert 'control.setAttribute("aria-current", active ? "page" : "false")' in mode

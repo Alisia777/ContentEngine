@@ -94,7 +94,10 @@ def test_workspace_board_recovers_with_media_and_tasks_when_folder_rpc_fails() -
     assert 'state.api.workspaceSection("media")' in fallback
     assert 'state.api.workspaceSection("tasks")' in fallback
     assert "Promise.allSettled" in fallback
-    assert "manage_folders: false" in fallback
+    assert "manage_folders: false" not in fallback
+    assert 'manage_folders: ["owner", "admin"].includes(' in fallback
+    assert 'state.bootstrap?.membership?.role' in fallback
+    assert ".toLowerCase()" in fallback
     assert "move_items: false" in fallback
     assert "degraded: true" in fallback
     recovery = APP[

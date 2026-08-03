@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.4 route loader.
+ * ContentEngine Desktop v4.6 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.4";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
 
-const BUILD = "20260803.os4.4";
+const BUILD = "20260803.os4.6";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -23,6 +23,16 @@ const ROUTE_ASSETS = Object.freeze({
     match: (route) => route === "/workspace/board",
     styles: [`workspace-os-v4-finder.css?v=${BUILD}`],
     modules: [`workspace-os-v4-finder.js?v=${BUILD}`],
+  }),
+  generation: Object.freeze({
+    match: (route) => route === "/workspace/generation",
+    styles: [`workspace-os-v4-generation-guided.css?v=${BUILD}`],
+    modules: [`workspace-os-v4-generation-guided.js?v=${BUILD}`],
+  }),
+  review: Object.freeze({
+    match: (route) => route === "/workspace/review",
+    styles: [`workspace-os-v4-review-guided.css?v=${BUILD}`],
+    modules: [`workspace-os-v4-review-guided.js?v=${BUILD}`],
   }),
 });
 
@@ -165,7 +175,7 @@ function schedule() {
     queued = false;
     void loadRoute(routePath(), workspaceActionKey()).catch((error) => {
       setFailed(routePath());
-      console.error("ContentEngine Desktop v4.4 route failed to start", error);
+      console.error("ContentEngine Desktop v4.6 route failed to start", error);
     });
   });
 }
