@@ -937,19 +937,21 @@ select throws_ok(
   'passive health receipt is append-only'
 );
 
-select like(
+select matches(
   pg_get_functiondef(
     'public.creator_start_product_research(jsonb)'::regprocedure
   ),
-  '%paid_analysis_ack_required%',
-  'start wrapper contains the fail-closed server acknowledgement gate'
+  'paid_analysis_ack_required',
+  'start wrapper contains the fail-closed server acknowledgement gate'::text
 );
-select like(
-  pg_get_functiondef(
+select ok(
+  strpos(lower(pg_get_functiondef(
     'public.system_claim_product_research(jsonb)'::regprocedure
-  ),
-  '%research_execution_authorization_required%',
-  'claim wrapper contains the immutable authorization gate'
+  )), 'system_claim_product_research_pre_stage_recompute_v3') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.system_claim_product_research_pre_stage_recompute_v3(jsonb)'::regprocedure
+  )), 'research_execution_authorization_required') > 0,
+  'claim wrapper delegates only through the immutable authorization gate'
 );
 select ok(
   position(

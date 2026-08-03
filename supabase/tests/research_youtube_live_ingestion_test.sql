@@ -542,7 +542,7 @@ values (
   'youtube_data_api_v3', 'youtube-data-api-v3-public-metadata-v1',
   'canary_enabled', 'youtube-developer-policies-2026-08-03-v1',
   true, true, 'Enable bounded test canaries after fixture controls.',
-  'test:youtube-canary-enabled', clock_timestamp(),
+  'test:youtube-canary-enabled', now() - interval '1 microsecond',
   'youtube-test-canary-enabled', repeat('6', 64)
 );
 
@@ -959,12 +959,10 @@ as $$
         'request_kind', 'videos.list',
         'response_hash', videos_hash_value,
         'item_count', 1,
-        'checked_at', (
-          select receipt.checked_at
-          from content_factory.research_youtube_transport_receipts receipt
-          where receipt.transport_id =
-            'f6800000-0000-4000-8000-00000000000b'
-        )
+        -- now() is transaction-stable and exactly matches the seeded receipt.
+        -- Keep the invoker helper from reading the private ledger directly:
+        -- service_role must reach it only through the SECURITY DEFINER RPC.
+        'checked_at', now() - interval '20 seconds'
       ),
       'observations', '[]'::jsonb
     )
@@ -983,8 +981,8 @@ select throws_ok(
 select is(
   pg_temp.complete_youtube_canary(repeat('c', 64))
     #>> '{ingestion,status}',
-  'completed',
-  'the exact videos receipt hash completes the canary'
+  'completed'::text,
+  'the exact videos receipt hash completes the canary'::text
 );
 select throws_ok(
   $$select pg_temp.complete_youtube_canary(repeat('d', 64))$$,

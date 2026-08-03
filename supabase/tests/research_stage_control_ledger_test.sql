@@ -1048,6 +1048,13 @@ select throws_ok(
   'approval RPC cannot bypass the non-ready guidance marker'
 );
 
+-- Direct malformed rows model historical/bypassed data rather than valid save
+-- RPC output.  Keep their main-head mutations isolated from the canonical
+-- browser save/approval flow below.  Within this fixture chain, the first two
+-- rows are historical and retain the legacy immutable-evidence guard; the last
+-- row is the current snapshot-backed head and is therefore governed by the
+-- exact stage-dependency guard introduced by stage control v2.
+savepoint malformed_v2_approval_fixtures;
 insert into content_factory.creative_brief_drafts (
   id, organization_id, run_id, product_id, previous_draft_id, created_by,
   origin, version, status, title, brief, source_ids, task_blueprint, content_hash
@@ -1121,9 +1128,11 @@ select throws_ok(
         approved_by = '98000000-0000-4000-8000-000000000001',
         approved_at = clock_timestamp()
     where id = '98500000-0000-4000-8000-000000000008'$$,
-  '55000', 'research_v2_evidence_immutable',
-  'approval cannot disguise a v2 descendant as a legacy brief'
+  '55000', 'research_stage_dependencies_stale',
+  'current snapshot cannot disguise a v2 descendant behind stale stages'
 );
+rollback to savepoint malformed_v2_approval_fixtures;
+release savepoint malformed_v2_approval_fixtures;
 
 update stage_control_rpc_context context
 set overlay_result = public.creator_save_creative_brief_draft(
@@ -1154,7 +1163,7 @@ set overlay_result = public.creator_save_creative_brief_draft(
 
 select is(
   (select overlay_result #>> '{draft,version}' from stage_control_rpc_context),
-  '6',
+  '3',
   'valid human overlay is saved as the next immutable draft version'
 );
 select is(
@@ -1265,7 +1274,7 @@ set ready_result = public.creator_save_creative_brief_draft(
 );
 select is(
   (select ready_result #>> '{draft,version}' from stage_control_rpc_context),
-  '7',
+  '4',
   'human review snapshot is saved as a new immutable draft version'
 );
 select is(

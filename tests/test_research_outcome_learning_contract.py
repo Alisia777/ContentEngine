@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = (
     ROOT / "supabase/migrations/202608030006_research_outcome_learning_control.sql"
 )
+GENERATION_CONSUMPTION_MIGRATION_PATH = (
+    ROOT
+    / "supabase/migrations/202608030009_research_outcome_generation_consumption.sql"
+)
 API_PATH = ROOT / "web/app/supabase-api.js"
 VIEW_PATH = ROOT / "web/app/product-research-view.js"
 APP_PATH = ROOT / "web/app/app.js"
@@ -173,6 +177,59 @@ def test_outcome_learning_migration_parses_and_writes_only_its_ledger() -> None:
     assert stale_guard.count(" except\n") == 2
     assert "current_outcomes.id from current_outcomes" in stale_guard
     assert "candidate_evidence.id from candidate_evidence" in stale_guard
+
+
+def test_outcome_learning_sql_disambiguates_values_and_confirmation() -> None:
+    learning_sql = _read(MIGRATION_PATH)
+    generation_sql = _read(GENERATION_CONSUMPTION_MIGRATION_PATH)
+    try:
+        from pglast import parse_sql
+    except ImportError:
+        pytest.skip("pglast is required for the PostgreSQL syntax contract")
+    parse_sql(learning_sql)
+    parse_sql(generation_sql)
+
+    refresh = _sql_function(
+        learning_sql, "creator_refresh_research_outcome_learning"
+    ).casefold()
+    assert (
+        "on conflict on constraint "
+        "research_outcome_lineage_org_placement_metric_uq" in refresh
+    )
+    assert "on conflict (organization_id, placement_id, metric_snapshot_id)" not in refresh
+    assert "decided_at timestamptz not null default clock_timestamp()" in learning_sql
+    for field in (
+        "preferred_count",
+        "preferred_product_count",
+        "preferred_views",
+        "preferred_clicks",
+        "preferred_orders",
+        "preferred_revenue",
+        "preferred_ctr",
+        "preferred_order_rate",
+        "preferred_score",
+        "comparator_count",
+        "comparator_product_count",
+        "comparator_views",
+        "comparator_clicks",
+        "comparator_orders",
+        "comparator_revenue",
+        "comparator_ctr",
+        "comparator_order_rate",
+        "comparator_score",
+    ):
+        assert f"summary.{field}" in refresh
+
+    prepare = _sql_function(
+        generation_sql, "creator_prepare_research_outcome_generation_selection"
+    ).casefold()
+    assert (
+        "jsonb_typeof(p_payload -> 'confirmation') is distinct from 'boolean'"
+        in prepare
+    )
+    assert (
+        "p_payload -> 'confirmation' is distinct from 'true'::jsonb" in prepare
+    )
 
 
 def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:

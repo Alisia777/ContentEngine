@@ -598,6 +598,27 @@ $$;
 
 set local session_replication_role = origin;
 
+insert into content_factory.media_objects (
+  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  mime_type, size_bytes, sha256, status, metadata, idempotency_key
+)
+select
+  context.input_media_id,
+  context.organization_id,
+  context.actor_id,
+  context.product_id,
+  'contentengine-private',
+  context.organization_id::text || '/' || context.actor_id::text ||
+    '/uploads/outcome-generation-product.jpg',
+  'image/jpeg', 1024, repeat('e', 64), 'ready',
+  jsonb_build_object(
+    'original_filename', 'outcome-generation-product.jpg',
+    'kind', 'product_photo',
+    'rights_confirmed', true
+  ),
+  'outcome-generation-input-media-0001'
+from outcome_generation_context context;
+
 update outcome_generation_context context
 set refresh_result = public.creator_refresh_research_outcome_learning(
   jsonb_build_object(
@@ -1114,26 +1135,3 @@ select throws_ok(
 
 select * from finish();
 rollback;
-
-
-
-insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
-  mime_type, size_bytes, sha256, status, metadata, idempotency_key
-)
-select
-  context.input_media_id,
-  context.organization_id,
-  context.actor_id,
-  context.product_id,
-  'contentengine-private',
-  context.organization_id::text || '/' || context.actor_id::text ||
-    '/uploads/outcome-generation-product.jpg',
-  'image/jpeg', 1024, repeat('e', 64), 'ready',
-  jsonb_build_object(
-    'original_filename', 'outcome-generation-product.jpg',
-    'kind', 'product_photo',
-    'rights_confirmed', true
-  ),
-  'outcome-generation-input-media-0001'
-from outcome_generation_context context;

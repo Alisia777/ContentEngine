@@ -269,7 +269,7 @@ create table if not exists content_factory.research_outcome_learning_decisions (
     confirmation boolean not null check (confirmation),
     decision_hash text not null check (decision_hash ~ '^[0-9a-f]{64}$'),
     idempotency_key text not null check (length(idempotency_key) between 8 and 180),
-    decided_at timestamptz not null default now(),
+    decided_at timestamptz not null default clock_timestamp(),
     constraint research_outcome_decisions_org_id_uq
       unique (organization_id, id),
     constraint research_outcome_decisions_org_hash_uq
@@ -953,7 +953,8 @@ begin
       )),
       user_id
     from eligible
-    on conflict (organization_id, placement_id, metric_snapshot_id) do nothing
+    on conflict on constraint research_outcome_lineage_org_placement_metric_uq
+      do nothing
     returning id
   )
   select count(*)::integer into captured_count from inserted;
@@ -1045,19 +1046,26 @@ begin
     from ordered
   )
   select
-    coalesce(outcome_count, 0), coalesce(angle_count, 0),
-    coalesce(product_count, 0), preferred_angle,
-    coalesce(preferred_count, 0), coalesce(preferred_product_count, 0),
-    coalesce(preferred_views, 0),
-    coalesce(preferred_clicks, 0), coalesce(preferred_orders, 0),
-    coalesce(preferred_revenue, 0), coalesce(preferred_ctr, 0),
-    coalesce(preferred_order_rate, 0), coalesce(preferred_score, 0),
-    comparator_angle, coalesce(comparator_count, 0),
-    coalesce(comparator_product_count, 0),
-    coalesce(comparator_views, 0), coalesce(comparator_clicks, 0),
-    coalesce(comparator_orders, 0), coalesce(comparator_revenue, 0),
-    coalesce(comparator_ctr, 0), coalesce(comparator_order_rate, 0),
-    coalesce(comparator_score, 0)
+    coalesce(summary.outcome_count, 0), coalesce(summary.angle_count, 0),
+    coalesce(summary.product_count, 0), summary.preferred_angle,
+    coalesce(summary.preferred_count, 0),
+    coalesce(summary.preferred_product_count, 0),
+    coalesce(summary.preferred_views, 0),
+    coalesce(summary.preferred_clicks, 0),
+    coalesce(summary.preferred_orders, 0),
+    coalesce(summary.preferred_revenue, 0),
+    coalesce(summary.preferred_ctr, 0),
+    coalesce(summary.preferred_order_rate, 0),
+    coalesce(summary.preferred_score, 0),
+    summary.comparator_angle, coalesce(summary.comparator_count, 0),
+    coalesce(summary.comparator_product_count, 0),
+    coalesce(summary.comparator_views, 0),
+    coalesce(summary.comparator_clicks, 0),
+    coalesce(summary.comparator_orders, 0),
+    coalesce(summary.comparator_revenue, 0),
+    coalesce(summary.comparator_ctr, 0),
+    coalesce(summary.comparator_order_rate, 0),
+    coalesce(summary.comparator_score, 0)
   into
     eligible_outcome_count, eligible_angle_count, distinct_product_count,
     preferred_angle_value, preferred_count, preferred_product_count,

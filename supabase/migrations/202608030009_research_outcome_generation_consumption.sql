@@ -551,8 +551,8 @@ begin
   idempotency_key_value := content_factory_private.require_text(
     p_payload, 'idempotency_key', 8, 180
   );
-  if jsonb_typeof(p_payload -> 'confirmation') <> 'boolean'
-     or p_payload -> 'confirmation' <> 'true'::jsonb then
+  if jsonb_typeof(p_payload -> 'confirmation') is distinct from 'boolean'
+     or p_payload -> 'confirmation' is distinct from 'true'::jsonb then
     raise exception using
       errcode = '22023',
       message = 'research_outcome_generation_selection_confirmation_required';
