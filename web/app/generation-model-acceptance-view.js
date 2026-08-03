@@ -322,7 +322,7 @@ function modelActionMarkup(model, action = modelNextAction(model)) {
   if (!action) return "";
   if (action.kind === "review") {
     return `
-      <a class="btn btn-secondary btn-small" href="#/workspace/review/${escapeHtml(action.reviewId)}">
+      <a class="btn btn-secondary btn-small" href="#/workspace/review?view=current&amp;review=${encodeURIComponent(String(action.reviewId))}">
         ${escapeHtml(action.label)}
       </a>
     `;

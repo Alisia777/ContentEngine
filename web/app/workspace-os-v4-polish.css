@@ -36,7 +36,7 @@ body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header small {
 }
 
 body.contentengine-desktop-v4 .ce-v4-native-surface {
-  min-height: calc(100dvh - var(--ce-v4-top) - var(--ce-v4-dock) - 40px);
+  min-height: 100%;
 }
 
 body.contentengine-desktop-v4 .ce-v4-native-surface :is(.card,.product-research-card,.research-card) {

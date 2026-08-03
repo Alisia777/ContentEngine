@@ -262,6 +262,8 @@ html[data-portal-theme="obsidian"] .auth-card {
     linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 48%),
     #171412;
   box-shadow: var(--shadow-premium);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 html[data-portal-theme="obsidian"] .auth-start-route li {
@@ -407,6 +409,20 @@ html[data-portal-theme="obsidian"] .workspace-main {
   background:
     radial-gradient(circle at 92% -6%, rgba(226, 118, 54, 0.105), transparent 30rem),
     #0b0908;
+}
+
+/* Eager route gate: loader hides only the authenticated workspace surface. */
+html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 .workspace-main {
+  opacity: 1;
+  pointer-events: none;
+  transform: none;
+  transition: none;
+}
+
+html[data-ce-v4-ready="true"] body.contentengine-desktop-v4 .workspace-main {
+  opacity: 1;
+  transform: none;
+  transition: none;
 }
 
 .workspace-contextbar {
@@ -695,11 +711,11 @@ html[data-portal-theme="obsidian"] .home-seal {
     scroll-behavior: smooth;
   }
 
-  .route-enter {
+  body:not(.contentengine-desktop-v4) .route-enter {
     animation: luxe-page-enter var(--motion-enter) var(--ease-luxe) both;
   }
 
-  .route-enter .page-wrap > :is(
+  body:not(.contentengine-desktop-v4) .route-enter .page-wrap > :is(
     .page-header,
     .workspace-page-intro,
     .home-hero,
@@ -712,10 +728,10 @@ html[data-portal-theme="obsidian"] .home-seal {
     animation: luxe-surface-enter 520ms var(--ease-luxe) both;
   }
 
-  .route-enter .page-wrap > :nth-child(2) { animation-delay: 55ms; }
-  .route-enter .page-wrap > :nth-child(3) { animation-delay: 105ms; }
-  .route-enter .page-wrap > :nth-child(4) { animation-delay: 150ms; }
-  .route-enter .page-wrap > :nth-child(n + 5) { animation-delay: 185ms; }
+  body:not(.contentengine-desktop-v4) .route-enter .page-wrap > :nth-child(2) { animation-delay: 55ms; }
+  body:not(.contentengine-desktop-v4) .route-enter .page-wrap > :nth-child(3) { animation-delay: 105ms; }
+  body:not(.contentengine-desktop-v4) .route-enter .page-wrap > :nth-child(4) { animation-delay: 150ms; }
+  body:not(.contentengine-desktop-v4) .route-enter .page-wrap > :nth-child(n + 5) { animation-delay: 185ms; }
 
   .workspace-contextbar {
     animation: luxe-context-enter 420ms var(--ease-luxe) both;
@@ -1216,6 +1232,92 @@ html[data-portal-theme="obsidian"] .alert-info {
   }
 }
 
+/* A 720px-high MacBook viewport keeps the primary sign-in action on-screen. */
+@media (min-width: 821px) and (max-height: 800px) {
+  .auth-layout {
+    height: 100vh;
+    height: 100svh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .auth-story,
+  .auth-panel {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .auth-story {
+    padding: clamp(22px, 3.4vw, 42px);
+    justify-content: flex-start;
+    gap: clamp(38px, 8vh, 66px);
+  }
+
+  .auth-message {
+    margin: 0;
+  }
+
+  .auth-message h1 {
+    margin: 8px 0 14px;
+    font-size: clamp(2.45rem, 4.7vw, 4.3rem);
+  }
+
+  .auth-message > p {
+    font-size: clamp(0.92rem, 1.25vw, 1.05rem);
+    line-height: 1.45;
+  }
+
+  .auth-steps {
+    display: none;
+  }
+
+  .auth-panel {
+    padding: 16px clamp(24px, 4vw, 58px);
+    overflow: hidden;
+  }
+
+  html[data-portal-theme="obsidian"] .auth-card {
+    max-height: calc(100svh - 32px);
+    padding: clamp(20px, 3vh, 28px) clamp(24px, 3.2vw, 36px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .auth-card h2 {
+    margin: 4px 0 6px;
+    font-size: clamp(1.75rem, 4vh, 2.25rem);
+  }
+
+  .auth-card .lead {
+    margin-bottom: 13px;
+    line-height: 1.42;
+  }
+
+  .auth-card .form-stack {
+    gap: 12px;
+  }
+
+  .auth-card .field {
+    gap: 5px;
+  }
+
+  .auth-card .auth-access-guide {
+    margin-top: 11px;
+  }
+
+  .auth-card .auth-access-guide summary {
+    min-height: 40px;
+  }
+
+  .auth-card .auth-footer {
+    margin-top: 12px;
+    padding-top: 10px;
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto !important;
@@ -1232,5 +1334,12 @@ html[data-portal-theme="obsidian"] .alert-info {
   .brand-glow,
   .brand-grid {
     display: none;
+  }
+
+  html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 .workspace-main,
+  html[data-ce-v4-ready="true"] body.contentengine-desktop-v4 .workspace-main {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
   }
 }

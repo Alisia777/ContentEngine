@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -14,19 +15,21 @@ CSS = (APP_DIR / "workspace-os-v3-core.css").read_text(encoding="utf-8")
 FINISH = (APP_DIR / "workspace-os-v3-finish.css").read_text(encoding="utf-8")
 
 
-def test_os_v3_assets_load_after_v2_and_before_build_guard() -> None:
-    markers = (
-        './workspace-os-v3-core.css?v=20260731.1',
-        './workspace-os-v3-native-bridge.js?v=20260731.1',
-        './workspace-os-v3-core.js?v=20260731.1',
-        './workspace-os-v3-finish.css?v=20260731.1',
+def test_os_v3_assets_are_retired_from_the_active_runtime_graph() -> None:
+    active_assets = set(re.findall(
+        r'^\s*<(?:link|script)\b[^>]*\b(?:href|src)="([^"]+)"',
+        INDEX,
+        flags=re.MULTILINE,
+    ))
+    retired_names = (
+        "workspace-os-v3-core.css",
+        "workspace-os-v3-native-bridge.js",
+        "workspace-os-v3-core.js",
+        "workspace-os-v3-finish.css",
     )
-    for marker in markers:
-        assert marker in INDEX
-    assert INDEX.index('./workspace-media-finder.css') < INDEX.index('./workspace-os-v3-core.css')
-    assert INDEX.index('./workspace-os-v3-finish.css') < INDEX.index('./workspace-build-guard.css')
-    assert INDEX.index('./workspace-media-finder.js') < INDEX.index('./workspace-os-v3-core.js')
-    assert INDEX.index('./workspace-academy-lab-v3.js') < INDEX.index('./workspace-build-guard.js')
+    assert not any(any(name in asset for name in retired_names) for asset in active_assets)
+    assert "./workspace-os-v4.css?v=20260803.os4.4" in active_assets
+    assert "./workspace-os-v4-loader.js?v=20260803.os4.4" in active_assets
 
 
 def test_spotlight_is_a_real_command_palette() -> None:

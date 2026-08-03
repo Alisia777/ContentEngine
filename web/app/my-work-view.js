@@ -139,6 +139,10 @@ export function myWorkWorkspaceMarkup({
   notice = "",
   error = "",
   loadingMore = false,
+  mode = "",
+  actionSwitch = "",
+  notificationsLoading = false,
+  notificationsError = "",
 } = {}) {
   const normalizedWork = normalizeMyWork(work);
   const normalizedNotifications = normalizeNotifications(notifications);
@@ -147,6 +151,15 @@ export function myWorkWorkspaceMarkup({
   const activeFilters = normalizedFilters.itemTypes.length
     + normalizedFilters.statuses.length
     + (normalizedFilters.query ? 1 : 0);
+  const workMode = resolveWorkMode(mode);
+  const nextWorkItem = normalizedWork.items.find((item) => item.blocker)
+    || normalizedWork.items.find((item) => item.overdue)
+    || normalizedWork.items.find((item) => item.actionRequired)
+    || normalizedWork.items[0]
+    || null;
+  const visibleWorkItems = workMode === "next"
+    ? nextWorkItem ? [nextWorkItem] : []
+    : workMode === "queue" ? normalizedWork.items : [];
   const summaryCards = [
     ["Всего", normalizedWork.counts.total, "Все найденные объекты", "all"],
     [
@@ -162,7 +175,7 @@ export function myWorkWorkspaceMarkup({
   ];
 
   return `
-    <div class="page-wrap my-work-page">
+    <div class="page-wrap my-work-page" data-work-view="${workMode}">
       <section class="my-work-hero">
         <div>
           <p class="eyebrow">Единая рабочая очередь</p>
@@ -171,15 +184,20 @@ export function myWorkWorkspaceMarkup({
         </div>
         <div class="my-work-hero-actions">
           <button class="btn btn-secondary btn-small" type="button" data-action="refresh-my-work">Обновить</button>
-          <button class="btn btn-small" type="button" data-action="toggle-work-notifications" aria-expanded="false">
+          ${workMode === "notifications" ? "" : `<a class="btn btn-secondary btn-small" href="#/workspace/work?view=notifications">
             Уведомления${normalizedNotifications.counts.unread ? ` · ${formatNumber(normalizedNotifications.counts.unread)}` : ""}
-          </button>
+          </a>`}
         </div>
       </section>
 
       ${notice ? alertMarkup(notice, "success") : ""}
       ${error ? alertMarkup(error, "danger") : ""}
+      ${actionSwitch || workActionSwitchMarkup(workMode)}
 
+      ${workMode === "notifications" ? notificationInlineMarkup(normalizedNotifications, {
+        loading: notificationsLoading,
+        error: notificationsError,
+      }) : `
       <div class="my-work-summary" aria-label="Сводка очереди">
         ${summaryCards.map(([label, value, hint, tone]) => `
           <article class="my-work-summary-card my-work-summary-card--${tone}">
@@ -256,13 +274,13 @@ export function myWorkWorkspaceMarkup({
 
           <section class="my-work-queue" aria-labelledby="my-work-queue-title">
             <div class="my-work-section-heading">
-              <div><p class="eyebrow">Приоритетная очередь</p><h2 id="my-work-queue-title">${activeFilters ? "Результаты фильтра" : "Что требует внимания"}</h2></div>
-              <span class="badge">${formatNumber(normalizedWork.counts.total)}</span>
+              <div><p class="eyebrow">${workMode === "next" ? "Одно действие" : "Приоритетная очередь"}</p><h2 id="my-work-queue-title">${workMode === "next" ? "Что сделать сейчас" : activeFilters ? "Результаты фильтра" : "Что требует внимания"}</h2></div>
+              <span class="badge">${workMode === "next" ? (nextWorkItem ? "1" : "0") : formatNumber(normalizedWork.counts.total)}</span>
             </div>
-            ${normalizedWork.items.length
-              ? normalizedWork.items.map(workItemMarkup).join("")
+            ${visibleWorkItems.length
+              ? visibleWorkItems.map((item) => workItemMarkup(item, workMode === "next")).join("")
               : emptyWorkMarkup(activeFilters)}
-            ${normalizedWork.nextCursor ? `
+            ${workMode === "queue" && normalizedWork.nextCursor ? `
               <button class="btn btn-secondary btn-block" type="button" data-action="load-more-my-work" ${loadingMore ? "disabled" : ""}>
                 ${loadingMore ? "Загружаем…" : "Показать ещё"}
               </button>
@@ -270,7 +288,52 @@ export function myWorkWorkspaceMarkup({
           </section>
         </div>
       </div>
+      `}
     </div>
+  `;
+}
+
+function resolveWorkMode(value) {
+  const allowed = new Set(["next", "queue", "views", "notifications"]);
+  const requested = cleanToken(value);
+  if (allowed.has(requested)) return requested;
+  const hash = String(globalThis.location?.hash || "");
+  const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+  const routed = cleanToken(new URLSearchParams(query).get("view"));
+  return allowed.has(routed) ? routed : "queue";
+}
+
+function workActionSwitchMarkup(activeMode) {
+  const views = [
+    ["next", "Сейчас"],
+    ["queue", "Очередь"],
+    ["views", "Мои фильтры"],
+    ["notifications", "Уведомления"],
+  ];
+  return `
+    <nav class="work-action-switch" aria-label="Режим раздела «Моя работа»">
+      ${views.map(([view, label]) => `<a href="#/workspace/work?view=${view}"${view === activeMode ? ' class="is-active" aria-current="page"' : ""}>${label}</a>`).join("")}
+    </nav>
+  `;
+}
+
+export function notificationInlineMarkup(raw, { loading = false, error = "" } = {}) {
+  const notifications = normalizeNotifications(raw);
+  return `
+    <section class="card card-pad notification-inline" data-notification-view aria-labelledby="notification-inline-title">
+      <header class="my-work-section-heading">
+        <div><p class="eyebrow">События по работе</p><h2 id="notification-inline-title">Уведомления</h2></div>
+        <span class="badge">${formatNumber(notifications.counts.unread)} новых</span>
+      </header>
+      <div class="notification-toolbar">
+        <span>${formatNumber(notifications.counts.unread)} непрочитанных</span>
+        ${notifications.counts.unread ? `<button class="text-link" type="button" data-action="mark-all-notifications-read">Прочитать все</button>` : ""}
+      </div>
+      ${error ? alertMarkup(error, "danger") : ""}
+      ${loading ? `<div class="notification-loading" role="status">Загружаем события…</div>` : notifications.items.length
+        ? `<div class="notification-list">${notifications.items.map(notificationMarkup).join("")}</div>`
+        : `<div class="notification-empty"><span aria-hidden="true">✓</span><strong>Новых событий нет</strong><p>Здесь появятся готовые ролики, блокеры, решения и выплаты.</p></div>`}
+    </section>
   `;
 }
 
@@ -328,7 +391,7 @@ function normalizeWorkItem(item) {
   };
 }
 
-function workItemMarkup(item) {
+function workItemMarkup(item, primary = false) {
   const typeMeta = ITEM_TYPE_META[item.itemType] || ITEM_TYPE_META.task;
   const statusMeta = STATUS_META[item.status] || { label: humanizeToken(item.status), tone: "info" };
   const actionLabel = item.metadata.action_label || item.metadata.actionLabel || actionLabelFor(item);
@@ -356,7 +419,7 @@ function workItemMarkup(item) {
           ${item.amountMinor !== null ? `<span><small>Сумма</small>${escapeHtml(formatMoney(item.amountMinor, item.currency))}</span>` : ""}
         </div>
       </div>
-      <a class="btn btn-secondary btn-small my-work-item-action" href="${escapeHtml(item.deepLink)}">${escapeHtml(actionLabel)} <span aria-hidden="true">→</span></a>
+      <a class="${primary ? "btn btn-small" : "btn btn-secondary btn-small"} my-work-item-action" href="${escapeHtml(item.deepLink)}"${primary ? ' data-primary-action="true"' : ""}>${escapeHtml(actionLabel)} <span aria-hidden="true">→</span></a>
     </article>
   `;
 }
@@ -401,7 +464,29 @@ function actionLabelFor(item) {
 function safeInternalLink(value) {
   const link = cleanText(value);
   if (!link) return "";
-  return /^#\/(?:workspace|learn)(?:\/|$|\?)/u.test(link) ? link : "";
+  if (!/^#\/(?:workspace|learn)(?:\/|$|\?)/u.test(link)) return "";
+  const [path, rawQuery = ""] = link.slice(1).split("?");
+  if (!path.startsWith("/workspace/") || new URLSearchParams(rawQuery).has("view")) return link;
+  const query = new URLSearchParams(rawQuery);
+  const section = path.split("/")[2] || "";
+  const defaultViews = {
+    tasks: "next",
+    generation: query.has("job") ? "history" : "create",
+    review: query.has("review") ? "current" : "new",
+    placement: "next",
+    stats: query.has("placement") ? "new" : "overview",
+    payouts: "next",
+    work: "next",
+    media: "upload",
+    feedback: "new",
+    team: "members",
+    research: "evidence",
+    board: "browse",
+  };
+  const view = defaultViews[section];
+  if (!view) return link;
+  query.set("view", view);
+  return `#${path}?${query.toString()}`;
 }
 
 function normalizeSeverity(value) {

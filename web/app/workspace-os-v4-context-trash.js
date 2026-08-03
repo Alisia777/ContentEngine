@@ -11,6 +11,7 @@ import { CreatorApi } from "./supabase-api.js?v=20260729.2";
 
 const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
+const CLOSE_TRANSIENTS_EVENT = "contentengine:v4-close-transients";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const FINE_POINTER = window.matchMedia("(hover: hover) and (pointer: fine)");
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -46,7 +47,6 @@ const ICONS = Object.freeze({
 });
 
 const runtime = {
-  queued: false,
   apiPromise: null,
   api: null,
   menu: null,
@@ -65,8 +65,11 @@ const runtime = {
   trashLoading: false,
   preview: null,
   confirm: null,
+  confirmRestoreFocus: null,
   longPressTimer: 0,
   longPressStart: null,
+  suppressClickUntil: 0,
+  suppressClickTarget: null,
   summaryTimer: 0,
 };
 
@@ -134,8 +137,52 @@ function friendlyError(error) {
   return messages[code] || compact(error?.message, 260) || "Действие не выполнено. Обновите рабочее место и повторите.";
 }
 
+function removeWithMotion(node, keyframes, duration = 140) {
+  if (!(node instanceof Element)) return;
+  if (node.dataset.ceV4Closing === "true") return;
+  node.dataset.ceV4Closing = "true";
+  node.classList.add("is-closing");
+  node.setAttribute("aria-hidden", "true");
+  if (REDUCED_MOTION.matches || typeof node.animate !== "function") {
+    node.remove();
+    return;
+  }
+  const animation = node.animate(keyframes, {
+    duration,
+    easing: "cubic-bezier(.4,0,1,1)",
+    fill: "forwards",
+  });
+  animation.finished.catch(() => {}).finally(() => node.remove());
+}
+
+function animateContextMenuIn(menu) {
+  if (!(menu instanceof Element) || REDUCED_MOTION.matches || typeof menu.animate !== "function") return;
+  menu.animate(
+    [
+      { opacity: 0, transform: "translate3d(0,-4px,0)" },
+      { opacity: 1, transform: "translate3d(0,0,0)" },
+    ],
+    { duration: 130, easing: "cubic-bezier(.16,1,.3,1)" },
+  );
+}
+
+function syncModalInert() {
+  const modalOpen = Boolean(runtime.trashWindow || runtime.confirm || runtime.preview);
+  [q("#app"), q(".ce-v4-menubar"), q(".ce-v4-dock")].forEach((node) => {
+    if (node instanceof HTMLElement) node.toggleAttribute("inert", modalOpen);
+  });
+  if (runtime.trashWindow instanceof HTMLElement) {
+    runtime.trashWindow.toggleAttribute("inert", Boolean(runtime.confirm || runtime.preview));
+  }
+}
+
 async function getApi() {
   if (runtime.api) return runtime.api;
+  const sharedApi = window.ContentEngineWorkspaceRuntime?.getApi?.();
+  if (sharedApi) {
+    runtime.api = sharedApi;
+    return sharedApi;
+  }
   if (!runtime.apiPromise) {
     runtime.apiPromise = (async () => {
       const config = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
@@ -151,6 +198,9 @@ async function getApi() {
             persistSession: true,
             autoRefreshToken: true,
             detectSessionInUrl: false,
+            flowType: "pkce",
+            storage: window.sessionStorage,
+            storageKey: `contentengine.creator-workspace.${new URL(config.SUPABASE_URL).hostname}.auth-session.v1`,
           },
         },
       );
@@ -194,6 +244,7 @@ function entityDescriptor(node) {
     return {
       type: String(finderCard.dataset.entityType || ""),
       id: String(finderCard.dataset.entityId || ""),
+      kind: String(finderCard.dataset.entityKind || ""),
       title: compact(q(".workspace-board__item-copy strong", finderCard)?.textContent || "Объект"),
       node: finderCard,
       source: "finder",
@@ -235,25 +286,66 @@ function menuAction(label, iconName, run, options = {}) {
   };
 }
 
+function finderOrganizeMode() {
+  if (routePath() !== "/workspace/board") return false;
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  return new URLSearchParams(raw.split("?")[1] || "").get("view") === "organize";
+}
+
+function createFromFinderMedia(entity) {
+  q('[data-action="open-workspace-item"]', entity.node)?.click();
+  let attempts = 0;
+  const openGeneration = () => {
+    const selector = `[data-action="create-from-workspace-media"][data-entity-id="${CSS.escape(entity.id)}"]`;
+    const button = q(selector);
+    if (button) {
+      button.click();
+      return;
+    }
+    attempts += 1;
+    if (attempts < 16) window.requestAnimationFrame(openGeneration);
+  };
+  window.requestAnimationFrame(openGeneration);
+}
+
+function focusFinderSearch() {
+  if (routePath() !== "/workspace/board") window.location.hash = "#/workspace/board";
+  let attempts = 0;
+  const focus = () => {
+    const input = q('#workspace-board-filter-form input[name="query"]');
+    if (input instanceof HTMLElement) {
+      input.focus({ preventScroll: true });
+      return;
+    }
+    attempts += 1;
+    if (attempts < 24) window.requestAnimationFrame(focus);
+  };
+  window.requestAnimationFrame(focus);
+}
+
 function finderItemActions(entity) {
   const actions = [];
   actions.push(menuAction("Открыть", "open", () => {
     q('[data-action="open-workspace-item"]', entity.node)?.click();
   }, { shortcut: "↵" }));
-  if (entity.type === "media") {
-    actions.push(menuAction("Быстрый просмотр", "eye", () => {
-      window.ContentEngineFinderV4?.openQuickLook?.(entity.node);
-    }, { shortcut: "Space" }));
+  if (entity.type === "media" && ["product_photo", "packshot"].includes(entity.kind)) {
+    actions.push(menuAction("Создать из этого файла", "plus", () => {
+      createFromFinderMedia(entity);
+    }));
   }
-  actions.push(menuAction("Переместить в папку…", "folder", () => {
-    q('[data-action="open-workspace-item"]', entity.node)?.click();
-    window.setTimeout(() => q(".workspace-board__move-panel button")?.focus({ preventScroll: true }), 80);
-  }));
+  if (finderOrganizeMode()) {
+    actions.push(menuAction("Переместить в папку…", "folder", () => {
+      q('[data-action="open-workspace-item"]', entity.node)?.click();
+      window.setTimeout(() => q(".workspace-board__move-panel button")?.focus({ preventScroll: true }), 80);
+    }));
+  }
   actions.push({ separator: true });
   actions.push(menuAction("Скопировать название", "copy", () => copyText(entity.title, "Название скопировано")));
   actions.push(menuAction("Скопировать ID", "copy", () => copyText(entity.id, "ID скопирован")));
-  actions.push({ separator: true });
-  actions.push(menuAction("Переместить в Корзину", "trash", () => trashEntities([entity]), { danger: true, shortcut: "⌫" }));
+  if (finderOrganizeMode()) {
+    actions.push({ separator: true });
+    actions.push(menuAction("Переместить в Корзину", "trash", () => trashEntities([entity]), { danger: true, shortcut: "⌫" }));
+  }
   return actions;
 }
 
@@ -270,23 +362,29 @@ function taskActions(entity) {
 }
 
 function folderActions(folder) {
-  return [
+  const actions = [
     menuAction("Открыть папку", "folder", () => q(".workspace-board__folder-button", folder.row)?.click(), { shortcut: "↵" }),
+  ];
+  if (finderOrganizeMode()) actions.push(
     menuAction("Новая папка внутри", "plus", () => focusFolderEditor(folder, "create")),
     menuAction("Переименовать", "rename", () => focusFolderEditor(folder, "rename")),
+  );
+  actions.push(
     { separator: true },
     menuAction("Скопировать название", "copy", () => copyText(folder.name, "Название папки скопировано")),
     menuAction("Скопировать ID", "copy", () => copyText(folder.id, "ID папки скопирован")),
+  );
+  if (finderOrganizeMode()) actions.push(
     { separator: true },
     menuAction("Архивировать пустую папку", "remove", () => archiveFolder(folder), { danger: true }),
-  ];
+  );
+  return actions;
 }
 
 function emptySurfaceActions(target) {
   const route = routePath();
   if (route === "/workspace/board") {
-    return [
-      menuAction("Новая папка", "plus", () => focusFolderEditor(null, "create")),
+    const actions = [
       menuAction("Добавить материал", "upload", () => { window.location.hash = "#/workspace/media"; }),
       { separator: true },
       menuAction("Сетка", "grid", () => q('[data-ce-v4-finder-view="grid"]')?.click()),
@@ -295,6 +393,8 @@ function emptySurfaceActions(target) {
       menuAction("Обновить", "refresh", refreshCurrentWorkspace, { shortcut: "⌘R" }),
       menuAction("Открыть Корзину", "trash", openTrash),
     ];
+    if (finderOrganizeMode()) actions.unshift(menuAction("Новая папка", "plus", () => focusFolderEditor(null, "create")));
+    return actions;
   }
   if (route === "/workspace/tasks") {
     return [
@@ -305,8 +405,11 @@ function emptySurfaceActions(target) {
     ];
   }
   return [
-    menuAction("Рабочие столы", "grid", () => window.ContentEngineDesktopV4?.openMission?.()),
-    menuAction("Spotlight", "search", () => window.ContentEngineDesktopV4?.openSpotlight?.(), { shortcut: "⌘K" }),
+    menuAction("Найти в Файлах", "search", focusFinderSearch, { shortcut: "⌘K" }),
+    { separator: true },
+    menuAction("Разбор товара", "search", () => { window.location.hash = "#/workspace/research"; }),
+    menuAction("Команда", "open", () => { window.location.hash = "#/workspace/team"; }),
+    menuAction("Помощь и обратная связь", "info", () => { window.location.hash = "#/workspace/feedback"; }),
     { separator: true },
     menuAction("Открыть Корзину", "trash", openTrash),
     menuAction("Обновить", "refresh", refreshCurrentWorkspace),
@@ -324,9 +427,16 @@ function contextActions(target) {
 function closeContextMenu({ restoreFocus = false } = {}) {
   const menu = runtime.menu;
   if (!menu) return;
-  menu.remove();
   runtime.menu = null;
   document.body.classList.remove("ce-v4-context-open");
+  removeWithMotion(
+    menu,
+    [
+      { opacity: 1, transform: "translate3d(0,0,0)" },
+      { opacity: 0, transform: "translate3d(0,-3px,0)" },
+    ],
+    100,
+  );
   if (restoreFocus && runtime.menuRestoreFocus instanceof HTMLElement) {
     runtime.menuRestoreFocus.focus({ preventScroll: true });
   }
@@ -377,12 +487,7 @@ function openContextMenu(target, x, y) {
   positionMenu(menu, x, y);
   const first = q("button:not(:disabled)", menu);
   first?.focus({ preventScroll: true });
-  if (!REDUCED_MOTION.matches && typeof menu.animate === "function") {
-    menu.animate(
-      [{ opacity: 0, transform: "translateY(-5px) scale(.97)" }, { opacity: 1, transform: "translateY(0) scale(1)" }],
-      { duration: 150, easing: "cubic-bezier(.16,1,.3,1)" },
-    );
-  }
+  animateContextMenuIn(menu);
 }
 
 function contextTarget(target) {
@@ -393,7 +498,15 @@ function contextTarget(target) {
   );
 }
 
+function prefersNativeContextMenu(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest(
+    "input, textarea, select, option, [contenteditable='true'], [contenteditable=''], a[href], video, audio",
+  ));
+}
+
 function handleContextMenu(event) {
+  if (prefersNativeContextMenu(event.target)) return;
   const target = contextTarget(event.target);
   if (!target) return;
   event.preventDefault();
@@ -444,29 +557,41 @@ function openContextMenuForTrashDock(x, y) {
   document.body.classList.add("ce-v4-context-open");
   positionMenu(menu, x, y);
   q("button:not(:disabled)", menu)?.focus({ preventScroll: true });
+  animateContextMenuIn(menu);
 }
 
 function handleMenuKeyboard(event) {
-  if (!runtime.menu) return;
+  if (!runtime.menu) return false;
   const buttons = qa("button:not(:disabled)", runtime.menu);
   const current = buttons.indexOf(document.activeElement);
   if (event.key === "Escape") {
     event.preventDefault();
     closeContextMenu({ restoreFocus: true });
+    return true;
   }
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
     event.preventDefault();
     const delta = event.key === "ArrowDown" ? 1 : -1;
     buttons[(Math.max(0, current) + delta + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+    return true;
   }
   if (event.key === "Home") {
     event.preventDefault();
     buttons[0]?.focus({ preventScroll: true });
+    return true;
   }
   if (event.key === "End") {
     event.preventDefault();
     buttons.at(-1)?.focus({ preventScroll: true });
+    return true;
   }
+  if (event.key === "Tab" && buttons.length) {
+    event.preventDefault();
+    const delta = event.shiftKey ? -1 : 1;
+    buttons[(Math.max(0, current) + delta + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+    return true;
+  }
+  return false;
 }
 
 function focusTask(card) {
@@ -576,13 +701,21 @@ function showToast(message, tone = "info", action = null) {
     button.type = "button";
     button.addEventListener("click", async () => {
       button.disabled = true;
-      try { await action.run(); toast.remove(); }
+      try { await action.run(); dismissToast(toast); }
       catch (error) { button.disabled = false; showToast(friendlyError(error), "error"); }
     });
     toast.append(button);
   }
   region.append(toast);
-  window.setTimeout(() => toast.remove(), action ? 8000 : 4200);
+  window.setTimeout(() => dismissToast(toast), action ? 8000 : 4200);
+}
+
+function dismissToast(toast) {
+  if (!(toast instanceof Element) || toast.dataset.ceV4Closing === "true") return;
+  toast.dataset.ceV4Closing = "true";
+  toast.classList.add("is-closing");
+  if (REDUCED_MOTION.matches) toast.remove();
+  else window.setTimeout(() => toast.remove(), 170);
 }
 
 function showUndoToast(message, undo) {
@@ -604,6 +737,9 @@ function ensureTrashDock() {
     tile.append(svgIcon("trash", 22));
     button.append(tooltip, tile, create("i"));
     glass.append(separator, button);
+  }
+  if (button.dataset.ceV4TrashBound !== "true") {
+    button.dataset.ceV4TrashBound = "true";
     button.addEventListener("click", openTrash);
   }
   runtime.trashDock = button;
@@ -720,7 +856,7 @@ function createTrashWindow() {
 
   const footer = create("footer", "ce-v4-trash-window__footer");
   footer.append(
-    create("span", "", "Delete — в Корзину · Space — просмотр · Shift+Delete — окончательно только внутри Корзины"),
+    create("span", "", "Delete — в Корзину · Shift+Delete — окончательно только внутри Корзины"),
   );
   const more = create("button", "", "Показать ещё");
   more.type = "button";
@@ -751,7 +887,7 @@ function createTrashWindow() {
     void loadTrash();
   });
   body.addEventListener("click", handleTrashBodyClick);
-  body.addEventListener("dblclick", handleTrashBodyDoubleClick);
+  body.addEventListener("keydown", handleTrashBodyKeydown);
   body.addEventListener("contextmenu", handleTrashBodyContextMenu);
 
   return { backdrop, dialog, body, search };
@@ -760,17 +896,19 @@ function createTrashWindow() {
 async function openTrash() {
   closeContextMenu();
   if (runtime.trashWindow) return;
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "trash" } }));
   const parts = createTrashWindow();
   document.body.append(parts.backdrop);
   runtime.trashWindow = parts.backdrop;
   runtime.trashBody = parts.body;
   document.body.classList.add("ce-v4-trash-open");
+  syncModalInert();
   syncTrashWindowHeader();
   parts.search.focus({ preventScroll: true });
   if (!REDUCED_MOTION.matches && typeof parts.dialog.animate === "function") {
     parts.dialog.animate(
-      [{ opacity: 0, transform: "translateY(14px) scale(.975)" }, { opacity: 1, transform: "translateY(0) scale(1)" }],
-      { duration: 360, easing: "cubic-bezier(.16,1,.3,1)" },
+      [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }],
+      { duration: 200, easing: "cubic-bezier(.16,1,.3,1)" },
     );
   }
   await loadTrash();
@@ -781,13 +919,21 @@ function closeTrash() {
   closePreview();
   const windowNode = runtime.trashWindow;
   if (!windowNode) return;
-  windowNode.remove();
   runtime.trashWindow = null;
   runtime.trashBody = null;
   runtime.trashItems = [];
   runtime.trashSelected.clear();
   runtime.trashCursor = null;
   document.body.classList.remove("ce-v4-trash-open");
+  syncModalInert();
+  removeWithMotion(
+    windowNode,
+    [
+      { opacity: 1 },
+      { opacity: 0 },
+    ],
+    150,
+  );
   runtime.trashDock?.focus({ preventScroll: true });
 }
 
@@ -849,6 +995,8 @@ function trashItemCard(item) {
   card.dataset.entityType = type;
   card.dataset.entityId = id;
   card.tabIndex = 0;
+  card.setAttribute("role", "option");
+  card.setAttribute("aria-selected", String(selected));
 
   const select = create("button", "ce-v4-trash-item__select");
   select.type = "button";
@@ -926,16 +1074,35 @@ function handleTrashBodyClick(event) {
   if (!selector && !card) return;
   const key = String(selector?.dataset.trashSelect || card?.dataset.trashKey || "");
   if (!key) return;
-  if (runtime.trashSelected.has(key)) runtime.trashSelected.delete(key);
-  else runtime.trashSelected.add(key);
-  renderTrashItems();
-  q(`.ce-v4-trash-item[data-trash-key="${CSS.escape(key)}"]`, runtime.trashBody)?.focus({ preventScroll: true });
+  setTrashCardSelection(card, key, !runtime.trashSelected.has(key));
 }
 
-function handleTrashBodyDoubleClick(event) {
-  const card = event.target instanceof Element ? event.target.closest(".ce-v4-trash-item[data-trash-key]") : null;
-  const item = runtime.trashItems.find((candidate) => trashKey(candidate) === card?.dataset.trashKey);
-  if (item) void openTrashPreview(item);
+function setTrashCardSelection(card, key, selected) {
+  if (!(card instanceof HTMLElement) || !key) return;
+  if (selected) runtime.trashSelected.add(key);
+  else runtime.trashSelected.delete(key);
+  card.classList.toggle("is-selected", selected);
+  card.setAttribute("aria-selected", String(selected));
+  const control = q("[data-trash-select]", card);
+  if (control) {
+    control.setAttribute("aria-pressed", String(selected));
+    control.setAttribute("aria-label", selected ? "Снять выбор" : "Выбрать объект");
+    control.replaceChildren();
+    if (selected) control.append(svgIcon("check", 15));
+  }
+  updateTrashToolbar();
+  card.focus({ preventScroll: true });
+}
+
+function handleTrashBodyKeydown(event) {
+  if (!["Enter", " "].includes(event.key)) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest("button, a, input, select, textarea")) return;
+  const card = target?.closest(".ce-v4-trash-item[data-trash-key]");
+  if (!card) return;
+  event.preventDefault();
+  const key = String(card.dataset.trashKey || "");
+  setTrashCardSelection(card, key, !runtime.trashSelected.has(key));
 }
 
 function handleTrashBodyContextMenu(event) {
@@ -946,7 +1113,6 @@ function handleTrashBodyContextMenu(event) {
   if (!item) return;
   closeContextMenu();
   const actions = [
-    menuAction("Быстрый просмотр", "eye", () => openTrashPreview(item), { shortcut: "Space" }),
     menuAction("Восстановить", "restore", () => restoreTrashItems([item])),
     menuAction("Скопировать ID", "copy", () => copyText(item.id, "ID скопирован")),
     { separator: true },
@@ -978,6 +1144,7 @@ function handleTrashBodyContextMenu(event) {
   document.body.classList.add("ce-v4-context-open");
   positionMenu(menu, event.clientX, event.clientY);
   q("button:not(:disabled)", menu)?.focus({ preventScroll: true });
+  animateContextMenuIn(menu);
 }
 
 async function hydrateTrashPreviews() {
@@ -1009,6 +1176,7 @@ async function hydrateTrashPreviews() {
 }
 
 async function openTrashPreview(item) {
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "trash" } }));
   closePreview();
   const backdrop = create("div", "ce-v4-trash-preview-backdrop");
   const dialog = create("section", "ce-v4-trash-preview");
@@ -1041,9 +1209,16 @@ async function openTrashPreview(item) {
   backdrop.append(dialog);
   document.body.append(backdrop);
   runtime.preview = backdrop;
+  document.body.classList.add("ce-v4-preview-open");
   close.addEventListener("click", closePreview);
   backdrop.addEventListener("click", (event) => { if (event.target === backdrop) closePreview(); });
   close.focus({ preventScroll: true });
+  if (!REDUCED_MOTION.matches && typeof dialog.animate === "function") {
+    dialog.animate(
+      [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }],
+      { duration: 180, easing: "cubic-bezier(.16,1,.3,1)" },
+    );
+  }
 
   if (item.type === "media" && item.object_name) {
     try {
@@ -1083,6 +1258,7 @@ function closePreview() {
   q("video", runtime.preview)?.pause?.();
   runtime.preview?.remove();
   runtime.preview = null;
+  document.body.classList.remove("ce-v4-preview-open");
 }
 
 async function restoreSelectedTrash() {
@@ -1138,7 +1314,11 @@ function confirmEmptyTrash() {
 }
 
 function openConfirm({ title, description, actionLabel, danger = false, phrase = "", run }) {
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "trash" } }));
   closeConfirm();
+  runtime.confirmRestoreFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
   const backdrop = create("div", "ce-v4-confirm-backdrop");
   const dialog = create("section", "ce-v4-confirm");
   dialog.setAttribute("role", "alertdialog");
@@ -1167,6 +1347,8 @@ function openConfirm({ title, description, actionLabel, danger = false, phrase =
   backdrop.append(dialog);
   document.body.append(backdrop);
   runtime.confirm = backdrop;
+  document.body.classList.add("ce-v4-confirm-open");
+  syncModalInert();
   cancel.addEventListener("click", closeConfirm);
   backdrop.addEventListener("click", (event) => { if (event.target === backdrop) closeConfirm(); });
   input?.addEventListener("input", () => { action.disabled = input.value.trim() !== phrase; });
@@ -1186,8 +1368,21 @@ function openConfirm({ title, description, actionLabel, danger = false, phrase =
 }
 
 function closeConfirm() {
-  runtime.confirm?.remove();
+  const confirm = runtime.confirm;
+  const restoreFocus = runtime.confirmRestoreFocus;
   runtime.confirm = null;
+  runtime.confirmRestoreFocus = null;
+  document.body.classList.remove("ce-v4-confirm-open");
+  syncModalInert();
+  removeWithMotion(
+    confirm,
+    [
+      { opacity: 1 },
+      { opacity: 0 },
+    ],
+    130,
+  );
+  if (restoreFocus?.isConnected) restoreFocus.focus({ preventScroll: true });
 }
 
 async function purgeTrashItems(items) {
@@ -1299,8 +1494,43 @@ function formatDate(value) {
   }).format(date);
 }
 
+function trapDialogFocus(event, root) {
+  if (event.key !== "Tab" || !(root instanceof Element)) return false;
+  const controls = qa(
+    "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), "
+      + "textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
+    root,
+  ).filter((node) => !node.hidden && node.getClientRects().length > 0);
+  if (!controls.length) {
+    event.preventDefault();
+    return true;
+  }
+  const first = controls[0];
+  const last = controls.at(-1);
+  if (!root.contains(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus({ preventScroll: true });
+    return true;
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus({ preventScroll: true });
+    return true;
+  }
+  if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+    return true;
+  }
+  return false;
+}
+
 function handleGlobalKeydown(event) {
-  handleMenuKeyboard(event);
+  if (handleMenuKeyboard(event)) return;
+  if (event.key === "Tab") {
+    const modal = runtime.confirm || runtime.preview || runtime.trashWindow;
+    if (trapDialogFocus(event, modal)) return;
+  }
   if (event.key === "Escape") {
     if (runtime.confirm) { closeConfirm(); return; }
     if (runtime.preview) { closePreview(); return; }
@@ -1308,11 +1538,6 @@ function handleGlobalKeydown(event) {
   }
   const editing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
   if (editing) return;
-  if (runtime.trashWindow && event.key === " ") {
-    const card = document.activeElement instanceof Element ? document.activeElement.closest(".ce-v4-trash-item[data-trash-key]") : null;
-    const item = runtime.trashItems.find((candidate) => trashKey(candidate) === card?.dataset.trashKey);
-    if (item) { event.preventDefault(); void openTrashPreview(item); }
-  }
   if (runtime.trashWindow && event.shiftKey && event.key === "Delete") {
     const items = selectedTrashItems();
     if (items.length && runtime.trashCapabilities.purge_items) {
@@ -1322,6 +1547,7 @@ function handleGlobalKeydown(event) {
     return;
   }
   if (!runtime.trashWindow && event.key === "Delete") {
+    if (routePath() === "/workspace/board" && !finderOrganizeMode()) return;
     const entity = entityDescriptor(document.activeElement);
     if (entity) {
       event.preventDefault();
@@ -1332,23 +1558,38 @@ function handleGlobalKeydown(event) {
 
 function handlePointerDown(event) {
   if (FINE_POINTER.matches || event.pointerType === "mouse") return;
+  if (prefersNativeContextMenu(event.target)) return;
   const target = contextTarget(event.target);
   if (!target) return;
   runtime.longPressStart = { x: event.clientX, y: event.clientY, target };
   window.clearTimeout(runtime.longPressTimer);
+  document.addEventListener("pointermove", cancelLongPress, { passive: true });
+  document.addEventListener("pointerup", cancelLongPress, { passive: true });
+  document.addEventListener("pointercancel", cancelLongPress, { passive: true });
   runtime.longPressTimer = window.setTimeout(() => {
     const start = runtime.longPressStart;
-    if (start) openContextMenu(start.target, start.x, start.y);
+    if (start) {
+      runtime.suppressClickUntil = Date.now() + 800;
+      runtime.suppressClickTarget = start.target;
+      openContextMenu(start.target, start.x, start.y);
+    }
     runtime.longPressStart = null;
+    detachLongPressListeners();
   }, 560);
+}
+
+function detachLongPressListeners() {
+  document.removeEventListener("pointermove", cancelLongPress);
+  document.removeEventListener("pointerup", cancelLongPress);
+  document.removeEventListener("pointercancel", cancelLongPress);
 }
 
 function cancelLongPress(event) {
   const start = runtime.longPressStart;
-  if (start && event && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) {
-    runtime.longPressStart = null;
-  }
+  if (start && event?.type === "pointermove" && Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 10) return;
+  runtime.longPressStart = null;
   window.clearTimeout(runtime.longPressTimer);
+  detachLongPressListeners();
 }
 
 function mount() {
@@ -1362,36 +1603,43 @@ function mount() {
   }
 }
 
-function schedule() {
-  if (runtime.queued) return;
-  runtime.queued = true;
-  window.requestAnimationFrame(() => {
-    runtime.queued = false;
-    mount();
-  });
-}
-
 document.addEventListener("contextmenu", handleContextMenu, true);
 document.addEventListener("keydown", handleGlobalKeydown, true);
 document.addEventListener("pointerdown", handlePointerDown, { passive: true });
-document.addEventListener("pointermove", cancelLongPress, { passive: true });
-document.addEventListener("pointerup", cancelLongPress, { passive: true });
-document.addEventListener("pointercancel", cancelLongPress, { passive: true });
+document.addEventListener(CLOSE_TRANSIENTS_EVENT, (event) => {
+  if (event.detail?.source === "trash") return;
+  closeContextMenu();
+  closeConfirm();
+  closePreview();
+  closeTrash();
+});
 document.addEventListener("click", (event) => {
+  if (
+    Date.now() < runtime.suppressClickUntil
+    && runtime.suppressClickTarget instanceof Element
+    && event.target instanceof Node
+    && runtime.suppressClickTarget.contains(event.target)
+  ) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    runtime.suppressClickUntil = 0;
+    runtime.suppressClickTarget = null;
+    return;
+  }
+  if (Date.now() >= runtime.suppressClickUntil) {
+    runtime.suppressClickUntil = 0;
+    runtime.suppressClickTarget = null;
+  }
   if (runtime.menu && event.target instanceof Node && !runtime.menu.contains(event.target)) closeContextMenu();
 }, true);
-new MutationObserver(schedule).observe(document.querySelector("#app") || document.documentElement, { childList: true, subtree: true });
-window.addEventListener("hashchange", schedule, { passive: true });
-window.addEventListener("contentengine:v4-route-ready", schedule);
-window.addEventListener("pageshow", schedule);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
-    schedule();
+    window.ContentEngineDesktopV4.requestMount();
     void refreshTrashSummary();
   }
 });
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", schedule, { once: true });
-else schedule();
+
+window.ContentEngineDesktopV4.registerAdapter("context-trash", mount, { priority: 900 });
 
 window.ContentEngineTrashV4 = Object.freeze({
   open: openTrash,

@@ -12,18 +12,27 @@ STABILITY = (APP / "workspace-os-v4-stability.js").read_text(encoding="utf-8")
 STABILITY_CSS = (APP / "workspace-os-v4-stability.css").read_text(encoding="utf-8")
 
 
-def test_stability_coordinator_replaces_polish_and_surface_observers() -> None:
+def test_static_stability_layer_replaces_legacy_observer_controllers() -> None:
     for marker in (
-        'workspace-os-v4.js?v=${BUILD}',
+        'workspace-os-v4-polish.css?v=${BUILD}',
+        'workspace-os-v4-context-trash.css?v=${BUILD}',
+        'workspace-os-v4-flow.css?v=${BUILD}',
         'workspace-os-v4-stability.css?v=${BUILD}',
-        'workspace-os-v4-stability.js?v=${BUILD}',
+        'workspace-os-v4-motion.css?v=${BUILD}',
+        'workspace-os-v4.js?v=${BUILD}',
     ):
         assert marker in LOADER
-    assert LOADER.index('workspace-os-v4.js?v=${BUILD}') < LOADER.index(
-        'workspace-os-v4-stability.js?v=${BUILD}'
+    assert LOADER.index('workspace-os-v4-stability.css?v=${BUILD}') < LOADER.index(
+        'workspace-os-v4.js?v=${BUILD}'
     )
-    assert 'workspace-os-v4-polish.js' not in LOADER
-    assert 'workspace-os-v4-surface-guard.js' not in LOADER
+    for retired_controller in (
+        'workspace-os-v4-stability.js',
+        'workspace-os-v4-polish.js',
+        'workspace-os-v4-surface-guard.js',
+        'workspace-os-v4-operations.js',
+        'workspace-ui-bug-checkin.js',
+    ):
+        assert retired_controller not in LOADER
 
 
 def test_stability_coordinator_reduces_local_chrome_without_business_actions() -> None:

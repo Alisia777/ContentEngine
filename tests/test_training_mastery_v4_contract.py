@@ -198,15 +198,26 @@ def test_failed_mini_test_does_not_disclose_exact_lesson_or_score() -> None:
     assert 'data-action="training-lesson-open"' not in submit
 
 
-def test_achievement_shelf_uses_only_server_completed_modules() -> None:
-    shelf = _function_source("trainingAchievementShelfMarkup")
+def test_gate_home_uses_server_steps_without_an_achievement_shelf() -> None:
     home = _function_source("renderLearningHome")
+    completion = _click_action_source("complete-course")
 
-    assert "completedModules instanceof Set" in shelf
-    assert "completed.has(course.code)" in shelf
-    assert "Подтверждено сервером" in shelf
-    assert "Локальные отметки и XP сами по себе его не выдают" in shelf
-    assert "trainingAchievementShelfMarkup(courses, completed)" in home
+    assert "const completed = new Set(state.bootstrap?.training?.completedModules" in home
+    assert "completed.has(course.code)" in home
+    assert "const totalSteps = courses.length + 2" in home
+    assert 'label: "Пробная работа"' in home
+    assert 'label: "Итоговый экзамен"' in home
+    assert "trainingAchievementShelfMarkup" not in home
+    assert "training-achievement-shelf" not in home
+
+    complete_call = completion.index("await state.api.completeModule(moduleCode)")
+    refresh_call = completion.index("await loadBootstrap()")
+    server_confirmation = completion.index("const serverCompleted")
+    success_toast = completion.index('toast("Курс завершён и сохранён.", "success")')
+    next_step = completion.index('navigate("/learn", true)')
+    assert complete_call < refresh_call < server_confirmation < success_toast < next_step
+    assert "showTrainingAchievement" not in completion
+    assert "training_achievement_unlocked" not in completion
 
 
 def test_checklist_ids_are_stable_and_persisted_by_identity() -> None:

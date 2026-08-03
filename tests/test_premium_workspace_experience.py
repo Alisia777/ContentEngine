@@ -10,6 +10,7 @@ CATALOG = (ROOT / "web/app/catalog.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "web/app/styles.css").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 SUPABASE_API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+WORKSPACE_OS = (ROOT / "web/app/workspace-os-v4.js").read_text(encoding="utf-8")
 
 
 EXPECTED_FLOW = [
@@ -141,20 +142,31 @@ def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
         assert selector in STYLES
 
 
-def test_navigation_is_grouped_and_factory_steps_are_numbered() -> None:
-    nav_link = _between(APP, "function workspaceNavLinkMarkup", "function workspaceScaffold")
-    scaffold = _between(APP, "function workspaceScaffold", "function canManageTeam")
-    mobile = _between(APP, "function mobileNavMarkup", "async function loadSection")
+def test_primary_navigation_is_exactly_six_ordered_workspace_apps() -> None:
+    routes = _between(
+        WORKSPACE_OS,
+        "const ROUTES = Object.freeze([",
+        "const SECONDARY_ROUTES",
+    )
+    secondary_routes = _between(
+        WORKSPACE_OS,
+        "const SECONDARY_ROUTES = Object.freeze([",
+        "const ALL_ROUTES",
+    )
+    dock = _between(WORKSPACE_OS, "function ensureDock()", "function updateDock()")
 
-    assert "FACTORY_FLOW.find" in nav_link
-    assert '"nav-stage-number"' in nav_link
-    assert 'class="nav-link-copy"' in nav_link
-    assert "workspaceNavLinkMarkup" in scaffold
-    assert "Знания" in scaffold
-    assert "Производство · 01–07" in mobile
-    assert "Знания" in mobile
-    assert ".nav-link-stage" in STYLES
-    assert ".nav-stage-number" in STYLES
+    assert re.findall(r'route: "([^"]+)"', routes) == [
+        "/workspace/home",
+        "/workspace/board",
+        "/workspace/generation",
+        "/workspace/review",
+        "/workspace/placement",
+        "/workspace/stats",
+    ]
+    assert "/learn" not in routes
+    assert "/learn" not in secondary_routes
+    assert "ROUTES.forEach((item, index)" in dock
+    assert 'dock.setAttribute("aria-label"' in dock
 
 
 def test_home_action_closes_the_loop_through_metrics_and_payouts() -> None:
@@ -235,7 +247,7 @@ def test_home_action_surfaces_unassigned_generated_media_qa() -> None:
     assert "seedance-result.mp4" == manager["title"]
 
     reviewer = _run_home_next_action({**base, "role": "reviewer"})
-    assert reviewer["href"] == "#/workspace/review/review-1"
+    assert reviewer["href"] == "#/workspace/review?view=current&review=review-1"
     assert reviewer["cta"] == "Открыть статус QA"
 
 
@@ -285,7 +297,7 @@ def test_home_action_restores_exact_generation_repair() -> None:
         "role": "reviewer",
     })
     assert waiting["controlAction"] == ""
-    assert waiting["href"] == "#/workspace/review/review-2"
+    assert waiting["href"] == "#/workspace/review?view=current&review=review-2"
 
 
 def test_learning_home_has_one_explicit_mandatory_next_step() -> None:
@@ -413,17 +425,24 @@ def test_bootstrap_context_commits_only_for_the_current_user_request() -> None:
 
 
 def test_workspace_refresh_preserves_dirty_forms_and_files() -> None:
-    workspace = _between(APP, "function renderWorkspace", "function workspaceScaffold")
+    workspace = _between(APP, "function renderWorkspace(section) {", "const WORKSPACE_SCROLL_OWNERS")
+    capture = _between(APP, "function captureDirtyWorkspaceForms(container) {", "function restoreDirtyWorkspaceForms")
+    restore = _between(APP, "function restoreDirtyWorkspaceForms(container, snapshots) {", "function workspaceNavLinkMarkup")
 
     assert "workspaceInitialLoadingMarkup(section)" in workspace
     assert "captureDirtyWorkspaceForms(existingContent)" in workspace
     assert "restoreDirtyWorkspaceForms(existingContent, dirtyForms)" in workspace
-    assert 'form[data-dirty="true"]' in workspace
-    assert "new DataTransfer()" in workspace
-    assert '["checkbox", "radio"].includes(field.type)' in workspace
-    assert 'name: String(field.name || "")' in workspace
-    assert 'item.name === field.name' in workspace
-    assert 'item.value === field.value' in workspace
+    assert 'form.dataset.dirty === "true"' in capture
+    assert 'form.dataset.busy === "true"' in capture
+    assert 'form.querySelectorAll(\'input[type="file"]\')' in capture
+    assert "(input.files?.length || 0) > 0" in capture
+    assert '["checkbox", "radio"].includes(field.type)' in capture
+    assert 'name: String(field.name || "")' in capture
+    assert 'files: field instanceof HTMLInputElement && field.type === "file"' in capture
+    assert "new DataTransfer()" in restore
+    assert "saved.node === field" in restore
+    assert 'item.name === field.name' in restore
+    assert 'item.value === field.value' in restore
     assert 'document.addEventListener("input", handleFormActivity)' in APP
     assert 'form.dataset.dirty = "true"' in APP
     drop_handler = _between(APP, "async function handleDrop", "function handleDragEnd")
@@ -432,16 +451,17 @@ def test_workspace_refresh_preserves_dirty_forms_and_files() -> None:
 
 
 def test_paid_generation_stays_single_flight_across_workspace_rerenders() -> None:
-    workspace = _between(APP, "function renderWorkspace", "function workspaceScaffold")
+    capture = _between(APP, "function captureDirtyWorkspaceForms(container) {", "function restoreDirtyWorkspaceForms")
+    restore = _between(APP, "function restoreDirtyWorkspaceForms(container, snapshots) {", "function workspaceNavLinkMarkup")
     submit = _between(APP, "async function submitRealGeneration", "async function submitMockBatch")
     busy = _between(APP, "function setFormBusy", "function withUiTimeout")
 
     assert "realGenerationStartInFlight: false" in APP
-    assert 'form[data-busy="true"]' in workspace
-    assert "busyLabel:" in workspace
-    assert "const restoreBusy = snapshot.busy" in workspace
-    assert 'form.id !== "media-upload-form" || state.mediaUploadInFlight' in workspace
-    assert "if (restoreBusy) setFormBusy(form, true" in workspace
+    assert 'form.dataset.busy === "true"' in capture
+    assert "busyLabel:" in capture
+    assert "const restoreBusy = snapshot.busy" in restore
+    assert 'form.id !== "media-upload-form" || state.mediaUploadInFlight' in restore
+    assert "if (restoreBusy) setFormBusy(form, true" in restore
 
     assert "if (state.realGenerationStartInFlight)" in submit
     assert "state.realGenerationStartInFlight = true" in submit

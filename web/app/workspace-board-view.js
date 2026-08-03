@@ -140,7 +140,7 @@ function normalizeFolder(folder, index, canManageFolders = false) {
 
 function normalizeItem(item, index, fallbackType = "") {
   const source = asRecord(item);
-  const id = normalizedId(source.id ?? source.public_id ?? source.item_id);
+  const id = normalizedId(source.public_id ?? source.id ?? source.item_id);
   if (!id) return null;
   const entityType = normalizedEntityType(
     source.entity_type ?? source.entityType ?? source.object_type ?? source.type,
@@ -578,7 +578,7 @@ function filterMarkup(board, options, resultCount, busy) {
 function itemPreviewMarkup(item, detailed = false) {
   const previewUrl = safePreviewUrl(item.previewUrl);
   if (previewUrl && item.mimeType.startsWith("image/")) {
-    return `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" />`;
+    return `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async" />`;
   }
   if (previewUrl && item.mimeType === "video/mp4" && detailed) {
     return `<video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Видео: ${escapeHtml(item.title)}"></video>`;
@@ -596,7 +596,8 @@ function itemCardMarkup(item, selectedItemKey, busy) {
     <article class="workspace-board__item ${selected ? "is-selected" : ""}"
              data-workspace-item-key="${escapeHtml(item.key)}"
              data-entity-type="${escapeHtml(item.entityType)}"
-             data-entity-id="${escapeHtml(item.id)}">
+             data-entity-id="${escapeHtml(item.id)}"
+             data-entity-kind="${escapeHtml(item.kind)}">
       <button class="workspace-board__item-open"
               type="button"
               data-action="open-workspace-item"
@@ -671,6 +672,13 @@ function itemDrawerMarkup(board, selectedItem, busy) {
       </div>
       <div class="workspace-board__drawer-preview">${itemPreviewMarkup(selectedItem, true)}</div>
       ${selectedItem.description ? `<p class="workspace-board__drawer-description">${escapeHtml(selectedItem.description)}</p>` : ""}
+      ${selectedItem.entityType === "media" && ["product_photo", "packshot"].includes(selectedItem.kind) ? `
+        <div class="workspace-board__drawer-actions">
+          <button class="btn" type="button"
+                  data-action="create-from-workspace-media"
+                  data-entity-id="${escapeHtml(selectedItem.id)}"
+                  ${busy ? "disabled" : ""}>Создать из этого файла</button>
+        </div>` : ""}
       <dl class="workspace-board__drawer-facts">
         <div><dt>Статус</dt><dd>${escapeHtml(humanStatus(selectedItem.status))}</dd></div>
         <div><dt>Папка</dt><dd>${escapeHtml(currentFolder?.name || "Без папки")}</dd></div>

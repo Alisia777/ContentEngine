@@ -124,7 +124,10 @@ def test_spend_snapshot_fails_closed_for_policy_blocker_and_escapes_campaign_cop
         return {
           allowed: subject.generationSpendAllowsMinor(blocked, 25),
           snapshot: subject.generationSpendSnapshotMarkup({ status: "ready", data: blocked }, { requestMinor: 25 }),
-          manager: subject.managerGenerationSpendMarkup({ status: "ready", data: blocked }, { canEdit: true }),
+          manager: subject.managerGenerationSpendMarkup(
+            { status: "ready", data: blocked },
+            { canEdit: true, view: "campaigns" },
+          ),
           loading: subject.generationSpendSnapshotMarkup({ status: "loading", data: null }, { requestMinor: 25 }),
           stale: subject.generationSpendSnapshotMarkup({ status: "error", data: { ...blocked, blocker_code: null, usage: { day: { remaining_minor: 500 }, month: { remaining_minor: 1500 } } } }, { requestMinor: 25 }),
           staleManager: subject.managerGenerationSpendMarkup({ status: "error", data: { ...blocked, blocker_code: null } }, { canEdit: true }),
@@ -189,5 +192,5 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260803.1' in INDEX
+    assert './app.js?v=20260803.os4.4' in INDEX
     assert './supabase-api.js?v=20260729.2' in APP

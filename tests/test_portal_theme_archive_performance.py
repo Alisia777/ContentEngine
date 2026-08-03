@@ -273,8 +273,21 @@ def test_archive_dom_window_is_twenty_rows_with_a_hard_two_hundred_row_cap() -> 
     }
     render_generation = _between(APP, "function renderGenerationSection", "function generationArchiveMarkup")
     archive_markup = _between(APP, "function generationArchiveMarkup", "function submitGenerationArchiveFilters")
+    archive_table = _between(APP, "function generationTable", "function generationBatchDetails")
     click_actions = _between(APP, 'if (action === "reset-generation-filters")', 'if (action === "reload-page")')
-    assert "filteredBatches.slice(0, archiveFilters.visible)" in render_generation
+    assert "routeFilteredBatches.slice(0, archiveFilters.visible)" in render_generation
+    assert re.search(
+        r"generationArchiveMarkup\(\s*batches,\s*routeFilteredBatches,\s*visibleBatches,\s*archiveFilters,\s*Boolean\(routeJobId\)",
+        render_generation,
+    )
+    assert "function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filters, interactive = false)" in archive_markup
+    assert 'data-generation-archive-mode="${interactive ? "exact" : "browse"}"' in archive_markup
+    assert "generationTable(visibleBatches, interactive)" in archive_markup
+    assert "function generationTable(items, interactive = false)" in archive_table
+    assert "const actions = interactive" in archive_table
+    assert 'href="#/workspace/generation?view=history&job=${encodeURIComponent(details.jobId)}"' in archive_table
+    assert "const technicalQa = interactive ? generatedVideoTechnicalQaMarkup(details) : \"\"" in archive_table
+    assert "const preview = interactive && previewUrl" in archive_table
     assert "filters.visible < GENERATION_VISIBLE_CAP" in archive_markup
     assert "filters.visible >= GENERATION_VISIBLE_CAP" in archive_markup
     assert "visible: GENERATION_VISIBLE_STEP" in click_actions
@@ -479,9 +492,13 @@ def test_generation_archive_reload_is_server_filtered_and_grouped_by_week() -> N
     load_more_block = _between(
         APP,
         "async function loadMoreGenerationArchive()",
-        "function generationTable(items)",
+        "function generationTable(items, interactive = false)",
     )
-    table_block = _between(APP, "function generationTable(items)", "function generationBatchDetails(item)")
+    table_block = _between(
+        APP,
+        "function generationTable(items, interactive = false)",
+        "function generationBatchDetails(item)",
+    )
 
     assert initial_load.index("const generationArchiveRequest") < initial_load.index(
         "let raw = await withUiTimeout("

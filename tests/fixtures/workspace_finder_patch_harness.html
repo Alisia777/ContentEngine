@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Finder patch harness</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="workspace-shell" data-workspace-section="board">
+        <main id="main-content">
+          <div id="workspace-content"></div>
+        </main>
+      </div>
+    </div>
+    <output id="result" role="status">Проверка…</output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      if (location.hash !== "#/workspace/board") location.hash = "#/workspace/board";
+    </script>
+    <script type="module">
+      import { patchWorkspaceContent } from "../../web/app/workspace-dom-patch.js";
+
+      const content = document.querySelector("#workspace-content");
+      const result = document.querySelector("#result");
+      const boardMarkup = ({ updated = false } = {}) => `
+        <div class="page-wrap">
+          <section class="workspace-board">
+            <div class="workspace-board__layout">
+              <aside class="workspace-board__sidebar">
+                <div class="workspace-board__sidebar-head"><strong>Папки</strong></div>
+                <button class="workspace-board__folder-row" type="button" data-folder-id="alpha-folder">Alpha folder</button>
+                <button class="workspace-board__folder-row" type="button" data-folder-id="beta-folder">Beta folder</button>
+              </aside>
+              <div class="workspace-board__content">
+                <div class="workspace-board__grid">
+                  ${updated ? `
+                    <article class="workspace-board__item" data-workspace-item-key="beta" data-entity-type="task">
+                      <div class="workspace-board__item-copy"><strong>Beta</strong></div><span class="workspace-board__status">Zulu</span>
+                    </article>
+                    <article class="workspace-board__item" data-workspace-item-key="alpha" data-entity-type="task">
+                      <div class="workspace-board__item-copy"><strong>Alpha</strong></div><span class="workspace-board__status">Alpha</span>
+                    </article>
+                  ` : `
+                    <article class="workspace-board__item" data-workspace-item-key="alpha" data-entity-type="task">
+                      <div class="workspace-board__item-copy"><strong>Alpha</strong></div><span class="workspace-board__status">Zulu</span>
+                    </article>
+                    <article class="workspace-board__item" data-workspace-item-key="beta" data-entity-type="task">
+                      <div class="workspace-board__item-copy"><strong>Beta</strong></div><span class="workspace-board__status">Alpha</span>
+                    </article>
+                  `}
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      `;
+
+      content.innerHTML = boardMarkup();
+      await import("../../web/app/workspace-os-v4.js");
+      await import("../../web/app/workspace-os-v4-finder.js");
+      await window.ContentEngineDesktopV4.flush();
+
+      const toolbar = document.querySelector(".ce-v4-finder-toolbar");
+      const search = document.querySelector(".ce-v4-folder-search input");
+      const sort = document.querySelector(".ce-v4-finder-sort");
+      const board = document.querySelector(".workspace-board");
+      const layout = document.querySelector(".workspace-board__layout");
+      const sidebar = document.querySelector(".workspace-board__sidebar");
+      const alpha = document.querySelector('[data-workspace-item-key="alpha"]');
+      const beta = document.querySelector('[data-workspace-item-key="beta"]');
+      sort.value = "status";
+      sort.dispatchEvent(new Event("change", { bubbles: true }));
+      search.value = "beta";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+
+      patchWorkspaceContent(content, boardMarkup({ updated: true }));
+      window.ContentEngineDesktopV4.requestMount();
+      await window.ContentEngineDesktopV4.flush();
+
+      const cards = [...document.querySelectorAll(".workspace-board__item")];
+      const folders = [...document.querySelectorAll(".workspace-board__folder-row")];
+      const checks = {
+        boardIdentity: document.querySelector(".workspace-board") === board,
+        layoutIdentity: document.querySelector(".workspace-board__layout") === layout,
+        sidebarIdentity: document.querySelector(".workspace-board__sidebar") === sidebar,
+        toolbarIdentity: document.querySelector(".ce-v4-finder-toolbar") === toolbar,
+        searchIdentity: document.querySelector(".ce-v4-folder-search input") === search,
+        sortIdentity: document.querySelector(".ce-v4-finder-sort") === sort,
+        sortValue: sort.value === "status",
+        sortedOrder: cards.map((card) => card.dataset.workspaceItemKey).join(",") === "alpha,beta",
+        cardIdentity: cards[0] === alpha && cards[1] === beta,
+        cardTabIndex: cards.every((card) => card.tabIndex === -1),
+        filterValue: search.value === "beta",
+        folderFilter: folders[0].hidden === true && folders[1].hidden === false,
+        oneToolbar: document.querySelectorAll(".ce-v4-finder-toolbar").length === 1,
+        oneSearch: document.querySelectorAll(".ce-v4-folder-search").length === 1,
+      };
+      const passed = Object.values(checks).every(Boolean);
+      result.dataset.passed = String(passed);
+      result.dataset.checks = JSON.stringify(checks);
+      result.textContent = passed ? "PASS" : "FAIL";
+    </script>
+  </body>
+</html>

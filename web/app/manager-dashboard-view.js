@@ -301,7 +301,7 @@ function pendingInviteMarkup(invites) {
             ? "Запрос принят почтовым сервисом, доставка не подтверждена"
             : reasonLabel(invite.reason_code);
           return `
-            <article class="manager-invite-row">
+            <article class="manager-invite-row" data-invite-email="${escapeHtml(invite.email || "")}">
               <div><strong>${escapeHtml(invite.email || "—")}</strong><small>${escapeHtml(status)}</small></div>
               <time datetime="${escapeHtml(invite.requested_at || "")}">${escapeHtml(formatDateTime(invite.requested_at))}</time>
               ${canRetry ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-manager-access" data-email="${escapeHtml(invite.email || "")}">Проверить и восстановить доступ</button>` : ""}
@@ -324,7 +324,7 @@ function memberQueueMarkup(members) {
           ? `${formatNumber(member.courses_completed || 0)} из ${formatNumber(member.courses_required || 0)} курсов`
           : reason;
         return `
-          <article class="manager-member-row" data-manager-stage="${escapeHtml(stage)}">
+          <article class="manager-member-row" data-member-id="${escapeHtml(member.user_id || member.id || member.email || "")}" data-manager-stage="${escapeHtml(stage)}">
             <div class="manager-member-person">
               <span class="manager-person-avatar" aria-hidden="true">${escapeHtml(initials(member.display_name || member.email))}</span>
               <div><strong>${escapeHtml(member.display_name || member.email || "Участник")}</strong><small>${escapeHtml(member.email || "")}</small></div>

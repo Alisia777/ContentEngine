@@ -7,7 +7,65 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] {
   --ce-v4-font-control: 14px;
   --ce-v4-font-small: 12.5px;
   --ce-v4-context-gap: 10px;
+  scrollbar-gutter: auto;
+}
+
+/* The desktop shell owns the viewport; #main-content owns route scrolling. */
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .workspace-shell,
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .workspace-main,
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] #workspace-content {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .workspace-shell,
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .workspace-main {
+  overflow: hidden !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] #main-content {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-page,
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-home {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-page {
+  overflow: visible !important;
+}
+
+/* Late route assets still contain 100dvh contracts; cap their window to this shell. */
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
+  .review-os-workbench,
+  .generation-os-workbench,
+  .media-finder-shell,
+  .work-stage-shell,
+  .tasks-desk-shell,
+  .publishing-os-shell,
+  .results-ledger-shell,
+  .academy-os-window,
+  .academy-course-os-window--v2
+) {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
+  .generation-os-workbench,
+  .media-finder-shell
+) {
+  margin-top: 0 !important;
 }
 
 /* The global shell must not move its geometry under the cursor. */
@@ -32,12 +90,46 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__tile {
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__item:hover .ce-v4-dock__tile,
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__item:focus-visible .ce-v4-dock__tile {
-  transform: translate3d(0, -3px, 0);
+  transform: translate3d(0, -6px, 0) scale(1.1);
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
-  contain: layout paint;
+  contain: layout style;
+  overflow: visible !important;
   overflow-anchor: none;
+}
+
+/* Persistent glass is almost opaque: Safari no longer recomposites live blur. */
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
+  .ce-v4-menubar,
+  .ce-v4-dock__glass,
+  .workspace-contextbar,
+  [data-ce-v4-contextbar="primary"],
+  .review-os-topbar,
+  .generation-os-topbar,
+  .media-finder-topbar,
+  .work-stage-topbar,
+  .tasks-desk-topbar,
+  .publishing-os-topbar,
+  .results-os-topbar,
+  .payout-ledger-topbar,
+  .academy-os-topbar,
+  .academy-v2-topbar
+) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.01)),
+    rgba(10,8,7,.98) !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.018)),
+    rgba(18,15,13,.975) !important;
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__tooltip {
@@ -68,7 +160,9 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
   .workspace-deckbar,
   .learning-command-bar,
   .workspace-contextbar,
-  .workspace-context-bar
+  .workspace-context-bar,
+  .mobile-topbar,
+  .mobile-nav
 ) {
   display: none !important;
 }
@@ -99,12 +193,12 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-contextbar="
   color: var(--ce-v4-text) !important;
   background:
     linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)),
-    rgba(16, 13, 11, .94) !important;
+    rgba(16, 13, 11, .98) !important;
   box-shadow: inset 0 1px rgba(255,255,255,.045) !important;
   transform: none !important;
   filter: none !important;
-  backdrop-filter: blur(18px) saturate(1.08);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-contextbar="primary"] :is(
@@ -337,16 +431,30 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(td, th) {
   line-height: 1.45 !important;
 }
 
-/* No page-wide blur/scale choreography: internal step transitions remain. */
+/* Loader readiness supplies the only route transition; no blur or scale layers. */
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-page {
   view-transition-name: none !important;
+  filter: none !important;
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
-  .ce-v4-page,
   .ce-v4-menubar,
   .ce-v4-dock,
   [data-ce-v4-contextbar]
+) {
+  filter: none !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .route-enter,
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .route-enter .page-wrap > :is(
+  .page-header,
+  .workspace-page-intro,
+  .home-hero,
+  .home-metrics,
+  .card,
+  .split-grid,
+  .workspace-direction,
+  .home-guidance-grid
 ) {
   animation: none !important;
   filter: none !important;
@@ -380,7 +488,7 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
 
 @media (max-width: 680px) {
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] {
-    --ce-v4-top: 54px;
+    --ce-v4-top: 48px;
     --ce-v4-dock: 68px;
   }
 
@@ -440,6 +548,13 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__tile,
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-connected-menu="true"] :is(button, a),
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-local-dock="true"] :is(button, a) {
+    transition: none !important;
+  }
+
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-page,
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .workspace-main {
+    opacity: 1 !important;
+    transform: none !important;
     transition: none !important;
   }
 }

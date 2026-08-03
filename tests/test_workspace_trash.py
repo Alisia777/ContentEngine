@@ -144,8 +144,8 @@ def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
         "taskActions",
         "folderActions",
         "emptySurfaceActions",
+        "contextActions",
         "Открыть",
-        "Быстрый просмотр",
         "Переместить в папку…",
         "Скопировать ID",
         "Переместить в Корзину",
@@ -156,7 +156,7 @@ def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
         assert marker in SCRIPT
 
 
-def test_trash_window_supports_restore_purge_empty_and_quick_look() -> None:
+def test_trash_window_supports_restore_purge_empty_and_safe_previews() -> None:
     for marker in (
         "createTrashWindow",
         "Корзина",
@@ -167,13 +167,13 @@ def test_trash_window_supports_restore_purge_empty_and_quick_look() -> None:
         "restoreTrashItems",
         "purgeTrashItems",
         "emptyTrash",
-        "openTrashPreview",
+        "hydrateTrashPreviews",
         "createSignedUrl",
         ".storage.from(bucket).remove",
         "showUndoToast",
         'label: "Вернуть"',
         "Shift+Delete",
-        "Space — просмотр",
+        "Delete — в Корзину · Shift+Delete — окончательно только внутри Корзины",
         "TRASH_PAGE_SIZE",
         "next_cursor",
     ):
@@ -210,22 +210,32 @@ def test_trash_ui_uses_narrow_rpc_boundary_and_safe_dynamic_dom() -> None:
             assert forbidden not in source
 
 
-def test_context_trash_loads_before_the_single_stability_coordinator() -> None:
+def test_context_trash_loads_in_the_current_core_and_static_stability_order() -> None:
     for marker in (
         "workspace-os-v4-context-trash.css?v=${BUILD}",
+        "workspace-os-v4-flow.css?v=${BUILD}",
+        "workspace-os-v4-stability.css?v=${BUILD}",
+        "workspace-os-v4-motion.css?v=${BUILD}",
+        "workspace-os-v4.js?v=${BUILD}",
         "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}",
         "workspace-os-v4-context-trash.js?v=${BUILD}",
-        "workspace-os-v4-stability.js?v=${BUILD}",
     ):
         assert marker in LOADER
 
-    assert LOADER.index("workspace-os-v4-trash-rpc-alias.js?v=${BUILD}") < LOADER.index(
+    assert LOADER.index("workspace-os-v4-context-trash.css?v=${BUILD}") < LOADER.index(
+        "workspace-os-v4-stability.css?v=${BUILD}"
+    )
+    assert LOADER.index("workspace-os-v4.js?v=${BUILD}") < LOADER.index(
+        "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}"
+    ) < LOADER.index(
         "workspace-os-v4-context-trash.js?v=${BUILD}"
     )
-    assert LOADER.index("workspace-os-v4-context-trash.js?v=${BUILD}") < LOADER.index(
-        "workspace-os-v4-stability.js?v=${BUILD}"
-    )
-    assert "workspace-os-v4-surface-guard.js" not in LOADER
+    for retired_controller in (
+        "workspace-os-v4-stability.js",
+        "workspace-os-v4-surface-guard.js",
+        "workspace-os-v4-operations.js",
+    ):
+        assert retired_controller not in LOADER
 
 
 def test_context_trash_styles_are_desktop_mobile_and_accessibility_aware() -> None:

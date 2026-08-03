@@ -66,7 +66,7 @@ def test_my_work_normalizes_server_counts_items_and_cursor() -> None:
     assert result["counts"]["actionRequired"] == 3
     assert result["counts"]["blockers"] == 2
     assert result["items"][0]["itemType"] == "generation"
-    assert result["items"][0]["deepLink"] == "#/workspace/generation"
+    assert result["items"][0]["deepLink"] == "#/workspace/generation?view=create"
     assert result["items"][0]["actionRequired"] is True
     assert result["items"][0]["blocker"] is True
     assert result["nextCursor"]["id"] == "job-1"
@@ -125,7 +125,7 @@ def test_notification_center_has_unread_actions_and_safe_links() -> None:
 
     assert result == {
         "unread": 1,
-        "safe": "#/workspace/generation",
+        "safe": "#/workspace/generation?view=create",
         "unsafe": "",
         "errorTone": "danger",
         "hasMarkAll": True,

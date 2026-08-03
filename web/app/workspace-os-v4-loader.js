@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.2 route loader.
+ * ContentEngine Desktop v4.4 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,94 +7,20 @@
  * in favour of one deterministic stability coordinator.
  */
 
-const BUILD = "20260803.os4.2.1";
+const BUILD = "20260803.os4.4";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
+let routeEpoch = 0;
+let lastScheduledRoute = "";
 
 window.CONTENTENGINE_DESKTOP_V4 = true;
-
-const OPERATIONAL_ROUTES = new Set([
-  "/workspace/review",
-  "/workspace/tasks",
-  "/workspace/placement",
-  "/workspace/stats",
-  "/workspace/payouts",
-]);
 
 const ROUTE_ASSETS = Object.freeze({
   finder: Object.freeze({
     match: (route) => route === "/workspace/board",
     styles: [`workspace-os-v4-finder.css?v=${BUILD}`],
     modules: [`workspace-os-v4-finder.js?v=${BUILD}`],
-  }),
-  operations: Object.freeze({
-    match: (route) => OPERATIONAL_ROUTES.has(route),
-    styles: [`workspace-os-v4-operations.css?v=${BUILD}`],
-    modules: [`workspace-os-v4-operations.js?v=${BUILD}`],
-  }),
-  review: Object.freeze({
-    match: (route) => route === "/workspace/review",
-    styles: [
-      "workspace-desktop-os.css?v=20260730.1",
-      "workspace-desktop-review.css?v=20260730.1",
-      "workspace-desktop-review-form.css?v=20260730.1",
-      "workspace-desktop-review-result.css?v=20260730.1",
-      "workspace-desktop-responsive.css?v=20260730.1",
-    ],
-    modules: ["workspace-desktop-os.js?v=20260730.1"],
-  }),
-  academy: Object.freeze({
-    match: (route) => route === "/learn" || route.startsWith("/learn/"),
-    styles: [
-      "workspace-desktop-os.css?v=20260730.1",
-      "workspace-desktop-academy.css?v=20260730.1",
-      "workspace-academy-os-v2.css?v=20260730.1",
-      "workspace-desktop-responsive.css?v=20260730.1",
-      "workspace-academy-lab-v3.css?v=20260731.1",
-    ],
-    modules: [
-      "workspace-desktop-os.js?v=20260730.1",
-      "workspace-academy-os-v2.js?v=20260730.1",
-      "workspace-academy-lab-v3.js?v=20260731.1",
-    ],
-  }),
-  generation: Object.freeze({
-    match: (route) => route === "/workspace/generation",
-    styles: [
-      "workspace-generation-os.css?v=20260731.1",
-      "workspace-generation-learning-advisor.css?v=20260801.1",
-    ],
-    modules: [
-      "workspace-generation-os.js?v=20260731.1",
-      "workspace-generation-learning-advisor.js?v=20260801.1",
-    ],
-  }),
-  media: Object.freeze({
-    match: (route) => route === "/workspace/media",
-    styles: ["workspace-media-finder.css?v=20260731.1"],
-    modules: ["workspace-media-finder.js?v=20260731.1"],
-  }),
-  publishing: Object.freeze({
-    match: (route) => route === "/workspace/placement",
-    styles: ["workspace-publishing-os.css?v=20260731.1"],
-    modules: [
-      "workspace-publishing-os.js?v=20260731.1",
-      "workspace-os-v3-native-bridge.js?v=20260731.1",
-    ],
-  }),
-  work: Object.freeze({
-    match: (route) => route === "/workspace/work" || route === "/workspace/tasks",
-    styles: ["workspace-work-stage-manager.css?v=20260731.1"],
-    modules: [
-      "workspace-work-stage-manager.js?v=20260731.1",
-      "workspace-os-v3-native-bridge.js?v=20260731.1",
-    ],
-  }),
-  results: Object.freeze({
-    match: (route) => route === "/workspace/stats" || route === "/workspace/payouts",
-    styles: ["workspace-results-ledger.css?v=20260731.1"],
-    modules: ["workspace-results-ledger.js?v=20260731.1"],
   }),
 });
 
@@ -103,6 +29,59 @@ function routePath() {
   return (`/${raw.split("?")[0] || ""}`)
     .replace(/\/{2,}/g, "/")
     .replace(/\/$/, "") || "/";
+}
+
+function isManagedRoute(route = routePath()) {
+  return route.startsWith("/workspace/");
+}
+
+function setLoading(active, route = routePath()) {
+  if (!isManagedRoute(route)) {
+    delete document.documentElement.dataset.ceV4Loading;
+    delete document.documentElement.dataset.ceV4Ready;
+    delete document.documentElement.dataset.ceV4Failed;
+    return;
+  }
+  if (active) {
+    const entering = document.querySelector("#main-content.route-enter");
+    entering?.querySelector("#workspace-content")?.classList.remove("ce-v4-content-reveal");
+    document.documentElement.dataset.ceV4Loading = "true";
+    delete document.documentElement.dataset.ceV4Ready;
+    delete document.documentElement.dataset.ceV4Failed;
+    return;
+  }
+  delete document.documentElement.dataset.ceV4Loading;
+  delete document.documentElement.dataset.ceV4Failed;
+  document.documentElement.dataset.ceV4Ready = "true";
+}
+
+function armRouteEnterCleanup(route, epoch) {
+  const main = document.querySelector("#main-content.route-enter");
+  const page = main?.querySelector(".ce-v4-page");
+  if (!main) return;
+
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!page || reduced) {
+    if (epoch === routeEpoch && route === routePath()) main.classList.remove("route-enter");
+    return;
+  }
+
+  let timeout = 0;
+  const finish = (event) => {
+    if (event && (event.target !== page || event.animationName !== "ce-v4-route-enter")) return;
+    page.removeEventListener("animationend", finish);
+    window.clearTimeout(timeout);
+    if (epoch === routeEpoch && route === routePath()) main.classList.remove("route-enter");
+  };
+  page.addEventListener("animationend", finish);
+  timeout = window.setTimeout(finish, 450);
+}
+
+function setFailed(route = routePath()) {
+  if (!isManagedRoute(route)) return;
+  delete document.documentElement.dataset.ceV4Loading;
+  delete document.documentElement.dataset.ceV4Ready;
+  document.documentElement.dataset.ceV4Failed = "true";
 }
 
 function absoluteAsset(relative) {
@@ -116,13 +95,17 @@ function ensureStyle(relative) {
     return Promise.resolve();
   }
   loadedStyles.add(href);
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = href;
     link.dataset.ceV4Style = href;
     link.addEventListener("load", resolve, { once: true });
-    link.addEventListener("error", resolve, { once: true });
+    link.addEventListener("error", () => {
+      loadedStyles.delete(href);
+      link.remove();
+      reject(new Error(`ContentEngine stylesheet unavailable: ${relative}`));
+    }, { once: true });
     document.head.append(link);
   });
 }
@@ -140,47 +123,65 @@ function ensureModule(relative) {
 }
 
 async function loadRoute(route = routePath()) {
+  const epoch = ++routeEpoch;
+  setLoading(true, route);
+  await corePromise;
   const matches = Object.values(ROUTE_ASSETS).filter((entry) => entry.match(route));
-  for (const entry of matches) {
-    await Promise.all(entry.styles.map(ensureStyle));
-    for (const modulePath of entry.modules) await ensureModule(modulePath);
+  const styles = [...new Set(matches.flatMap((entry) => entry.styles))];
+  const modules = [...new Set(matches.flatMap((entry) => entry.modules))];
+  await Promise.all(styles.map(ensureStyle));
+  for (const modulePath of modules) {
+    await ensureModule(modulePath);
+    if (epoch !== routeEpoch) return false;
   }
+  if (epoch !== routeEpoch || route !== routePath()) return false;
+  await window.ContentEngineDesktopV4?.flush?.();
+  if (epoch !== routeEpoch || route !== routePath()) return false;
+  armRouteEnterCleanup(route, epoch);
+  setLoading(false, route);
   window.dispatchEvent(new CustomEvent("contentengine:v4-route-ready", {
     detail: Object.freeze({ route, build: BUILD }),
   }));
+  return true;
 }
 
 function schedule() {
+  const route = routePath();
+  const sameRoutePath = route === lastScheduledRoute;
+  lastScheduledRoute = route;
+  if (sameRoutePath && isManagedRoute(route)) {
+    window.queueMicrotask(() => {
+      void window.ContentEngineDesktopV4?.flush?.();
+    });
+    return;
+  }
+  setLoading(isManagedRoute(route), route);
   if (queued) return;
   queued = true;
-  window.requestAnimationFrame(() => {
+  window.queueMicrotask(() => {
     queued = false;
-    void loadRoute();
+    void loadRoute(routePath()).catch((error) => {
+      setFailed(routePath());
+      console.error("ContentEngine Desktop v4.4 route failed to start", error);
+    });
   });
 }
 
 const corePromise = (async () => {
-  await ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`);
-  await ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`);
-  await ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`);
-  await ensureStyle(`workspace-ui-bug-checkin.css?v=${BUILD}`);
+  await Promise.all([
+    ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`),
+    ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`),
+    ensureStyle(`workspace-os-v4-flow.css?v=${BUILD}`),
+    ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`),
+    ensureStyle(`workspace-os-v4-motion.css?v=${BUILD}`),
+  ]);
   await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
   await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
-  await ensureModule(`workspace-os-v4-stability.js?v=${BUILD}`);
-  await ensureModule(`workspace-ui-bug-checkin.js?v=${BUILD}`);
 })();
 
-corePromise.then(schedule).catch((error) => {
-  console.error("ContentEngine Desktop v4.2 failed to start", error);
-});
-
 window.addEventListener("hashchange", schedule, { passive: true });
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", schedule, { once: true });
-} else {
-  schedule();
-}
+schedule();
 
 window.ContentEngineDesktopV4Loader = Object.freeze({
   build: BUILD,

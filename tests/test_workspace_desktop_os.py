@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -19,20 +20,24 @@ CSS_FILES = (
 CSS = "\n".join(path.read_text(encoding="utf-8") for path in CSS_FILES)
 
 
-def test_desktop_os_assets_load_after_the_previous_visual_layers() -> None:
-    markers = (
-        './workspace-desktop-os.css?v=20260730.1',
-        './workspace-desktop-review.css?v=20260730.1',
-        './workspace-desktop-review-form.css?v=20260730.1',
-        './workspace-desktop-review-result.css?v=20260730.1',
-        './workspace-desktop-academy.css?v=20260730.1',
-        './workspace-desktop-responsive.css?v=20260730.1',
-        './workspace-desktop-os.js?v=20260730.1',
+def test_legacy_desktop_os_assets_are_absent_from_the_active_graph() -> None:
+    active_assets = set(re.findall(
+        r'^\s*<(?:link|script)\b[^>]*\b(?:href|src)="([^"]+)"',
+        INDEX,
+        flags=re.MULTILINE,
+    ))
+    retired_names = (
+        "workspace-desktop-os.css",
+        "workspace-desktop-review.css",
+        "workspace-desktop-review-form.css",
+        "workspace-desktop-review-result.css",
+        "workspace-desktop-academy.css",
+        "workspace-desktop-responsive.css",
+        "workspace-desktop-os.js",
     )
-    for marker in markers:
-        assert marker in INDEX
-    assert INDEX.index("./workspace-perception.css") < INDEX.index("./workspace-desktop-os.css")
-    assert INDEX.index("./workspace-perception.js") < INDEX.index("./workspace-desktop-os.js")
+    assert not any(any(name in asset for name in retired_names) for asset in active_assets)
+    assert "./workspace-os-v4.css?v=20260803.os4.4" in active_assets
+    assert "./workspace-os-v4-loader.js?v=20260803.os4.4" in active_assets
 
 
 def test_review_is_recomposed_as_real_spaces_not_a_two_column_dashboard() -> None:

@@ -13,6 +13,9 @@ LANGUAGE_SQL = LANGUAGE_MIGRATION.read_text(encoding="utf-8")
 SQL = LANGUAGE_SQL
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+BUILD = json.loads(
+    (ROOT / "web/app/build.json").read_text(encoding="utf-8")
+)["id"]
 
 EXPECTED_COURSES = {
     "factory_basics",
@@ -427,7 +430,8 @@ def test_paid_generation_copy_is_current_and_does_not_claim_paid_ai_is_off() -> 
 
 
 def test_training_copy_matches_the_current_workspace_and_updates_existing_cloud_rows() -> None:
-    assert hashlib.sha256(BASE_MIGRATION.read_bytes()).hexdigest() == (
+    normalized_lf = BASE_MIGRATION.read_text(encoding="utf-8").encode("utf-8")
+    assert hashlib.sha256(normalized_lf).hexdigest() == (
         "e67cbf8a17e03c69f1e3d6b8a2523b119f0dc254994b79f424793636497daac0"
     )
     catalog_copy = json.dumps(_dollar_quoted_json(), ensure_ascii=False)
@@ -541,6 +545,7 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
 
     assert './styles.css?v=20260730.4' in INDEX
     assert './config.js?v=20260729.1' in INDEX
-    assert './app.js?v=20260803.1' in INDEX
+    assert BUILD == "20260803.os4.4"
+    assert f'./app.js?v={BUILD}' in INDEX
     assert './supabase-api.js?v=20260729.2' in APP
     assert './catalog.js?v=20260724.1' in APP

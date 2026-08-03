@@ -41,14 +41,28 @@ def test_mobile_auth_is_form_first_and_keyboard_focus_is_visible() -> None:
     assert "outline: 3px solid #315e91" in styles
 
 
-def test_notification_dialog_is_inert_and_keyboard_trapped() -> None:
+def test_notifications_use_an_inline_v4_route_without_a_subwindow_layer() -> None:
     app = _text("app.js")
     view = _text("my-work-view.js")
+    workspace_os = _text("workspace-os-v4.js")
 
-    assert 'role="dialog" aria-modal="true"' in view
-    assert 'tabindex="-1"' in view
-    assert 'toggleAttribute("inert", state.myWork.notificationsOpen)' in app
-    assert 'event.key === "Tab" && state.myWork.notificationsOpen' in app
+    assert 'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications"' in workspace_os
+    assert "if (notificationControl) navigate(notificationControl.dataset.ceV4Notifications);" in workspace_os
+    assert 'routePath() === "/workspace/work" && routeQuery().get("view") === "notifications"' in workspace_os
+    assert "notification-layer" not in workspace_os
+    assert "notification-drawer" not in workspace_os
+    assert 'aria-modal="true"' not in workspace_os
+
+    assert 'href="#/workspace/work?view=notifications"' in view
+    assert "export function notificationInlineMarkup" in view
+    assert "data-notification-view" in view
+    assert 'workMode === "notifications" ? notificationInlineMarkup' in view
+
+    v4_redirect = app[app.index('if (action === "toggle-work-notifications")') :]
+    v4_redirect = v4_redirect[: v4_redirect.index('if (!state.myWork.notificationsOpen')]
+    assert "window.CONTENTENGINE_DESKTOP_V4 === true" in v4_redirect
+    assert 'window.location.hash = "#/workspace/work?view=notifications"' in v4_redirect
+    assert "refreshNotificationLayer" not in v4_redirect
 
 
 def test_workspace_markup_keeps_the_initial_dom_window_bounded() -> None:

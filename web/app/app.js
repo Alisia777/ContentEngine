@@ -3,6 +3,7 @@ import {
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
 } from "./supabase-api.js?v=20260729.2";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.4";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -198,6 +199,8 @@ const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_vk",
 ]);
 let trainingMediaCatalogPromise = null;
+const trainingMediaBindingCleanups = new WeakMap();
+const trainingMediaHydrationEpochs = new WeakMap();
 import {
   myWorkRequestOptions,
   myWorkWorkspaceMarkup,
@@ -266,6 +269,7 @@ const FINAL_EXAM_DRAFT_VERSION = 2;
 const FINAL_EXAM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const PRODUCT_RESEARCH_RUN_STORAGE_KEY = "contentengine.product-research-run.v1";
 const CONTENT_GENERATION_HANDOFF_STORAGE_KEY = "contentengine.content-generation-handoff.v1";
+const GENERATION_MEDIA_SELECTION_STORAGE_KEY = "contentengine.generation-media-selection.v1";
 const GENERATION_REPAIR_STORAGE_KEY = "contentengine.generation-repair.v1";
 const OPERATIONAL_WORKSPACE_ROLES = new Set([
   "owner",
@@ -481,6 +485,9 @@ const MEMBERSHIP_LOCK_COPY = Object.freeze({
     message: "Обратитесь к руководителю вашей команды.",
   }),
 });
+
+const WORKSPACE_START_PATH = "/workspace/home";
+const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
 
 const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
@@ -1201,6 +1208,47 @@ function persistContentGenerationHandoff(handoff) {
   }
 }
 
+function readStoredGenerationMediaSelection() {
+  try {
+    const serialized = safeStorageGet(
+      window.sessionStorage,
+      GENERATION_MEDIA_SELECTION_STORAGE_KEY,
+    );
+    if (!serialized || serialized.length > 2_000) return null;
+    const value = JSON.parse(serialized);
+    const mediaId = String(value?.media_id || "").trim();
+    const savedAt = Number(value?.saved_at);
+    if (
+      value?.version !== 1
+      || !mediaId
+      || !Number.isFinite(savedAt)
+      || savedAt <= 0
+      || Date.now() - savedAt > 24 * 60 * 60 * 1_000
+    ) {
+      safeStorageRemove(window.sessionStorage, GENERATION_MEDIA_SELECTION_STORAGE_KEY);
+      return null;
+    }
+    return { mediaId, savedAt };
+  } catch {
+    safeStorageRemove(window.sessionStorage, GENERATION_MEDIA_SELECTION_STORAGE_KEY);
+    return null;
+  }
+}
+
+function persistGenerationMediaSelection(mediaId) {
+  const normalizedId = String(mediaId || "").trim();
+  if (!normalizedId) return false;
+  return safeStorageSet(
+    window.sessionStorage,
+    GENERATION_MEDIA_SELECTION_STORAGE_KEY,
+    JSON.stringify({ version: 1, media_id: normalizedId, saved_at: Date.now() }),
+  );
+}
+
+function clearGenerationMediaSelection() {
+  safeStorageRemove(window.sessionStorage, GENERATION_MEDIA_SELECTION_STORAGE_KEY);
+}
+
 function prepareRecommendedResearchHandoff(record) {
   const recommendedIndex = Number(record?.recommendedScenarioIndex);
   if (
@@ -1676,6 +1724,10 @@ async function initialize() {
     },
   });
   state.api = new CreatorApi(state.supabase, CONFIG);
+  window.ContentEngineWorkspaceRuntime = Object.freeze({
+    getApi: () => state.api,
+    isAuthenticated: () => Boolean(state.session),
+  });
   void restorePublicRecoveryReceipt();
 
   let authLink = null;
@@ -1981,7 +2033,7 @@ async function consumeAuthLink() {
     clearStoredPkceVerifier();
     const next = new URL(window.location.href);
     next.search = "";
-    next.hash = ["invite", "recovery"].includes(purpose) ? "#/set-password" : "#/learn";
+    next.hash = ["invite", "recovery"].includes(purpose) ? "#/set-password" : "#/";
     window.history.replaceState({}, "", next);
     state.route = parseRoute();
   }
@@ -2283,6 +2335,16 @@ function trainingAccessWaiverActive() {
   return state.bootstrap?.training?.accessWaiver?.active === true;
 }
 
+function academyRequired(bootstrap = state.bootstrap) {
+  if (!bootstrap || membershipLockDetails(bootstrap)) return false;
+  if (bootstrap.training?.accessWaiver?.active === true) return false;
+  return bootstrap.accessState === "learning";
+}
+
+function academyRoutesReachable(bootstrap = state.bootstrap) {
+  return academyRequired(bootstrap);
+}
+
 function hasWorkspaceAccess() {
   if (
     !state.bootstrap
@@ -2326,33 +2388,18 @@ function persistLearningTrack(track) {
   return normalized;
 }
 
-function learningTrackPickerMarkup(selectedTrack = restoreLearningTrack()) {
+function learningGateRoleMarkup(selectedTrack = restoreLearningTrack()) {
   const normalized = normalizeLearningTrack(selectedTrack);
   const track = LEARNING_TRACKS[normalized];
   return `
-    <section class="card learning-track-picker" data-learning-track-picker aria-labelledby="learning-track-title">
-      <div class="learning-track-picker__head">
-        <div>
-          <p class="eyebrow">Сначала определите свою задачу</p>
-          <h2 id="learning-track-title">Кем вы будете в этой смене?</h2>
-        </div>
-        <p>Выбор расставит акценты в примерах и тренажёрах. Четыре обязательных блока, тесты и итоговый экзамен остаются общими для всех.</p>
-      </div>
-      <div class="learning-track-picker__choices" role="group" aria-label="Моя учебная задача">
-        ${Object.values(LEARNING_TRACKS).map((option) => `
-          <button type="button" data-action="select-learning-track" data-learning-track="${escapeHtml(option.id)}" aria-pressed="${option.id === normalized ? "true" : "false"}">${escapeHtml(option.shortLabel)}</button>
-        `).join("")}
-      </div>
-      <div class="learning-track-picker__result" data-learning-track-result role="status" aria-live="polite">
-        <span class="learning-track-picker__number" aria-hidden="true">01</span>
-        <div>
-          <p class="eyebrow">Ваш учебный акцент</p>
-          <h3 data-learning-track-title>${escapeHtml(track.title)}</h3>
-          <p data-learning-track-description>${escapeHtml(track.description)}</p>
-          <span class="learning-track-picker__focus" data-learning-track-focus>${escapeHtml(track.focus)}</span>
-        </div>
-        <a class="btn btn-secondary" data-learning-track-optional href="${escapeHtml(track.optionalHref)}">${escapeHtml(track.optionalTitle)} <span aria-hidden="true">→</span></a>
-      </div>
+    <section class="card learning-track-picker learning-gate-role" data-learning-gate-role>
+      <label class="field" for="learning-gate-role-select">
+        <span>Ваша роль в рабочей смене</span>
+        <select id="learning-gate-role-select" name="learning_track" data-learning-track-select>
+          ${Object.values(LEARNING_TRACKS).map((option) => `<option value="${escapeHtml(option.id)}" ${option.id === normalized ? "selected" : ""}>${escapeHtml(option.shortLabel)}</option>`).join("")}
+        </select>
+        <small class="field-hint">${escapeHtml(track.description)}</small>
+      </label>
     </section>
   `;
 }
@@ -2909,7 +2956,10 @@ function authenticatedStartPath() {
   if (!state.session) return "/login";
   if (state.forcePassword) return "/set-password";
   if (membershipLockDetails()) return "/access-locked";
-  return hasWorkspaceAccess() ? "/workspace/home" : "/learn";
+  if (academyRequired()) return "/learn";
+  return hasWorkspaceAccess()
+    ? WORKSPACE_START_PATH
+    : WORKSPACE_ACCESS_REQUIRED_PATH;
 }
 
 function examQuestionsReady() {
@@ -2929,8 +2979,7 @@ function examQuestionsReady() {
 }
 
 function establishDefaultRoute() {
-  const path = state.route.path;
-  if (path !== "/") return;
+  if (state.route.path !== "/") return;
   navigate(authenticatedStartPath(), true);
 }
 
@@ -2977,7 +3026,6 @@ function render() {
   stopAllTrainingWalkthroughs();
   destroyAccountVisualController();
   const path = state.route.path;
-  const accountLaunchSlug = accountLaunchSlugFromPath(path);
 
   if (state.authLinkError) {
     renderAuthLinkError();
@@ -3010,15 +3058,20 @@ function render() {
     return;
   }
 
-  if (!hasWorkspaceAccess()) {
-    if (path.startsWith("/workspace/")) {
+  if (academyRequired()) {
+    if (path !== "/learn" && !path.startsWith("/learn/")) {
       navigate("/learn", true);
+      return;
+    }
+    if (path === "/learn") {
+      renderLearningHome();
       return;
     }
     if (path === "/learn/first-shift") {
       renderFirstShift();
       return;
     }
+    const accountLaunchSlug = accountLaunchSlugFromPath(path);
     if (accountLaunchSlug !== null) {
       renderAccountLaunch(accountLaunchSlug);
       return;
@@ -3027,45 +3080,30 @@ function render() {
       renderTrainingPracticalProject();
       return;
     }
-    if (path.startsWith("/learn/") && path !== "/learn/exam") {
-      renderCourse(path.replace("/learn/", ""));
-      return;
-    }
     if (path === "/learn/exam") {
       renderExam();
       return;
     }
-    renderLearningHome();
-    return;
-  }
-
-  if (trainingAccessWaiverActive() && path.startsWith("/learn")) {
-    navigate(authenticatedStartPath(), true);
-    return;
-  }
-
-  if (path === "/learn") {
-    renderLearningHome();
-    return;
-  }
-  if (path === "/learn/first-shift") {
-    renderFirstShift();
-    return;
-  }
-  if (accountLaunchSlug !== null) {
-    renderAccountLaunch(accountLaunchSlug);
-    return;
-  }
-  if (path === "/learn/practical") {
-    renderTrainingPracticalProject();
-    return;
-  }
-  if (path.startsWith("/learn/") && path !== "/learn/exam") {
     renderCourse(path.replace("/learn/", ""));
     return;
   }
-  if (path === "/learn/exam") {
-    renderExam();
+
+  if (!hasWorkspaceAccess()) {
+    if (path !== WORKSPACE_ACCESS_REQUIRED_PATH) {
+      navigate(WORKSPACE_ACCESS_REQUIRED_PATH, true);
+      return;
+    }
+    renderWorkspaceAccessRequired();
+    return;
+  }
+
+  if (path === WORKSPACE_ACCESS_REQUIRED_PATH) {
+    navigate(WORKSPACE_START_PATH, true);
+    return;
+  }
+
+  if (path === "/learn" || path.startsWith("/learn/")) {
+    navigate(authenticatedStartPath(), true);
     return;
   }
 
@@ -3257,6 +3295,27 @@ function authLayout(panel) {
 }
 
 function renderBootstrapLoading() {
+  const academyShell = app.querySelector('.learning-gate-shell[data-learning-route]');
+  const academyMain = academyShell?.querySelector("#main-content");
+  if (
+    state.bootstrap
+    && (state.route.path === "/learn" || state.route.path.startsWith("/learn/"))
+    && academyShell instanceof HTMLElement
+    && academyMain instanceof HTMLElement
+  ) {
+    academyMain.setAttribute("aria-busy", "true");
+    let status = academyShell.querySelector("[data-academy-bootstrap-status]");
+    if (!(status instanceof HTMLElement)) {
+      status = document.createElement("p");
+      status.className = "sr-only";
+      status.dataset.academyBootstrapStatus = "true";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      academyMain.append(status);
+    }
+    status.textContent = "Обновляем данные Академии…";
+    return;
+  }
   app.innerHTML = `
     <main id="main-content" class="boot-screen" tabindex="-1" aria-live="polite">
       <div class="boot-mark" aria-hidden="true">КИ</div>
@@ -3301,6 +3360,32 @@ function renderMembershipLocked() {
   `;
 }
 
+function clearAcademyBootstrapLoading(shell) {
+  if (!(shell instanceof HTMLElement)) return;
+  shell.querySelector("#main-content")?.removeAttribute("aria-busy");
+  shell.querySelector("[data-academy-bootstrap-status]")?.remove();
+}
+
+function renderWorkspaceAccessRequired() {
+  const profile = displayProfile();
+  const role = String(state.bootstrap?.membership?.role || "").trim();
+  app.innerHTML = `
+    <main id="main-content" class="error-page workspace-access-required" tabindex="-1" aria-labelledby="workspace-access-title">
+      <div class="boot-mark" aria-hidden="true">КИ</div>
+      <p class="eyebrow">Рабочее место ещё не подключено</p>
+      <h1 id="workspace-access-title">Нужен рабочий доступ</h1>
+      <p class="muted">${escapeHtml(profile.name)}, ваша сессия активна, но сервер пока не выдал доступ к производственному рабочему столу.</p>
+      <p class="tiny muted">${role
+        ? `Текущая роль: ${escapeHtml(role)}. Попросите руководителя проверить роль и доступ к рабочему пространству.`
+        : "Попросите руководителя назначить рабочую роль и доступ к пространству команды."}</p>
+      <div class="inline-actions" style="justify-content:center; margin-top:20px">
+        <button class="btn" type="button" data-action="retry-bootstrap">Проверить доступ</button>
+        <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
+      </div>
+    </main>
+  `;
+}
+
 function trainingAchievementShelfMarkup(courses, completedModules) {
   const completed = completedModules instanceof Set ? completedModules : new Set(completedModules || []);
   const unlocked = courses.filter((course) => completed.has(course.code)).length;
@@ -3329,7 +3414,7 @@ function trainingAchievementShelfMarkup(courses, completedModules) {
   `;
 }
 
-function renderLearningHome() {
+function renderLearningHomeLegacy() {
   const completed = new Set(state.bootstrap.training.completedModules);
   const firstShift = ensureFirstShiftState();
   const courses = learningCourses();
@@ -3478,7 +3563,7 @@ function renderLearningHome() {
         ${primaryActionMarkup}
       </section>
 
-      ${learningTrackPickerMarkup()}
+      ${learningGateRoleMarkup()}
 
       ${trainingAchievementShelfMarkup(courses, completed)}
 
@@ -3567,7 +3652,118 @@ function renderLearningHome() {
       </section>
     </div>
   `;
-  app.innerHTML = learningScaffold(content, "/learn");
+  renderLearningScaffold(content, "/learn");
+}
+
+function renderLearningHome() {
+  const courses = learningCourses();
+  const completed = new Set(state.bootstrap?.training?.completedModules || []);
+  const completedCourses = courses.filter((course) => completed.has(course.code)).length;
+  const nextCourse = courses.find((course) => !completed.has(course.code));
+  const practical = normalizeTrainingPracticalProject(state.bootstrap?.training?.practicalProject);
+  const examPassed = state.bootstrap?.training?.exam?.passed === true;
+  const catalogReady = trainingCatalogReady();
+  const completedSteps = completedCourses + (practical.approved ? 1 : 0) + (examPassed ? 1 : 0);
+  const totalSteps = courses.length + 2;
+
+  let activeKey = "catalog";
+  let stepNumber = Math.min(totalSteps, completedSteps + 1);
+  let title = "Не удалось загрузить программу";
+  let description = "Обновите данные. Рабочий стол останется закрыт, пока обязательная программа не загрузится полностью.";
+  let actionMarkup = '<button class="btn" type="button" data-action="retry-bootstrap" data-primary-action="true">Обновить программу</button>';
+
+  if (catalogReady && nextCourse) {
+    const courseIndex = Math.max(0, courses.findIndex((course) => course.code === nextCourse.code));
+    activeKey = nextCourse.code;
+    stepNumber = courseIndex + 1;
+    title = nextCourse.title;
+    description = "Пройдите только этот блок. После него портал сам покажет следующий обязательный шаг.";
+    actionMarkup = `<a class="btn" href="#/learn/${encodeURIComponent(nextCourse.code)}" data-primary-action="true">${courseIndex === 0 ? "Начать обучение" : "Продолжить обучение"} <span aria-hidden="true">→</span></a>`;
+  } else if (catalogReady && !practical.approved) {
+    activeKey = "practical";
+    stepNumber = courses.length + 1;
+    if (practical.status === "submitted") {
+      title = "Пробная работа проверяется";
+      description = "Сейчас ничего переделывать не нужно. Обновите статус после решения руководителя.";
+      actionMarkup = '<button class="btn" type="button" data-action="retry-bootstrap" data-primary-action="true">Проверить статус</button>';
+    } else if (practical.status === "changes_requested") {
+      title = "Исправьте пробную работу";
+      description = "Откройте замечание руководителя, внесите одно исправление и отправьте ролик повторно.";
+      actionMarkup = '<a class="btn" href="#/learn/practical" data-primary-action="true">Исправить работу <span aria-hidden="true">→</span></a>';
+    } else {
+      title = "Отправьте один пробный ролик";
+      description = "Покажите, что умеете пройти рабочий цикл. После одобрения откроется итоговый экзамен.";
+      actionMarkup = '<a class="btn" href="#/learn/practical" data-primary-action="true">Открыть пробную работу <span aria-hidden="true">→</span></a>';
+    }
+  } else if (catalogReady && !examPassed) {
+    activeKey = "exam";
+    stepNumber = totalSteps;
+    title = "Пройдите итоговый экзамен";
+    description = "Ответьте на 12 рабочих ситуаций. После успешной попытки рабочий стол откроется автоматически.";
+    actionMarkup = '<a class="btn" href="#/learn/exam" data-primary-action="true">Начать экзамен <span aria-hidden="true">→</span></a>';
+  } else if (catalogReady) {
+    activeKey = "access";
+    stepNumber = totalSteps;
+    title = "Допуск готов";
+    description = "Проверяем серверный статус и открываем рабочий стол.";
+    actionMarkup = '<button class="btn" type="button" data-action="retry-bootstrap" data-primary-action="true">Открыть рабочий стол</button>';
+  }
+
+  const steps = [
+    ...courses.map((course, index) => ({
+      key: course.code,
+      number: index + 1,
+      label: course.title,
+      complete: completed.has(course.code),
+    })),
+    {
+      key: "practical",
+      number: courses.length + 1,
+      label: "Пробная работа",
+      complete: practical.approved,
+    },
+    {
+      key: "exam",
+      number: totalSteps,
+      label: "Итоговый экзамен",
+      complete: examPassed,
+    },
+  ];
+  const progress = Math.round((completedSteps / Math.max(1, totalSteps)) * 100);
+  const content = `
+    <div class="learning-gate-page">
+      <section class="learning-gate-card" aria-labelledby="learning-gate-title">
+        <div class="learning-gate-card__progress">
+          <span>Шаг ${stepNumber} из ${totalSteps}</span>
+          <strong>${progress}%</strong>
+        </div>
+        <div class="learning-gate-meter" role="progressbar" aria-label="Обязательная Академия" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div>
+        <p class="eyebrow">Один обязательный шаг</p>
+        <h1 id="learning-gate-title">${escapeHtml(title)}</h1>
+        <p class="learning-gate-card__description">${escapeHtml(description)}</p>
+        <div class="learning-gate-card__action">${actionMarkup}</div>
+      </section>
+
+      ${learningGateRoleMarkup()}
+
+      <section class="learning-gate-roadmap" aria-labelledby="learning-roadmap-title">
+        <div>
+          <p class="eyebrow">Ваш путь к допуску</p>
+          <h2 id="learning-roadmap-title">Портал ведёт по шагам сам</h2>
+        </div>
+        <ol>
+          ${steps.map((step) => `
+            <li class="${step.complete ? "is-complete" : step.key === activeKey ? "is-current" : "is-locked"}">
+              <span aria-hidden="true">${step.complete ? "✓" : step.number}</span>
+              <strong>${escapeHtml(step.label)}</strong>
+              <small>${step.complete ? "Готово" : step.key === activeKey ? "Сейчас" : "Позже"}</small>
+            </li>
+          `).join("")}
+        </ol>
+      </section>
+    </div>
+  `;
+  renderLearningScaffold(content, "/learn");
 }
 
 function renderAccountLaunch(slug = "") {
@@ -3580,7 +3776,7 @@ function renderAccountLaunch(slug = "") {
       ${body || alertMarkup("Маршрут площадки не найден. Вернитесь в центр запуска и выберите Instagram, YouTube или VK.", "danger")}
     </div>
   `;
-  app.innerHTML = learningScaffold(content, ACCOUNT_LAUNCH_PATH);
+  renderLearningScaffold(content, ACCOUNT_LAUNCH_PATH);
   if (!slug) return;
   const visualRoot = app.querySelector("[data-account-visual-root]");
   if (!visualRoot) return;
@@ -3744,7 +3940,7 @@ function renderCourse(code) {
       </div>
     </div>
   `;
-  app.innerHTML = learningScaffold(content, `/learn/${course.code}`);
+  renderLearningScaffold(content, `/learn/${course.code}`);
   if (checkPassed) clearCourseAssessmentDraft(course.code);
   else restoreCourseAssessmentDraft(course.code);
   syncCourseLessonJourney(course, lessonJourney, {
@@ -3907,7 +4103,7 @@ function renderTrainingPracticalProject() {
         : ""}
     </div>
   `;
-  app.innerHTML = learningScaffold(content, "/learn/practical");
+  renderLearningScaffold(content, "/learn/practical");
   const form = document.querySelector("#training-practical-submit-form");
   if (form) syncTrainingPracticalSource(form);
 }
@@ -4214,14 +4410,34 @@ async function hydrateTrainingMediaCards(courseCode) {
     `[data-training-media-cards-host][data-module-code="${CSS.escape(String(courseCode || ""))}"]`,
   );
   if (!host) return;
+  const hydrationEpoch = (trainingMediaHydrationEpochs.get(host) || 0) + 1;
+  trainingMediaHydrationEpochs.set(host, hydrationEpoch);
   try {
     const catalog = await trainingMediaCatalog();
-    if (!host.isConnected || state.route.path !== `/learn/${courseCode}`) return;
-    host.innerHTML = trainingMediaCardsMarkup(catalog, { moduleCode: courseCode });
-    bindTrainingMediaCards(host);
+    if (
+      !host.isConnected
+      || state.route.path !== `/learn/${courseCode}`
+      || trainingMediaHydrationEpochs.get(host) !== hydrationEpoch
+    ) return;
+    const markup = trainingMediaCardsMarkup(catalog, { moduleCode: courseCode });
+    const signature = workspaceContentSignature(`training-media:${courseCode}`, markup);
+    if (host.dataset.trainingMediaHydrationSignature !== signature) {
+      trainingMediaBindingCleanups.get(host)?.();
+      trainingMediaBindingCleanups.delete(host);
+      host.innerHTML = markup;
+      host.dataset.trainingMediaHydrationSignature = signature;
+    }
+    trainingMediaBindingCleanups.get(host)?.();
+    const cleanup = bindTrainingMediaCards(host);
+    if (typeof cleanup === "function") trainingMediaBindingCleanups.set(host, cleanup);
   } catch (error) {
     console.warn("Training media catalog unavailable", error);
-    if (host.isConnected) {
+    if (
+      host.isConnected
+      && trainingMediaHydrationEpochs.get(host) === hydrationEpoch
+    ) {
+      trainingMediaBindingCleanups.get(host)?.();
+      trainingMediaBindingCleanups.delete(host);
       host.innerHTML = alertMarkup(
         "Примеры «правильно / ошибка» временно не загрузились. Обновите страницу; текст курса и обязательная проверка остаются доступны.",
         "warning",
@@ -4825,7 +5041,7 @@ function renderFirstShift() {
       </div>
     </div>
   `;
-  app.innerHTML = learningScaffold(content, "/learn/first-shift");
+  renderLearningScaffold(content, "/learn/first-shift");
 }
 
 function firstShiftSafetyBanner() {
@@ -5253,7 +5469,7 @@ function renderExam() {
         </section>
       </div>
     `;
-    app.innerHTML = learningScaffold(content, "/learn/exam");
+    renderLearningScaffold(content, "/learn/exam");
     return;
   }
 
@@ -5268,7 +5484,7 @@ function renderExam() {
         </section>
       </div>
     `;
-    app.innerHTML = learningScaffold(content, "/learn/exam");
+    renderLearningScaffold(content, "/learn/exam");
     return;
   }
 
@@ -5288,7 +5504,7 @@ function renderExam() {
         </section>
       </div>
     `;
-    app.innerHTML = learningScaffold(content, "/learn/exam");
+    renderLearningScaffold(content, "/learn/exam");
     return;
   }
 
@@ -5314,7 +5530,7 @@ function renderExam() {
         </section>
       </div>
     `;
-    app.innerHTML = learningScaffold(content, "/learn/exam");
+    renderLearningScaffold(content, "/learn/exam");
     return;
   }
 
@@ -5332,7 +5548,7 @@ function renderExam() {
         </section>
       </div>
     `;
-    app.innerHTML = learningScaffold(content, "/learn/exam");
+    renderLearningScaffold(content, "/learn/exam");
     return;
   }
 
@@ -5347,7 +5563,7 @@ function renderExam() {
         </section>
       </div>
     `;
-    app.innerHTML = learningScaffold(content, "/learn/exam");
+    renderLearningScaffold(content, "/learn/exam");
     return;
   }
 
@@ -5373,7 +5589,7 @@ function renderExam() {
       </form>
     </div>
   `;
-  app.innerHTML = learningScaffold(content, "/learn/exam");
+  renderLearningScaffold(content, "/learn/exam");
   restoreFinalExamDraft();
   track("exam_opened", { question_count: questions.length });
 }
@@ -5429,7 +5645,7 @@ function examRetryState() {
   return { blocked: true, nextAttemptAt: raw, waitLabel };
 }
 
-function learningScaffold(content, activePath) {
+function learningScaffoldLegacy(content, activePath) {
   const profile = displayProfile();
   const transitionClass = consumeRouteTransitionClass();
   const rolePending = state.bootstrap?.training?.exam?.passed === true
@@ -5475,6 +5691,71 @@ function learningScaffold(content, activePath) {
       </section>
     </div>
   `;
+}
+
+function learningScaffold(content, activePath) {
+  const profile = displayProfile();
+  const transitionClass = consumeRouteTransitionClass();
+  return `
+    <div class="learning-gate-shell" data-learning-route="${escapeHtml(activePath)}">
+      <header class="learning-gate-topbar">
+        <div class="learning-gate-brand" aria-label="ContentEngine">
+          <span aria-hidden="true">КИ</span>
+          <div><strong>ContentEngine</strong><small>Обязательный допуск</small></div>
+        </div>
+        <div class="learning-gate-user">
+          <span>${escapeHtml(profile.name)}</span>
+          <button class="btn btn-secondary btn-small" type="button" data-action="logout">Выйти</button>
+        </div>
+      </header>
+      <main id="main-content" class="learning-gate-main ${transitionClass}" tabindex="-1">
+        <div id="workspace-content">${content}</div>
+      </main>
+    </div>
+  `;
+}
+
+function renderLearningScaffold(content, activePath) {
+  const existingShell = app.querySelector('.learning-gate-shell[data-learning-route]');
+  const existingContent = existingShell?.querySelector("#workspace-content");
+  const signature = workspaceContentSignature(`learn:${activePath}`, content);
+  if (
+    !(existingShell instanceof HTMLElement)
+    || !(existingContent instanceof HTMLElement)
+  ) {
+    app.innerHTML = learningScaffold(content, activePath);
+    const mountedContent = app.querySelector("#workspace-content");
+    if (mountedContent instanceof HTMLElement) {
+      mountedContent.dataset.ceV4RenderSignature = signature;
+    }
+    return;
+  }
+
+  clearAcademyBootstrapLoading(existingShell);
+  const sameRoute = existingShell.dataset.learningRoute === activePath;
+  if (existingContent.dataset.ceV4RenderSignature === signature) return;
+
+  const focusedControl = sameRoute ? captureWorkspaceFocus(existingContent) : null;
+  const dirtyForms = sameRoute ? captureDirtyWorkspaceForms(existingContent) : [];
+  const scrollSnapshot = sameRoute ? captureWorkspaceScroll(existingContent) : [];
+  if (sameRoute) patchWorkspaceContent(existingContent, content);
+  else existingContent.innerHTML = content;
+  existingContent.dataset.ceV4RenderSignature = signature;
+  existingShell.dataset.learningRoute = activePath;
+  const main = existingContent.closest("#main-content");
+  if (main instanceof HTMLElement) {
+    if (!sameRoute) {
+      main.className = ["learning-gate-main", consumeRouteTransitionClass()]
+        .filter(Boolean)
+        .join(" ");
+      main.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
+  }
+  if (sameRoute) {
+    restoreDirtyWorkspaceForms(existingContent, dirtyForms);
+    restoreWorkspaceFocus(existingContent, focusedControl, "learn");
+    restoreWorkspaceScroll(existingContent, scrollSnapshot, "learn", activePath);
+  }
 }
 
 function renderWorkspaceBoardSection(sectionState) {
@@ -5729,6 +6010,49 @@ async function loadMoreWorkspaceBoard() {
   }
 }
 
+function workspaceContentSignature(section, content) {
+  let hash = 2166136261;
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${section}:${content.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function revealWorkspaceContent(container) {
+  if (!(container instanceof HTMLElement)) return;
+  container.classList.add("ce-v4-content-reveal");
+  window.setTimeout(() => {
+    if (container.isConnected) container.classList.remove("ce-v4-content-reveal");
+  }, 320);
+}
+
+function syncPersistentWorkspaceShell(shell, section) {
+  if (!(shell instanceof HTMLElement)) return;
+  shell.dataset.workspaceSection = section;
+  shell.dataset.workspaceRoute = `/workspace/${section}`;
+  const tabLabel = visibleWorkspaceTabs().find(([key]) => key === section)?.[1] || "Кабинет";
+  const stage = FACTORY_FLOW.find((item) => item.key === section);
+  const context = stage
+    ? `Производственный цикл · этап ${stage.step} из 07`
+    : "Рабочее пространство";
+  const contextTitle = shell.querySelector(".workspace-contextbar__title");
+  if (contextTitle) {
+    const contextNode = contextTitle.querySelector("span");
+    const labelNode = contextTitle.querySelector("strong");
+    if (contextNode) contextNode.textContent = context;
+    if (labelNode) labelNode.textContent = tabLabel;
+  }
+  const mobileBrand = shell.querySelector(".mobile-brand");
+  if (mobileBrand) mobileBrand.textContent = `КОНТЕНТ ИИ · ${tabLabel}`;
+  shell.querySelectorAll('.workspace-nav a[href^="#/workspace/"]').forEach((link) => {
+    const active = link.getAttribute("href") === `#/workspace/${section}`;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+}
+
 function renderWorkspace(section) {
   if (state.myWork.notificationsStatus === "idle") {
     window.queueMicrotask(() => loadMyWorkNotifications({ silent: true }));
@@ -5760,35 +6084,162 @@ function renderWorkspace(section) {
     && ["idle", "loading"].includes(sectionState.status)
     && !sectionState.data;
   const content = initialSectionLoad ? workspaceInitialLoadingMarkup(section) : renderer(sectionState);
+  const contentSignature = workspaceContentSignature(section, content);
   const existingShell = app.querySelector(".workspace-shell[data-workspace-section]");
   const existingContent = app.querySelector("#workspace-content");
   if (existingShell?.dataset.workspaceSection === section && existingContent) {
+    if (existingContent.dataset.ceV4RenderSignature === contentSignature) {
+      refreshNotificationLayer();
+      scheduleWorkspaceDeepLinkFocus(section);
+      return;
+    }
+    const revealLoadedContent = existingContent.dataset.ceV4InitialLoading === "true"
+      && !initialSectionLoad;
+    if (document.body.classList.contains("ce-v4-quicklook-open")) {
+      window.ContentEngineFinderV4?.closeQuickLook?.({ restoreFocus: false });
+    }
+    if (document.body.classList.contains("ce-v4-zen-open")) {
+      document.dispatchEvent(new CustomEvent("contentengine:v4-close-transients", {
+        detail: { source: "workspace-render" },
+      }));
+    }
     const focusedControl = captureWorkspaceFocus(existingContent);
     const dirtyForms = captureDirtyWorkspaceForms(existingContent);
-    existingContent.innerHTML = content;
+    const scrollSnapshot = captureWorkspaceScroll(existingContent);
+    patchWorkspaceContent(existingContent, content);
+    existingContent.dataset.ceV4RenderSignature = contentSignature;
+    existingContent.dataset.ceV4InitialLoading = String(initialSectionLoad);
     restoreDirtyWorkspaceForms(existingContent, dirtyForms);
     restoreWorkspaceFocus(existingContent, focusedControl, section);
+    restoreWorkspaceScroll(existingContent, scrollSnapshot, section);
+    window.ContentEngineDesktopV4?.requestMount?.();
+    if (revealLoadedContent) revealWorkspaceContent(existingContent);
+    refreshNotificationLayer();
+    scheduleWorkspaceDeepLinkFocus(section);
+    return;
+  }
+  if (
+    window.CONTENTENGINE_DESKTOP_V4 === true
+    && existingShell instanceof HTMLElement
+    && existingContent instanceof HTMLElement
+    && existingShell.dataset.workspaceSection !== "learn"
+  ) {
+    const main = existingContent.closest("#main-content");
+    syncPersistentWorkspaceShell(existingShell, section);
+    existingContent.innerHTML = content;
+    existingContent.dataset.ceV4RenderSignature = contentSignature;
+    existingContent.dataset.ceV4InitialLoading = String(initialSectionLoad);
+    if (main instanceof HTMLElement) {
+      main.className = consumeRouteTransitionClass();
+    }
+    revealWorkspaceContent(existingContent);
     refreshNotificationLayer();
     scheduleWorkspaceDeepLinkFocus(section);
     return;
   }
   app.innerHTML = workspaceScaffold(content, section);
+  const mountedContent = app.querySelector("#workspace-content");
+  if (mountedContent) {
+    mountedContent.dataset.ceV4RenderSignature = contentSignature;
+    mountedContent.dataset.ceV4InitialLoading = String(initialSectionLoad);
+  }
   refreshNotificationLayer();
   scheduleWorkspaceDeepLinkFocus(section);
+}
+
+const WORKSPACE_SCROLL_OWNERS = [
+  ".workspace-board__content",
+  ".workspace-board__sidebar",
+  ".generation-archive-list",
+  ".content-review-history",
+  ".placement-list",
+  ".my-work-list",
+  ".notification-list",
+  ".tasks-list",
+  ".media-grid",
+  ".course-roadmap ol",
+  "[data-training-timeline]",
+  "[data-ce-v4-scroll]",
+].join(",");
+
+function workspaceScrollNodes(container) {
+  const main = container?.closest?.("#main-content");
+  return [main, ...(container?.querySelectorAll?.(WORKSPACE_SCROLL_OWNERS) || [])]
+    .filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+}
+
+function workspaceScrollKey(node, index) {
+  const explicit = String(node.id || node.dataset?.ceV4ScrollKey || "").trim();
+  if (explicit) return explicit;
+  if (node.matches?.("[data-training-timeline]")) {
+    const walkthroughId = String(
+      node.closest?.("[data-training-walkthrough]")?.dataset?.trainingWalkthrough || index,
+    );
+    return `training-timeline:${walkthroughId}`;
+  }
+  if (node.matches?.(".course-roadmap ol")) {
+    const learningRoute = String(
+      node.closest?.(".learning-gate-shell")?.dataset?.learningRoute || state.route.path || index,
+    );
+    return `course-roadmap:${learningRoute}`;
+  }
+  const classKey = [...node.classList].slice(0, 3).join(".");
+  return classKey ? `${classKey}:${index}` : `scroll-${index}`;
+}
+
+function captureWorkspaceScroll(container) {
+  return workspaceScrollNodes(container).map((node, index) => ({
+    key: workspaceScrollKey(node, index),
+    top: Math.max(0, Number(node.scrollTop) || 0),
+    left: Math.max(0, Number(node.scrollLeft) || 0),
+  }));
+}
+
+function restoreWorkspaceScroll(container, snapshot, section, expectedPath = `/workspace/${section}`) {
+  if (!Array.isArray(snapshot) || !snapshot.length) return;
+  const positions = new Map(snapshot.map((point) => [point.key, point]));
+  const apply = () => {
+    if (state.route.path !== expectedPath) return;
+    workspaceScrollNodes(container).forEach((node, index) => {
+      const point = positions.get(workspaceScrollKey(node, index));
+      if (!point) return;
+      node.scrollTop = point.top;
+      node.scrollLeft = point.left;
+    });
+  };
+  apply();
 }
 
 function captureWorkspaceFocus(container) {
   const active = document.activeElement;
   if (!active || active === document.body || !container?.contains(active)) return null;
   const forms = Array.from(container.querySelectorAll("form"));
+  const focusCandidates = Array.from(
+    container.querySelectorAll("button, a, input, select, textarea, [tabindex]"),
+  );
+  const action = String(active.dataset?.action || "");
+  const actionCandidates = action
+    ? focusCandidates.filter((item) => item.dataset?.action === action)
+    : [];
+  const courseLesson = active.closest?.("[data-course-lesson]");
+  const courseRoadmapLesson = active.closest?.("[data-course-roadmap-lesson]");
+  const trainingWalkthrough = active.closest?.("[data-training-walkthrough]");
   return {
     id: String(active.id || ""),
-    action: String(active.dataset?.action || ""),
+    action,
+    actionIndex: action ? actionCandidates.indexOf(active) : -1,
+    notificationId: String(active.dataset?.notificationId || ""),
     name: String(active.getAttribute?.("name") || ""),
     value: String(active.value || ""),
     jobId: String(active.dataset?.jobId || ""),
     outputAction: String(active.dataset?.outputAction || ""),
     generationJobId: String(active.closest?.("[data-generation-job-id]")?.dataset?.generationJobId || ""),
+    courseLessonId: String(courseLesson?.dataset?.lessonId || ""),
+    courseLessonIndex: String(courseLesson?.dataset?.lessonIndex || ""),
+    courseRoadmapLessonIndex: String(courseRoadmapLesson?.dataset?.courseRoadmapLesson || ""),
+    lessonTargetIndex: String(active.dataset?.lessonIndex || ""),
+    trainingWalkthroughId: String(trainingWalkthrough?.dataset?.trainingWalkthrough || ""),
+    trainingStepTarget: String(active.dataset?.trainingStepTarget || ""),
     formKey: active.form ? workspaceFormKey(active.form, forms.indexOf(active.form)) : "",
     selectionStart: Number.isInteger(active.selectionStart) ? active.selectionStart : null,
     selectionEnd: Number.isInteger(active.selectionEnd) ? active.selectionEnd : null,
@@ -5801,12 +6252,21 @@ function restoreWorkspaceFocus(container, identity, section) {
     const candidates = Array.from(container.querySelectorAll("button, a, input, select, textarea, [tabindex]"));
     let target = identity.id ? candidates.find((item) => item.id === identity.id) : null;
     if (!target && identity.action) {
-      target = candidates.find((item) => (
-        item.dataset?.action === identity.action
-        && (!identity.jobId || item.dataset?.jobId === identity.jobId)
+      const actionCandidates = candidates.filter((item) => item.dataset?.action === identity.action);
+      target = actionCandidates.find((item) => (
+         item.dataset?.action === identity.action
+         && (!identity.notificationId || item.dataset?.notificationId === identity.notificationId)
+         && (!identity.jobId || item.dataset?.jobId === identity.jobId)
         && (!identity.outputAction || item.dataset?.outputAction === identity.outputAction)
         && (!identity.generationJobId || item.closest?.("[data-generation-job-id]")?.dataset?.generationJobId === identity.generationJobId)
+        && (!identity.courseLessonId || item.closest?.("[data-course-lesson]")?.dataset?.lessonId === identity.courseLessonId)
+        && (!identity.courseLessonIndex || item.closest?.("[data-course-lesson]")?.dataset?.lessonIndex === identity.courseLessonIndex)
+        && (!identity.courseRoadmapLessonIndex || item.closest?.("[data-course-roadmap-lesson]")?.dataset?.courseRoadmapLesson === identity.courseRoadmapLessonIndex)
+        && (!identity.lessonTargetIndex || item.dataset?.lessonIndex === identity.lessonTargetIndex)
+        && (!identity.trainingWalkthroughId || item.closest?.("[data-training-walkthrough]")?.dataset?.trainingWalkthrough === identity.trainingWalkthroughId)
+        && (!identity.trainingStepTarget || item.dataset?.trainingStepTarget === identity.trainingStepTarget)
       ));
+      if (!target && identity.actionIndex >= 0) target = actionCandidates[identity.actionIndex] || null;
     }
     if (!target && identity.name) {
       const forms = Array.from(container.querySelectorAll("form"));
@@ -5848,15 +6308,36 @@ function workspaceInitialLoadingMarkup(section) {
 }
 
 function workspaceFormKey(form, index) {
+  const explicit = String(form.dataset.cePatchKey || "").trim();
+  if (explicit) return `explicit:${explicit}`;
+  const semanticParts = [
+    ["review", form.dataset.reviewId],
+    ["research", form.dataset.researchId],
+    ["campaign", form.dataset.campaignId],
+    ["generation", form.dataset.generationJobId],
+    ["job", form.dataset.jobId],
+    ["incident", form.dataset.incidentId],
+    ["placement", form.dataset.placementId],
+    ["payout", form.dataset.payoutId],
+    ["practical", form.dataset.practicalReviewId],
+    ["view", form.dataset.viewId],
+  ].filter(([, value]) => String(value || "").trim());
+  if (semanticParts.length) {
+    return semanticParts.map(([kind, value]) => `${kind}:${String(value).trim()}`).join("|");
+  }
   if (form.id) return `id:${form.id}`;
-  if (form.dataset.placementId) return `placement:${form.dataset.placementId}`;
-  if (form.dataset.payoutId) return `payout:${form.dataset.payoutId}:${form.className}`;
   return `index:${index}:${form.className}`;
 }
 
 function captureDirtyWorkspaceForms(container) {
-  return Array.from(container.querySelectorAll('form[data-dirty="true"], form[data-busy="true"]')).map((form, index) => ({
-    key: workspaceFormKey(form, index),
+  const forms = Array.from(container.querySelectorAll("form"));
+  return forms.filter((form) => (
+    form.dataset.dirty === "true"
+    || form.dataset.busy === "true"
+    || Array.from(form.querySelectorAll('input[type="file"]'))
+      .some((input) => (input.files?.length || 0) > 0)
+  )).map((form) => ({
+    key: workspaceFormKey(form, forms.indexOf(form)),
     dirty: form.dataset.dirty === "true",
     busy: form.dataset.busy === "true",
     busyLabel: form.querySelector('button[type="submit"]')?.textContent || "",
@@ -5868,6 +6349,7 @@ function captureDirtyWorkspaceForms(container) {
     fields: Array.from(form.elements).map((field) => {
       const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
       return {
+        node: field,
         name: String(field.name || ""),
         type: String(field.type || ""),
         value: field.value,
@@ -5898,9 +6380,14 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
             && item.type === field.type
             && item.value === field.value
           ))
-        : snapshot.fields[fieldIndex];
+        : snapshot.fields.find((item) => (
+            Boolean(field.name)
+            && item.name === field.name
+            && item.type === String(field.type || "")
+          )) || snapshot.fields[fieldIndex];
       if (!saved) return;
       if (field instanceof HTMLInputElement && field.type === "file" && saved.files?.length) {
+        if (saved.node === field) return;
         try {
           const transfer = new DataTransfer();
           saved.files.forEach((file) => transfer.items.add(file));
@@ -5962,12 +6449,14 @@ function workspaceNavLinkMarkup(key, label, icon, activeSection) {
 
 function workspaceNotificationButtonMarkup() {
   const unread = Math.max(0, Number(state.myWork.notifications?.counts?.unread) || 0);
+  const active = state.route.path === "/workspace/work"
+    && state.route.query.get("view") === "notifications";
   return `
-    <button class="nav-link workspace-notification-nav" type="button" data-action="toggle-work-notifications" aria-haspopup="dialog">
+    <a class="nav-link workspace-notification-nav ${active ? "active" : ""}" href="#/workspace/work?view=notifications" ${active ? 'aria-current="page"' : ""}>
       <span class="nav-icon" aria-hidden="true">!</span>
       <span class="nav-link-copy"><strong>Уведомления</strong><small>${unread ? `${formatNumber(unread)} новых` : "Новых событий нет"}</small></span>
       ${unread ? `<span class="workspace-notification-count" data-notification-count>${formatNumber(unread)}</span>` : ""}
-    </button>
+    </a>
   `;
 }
 
@@ -5976,13 +6465,15 @@ function workspaceScaffold(content, activeSection) {
   const tabs = workspaceNavigationTabs(activeSection);
   const tabLabel = tabs.find(([key]) => key === activeSection)?.[1] || "Кабинет";
   const transitionClass = consumeRouteTransitionClass();
-  const learningLinks = trainingAccessWaiverActive() ? "" : `
-          <span class="nav-caption nav-caption-spaced">Знания и запуск</span>
-          <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span><span>Обучение</span></a>
-          <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span><span>Запуск аккаунтов</span></a>
+  const legacyNotificationLayer = window.CONTENTENGINE_DESKTOP_V4 === true ? "" : `
+    <div id="workspace-notification-layer">${notificationCenterMarkup(state.myWork.notifications, {
+      open: state.myWork.notificationsOpen,
+      loading: state.myWork.notificationsStatus === "loading",
+      error: state.myWork.notificationsError,
+    })}</div>
   `;
   return `
-    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}">
+    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}">
       <aside class="sidebar" aria-label="Основная навигация">
         ${brandMarkup()}
         <nav class="workspace-nav">
@@ -5994,7 +6485,6 @@ function workspaceScaffold(content, activeSection) {
             ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Администрирование</span>` : ""}
             ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
           `).join("")}
-          ${learningLinks}
         </nav>
         ${sidebarFooterMarkup(profile)}
       </aside>
@@ -6005,16 +6495,21 @@ function workspaceScaffold(content, activeSection) {
         ${state.mobileNavOpen ? mobileNavMarkup(false, activeSection) : ""}
         <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
       </section>
-      <div id="workspace-notification-layer">${notificationCenterMarkup(state.myWork.notifications, {
-        open: state.myWork.notificationsOpen,
-        loading: state.myWork.notificationsStatus === "loading",
-        error: state.myWork.notificationsError,
-      })}</div>
+      ${legacyNotificationLayer}
     </div>
   `;
 }
 
 function refreshNotificationLayer({ focus = false } = {}) {
+  if (window.CONTENTENGINE_DESKTOP_V4 === true) {
+    state.myWork.notificationsOpen = false;
+    document.body.classList.remove("notification-center-open");
+    document.querySelector("#workspace-notification-layer")?.remove();
+    document.querySelectorAll(".workspace-shell > .sidebar, .workspace-shell > .workspace-main").forEach((region) => {
+      region.removeAttribute("inert");
+    });
+    return;
+  }
   const host = document.querySelector("#workspace-notification-layer");
   if (host) {
     host.innerHTML = notificationCenterMarkup(state.myWork.notifications, {
@@ -6307,7 +6802,11 @@ function handleKeyDown(event) {
     setMobileNavOpen(false, true);
     return;
   }
-  if (event.key === "Escape" && state.myWork.notificationsOpen) {
+  if (
+    window.CONTENTENGINE_DESKTOP_V4 !== true
+    && event.key === "Escape"
+    && state.myWork.notificationsOpen
+  ) {
     event.preventDefault();
     state.myWork.notificationsOpen = false;
     refreshNotificationLayer();
@@ -6343,7 +6842,11 @@ function handleKeyDown(event) {
     }
     return;
   }
-  if (event.key === "Tab" && state.myWork.notificationsOpen) {
+  if (
+    window.CONTENTENGINE_DESKTOP_V4 !== true
+    && event.key === "Tab"
+    && state.myWork.notificationsOpen
+  ) {
     const drawer = document.querySelector(".notification-drawer");
     const focusable = Array.from(drawer?.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])
       .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
@@ -6368,11 +6871,6 @@ function handleKeyDown(event) {
 }
 
 function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = "") {
-  const workspaceLearningLinks = trainingAccessWaiverActive() ? "" : `
-        <span class="nav-caption nav-caption-spaced">Знания</span>
-        <a class="nav-link" href="#/learn"><span class="nav-icon" aria-hidden="true">◎</span>Обучение</a>
-        <a class="nav-link" href="#${ACCOUNT_LAUNCH_PATH}"><span class="nav-icon" aria-hidden="true">#</span>Запуск аккаунтов</a>
-  `;
   return `
     <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
@@ -6391,7 +6889,6 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
           ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
           ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
         `).join("")}
-        ${workspaceLearningLinks}
       `}
       ${navigationModePickerMarkup("mobile", true)}
       ${themePickerMarkup("mobile", true)}
@@ -6436,6 +6933,19 @@ async function loadSection(section, options = {}) {
         }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "generation_archive_timeout",
+      ).then(
+        (value) => ({ status: "fulfilled", value }),
+        (reason) => ({ status: "rejected", reason }),
+      )
+      : null;
+    const routeGenerationJobId = section === "generation"
+      ? safeWorkspaceRouteEntityId("job")
+      : "";
+    const generationDeepLinkRequest = routeGenerationJobId
+      ? withUiTimeout(
+        state.api.realGenerationStatus(routeGenerationJobId),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "generation_deep_link_timeout",
       ).then(
         (value) => ({ status: "fulfilled", value }),
         (reason) => ({ status: "rejected", reason }),
@@ -6519,6 +7029,33 @@ async function loadSection(section, options = {}) {
         );
         state.generationArchive.error = "Серверный архив временно недоступен. Показана первая локальная страница.";
       }
+      const deepLinkOutcome = await generationDeepLinkRequest;
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      if (deepLinkOutcome?.status === "fulfilled") {
+        const deepLinkResult = deepLinkOutcome.value;
+        const deepLinkJob = deepLinkResult?.job;
+        if (String(deepLinkJob?.id || "") === routeGenerationJobId) {
+          applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
+            source: "deep-link",
+            renderNow: false,
+          });
+          data = mergeGenerationDeepLinkedBatch(
+            data,
+            routeGenerationJobId,
+            deepLinkResult,
+          );
+        }
+      } else if (deepLinkOutcome?.status === "rejected") {
+        console.warn(
+          "Deep-linked generation job is unavailable",
+          deepLinkOutcome.reason?.code || "",
+          deepLinkOutcome.reason?.serverCode || "",
+        );
+      }
     }
     if (section === "team") {
       try {
@@ -6601,11 +7138,12 @@ async function loadSection(section, options = {}) {
         || requestId !== target.requestId
       ) return;
       const selectedId = routeReviewId || String(state.contentReview.record?.id || "");
-      state.contentReview.record = routeRecord
-        || catalog.runs.find((item) => item.id === selectedId)
-        || catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
-        || catalog.runs[0]
-        || null;
+      state.contentReview.record = routeReviewId
+        ? routeRecord
+        : catalog.runs.find((item) => item.id === selectedId)
+          || catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
+          || catalog.runs[0]
+          || null;
       state.contentReview.phase = state.contentReview.record?.summaryOnly
         ? "refreshing"
         : state.contentReview.record && contentReviewStatusKind(state.contentReview.record.status) === "active"
@@ -7167,7 +7705,7 @@ function homeNextAction({
       step: "Назначен независимый QA",
       title: assignedReview.media?.name || "Примите готовый результат",
       description: "AI-проверка завершена. Полностью просмотрите точный файл и сохраните одно независимое решение.",
-      href: `#/workspace/review/${assignedReview.id}`,
+      href: `#/workspace/review?view=current&review=${encodeURIComponent(assignedReview.id)}`,
       cta: "Открыть точный QA",
       doneWhen: "Сохранено одобрение, возврат на доработку или отклонение.",
       nextHint: "После решения портал сам подготовит следующий шаг.",
@@ -7194,7 +7732,7 @@ function homeNextAction({
         : "AI-проверка завершена, но подходящий независимый проверяющий пока не назначен. Результат безопасно заблокирован до решения руководителя.",
       href: canInviteReviewer
         ? "#/workspace/team"
-        : `#/workspace/review/${unassignedReview.id}`,
+        : `#/workspace/review?view=current&review=${encodeURIComponent(unassignedReview.id)}`,
       cta: canInviteReviewer
         ? "Открыть команду"
         : "Открыть статус QA",
@@ -7213,7 +7751,7 @@ function homeNextAction({
       description: canPrepare
         ? "Сервер восстановит точный исходник, модель, площадку и безопасные QA-ограничения. Платный запуск не произойдёт без нового подтверждения цены."
         : "Решение сохранено. Исправление должен подготовить создатель результата или руководитель; комментарий проверяющего не переносится в промпт.",
-      href: `#/workspace/review/${availableRepair.id}`,
+      href: `#/workspace/review?view=current&review=${encodeURIComponent(availableRepair.id)}`,
       controlAction: canPrepare ? "prepare-generation-repair" : "",
       reviewId: availableRepair.id,
       cta: canPrepare ? "Подготовить исправление" : "Открыть решение QA",
@@ -7486,9 +8024,34 @@ function realGenerationSku(mode, duration = null) {
 function generationModeChoiceLabel(mode) {
   return {
     [REAL_PHOTO_MODE]: "Фото товара · квадрат 2K",
-    [REAL_SEEDANCE_MODE]: "Блогер + голос · Seedance 2 Fast",
-    [REAL_GEN4_MODE]: "Анимация товара · Gen-4 Turbo · без голоса",
+    [REAL_SEEDANCE_MODE]: "Ролик с человеком и голосом",
+    [REAL_GEN4_MODE]: "Анимация товара без речи",
   }[String(mode || "")] || "";
+}
+
+function generationActionSwitch(view, showProducts = false) {
+  const items = [
+    ["create", "Создать контент"],
+    ["history", "Запуски и готовые файлы"],
+    ...(showProducts ? [["products", "Товары и артикулы"]] : []),
+  ];
+  return `
+    <nav class="generation-action-switch" aria-label="Действие в создании контента">
+      ${items.map(([key, label]) => `
+        <a class="${view === key ? "is-active" : ""}" href="#/workspace/generation?view=${key}" ${view === key ? 'aria-current="page"' : ""}>${label}</a>
+      `).join("")}
+    </nav>
+  `;
+}
+
+function workspaceActionSwitch(className, label, activeView, items) {
+  return `
+    <nav class="${escapeHtml(className)}" aria-label="${escapeHtml(label)}">
+      ${items.map((item) => `
+        <a class="${activeView === item.view ? "is-active" : ""}" href="${escapeHtml(item.href)}" ${activeView === item.view ? 'aria-current="page"' : ""}>${escapeHtml(item.label)}</a>
+      `).join("")}
+    </nav>
+  `;
 }
 
 function generationSkuForForm(form) {
@@ -8000,10 +8563,15 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
 
 function renderGenerationSection(sectionState) {
   const data = sectionState.data || {};
+  const routeJobId = safeWorkspaceRouteEntityId("job");
+  const requestedView = String(state.route.query.get("view") || (routeJobId ? "history" : "create"));
   const batches = listFrom(data, "batches");
   const archiveFilters = normalizeGenerationFilters(state.generationArchive.filters);
   const filteredBatches = filterGenerationBatches(batches, archiveFilters);
-  const visibleBatches = filteredBatches.slice(0, archiveFilters.visible);
+  const routeFilteredBatches = routeJobId
+    ? batches.filter((item) => generationBatchDetails(item).jobId === routeJobId)
+    : filteredBatches;
+  const visibleBatches = routeFilteredBatches.slice(0, archiveFilters.visible);
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
@@ -8073,11 +8641,21 @@ function renderGenerationSection(sectionState) {
     defaultCampaignId,
   ) || realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
+  const finderSelection = readStoredGenerationMediaSelection();
+  const finderSelectedMedia = finderSelection
+    ? exactMedia.find((item) => (
+        String(item.public_id || item.id || "") === finderSelection.mediaId
+        && (!defaultIsReal || generationMediaIdentity(item).paidReady)
+      ))
+    : null;
+  const finderSelectedMediaId = String(
+    finderSelectedMedia?.public_id || finderSelectedMedia?.id || "",
+  );
   const automaticMediaId = repairReady
     ? repairPolicy.inputMediaId
-    : chooseInitialGenerationMedia(exactMedia, {
-      real: defaultIsReal,
-    });
+    : finderSelectedMediaId || chooseInitialGenerationMedia(exactMedia, {
+        real: defaultIsReal,
+      });
   const defaultPlatform = repairReady ? repairPolicy.platform : "instagram";
   const defaultDestinationRef = repairReady
     ? repairPolicy.destinationRef
@@ -8101,6 +8679,11 @@ function renderGenerationSection(sectionState) {
     );
   }
   const canManageAliases = ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
+  const generationView = requestedView === "products" && !(canManageAliases || aliases.length)
+    ? "create"
+    : ["create", "history", "products"].includes(requestedView)
+      ? requestedView
+      : "create";
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
     window.queueMicrotask(() => loadSection("team", { silent: true }));
@@ -8145,7 +8728,7 @@ function renderGenerationSection(sectionState) {
     maxMockCount: MAX_MOCK_BATCH_SIZE,
   });
   return `
-    <div class="page-wrap">
+    <div class="page-wrap" data-generation-view="${escapeHtml(generationView)}">
       ${pageHeader(
         "Создание контента",
         "Проверьте процесс без рендера либо создайте готовое видео или товарное фото по точному исходнику.",
@@ -8153,6 +8736,7 @@ function renderGenerationSection(sectionState) {
           ? `<span class="badge badge-info">DRY-RUN + ПЛАТНЫЙ</span>`
           : `<span class="badge badge-mock">DRY-RUN · БЕЗ ФАЙЛОВ</span>`,
       )}
+      ${generationActionSwitch(generationView, canManageAliases || aliases.length > 0)}
       <div class="split-grid generation-workspace-layout">
         <section class="card card-pad generation-launch-card">
           <p class="eyebrow">Новый запуск</p>
@@ -8162,9 +8746,6 @@ function renderGenerationSection(sectionState) {
             handoff,
             handoffEvaluation,
             handoffModeResolution,
-          )}
-          ${generationModelAcceptanceMarkup(
-            state.generationModelAcceptance,
           )}
           ${generationSpendSnapshotMarkup(state.generationSpend, {
             requestMinor: Math.min(
@@ -8323,16 +8904,20 @@ function renderGenerationSection(sectionState) {
 
         <section class="card generation-archive-card">
           <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Контент по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных запусков каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+          ${generationModelAcceptanceMarkup(
+            state.generationModelAcceptance,
+          )}
           ${sectionBody(sectionState, generationArchiveMarkup(
             batches,
-            filteredBatches,
+            routeFilteredBatches,
             visibleBatches,
             archiveFilters,
+            Boolean(routeJobId),
           ))}
         </section>
       </div>
       ${(canManageAliases || aliases.length) ? `
-        <section class="card card-pad" style="margin-top:22px">
+        <section class="card card-pad generation-product-tools" style="margin-top:22px">
           <div class="split-grid">
             <div>
               <p class="eyebrow">Идентичность товара</p>
@@ -8356,12 +8941,12 @@ function renderGenerationSection(sectionState) {
   `;
 }
 
-function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filters) {
+function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filters, interactive = false) {
   const hasMoreVisible = visibleBatches.length < filteredBatches.length && filters.visible < GENERATION_VISIBLE_CAP;
   const archive = state.generationArchive;
   return `
-    <div class="generation-archive" aria-busy="${archive.loading || archive.loadingMore ? "true" : "false"}">
-      <form id="generation-archive-filter-form" class="generation-archive-toolbar" novalidate>
+    <div class="generation-archive" data-generation-archive-mode="${interactive ? "exact" : "browse"}" aria-busy="${archive.loading || archive.loadingMore ? "true" : "false"}">
+      ${interactive ? "" : `<form id="generation-archive-filter-form" class="generation-archive-toolbar" novalidate>
         <label class="field">
           <span>Период</span>
           <select name="period">
@@ -8385,21 +8970,23 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
           <input name="query" maxlength="120" value="${escapeHtml(filters.query)}" placeholder="Артикул, название или ID" autocomplete="off" />
         </label>
         <button id="generation-archive-submit" class="btn btn-small" type="submit" ${archive.loading ? "disabled" : ""}>${archive.loading ? "Ищем…" : "Показать"}</button>
-      </form>
+      </form>`}
       <div id="generation-archive-summary" class="generation-archive-summary" tabindex="-1" aria-live="polite" aria-atomic="true">
-        <span>${archive.serverLoaded ? "Сервер нашёл" : "Найдено локально"} <strong>${formatNumber(filteredBatches.length)}</strong> на загруженных страницах</span>
+        <span>${interactive ? "Точный запуск по ссылке" : archive.serverLoaded ? "Сервер нашёл" : "Найдено локально"} <strong>${formatNumber(filteredBatches.length)}</strong>${interactive ? "" : " на загруженных страницах"}</span>
         <span>На экране: ${formatNumber(visibleBatches.length)}</span>
       </div>
       ${archive.error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(archive.error)}</span></div>` : ""}
       ${visibleBatches.length
-        ? generationTable(visibleBatches)
-        : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>${archive.serverLoaded ? "Во всём архиве ничего не найдено" : `Среди ${formatNumber(batches.length)} загруженных запусков ничего нет`}</h3><p>Измените период, статус или поисковый запрос.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
-      <div class="generation-archive-actions">
+        ? generationTable(visibleBatches, interactive)
+        : interactive
+          ? `<div class="empty-state"><div class="empty-icon" aria-hidden="true">?</div><h3>Запуск по этой ссылке не найден</h3><p>Портал не открыл другой запуск вместо него. Запись могла стать недоступной этой команде.</p><a class="btn btn-secondary btn-small" href="#/workspace/generation?view=history">Открыть историю запусков</a></div>`
+          : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>${archive.serverLoaded ? "Во всём архиве ничего не найдено" : `Среди ${formatNumber(batches.length)} загруженных запусков ничего нет`}</h3><p>Измените период, статус или поисковый запрос.</p><button class="btn btn-secondary btn-small" type="button" data-action="reset-generation-filters">Сбросить фильтры</button></div>`}
+      ${interactive ? "" : `<div class="generation-archive-actions">
         ${hasMoreVisible ? `<button class="btn btn-secondary btn-small" type="button" data-action="show-more-generation">Показать ещё ${GENERATION_VISIBLE_STEP}</button>` : ""}
         ${filteredBatches.length > visibleBatches.length && filters.visible >= GENERATION_VISIBLE_CAP ? `<span class="muted tiny">Уточните период или поиск, чтобы не выводить больше ${GENERATION_VISIBLE_CAP} строк сразу</span>` : ""}
         ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loading || archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : archive.error ? "Повторить загрузку истории" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история по выбранным фильтрам</span>`}
-      </div>
-      <p class="generation-archive-note">Период, статус и поиск применяются на сервере ко всему архиву. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов. <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
+      </div>`}
+      <p class="generation-archive-note">${interactive ? "Показана только запись из точной ссылки; фильтры общей истории к ней не применяются." : "Период, статус и поиск применяются на сервере ко всему архиву. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов."} <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
     </div>
   `;
 }
@@ -8547,7 +9134,7 @@ async function loadMoreGenerationArchive() {
   }
 }
 
-function generationTable(items) {
+function generationTable(items, interactive = false) {
   return `
     <div class="table-wrap"><table class="data-table generation-table">
       <caption class="sr-only">Архив запусков генерации контента</caption>
@@ -8584,9 +9171,13 @@ function generationTable(items) {
         const failureMarkup = details.status === "failed"
           ? `<div class="generation-failure" role="alert"><strong>${contentLabel} не ${details.photo ? "создано" : "создан"}</strong><span>${escapeHtml(failure || "Сервис генерации завершил задачу с ошибкой.")}</span><small>Запуск ${escapeHtml(details.jobId.slice(0, 8))}… · ${escapeHtml(formatDate(item.created_at, true))}${details.failureCode ? ` · код ${escapeHtml(details.failureCode)}` : ""}</small></div>`
           : "";
-        const actions = generationActionsMarkup(details);
-        const technicalQa = generatedVideoTechnicalQaMarkup(details);
-        const preview = previewUrl
+        const actions = interactive
+          ? generationActionsMarkup(details)
+          : details.jobId
+            ? `<a class="btn btn-secondary btn-small" href="#/workspace/generation?view=history&job=${encodeURIComponent(details.jobId)}">Открыть один запуск</a>`
+            : "";
+        const technicalQa = interactive ? generatedVideoTechnicalQaMarkup(details) : "";
+        const preview = interactive && previewUrl
           ? `<div class="generation-result-preview">${details.photo
             ? `<img src="${escapeHtml(previewUrl)}" loading="lazy" alt="Готовое товарное фото ${escapeHtml(item.sku || "")}" />`
             : `<video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Готовый ролик ${escapeHtml(item.sku || "")}"></video>`}<small>Защищённая ссылка обновляется при каждом открытии или скачивании.</small></div>`
@@ -8663,6 +9254,73 @@ function generationBatchDetails(item) {
     checkedAt: cached?.checkedAt || "",
     transientError: cached?.transientError || "",
   };
+}
+
+function mergeGenerationDeepLinkedBatch(data, jobId, result) {
+  const source = data && typeof data === "object" && !Array.isArray(data)
+    ? data
+    : {};
+  const job = result?.job && typeof result.job === "object" ? result.job : null;
+  const normalizedJobId = String(jobId || "");
+  if (!job || String(job.id || "") !== normalizedJobId) return source;
+  const batches = listFrom(source, "batches");
+  const existingIndex = batches.findIndex((item) => (
+    String(item?.parameters?.job_id || "") === normalizedJobId
+  ));
+  const succeeded = ["succeeded", "completed"].includes(
+    String(job.status || "").toLowerCase(),
+  );
+  const statusParameters = {
+    job_id: normalizedJobId,
+    job_status: job.status,
+    mode: "real",
+    model: job.model,
+    duration_seconds: job.duration_seconds,
+    audio: job.audio,
+    estimated_cost_minor: job.estimated_cost_minor,
+    actual_cost_minor: job.actual_cost_minor,
+    output_media_id: job.output_media_id,
+    failure_code: job.failure_code,
+    submission_state: job.submission_state,
+    reconciliation_required: job.reconciliation_required,
+    reconciliation_incident_id: job.reconciliation_incident_id,
+    reconciliation_required_at: job.reconciliation_required_at,
+    reconciliation_reason_code: job.reconciliation_reason_code,
+    reconciliation_resolution: job.reconciliation_resolution,
+    can_reconcile: job.can_reconcile,
+  };
+  const nextBatches = [...batches];
+  if (existingIndex >= 0) {
+    const existing = nextBatches[existingIndex];
+    nextBatches[existingIndex] = {
+      ...existing,
+      status: job.status || existing.status,
+      total_created: succeeded ? 1 : existing.total_created,
+      total_accepted: succeeded ? 1 : existing.total_accepted,
+      parameters: {
+        ...(existing.parameters || {}),
+        ...statusParameters,
+      },
+    };
+  } else {
+    const batchId = String(job.batch_id || normalizedJobId);
+    nextBatches.unshift({
+      id: batchId,
+      public_id: batchId,
+      name: String(job.campaign_name || "Платный запуск"),
+      product_name: String(job.campaign_name || "Точный запуск по ссылке"),
+      sku: String(job.model || "real-generation"),
+      mode: "real",
+      status: String(job.status || "queued"),
+      total_requested: 1,
+      total_created: succeeded ? 1 : 0,
+      total_accepted: succeeded ? 1 : 0,
+      parameters: statusParameters,
+      created_at: String(job.created_at || job.updated_at || ""),
+      deep_link_status: true,
+    });
+  }
+  return { ...source, batches: nextBatches };
 }
 
 function generationStageMarkup(status) {
@@ -9934,14 +10592,35 @@ function renderContentReviewSection(sectionState) {
   ) {
     state.contentReview.record = catalogRecord;
   }
-  else if (!state.contentReview.record) {
-    state.contentReview.record = catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
+  else if (!routeReviewId && !state.contentReview.record) {
+    state.contentReview.record = catalog.runs.find((item) => (
+      contentReviewStatusKind(item.status) === "ready" && !item.decision
+    ))
+      || catalog.runs.find((item) => contentReviewStatusKind(item.status) === "active")
       || catalog.runs[0]
       || null;
   }
   if (state.contentReview.record && contentReviewStatusKind(state.contentReview.record.status) === "active") {
     window.queueMicrotask(() => scheduleContentReviewPolling());
   }
+  const requestedView = String(state.route.query.get("view") || "");
+  const activeReview = contentReviewStatusKind(state.contentReview.record?.status) === "active";
+  const pendingDecision = (
+    contentReviewStatusKind(state.contentReview.record?.status) === "ready"
+    && !state.contentReview.record?.decision
+  );
+  const reviewView = ["new", "current", "history"].includes(requestedView)
+    ? requestedView
+    : routeReviewId || activeReview || pendingDecision
+      ? "current"
+      : "new";
+  const currentReviewHref = state.contentReview.record?.id
+    ? `#/workspace/review?view=current&review=${encodeURIComponent(state.contentReview.record.id)}`
+    : "#/workspace/review?view=current";
+  const exactReviewMissing = Boolean(
+    routeReviewId
+    && String(state.contentReview.record?.id || "") !== routeReviewId
+  );
   window.queueMicrotask(() => {
     bindContentReviewDecisionMedia();
     restoreContentReviewDraft();
@@ -9954,14 +10633,28 @@ function renderContentReviewSection(sectionState) {
         "Проверьте готовый файл до публикации: отдельно качество фото или видео, отдельно риски и обязательные реквизиты.",
         `<span class="badge badge-info">Решение принимает человек</span>`,
       )}
-      ${contentReviewWorkspaceMarkup({
-        catalog,
-        currentRun: state.contentReview.record,
-        phase: state.contentReview.phase,
-        error: state.contentReview.error,
-        notice: state.contentReview.notice,
-        canDecide: canDecideContentReview(),
-      })}
+      ${workspaceActionSwitch("review-action-switch", "Действие в проверке контента", reviewView, [
+        { view: "new", href: "#/workspace/review?view=new", label: "Новая проверка" },
+        { view: "current", href: currentReviewHref, label: "Текущее решение" },
+        { view: "history", href: "#/workspace/review?view=history", label: "История" },
+      ])}
+      <div data-review-view="${escapeHtml(reviewView)}">
+        ${exactReviewMissing
+          ? emptyState(
+            "?",
+            "Проверка по этой ссылке не найдена",
+            "Портал не подменил её другой проверкой. Возможно, запись недоступна этой команде или ссылка устарела.",
+            { href: "#/workspace/review?view=history", label: "Открыть историю проверок" },
+          )
+          : contentReviewWorkspaceMarkup({
+            catalog,
+            currentRun: state.contentReview.record,
+            phase: state.contentReview.phase,
+            error: state.contentReview.error,
+            notice: state.contentReview.notice,
+            canDecide: canDecideContentReview(),
+          })}
+      </div>
     </div>`;
 }
 
@@ -10078,11 +10771,26 @@ function applyGeneratedMediaReviewDefaults(form, media) {
   syncContentReviewFormVisibility(form);
 }
 
+const contentReviewDecisionMediaBindings = new WeakMap();
+
 function bindContentReviewDecisionMedia() {
   const form = document.querySelector(".content-review-decision-form");
-  if (!form || form.dataset.mediaBinding === "true") return;
-  form.dataset.mediaBinding = "true";
+  if (!form) return;
   const media = form.querySelector("[data-content-review-exact-media]");
+  const bindingIdentity = [
+    form.dataset.reviewId || "",
+    media?.localName || "none",
+    media?.getAttribute?.("data-media-kind") || "",
+    media?.getAttribute?.("src") || "",
+    media?.getAttribute?.("srcset") || "",
+  ].join("|");
+  const existingBinding = contentReviewDecisionMediaBindings.get(form);
+  if (
+    existingBinding?.media === media
+    && existingBinding?.identity === bindingIdentity
+  ) return;
+  contentReviewDecisionMediaBindings.set(form, { media, identity: bindingIdentity });
+  form.dataset.mediaBinding = "true";
   const stateNode = form.querySelector("[data-content-review-media-state]");
   const watchControl = form.elements.media_watched_confirmed;
   const submitControls = Array.from(form.querySelectorAll("[data-review-decision-submit]"));
@@ -10284,6 +10992,10 @@ function upsertContentReviewRun(run) {
 }
 
 function renderMyWorkSection(sectionState) {
+  const requestedView = String(state.route.query.get("view") || "next");
+  const workView = new Set(["next", "queue", "views", "notifications"]).has(requestedView)
+    ? requestedView
+    : "next";
   return myWorkWorkspaceMarkup({
     work: sectionState.data || {},
     notifications: state.myWork.notifications,
@@ -10295,21 +11007,70 @@ function renderMyWorkSection(sectionState) {
       ? "Единая очередь временно не загрузилась. Обновите раздел."
       : ""),
     loadingMore: state.myWork.loadingMore,
+    mode: workView,
+    actionSwitch: workspaceActionSwitch("work-action-switch", "Действие в моей работе", workView, [
+      { view: "next", href: "#/workspace/work?view=next", label: "Сейчас" },
+      { view: "queue", href: "#/workspace/work?view=queue", label: "Очередь" },
+      { view: "views", href: "#/workspace/work?view=views", label: "Мои фильтры" },
+      { view: "notifications", href: "#/workspace/work?view=notifications", label: "Уведомления" },
+    ]),
+    notificationsLoading: state.myWork.notificationsStatus === "loading",
+    notificationsError: state.myWork.notificationsError,
   });
 }
 
 function renderPlacementSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "placements", "items", "tasks");
-  const openCount = items.filter(isActionablePlacement).length;
+  const actionableItems = items.filter(isActionablePlacement);
+  const openCount = actionableItems.length;
+  const requestedView = String(state.route.query.get("view") || "next");
+  const placementView = requestedView === "history" ? "history" : "next";
+  const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
+  const requestedPlacement = requestedPlacementId
+    ? items.find((item) => String(item.id || item.placement_id || "") === requestedPlacementId) || null
+    : null;
+  const nextPlacement = requestedPlacementId
+    ? requestedPlacement
+    : actionableItems[0] || null;
+  const visibleItems = placementView === "history" ? items : nextPlacement ? [nextPlacement] : [];
+  const placementMarkup = placementView === "history"
+    ? visibleItems.map(placementHistoryCard).join("")
+    : visibleItems.map(placementCard).join("");
   return `
-    <div class="page-wrap">
+    <div class="page-wrap" data-placement-view="${placementView}">
       ${pageHeader("Публикации", "Скачайте одобренный ролик, разместите его на указанной площадке и сохраните ссылку на сам пост.", `<span class="badge badge-info">${openCount} ждут действия</span>`)}
+      ${workspaceActionSwitch("placement-action-switch", "Действие с публикациями", placementView, [
+        { view: "next", href: "#/workspace/placement?view=next", label: "Следующая публикация" },
+        { view: "history", href: "#/workspace/placement?view=history", label: "Вся история" },
+      ])}
       ${alertMarkup("Нужна публичная ссылка именно на опубликованный пост. Ссылка на карточку товара не завершает задачу.", "info")}
       <div class="placement-list" style="margin-top:18px">
-        ${sectionBody(sectionState, items.length ? items.map(placementCard).join("") : emptyState("↗", "Публиковать пока нечего", "Ничего делать не нужно: здесь появится только одобренный ролик с назначенной площадкой.", { href: "#/workspace/tasks", label: "Проверить задачи" }))}
+        ${sectionBody(sectionState, visibleItems.length
+          ? placementMarkup
+          : requestedPlacementId && placementView === "next"
+            ? emptyState("?", "Публикация по этой ссылке не найдена", "Портал не открыл другую публикацию вместо неё. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: "#/workspace/placement?view=history", label: "Открыть историю публикаций" })
+            : emptyState("↗", "Публиковать пока нечего", "Ничего делать не нужно: здесь появится только одобренный ролик с назначенной площадкой.", { href: "#/workspace/tasks", label: "Проверить задачи" }))}
       </div>
     </div>
+  `;
+}
+
+function placementHistoryCard(item) {
+  const placementId = String(item.id || item.placement_id || "");
+  const actionable = isActionablePlacement(item);
+  return `
+    <article class="card placement-card placement-card--summary" data-placement-id="${escapeHtml(placementId)}">
+      <div class="placement-top">
+        <div>
+          <p class="eyebrow">${escapeHtml(item.platform || item.destination || "Площадка")}</p>
+          <h3>${escapeHtml(item.title || item.product_name || `Публикация #${placementId}`)}</h3>
+          <p>${escapeHtml(item.final_url || item.instructions || "Ссылка на публикацию пока не сохранена.")}</p>
+        </div>
+        ${statusBadge(item.status || "todo")}
+      </div>
+      ${actionable ? `<a class="btn btn-secondary btn-small" href="#/workspace/placement?view=next&placement=${encodeURIComponent(placementId)}">Открыть одно действие</a>` : ""}
+    </article>
   `;
 }
 
@@ -10358,7 +11119,7 @@ function placementCard(item) {
           </div>
           <div class="inline-actions">
             <label class="field" style="flex:1;min-width:250px"><span>Куда вести покупателя *</span><input name="target_url" type="url" required inputmode="url" placeholder="https://…/карточка-товара" /></label>
-            <button class="btn btn-secondary" type="submit" style="align-self:end">Создать ссылку</button>
+            <button class="btn" type="submit" data-primary-action="true" style="align-self:end">Создать ссылку</button>
           </div>
         </form>
       ` : ""}
@@ -10371,23 +11132,26 @@ function placementCard(item) {
         <li>После публикации сохранить ссылку на сам пост</li>
       </ul>
       ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её руководителю. Бирка соцсети не заменяет правовую проверку.", "warning")}
-      <p class="tiny"><a href="#/workspace/review">Открыть историю проверки контента →</a></p>
-      ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable ? `
+      <p class="tiny"><a href="#/workspace/review?view=history">Открыть историю проверки контента →</a></p>
+      ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable && trackingReady ? `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
           <label class="field" style="flex:1; min-width:250px"><span>Ссылка на опубликованный пост</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
           <label class="option" style="flex-basis:100%">
             <input type="checkbox" name="compliance_ack" value="confirmed" required />
             <span><strong>Рекламный статус проверен по инструкции задачи</strong><br /><small class="muted">Если это реклама, обязательные реквизиты и площадка подтверждены руководителем; если решения нет — я не публикую.</small></span>
           </label>
-          <button class="btn" type="submit" style="align-self:end">Подтвердить публикацию</button>
+          <button class="btn" type="submit" data-primary-action="true" style="align-self:end">Подтвердить публикацию</button>
         </form>
-      ` : alertMarkup("Эта публикация закрыта и не требует действий. Если это ошибка, сообщите руководителю.", "info")}
+      ` : actionable ? alertMarkup("Сначала создайте безопасную ссылку для учёта переходов. После этого откроется подтверждение публикации.", "info") : alertMarkup("Эта публикация закрыта и не требует действий. Если это ошибка, сообщите руководителю.", "info")}
     </article>
   `;
 }
 
 function renderStatsSection(sectionState) {
   const data = sectionState.data || {};
+  const requestedView = String(state.route.query.get("view") || "overview");
+  const statsView = requestedView === "new" ? "new" : "overview";
+  const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
   const summary = data.summary || data.metrics || {};
   const summaryScope = data.summary_scope === "page" ? " · по последним загруженным записям" : "";
   const rows = listFrom(data, "publications", "items", "rows");
@@ -10399,12 +11163,16 @@ function renderStatsSection(sectionState) {
     ["CTR", formatPercent(summary.ctr ?? 0), `переходы / просмотры${summaryScope}`],
   ];
   return `
-    <div class="page-wrap">
+    <div class="page-wrap" data-stats-view="${statsView}">
       ${pageHeader("Результаты", "Здесь собраны публикации, просмотры, переходы и заказы с датой последнего обновления.", `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats">Обновить</button>`)}
-      <div class="metrics-grid">${cards.map(([label, value, hint]) => `
+      ${workspaceActionSwitch("stats-action-switch", "Действие с результатами", statsView, [
+        { view: "overview", href: "#/workspace/stats?view=overview", label: "Посмотреть результат" },
+        { view: "new", href: "#/workspace/stats?view=new", label: "Добавить снимок" },
+      ])}
+      <div class="metrics-grid stats-overview-panel">${cards.map(([label, value, hint]) => `
         <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
       `).join("")}</div>
-      <section class="card card-pad" style="margin-bottom:22px">
+      <section class="card card-pad stats-entry-panel" style="margin-bottom:22px">
         <div class="split-grid split-grid-results">
           <div>
             <p class="eyebrow">Ручной снимок</p>
@@ -10414,7 +11182,10 @@ function renderStatsSection(sectionState) {
           </div>
           ${publicationOptions.length ? `
             <form id="manual-metric-form" class="form-stack" novalidate>
-              <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => `<option value="${escapeHtml(item.id || item.placement_id)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}">${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`).join("")}</select></label>
+              <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => {
+                const placementId = String(item.id || item.placement_id || "");
+                return `<option value="${escapeHtml(placementId)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}" ${placementId === requestedPlacementId ? "selected" : ""}>${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`;
+              }).join("")}</select></label>
               <div class="form-grid-2">
                 <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="0" required /></label>
                 <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="0" required /><small class="muted" data-metric-click-source>Без tracking link укажите накопительное число вручную.</small></label>
@@ -10422,12 +11193,12 @@ function renderStatsSection(sectionState) {
                 <label class="field"><span>Выручка, ₽ *</span><input name="revenue_rub" type="number" min="0" step="0.01" value="0" required /></label>
               </div>
               <label class="field"><span>Когда сняты цифры *</span><input name="observed_at" type="datetime-local" value="${datetimeLocalNow()}" required /></label>
-              <button class="btn" type="submit">Сохранить накопительный снимок</button>
+              <button class="btn" type="submit" data-primary-action="true">Сохранить накопительный снимок</button>
             </form>
           ` : alertMarkup("Сначала сохраните ссылку хотя бы на один пост в разделе «Публикации».", "warning")}
         </div>
       </section>
-      <section class="card">
+      <section class="card stats-overview-panel">
         <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2></div><span class="badge">Автоматически · из файла · вручную</span></div>
         ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Результатов пока нет", "Сначала опубликуйте одобренный ролик и сохраните ссылку на конкретный пост.", { href: "#/workspace/placement", label: "Проверить публикации" }))}
       </section>
@@ -10455,13 +11226,27 @@ function renderPayoutsSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "payouts", "items", "rows");
   const canManagePayouts = ["owner", "admin"].includes(state.bootstrap?.membership?.role);
+  const requestedView = String(state.route.query.get("view") || (canManagePayouts ? "next" : "history"));
+  const payoutView = canManagePayouts && requestedView !== "history" ? "next" : "history";
+  const requestedPayoutId = safeWorkspaceRouteEntityId("payout");
+  const actionablePayouts = items.filter((item) => (
+    ["pending", "approved"].includes(String(item.status || "pending").toLowerCase())
+    && String(item.profile_id || "") !== String(state.user?.id || "")
+  ));
+  const requestedPayout = requestedPayoutId
+    ? items.find((item) => String(item.id || item.payout_id || "") === requestedPayoutId) || null
+    : null;
+  const nextPayout = requestedPayoutId
+    ? requestedPayout
+    : actionablePayouts[0] || null;
+  const visibleItems = payoutView === "history" ? items : nextPayout ? [nextPayout] : [];
   const totals = data.summary || {};
   const totalsHint = data.summary ? "по серверной сводке" : "в последних 50 начислениях";
   const pendingMinor = totals.pending_minor ?? sumMinor(items.filter((i) => i.status === "pending"));
   const approvedMinor = totals.approved_minor ?? sumMinor(items.filter((i) => i.status === "approved"));
   const paidMinor = totals.paid_minor ?? sumMinor(items.filter((i) => i.status === "paid"));
   return `
-    <div class="page-wrap">
+    <div class="page-wrap" data-payout-view="${payoutView}">
       ${pageHeader(
         "Выплаты",
         canManagePayouts
@@ -10469,26 +11254,34 @@ function renderPayoutsSection(sectionState) {
           : "Здесь видны только ваши начисления. Решение принимает руководитель; банковские реквизиты в кабинете не хранятся.",
         `<span class="badge">${canManagePayouts ? "Реестр команды" : "Личный реестр"}</span>`,
       )}
-      <div class="metrics-grid metrics-grid-three">
+      ${canManagePayouts ? workspaceActionSwitch("payout-action-switch", "Действие с выплатами", payoutView, [
+        { view: "next", href: "#/workspace/payouts?view=next", label: "Следующее решение" },
+        { view: "history", href: "#/workspace/payouts?view=history", label: "Вся история" },
+      ]) : ""}
+      ${payoutView === "history" ? `<div class="metrics-grid metrics-grid-three payout-history-panel">
         ${[["Ожидает проверки", pendingMinor], ["Одобрено", approvedMinor], ["Выплачено", paidMinor]].map(([label, value]) => `<article class="card metric-card"><span class="metric-label">${label}</span><strong>${formatMoney(value)}</strong><small>${totalsHint}</small></article>`).join("")}
-      </div>
-      <section class="card">
-        <div class="card-header"><div><p class="eyebrow">История</p><h2>Начисления и статусы</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="payouts">Обновить</button></div>
-        ${sectionBody(sectionState, items.length ? payoutsTable(items, canManagePayouts) : emptyState("₽", "Начислений пока нет", "Ничего не потеряно: начисление появится после подтверждённой задачи и проверки результата.", { href: "#/workspace/tasks", label: "Проверить задачи" }))}
+      </div>` : ""}
+      <section class="card payout-ledger-panel">
+        <div class="card-header"><div><p class="eyebrow">${payoutView === "next" ? "Одно решение" : "История"}</p><h2>${payoutView === "next" ? "Следующее начисление" : "Начисления и статусы"}</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="payouts">Обновить</button></div>
+        ${sectionBody(sectionState, visibleItems.length
+          ? payoutsTable(visibleItems, canManagePayouts && payoutView === "next")
+          : requestedPayoutId && payoutView === "next"
+            ? emptyState("?", "Начисление по этой ссылке не найдено", "Портал не подменил его другим начислением. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: "#/workspace/payouts?view=history", label: "Открыть историю начислений" })
+            : emptyState("₽", payoutView === "next" ? "Решений по выплатам нет" : "Начислений пока нет", payoutView === "next" ? "Все загруженные начисления уже обработаны или требуют решения другого руководителя." : "Ничего не потеряно: начисление появится после подтверждённой задачи и проверки результата.", payoutView === "next" ? { href: "#/workspace/payouts?view=history", label: "Открыть историю" } : { href: "#/workspace/tasks", label: "Проверить задачи" }))}
       </section>
     </div>
   `;
 }
 
-function payoutsTable(items, canManagePayouts) {
+function payoutsTable(items, interactive) {
   return `<div class="table-wrap"><table class="data-table">
-    <thead><tr><th>Получатель / основание</th><th>Сумма</th><th>Статус</th><th>Создано</th><th>Оплачено</th>${canManagePayouts ? "<th>Решение</th>" : ""}</tr></thead>
-    <tbody>${items.map((item) => `<tr>
+    <thead><tr><th>Получатель / основание</th><th>Сумма</th><th>Статус</th><th>Создано</th><th>Оплачено</th>${interactive ? "<th>Решение</th>" : ""}</tr></thead>
+    <tbody>${items.map((item) => `<tr data-payout-id="${escapeHtml(item.id || item.payout_id || "")}" tabindex="-1">
       <td>${item.profile_name || item.creator_name ? `<strong>${escapeHtml(item.profile_name || item.creator_name)}</strong><br />` : ""}<span>${escapeHtml(item.reason || item.task_title || `Задача #${item.task_id || item.creator_task_id || "—"}`)}</span></td>
       <td>${formatMoney(item.amount_minor || 0, item.currency || "RUB")}</td>
       <td>${statusBadge(item.status || "pending")}</td>
       <td>${formatDate(item.created_at)}</td><td>${formatDate(item.paid_at)}${item.external_payment_reference ? `<br /><small class="muted">${escapeHtml(item.external_payment_reference)}</small>` : ""}</td>
-      ${canManagePayouts ? `<td>${payoutDecisionMarkup(item)}</td>` : ""}
+      ${interactive ? `<td>${payoutDecisionMarkup(item)}</td>` : ""}
     </tr>`).join("")}</tbody>
   </table></div>`;
 }
@@ -10502,10 +11295,10 @@ function payoutDecisionMarkup(item) {
   if (status === "pending") {
     return `
       <div class="payout-actions">
-        <button class="btn btn-small" type="button" data-action="decide-payout" data-payout-id="${payoutId}" data-decision="approve">Одобрить</button>
+        <button class="btn btn-secondary btn-small" type="button" data-action="decide-payout" data-payout-id="${payoutId}" data-decision="approve">Одобрить</button>
         <form class="payout-reject-form" data-payout-id="${payoutId}" novalidate>
           <label class="field"><span>Причина отказа *</span><input name="notes" required minlength="10" maxlength="1000" placeholder="Не меньше 10 символов" /></label>
-          <button class="btn btn-secondary btn-small" type="submit">Отклонить</button>
+          <button class="btn btn-danger btn-small" type="submit" data-primary-action="true">Отклонить</button>
         </form>
       </div>
     `;
@@ -10527,13 +11320,52 @@ function payoutDecisionMarkup(item) {
 function renderTasksSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "tasks", "items", "rows");
+  const requestedView = String(state.route.query.get("view") || "next");
+  const taskView = requestedView === "queue" ? "queue" : "next";
+  const requestedTaskId = safeWorkspaceRouteEntityId("item");
+  const actionableItems = items.filter((item) => !["done", "cancelled"].includes(String(item.status || "todo")));
+  const requestedTask = requestedTaskId
+    ? items.find((item) => String(item.id || item.task_id || "") === requestedTaskId) || null
+    : null;
+  const nextTask = requestedTaskId
+    ? requestedTask
+    : actionableItems[0] || null;
+  const visibleItems = taskView === "queue" ? items : nextTask ? [nextTask] : [];
+  const taskMarkup = taskView === "queue"
+    ? visibleItems.map(taskQueueCard).join("")
+    : visibleItems.map(taskCard).join("");
   return `
-    <div class="page-wrap">
-      ${pageHeader("Задачи", "Выполняйте только назначенные вам действия. Блокер лучше скрытой ошибки.", `<span class="badge badge-info">${items.filter((i) => !["done", "cancelled"].includes(i.status)).length} активных</span>`)}
+    <div class="page-wrap" data-task-view="${taskView}">
+      ${pageHeader("Задачи", "Выполняйте только назначенные вам действия. Блокер лучше скрытой ошибки.", `<span class="badge badge-info">${actionableItems.length} активных</span>`)}
+      ${workspaceActionSwitch("tasks-action-switch", "Действие с задачами", taskView, [
+        { view: "next", href: "#/workspace/tasks?view=next", label: "Следующее действие" },
+        { view: "queue", href: "#/workspace/tasks?view=queue", label: "Вся очередь" },
+      ])}
       <div class="task-list">
-        ${sectionBody(sectionState, items.length ? items.map(taskCard).join("") : emptyState("✓", "Задач пока нет", "Ничего делать не нужно: новая работа появится здесь после назначения руководителем.", { href: "#/workspace/home", label: "Вернуться к обзору" }))}
+        ${sectionBody(sectionState, visibleItems.length
+          ? taskMarkup
+          : requestedTaskId && taskView === "next"
+            ? emptyState("?", "Задача по этой ссылке не найдена", "Портал не открыл другую задачу вместо неё. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: "#/workspace/tasks?view=queue", label: "Открыть очередь задач" })
+            : emptyState("✓", "Задач пока нет", "Ничего делать не нужно: новая работа появится здесь после назначения руководителем.", { href: "#/workspace/home", label: "Вернуться к обзору" }))}
       </div>
     </div>
+  `;
+}
+
+function taskQueueCard(item) {
+  const taskId = String(item.id || item.task_id || "");
+  return `
+    <article class="card task-card task-card--summary" data-task-id="${escapeHtml(taskId)}">
+      <div class="task-top">
+        <div>
+          <p class="eyebrow">${escapeHtml(humanTaskType(item.task_type))} · приоритет ${Number(item.priority || 3)}</p>
+          <h3>${escapeHtml(item.title || `Задача #${taskId}`)}</h3>
+          <p>${escapeHtml(taskInstructions(item))}</p>
+        </div>
+        ${statusBadge(item.status || "todo")}
+      </div>
+      <a class="btn btn-secondary btn-small" href="#/workspace/tasks?view=next&item=${encodeURIComponent(taskId)}">Открыть одно действие</a>
+    </article>
   `;
 }
 
@@ -10621,11 +11453,7 @@ function taskActionsMarkup(item) {
     return action("in_progress", "Продолжить после решения блокера");
   }
   if (manager && status === "submitted") {
-    return (
-      action("review", "Взять на проверку") +
-      action("done", "Принять") +
-      action("blocked", "Вернуть с блокером", true)
-    );
+    return action("review", "Взять на проверку");
   }
   if (manager && status === "review") {
     return action("done", "Принять") + action("blocked", "Вернуть с блокером", true);
@@ -10650,6 +11478,13 @@ function renderProductResearchSection() {
   const media = listFrom(mediaState.data || {}, "media", "items", "artifacts")
     .filter((item) => String(item.mime_type || "").startsWith("image/") || ["product_photo", "packshot"].includes(String(item.kind || "")));
   const statusKind = research.record ? productResearchStatusKind(research.record.status) : "";
+  const requestedView = String(state.route.query.get("view") || "");
+  const researchView = ["evidence", "corrections", "brief", "approve", "handoff"].includes(requestedView)
+    && (requestedView !== "handoff" || statusKind === "approved")
+    ? requestedView
+    : statusKind === "approved"
+      ? "handoff"
+      : "evidence";
   let content;
   if (["starting", "processing"].includes(research.phase) || statusKind === "active") {
     content = productResearchProgressMarkup(research.record, research.error);
@@ -10658,9 +11493,19 @@ function renderProductResearchSection() {
       research.record.recommendedScenarioPosition,
     );
     const activeHandoff = state.contentGenerationHandoff;
-    content = productResearchResultMarkup(research.record, {
+    const actionViews = [
+      { view: "evidence", href: "#/workspace/research?view=evidence", label: "Проверить доказательства" },
+      { view: "corrections", href: "#/workspace/research?view=corrections", label: "Исправить выводы" },
+      { view: "brief", href: "#/workspace/research?view=brief", label: "Исправить ТЗ" },
+      { view: "approve", href: "#/workspace/research?view=approve", label: "Утвердить" },
+      ...(statusKind === "approved" ? [{ view: "handoff", href: "#/workspace/research?view=handoff", label: "Передать в работу" }] : []),
+    ];
+    content = `${workspaceActionSwitch("research-action-switch", "Действие с разбором товара", researchView, actionViews)}${productResearchResultMarkup(research.record, {
       saving: research.phase === "saving",
       approving: research.phase === "approving",
+      watchlistSaving: research.phase === "watchlist",
+      marketCategorySaving: ["market-category", "market-category-search"].includes(research.phase),
+      outcomeLearningSaving: research.phase === "outcome-learning",
       notice: research.notice,
       error: research.error,
       members: productResearchAssignableMembers(),
@@ -10672,7 +11517,8 @@ function renderProductResearchSection() {
         && activeHandoff.draftId === research.record.draftId
         && activeHandoff.scenario?.position === recommendedPosition
       ),
-    });
+      view: researchView,
+    })}`;
   } else if (research.phase === "error" && research.record) {
     content = productResearchProgressMarkup(research.record, research.error);
   } else {
@@ -10680,6 +11526,7 @@ function renderProductResearchSection() {
       media,
       mediaLoading: ["idle", "loading"].includes(mediaState.status),
       error: research.error,
+      defaults: research.prefill || {},
     });
   }
   return `
@@ -10797,11 +11644,18 @@ async function pollProductResearchStatus({ silent = false } = {}) {
 function renderMediaSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "media", "items", "artifacts");
+  const requestedView = String(state.route.query.get("view") || "upload");
+  const mediaView = requestedView === "recent" ? "recent" : "upload";
   return `
-    <div class="page-wrap">
+    <div class="page-wrap" data-media-view="${mediaView}">
       ${pageHeader("Материалы", "Загрузите точные фото и видео товара. Они появятся при создании ролика и останутся доступны только вашей команде.", `<span class="badge badge-success">Файлы защищены</span>`)}
+      <nav class="media-action-switch" aria-label="Действие с файлами">
+        <a href="#/workspace/board">Файлы и папки</a>
+        <a class="${mediaView === "upload" ? "is-active" : ""}" href="#/workspace/media?view=upload" ${mediaView === "upload" ? 'aria-current="page"' : ""}>Добавить файлы</a>
+        <a class="${mediaView === "recent" ? "is-active" : ""}" href="#/workspace/media?view=recent" ${mediaView === "recent" ? 'aria-current="page"' : ""}>Недавние</a>
+      </nav>
       <div class="split-grid split-grid-media">
-        <section class="card card-pad">
+        <section class="card card-pad media-upload-panel">
           <p class="eyebrow">Добавить исходник</p>
           <h2 style="font:600 1.45rem/1.2 Georgia,serif; margin:0 0 8px">Точные фото или видео</h2>
           <p class="muted tiny">Файлы попадут в закрытую папку команды. До ${MEDIA_UPLOAD_BATCH_LIMIT} файлов за раз, каждый — максимум ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.</p>
@@ -10842,7 +11696,7 @@ function renderMediaSection(sectionState) {
             <button class="btn btn-block" type="submit">Загрузить файлы в защищённую папку</button>
           </form>
         </section>
-        <section>
+        <section class="media-library-panel">
           <div class="inline-actions" style="justify-content:space-between; margin-bottom:14px"><div><p class="eyebrow">Ваши файлы</p><h2 style="font:600 1.55rem/1.2 Georgia,serif; margin:0">${items.length} материалов</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Обновить</button></div>
           ${sectionBody(sectionState, items.length ? `<div class="media-grid">${items.map(mediaCard).join("")}</div>` : emptyState("▧", "Материалов пока нет", "Добавьте точное фото товара — после загрузки оно станет доступно при создании видео.", { target: "media-upload-form", label: "Выбрать точное фото" }))}
         </section>
@@ -10860,7 +11714,7 @@ function mediaCard(item) {
     else if (mime === "video/mp4") preview = `<video src="${url}" preload="none" controls></video>`;
   }
   return `
-    <article class="card media-card">
+    <article class="card media-card" data-media-id="${escapeHtml(item.public_id || item.id || "")}">
       <div class="media-preview">${preview}</div>
       <div class="media-info">
         <strong title="${escapeHtml(item.original_filename || "Файл")}">${escapeHtml(item.original_filename || item.name || "Файл")}</strong>
@@ -10874,33 +11728,41 @@ function mediaCard(item) {
 function renderFeedbackSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "feedback", "items", "requests");
+  const requestedView = String(state.route.query.get("view") || "new");
+  const feedbackView = requestedView === "history" ? "history" : "new";
+  const activePanel = feedbackView === "new" ? `
+    <section class="card card-pad feedback-new-panel">
+      <p class="eyebrow">Новый запрос</p>
+      <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Что мешает выполнить работу?</h2>
+      <form id="feedback-form" class="form-stack" style="margin-top:18px" novalidate>
+        <div class="feedback-form-grid">
+          <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание контента</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
+          <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => !["home", "team"].includes(key)).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
+          <label class="field field-wide"><span>Короткий заголовок *</span><input name="title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
+          <label class="field field-wide"><span>Что произошло и какой результат нужен *</span><textarea name="description" required minlength="5" maxlength="2000" placeholder="Опишите шаги без паролей, токенов и платёжных реквизитов"></textarea></label>
+        </div>
+        <button class="btn" type="submit" data-primary-action="true">Отправить запрос</button>
+      </form>
+    </section>
+  ` : `
+    <section class="feedback-history-panel">
+      <div class="inline-actions" style="justify-content:space-between; margin-bottom:14px"><div><p class="eyebrow">Ваши запросы</p><h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0">История</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="feedback">Обновить</button></div>
+      <div class="feedback-list">${sectionBody(sectionState, items.length ? items.map(feedbackCard).join("") : emptyState("+", "Запросов пока нет", "Если всё понятно — отлично. Если нет, расскажите прямо здесь.", { href: "#/workspace/feedback?view=new", label: "Создать запрос" }))}</div>
+    </section>
+  `;
   return `
-    <div class="page-wrap">
+    <div class="page-wrap" data-feedback-view="${feedbackView}">
       ${pageHeader("Помощь и идеи", "Опишите, что мешает работе или что стоит улучшить. Не добавляйте пароли, коды и платёжные данные.", `<span class="badge">Связь с командой</span>`)}
-      <div class="split-grid">
-        <section class="card card-pad">
-          <p class="eyebrow">Новый запрос</p>
-          <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Что мешает выполнить работу?</h2>
-          <form id="feedback-form" class="form-stack" style="margin-top:18px" novalidate>
-            <div class="feedback-form-grid">
-              <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание контента</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
-              <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => !["home", "team"].includes(key)).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
-              <label class="field field-wide"><span>Короткий заголовок *</span><input name="title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
-              <label class="field field-wide"><span>Что произошло и какой результат нужен *</span><textarea name="description" required minlength="5" maxlength="2000" placeholder="Опишите шаги без паролей, токенов и платёжных реквизитов"></textarea></label>
-            </div>
-            <button class="btn" type="submit">Отправить запрос</button>
-          </form>
-        </section>
-        <section>
-          <div class="inline-actions" style="justify-content:space-between; margin-bottom:14px"><div><p class="eyebrow">Ваши запросы</p><h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0">История</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="feedback">Обновить</button></div>
-          <div class="feedback-list">${sectionBody(sectionState, items.length ? items.map(feedbackCard).join("") : emptyState("+", "Запросов пока нет", "Если всё понятно — отлично. Если нет, расскажите прямо здесь."))}</div>
-        </section>
-      </div>
+      ${workspaceActionSwitch("feedback-action-switch", "Действие с обращениями", feedbackView, [
+        { view: "new", href: "#/workspace/feedback?view=new", label: "Новый запрос" },
+        { view: "history", href: "#/workspace/feedback?view=history", label: "История запросов" },
+      ])}
+      ${activePanel}
     </div>
   `;
 }
 
-function renderTeamSection(sectionState) {
+function renderTeamSectionLegacy(sectionState) {
   if (!canManageTeam()) {
     return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
   }
@@ -10941,22 +11803,110 @@ function renderTeamSection(sectionState) {
   `;
 }
 
+function renderTeamSection(sectionState) {
+  if (!canManageTeam()) {
+    return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
+  }
+  const requestedView = String(state.route.query.get("view") || "members");
+  const teamView = ["invite", "access", "members", "reviews", "review", "budget", "campaigns", "campaign", "new-campaign", "health"].includes(requestedView)
+    ? requestedView
+    : "members";
+  if (teamView === "health" && state.managerDashboard.status === "idle") {
+    window.queueMicrotask(() => loadManagerDashboard({ silent: true }));
+  }
+  if (["budget", "campaigns", "campaign", "new-campaign"].includes(teamView) && state.generationSpend.status === "idle") {
+    window.queueMicrotask(() => loadGenerationSpendOverview({ silent: true }));
+  }
+  const requestedCampaignId = safeWorkspaceRouteEntityId("campaign");
+  const requestedPracticalReviewId = safeWorkspaceRouteEntityId("review");
+  const members = listFrom(sectionState.data || {}, "members");
+  const invitePanel = `
+    <div class="split-grid team-invite-panel" style="margin-top:18px">
+      <section class="card card-pad">
+        <p class="eyebrow">Массовое приглашение</p>
+        <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Один email на строку</h2>
+        <p class="muted tiny">Повторы будут удалены до отправки. Максимум 50 уникальных адресов за один запуск.</p>
+        <form id="team-invite-form" class="form-stack" novalidate>
+          <label class="field">
+            <span>Рабочие адреса *</span>
+            <textarea name="emails" required rows="12" maxlength="16000" spellcheck="false" autocomplete="off" placeholder="creator-01@company.ru&#10;creator-02@company.ru"></textarea>
+          </label>
+          <button class="btn btn-block" type="submit" data-primary-action="true">Отправить приглашения</button>
+        </form>
+      </section>
+      <section class="card">
+        <div class="card-header"><div><p class="eyebrow">Последний запуск</p><h2>Результаты почтовых запросов</h2></div></div>
+        ${state.teamInviteResult ? teamInviteResultMarkup(state.teamInviteResult) : emptyState("◎", "Приглашений ещё не было", "После запуска здесь появится принятый сервисом статус по каждому адресу.")}
+      </section>
+    </div>
+  `;
+  const membersPanel = `
+    <section class="card team-members-panel">
+      <div class="card-header"><div><p class="eyebrow">Доступ и результат</p><h2>Участники команды</h2></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="team">Обновить</button></div>
+      ${sectionBody(sectionState, members.length ? teamMembersTable(members) : emptyState("◎", "В команде пока никого нет", "Отправьте приглашения — новые участники появятся после первого входа.", { href: "#/workspace/team?view=invite", label: "Пригласить участников" }))}
+    </section>
+  `;
+  const activePanel = teamView === "invite"
+    ? invitePanel
+    : teamView === "access"
+      ? `<section class="team-access-panel">${accessCenterMarkup(state.accessCenter)}</section>`
+      : teamView === "reviews"
+        ? `<section class="team-reviews-panel">${trainingPracticalReviewQueueMarkup(
+          state.bootstrap?.training?.practicalReviews || [],
+          { interactive: false },
+        )}</section>`
+        : teamView === "review"
+          ? `<section class="team-reviews-panel">${requestedPracticalReviewId
+            ? trainingPracticalReviewQueueMarkup(
+              state.bootstrap?.training?.practicalReviews || [],
+              { interactive: true, reviewId: requestedPracticalReviewId },
+            )
+            : emptyState("?", "Не указана пробная работа", "Откройте очередь и выберите одну запись для решения.", { href: "#/workspace/team?view=reviews", label: "Открыть очередь" })}</section>`
+          : teamView === "health"
+            ? `<section class="team-health-panel">${managerDashboardSectionMarkup()}</section>`
+            : ["budget", "campaigns", "campaign", "new-campaign"].includes(teamView)
+              ? `<section class="team-spend-panel">${managerGenerationSpendMarkup(state.generationSpend, {
+                canEdit: canManageGenerationSpendPolicy(),
+                view: teamView === "budget" ? "policy" : teamView,
+                campaignId: requestedCampaignId,
+              })}</section>`
+              : membersPanel;
+  return `
+    <div class="page-wrap" data-team-view="${teamView}">
+      ${pageHeader("Команда", "Пригласите креаторов по рабочей почте. Пароли и секреты в эту форму не вводятся.", `<span class="badge badge-info">До 50 человек</span>`)}
+      ${alertMarkup("Каждый новый участник входит как trainee. Рабочие разделы откроются только после четырёх курсов, принятой руководителем пробной работы и успешного экзамена из 12 сценариев.", "info")}
+      ${workspaceActionSwitch("team-action-switch", "Действие с командой", teamView, [
+        { view: "members", href: "#/workspace/team?view=members", label: "Участники" },
+        { view: "invite", href: "#/workspace/team?view=invite", label: "Пригласить" },
+        { view: "access", href: "#/workspace/team?view=access", label: "Доступ" },
+        { view: "reviews", href: "#/workspace/team?view=reviews", label: "Пробные работы" },
+        ...(teamView === "review" && requestedPracticalReviewId ? [{ view: "review", href: `#/workspace/team?view=review&review=${encodeURIComponent(requestedPracticalReviewId)}`, label: "Одна работа" }] : []),
+        { view: "budget", href: "#/workspace/team?view=budget", label: "Общий бюджет" },
+        { view: "campaigns", href: "#/workspace/team?view=campaigns", label: "Кампании" },
+        ...(teamView === "campaign" ? [{ view: "campaign", href: `#/workspace/team?view=campaign&campaign=${encodeURIComponent(requestedCampaignId)}`, label: "Одна кампания" }] : []),
+        { view: "new-campaign", href: "#/workspace/team?view=new-campaign", label: "Новая кампания" },
+        { view: "health", href: "#/workspace/team?view=health", label: "Состояние" },
+      ])}
+      ${activePanel}
+    </div>
+  `;
+}
+
 function managerDashboardSectionMarkup() {
   const dashboard = state.managerDashboard;
-  const spendMarkup = managerGenerationSpendMarkup(state.generationSpend, { canEdit: canManageGenerationSpendPolicy() });
   if (["idle", "loading"].includes(dashboard.status) && !dashboard.data) {
-    return `${spendMarkup}<section class="manager-funnel manager-dashboard-loading" role="status"><div class="loading-line" aria-hidden="true"><span></span></div><strong>Собираем, где команда остановилась…</strong><p class="muted">Письмо, вход, обучение, генерация, публикация и выплата проверяются одним отчётом.</p></section>`;
+    return `<section class="manager-funnel manager-dashboard-loading" role="status"><div class="loading-line" aria-hidden="true"><span></span></div><strong>Собираем, где команда остановилась…</strong><p class="muted">Письмо, вход, обучение, генерация, публикация и выплата проверяются одним отчётом.</p></section>`;
   }
   if (dashboard.status === "error" && !dashboard.data) {
-    return `${spendMarkup}<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button>${managerOperationalHealthMarkup(state.operationalHealth)}</section>`;
+    return `<section class="manager-funnel">${alertMarkup("Не удалось загрузить очередь внимания. Список участников выше продолжает работать.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-manager-dashboard">Повторить загрузку</button>${managerOperationalHealthMarkup(state.operationalHealth)}</section>`;
   }
-  return `${spendMarkup}${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)}`;
+  return `${dashboard.status === "refreshing" ? `<p class="tiny muted manager-refresh-note" role="status">Обновляем сводку без остановки страницы…</p>` : ""}${dashboard.status === "error" ? alertMarkup("Не удалось обновить сводку. Ниже показаны последние сохранённые данные — нажмите «Обновить» ещё раз позже.", "warning") : ""}${managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)}`;
 }
 
 function teamMembersTable(members) {
   return `<div class="table-wrap"><table class="data-table">
     <thead><tr><th>Участник</th><th>Роль</th><th>Курсы</th><th>Экзамен</th><th>Задачи</th><th>Публикации</th></tr></thead>
-    <tbody>${members.map((member) => `<tr>
+    <tbody>${members.map((member) => `<tr data-member-id="${escapeHtml(member.user_id || member.id || member.email || "")}">
       <td><strong>${escapeHtml(member.display_name || member.email || "Участник")}</strong>${member.display_name && member.email ? `<br /><small class="muted">${escapeHtml(member.email)}</small>` : ""}${member.status && member.status !== "active" ? `<br />${statusBadge(member.status)}` : ""}</td>
       <td>${escapeHtml(humanRole(member.role || "trainee"))}</td>
       <td><strong>${formatNumber(member.courses_completed ?? 0)}/${formatNumber(member.courses_required ?? 4)}</strong></td>
@@ -11081,9 +12031,9 @@ function pageHeader(title, description, actions = "") {
     : "home";
   const meta = WORKSPACE_SECTION_META[activeSection] || WORKSPACE_SECTION_META.home;
   const inFactoryFlow = FACTORY_FLOW.some((item) => item.key === activeSection);
-  const guideLink = trainingAccessWaiverActive()
-    ? ""
-    : `<a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>`;
+  const guideLink = academyRoutesReachable()
+    ? `<a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>`
+    : "";
   return `
     <section class="workspace-page-intro">
       <header class="page-header">
@@ -11300,15 +12250,6 @@ async function handleClick(event) {
     return;
   }
 
-  if (action === "select-learning-track") {
-    const selected = persistLearningTrack(control.dataset.learningTrack);
-    renderLearningHome();
-    window.queueMicrotask(() => document.querySelector(`[data-learning-track="${CSS.escape(selected)}"]`)?.focus({ preventScroll: true }));
-    track("training_track_selected", { learning_track: selected });
-    toast(`Учебный акцент: ${LEARNING_TRACKS[selected].shortLabel}.`, "success");
-    return;
-  }
-
   if (action === "training-mastery-next") {
     const courseCode = String(document.querySelector("[data-course-lesson-player]")?.dataset.courseCode || "");
     const course = learningCourses().find((item) => item.code === courseCode);
@@ -11395,6 +12336,10 @@ async function handleClick(event) {
 
   if (action === "toggle-work-notifications") {
     event.preventDefault();
+    if (window.CONTENTENGINE_DESKTOP_V4 === true) {
+      window.location.hash = "#/workspace/work?view=notifications";
+      return;
+    }
     if (!state.myWork.notificationsOpen && state.mobileNavOpen) setMobileNavOpen(false);
     state.myWork.notificationsOpen = !state.myWork.notificationsOpen;
     refreshNotificationLayer({ focus: state.myWork.notificationsOpen });
@@ -11554,6 +12499,20 @@ async function handleClick(event) {
     state.workspaceBoard.error = "";
     renderWorkspace("board");
     window.queueMicrotask(() => document.querySelector("[data-workspace-item-drawer] [data-action='close-workspace-item']")?.focus());
+    return;
+  }
+
+  if (action === "create-from-workspace-media") {
+    const mediaId = String(control.dataset.entityId || "").trim();
+    if (!mediaId) {
+      toast("Файл больше не найден. Обновите раздел «Файлы».", "error");
+      return;
+    }
+    persistGenerationMediaSelection(mediaId);
+    clearGenerationFormDraft();
+    state.sections.generation.status = "idle";
+    state.sections.generation.error = null;
+    navigate("/workspace/generation?view=create");
     return;
   }
 
@@ -12099,7 +13058,6 @@ async function handleClick(event) {
   if (action === "complete-course") {
     const moduleCode = control.dataset.moduleCode;
     if (state.trainingProgress.completionInFlight.has(moduleCode)) return;
-    const wasCompleted = state.bootstrap.training.completedModules.includes(moduleCode);
     const course = learningCourses().find((item) => item.code === moduleCode);
     const mastery = course ? syncCourseMasteryPanel(course) : null;
     if (!mastery?.ready) {
@@ -12131,24 +13089,9 @@ async function handleClick(event) {
       await track("course_completed", { module_code: moduleCode });
       await loadBootstrap();
       const serverCompleted = state.bootstrap.training.completedModules.includes(moduleCode);
-      const celebrationKey = achievementStorageKey(state.user?.id, moduleCode);
-      const celebrationStorage = learningPreferenceStorage();
-      const alreadyCelebrated = celebrationKey && celebrationStorage
-        ? safeStorageGet(celebrationStorage, celebrationKey) === "shown"
-        : false;
-      const celebrate = shouldCelebrateCourse({ wasCompleted, serverCompleted, alreadyCelebrated });
       if (!serverCompleted) throw new Error("Сервер не подтвердил завершение блока. Обновите страницу и проверьте результат.");
-      if (celebrate && celebrationKey && celebrationStorage) safeStorageSet(celebrationStorage, celebrationKey, "shown");
       toast("Курс завершён и сохранён.", "success");
       navigate("/learn", true);
-      if (celebrate) {
-        window.queueMicrotask(() => {
-          const returnFocus = document.querySelector(`a[href="#/learn/${CSS.escape(moduleCode)}"]`)
-            || document.querySelector("#main-content");
-          showTrainingAchievement(moduleCode, returnFocus);
-          track("training_achievement_unlocked", { module_code: moduleCode });
-        });
-      }
     } catch (error) {
       toast(actionErrorMessage(error), "error");
     } finally {
@@ -12580,6 +13523,16 @@ async function submitSavedMyWorkView(form) {
 function handleChange(event) {
   handleFormActivity(event);
 
+  if (event.target.matches("[data-learning-track-select]")) {
+    const selected = persistLearningTrack(event.target.value);
+    renderLearningHome();
+    window.queueMicrotask(() => {
+      document.querySelector("[data-learning-track-select]")?.focus({ preventScroll: true });
+    });
+    track("training_track_selected", { learning_track: selected });
+    return;
+  }
+
   if (event.target.matches("[data-training-practical-source]")) {
     const form = event.target.closest("[data-training-practical-form]");
     if (form) syncTrainingPracticalSource(form, event.target.value);
@@ -12796,9 +13749,21 @@ function clearWorkspaceDropTargets() {
   });
 }
 
+function workspaceBoardOrganizeMode() {
+  return (
+    state.route.path === "/workspace/board"
+    && state.route.query.get("view") === "organize"
+  );
+}
+
 function handleDragStart(event) {
   const handle = event.target.closest?.("[data-workspace-drag-item]");
   if (!handle || state.workspaceBoard.busy) return;
+  if (!workspaceBoardOrganizeMode()) {
+    event.preventDefault();
+    clearWorkspaceDropTargets();
+    return;
+  }
   const entityType = String(handle.dataset.entityType || "");
   const entityId = String(handle.dataset.entityId || "");
   const itemKey = String(handle.dataset.itemKey || workspaceBoardItemKey(entityType, entityId));
@@ -12816,7 +13781,12 @@ function handleDragStart(event) {
 
 function handleDragOver(event) {
   const folder = event.target.closest?.("[data-workspace-drop-folder]");
-  if (folder && state.workspaceBoard.dragging && !state.workspaceBoard.busy) {
+  if (
+    folder
+    && workspaceBoardOrganizeMode()
+    && state.workspaceBoard.dragging
+    && !state.workspaceBoard.busy
+  ) {
     event.preventDefault();
     clearWorkspaceDropTargets();
     folder.classList.add("is-drop-target");
@@ -12844,6 +13814,11 @@ async function handleDrop(event) {
   const folder = event.target.closest?.("[data-workspace-drop-folder]");
   if (folder && state.workspaceBoard.dragging) {
     event.preventDefault();
+    if (!workspaceBoardOrganizeMode()) {
+      state.workspaceBoard.dragging = null;
+      clearWorkspaceDropTargets();
+      return;
+    }
     const dragging = { ...state.workspaceBoard.dragging };
     const destinationFolderId = String(folder.dataset.folderId || "root");
     state.workspaceBoard.dragging = null;
@@ -13267,9 +14242,9 @@ function generationRepairMarkup(form = null) {
   const policy = normalizeGenerationRepairPolicy(state.generationRepair.data);
   if (!policy?.applied) return "";
   const active = form ? activeGenerationRepairPolicy(form) : policy;
-  const training = trainingAccessWaiverActive()
-    ? null
-    : generationQualityTrainingRecommendation(policy);
+  const training = academyRoutesReachable()
+    ? generationQualityTrainingRecommendation(policy)
+    : null;
   const labels = policy.guardCodes
     .map(generationQualityGuardLabel)
     .filter(Boolean);
@@ -13315,9 +14290,9 @@ function generationLearningMarkup(form = null) {
   const qualityGuardLabels = (policy?.qualityGuardCodes || [])
     .map(generationQualityGuardLabel)
     .filter(Boolean);
-  const training = trainingAccessWaiverActive()
-    ? null
-    : generationQualityTrainingRecommendation(policy);
+  const training = academyRoutesReachable()
+    ? generationQualityTrainingRecommendation(policy)
+    : null;
   const strongerGuardCount = (policy?.qualityGuardCodes || [])
     .filter((code) => policy?.qualityGuardVariants?.[code] === 2)
     .length;
@@ -15578,6 +16553,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
       scenario_position: state.contentGenerationHandoff?.scenario?.position || null,
     });
     clearContentGenerationHandoff();
+    clearGenerationMediaSelection();
     clearGenerationFormDraft();
     delete form.dataset.dirty;
     setFormBusy(form, false);
@@ -17575,8 +18551,25 @@ function safeWorkspaceRouteEntityId(parameterName) {
 }
 
 function workspaceDeepLinkTarget(section) {
+  if (section === "team" && state.route.path === "/workspace/team") {
+    const campaignId = safeWorkspaceRouteEntityId("campaign");
+    const practicalReviewId = safeWorkspaceRouteEntityId("review");
+    if (campaignId && practicalReviewId) return null;
+    if (campaignId) {
+      return {
+        key: `${state.route.path}?campaign=${campaignId}`,
+        selectors: [`[data-campaign-id="${campaignId}"]`],
+      };
+    }
+    if (practicalReviewId) {
+      return {
+        key: `${state.route.path}?review=${practicalReviewId}`,
+        selectors: [`[data-practical-review-id="${practicalReviewId}"]`],
+      };
+    }
+    return null;
+  }
   const definitions = {
-    work: ["item", (id) => [`[data-work-item-id="${id}"]`]],
     tasks: ["item", (id) => [`[data-task-id="${id}"]`]],
     generation: ["job", (id) => [`[data-generation-job-id="${id}"]`]],
     review: ["review", (id) => [
@@ -17638,6 +18631,7 @@ function settleRouteView() {
       "/reset-password": "Восстановление доступа",
       "/set-password": "Новый пароль",
       "/access-locked": "Доступ приостановлен",
+      "/access-required": "Рабочее место недоступно",
       "/learn": "Обучение",
       "/learn/first-shift": "Первая смена",
       "/learn/accounts": "Запуск аккаунтов",

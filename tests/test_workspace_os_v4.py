@@ -9,6 +9,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "web" / "app"
 INDEX = (APP / "index.html").read_text(encoding="utf-8")
+APP_SCRIPT = (APP / "app.js").read_text(encoding="utf-8")
+DOM_PATCH = (APP / "workspace-dom-patch.js").read_text(encoding="utf-8")
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 CORE = (APP / "workspace-os-v4.js").read_text(encoding="utf-8")
 STABILITY = (APP / "workspace-os-v4-stability.js").read_text(encoding="utf-8")
@@ -23,9 +25,9 @@ OPERATIONS_CSS = (APP / "workspace-os-v4-operations.css").read_text(encoding="ut
 BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf-8")
 
 
-def test_desktop_v4_2_is_the_only_eager_workspace_shell() -> None:
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.2.1" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.2.1"></script>' in INDEX
+def test_desktop_v4_4_is_the_only_eager_workspace_shell() -> None:
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.4" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.4"></script>' in INDEX
     assert INDEX.index('./app.js') < INDEX.index('./workspace-os-v4-loader.js')
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -35,44 +37,71 @@ def test_desktop_v4_2_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './app.js?v=20260803.1',
-        './workspace-os-v4-loader.js?v=20260803.os4.2.1',
-        './workspace-build-guard.js?v=20260803.os4.2.1',
+        './app.js?v=20260803.os4.4',
+        './workspace-os-v4-loader.js?v=20260803.os4.4',
+        './workspace-build-guard.js?v=20260803.os4.4',
     ]
 
 
-def test_route_loader_uses_one_stability_coordinator_and_lazy_route_adapters() -> None:
+def test_route_loader_uses_current_v4_4_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260803.os4.2.1"',
+        'const BUILD = "20260803.os4.4"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
+        'return route.startsWith("/workspace/");',
+        'workspace-os-v4-polish.css?v=${BUILD}',
+        'workspace-os-v4-context-trash.css?v=${BUILD}',
+        'workspace-os-v4-flow.css?v=${BUILD}',
         'workspace-os-v4-stability.css?v=${BUILD}',
-        'workspace-os-v4-stability.js?v=${BUILD}',
-        'workspace-ui-bug-checkin.css?v=${BUILD}',
-        'workspace-ui-bug-checkin.js?v=${BUILD}',
+        'workspace-os-v4-motion.css?v=${BUILD}',
+        'workspace-os-v4.js?v=${BUILD}',
+        'workspace-os-v4-trash-rpc-alias.js?v=${BUILD}',
+        'workspace-os-v4-context-trash.js?v=${BUILD}',
         'workspace-os-v4-finder.css?v=${BUILD}',
         'workspace-os-v4-finder.js?v=${BUILD}',
-        'workspace-os-v4-operations.css?v=${BUILD}',
-        'workspace-os-v4-operations.js?v=${BUILD}',
-        'route === "/workspace/work" || route === "/workspace/tasks"',
-        'workspace-generation-os.js?v=20260731.1',
-        'workspace-desktop-os.js?v=20260730.1',
+        'match: (route) => route === "/workspace/board"',
+        'window.ContentEngineDesktopV4?.flush?.()',
         'contentengine:v4-route-ready',
     ):
         assert marker in LOADER
 
-    assert 'workspace-os-v4-polish.js' not in LOADER
-    assert 'workspace-os-v4-surface-guard.js' not in LOADER
+    assert LOADER.index('workspace-os-v4.js?v=${BUILD}') < LOADER.index(
+        'workspace-os-v4-trash-rpc-alias.js?v=${BUILD}'
+    ) < LOADER.index('workspace-os-v4-context-trash.js?v=${BUILD}')
+    for retired in (
+        'workspace-os-v4-stability.js',
+        'workspace-os-v4-polish.js',
+        'workspace-os-v4-surface-guard.js',
+        'workspace-os-v4-operations.js',
+        'workspace-ui-bug-checkin.js',
+        'workspace-generation-os.js',
+        'workspace-desktop-os.js',
+        'workspace-academy-',
+    ):
+        assert retired not in LOADER
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
+
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.4";' in APP_SCRIPT
+    assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
+    for marker in (
+        'export function patchWorkspaceContent(container, markup)',
+        'data-ce-patch-key',
+        'if (current.type !== "file") current.value = next.value;',
+        'runtimeOwnedNode',
+    ):
+        assert marker in DOM_PATCH
 
 
 def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> None:
     for marker in (
         'ce-v4-menubar',
         'ce-v4-dock',
-        'ОДИН ЭКРАН · ОДНО ДЕЙСТВИЕ',
-        'ПРОИЗВОДСТВЕННЫЙ МАРШРУТ',
+        'const ROUTES = Object.freeze([',
+        'const SECONDARY_ROUTES = Object.freeze([',
+        'if (runtime.menubar?.isConnected) return runtime.menubar;',
+        'if (runtime.dock?.isConnected) return runtime.dock;',
+        'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications";',
         'openMission',
         'openSpotlight',
         'openZen',
@@ -85,6 +114,17 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
         'IntersectionObserver',
     ):
         assert marker in CORE
+
+    dock_routes = re.search(
+        r'const ROUTES = Object\.freeze\(\[(.*?)\]\);\s*const SECONDARY_ROUTES',
+        CORE,
+        flags=re.DOTALL,
+    )
+    assert dock_routes is not None
+    assert dock_routes.group(1).count('Object.freeze({ route: "/workspace/') == 6
+    assert '/learn' not in dock_routes.group(1)
+    assert CORE.count('const bar = create("header", "ce-v4-menubar");') == 1
+    assert CORE.count('const dock = create("nav", "ce-v4-dock");') == 1
 
     for marker in (
         'Разбор товара',

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine same-route DOM patch harness</title>
+  </head>
+  <body>
+    <main>
+      <h1>Same-route DOM patch</h1>
+      <output id="result" role="status">Проверка…</output>
+      <div id="workspace-content"></div>
+    </main>
+    <script type="module">
+      import { patchWorkspaceContent } from "../../web/app/workspace-dom-patch.js";
+
+      const container = document.querySelector("#workspace-content");
+      const result = document.querySelector("#result");
+      container.innerHTML = `
+        <div class="page-wrap ce-v4-page" data-ce-v4-surface="true">
+          <section class="ce-v4-home" data-runtime-marker="home">Runtime home</section>
+          <section class="record-list">
+            <article data-workspace-item-key="alpha">
+              <strong>Alpha old</strong>
+              <video preload="none"></video>
+              <input id="media-file" type="file" />
+              <button type="button" data-action="alpha">Alpha action</button>
+            </article>
+            <article data-workspace-item-key="beta"><strong>Beta</strong></article>
+            <article data-workspace-item-key="removed"><strong>Remove me</strong></article>
+          </section>
+          <details data-ce-patch-key="help" open><summary>Help</summary><p>Open by default</p></details>
+          <div id="review-host">
+            <form class="content-review-decision-form" data-review-id="review-a" data-exact-media-state="loading">
+              <video data-content-review-exact-media data-media-kind="video" src="same.mp4" preload="none"></video>
+              <p data-content-review-media-state>Loading</p>
+              <input name="media_watched_confirmed" type="checkbox" checked disabled />
+              <button type="submit" data-review-decision-submit disabled>Decide</button>
+            </form>
+          </div>
+          <div id="research-host">
+            <form id="research-form" data-research-id="research-a"><input name="brief" value="A" /></form>
+          </div>
+        </div>
+      `;
+
+      const page = container.querySelector(".page-wrap");
+      const runtimeHome = container.querySelector(".ce-v4-home");
+      const alpha = container.querySelector('[data-workspace-item-key="alpha"]');
+      const beta = container.querySelector('[data-workspace-item-key="beta"]');
+      const video = alpha.querySelector("video");
+      const file = alpha.querySelector('input[type="file"]');
+      const action = alpha.querySelector("button");
+      const details = container.querySelector("details");
+      const reviewHost = container.querySelector("#review-host");
+      const reviewForm = reviewHost.querySelector("form");
+      const reviewVideo = reviewForm.querySelector("video");
+      const reviewState = reviewForm.querySelector("[data-content-review-media-state]");
+      const watched = reviewForm.elements.media_watched_confirmed;
+      const decision = reviewForm.querySelector("[data-review-decision-submit]");
+      const researchForm = container.querySelector("#research-form");
+      details.open = false;
+      reviewForm.dataset.mediaBinding = "true";
+      reviewForm.dataset.exactMediaState = "ready";
+      reviewVideo.dataset.contentReviewLoadedSrc = "same.mp4";
+      reviewVideo.dataset.contentReviewEndedSrc = "same.mp4";
+      reviewState.textContent = "Ready live";
+      reviewState.classList.add("is-ready");
+      watched.checked = false;
+      watched.disabled = false;
+      decision.disabled = false;
+      let listenerCalls = 0;
+      action.addEventListener("click", () => { listenerCalls += 1; });
+
+      patchWorkspaceContent(container, `
+        <div class="page-wrap">
+          <section class="record-list">
+            <article data-workspace-item-key="beta"><strong>Beta updated</strong></article>
+            <article data-workspace-item-key="alpha">
+              <strong>Alpha updated</strong>
+              <video preload="none"></video>
+              <input id="media-file" type="file" />
+              <button type="button" data-action="alpha">Alpha action</button>
+            </article>
+            <article data-workspace-item-key="gamma"><strong>Gamma</strong></article>
+          </section>
+          <details data-ce-patch-key="help" open><summary>Help</summary><p>Open by default</p></details>
+          <div id="review-host">
+            <form class="content-review-decision-form" data-review-id="review-a" data-exact-media-state="loading">
+              <video data-content-review-exact-media data-media-kind="video" src="same.mp4" preload="none"></video>
+              <p data-content-review-media-state>Loading</p>
+              <input name="media_watched_confirmed" type="checkbox" checked disabled />
+              <button type="submit" data-review-decision-submit disabled>Decide</button>
+            </form>
+          </div>
+          <div id="research-host">
+            <form id="research-form" data-research-id="research-b"><input name="brief" value="B" /></form>
+          </div>
+        </div>
+      `);
+      action.click();
+
+      const sameSourceReviewChecks = {
+        reviewFormIdentity: reviewHost.querySelector("form") === reviewForm,
+        reviewVideoIdentity: reviewForm.querySelector("video") === reviewVideo,
+        reviewBindingPreserved: reviewForm.dataset.mediaBinding === "true",
+        reviewProofPreserved: reviewVideo.dataset.contentReviewEndedSrc === "same.mp4",
+        reviewStatePreserved: reviewState.textContent === "Ready live" && reviewState.classList.contains("is-ready"),
+        reviewControlsPreserved: !watched.checked && !watched.disabled && !decision.disabled,
+      };
+
+      patchWorkspaceContent(reviewHost, `
+        <form class="content-review-decision-form" data-review-id="review-a" data-exact-media-state="loading">
+          <video data-content-review-exact-media data-media-kind="video" src="changed.mp4" preload="none"></video>
+          <p data-content-review-media-state>Loading changed source</p>
+          <input name="media_watched_confirmed" type="checkbox" disabled />
+          <button type="submit" data-review-decision-submit disabled>Decide</button>
+        </form>
+      `);
+      const changedReviewForm = reviewHost.querySelector("form");
+
+      const keys = [...container.querySelectorAll("[data-workspace-item-key]")]
+        .map((node) => node.dataset.workspaceItemKey);
+      const checks = {
+        pageIdentity: container.querySelector(".page-wrap") === page,
+        alphaIdentity: container.querySelector('[data-workspace-item-key="alpha"]') === alpha,
+        betaIdentity: container.querySelector('[data-workspace-item-key="beta"]') === beta,
+        videoIdentity: alpha.querySelector("video") === video,
+        fileIdentity: alpha.querySelector('input[type="file"]') === file,
+        listenerIdentity: listenerCalls === 1,
+        runtimeIdentity: container.querySelector(".ce-v4-home") === runtimeHome,
+        runtimeConnected: runtimeHome.isConnected,
+        runtimeClass: page.classList.contains("ce-v4-page"),
+        runtimeAttribute: page.dataset.ceV4Surface === "true",
+        detailsState: !details.open,
+        researchEntityIsolation: container.querySelector("#research-form") !== researchForm
+          && container.querySelector("#research-form")?.dataset.researchId === "research-b",
+        ...sameSourceReviewChecks,
+        changedReviewFormIdentity: changedReviewForm !== reviewForm,
+        changedReviewVideoIdentity: changedReviewForm?.querySelector("video") !== reviewVideo,
+        changedReviewProofReset: !changedReviewForm?.querySelector("video")?.dataset.contentReviewEndedSrc,
+        changedReviewControlsReset: changedReviewForm?.elements.media_watched_confirmed.disabled === true
+          && changedReviewForm?.elements.media_watched_confirmed.checked === false,
+        keyedOrder: keys.join(",") === "beta,alpha,gamma",
+        updatedText: alpha.querySelector("strong")?.textContent === "Alpha updated",
+        removedStaleNode: !container.querySelector('[data-workspace-item-key="removed"]'),
+        onePage: container.querySelectorAll(".page-wrap").length === 1,
+      };
+      const passed = Object.values(checks).every(Boolean);
+      result.dataset.passed = String(passed);
+      result.dataset.checks = JSON.stringify(checks);
+      result.textContent = passed ? "PASS" : "FAIL";
+    </script>
+  </body>
+</html>

@@ -4,13 +4,17 @@ const ROUTE = "/workspace/board";
 const STATE_KEY = "contentengine.desktop-v4.finder.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
+const TRANSIENT_NAME = "finder-quicklook";
 
 const runtime = {
-  queued: false,
   page: null,
   board: null,
+  sidebarOpen: false,
   quickLook: null,
   movedDrawer: null,
+  sortedBoard: null,
+  sortedValue: "",
   state: readState(),
 };
 
@@ -29,6 +33,7 @@ function routePath() {
 
 function create(tag, className = "", text = "") {
   const node = document.createElement(tag);
+  node.dataset.ceV4Owned = "true";
   if (className) node.className = className;
   if (text) node.textContent = text;
   return node;
@@ -79,16 +84,33 @@ function selectedCard() {
 }
 
 function annotateCards() {
+  let changed = false;
   cards().forEach((card) => {
     const kind = itemKind(card);
-    card.dataset.ceV4Kind = kind.key;
-    if (!q(":scope > .ce-v4-finder-kind", card)) {
-      const badge = create("span", "ce-v4-finder-kind", kind.label);
+    if (card.dataset.ceV4Kind !== kind.key) {
+      card.dataset.ceV4Kind = kind.key;
+      changed = true;
+    }
+    let badge = q(":scope > .ce-v4-finder-kind", card);
+    if (!badge) {
+      badge = create("span", "ce-v4-finder-kind", kind.label);
       badge.dataset.kind = kind.key;
       card.append(badge);
+      changed = true;
+    } else {
+      if (badge.textContent !== kind.label) badge.textContent = kind.label;
+      badge.dataset.kind = kind.key;
     }
-    card.tabIndex = -1;
+    if (card.tabIndex !== -1) {
+      card.tabIndex = -1;
+      changed = true;
+    }
+    if (card.dataset.ceV4FinderAnnotated !== "true") {
+      card.dataset.ceV4FinderAnnotated = "true";
+      changed = true;
+    }
   });
+  return changed;
 }
 
 function applyView() {
@@ -119,8 +141,15 @@ function sortCards(value) {
     const rightTitle = compact(q(".workspace-board__item-copy strong", right)?.textContent, 200);
     return leftTitle.localeCompare(rightTitle, "ru", { sensitivity: "base" });
   });
-  ordered.forEach((card) => grid.append(card));
-  remember({ sort: value });
+  const current = qa(":scope > .workspace-board__item", grid);
+  if (ordered.some((card, index) => current[index] !== card)) {
+    const fragment = document.createDocumentFragment();
+    ordered.forEach((card) => fragment.append(card));
+    grid.append(fragment);
+  }
+  runtime.sortedBoard = runtime.board;
+  runtime.sortedValue = value;
+  if (runtime.state.sort !== value) remember({ sort: value });
 }
 
 function filterFolders(query) {
@@ -131,14 +160,122 @@ function filterFolders(query) {
   });
 }
 
+function finderMode() {
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  const query = new URLSearchParams(raw.split("?")[1] || "");
+  return query.get("view") === "organize" ? "organize" : "browse";
+}
+
+function applyMode() {
+  if (!runtime.board) return;
+  const mode = finderMode();
+  runtime.board.dataset.ceV4FinderMode = mode;
+  document.body.dataset.ceV4FinderMode = mode;
+  qa("[data-ce-v4-finder-mode]", runtime.board).forEach((control) => {
+    const active = control.dataset.ceV4FinderMode === mode;
+    control.classList.toggle("is-active", active);
+    control.setAttribute("aria-current", active ? "page" : "false");
+  });
+}
+
+function sidebarParts() {
+  return {
+    sidebar: q(".workspace-board__sidebar", runtime.board),
+    toggle: q(".ce-v4-finder-sidebar-toggle", runtime.board),
+    backdrop: q(".ce-v4-finder-sidebar-backdrop", runtime.board),
+  };
+}
+
+function setSidebarOpen(open, { restoreFocus = false } = {}) {
+  const { sidebar, toggle } = sidebarParts();
+  if (!sidebar) return;
+  const next = MOBILE_SIDEBAR.matches && Boolean(open);
+  runtime.sidebarOpen = next;
+  runtime.board?.classList.toggle("is-sidebar-open", next);
+  sidebar.classList.toggle("is-open", next);
+  toggle?.setAttribute("aria-expanded", String(next));
+  toggle?.setAttribute("aria-label", next ? "Закрыть папки" : "Показать папки");
+
+  if (MOBILE_SIDEBAR.matches) {
+    sidebar.inert = !next;
+    sidebar.setAttribute("aria-hidden", String(!next));
+  } else {
+    sidebar.inert = false;
+    sidebar.removeAttribute("aria-hidden");
+  }
+
+  if (next) {
+    (q(".ce-v4-folder-search input", sidebar) || q("button, a, input, select", sidebar))
+      ?.focus({ preventScroll: true });
+  } else if (restoreFocus) {
+    toggle?.focus({ preventScroll: true });
+  }
+}
+
+function ensureMobileSidebar() {
+  const sidebar = q(".workspace-board__sidebar", runtime.board);
+  const toolbarControls = q(".ce-v4-finder-toolbar__controls", runtime.board);
+  const layout = q(".workspace-board__layout", runtime.board);
+  if (!sidebar || !toolbarControls || !layout) return;
+
+  if (!sidebar.id) {
+    sidebar.id = "contentengine-v4-finder-sidebar";
+    sidebar.dataset.ceV4RuntimeId = "true";
+  }
+  sidebar.setAttribute("role", "navigation");
+  sidebar.setAttribute("aria-label", "Папки Finder");
+
+  let toggle = q(".ce-v4-finder-sidebar-toggle", toolbarControls);
+  if (!toggle) {
+    toggle = create("button", "ce-v4-finder-sidebar-toggle", "Папки");
+    toggle.type = "button";
+    toggle.setAttribute("aria-controls", sidebar.id);
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", "Показать папки");
+    toolbarControls.prepend(toggle);
+    toggle.addEventListener("click", () => setSidebarOpen(!runtime.sidebarOpen, { restoreFocus: runtime.sidebarOpen }));
+  }
+
+  let close = q(":scope > .ce-v4-finder-sidebar-close", sidebar);
+  if (!close) {
+    close = create("button", "ce-v4-finder-sidebar-close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Закрыть папки");
+    sidebar.prepend(close);
+    close.addEventListener("click", () => setSidebarOpen(false, { restoreFocus: true }));
+  }
+
+  let backdrop = q(":scope > .ce-v4-finder-sidebar-backdrop", layout);
+  if (!backdrop) {
+    backdrop = create("button", "ce-v4-finder-sidebar-backdrop");
+    backdrop.type = "button";
+    backdrop.tabIndex = -1;
+    backdrop.setAttribute("aria-label", "Закрыть панель папок");
+    layout.append(backdrop);
+    backdrop.addEventListener("click", () => setSidebarOpen(false, { restoreFocus: true }));
+  }
+
+  setSidebarOpen(runtime.sidebarOpen);
+}
+
 function buildToolbar() {
   const content = q(".workspace-board__content", runtime.board);
-  if (!content || q(":scope > .ce-v4-finder-toolbar", content)) return;
+  if (!content) return;
+  if (q(":scope > .ce-v4-finder-toolbar", content)) {
+    ensureMobileSidebar();
+    return;
+  }
   const toolbar = create("header", "ce-v4-finder-toolbar");
   const title = create("div", "ce-v4-finder-toolbar__title");
   title.append(create("small", "", "CONTENTENGINE FINDER"), create("strong", "", "Файлы и задачи"));
 
   const controls = create("div", "ce-v4-finder-toolbar__controls");
+  const browse = create("a", "ce-v4-finder-mode", "Просмотр");
+  browse.href = "#/workspace/board?view=browse";
+  browse.dataset.ceV4FinderMode = "browse";
+  const organize = create("a", "ce-v4-finder-mode", "Организация");
+  organize.href = "#/workspace/board?view=organize";
+  organize.dataset.ceV4FinderMode = "organize";
   const sort = create("select", "ce-v4-finder-sort");
   sort.setAttribute("aria-label", "Сортировка объектов");
   [["name", "По имени"], ["type", "По типу"], ["status", "По статусу"]].forEach(([value, label]) => {
@@ -157,7 +294,7 @@ function buildToolbar() {
   list.textContent = "Список";
   const upload = create("a", "ce-v4-finder-upload", "Добавить материал");
   upload.href = "#/workspace/media";
-  controls.append(sort, grid, list, upload);
+  controls.append(browse, organize, sort, grid, list, upload);
   toolbar.append(title, controls);
   content.prepend(toolbar);
   toolbar.addEventListener("click", (event) => {
@@ -167,6 +304,7 @@ function buildToolbar() {
     applyView();
   });
   sort.addEventListener("change", () => sortCards(sort.value));
+  ensureMobileSidebar();
 }
 
 function buildFolderSearch() {
@@ -215,6 +353,10 @@ function ensureSelectedDrawer(card) {
 
 async function openQuickLook(card = selectedCard() || cards().find(visible)) {
   if (runtime.quickLook || !card) return;
+  setSidebarOpen(false);
+  document.dispatchEvent(new CustomEvent("contentengine:v4-close-transients", {
+    detail: Object.freeze({ except: TRANSIENT_NAME }),
+  }));
   const drawer = await ensureSelectedDrawer(card);
   if (!drawer) return;
   const placeholder = document.createComment("contentengine-v4-finder-drawer");
@@ -249,7 +391,11 @@ async function openQuickLook(card = selectedCard() || cards().find(visible)) {
   });
   close.focus({ preventScroll: true });
   if (!REDUCED_MOTION.matches && typeof dialog.animate === "function") {
-    dialog.animate([{ opacity: 0, transform: "scale(.975) translateY(14px)" }, { opacity: 1, transform: "scale(1) translateY(0)" }], { duration: 360, easing: "cubic-bezier(0.16,1,0.3,1)" });
+    backdrop.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+    dialog.animate(
+      [{ opacity: 0, transform: "translate3d(0, 8px, 0)" }, { opacity: 1, transform: "translate3d(0, 0, 0)" }],
+      { duration: 190, easing: "cubic-bezier(0.16,1,0.3,1)" },
+    );
   }
 }
 
@@ -280,26 +426,16 @@ function navigateQuickLook(direction) {
 function bindBoard() {
   if (runtime.board.dataset.ceV4FinderBound === "true") return;
   runtime.board.dataset.ceV4FinderBound = "true";
-  runtime.board.addEventListener("dblclick", (event) => {
-    const card = event.target instanceof Element ? event.target.closest(".workspace-board__item") : null;
-    if (card && !event.target.closest("button, a, input, select, textarea, video")) void openQuickLook(card);
-  });
-  runtime.board.addEventListener("keydown", (event) => {
-    const editing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
-    if (!editing && event.key === " ") {
-      event.preventDefault();
-      void openQuickLook();
-    }
-    if (runtime.quickLook && event.key === "Escape") closeQuickLook();
-  });
 }
 
 function mount() {
   if (routePath() !== ROUTE) {
+    setSidebarOpen(false);
     closeQuickLook({ restoreFocus: false });
     runtime.page = null;
     runtime.board = null;
     document.body.classList.remove("ce-v4-finder-route");
+    delete document.body.dataset.ceV4FinderMode;
     return;
   }
   const board = q(".workspace-board");
@@ -311,28 +447,43 @@ function mount() {
   annotateCards();
   buildToolbar();
   buildFolderSearch();
+  applyMode();
   applyView();
-  sortCards(q(".ce-v4-finder-sort", board)?.value || runtime.state.sort || "name");
+  const sortValue = q(".ce-v4-finder-sort", board)?.value || runtime.state.sort || "name";
+  sortCards(sortValue);
+  filterFolders(q(".ce-v4-folder-search input", board)?.value || "");
   bindBoard();
   finderQueryHandoff();
 }
 
-function schedule() {
-  if (runtime.queued) return;
-  runtime.queued = true;
-  window.requestAnimationFrame(() => { runtime.queued = false; mount(); });
-}
-
-new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-window.addEventListener("hashchange", schedule, { passive: true });
-window.addEventListener("contentengine:v4-route-ready", schedule);
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && runtime.sidebarOpen) {
+    event.preventDefault();
+    setSidebarOpen(false, { restoreFocus: true });
+    return;
+  }
   if (!runtime.quickLook) return;
   if (event.key === "Escape") { event.preventDefault(); closeQuickLook(); }
   if (event.key === "ArrowLeft") { event.preventDefault(); navigateQuickLook(-1); }
   if (event.key === "ArrowRight") { event.preventDefault(); navigateQuickLook(1); }
 }, true);
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", schedule, { once: true });
-else schedule();
 
-window.ContentEngineFinderV4 = Object.freeze({ openQuickLook, closeQuickLook, schedule });
+document.addEventListener("contentengine:v4-close-transients", (event) => {
+  if (event.detail?.except === TRANSIENT_NAME) return;
+  closeQuickLook({ restoreFocus: false });
+});
+
+const handleSidebarViewport = () => setSidebarOpen(false);
+if (typeof MOBILE_SIDEBAR.addEventListener === "function") {
+  MOBILE_SIDEBAR.addEventListener("change", handleSidebarViewport);
+} else {
+  MOBILE_SIDEBAR.addListener?.(handleSidebarViewport);
+}
+
+window.ContentEngineDesktopV4.registerAdapter("finder-board", mount, { priority: 100 });
+
+window.ContentEngineFinderV4 = Object.freeze({
+  openQuickLook,
+  closeQuickLook,
+  schedule: () => window.ContentEngineDesktopV4.requestMount(),
+});

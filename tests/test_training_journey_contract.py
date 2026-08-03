@@ -19,6 +19,9 @@ INTERACTIVE = (ROOT / "web/app/training-interactive.js").read_text(
     encoding="utf-8"
 )
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+BUILD = json.loads(
+    (ROOT / "web/app/build.json").read_text(encoding="utf-8")
+)["id"]
 
 
 def _run_journey_javascript(body: str) -> dict:
@@ -101,16 +104,31 @@ def test_learning_track_and_lesson_journey_are_normalized_and_scoped() -> None:
     assert payload["percent"] == 75
 
 
-def test_home_asks_role_before_map_and_keeps_common_certification_explicit() -> None:
+def test_home_asks_for_one_compact_role_before_the_six_step_roadmap() -> None:
     home = _function_source("renderLearningHome")
-    assert home.index("learningTrackPickerMarkup()") < home.index('id="work-map"')
-    assert home.index("learningSafetyGateMarkup()") < home.index('id="work-map"')
-    picker = _function_source("learningTrackPickerMarkup")
-    assert "Кем вы будете в этой смене?" in picker
-    assert "Четыре обязательных блока" in picker
-    assert 'data-action="select-learning-track"' in picker
-    assert "persistLearningTrack" in APP
-    assert "training_track_selected" in APP
+    assert home.index("learningGateRoleMarkup()") < home.index(
+        'class="learning-gate-roadmap"'
+    )
+    assert "const totalSteps = courses.length + 2" in home
+    assert 'label: "Пробная работа"' in home
+    assert 'label: "Итоговый экзамен"' in home
+
+    picker = _function_source("learningGateRoleMarkup")
+    assert "Ваша роль в рабочей смене" in picker
+    assert picker.count("<select") == 1
+    assert picker.count("</select>") == 1
+    assert "data-learning-track-select" in picker
+    assert "<button" not in picker
+    assert "href=" not in picker
+    assert "optionalHref" not in picker
+
+    change = _function_source("handleChange")
+    assert 'event.target.matches("[data-learning-track-select]")' in change
+    assert "persistLearningTrack(event.target.value)" in change
+    assert "renderLearningHome()" in change
+    assert 'document.querySelector("[data-learning-track-select]")?.focus' in change
+    assert 'track("training_track_selected"' in change
+
     safety = _function_source("learningSafetyGateMarkup")
     assert "Товар или артикул не совпадает" in safety
     assert "Рекламный статус публикации не подтверждён" in safety
@@ -185,72 +203,45 @@ def test_walkthrough_restart_clears_answer_checks_feedback_and_completion() -> N
     assert "Уже полученный зачёт сохраняется" in reset_handler
 
 
-def test_achievement_requires_successful_server_completion_and_is_deduplicated() -> None:
+def test_completion_requires_server_confirmation_then_returns_to_the_next_step() -> None:
     completion = APP.split('if (action === "complete-course") {', 1)[1].split(
         'if (action === "refresh-section")', 1
     )[0]
     complete_call = completion.index("await state.api.completeModule(moduleCode)")
     refresh_call = completion.index("await loadBootstrap()")
     confirmed = completion.index("const serverCompleted")
-    decision = completion.index("shouldCelebrateCourse")
-    display = completion.index("showTrainingAchievement(moduleCode, returnFocus)")
-    assert complete_call < refresh_call < confirmed < decision < display
+    success = completion.index('toast("Курс завершён и сохранён.", "success")')
+    next_step = completion.index('navigate("/learn", true)')
+    assert complete_call < refresh_call < confirmed < success < next_step
     assert "state.bootstrap.training.completedModules.includes(moduleCode)" in completion
-    assert 'safeStorageGet(celebrationStorage, celebrationKey) === "shown"' in completion
-    assert 'safeStorageSet(celebrationStorage, celebrationKey, "shown")' in completion
-    assert "training_achievement_unlocked" in completion
-
-    payload = _run_journey_javascript(
-        r"""
-        return {
-          failed: journey.shouldCelebrateCourse({
-            wasCompleted: false, serverCompleted: false, alreadyCelebrated: false,
-          }),
-          first: journey.shouldCelebrateCourse({
-            wasCompleted: false, serverCompleted: true, alreadyCelebrated: false,
-          }),
-          repeat: journey.shouldCelebrateCourse({
-            wasCompleted: true, serverCompleted: true, alreadyCelebrated: false,
-          }),
-          deduped: journey.shouldCelebrateCourse({
-            wasCompleted: false, serverCompleted: true, alreadyCelebrated: true,
-          }),
-          markup: journey.achievementMarkup("factory_basics"),
-        };
-        """
-    )
-    assert payload["failed"] is False
-    assert payload["first"] is True
-    assert payload["repeat"] is False
-    assert payload["deduped"] is False
-    assert "Навигатор портала" in payload["markup"]
-    assert 'data-action="play-training-fanfare"' in payload["markup"]
-    assert "не заменяет итоговый экзамен" in payload["markup"]
+    assert "if (!serverCompleted) throw new Error" in completion
+    assert "showTrainingAchievement" not in completion
+    assert "shouldCelebrateCourse" not in completion
+    assert "training_achievement_unlocked" not in completion
 
 
-def test_achievement_sound_is_explicit_and_motion_has_accessible_fallback() -> None:
-    markup = JOURNEY.split("export function achievementMarkup", 1)[1].split(
-        "export function playTrainingFanfare", 1
+def test_completion_flow_does_not_open_an_achievement_subwindow() -> None:
+    completion = APP.split('if (action === "complete-course") {', 1)[1].split(
+        'if (action === "refresh-section")', 1
     )[0]
-    assert "playTrainingFanfare()" not in markup
-    assert "Звук включается только по вашему нажатию" in markup
-    assert 'role="dialog"' in markup
-    assert 'aria-modal="true"' in markup
-    assert "if (action === \"play-training-fanfare\")" in APP
-    assert "@media (prefers-reduced-motion: reduce)" in JOURNEY_STYLES
-    reduced_motion = JOURNEY_STYLES.split(
-        "@media (prefers-reduced-motion: reduce)", 1
-    )[1]
-    assert ".training-achievement__petals" in reduced_motion
-    assert "display: none" in reduced_motion
-    assert "max-height: calc(100svh - 40px)" in JOURNEY_STYLES
-    assert "overflow-y: auto" in JOURNEY_STYLES
-    assert 'event.key === "Escape"' in APP
+    for modal_side_effect in (
+        "showTrainingAchievement",
+        "achievementMarkup",
+        "insertAdjacentHTML",
+        'role="dialog"',
+        'aria-modal="true"',
+        "playTrainingFanfare",
+        "training-achievement-open",
+    ):
+        assert modal_side_effect not in completion
+    assert completion.count('toast("Курс завершён и сохранён.", "success")') == 1
+    assert completion.count('navigate("/learn", true)') == 1
 
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
     assert './training-journey.css?v=20260718.3' in INDEX
-    assert './app.js?v=20260803.1' in INDEX
+    assert BUILD == "20260803.os4.4"
+    assert f'./app.js?v={BUILD}' in INDEX
     assert 'from "./training-journey.js?v=20260718.3"' in APP
     assert 'from "./training-interactive.js?v=20260718.4"' in APP
 

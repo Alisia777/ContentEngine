@@ -31,6 +31,7 @@ EDGE = (
 ).read_text(encoding="utf-8")
 API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+BUILD_ID = json.loads((ROOT / "web/app/build.json").read_text(encoding="utf-8"))["id"]
 
 
 def _run_handoff(body: str) -> dict:
@@ -290,6 +291,6 @@ def test_release_binds_new_compiler_gate_and_cache_versions() -> None:
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in APP
     assert "./content-generation-handoff.js?v=20260730.1" in APP
     assert "./supabase-api.js?v=20260729.2" in APP
-    assert "./app.js?v=20260803.1" in INDEX
+    assert f"./app.js?v={BUILD_ID}" in INDEX
     assert "select plan(19);" in PGTAP
     assert PGTAP.rstrip().endswith("rollback;")

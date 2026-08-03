@@ -100,7 +100,14 @@ export function generationSpendAllowsMinor(value, requestMinor, campaignId = "")
   return campaignLimits.every((limit) => limit >= amount);
 }
 
-export function managerGenerationSpendMarkup(state = {}, { canEdit = false } = {}) {
+export function managerGenerationSpendMarkup(state = {}, {
+  canEdit = false,
+  view = "policy",
+  campaignId = "",
+} = {}) {
+  const spendView = ["policy", "campaigns", "campaign", "new-campaign"].includes(view)
+    ? view
+    : "policy";
   const hasData = Boolean(state?.data && typeof state.data === "object");
   const overview = normalizeGenerationSpendOverview(state?.data || {});
   const status = String(state?.status || "idle");
@@ -164,11 +171,13 @@ export function managerGenerationSpendMarkup(state = {}, { canEdit = false } = {
         ${spendPeriodMarkup("Этот месяц", overview.month, overview.policy.monthlyLimitMinor)}
         <div class="manager-spend-limit"><small>Один запуск</small><strong>${formatUsd(overview.policy.perRequestLimitMinor)}</strong><span>максимальный резерв</span></div>
       </div>
-      ${controls}
-      ${campaignSpendMarkup(overview, {
+      ${spendView === "policy" ? controls : ""}
+      ${spendView === "policy" ? "" : campaignSpendMarkup(overview, {
         canEdit,
         saving,
         disabled: !trusted || loading || staleError,
+        mode: spendView,
+        campaignId,
       })}
       <footer class="manager-spend-foot">
         <span>Версия правил: ${formatInteger(overview.policy.version)}</span>
@@ -243,10 +252,10 @@ function generationSpendPolicyForm(overview, { saving, disabled = false }) {
         </div>
         <label class="field manager-spend-reason"><span>Причина изменения *</span><textarea name="reason" required minlength="10" maxlength="500" placeholder="Например: утверждён бюджет кампании на неделю"></textarea><small class="field-hint">Причина попадёт в журнал. Пароли и платёжные реквизиты сюда не добавляют.</small></label>
         <div class="manager-spend-actions">
-          <button class="btn btn-small" type="submit" name="policy_action" value="save">${saving ? "Сохраняем…" : "Сохранить лимиты"}</button>
+          <button class="btn btn-small" type="submit" name="policy_action" value="save" data-primary-action="true">${saving ? "Сохраняем…" : "Сохранить лимиты"}</button>
           ${enabled
             ? `<button class="btn btn-danger btn-small" type="submit" name="policy_action" value="pause">Приостановить платные запуски</button>`
-            : `<button class="btn btn-small" type="submit" name="policy_action" value="resume">Включить платные запуски</button>`}
+            : `<button class="btn btn-secondary btn-small" type="submit" name="policy_action" value="resume">Включить платные запуски</button>`}
         </div>
       </fieldset>
     </form>
@@ -272,23 +281,31 @@ function spendPeriodMarkup(label, period, limitMinor) {
   `;
 }
 
-function campaignSpendMarkup(overview, { canEdit = false, saving = false, disabled = false } = {}) {
+function campaignSpendMarkup(overview, {
+  canEdit = false,
+  saving = false,
+  disabled = false,
+  mode = "campaigns",
+  campaignId = "",
+} = {}) {
   const campaigns = overview.campaigns;
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === safeText(campaignId)) || null;
   if (!campaigns.length && !canEdit) return "";
   const campaignControlsDisabled = disabled || !overview.policy.present;
-  const createForm = canEdit
+  const createForm = canEdit && mode === "new-campaign"
     ? generationCampaignCreateForm(overview, { saving, disabled: campaignControlsDisabled })
     : "";
   return `
     <section class="manager-spend-campaigns" aria-labelledby="manager-spend-campaigns-title">
       <div><p class="eyebrow">Кампании</p><h4 id="manager-spend-campaigns-title">Отдельные лимиты</h4><p class="manager-spend-campaign-copy">Каждый платный ролик списывается из выбранной кампании. Лимит кампании не может быть выше общего лимита команды.</p></div>
-      ${campaigns.length ? `
+      ${mode === "campaigns" && campaigns.length ? `
         <div class="table-wrap"><table class="data-table"><thead><tr><th>Кампания</th><th>Статус</th><th>Учтено</th><th>Резерв</th><th>Остаток</th></tr></thead><tbody>
-          ${campaigns.map((item) => `<tr><td><strong>${escapeHtml(item.name || item.productName || "Кампания")}</strong>${item.kind === "default" ? `<br /><small>Основная для команды</small>` : ""}</td><td>${item.enabled ? "Работает" : "Пауза"}</td><td>${formatUsd(item.committedMinor)}</td><td>${formatUsd(item.reservedMinor)}</td><td>${formatUsd(item.remainingMinor)}</td></tr>`).join("")}
+          ${campaigns.map((item) => `<tr data-campaign-id="${escapeHtml(item.id)}"><td><a href="#/workspace/team?view=campaign&campaign=${encodeURIComponent(item.id)}"><strong>${escapeHtml(item.name || item.productName || "Кампания")}</strong></a>${item.kind === "default" ? `<br /><small>Основная для команды</small>` : ""}</td><td>${item.enabled ? "Работает" : "Пауза"}</td><td>${formatUsd(item.committedMinor)}</td><td>${formatUsd(item.reservedMinor)}</td><td>${formatUsd(item.remainingMinor)}</td></tr>`).join("")}
         </tbody></table></div>
-      ` : `<p class="manager-spend-message manager-spend-message-error" role="alert">Активных кампаний пока нет. До создания кампании платные запуски закрыты.</p>`}
+      ` : mode === "campaigns" ? `<p class="manager-spend-message manager-spend-message-error" role="alert">Активных кампаний пока нет. До создания кампании платные запуски закрыты.</p>` : ""}
       ${canEdit && !overview.policy.present ? `<p class="manager-spend-message" role="status">Сначала сохраните общий бюджет команды. После этого можно создавать и настраивать кампании.</p>` : ""}
-      ${canEdit && campaigns.length ? `<div class="manager-spend-campaign-editors">${campaigns.map((campaign) => generationCampaignPolicyForm(campaign, { saving, disabled: campaignControlsDisabled })).join("")}</div>` : ""}
+      ${canEdit && mode === "campaign" && selectedCampaign ? `<div class="manager-spend-campaign-editors">${generationCampaignPolicyForm(selectedCampaign, { saving, disabled: campaignControlsDisabled })}</div>` : ""}
+      ${mode === "campaign" && !selectedCampaign ? `<p class="manager-spend-message manager-spend-message-error" role="alert">Кампания не найдена. Вернитесь в список и выберите доступную запись.</p>` : ""}
       ${createForm}
     </section>
   `;
@@ -310,10 +327,10 @@ function generationCampaignPolicyForm(campaign, { saving = false, disabled = fal
           </div>
           <label class="field manager-spend-reason"><span>Причина изменения *</span><textarea name="reason" required minlength="8" maxlength="500" placeholder="Например: бюджет роликов товара на эту неделю"></textarea></label>
           <div class="manager-spend-actions">
-            <button class="btn btn-small" type="submit" name="campaign_policy_action" value="save">Сохранить бюджет</button>
+            <button class="btn btn-small" type="submit" name="campaign_policy_action" value="save" data-primary-action="true">Сохранить бюджет</button>
             ${enabled
               ? `<button class="btn btn-danger btn-small" type="submit" name="campaign_policy_action" value="pause">Поставить кампанию на паузу</button>`
-              : `<button class="btn btn-small" type="submit" name="campaign_policy_action" value="resume">Включить кампанию</button>`}
+              : `<button class="btn btn-secondary btn-small" type="submit" name="campaign_policy_action" value="resume">Включить кампанию</button>`}
           </div>
         </fieldset>
       </form>

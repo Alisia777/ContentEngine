@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -8,16 +9,21 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "web" / "app"
 INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
+LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 ACADEMY_V2 = (APP_DIR / "workspace-academy-os-v2.js").read_text(encoding="utf-8")
 SCRIPT = (APP_DIR / "workspace-academy-lab-v3.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-academy-lab-v3.css").read_text(encoding="utf-8")
 
 
-def test_academy_lab_assets_load_after_academy_os_v2() -> None:
-    assert './workspace-academy-lab-v3.css?v=20260731.1' in INDEX
-    assert './workspace-academy-lab-v3.js?v=20260731.1' in INDEX
-    assert INDEX.index('./workspace-academy-os-v2.css') < INDEX.index('./workspace-academy-lab-v3.css')
-    assert INDEX.index('./workspace-academy-os-v2.js') < INDEX.index('./workspace-academy-lab-v3.js')
+def test_academy_lab_assets_are_retired_from_the_workspace_shell_graph() -> None:
+    active_assets = re.findall(
+        r'^\s*<(?:link|script)\b[^>]*\b(?:href|src)="([^"]+)"',
+        INDEX,
+        flags=re.MULTILINE,
+    )
+    assert not any("workspace-academy-" in asset for asset in active_assets)
+    assert "workspace-academy-" not in LOADER
+    assert 'return route.startsWith("/workspace/");' in LOADER
 
 
 def test_academy_v2_exposes_original_lesson_and_practice_spaces() -> None:

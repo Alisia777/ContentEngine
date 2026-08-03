@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 
@@ -13,6 +14,9 @@ SQL = MIGRATION.read_text(encoding="utf-8")
 LOWER = SQL.casefold()
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+BUILD = json.loads(
+    (ROOT / "web/app/build.json").read_text(encoding="utf-8")
+)["id"]
 
 
 def _function(schema: str, name: str) -> tuple[str, str]:
@@ -161,4 +165,5 @@ def test_browser_trusts_explicit_waiver_instead_of_fake_completion() -> None:
         "trainingCatalogReady()"
     )
     assert "exam.passed = true" not in APP
-    assert "app.js?v=20260803.1" in INDEX
+    assert BUILD == "20260803.os4.4"
+    assert f"app.js?v={BUILD}" in INDEX

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Desktop route-motion harness</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell" data-workspace-section="home">
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content">
+              <div class="page-wrap"><section class="card">Сегодня</section></div>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      if (location.hash !== "#/workspace/home") {
+        history.replaceState({}, "", `${location.pathname}#/workspace/home`);
+      }
+
+      const shell = document.querySelector(".workspace-shell");
+      const main = document.querySelector("#main-content");
+      const content = document.querySelector("#workspace-content");
+      const qa = document.querySelector("#runtime-qa");
+      qa.dataset.routeReadyCount = "0";
+
+      /* Matches the production app listener order: route DOM is replaced by a
+         normal hashchange listener before the loader's normal listener runs. */
+      window.addEventListener("hashchange", () => {
+        const section = location.hash.includes("/board") ? "board" : "home";
+        shell.dataset.workspaceSection = section;
+        main.className = "route-enter";
+        content.innerHTML = section === "board"
+          ? '<div class="page-wrap"><section class="workspace-board"><article class="workspace-board__item card">Файл</article></section></div>'
+          : '<div class="page-wrap"><section class="card">Сегодня</section></div>';
+        content.classList.add("ce-v4-content-reveal");
+        window.setTimeout(() => content.classList.remove("ce-v4-content-reveal"), 320);
+      });
+
+      window.addEventListener("contentengine:v4-route-ready", (event) => {
+        qa.dataset.routeReadyCount = String(Number(qa.dataset.routeReadyCount || 0) + 1);
+        qa.dataset.readyRoute = event.detail?.route || "";
+      });
+    </script>
+    <script type="module" src="../../web/app/workspace-os-v4-loader.js"></script>
+  </body>
+</html>

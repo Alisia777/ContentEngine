@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Desktop v4.3 visual harness</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell" data-workspace-section="home" data-fixture-workspace-role="owner">
+        <aside class="sidebar" aria-label="Тестовая навигация владельца">
+          <nav class="workspace-nav" aria-label="Разрешённые разделы владельца">
+            <a class="nav-link" href="#/workspace/tasks" data-fixture-permission-checked="true">Задачи</a>
+            <a class="nav-link" href="#/workspace/work" data-fixture-permission-checked="true">Моя работа</a>
+            <a class="nav-link" href="#/workspace/media" data-fixture-permission-checked="true">Добавить файлы</a>
+            <a class="nav-link" href="#/workspace/payouts" data-fixture-permission-checked="true">Выплаты</a>
+            <a class="nav-link" href="#/workspace/research" data-fixture-permission-checked="true">Разбор товара</a>
+            <a class="nav-link" href="#/workspace/feedback" data-fixture-permission-checked="true">Помощь</a>
+            <a class="nav-link" href="#/workspace/team" data-fixture-permission-checked="true">Команда</a>
+          </nav>
+        </aside>
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content">
+              <div class="page-wrap">
+                <section class="card">Legacy home content must stay hidden.</section>
+              </div>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      if (location.hash !== "#/workspace/home") location.hash = "#/workspace/home";
+    </script>
+    <script type="module">
+      await import("../../web/app/workspace-os-v4.js");
+      await window.ContentEngineDesktopV4.flush();
+      const qa = document.querySelector("#runtime-qa");
+      const shell = document.querySelector(".workspace-shell");
+      const menubar = document.querySelector(".ce-v4-menubar");
+      const dock = document.querySelector(".ce-v4-dock");
+
+      const recordIdentity = () => {
+        qa.dataset.shellSame = String(document.querySelector(".workspace-shell") === shell);
+        qa.dataset.menubarSame = String(document.querySelector(".ce-v4-menubar") === menubar);
+        qa.dataset.dockSame = String(document.querySelector(".ce-v4-dock") === dock);
+        qa.dataset.shellCount = String(document.querySelectorAll(".workspace-shell").length);
+        qa.dataset.menubarCount = String(document.querySelectorAll(".ce-v4-menubar").length);
+        qa.dataset.dockCount = String(document.querySelectorAll(".ce-v4-dock").length);
+        qa.dataset.dockRouteCount = String(document.querySelectorAll(".ce-v4-dock [data-ce-v4-route]").length);
+        qa.dataset.toolsMenuCount = String(document.querySelectorAll("[data-ce-v4-tools-menu]").length);
+        qa.dataset.toolsRouteCount = String(document.querySelectorAll("[data-ce-v4-tools-route]").length);
+        qa.dataset.dialogCount = String(document.querySelectorAll('[role="dialog"]').length);
+        qa.dataset.backdropCount = String(document.querySelectorAll('[class$="-backdrop"]').length);
+        qa.dataset.academyCount = String(document.querySelectorAll(".learning-gate-shell, .academy-os-window").length);
+        qa.dataset.route = location.hash;
+      };
+      const recordFullscreen = () => {
+        const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+        qa.dataset.fullscreenCurrent = String(active);
+        qa.dataset.fullscreenCurrentViewport = `${innerWidth}x${innerHeight}`;
+        if (active) {
+          qa.dataset.fullscreenEntered = "true";
+          qa.dataset.fullscreenEnteredViewport = `${innerWidth}x${innerHeight}`;
+        }
+      };
+      recordIdentity();
+      recordFullscreen();
+      window.addEventListener("hashchange", () => requestAnimationFrame(recordIdentity));
+      document.addEventListener("fullscreenchange", recordFullscreen);
+      document.addEventListener("webkitfullscreenchange", recordFullscreen);
+      document.addEventListener("click", (event) => {
+        const item = event.target instanceof Element
+          ? event.target.closest(".ce-v4-dock__item")
+          : null;
+        if (!item) return;
+        requestAnimationFrame(() => {
+          const tile = item.querySelector(".ce-v4-dock__tile");
+          qa.dataset.launchClass = String(item.classList.contains("is-launching"));
+          qa.dataset.launchAnimation = tile ? getComputedStyle(tile).animationName : "";
+          qa.dataset.reducedMotion = String(matchMedia("(prefers-reduced-motion: reduce)").matches);
+        });
+      });
+    </script>
+  </body>
+</html>

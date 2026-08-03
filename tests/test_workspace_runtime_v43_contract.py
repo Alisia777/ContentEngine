@@ -1,0 +1,388 @@
+from pathlib import Path
+import re
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APP = ROOT / "web" / "app"
+APP_JS = (APP / "app.js").read_text(encoding="utf-8")
+LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
+CORE = (APP / "workspace-os-v4.js").read_text(encoding="utf-8")
+CONTEXT_TRASH = (APP / "workspace-os-v4-context-trash.js").read_text(encoding="utf-8")
+FINDER = (APP / "workspace-os-v4-finder.js").read_text(encoding="utf-8")
+CORE_CSS = (APP / "workspace-os-v4.css").read_text(encoding="utf-8")
+STABILITY_CSS = (APP / "workspace-os-v4-stability.css").read_text(encoding="utf-8")
+INTERFACE_CSS = (APP / "interface-system.css").read_text(encoding="utf-8")
+DOM_PATCH = (APP / "workspace-dom-patch.js").read_text(encoding="utf-8")
+GENERATION_SPEND = (APP / "generation-spend-view.js").read_text(encoding="utf-8")
+MANAGER_DASHBOARD = (APP / "manager-dashboard-view.js").read_text(encoding="utf-8")
+DOM_PATCH_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "workspace_dom_patch_harness.html"
+).read_text(encoding="utf-8")
+DESKTOP_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "workspace_v43_harness.html"
+).read_text(encoding="utf-8")
+FINDER_PATCH_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "workspace_finder_patch_harness.html"
+).read_text(encoding="utf-8")
+SCROLL_ORDER_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "workspace_scroll_order_harness.html"
+).read_text(encoding="utf-8")
+ROUTE_MOTION_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "workspace_route_motion_harness.html"
+).read_text(encoding="utf-8")
+
+
+def _between(source: str, start: str, end: str) -> str:
+    start_index = source.index(start)
+    end_index = source.index(end, start_index)
+    return source[start_index:end_index]
+
+
+def test_v43_loader_has_a_single_intentional_route_adapter() -> None:
+    assert 'const BUILD = "20260803.os4.4"' in LOADER
+    route_assets = _between(
+        LOADER,
+        "const ROUTE_ASSETS = Object.freeze({",
+        "\n});\n\nfunction routePath",
+    )
+    route_keys = re.findall(
+        r"^  ([a-z][a-z0-9_]*): Object\.freeze",
+        route_assets,
+        flags=re.MULTILINE,
+    )
+    assert route_keys == ["finder"]
+
+    loaded_scripts = set(re.findall(r"(workspace[-a-z0-9]+\.js)\?v=", LOADER))
+    assert loaded_scripts == {
+        "workspace-os-v4.js",
+        "workspace-os-v4-trash-rpc-alias.js",
+        "workspace-os-v4-context-trash.js",
+        "workspace-os-v4-finder.js",
+    }
+
+    for retired_decorator in (
+        "workspace-os-v4-stability.js",
+        "workspace-os-v4-operations.js",
+        "workspace-ui-bug-checkin.js",
+        "workspace-desktop-os.js",
+        "workspace-generation-os.js",
+        "workspace-generation-learning-advisor.js",
+        "workspace-media-finder.js",
+        "workspace-publishing-os.js",
+        "workspace-work-stage-manager.js",
+        "workspace-results-ledger.js",
+        "workspace-academy-os-v2.js",
+        "workspace-academy-lab-v3.js",
+        "workspace-os-v3-native-bridge.js",
+    ):
+        assert retired_decorator not in LOADER
+
+
+def test_loader_waits_for_core_css_and_the_latest_coordinated_mount() -> None:
+    load_route = _between(LOADER, "async function loadRoute(", "\nfunction schedule(")
+    assert load_route.index("await corePromise") < load_route.index(
+        "await Promise.all(styles.map(ensureStyle))"
+    )
+    assert load_route.index("await Promise.all(styles.map(ensureStyle))") < load_route.index(
+        "await ensureModule(modulePath)"
+    )
+    assert load_route.index("await ensureModule(modulePath)") < load_route.index(
+        "await window.ContentEngineDesktopV4?.flush?.()"
+    )
+    assert "const epoch = ++routeEpoch" in load_route
+    assert load_route.count("epoch !== routeEpoch") >= 3
+    assert load_route.count("route !== routePath()") >= 2
+
+    set_loading = _between(LOADER, "function setLoading(", "\nfunction absoluteAsset(")
+    for gate in (
+        'document.documentElement.dataset.ceV4Loading = "true"',
+        'delete document.documentElement.dataset.ceV4Loading',
+        'delete document.documentElement.dataset.ceV4Ready',
+        'document.documentElement.dataset.ceV4Ready = "true"',
+    ):
+        assert gate in set_loading
+
+
+def test_active_graph_has_one_dom_observer_and_no_delayed_stability_remounts() -> None:
+    active_sources = (LOADER, CORE, CONTEXT_TRASH, FINDER)
+    assert sum(source.count("new MutationObserver") for source in active_sources) == 1
+    assert CORE.count("new MutationObserver") == 1
+    assert "new MutationObserver" not in CONTEXT_TRASH
+    assert "new MutationObserver" not in FINDER
+    assert "[80, 220, 520]" not in "\n".join(active_sources)
+
+    assert 'registerAdapter("context-trash", mount, { priority: 900 })' in CONTEXT_TRASH
+    assert 'registerAdapter("finder-board", mount, { priority: 100 })' in FINDER
+    for adapter in (CONTEXT_TRASH, FINDER):
+        assert 'addEventListener("hashchange"' not in adapter
+        assert "contentengine:v4-route-ready" not in adapter
+        assert 'addEventListener("DOMContentLoaded"' not in adapter
+
+
+def test_core_exposes_one_frame_mount_coordinator() -> None:
+    for marker in (
+        "function registerAdapter(",
+        "function scheduleMount(",
+        "function flush(",
+        "registerAdapter,",
+        "requestMount: scheduleMount,",
+        "flush,",
+    ):
+        assert marker in CORE
+
+    schedule_mount = _between(CORE, "function scheduleMount(", "\nfunction observeWorkspace(")
+    assert schedule_mount.count("requestAnimationFrame") == 1
+    assert "window.requestAnimationFrame(runMount)" in schedule_mount
+    assert "requestAnimationFrame(()" not in schedule_mount
+    assert "requestAnimationFrame" not in _between(
+        CORE,
+        "function runMount(",
+        "\nfunction registerAdapter(",
+    )
+
+
+def test_dock_geometry_is_stable_and_home_has_exactly_one_action() -> None:
+    ensure_dock = _between(CORE, "function ensureDock(", "\nfunction updateDock(")
+    assert "pointermove" not in ensure_dock
+    assert "getBoundingClientRect" not in CORE
+
+    home = _between(CORE, "function mountHome(", "\nfunction overlayBase(")
+    assert home.count('dataset.primaryAction = "true"') == 1
+    assert home.count('create("button"') == 1
+    for retired_home_control in (
+        "ce-v4-home__secondary",
+        "ce-v4-home__rail",
+        "ce-v4-stage",
+        "data-ce-v4-stage",
+    ):
+        assert retired_home_control not in home
+
+
+def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
+    restore = _between(CORE, "function restoreScroll(", "\nfunction governVideo(")
+    assert "requestAnimationFrame" not in restore
+    assert "saved?.windowY" in restore
+    assert "saved?.nested" in restore
+    assert "if (runtime.restoredRoute === route) return" not in restore
+    assert "runtime.restoredScrollNodes.has(node)" in restore
+    assert "runtime.restoredScrollNodes.add(node)" in restore
+    assert "node.scrollTop = Math.max(0, Number(point?.top) || 0)" in restore
+    assert "node.scrollLeft = Math.max(0, Number(point?.left) || 0)" in restore
+
+    handle = _between(CORE, "function handleHashChange(", "\nfunction handleKeydown(")
+    assert handle.index("window.clearTimeout(runtime.scrollTimer)") < handle.index(
+        "captureScroll(runtime.route)"
+    )
+    assert "runtime.restoredScrollNodes = new WeakSet()" in handle
+    assert 'window.addEventListener("hashchange", handleHashChange, { capture: true, passive: true })' in CORE
+
+
+def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.4"' in APP_JS
+    for marker in (
+        "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
+        '"data-workspace-item-key"',
+        '"data-generation-job-id"',
+        '"data-review-result-id"',
+        '"data-placement-id"',
+        '"data-member-id"',
+        '"data-research-id"',
+        '"data-incident-id"',
+        "function uniqueKeyedNodes(",
+        "function reviewMediaIdentity(",
+        "function mediaSourceSignature(",
+        "current.isEqualNode(next)",
+        'current.type !== "file"',
+        "if (sourceChanged) current.load()",
+        "current instanceof HTMLDetailsElement",
+    ):
+        assert marker in DOM_PATCH
+
+    for runtime_surface in (
+        '".ce-v4-home"',
+        '".ce-v4-finder-toolbar"',
+        '".ce-v4-folder-search"',
+        '".ce-v4-finder-kind"',
+    ):
+        assert runtime_surface in DOM_PATCH
+
+    public_patch = _between(
+        DOM_PATCH,
+        "export function patchWorkspaceContent(",
+        "\n}",
+    )
+    assert 'document.createElement("template")' in public_patch
+    assert "patchChildren(container, template.content)" in public_patch
+    assert "container.innerHTML" not in public_patch
+
+    assert '<article class="card media-card" data-media-id=' in APP_JS
+    assert '<tr data-member-id=' in APP_JS
+    assert '<tr data-campaign-id=' in GENERATION_SPEND
+    assert 'class="manager-member-row" data-member-id=' in MANAGER_DASHBOARD
+    assert 'class="manager-invite-row" data-invite-email=' in MANAGER_DASHBOARD
+
+
+def test_same_route_patch_recoordinates_runtime_state_after_one_dom_pass() -> None:
+    same_route = _between(
+        APP_JS,
+        "if (existingShell?.dataset.workspaceSection === section && existingContent) {",
+        "\n  if (\n    window.CONTENTENGINE_DESKTOP_V4 === true",
+    )
+    assert same_route.count("patchWorkspaceContent(existingContent, content)") == 1
+    assert same_route.count("window.ContentEngineDesktopV4?.requestMount?.()") == 1
+    assert "existingContent.innerHTML" not in same_route
+
+    assert "const contentReviewDecisionMediaBindings = new WeakMap()" in APP_JS
+    media_binding = _between(
+        APP_JS,
+        "function bindContentReviewDecisionMedia()",
+        "\nfunction contentReviewExactMediaReady(",
+    )
+    assert "existingBinding?.media === media" in media_binding
+    assert "existingBinding?.identity === bindingIdentity" in media_binding
+    assert 'form.dataset.mediaBinding = "true"' in media_binding
+
+    finder_mount = _between(FINDER, "function mount()", "\ndocument.addEventListener(\"keydown\"")
+    assert "sortCards(sortValue);" in finder_mount
+    assert 'filterFolders(q(".ce-v4-folder-search input", board)?.value || "")' in finder_mount
+    assert "runtime.sortedBoard !== board" not in finder_mount
+    annotate = _between(FINDER, "function annotateCards()", "\nfunction applyView()")
+    assert 'card.dataset.ceV4FinderAnnotated === "true") return' not in annotate
+    assert "card.tabIndex = -1" in annotate
+
+
+def test_live_browser_harnesses_cover_identity_motion_and_runtime_resets() -> None:
+    for marker in (
+        "reviewFormIdentity",
+        "reviewVideoIdentity",
+        "reviewProofPreserved",
+        "changedReviewFormIdentity",
+        "changedReviewProofReset",
+        "researchEntityIsolation",
+        "detailsState",
+        "fileIdentity",
+    ):
+        assert marker in DOM_PATCH_FIXTURE
+
+    assert 'await import("../../web/app/workspace-os-v4.js")' in DESKTOP_FIXTURE
+    for marker in (
+        "shellSame",
+        "menubarSame",
+        "dockSame",
+        "launchClass",
+        "launchAnimation",
+        "reducedMotion",
+        "fullscreenEntered",
+        "fullscreenEnteredViewport",
+    ):
+        assert marker in DESKTOP_FIXTURE
+
+    for marker in (
+        "capturedTop === 137",
+        "restoredTop === 137",
+        "preservedLiveTop === 83",
+    ):
+        assert marker in SCROLL_ORDER_FIXTURE
+
+    for marker in (
+        'main.className = "route-enter"',
+        'content.classList.add("ce-v4-content-reveal")',
+        'contentengine:v4-route-ready',
+        'workspace-os-v4-loader.js',
+    ):
+        assert marker in ROUTE_MOTION_FIXTURE
+
+    for marker in (
+        'await import("../../web/app/workspace-os-v4-finder.js")',
+        "toolbarIdentity",
+        "searchIdentity",
+        "sortedOrder",
+        "cardTabIndex",
+        "folderFilter",
+    ):
+        assert marker in FINDER_PATCH_FIXTURE
+
+
+def test_desktop_owns_the_viewport_and_main_content_owns_scrolling() -> None:
+    body_rule = _between(
+        CORE_CSS,
+        "body.contentengine-desktop-v4 {\n  box-sizing: border-box;",
+        "\n}\n\nbody.contentengine-desktop-v4 .workspace-shell",
+    )
+    assert "height: 100vh" in body_rule
+    assert "height: 100svh" in body_rule
+    assert "overflow: hidden !important" in body_rule
+
+    main_scroll = _between(
+        CORE_CSS,
+        "body.contentengine-desktop-v4 #main-content {",
+        "\n}\n\nbody.contentengine-desktop-v4 .ce-v4-page",
+    )
+    for marker in (
+        "height: 100% !important",
+        "min-height: 0 !important",
+        "overflow-y: auto !important",
+        "overscroll-behavior: contain",
+        "scrollbar-gutter: stable",
+    ):
+        assert marker in main_scroll
+
+    shell_contract = _between(
+        STABILITY_CSS,
+        "/* The desktop shell owns the viewport; #main-content owns route scrolling. */",
+        "/* Late route assets still contain 100dvh contracts; cap their window to this shell. */",
+    )
+    assert "overflow: hidden !important" in shell_contract
+    assert "overflow-y: auto !important" in shell_contract
+
+
+def test_persistent_chrome_disables_live_blur_on_safari() -> None:
+    persistent_glass = _between(
+        STABILITY_CSS,
+        "/* Persistent glass is almost opaque: Safari no longer recomposites live blur. */",
+        "/* One calm menubar. Tiny system captions are no longer microscopic. */",
+    )
+    for selector in (
+        ".ce-v4-menubar",
+        ".ce-v4-dock__glass",
+        ".workspace-contextbar",
+        '[data-ce-v4-contextbar="primary"]',
+    ):
+        assert selector in persistent_glass
+    assert "backdrop-filter: none !important" in persistent_glass
+    assert "-webkit-backdrop-filter: none !important" in persistent_glass
+
+
+def test_route_transition_gate_keeps_the_shell_anchored_before_motion_css_loads() -> None:
+    loading_gate = _between(
+        INTERFACE_CSS,
+        'html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 .workspace-main',
+        "\n\n.workspace-contextbar {",
+    )
+    for marker in (
+        'html[data-ce-v4-ready="true"]',
+        "opacity: 1",
+        "transform: none",
+        "transition: none",
+        "pointer-events: none",
+    ):
+        assert marker in loading_gate
+    assert "opacity: 0" not in loading_gate
+    assert "translate3d" not in loading_gate
+    assert "blur(" not in loading_gate
+    assert "scale(" not in loading_gate
+
+
+def test_short_desktop_login_is_a_single_viewport_action() -> None:
+    short_login = INTERFACE_CSS[INTERFACE_CSS.index(
+        "@media (min-width: 821px) and (max-height: 800px)"
+    ):]
+    for marker in (
+        ".auth-layout",
+        "height: 100svh",
+        "overflow: hidden",
+        ".auth-steps",
+        "display: none",
+        ".auth-card",
+    ):
+        assert marker in short_login
