@@ -9,6 +9,7 @@ import pytest
 
 from scripts.bootstrap_supabase_owner import (
     EXPECTED_PROJECT_REF,
+    OWNER_ORGANIZATION_SLUG,
     OWNER_RECOVERY_MARKER,
     OWNER_RECOVERY_REDIRECT,
     OwnerBootstrapError,
@@ -23,6 +24,10 @@ OWNER_ID = "11111111-1111-4111-8111-111111111111"
 OWNER_EMAIL = "owner@example.com"
 PUBLISHABLE_KEY = "sb_publishable_browser_safe_test_key"
 SERVER_KEY = "sb_secret_service_role_secret_must_not_leak"
+
+
+def test_owner_bootstrap_uses_immutable_production_organization_slug() -> None:
+    assert OWNER_ORGANIZATION_SLUG == "altea-content-factory"
 
 
 class FakeManagement:

@@ -6,7 +6,7 @@
  * reads secrets or clones file inputs.
  */
 
-const BUILD = "20260731.os4.0";
+const BUILD = "20260803.os4.2.1";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const WORK_SNAPSHOT_KEY = "contentengine.os-v3.work-snapshot.v1";
@@ -25,7 +25,6 @@ const ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/placement", label: "Публикации", icon: "upload", description: "Один пост — один маршрут" }),
   Object.freeze({ route: "/workspace/stats", label: "Результаты", icon: "chart", description: "Цифры и следующая гипотеза" }),
   Object.freeze({ route: "/workspace/payouts", label: "Выплаты", icon: "money", description: "Основание, решение и перевод" }),
-  Object.freeze({ route: "/learn", label: "Академия", icon: "academy", description: "Урок и безопасная практика" }),
 ]);
 
 const STAGES = Object.freeze([
@@ -139,7 +138,7 @@ function routePath() {
 }
 
 function routeMatches(route, expected) {
-  return expected === "/learn" ? route === "/learn" || route.startsWith("/learn/") : route === expected;
+  return route === expected;
 }
 
 function routeRecord(route = routePath()) {
@@ -147,7 +146,11 @@ function routeRecord(route = routePath()) {
 }
 
 function isWorkspaceRoute(route = routePath()) {
-  return route.startsWith("/workspace/") || route === "/learn" || route.startsWith("/learn/");
+  return route.startsWith("/workspace/");
+}
+
+function hasAuthenticatedWorkspace() {
+  return Boolean(q("#app")?.querySelector(".workspace-shell[data-workspace-section]"));
 }
 
 function navigate(route) {
@@ -719,12 +722,14 @@ function markSurface() {
 
 function mount() {
   const route = routePath();
-  if (!isWorkspaceRoute(route)) {
+  if (!isWorkspaceRoute(route) || !hasAuthenticatedWorkspace()) {
+    closeTransientOverlays(true);
     runtime.menubar?.remove();
     runtime.dock?.remove();
     runtime.menubar = null;
     runtime.dock = null;
     document.body.classList.remove("contentengine-desktop-v4");
+    delete document.documentElement.dataset.contentengineOs;
     return;
   }
   document.documentElement.dataset.contentengineOs = "v4";
@@ -755,6 +760,7 @@ function handleHashChange() {
 }
 
 function handleKeydown(event) {
+  if (!isWorkspaceRoute() || !hasAuthenticatedWorkspace()) return;
   const target = event.target instanceof Element ? event.target : null;
   const editing = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLocaleLowerCase() === "k") {

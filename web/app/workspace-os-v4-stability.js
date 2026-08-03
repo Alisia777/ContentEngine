@@ -7,7 +7,7 @@
  * deterministic without a document-wide MutationObserver.
  */
 
-const BUILD = "20260801.os4.2";
+const BUILD = "20260803.os4.2.1";
 const ROUTE_RESEARCH = Object.freeze({
   route: "/workspace/research",
   label: "Разбор товара",

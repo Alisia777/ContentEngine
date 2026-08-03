@@ -24,8 +24,8 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 
 
 def test_desktop_v4_2_is_the_only_eager_workspace_shell() -> None:
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260801.os4.2" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260801.os4.2"></script>' in INDEX
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.2.1" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.2.1"></script>' in INDEX
     assert INDEX.index('./app.js') < INDEX.index('./workspace-os-v4-loader.js')
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -35,15 +35,15 @@ def test_desktop_v4_2_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './app.js?v=20260730.11',
-        './workspace-os-v4-loader.js?v=20260801.os4.2',
-        './workspace-build-guard.js?v=20260801.os4.2',
+        './app.js?v=20260803.1',
+        './workspace-os-v4-loader.js?v=20260803.os4.2.1',
+        './workspace-build-guard.js?v=20260803.os4.2.1',
     ]
 
 
 def test_route_loader_uses_one_stability_coordinator_and_lazy_route_adapters() -> None:
     for marker in (
-        'const BUILD = "20260801.os4.2"',
+        'const BUILD = "20260803.os4.2.1"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'workspace-os-v4-stability.css?v=${BUILD}',

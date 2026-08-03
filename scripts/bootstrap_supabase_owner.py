@@ -24,7 +24,9 @@ PUBLIC_APP_URL = "https://alisia777.github.io/ContentEngine/"
 OWNER_RECOVERY_REDIRECT = f"{PUBLIC_APP_URL}auth/accept/"
 OWNER_IDEMPOTENCY_KEY = "github-production-owner-v1"
 OWNER_ORGANIZATION_NAME = "ContentEngine Factory"
-OWNER_ORGANIZATION_SLUG = "portal-content-factory"
+# Durable database identity established by the immutable production migrations.
+# Display branding may change, but provisioning must keep using this slug.
+OWNER_ORGANIZATION_SLUG = "altea-content-factory"
 OWNER_RECOVERY_MARKER = "contentengine_owner_recovery_sent"
 MAX_RESPONSE_BYTES = 1_048_576
 EMAIL_PATTERN = re.compile(

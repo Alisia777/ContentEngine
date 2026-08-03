@@ -7,7 +7,7 @@
  * in favour of one deterministic stability coordinator.
  */
 
-const BUILD = "20260801.os4.2";
+const BUILD = "20260803.os4.2.1";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -29,7 +29,7 @@ const ROUTE_ASSETS = Object.freeze({
     modules: [`workspace-os-v4-finder.js?v=${BUILD}`],
   }),
   operations: Object.freeze({
-    match: (route) => OPERATIONAL_ROUTES.has(route) || route === "/learn" || route.startsWith("/learn/"),
+    match: (route) => OPERATIONAL_ROUTES.has(route),
     styles: [`workspace-os-v4-operations.css?v=${BUILD}`],
     modules: [`workspace-os-v4-operations.js?v=${BUILD}`],
   }),
