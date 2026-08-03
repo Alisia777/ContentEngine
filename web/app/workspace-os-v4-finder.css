@@ -28,7 +28,7 @@ body.ce-v4-finder-route .workspace-board__layout {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(280px, 360px) !important;
+  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) !important;
   gap: 0 !important;
   overflow: hidden;
 }
@@ -47,7 +47,11 @@ body.ce-v4-finder-route .workspace-board__drawer {
 }
 
 body.ce-v4-finder-route .workspace-board__sidebar {
+  position: static !important;
   display: flex;
+  grid-column: 1;
+  grid-row: 1;
+  height: 100% !important;
   padding: 14px 10px 18px !important;
   border-right: 1px solid var(--ce-v4-line) !important;
   flex-direction: column;
@@ -155,6 +159,10 @@ body.ce-v4-finder-route .workspace-board__compact-form input { min-height: 44px;
 
 body.ce-v4-finder-route .workspace-board__content {
   display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  height: 100% !important;
   grid-template-rows: auto auto auto minmax(0,1fr) auto;
   overflow: hidden;
 }
@@ -245,6 +253,8 @@ body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspa
 body.ce-v4-finder-route .workspace-board__item {
   position: relative;
   min-width: 0;
+  min-height: 174px !important;
+  height: 174px;
   border: 1px solid var(--ce-v4-line) !important;
   border-radius: 16px !important;
   overflow: hidden;
@@ -255,17 +265,17 @@ body.ce-v4-finder-route .workspace-board__item {
 }
 body.ce-v4-finder-route .workspace-board__item:hover,
 body.ce-v4-finder-route .workspace-board__item.is-selected { border-color: rgba(236,136,75,.32) !important; background: rgba(236,136,75,.055) !important; }
-body.ce-v4-finder-route .workspace-board__item-open { display: grid !important; width: 100%; min-height: 156px; padding: 0 !important; border: 0 !important; grid-template-rows: 92px minmax(0,1fr); color: var(--ce-v4-text); background: transparent !important; text-align: left; }
-body.ce-v4-finder-route .workspace-board__item-preview { display: grid; min-width: 0; min-height: 0; border-bottom: 1px solid var(--ce-v4-line); place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 15%, rgba(236,136,75,.1), transparent 70%), #0c0a09; }
+body.ce-v4-finder-route .workspace-board__item-open { display: grid !important; width: 100%; height: 172px !important; min-height: 172px !important; padding: 0 !important; border: 0 !important; grid-template-rows: 104px 68px !important; overflow: hidden !important; color: var(--ce-v4-text); background: transparent !important; text-align: left; }
+body.ce-v4-finder-route .workspace-board__item-preview { display: grid; min-width: 0; width: 100%; height: 104px !important; min-height: 0 !important; border-bottom: 1px solid var(--ce-v4-line); place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 15%, rgba(236,136,75,.1), transparent 70%), #0c0a09; }
 body.ce-v4-finder-route .workspace-board__item-preview img { width: 100%; height: 100%; object-fit: cover; }
-body.ce-v4-finder-route .workspace-board__item-copy { display: grid; min-width: 0; padding: 10px 11px 12px; gap: 4px; }
+body.ce-v4-finder-route .workspace-board__item-copy { display: grid; min-width: 0; height: 68px; padding: 7px 11px 8px; align-content: center; gap: 2px; overflow: hidden; }
 body.ce-v4-finder-route .workspace-board__item-copy small { color: var(--ce-v4-copper-bright); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 body.ce-v4-finder-route .workspace-board__item-copy strong { overflow: hidden; color: var(--ce-v4-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 body.ce-v4-finder-route .workspace-board__item-copy > span { overflow: hidden; color: var(--ce-v4-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 body.ce-v4-finder-route .workspace-board__status { position: absolute; top: 8px; left: 8px; max-width: calc(100% - 58px); padding: 4px 7px; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; overflow: hidden; color: var(--ce-v4-muted); background: rgba(10,8,7,.82); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-board__context-trigger--item { top: 7px; right: 7px; background: rgba(10,8,7,.86); }
 body.ce-v4-finder-route .workspace-board__drag-handle { position: absolute; right: 7px; bottom: 7px; width: 42px; height: 42px; border: 1px solid var(--ce-v4-line); border-radius: 10px; color: var(--ce-v4-muted); background: rgba(14,12,10,.9); }
-.ce-v4-finder-kind { position: absolute; bottom: 8px; left: 9px; z-index: 2; padding: 4px 7px; border: 1px solid var(--ce-v4-line); border-radius: 999px; color: var(--ce-v4-muted); background: rgba(10,8,7,.86); font-size: 12px; font-weight: 760; }
+.ce-v4-finder-kind { position: absolute; top: 70px; bottom: auto; left: 9px; z-index: 2; padding: 4px 7px; border: 1px solid var(--ce-v4-line); border-radius: 999px; color: var(--ce-v4-muted); background: rgba(10,8,7,.86); font-size: 12px; font-weight: 760; }
 .ce-v4-finder-kind[data-kind="product"] { color: var(--ce-v4-copper-bright); border-color: rgba(236,136,75,.22); }
 .ce-v4-finder-kind[data-kind="reference"] { color: #c3b0e4; }
 .ce-v4-finder-kind[data-kind="video"] { color: #a6c8e7; }
@@ -273,14 +283,29 @@ body.ce-v4-finder-route .workspace-board__drag-handle { position: absolute; righ
 
 body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item {
   margin-bottom: 6px;
+  height: 62px !important;
+  min-height: 62px !important;
   border-radius: 12px !important;
   contain-intrinsic-size: 210px 66px;
 }
-body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-open { min-height: 60px; grid-template-columns: 62px minmax(0,1fr); grid-template-rows: 60px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-open { height: 60px !important; min-height: 60px !important; grid-template-columns: 62px minmax(0,1fr); grid-template-rows: 60px !important; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-preview { height: 60px !important; }
 body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-preview { border-right: 1px solid var(--ce-v4-line); border-bottom: 0; }
-body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .ce-v4-finder-kind { left: auto; right: 86px; bottom: 19px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .ce-v4-finder-kind { top: 16px; right: 86px; bottom: auto; left: auto; }
 
-body.ce-v4-finder-route .workspace-board__drawer { padding: 16px !important; border-left: 1px solid var(--ce-v4-line) !important; overflow-y: auto; background: rgba(255,255,255,.012) !important; }
+/* Details replace Finder content in the same surface. A permanent third pane made
+   the file grid cramped and looked like another nested window. */
+body.ce-v4-finder-route .workspace-board__drawer {
+  display: none !important;
+  grid-column: 1;
+  grid-row: 1;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 16px !important;
+  border-left: 0 !important;
+  overflow-y: auto;
+  background: rgba(255,255,255,.012) !important;
+}
 body.ce-v4-finder-route .workspace-board__drawer h2 { color: var(--ce-v4-text); font-size: clamp(1.2rem,2vw,1.7rem); }
 body.ce-v4-finder-route .workspace-board__drawer p,
 body.ce-v4-finder-route .workspace-board__drawer dd { color: var(--ce-v4-muted); font-size: 13px; line-height: 1.5; }

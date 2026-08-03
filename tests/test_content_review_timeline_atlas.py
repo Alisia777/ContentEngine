@@ -204,8 +204,8 @@ def test_training_preserves_full_human_playback_after_atlas() -> None:
 def test_atlas_release_invalidates_old_local_evidence_and_bumps_modules() -> None:
     app = APP.read_text(encoding="utf-8")
     index = INDEX.read_text(encoding="utf-8")
-    assert "./content-review-view.js?v=20260803.os4.4" in app
+    assert "./content-review-view.js?v=20260803.os4.6" in app
     assert "./supabase-api.js?v=20260729.2" in app
     assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in app
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in app
-    assert "./app.js?v=20260803.os4.4" in index
+    assert "./app.js?v=20260803.os4.6" in index

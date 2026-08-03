@@ -1,19 +1,17 @@
-/* ContentEngine Desktop v4.4 · one desktop, one surface, one action. */
+/* ContentEngine Desktop v4.6 · one desktop, one surface, one action. */
 
 body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) {
-  width: min(1500px, calc(100vw - clamp(18px, 3vw, 48px))) !important;
+  width: 100% !important;
+  max-width: none !important;
   min-height: 100%;
-  margin: 0 auto !important;
-  padding: clamp(18px, 2.4vw, 36px) !important;
-  border: 1px solid var(--ce-v4-line) !important;
-  border-radius: 26px !important;
-  overflow: clip;
+  margin: 0 !important;
+  padding: clamp(8px, 1vw, 16px) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow: visible;
   color: var(--ce-v4-text);
-  background:
-    radial-gradient(circle at 82% -15%, rgba(236, 136, 75, 0.09), transparent 34rem),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 44%),
-    #0d0b09 !important;
-  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.45), inset 0 1px rgba(255, 255, 255, 0.04) !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* The global menubar names the active desktop. Route-level chrome was the

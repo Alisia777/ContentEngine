@@ -204,18 +204,12 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__tooltip {
 }
 
 /* One calm menubar. Tiny system captions are no longer microscopic. */
-body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity strong,
-body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__location strong {
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity strong {
   font-size: 14px !important;
   line-height: 1.15;
 }
 
-body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__location strong {
-  font-size: 15px !important;
-}
-
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity small,
-body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__location small,
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__clock {
   font-size: 11px !important;
 }
@@ -556,17 +550,13 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
 @media (max-width: 680px) {
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] {
     --ce-v4-top: 48px;
-    --ce-v4-flowbar: 54px;
+    --ce-v4-flowbar: 0px;
     --ce-v4-dock: 84px;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
     grid-template-columns: minmax(0, 1fr) auto !important;
     gap: 8px !important;
-  }
-
-  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__location {
-    display: none !important;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity > span:last-child small,

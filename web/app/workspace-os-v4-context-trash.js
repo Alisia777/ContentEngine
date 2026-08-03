@@ -290,6 +290,7 @@ function menuAction(label, iconName, run, options = {}) {
 
 function finderOrganizeMode() {
   if (routePath() !== "/workspace/board") return false;
+  if (document.body.dataset.ceV4FinderMode === "organize") return true;
   const raw = String(window.location.hash || "").replace(/^#/, "");
   return new URLSearchParams(raw.split("?")[1] || "").get("view") === "organize";
 }

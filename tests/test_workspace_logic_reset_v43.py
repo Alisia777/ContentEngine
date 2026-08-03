@@ -221,8 +221,25 @@ def test_dock_is_limited_to_the_six_primary_workflow_routes() -> None:
     assert route_record.index("route === item.route") < route_record.index("routeMatches")
 
 
-def test_today_uses_the_server_driven_next_action_and_valid_review_query_links() -> None:
-    assert '.workspace-home .home-next-action' in CORE
+def test_home_is_project_first_and_keeps_valid_server_driven_review_links() -> None:
+    project_home = _source_between(
+        APP,
+        "function homeProjectSwitcherMarkup(action) {",
+        "\n}\n\nfunction renderHomeSection",
+    )
+    compositor = _source_between(
+        CORE,
+        "function mountHome() {",
+        "\n}\n\nfunction projectContext",
+    )
+    assert "data-ce-v4-project-home" in project_home
+    assert "data-ce-v4-project-id" in project_home
+    assert "home-project-create-form" in project_home
+    assert "board.folders.filter" in project_home
+    assert "!folder.parentId" in project_home
+    assert 'q("[data-ce-v4-project-home]", page)' in compositor
+    assert "dataset.ceV4Surface" in compositor
+    assert "home-project-create-form" not in compositor
     assert "WORK_SNAPSHOT_KEY" not in CORE
     assert APP.count(
         '#/workspace/review?view=current&review=${encodeURIComponent('
@@ -341,16 +358,21 @@ def test_secondary_tools_only_contain_real_tools_outside_the_six_step_route() ->
     assert '"#/learn"' not in TRASH
 
 
-def test_progress_route_and_dock_are_two_views_of_the_same_six_actions() -> None:
-    flowbar = _source_between(CORE, "function ensureFlowbar() {", "\n}\n\nfunction updateFlowbar")
-    flowbar_update = _source_between(CORE, "function updateFlowbar() {", "\n}\n\nfunction ensureDock")
+def test_dock_is_the_only_global_switcher_and_project_progress_is_contextual() -> None:
+    progress = _source_between(CORE, "function syncProjectProgress() {", "\n}\n\nfunction overlayBase")
     dock = _source_between(CORE, "function ensureDock() {", "\n}\n\nfunction updateDock")
     matches = _source_between(CORE, "function routeMatches(route, expected) {", "\n}\n\nfunction routeRecord")
 
-    assert "ROUTES.forEach((item, index)" in flowbar
-    assert 'flowbar.setAttribute("aria-label", "Путь создания контента: 6 этапов")' in flowbar
-    assert "link.dataset.ceV4FlowRoute = item.route" in flowbar
-    assert 'link.setAttribute("aria-current", "step")' in flowbar_update
+    assert "function ensureFlowbar" not in CORE
+    assert 'create("nav", "ce-v4-flowbar")' not in CORE
+    assert "data-ce-v4-flow-route" not in CORE
+    assert "ce-v4-menubar__location" not in CORE
+    assert CORE.count('const dock = create("nav", "ce-v4-dock");') == 1
+    assert progress.count('create("nav", "ce-v4-project-progress")') == 1
+    assert "progress.dataset.ceV4ProjectProgress = context.id" in progress
+    assert "PROJECT_FLOW.forEach((item, index)" in progress
+    assert 'link.setAttribute("aria-current", "step")' in progress
+    assert "page.prepend(progress)" in progress
     assert 'create("span", "ce-v4-dock__label", item.label)' in dock
     assert "link.title = `${item.label} — ${item.description}`" in dock
     assert 'expected === "/workspace/home"' in matches

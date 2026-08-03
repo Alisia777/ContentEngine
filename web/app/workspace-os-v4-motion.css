@@ -1,4 +1,4 @@
-/* ContentEngine Desktop v4.4 · calm, compositor-only motion system. */
+/* ContentEngine Desktop v4.6 · calm, compositor-only motion system. */
 
 :root {
   --ce-motion-instant: 90ms;
@@ -21,29 +21,13 @@ html[data-ce-v4-ready="true"] body.contentengine-desktop-v4 .workspace-main {
 }
 
 html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 #main-content .ce-v4-page {
-  opacity: .74 !important;
-  transform: translate3d(0, 8px, 0) scale(.995) !important;
+  opacity: .96 !important;
+  transform: none !important;
   transition: none !important;
 }
 
 html:not([data-ce-v4-loading="true"]) body.contentengine-desktop-v4 #main-content.route-enter .ce-v4-page {
   animation: ce-v4-route-enter var(--ce-motion-route) var(--ce-motion-spring) both !important;
-}
-
-html[data-ce-v4-loading="true"] body.contentengine-desktop-v4::after {
-  position: fixed;
-  z-index: 470;
-  top: calc(var(--ce-v4-top) - 2px);
-  right: 0;
-  left: 0;
-  height: 2px;
-  opacity: .9;
-  background: linear-gradient(90deg, transparent, var(--ce-v4-copper-bright), transparent);
-  content: "";
-  pointer-events: none;
-  transform: scaleX(.18);
-  transform-origin: left center;
-  animation: ce-v4-route-progress 900ms var(--ce-motion-ease) both;
 }
 
 /* A server-loaded section replaces its skeleton once, without reanimating on
@@ -223,18 +207,12 @@ body.contentengine-desktop-v4 :is(
 }
 
 @keyframes ce-v4-route-enter {
-  from { opacity: .74; transform: translate3d(0, 8px, 0) scale(.995); }
+  from { opacity: .96; transform: translate3d(0, 3px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
-@keyframes ce-v4-route-progress {
-  0% { opacity: .25; transform: scaleX(.08); }
-  70% { opacity: .9; transform: scaleX(.72); }
-  100% { opacity: .7; transform: scaleX(.88); }
-}
-
 @keyframes ce-v4-content-reveal {
-  from { opacity: .72; transform: translate3d(0, 4px, 0); }
+  from { opacity: .96; transform: translate3d(0, 2px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
@@ -287,12 +265,6 @@ body.contentengine-desktop-v4 :is(
     display: none !important;
   }
 
-  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__location {
-    display: grid !important;
-    justify-items: start !important;
-    text-align: left !important;
-  }
-
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
     justify-content: flex-start !important;
     overflow-x: auto !important;
@@ -321,10 +293,6 @@ body.contentengine-desktop-v4 :is(
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
-  }
-
-  html[data-ce-v4-loading="true"] body.contentengine-desktop-v4::after {
-    display: none !important;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"]

@@ -6,11 +6,12 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.4";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
 
-const BUILD = "20260803.os4.4";
+const BUILD = "20260803.os4.6";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
+const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const CLOSE_TRANSIENTS_EVENT = "contentengine:v4-close-transients";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -21,7 +22,7 @@ const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
  * Secondary tools stay reachable from contextual actions and access gates.
  */
 const ROUTES = Object.freeze([
-  Object.freeze({ route: "/workspace/home", label: "Сегодня", icon: "home", description: "Один следующий шаг без шума" }),
+  Object.freeze({ route: "/workspace/home", label: "Проекты", icon: "home", description: "Выберите рабочий стол или создайте новый" }),
   Object.freeze({ route: "/workspace/board", label: "Файлы", icon: "folder", description: "Папки, видео, поиск и исходники" }),
   Object.freeze({ route: "/workspace/generation", label: "Создать", icon: "spark", description: "Один ролик или фото за запуск" }),
   Object.freeze({ route: "/workspace/review", label: "Проверить", icon: "check", description: "Качество, риски и одно решение" }),
@@ -36,6 +37,13 @@ const SECONDARY_ROUTES = Object.freeze([
 ]);
 
 const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES]);
+const PROJECT_FLOW = Object.freeze([
+  Object.freeze({ route: "/workspace/board", label: "Файлы" }),
+  Object.freeze({ route: "/workspace/generation", label: "Создать" }),
+  Object.freeze({ route: "/workspace/review", label: "Проверить" }),
+  Object.freeze({ route: "/workspace/placement", label: "Опубликовать" }),
+  Object.freeze({ route: "/workspace/stats", label: "Результат" }),
+]);
 const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"]);
 
 const ICONS = Object.freeze({
@@ -71,7 +79,6 @@ const runtime = {
   adapters: new Map(),
   flushWaiters: [],
   menubar: null,
-  flowbar: null,
   dock: null,
   mission: null,
   spotlight: null,
@@ -188,19 +195,29 @@ function navigate(route) {
   window.location.hash = `#${route || "/workspace/home"}`;
 }
 
-function focusFinderSearch() {
+function focusFinderSearch(query = "") {
+  const value = String(query || "").trim();
+  if (value) storage("session")?.setItem(FINDER_QUERY_KEY, value);
   if (routePath() !== "/workspace/board") navigate("/workspace/board");
   let attempts = 0;
   const focus = () => {
     const input = q('#workspace-board-filter-form input[name="query"]');
     if (input instanceof HTMLElement) {
+      if (value && input.value !== value) input.value = value;
       input.focus({ preventScroll: true });
+      if (value) input.form?.requestSubmit?.();
       return;
     }
     attempts += 1;
     if (attempts < 24) window.requestAnimationFrame(focus);
   };
   window.requestAnimationFrame(focus);
+}
+
+function runGlobalSearch(form) {
+  const input = q("input[type='search']", form);
+  const query = String(input?.value || "").trim();
+  focusFinderSearch(query);
 }
 
 function fullscreenElement() {
@@ -450,8 +467,15 @@ function ensureMenubar() {
   traffic.append(create("i"), create("i"), create("i"));
   start.append(traffic, identity);
 
-  const location = create("div", "ce-v4-menubar__location");
-  location.append(create("small", "", "РАБОЧЕЕ ПРОСТРАНСТВО"), create("strong", "", "Сегодня"));
+  const globalSearch = create("form", "ce-v4-menubar__search");
+  globalSearch.setAttribute("role", "search");
+  globalSearch.append(icon("search", 16));
+  const globalSearchInput = create("input");
+  globalSearchInput.type = "search";
+  globalSearchInput.name = "workspace_search";
+  globalSearchInput.placeholder = "Найти проект, файл, SKU или задачу";
+  globalSearchInput.setAttribute("aria-label", "Найти проект, файл, SKU или задачу");
+  globalSearch.append(globalSearchInput, create("kbd", "", "Ctrl K"));
   const actions = create("div", "ce-v4-menubar__actions");
   const refresh = iconButton("", "Обновить текущий раздел", "refresh");
   refresh.dataset.ceV4Refresh = "true";
@@ -487,11 +511,9 @@ function ensureMenubar() {
     toolsMenu.append(link);
   });
   tools.append(toolsTrigger, toolsMenu);
-  const search = iconButton("", "Найти файл или папку", "search");
-  search.dataset.ceV4FinderSearch = "true";
   const clock = create("time", "ce-v4-menubar__clock");
-  actions.append(refresh, fullscreen, notifications, tools, search, clock);
-  bar.append(start, location, actions);
+  actions.append(refresh, fullscreen, notifications, tools, clock);
+  bar.append(start, globalSearch, actions);
   document.body.append(bar);
   runtime.menubar = bar;
   syncToolsMenu();
@@ -504,9 +526,12 @@ function ensureMenubar() {
     if (notificationControl) navigate(notificationControl.dataset.ceV4Notifications);
     if (target?.closest("[data-ce-v4-tools-trigger]")) toggleToolsMenu();
     if (target?.closest("[data-ce-v4-tools-route]")) closeToolsMenu();
-    if (target?.closest("[data-ce-v4-finder-search]")) focusFinderSearch();
   });
   tools.addEventListener("keydown", handleToolsMenuKeydown);
+  globalSearch.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runGlobalSearch(globalSearch);
+  });
   if (!runtime.fullscreenListening) {
     document.addEventListener("fullscreenchange", updateFullscreenControl);
     document.addEventListener("webkitfullscreenchange", updateFullscreenControl);
@@ -526,62 +551,6 @@ function updateClock() {
   clock.textContent = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(now);
 }
 
-function ensureFlowbar() {
-  if (runtime.flowbar?.isConnected) return runtime.flowbar;
-  const flowbar = create("nav", "ce-v4-flowbar");
-  flowbar.setAttribute("aria-label", "Путь создания контента: 6 этапов");
-  const track = create("ol", "ce-v4-flowbar__track");
-  ROUTES.forEach((item, index) => {
-    const step = create("li", "ce-v4-flowbar__step");
-    const link = create("a", "ce-v4-flowbar__link");
-    const number = index + 1;
-    const title = `${number}. ${item.label} — ${item.description}`;
-    link.href = `#${item.route}`;
-    link.dataset.ceV4FlowRoute = item.route;
-    link.setAttribute("aria-label", `${number} из ${ROUTES.length}. ${item.label}. ${item.description}`);
-    link.title = title;
-    link.append(
-      create("span", "ce-v4-flowbar__number", String(number)),
-      create("span", "ce-v4-flowbar__label", item.label),
-    );
-    step.append(link);
-    track.append(step);
-  });
-  flowbar.append(track);
-  document.body.append(flowbar);
-  runtime.flowbar = flowbar;
-  return flowbar;
-}
-
-function updateFlowbar() {
-  const route = routePath();
-  const activeIndex = ROUTES.findIndex((item) => routeMatches(route, item.route));
-  let activeLink = null;
-  qa("[data-ce-v4-flow-route]", runtime.flowbar).forEach((link, index) => {
-    const active = index === activeIndex;
-    const next = activeIndex >= 0 && index === activeIndex + 1;
-    link.classList.toggle("is-active", active);
-    link.classList.toggle("is-next", next);
-    link.dataset.state = active ? "current" : next ? "next" : "available";
-    if (active) {
-      link.setAttribute("aria-current", "step");
-      activeLink = link;
-    } else {
-      link.removeAttribute("aria-current");
-    }
-  });
-  const track = q(".ce-v4-flowbar__track", runtime.flowbar);
-  if (activeLink && track && window.innerWidth <= 680) {
-    window.requestAnimationFrame(() => {
-      const left = activeLink.offsetLeft - (track.clientWidth - activeLink.offsetWidth) / 2;
-      track.scrollTo({
-        left: Math.max(0, left),
-        behavior: REDUCED_MOTION.matches ? "auto" : "smooth",
-      });
-    });
-  }
-}
-
 function ensureDock() {
   if (runtime.dock?.isConnected) return runtime.dock;
   const dock = create("nav", "ce-v4-dock");
@@ -594,7 +563,7 @@ function ensureDock() {
     link.dataset.ceV4Route = item.route;
     link.setAttribute("aria-label", `${item.label}. ${item.description}. ${shortcut}`);
     link.title = `${item.label} — ${item.description}`;
-    link.append(create("span", "ce-v4-dock__tooltip", `${item.description} · ${shortcut}`));
+    link.append(create("span", "ce-v4-dock__tooltip", `${item.label} · ${item.description} · ${shortcut}`));
     const tile = create("span", "ce-v4-dock__tile");
     tile.append(icon(item.icon, 22));
     link.append(tile, create("span", "ce-v4-dock__label", item.label), create("i"));
@@ -605,7 +574,7 @@ function ensureDock() {
   trash.type = "button";
   trash.setAttribute("aria-label", "Корзина");
   trash.title = "Корзина — удалённые файлы и папки";
-  trash.append(create("span", "ce-v4-dock__tooltip", "Удалённые файлы и папки"));
+  trash.append(create("span", "ce-v4-dock__tooltip", "Корзина · удалённые файлы и папки"));
   const trashTile = create("span", "ce-v4-dock__tile");
   trashTile.append(icon("trash", 22));
   trash.append(trashTile, create("span", "ce-v4-dock__label", "Корзина"), create("i"));
@@ -616,6 +585,8 @@ function ensureDock() {
     const target = event.target instanceof Element ? event.target : null;
     const item = target?.closest(".ce-v4-dock__item");
     if (!(item instanceof HTMLElement)) return;
+    const destination = String(item.dataset.ceV4Route || "");
+    if (!destination || routeMatches(routePath(), destination)) return;
     item.classList.remove("is-launching");
     window.requestAnimationFrame(() => {
       if (!item.isConnected) return;
@@ -650,16 +621,6 @@ function updateDock() {
 
 function updateMenubar() {
   syncToolsMenu();
-  const item = routeRecord();
-  const location = q(".ce-v4-menubar__location strong", runtime.menubar);
-  if (location) location.textContent = item.label;
-  const caption = q(".ce-v4-menubar__location small", runtime.menubar);
-  const desktopIndex = ROUTES.findIndex((record) => routeMatches(routePath(), record.route));
-  if (caption) {
-    caption.textContent = desktopIndex >= 0
-      ? `РАБОЧИЙ СТОЛ ${desktopIndex + 1} ИЗ ${ROUTES.length}`
-      : "РАБОЧИЙ ИНСТРУМЕНТ";
-  }
   qa("[data-ce-v4-tools-route]", runtime.menubar).forEach((link) => {
     const active = routePath() === link.dataset.ceV4ToolsRoute;
     link.classList.toggle("is-active", active);
@@ -674,73 +635,69 @@ function updateMenubar() {
   }
 }
 
-function homeAction(page) {
-  const source = q(".workspace-home .home-next-action", page);
-  const control = q(".home-next-action-main > a, .home-next-action-main > button", source);
-  if (source && control) {
-    return {
-      step: compact(q(".home-next-action-main > div > span", source)?.textContent || "Следующее действие", 80),
-      title: compact(q(".home-next-action-main h2", source)?.textContent || "Продолжите работу", 110),
-      description: compact(q(".home-next-action-main p", source)?.textContent || "Откройте следующий шаг.", 190),
-      action: compact(control.textContent || "Открыть", 70),
-      control,
-    };
-  }
-  const retry = q('.workspace-home [data-action="refresh-home"]', page);
-  if (retry) {
-    return {
-      step: "Рабочий день",
-      title: "Не удалось собрать следующий шаг",
-      description: "Повторите загрузку. Остальные разделы доступны в Dock.",
-      action: "Попробовать снова",
-      control: retry,
-    };
-  }
-  return {
-    step: "Сегодня",
-    title: "Собираем следующий шаг…",
-    description: "Проверяем задачи, готовые файлы, публикации и результаты.",
-    action: "Подождите",
-    control: null,
-  };
-}
-
 function mountHome() {
   if (routePath() !== "/workspace/home") return;
   const page = currentPage();
   if (!page) return;
-  let shell = q(":scope > .ce-v4-home", page);
-  if (!shell) {
-    page.classList.add("ce-v4-home-page");
-    shell = create("section", "ce-v4-home");
-    shell.dataset.ceV4Surface = "true";
-    const main = create("section", "ce-v4-home__main");
-    const eyebrow = create("small", "ce-v4-eyebrow", "СЕГОДНЯ");
-    const title = create("h1", "ce-v4-home__title");
-    const description = create("p", "ce-v4-home__description");
-    const action = create("button", "ce-v4-primary-action");
-    action.type = "button";
-    action.dataset.ceV4HomeAction = "true";
-    action.dataset.primaryAction = "true";
-    action.append(create("span"), icon("right", 18));
-    const copy = create("div", "ce-v4-home__copy");
-    copy.append(eyebrow, title, description, create("div", "ce-v4-home__actions"));
-    q(".ce-v4-home__actions", copy).append(action);
-    main.append(copy);
-    shell.append(main);
-    page.prepend(shell);
-    shell.addEventListener("click", (event) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("[data-ce-v4-home-action]")) homeAction(page).control?.click();
-    });
+  q(":scope > .ce-v4-home", page)?.remove();
+  page.classList.add("ce-v4-home-page", "ce-v4-project-home");
+  const projects = q("[data-ce-v4-project-home]", page);
+  if (projects) projects.dataset.ceV4Surface = "true";
+}
+
+function projectContext() {
+  const value = readJson(storage("session"), PROJECT_CONTEXT_KEY, null);
+  if (!value || typeof value !== "object" || !String(value.id || "").trim()) return null;
+  return {
+    id: String(value.id).trim(),
+    name: compact(value.name || "Проект", 80),
+  };
+}
+
+function syncProjectProgress() {
+  const route = routePath();
+  const activeIndex = PROJECT_FLOW.findIndex((item) => routeMatches(route, item.route));
+  const context = projectContext();
+  const page = currentPage();
+  if (!page) return;
+  qa("[data-ce-v4-project-progress]").forEach((node) => {
+    if (!page.contains(node)) node.remove();
+  });
+  let progress = q(":scope > [data-ce-v4-project-progress]", page);
+  if (!context || activeIndex <= 0) {
+    progress?.remove();
+    return;
   }
-  const action = homeAction(page);
-  q(".ce-v4-eyebrow", shell).textContent = action.step.toLocaleUpperCase("ru-RU");
-  q(".ce-v4-home__title", shell).textContent = action.title;
-  q(".ce-v4-home__description", shell).textContent = action.description;
-  const button = q("[data-ce-v4-home-action]", shell);
-  button.disabled = !action.control;
-  q("span", button).textContent = action.action;
+  if (!progress || progress.dataset.ceV4ProjectProgress !== context.id) {
+    progress?.remove();
+    progress = create("nav", "ce-v4-project-progress");
+    progress.dataset.ceV4ProjectProgress = context.id;
+    const heading = create("div", "ce-v4-project-progress__project");
+    heading.append(create("small", "", "ПРОЕКТ"), create("strong", "", context.name));
+    const list = create("ol", "ce-v4-project-progress__steps");
+    PROJECT_FLOW.forEach((item, index) => {
+      const entry = create("li");
+      const link = create("a");
+      link.href = `#${item.route}`;
+      link.dataset.ceV4ProjectStage = item.route;
+      link.title = `${index + 1}. ${item.label}`;
+      link.append(create("span"), create("strong", "", item.label));
+      entry.append(link);
+      list.append(entry);
+    });
+    progress.append(heading, list);
+    page.prepend(progress);
+  }
+  progress.setAttribute("aria-label", `Этапы проекта ${context.name}`);
+  q(".ce-v4-project-progress__project strong", progress).textContent = context.name;
+  qa("[data-ce-v4-project-stage]", progress).forEach((link, index) => {
+    const current = index === activeIndex;
+    link.classList.toggle("is-current", current);
+    link.classList.toggle("is-complete", index < activeIndex);
+    if (current) link.setAttribute("aria-current", "step");
+    else link.removeAttribute("aria-current");
+    q("span", link).textContent = index < activeIndex ? "✓" : String(index + 1);
+  });
 }
 
 function overlayBase(className, label) {
@@ -1069,7 +1026,7 @@ function markSurface() {
   page.classList.add("ce-v4-page");
   const surface = qa(
     ".review-desktop-os, .generation-os-shell, .media-finder-shell, .work-stage-shell, .tasks-desk-shell, "
-      + ".publishing-os-shell, .results-ledger-shell, .workspace-board, .ce-v4-home",
+      + ".publishing-os-shell, .results-ledger-shell, .workspace-board, .home-project-switcher, .ce-v4-home",
     page,
   ).filter(isVisible).at(-1);
   qa("[data-ce-v4-surface]", page).forEach((node) => { if (node !== surface && !node.classList.contains("ce-v4-home")) node.removeAttribute("data-ce-v4-surface"); });
@@ -1081,10 +1038,8 @@ function mount() {
   if (!isWorkspaceRoute(route) || !hasAuthenticatedWorkspace()) {
     closeTransientOverlays(true);
     runtime.menubar?.remove();
-    runtime.flowbar?.remove();
     runtime.dock?.remove();
     runtime.menubar = null;
-    runtime.flowbar = null;
     runtime.dock = null;
     document.body.classList.remove("contentengine-desktop-v4");
     document.body.removeAttribute("data-ce-v4-stable");
@@ -1096,12 +1051,11 @@ function mount() {
   document.body.dataset.ceV4Stable = "true";
   cleanLegacyChrome();
   ensureMenubar();
-  ensureFlowbar();
   ensureDock();
   updateMenubar();
-  updateFlowbar();
   updateDock();
   mountHome();
+  syncProjectProgress();
 }
 
 function scheduleMount() {
@@ -1197,7 +1151,9 @@ function handleKeydown(event) {
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLocaleLowerCase() === "k") {
     event.preventDefault();
     event.stopImmediatePropagation();
-    focusFinderSearch();
+    const search = q(".ce-v4-menubar__search input", runtime.menubar);
+    safeFocus(search);
+    search?.select?.();
     return;
   }
   if (event.key === "Escape") {

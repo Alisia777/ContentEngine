@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine project-first v4.6 harness</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/content-review.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-board.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-context-trash.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-generation-guided.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-review-guided.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell" data-workspace-section="home" data-workspace-authorized-routes="/workspace/research /workspace/team /workspace/feedback" data-workspace-role="owner">
+        <aside class="sidebar"><nav class="workspace-nav"><a href="#/workspace/team">Команда</a><a href="#/workspace/research">Исследования</a></nav></aside>
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1"><div id="workspace-content"></div></main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({ id: "project-bombbar", name: "Bombbar · Август" }));
+      if (!location.hash.startsWith("#/workspace/")) location.hash = "#/workspace/home";
+
+      const content = document.querySelector("#workspace-content");
+      const shell = document.querySelector(".workspace-shell");
+      const findings = Array.from({ length: 13 }, (_, index) => `
+        <article class="content-review-finding is-${index < 2 ? "high" : index < 7 ? "medium" : "low"}">
+          <strong>${index + 1}. ${index < 2 ? "Риск обещания без доказательства" : "Уточните формулировку и кадр"}</strong>
+          <p>Короткое объяснение замечания ${index + 1}; исправьте только этот пункт.</p>
+        </article>`).join("");
+
+      function homeMarkup() {
+        return `<div class="page-wrap workspace-home ce-v4-page">
+          <section class="home-project-switcher" data-ce-v4-project-home>
+            <header class="home-project-switcher__head">
+              <div><p class="eyebrow">Рабочие столы</p><h1>Выберите проект</h1><p>Один проект хранит свои файлы и проходит понятный путь: создать → проверить → опубликовать → увидеть результат.</p></div>
+              <details class="home-project-create"><summary><span>＋</span> Новый проект</summary><form id="home-project-create-form"><label>Название проекта</label><div><input placeholder="Например: Bombbar · Август" /><button class="btn" type="button" data-primary-action="true">Создать и открыть</button></div><small>Внутри проекта можно создавать папки.</small></form></details>
+            </header>
+            <div class="home-project-grid">
+              <a class="home-project-card" href="#/workspace/board?folder=project-bombbar" data-ce-v4-project-id="project-bombbar" data-ce-v4-project-name="Bombbar · Август"><span class="home-project-card__folder">◇</span><span class="home-project-card__copy"><strong>Bombbar · Август</strong><small>18 объектов</small></span><span class="home-project-card__open">Открыть →</span></a>
+              <a class="home-project-card" href="#/workspace/board?folder=project-milio" data-ce-v4-project-id="project-milio" data-ce-v4-project-name="Milio · Новинки"><span class="home-project-card__folder">◇</span><span class="home-project-card__copy"><strong>Milio · Новинки</strong><small>7 объектов</small></span><span class="home-project-card__open">Открыть →</span></a>
+            </div>
+            <aside class="home-next-action-compact"><span><small>Следующее действие</small><strong>Проверить готовое видео</strong></span><p>Откройте проект, чтобы увидеть точный файл и продолжить работу.</p><a class="btn btn-secondary" href="#/workspace/review">Открыть проверку →</a></aside>
+          </section>
+        </div>`;
+      }
+
+      function boardMarkup() {
+        const cards = ["Фото упаковки", "Главное видео", "Сценарий", "Задача QA", "Публикация"].map((title, index) => `<article class="workspace-board__item" data-workspace-item-key="item-${index}" data-entity-type="${index === 3 ? "task" : "media"}" data-entity-id="item-${index}"><button class="workspace-board__item-open" type="button" data-action="open-workspace-item"><span class="workspace-board__item-preview">${index === 1 ? "▶" : "▧"}</span><span class="workspace-board__item-copy"><small>${index === 3 ? "Задача" : "Материал"}</small><strong>${title}</strong><span>Готово</span></span><span class="workspace-board__status">Готово</span></button><button class="workspace-board__context-trigger workspace-board__context-trigger--item" data-ce-v4-context-trigger="item" type="button">⋯</button></article>`).join("");
+        return `<div class="page-wrap page-wrap-workspace-board ce-v4-page"><section class="workspace-board"><div class="workspace-board__layout">
+          <aside class="workspace-board__sidebar"><div class="workspace-board__sidebar-head"><p>Проекты и папки</p><small>Корневая папка — проект</small></div><nav class="workspace-board__folders"><ul class="workspace-board__folder-list"><li class="workspace-board__folder-group-label">Проекты и папки</li><li class="workspace-board__folder-row is-selected" data-folder-id="project-bombbar" style="--workspace-folder-depth:0"><button class="workspace-board__folder-button" type="button"><span>◇</span><span>Bombbar · Август</span><small>18</small></button><button class="workspace-board__context-trigger" data-ce-v4-context-trigger="folder" type="button">⋯</button></li><li class="workspace-board__folder-row" data-folder-id="folder-sources" style="--workspace-folder-depth:1"><button class="workspace-board__folder-button" type="button"><span>◇</span><span>Исходники</span><small>5</small></button></li></ul></nav><div class="workspace-board__folder-management"><form id="workspace-folder-create-form" class="workspace-board__compact-form"><label>Новая папка</label><div><input name="folder_name" placeholder="Внутри проекта" /><button type="button">+</button></div></form></div></aside>
+          <section class="workspace-board__content"><form id="workspace-board-filter-form" class="workspace-board__filters"><label class="workspace-board__search"><span>Поиск</span><input name="query" type="search" placeholder="Найти проект, папку, SKU или файл" /></label><label><span>Тип</span><select><option>Все типы</option></select></label><button type="button">Показать</button><button type="button">Сбросить</button><p>Найдено: 5</p></form><div class="workspace-board__collection-head"><div><p>Открытая папка</p><h2>Bombbar · Август</h2></div></div><div class="workspace-board__grid">${cards}</div></section>
+          <aside class="workspace-board__drawer workspace-board__drawer--empty"><span class="workspace-board__drawer-mark">◇</span><h2>Выберите файл</h2><p>Нажмите карточку один раз.</p></aside>
+        </div></section></div>`;
+      }
+
+      function generationMarkup() {
+        return `<div class="page-wrap ce-v4-page"><section class="generation-launch-card card"><p class="eyebrow">Создание</p><h2>Новый запуск</h2><form id="mock-batch-form" novalidate>
+          <div id="generation-readiness" class="generation-readiness"><strong>Готовность запуска</strong></div>
+          <label>Режим<select name="generation_mode" required><option value="mock">Без оплаты</option><option value="real">Реальный ролик</option></select></label>
+          <label>Длительность<select name="duration_seconds"><option>10</option></select></label>
+          <label>Артикул<input name="sku" value="BOMBBAR-001" required /></label>
+          <label>Название товара<input name="product_name" value="Bombbar протеин" required /></label>
+          <label>Категория<input name="product_category" value="Батончики" /></label>
+          <label>Площадка<select name="platform" required><option>TikTok</option></select></label>
+          <label>Куда вести<input name="destination_ref" value="Карточка товара" /></label>
+          <label>Замысел<textarea name="brief" required>Показать упаковку, разлом и честный вкус без медицинских обещаний.</textarea></label>
+          <fieldset><legend>Исходники</legend><label><input name="media_id" type="checkbox" value="photo-1" checked /> Главное фото товара</label><label><input name="primary_media_id" type="radio" value="photo-1" checked /> Использовать главным</label></fieldset>
+          <button id="generation-submit" class="btn btn-block" type="submit">Создать один ролик</button>
+        </form></section></div>`;
+      }
+
+      function reviewMarkup() {
+        return `<div class="page-wrap ce-v4-page"><article class="content-review-result" data-review-result-id="review-demo">
+          <header class="content-review-result__header card"><p class="eyebrow">Проверка завершена</p><h2>Bombbar · рекламный ролик</h2><p>Общий результат понятен без технического UUID.</p></header>
+          <div class="content-review-score-grid"><section class="card content-review-quality"><strong>82/100</strong><span>Качество</span></section><section class="card content-review-compliance"><strong>Нужны правки</strong><span>Соответствие</span></section></div>
+          <section class="card content-review-breakdown"><h3>Материал</h3><p>Точный ролик, упаковка и заявленный товар совпадают.</p></section>
+          <section class="card content-review-strengths"><h3>Сильные стороны</h3><p>Товар виден, хук понятен, монтаж аккуратный.</p></section>
+          <section class="card content-review-findings"><h3>13 замечаний</h3><div class="content-review-finding-list">${findings}</div></section>
+          <section class="card content-review-recommendations"><h3>Что исправить</h3><p>Сначала два замечания высокого риска, затем повторная проверка.</p></section>
+          <form class="content-review-decision-form card"><h3>Решение человека</h3><label>Комментарий<textarea>Исправить обещание и отправить снова.</textarea></label><div class="content-review-decision-actions"><button class="btn" type="button">Одобрить</button><button class="btn" type="button">На доработку</button><button class="btn btn-ghost" type="button">Отклонить</button></div></form>
+        </article></div>`;
+      }
+
+      function renderRoute() {
+        const route = (`/${String(location.hash || "#/workspace/home").replace(/^#\/?/, "").split("?")[0]}`).replace(/\/+/g, "/");
+        const section = route.split("/").filter(Boolean).at(-1) || "home";
+        shell.dataset.workspaceSection = section;
+        content.innerHTML = section === "home" ? homeMarkup() : section === "board" ? boardMarkup() : section === "generation" ? generationMarkup() : section === "review" ? reviewMarkup() : `<div class="page-wrap ce-v4-page"><section class="card"><h1>${section}</h1><p>Один следующий шаг.</p></section></div>`;
+        window.ContentEngineDesktopV4?.syncRoute?.();
+        window.ContentEngineDesktopV4?.requestMount?.();
+      }
+      renderRoute();
+      window.addEventListener("hashchange", renderRoute, { capture: true });
+      content.addEventListener("click", (event) => {
+        const open = event.target.closest('[data-action="open-workspace-item"]');
+        if (open) {
+          const board = open.closest(".workspace-board");
+          const card = open.closest(".workspace-board__item");
+          const drawer = board?.querySelector(".workspace-board__drawer");
+          const title = card?.querySelector(".workspace-board__item-copy strong")?.textContent || "Файл";
+          if (drawer) {
+            drawer.classList.remove("workspace-board__drawer--empty");
+            drawer.dataset.workspaceItemDrawer = "true";
+            drawer.innerHTML = `<header class="workspace-board__drawer-head"><h2>${title}</h2><button type="button" data-action="close-workspace-item">Закрыть</button></header><div class="workspace-board__drawer-preview">Предпросмотр файла</div><p class="workspace-board__drawer-description">Файл открыт в том же рабочем окне Finder.</p>`;
+            card.classList.add("is-selected");
+            window.ContentEngineDesktopV4?.requestMount?.();
+          }
+          return;
+        }
+        if (event.target.closest('[data-action="close-workspace-item"]')) {
+          const board = event.target.closest(".workspace-board");
+          const drawer = board?.querySelector(".workspace-board__drawer");
+          if (drawer) {
+            drawer.className = "workspace-board__drawer workspace-board__drawer--empty";
+            drawer.removeAttribute("data-workspace-item-drawer");
+            drawer.innerHTML = `<span class="workspace-board__drawer-mark">◇</span><h2>Выберите файл</h2><p>Нажмите карточку один раз.</p>`;
+            board.querySelectorAll(".workspace-board__item.is-selected").forEach((node) => node.classList.remove("is-selected"));
+            window.ContentEngineDesktopV4?.requestMount?.();
+          }
+        }
+      });
+    </script>
+    <script type="module">
+      await import("../../web/app/workspace-os-v4.js");
+      await import("../../web/app/workspace-os-v4-context-trash.js");
+      await import("../../web/app/workspace-os-v4-finder.js");
+      await import("../../web/app/workspace-os-v4-generation-guided.js");
+      await import("../../web/app/workspace-os-v4-review-guided.js");
+      await window.ContentEngineDesktopV4.flush();
+      const qa = document.querySelector("#runtime-qa");
+      const record = () => {
+        const page = document.querySelector(".ce-v4-page");
+        const visibleGuided = [...document.querySelectorAll("[data-ce-v4-generation-panel], [data-ce-v4-review-result-panel]")].filter((node) => !node.hidden);
+        qa.dataset.route = location.hash;
+        qa.dataset.dockCount = String(document.querySelectorAll(".ce-v4-dock").length);
+        qa.dataset.flowbarCount = String(document.querySelectorAll(".ce-v4-flowbar").length);
+        qa.dataset.locationCount = String(document.querySelectorAll(".ce-v4-menubar__location").length);
+        qa.dataset.pageWidth = String(Math.round(page?.getBoundingClientRect().width || 0));
+        qa.dataset.viewportWidth = String(innerWidth);
+        qa.dataset.visibleGuidedPanels = String(visibleGuided.length);
+        qa.dataset.primaryCount = String(document.querySelectorAll('[data-primary-action="true"]:not([hidden])').length);
+      };
+      record();
+      window.addEventListener("hashchange", () => requestAnimationFrame(() => requestAnimationFrame(record)));
+      document.addEventListener("click", () => requestAnimationFrame(record));
+      window.ContentEngineProjectFirstHarness = { record, renderRoute };
+    </script>
+  </body>
+</html>

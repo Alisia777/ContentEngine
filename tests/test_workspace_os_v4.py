@@ -25,9 +25,9 @@ OPERATIONS_CSS = (APP / "workspace-os-v4-operations.css").read_text(encoding="ut
 BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf-8")
 
 
-def test_desktop_v4_4_is_the_only_eager_workspace_shell() -> None:
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.4" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.4"></script>' in INDEX
+def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.6" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.6"></script>' in INDEX
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
     assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -37,15 +37,15 @@ def test_desktop_v4_4_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260803.os4.4',
-        './app.js?v=20260803.os4.4',
-        './workspace-build-guard.js?v=20260803.os4.4',
+        './workspace-os-v4-loader.js?v=20260803.os4.6',
+        './app.js?v=20260803.os4.6',
+        './workspace-build-guard.js?v=20260803.os4.6',
     ]
 
 
-def test_route_loader_uses_current_v4_4_assets_and_the_dom_patch() -> None:
+def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260803.os4.4"',
+        'const BUILD = "20260803.os4.6"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -59,7 +59,13 @@ def test_route_loader_uses_current_v4_4_assets_and_the_dom_patch() -> None:
         'workspace-os-v4-context-trash.js?v=${BUILD}',
         'workspace-os-v4-finder.css?v=${BUILD}',
         'workspace-os-v4-finder.js?v=${BUILD}',
+        'workspace-os-v4-generation-guided.css?v=${BUILD}',
+        'workspace-os-v4-generation-guided.js?v=${BUILD}',
+        'workspace-os-v4-review-guided.css?v=${BUILD}',
+        'workspace-os-v4-review-guided.js?v=${BUILD}',
         'match: (route) => route === "/workspace/board"',
+        'match: (route) => route === "/workspace/generation"',
+        'match: (route) => route === "/workspace/review"',
         'window.ContentEngineDesktopV4?.flush?.()',
         'contentengine:v4-route-ready',
     ):
@@ -82,7 +88,7 @@ def test_route_loader_uses_current_v4_4_assets_and_the_dom_patch() -> None:
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.4";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',
@@ -145,7 +151,6 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
         'DOMParser',
         'createContextualFragment',
         'cloneNode',
-        'requestSubmit',
         'XMLHttpRequest',
     ):
         assert forbidden not in CORE
@@ -155,6 +160,13 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
     assert '.api.' not in CORE
     assert '.api.' not in STABILITY
     assert 'new MutationObserver' not in STABILITY
+    finder_search = CORE[
+        CORE.index("function focusFinderSearch(") : CORE.index("\nfunction fullscreenElement(")
+    ]
+    assert CORE.count("requestSubmit") == 1
+    assert 'input.form?.requestSubmit?.()' in finder_search
+    assert '#workspace-board-filter-form input[name="query"]' in finder_search
+    assert "requestSubmit" not in STABILITY
 
 
 def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() -> None:
@@ -164,7 +176,7 @@ def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() 
         '#workspace-board-filter-form',
         'form.dispatchEvent(new Event("submit"',
         'workspace-board__folder-row',
-        'Найти папку',
+        'Найти проект, папку, SKU или файл',
         'По имени',
         'По типу',
         'По статусу',
