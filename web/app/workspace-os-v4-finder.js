@@ -5,14 +5,12 @@ const STATE_KEY = "contentengine.desktop-v4.finder.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
-const TRANSIENT_NAME = "finder-quicklook";
 
 const runtime = {
   page: null,
   board: null,
   sidebarOpen: false,
   quickLook: null,
-  movedDrawer: null,
   sortedBoard: null,
   sortedValue: "",
   state: readState(),
@@ -81,6 +79,11 @@ function cards() {
 
 function selectedCard() {
   return cards().find((card) => card.classList.contains("is-selected") || q('[aria-expanded="true"]', card)) || null;
+}
+
+function routeView() {
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  return new URLSearchParams(raw.split("?")[1] || "").get("view") || "";
 }
 
 function annotateCards() {
@@ -182,7 +185,6 @@ function sidebarParts() {
   return {
     sidebar: q(".workspace-board__sidebar", runtime.board),
     toggle: q(".ce-v4-finder-sidebar-toggle", runtime.board),
-    backdrop: q(".ce-v4-finder-sidebar-backdrop", runtime.board),
   };
 }
 
@@ -196,13 +198,8 @@ function setSidebarOpen(open, { restoreFocus = false } = {}) {
   toggle?.setAttribute("aria-expanded", String(next));
   toggle?.setAttribute("aria-label", next ? "Закрыть папки" : "Показать папки");
 
-  if (MOBILE_SIDEBAR.matches) {
-    sidebar.inert = !next;
-    sidebar.setAttribute("aria-hidden", String(!next));
-  } else {
-    sidebar.inert = false;
-    sidebar.removeAttribute("aria-hidden");
-  }
+  if (MOBILE_SIDEBAR.matches) sidebar.setAttribute("aria-hidden", String(!next));
+  else sidebar.removeAttribute("aria-hidden");
 
   if (next) {
     (q(".ce-v4-folder-search input", sidebar) || q("button, a, input, select", sidebar))
@@ -215,8 +212,7 @@ function setSidebarOpen(open, { restoreFocus = false } = {}) {
 function ensureMobileSidebar() {
   const sidebar = q(".workspace-board__sidebar", runtime.board);
   const toolbarControls = q(".ce-v4-finder-toolbar__controls", runtime.board);
-  const layout = q(".workspace-board__layout", runtime.board);
-  if (!sidebar || !toolbarControls || !layout) return;
+  if (!sidebar || !toolbarControls) return;
 
   if (!sidebar.id) {
     sidebar.id = "contentengine-v4-finder-sidebar";
@@ -236,26 +232,36 @@ function ensureMobileSidebar() {
     toggle.addEventListener("click", () => setSidebarOpen(!runtime.sidebarOpen, { restoreFocus: runtime.sidebarOpen }));
   }
 
-  let close = q(":scope > .ce-v4-finder-sidebar-close", sidebar);
+  let close = q(".ce-v4-finder-sidebar-close", sidebar);
   if (!close) {
     close = create("button", "ce-v4-finder-sidebar-close", "×");
     close.type = "button";
     close.setAttribute("aria-label", "Закрыть папки");
-    sidebar.prepend(close);
+    (q(".workspace-board__sidebar-head", sidebar) || sidebar).append(close);
     close.addEventListener("click", () => setSidebarOpen(false, { restoreFocus: true }));
   }
 
-  let backdrop = q(":scope > .ce-v4-finder-sidebar-backdrop", layout);
-  if (!backdrop) {
-    backdrop = create("button", "ce-v4-finder-sidebar-backdrop");
-    backdrop.type = "button";
-    backdrop.tabIndex = -1;
-    backdrop.setAttribute("aria-label", "Закрыть панель папок");
-    layout.append(backdrop);
-    backdrop.addEventListener("click", () => setSidebarOpen(false, { restoreFocus: true }));
-  }
-
   setSidebarOpen(runtime.sidebarOpen);
+}
+
+function syncInlineDetail() {
+  if (!runtime.board) return;
+  const drawer = q("[data-workspace-item-drawer]", runtime.board);
+  const active = Boolean(drawer && routeView() !== "trash");
+  runtime.board.classList.toggle("is-detail-inline", active);
+  if (!active || q(":scope > .ce-v4-finder-detail-bar", drawer)) return;
+
+  const bar = create("header", "ce-v4-finder-detail-bar");
+  const copy = create("div", "ce-v4-finder-detail-bar__copy");
+  copy.append(
+    create("small", "", "ФАЙЛЫ · ДЕТАЛИ"),
+    create("strong", "", compact(q("h2", drawer)?.textContent || "Объект", 100)),
+  );
+  const back = create("button", "ce-v4-finder-detail-back", "← Назад к файлам");
+  back.type = "button";
+  back.addEventListener("click", () => q('[data-action="close-workspace-item"]', drawer)?.click());
+  bar.append(copy, back);
+  drawer.prepend(bar);
 }
 
 function buildToolbar() {
@@ -352,86 +358,116 @@ function ensureSelectedDrawer(card) {
 }
 
 async function openQuickLook(card = selectedCard() || cards().find(visible)) {
-  if (runtime.quickLook || !card) return;
+  if (!card) return;
+  if (runtime.quickLook) closeQuickLook({ restoreFocus: false, clearSelection: false });
   setSidebarOpen(false);
-  document.dispatchEvent(new CustomEvent("contentengine:v4-close-transients", {
-    detail: Object.freeze({ except: TRANSIENT_NAME }),
-  }));
+  const cardKey = String(card.dataset.workspaceItemKey || "");
   const drawer = await ensureSelectedDrawer(card);
   if (!drawer) return;
-  const placeholder = document.createComment("contentengine-v4-finder-drawer");
-  drawer.before(placeholder);
-  const backdrop = create("div", "ce-v4-quicklook-backdrop");
-  const dialog = create("section", "ce-v4-quicklook");
-  dialog.setAttribute("role", "dialog");
-  dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-label", compact(q("h2", drawer)?.textContent || "Быстрый просмотр", 100));
-  const header = create("header", "ce-v4-quicklook__header");
-  const copy = create("div");
-  copy.append(create("small", "", "QUICK LOOK"), create("strong", "", compact(q("h2", drawer)?.textContent || "Объект", 100)));
-  const close = create("button", "ce-v4-quicklook__close", "×");
+  const board = drawer.closest(".workspace-board") || q(".workspace-board");
+  if (!board) return;
+  const bar = create("header", "ce-v4-quicklook-inline__bar");
+  const copy = create("div", "ce-v4-quicklook-inline__title");
+  copy.append(
+    create("small", "", "ФАЙЛЫ · ПРОСМОТР"),
+    create("strong", "", compact(q("h2", drawer)?.textContent || "Объект", 100)),
+  );
+  const controls = create("div", "ce-v4-quicklook-inline__controls");
+  const previous = create("button", "", "← Предыдущий");
+  previous.type = "button";
+  const next = create("button", "", "Следующий →");
+  next.type = "button";
+  const close = create("button", "ce-v4-quicklook-inline__close", "Назад к файлам");
   close.type = "button";
-  close.setAttribute("aria-label", "Закрыть быстрый просмотр");
-  header.append(copy, close);
-  const body = create("div", "ce-v4-quicklook__body");
-  body.append(drawer);
-  dialog.append(header, body);
-  backdrop.append(dialog);
-  document.body.append(backdrop);
-  runtime.quickLook = backdrop;
-  runtime.movedDrawer = { drawer, placeholder, card };
-  document.body.classList.add("ce-v4-quicklook-open");
-  backdrop.addEventListener("click", (event) => {
-    if (event.target === backdrop || (event.target instanceof Element && event.target.closest(".ce-v4-quicklook__close"))) closeQuickLook();
-  });
-  backdrop.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeQuickLook();
-    if (event.key === "ArrowLeft") navigateQuickLook(-1);
-    if (event.key === "ArrowRight") navigateQuickLook(1);
-  });
+  controls.append(previous, next, close);
+  bar.append(copy, controls);
+  drawer.prepend(bar);
+  drawer.classList.add("ce-v4-quicklook-inline");
+  board.classList.remove("is-detail-inline");
+  board.classList.add("is-quicklook-inline");
+  runtime.quickLook = { board, drawer, bar, cardKey };
+  previous.addEventListener("click", () => navigateQuickLook(-1));
+  next.addEventListener("click", () => navigateQuickLook(1));
+  close.addEventListener("click", () => closeQuickLook());
   close.focus({ preventScroll: true });
-  if (!REDUCED_MOTION.matches && typeof dialog.animate === "function") {
-    backdrop.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
-    dialog.animate(
+  if (!REDUCED_MOTION.matches && typeof drawer.animate === "function") {
+    drawer.animate(
       [{ opacity: 0, transform: "translate3d(0, 8px, 0)" }, { opacity: 1, transform: "translate3d(0, 0, 0)" }],
       { duration: 190, easing: "cubic-bezier(0.16,1,0.3,1)" },
     );
   }
 }
 
-function closeQuickLook({ restoreFocus = true } = {}) {
-  const overlay = runtime.quickLook;
-  const moved = runtime.movedDrawer;
-  if (!overlay) return;
-  q("video", overlay)?.pause?.();
-  if (moved?.placeholder?.parentNode) moved.placeholder.before(moved.drawer);
-  moved?.placeholder?.remove?.();
-  overlay.remove();
+function closeQuickLook({ restoreFocus = true, clearSelection = true } = {}) {
+  const current = runtime.quickLook;
+  if (!current) return;
+  q("video", current.drawer)?.pause?.();
+  current.bar?.remove();
+  current.drawer?.classList.remove("ce-v4-quicklook-inline");
+  current.board?.classList.remove("is-quicklook-inline");
   runtime.quickLook = null;
-  runtime.movedDrawer = null;
-  document.body.classList.remove("ce-v4-quicklook-open");
-  if (restoreFocus) q('[data-action="open-workspace-item"]', moved?.card)?.focus({ preventScroll: true });
+  if (clearSelection) q('[data-action="close-workspace-item"]', current.drawer)?.click();
+  if (restoreFocus) {
+    window.requestAnimationFrame(() => {
+      q(`[data-workspace-item-key="${CSS.escape(current.cardKey)}"] [data-action="open-workspace-item"]`)
+        ?.focus({ preventScroll: true });
+    });
+  }
 }
 
 function navigateQuickLook(direction) {
-  const visibleCards = cards().filter(visible);
-  if (!visibleCards.length) return;
-  const current = runtime.movedDrawer?.card;
-  const index = Math.max(0, visibleCards.indexOf(current));
-  const next = visibleCards[(index + direction + visibleCards.length) % visibleCards.length];
-  closeQuickLook({ restoreFocus: false });
+  const availableCards = cards();
+  if (!availableCards.length) return;
+  const currentKey = runtime.quickLook?.cardKey || "";
+  const index = Math.max(0, availableCards.findIndex((card) => card.dataset.workspaceItemKey === currentKey));
+  const next = availableCards[(index + direction + availableCards.length) % availableCards.length];
+  closeQuickLook({ restoreFocus: false, clearSelection: false });
   window.requestAnimationFrame(() => void openQuickLook(next));
+}
+
+function quickLookCardFromTarget(target) {
+  if (!(target instanceof Element)) return null;
+  if (target.closest(
+    "input, textarea, select, a[href], [data-ce-v4-context-trigger], [data-workspace-drag-item], "
+      + "button:not([data-action='open-workspace-item'])",
+  )) return null;
+  return target.closest(".workspace-board__item");
+}
+
+function handleBoardDoubleClick(event) {
+  const card = quickLookCardFromTarget(event.target);
+  if (!card) return;
+  event.preventDefault();
+  void openQuickLook(card);
+}
+
+function handleBoardQuickLookKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const card = quickLookCardFromTarget(event.target);
+  if (!card) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  void openQuickLook(card);
+}
+
+function handleBoardFolderSelection(event) {
+  if (!MOBILE_SIDEBAR.matches || !(event.target instanceof Element)) return;
+  if (!event.target.closest(".workspace-board__folder-button")) return;
+  window.requestAnimationFrame(() => setSidebarOpen(false));
 }
 
 function bindBoard() {
   if (runtime.board.dataset.ceV4FinderBound === "true") return;
   runtime.board.dataset.ceV4FinderBound = "true";
+  runtime.board.addEventListener("dblclick", handleBoardDoubleClick);
+  runtime.board.addEventListener("keydown", handleBoardQuickLookKeydown, true);
+  runtime.board.addEventListener("click", handleBoardFolderSelection);
 }
 
 function mount() {
   if (routePath() !== ROUTE) {
     setSidebarOpen(false);
-    closeQuickLook({ restoreFocus: false });
+    closeQuickLook({ restoreFocus: false, clearSelection: false });
     runtime.page = null;
     runtime.board = null;
     document.body.classList.remove("ce-v4-finder-route");
@@ -440,10 +476,12 @@ function mount() {
   }
   const board = q(".workspace-board");
   if (!board) return;
+  if (routeView() === "trash") closeQuickLook({ restoreFocus: false, clearSelection: false });
   runtime.board = board;
   runtime.page = board.closest(".page-wrap") || board.parentElement;
   document.body.classList.add("ce-v4-finder-route");
   board.dataset.ceV4Surface = "true";
+  syncInlineDetail();
   annotateCards();
   buildToolbar();
   buildFolderSearch();
@@ -467,11 +505,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") { event.preventDefault(); navigateQuickLook(-1); }
   if (event.key === "ArrowRight") { event.preventDefault(); navigateQuickLook(1); }
 }, true);
-
-document.addEventListener("contentengine:v4-close-transients", (event) => {
-  if (event.detail?.except === TRANSIENT_NAME) return;
-  closeQuickLook({ restoreFocus: false });
-});
 
 const handleSidebarViewport = () => setSidebarOpen(false);
 if (typeof MOBILE_SIDEBAR.addEventListener === "function") {

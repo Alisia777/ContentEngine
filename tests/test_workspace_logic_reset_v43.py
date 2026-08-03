@@ -10,6 +10,7 @@ CORE = (APP_DIR / "workspace-os-v4.js").read_text(encoding="utf-8")
 LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 FLOW_CSS = (APP_DIR / "workspace-os-v4-flow.css").read_text(encoding="utf-8")
 TRASH = (APP_DIR / "workspace-os-v4-context-trash.js").read_text(encoding="utf-8")
+INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
 
 
 def _source_between(source: str, start: str, end: str) -> str:
@@ -91,6 +92,105 @@ def test_mandatory_academy_is_conditional_and_not_a_second_desktop() -> None:
     assert 'class="workspace-shell"' not in scaffold
     assert 'class="sidebar"' not in scaffold
     assert "learningActionSwitchMarkup" not in scaffold
+
+
+def test_native_v4_scaffold_contains_only_the_authorized_content_surface() -> None:
+    scaffold = _source_between(
+        APP,
+        "function workspaceScaffold(content, activeSection) {",
+        "\n}\n\nfunction refreshNotificationLayer",
+    )
+    native = _source_between(
+        scaffold,
+        "if (window.CONTENTENGINE_DESKTOP_V4 === true) {",
+        "\n  const profile = displayProfile()",
+    )
+    for marker in (
+        'class="workspace-shell workspace-shell-v4"',
+        'class="workspace-main workspace-main-v4"',
+        'id="main-content"',
+        'id="workspace-content"',
+        "data-workspace-authorized-routes",
+        "data-workspace-role",
+        "visibleWorkspaceTabs()",
+    ):
+        assert marker in native
+    for legacy_chrome in (
+        'class="sidebar"',
+        "workspaceContextBarMarkup",
+        "mobileTopbarMarkup",
+        "mobileNavMarkup",
+        "factoryFlowMarkup",
+        "workspaceDirectionMarkup",
+        "workspace-notification-layer",
+    ):
+        assert legacy_chrome not in native
+
+    assert INDEX.index("./workspace-os-v4-loader.js") < INDEX.index("./app.js")
+
+
+def test_canonical_factory_flow_is_the_same_six_apps_as_the_dock() -> None:
+    flow = _source_between(
+        APP,
+        "const FACTORY_FLOW = Object.freeze([",
+        "\n]);\nconst FACTORY_FLOW_ALIASES",
+    )
+    assert re.findall(r'key:\s*"([^"]+)"', flow) == [
+        "home",
+        "board",
+        "generation",
+        "review",
+        "placement",
+        "stats",
+    ]
+    assert re.findall(r'step:\s*"([^"]+)"', flow) == [
+        "01",
+        "02",
+        "03",
+        "04",
+        "05",
+        "06",
+    ]
+    aliases = _source_between(
+        APP,
+        "const FACTORY_FLOW_ALIASES = Object.freeze({",
+        "\n});\nconst HOME_SECTION_KEYS",
+    )
+    assert 'media: "board"' in aliases
+    assert 'payouts: "stats"' in aliases
+    for deep_context in ("tasks", "work", "media", "payouts"):
+        assert f'key: "{deep_context}"' not in flow
+
+
+def test_v4_page_headers_replace_the_large_direction_bar_with_one_compact_instruction() -> None:
+    header = _source_between(
+        APP,
+        "function pageHeader(title, description, actions = \"\") {",
+        "\n}\n\nfunction factoryFlowMarkup",
+    )
+    assert "const nativeV4 = window.CONTENTENGINE_DESKTOP_V4 === true" in header
+    assert "!nativeV4 && inFactoryFlow ? factoryFlowMarkup(activeSection)" in header
+    assert 'nativeV4 ? "" : workspaceDirectionMarkup(meta)' in header
+    assert 'nativeV4 ? workspaceActionGuideMarkup(meta) : ""' in header
+    assert ".workspace-action-guide" in FLOW_CSS
+    assert "Готово, когда:" in APP
+    assert "После выполнения" in APP
+
+
+def test_review_decision_hands_the_user_to_the_only_logical_next_screen() -> None:
+    decision = _source_between(
+        APP,
+        "async function submitContentReviewDecision(form, submitter) {",
+        "\n}\n\nasync function submitMedia",
+    )
+    assert 'const resolvedDecision = contextApproval ? "approved" : decision.decision' in decision
+    assert 'if (resolvedDecision === "needs_changes")' in decision
+    assert 'navigate("/workspace/generation")' in decision
+    assert 'if (resolvedDecision === "approved")' in decision
+    assert 'navigate("/workspace/placement?view=next")' in decision
+    assert decision.index('await track("content_review_decided"') < decision.index(
+        'navigate("/workspace/placement?view=next")'
+    )
 
 
 def test_dock_is_limited_to_the_six_primary_workflow_routes() -> None:
@@ -206,22 +306,26 @@ def test_trash_reuses_the_authenticated_workspace_runtime_api() -> None:
     assert "window.ContentEngineWorkspaceRuntime?.getApi?.()" in TRASH
 
 
-def test_secondary_tools_stay_directly_reachable_without_the_retired_academy() -> None:
+def test_secondary_tools_only_contain_real_tools_outside_the_six_step_route() -> None:
     menubar = _source_between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
     assert "SECONDARY_ROUTES.forEach" in menubar
     assert 'setAttribute("role", "menu")' in menubar
     assert 'setAttribute("role", "menuitem")' in menubar
     assert "link.dataset.ceV4ToolsRoute = item.route" in menubar
-    for route in (
+    for route in ("/workspace/research", "/workspace/team", "/workspace/feedback"):
+        assert f'route: "{route}"' in CORE
+    secondary = _source_between(
+        CORE,
+        "const SECONDARY_ROUTES = Object.freeze([",
+        "\n]);\n\nconst ALL_ROUTES",
+    )
+    for duplicate in (
         "/workspace/tasks",
         "/workspace/work",
         "/workspace/media",
         "/workspace/payouts",
-        "/workspace/research",
-        "/workspace/feedback",
-        "/workspace/team",
     ):
-        assert f'route: "{route}"' in CORE
+        assert f'route: "{duplicate}"' not in secondary
     ensure_dock = _source_between(CORE, "function ensureDock() {", "\n}\n\nfunction updateDock")
     assert "ROUTES.forEach" in ensure_dock
     assert "SECONDARY_ROUTES.forEach" not in ensure_dock
@@ -235,6 +339,25 @@ def test_secondary_tools_stay_directly_reachable_without_the_retired_academy() -
         assert href in TRASH
     assert 'menuAction("Инструкции"' not in TRASH
     assert '"#/learn"' not in TRASH
+
+
+def test_progress_route_and_dock_are_two_views_of_the_same_six_actions() -> None:
+    flowbar = _source_between(CORE, "function ensureFlowbar() {", "\n}\n\nfunction updateFlowbar")
+    flowbar_update = _source_between(CORE, "function updateFlowbar() {", "\n}\n\nfunction ensureDock")
+    dock = _source_between(CORE, "function ensureDock() {", "\n}\n\nfunction updateDock")
+    matches = _source_between(CORE, "function routeMatches(route, expected) {", "\n}\n\nfunction routeRecord")
+
+    assert "ROUTES.forEach((item, index)" in flowbar
+    assert 'flowbar.setAttribute("aria-label", "Путь создания контента: 6 этапов")' in flowbar
+    assert "link.dataset.ceV4FlowRoute = item.route" in flowbar
+    assert 'link.setAttribute("aria-current", "step")' in flowbar_update
+    assert 'create("span", "ce-v4-dock__label", item.label)' in dock
+    assert "link.title = `${item.label} — ${item.description}`" in dock
+    assert 'expected === "/workspace/home"' in matches
+    assert 'route === "/workspace/tasks"' in matches
+    assert 'route === "/workspace/work"' in matches
+    assert 'route === "/workspace/media"' in matches
+    assert 'route === "/workspace/payouts"' in matches
 
 
 def test_flow_css_hides_every_surface_that_is_inactive_for_the_selected_view() -> None:
@@ -363,5 +486,17 @@ def test_mac_shell_stays_mounted_while_workspace_views_change() -> None:
         workspace_render.index("window.CONTENTENGINE_DESKTOP_V4 === true") :
         workspace_render.index("app.innerHTML = workspaceScaffold")
     ]
-    assert "main.scrollTop = 0" not in persistent_branch
-    assert "main.scrollLeft = 0" not in persistent_branch
+    assert "resetWorkspaceRouteEntry(existingContent, section)" in persistent_branch
+    assert "const sameAction = previousActionKey === nextActionKey" in same_section_branch
+    assert "if (!sameAction)" in same_section_branch
+    assert "resetWorkspaceRouteEntry(existingContent, section)" in same_section_branch
+
+    reset_entry = _source_between(
+        APP,
+        "function resetWorkspaceRouteEntry(container, section) {",
+        "\n}\n\nfunction captureWorkspaceFocus",
+    )
+    assert "workspaceScrollNodes(container)" in reset_entry
+    assert "node.scrollTop = 0" in reset_entry
+    assert "node.scrollLeft = 0" in reset_entry
+    assert 'main.focus({ preventScroll: true })' in reset_entry

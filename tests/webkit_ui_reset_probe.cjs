@@ -33,12 +33,13 @@ async function routeMotionResult(context) {
     qa.dataset.readyRoute = "";
     const shell = document.querySelector(".workspace-shell");
     const menubar = document.querySelector(".ce-v4-menubar");
+    const flowbar = document.querySelector(".ce-v4-flowbar");
     const dock = document.querySelector(".ce-v4-dock");
     const rect = (node) => {
       const value = node.getBoundingClientRect();
       return { x: value.x, y: value.y, width: value.width, height: value.height };
     };
-    const before = { menubar: rect(menubar), dock: rect(dock) };
+    const before = { menubar: rect(menubar), flowbar: rect(flowbar), dock: rect(dock) };
     const starts = [];
     const cancels = [];
     const inMain = (event) => (
@@ -85,6 +86,7 @@ async function routeMotionResult(context) {
 
     const after = {
       menubar: rect(document.querySelector(".ce-v4-menubar")),
+      flowbar: rect(document.querySelector(".ce-v4-flowbar")),
       dock: rect(document.querySelector(".ce-v4-dock")),
     };
     const maxDrift = (left, right) => Math.max(
@@ -103,8 +105,10 @@ async function routeMotionResult(context) {
       readyRoute: qa.dataset.readyRoute,
       shellSame: document.querySelector(".workspace-shell") === shell,
       menubarSame: document.querySelector(".ce-v4-menubar") === menubar,
+      flowbarSame: document.querySelector(".ce-v4-flowbar") === flowbar,
       dockSame: document.querySelector(".ce-v4-dock") === dock,
       menubarDrift: maxDrift(before.menubar, after.menubar),
+      flowbarDrift: maxDrift(before.flowbar, after.flowbar),
       dockDrift: maxDrift(before.dock, after.dock),
     };
   });
@@ -166,18 +170,21 @@ async function desktopMenuResult(context) {
   await page.click("[data-ce-v4-tools-trigger]");
   await page.evaluate(() => {
     [...document.querySelectorAll("[data-ce-v4-tools-route]")]
-      .find((item) => item.dataset.ceV4ToolsRoute === "/workspace/work")
+      .find((item) => item.dataset.ceV4ToolsRoute === "/workspace/feedback")
       .click();
   });
-  await page.waitForFunction(() => location.hash === "#/workspace/work");
+  await page.waitForFunction(() => location.hash === "#/workspace/feedback");
   await page.evaluate(() => window.ContentEngineDesktopV4.flush());
   const navigation = await page.evaluate(() => {
-    const work = [...document.querySelectorAll("[data-ce-v4-tools-route]")]
-      .find((item) => item.dataset.ceV4ToolsRoute === "/workspace/work");
+    const feedback = [...document.querySelectorAll("[data-ce-v4-tools-route]")]
+      .find((item) => item.dataset.ceV4ToolsRoute === "/workspace/feedback");
     return {
       hidden: document.querySelector("[data-ce-v4-tools-menu]").hidden,
-      current: work.getAttribute("aria-current"),
+      current: feedback.getAttribute("aria-current"),
       dockRoutes: document.querySelectorAll(".ce-v4-dock [data-ce-v4-route]").length,
+      dockLabels: [...document.querySelectorAll(".ce-v4-dock__label")].map((item) => item.textContent),
+      flowbarRoutes: document.querySelectorAll("[data-ce-v4-flow-route]").length,
+      flowbarCount: document.querySelectorAll(".ce-v4-flowbar").length,
       academy: document.querySelectorAll(".learning-gate-shell, .academy-os-window").length,
       shellCount: document.querySelectorAll(".workspace-shell").length,
       menubarCount: document.querySelectorAll(".ce-v4-menubar").length,
@@ -186,11 +193,27 @@ async function desktopMenuResult(context) {
     };
   });
 
+  await page.evaluate(() => { location.hash = "#/workspace/tasks"; });
+  await page.waitForFunction(() => location.hash === "#/workspace/tasks");
+  await page.evaluate(() => window.ContentEngineDesktopV4.flush());
+  const alias = await page.evaluate(() => ({
+    dock: document.querySelector(".ce-v4-dock__item.is-active")?.dataset.ceV4Route || "",
+    flowbar: document.querySelector(".ce-v4-flowbar__link.is-active")?.dataset.ceV4FlowRoute || "",
+  }));
+
+  await page.click('[data-ce-v4-flow-route="/workspace/review"]');
+  await page.waitForFunction(() => location.hash === "#/workspace/review");
+  await page.evaluate(() => window.ContentEngineDesktopV4.flush());
+  const switched = await page.evaluate(() => ({
+    route: location.hash,
+    current: document.querySelector('[data-ce-v4-flow-route="/workspace/review"]')?.getAttribute("aria-current"),
+  }));
+
   await page.click("[data-ce-v4-tools-trigger]");
   await page.mouse.click(12, 180);
   const outsideClosed = await page.evaluate(() => document.querySelector("[data-ce-v4-tools-menu]").hidden);
   await page.close();
-  return { opened, firstFocused, lastFocused, escaped, navigation, outsideClosed };
+  return { opened, firstFocused, lastFocused, escaped, navigation, alias, switched, outsideClosed };
 }
 
 async function mobileMenuResult(browser) {
@@ -204,10 +227,16 @@ async function mobileMenuResult(browser) {
   await page.click("[data-ce-v4-tools-trigger]");
   const result = await page.evaluate(() => {
     const rect = document.querySelector("[data-ce-v4-tools-menu]").getBoundingClientRect();
+    const flowbar = document.querySelector(".ce-v4-flowbar").getBoundingClientRect();
+    const dock = document.querySelector(".ce-v4-dock").getBoundingClientRect();
     return {
       rect: { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
+      flowbar: { x: flowbar.x, right: flowbar.right, width: flowbar.width },
+      dock: { x: dock.x, right: dock.right, width: dock.width },
       viewport: { width: innerWidth, height: innerHeight },
       routeCount: document.querySelectorAll("[data-ce-v4-tools-route]").length,
+      flowbarRoutes: document.querySelectorAll("[data-ce-v4-flow-route]").length,
+      dockLabels: document.querySelectorAll(".ce-v4-dock__label").length,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
     };
   });
@@ -226,15 +255,161 @@ async function reducedMotionResult(browser) {
   await page.click("[data-ce-v4-tools-trigger]");
   const result = await page.evaluate(() => {
     const menu = document.querySelector("[data-ce-v4-tools-menu]");
+    const flowLink = document.querySelector(".ce-v4-flowbar__link.is-active");
     return {
       animation: getComputedStyle(menu).animationName,
       transform: getComputedStyle(menu).transform,
       menubarAnimation: getComputedStyle(document.querySelector(".ce-v4-menubar")).animationName,
       dockAnimation: getComputedStyle(document.querySelector(".ce-v4-dock__glass")).animationName,
+      flowTransition: getComputedStyle(flowLink).transitionDuration,
+      flowTransform: getComputedStyle(flowLink).transform,
     };
   });
   await context.close();
   return result;
+}
+
+async function dockMagnificationResult(browser) {
+  const open = async (options = {}) => {
+    const context = await browser.newContext({
+      reducedMotion: "no-preference",
+      viewport: { width: 1440, height: 900 },
+      ...options,
+    });
+    const page = await context.newPage();
+    await page.goto(`${baseUrl}/tests/fixtures/workspace_v43_harness.html`, { waitUntil: "load" });
+    await page.waitForFunction(() => (
+      window.ContentEngineDesktopV4
+      && document.querySelectorAll(".ce-v4-dock [data-ce-v4-route]").length >= 5
+    ));
+    await page.waitForTimeout(500);
+    return { context, page };
+  };
+
+  const snapshot = (page) => page.evaluate(() => {
+    const rect = (node) => {
+      const value = node.getBoundingClientRect();
+      return { x: value.x, y: value.y, width: value.width, height: value.height };
+    };
+    const transformParts = (tile) => {
+      const transform = getComputedStyle(tile).transform;
+      if (!transform || transform === "none") return { scale: 1, y: 0 };
+      const Matrix = window.DOMMatrixReadOnly || window.WebKitCSSMatrix;
+      const matrix = new Matrix(transform);
+      return { scale: Number(matrix.m11 || 1), y: Number(matrix.m42 || 0) };
+    };
+    const items = [...document.querySelectorAll(".ce-v4-dock [data-ce-v4-route]")];
+    const transforms = items.map((item) => transformParts(item.querySelector(".ce-v4-dock__tile")));
+    return {
+      scales: transforms.map((value) => value.scale),
+      translateY: transforms.map((value) => value.y),
+      itemRects: items.map(rect),
+      glassRect: rect(document.querySelector(".ce-v4-dock__glass")),
+      menubarRect: rect(document.querySelector(".ce-v4-menubar")),
+      fineHover: matchMedia("(hover: hover) and (pointer: fine)").matches,
+    };
+  });
+
+  const hierarchy = (values, center = 2) => (
+    values[center] > values[center - 1] + 0.02
+    && values[center - 1] > values[center - 2] + 0.015
+    && values[center] > values[center + 1] + 0.02
+    && values[center + 1] > values[center + 2] + 0.015
+  );
+  const neutral = (values) => values.every((value) => Math.abs(value - 1) <= 0.01);
+  const neutralY = (values) => values.every((value) => Math.abs(value) <= 0.1);
+  const drift = (left, right) => Math.max(
+    Math.abs(left.x - right.x),
+    Math.abs(left.y - right.y),
+    Math.abs(left.width - right.width),
+    Math.abs(left.height - right.height),
+  );
+  const snapshotDrift = (before, after) => Math.max(
+    drift(before.glassRect, after.glassRect),
+    drift(before.menubarRect, after.menubarRect),
+    ...before.itemRects.map((value, index) => drift(value, after.itemRects[index])),
+  );
+
+  const desktop = await open();
+  const target = desktop.page.locator(".ce-v4-dock [data-ce-v4-route]").nth(2);
+  const before = await snapshot(desktop.page);
+  await target.hover();
+  await desktop.page.waitForTimeout(240);
+  const hovered = await snapshot(desktop.page);
+  await desktop.page.mouse.move(1, 1);
+  await desktop.page.waitForTimeout(240);
+  await desktop.page.keyboard.press("Tab");
+  await target.focus();
+  const focusVisible = await target.evaluate((item) => item.matches(":focus-visible"));
+  await desktop.page.waitForTimeout(240);
+  const focused = await snapshot(desktop.page);
+  const mixedTarget = desktop.page.locator(".ce-v4-dock [data-ce-v4-route]").nth(3);
+  await mixedTarget.hover();
+  await desktop.page.waitForTimeout(240);
+  const mixedFocusVisible = await target.evaluate((item) => item.matches(":focus-visible"));
+  const mixed = await snapshot(desktop.page);
+  await desktop.page.mouse.move(1, 1);
+  await desktop.page.evaluate(() => document.activeElement?.blur());
+  await desktop.page.waitForTimeout(450);
+  const cleaned = await snapshot(desktop.page);
+  await desktop.context.close();
+
+  const reduced = await open({ reducedMotion: "reduce" });
+  const reducedTarget = reduced.page.locator(".ce-v4-dock [data-ce-v4-route]").nth(2);
+  await reducedTarget.hover();
+  await reduced.page.waitForTimeout(80);
+  const reducedHover = await snapshot(reduced.page);
+  await reduced.page.mouse.move(1, 1);
+  await reduced.page.keyboard.press("Tab");
+  await reducedTarget.focus();
+  const reducedFocusVisible = await reducedTarget.evaluate((item) => item.matches(":focus-visible"));
+  await reduced.page.waitForTimeout(80);
+  const reducedFocus = await snapshot(reduced.page);
+  await reduced.context.close();
+
+  const touch = await open({ hasTouch: true });
+  const touchTarget = touch.page.locator(".ce-v4-dock [data-ce-v4-route]").nth(2);
+  await touchTarget.dispatchEvent("pointerover", { bubbles: true, pointerType: "touch" });
+  await touchTarget.dispatchEvent("pointermove", { bubbles: true, pointerType: "touch" });
+  await touch.page.waitForTimeout(80);
+  const touchSnapshot = await snapshot(touch.page);
+  await touch.context.close();
+
+  return {
+    focusVisible,
+    mixedFocusVisible,
+    reducedFocusVisible,
+    hoverHierarchy: before.fineHover && hierarchy(hovered.scales),
+    focusHierarchy: focusVisible && hierarchy(focused.scales),
+    mixedHoverPriority: mixedFocusVisible && hierarchy(mixed.scales, 3),
+    hoverLift: hovered.translateY[2] < hovered.translateY[1]
+      && hovered.translateY[1] < hovered.translateY[0],
+    focusLift: focused.translateY[2] < focused.translateY[1]
+      && focused.translateY[1] < focused.translateY[0],
+    rectDrift: Math.max(
+      snapshotDrift(before, hovered),
+      snapshotDrift(before, focused),
+      snapshotDrift(before, mixed),
+      snapshotDrift(before, cleaned),
+    ),
+    cleanup: neutral(cleaned.scales) && neutralY(cleaned.translateY),
+    reducedMotionNone: reducedFocusVisible
+      && neutral(reducedHover.scales)
+      && neutralY(reducedHover.translateY)
+      && neutral(reducedFocus.scales)
+      && neutralY(reducedFocus.translateY),
+    touchNone: !touchSnapshot.fineHover
+      && neutral(touchSnapshot.scales)
+      && neutralY(touchSnapshot.translateY),
+    before,
+    hovered,
+    focused,
+    mixed,
+    cleaned,
+    reducedHover,
+    reducedFocus,
+    touchSnapshot,
+  };
 }
 
 (async () => {
@@ -252,6 +427,7 @@ async function reducedMotionResult(browser) {
     await normal.close();
     const mobileMenu = await mobileMenuResult(browser);
     const reducedMotion = await reducedMotionResult(browser);
+    const dockMagnification = await dockMagnificationResult(browser);
 
     const checks = {
       domPatch: domPatch.passed === "true",
@@ -276,36 +452,62 @@ async function reducedMotionResult(browser) {
         && motion.readyRoute === "/workspace/board",
       motionIdentity: motion.shellSame
         && motion.menubarSame
+        && motion.flowbarSame
         && motion.dockSame
         && motion.menubarDrift <= 0.5
+        && motion.flowbarDrift <= 0.5
         && motion.dockDrift <= 0.5,
       menuOpen: !menu.opened.hidden
         && menu.opened.expanded === "true"
-        && menu.opened.routeCount === 7
+        && menu.opened.routeCount === 3
         && menu.opened.animation === "ce-v4-tools-menu-enter"
         && menu.opened.dialogCount === 0
         && menu.opened.backdropCount === 0,
-      menuKeyboard: menu.firstFocused === "/workspace/tasks"
-        && menu.lastFocused === "/workspace/team"
+      menuKeyboard: menu.firstFocused === "/workspace/research"
+        && menu.lastFocused === "/workspace/feedback"
         && menu.escaped.hidden
         && menu.escaped.triggerFocused,
       menuNavigation: menu.navigation.hidden
         && menu.navigation.current === "page"
         && menu.navigation.dockRoutes === 6
+        && menu.navigation.flowbarRoutes === 6
+        && menu.navigation.flowbarCount === 1
+        && menu.navigation.dockLabels.join("|") === "Сегодня|Файлы|Создать|Проверить|Опубликовать|Результаты|Корзина"
         && menu.navigation.academy === 0
         && menu.navigation.shellCount === 1
         && menu.navigation.menubarCount === 1
         && menu.navigation.dockCount === 1
         && menu.navigation.horizontalOverflow === 0
+        && menu.alias.dock === "/workspace/home"
+        && menu.alias.flowbar === "/workspace/home"
+        && menu.switched.route === "#/workspace/review"
+        && menu.switched.current === "step"
         && menu.outsideClosed,
-      menuMobile: mobileMenu.routeCount === 7
+      menuMobile: mobileMenu.routeCount === 3
+        && mobileMenu.flowbarRoutes === 6
+        && mobileMenu.dockLabels === 7
         && mobileMenu.rect.x >= 7
         && mobileMenu.rect.right <= 313
+        && mobileMenu.flowbar.x >= 0
+        && mobileMenu.flowbar.right <= 320
+        && mobileMenu.dock.x >= 0
+        && mobileMenu.dock.right <= 320
         && mobileMenu.horizontalOverflow === 0,
       reducedMotion: reducedMotion.animation === "none"
         && reducedMotion.transform === "none"
         && reducedMotion.menubarAnimation === "none"
-        && reducedMotion.dockAnimation === "none",
+        && reducedMotion.dockAnimation === "none"
+        && reducedMotion.flowTransition === "0s"
+        && reducedMotion.flowTransform === "none",
+      dockMagnification: dockMagnification.hoverHierarchy
+        && dockMagnification.focusHierarchy
+        && dockMagnification.mixedHoverPriority
+        && dockMagnification.hoverLift
+        && dockMagnification.focusLift
+        && dockMagnification.rectDrift <= 0.5
+        && dockMagnification.cleanup
+        && dockMagnification.reducedMotionNone
+        && dockMagnification.touchNone,
     };
     const passed = Object.values(checks).every(Boolean);
     console.log(JSON.stringify({
@@ -318,6 +520,7 @@ async function reducedMotionResult(browser) {
       menu,
       mobileMenu,
       reducedMotion,
+      dockMagnification,
     }, null, 2));
     if (!passed) process.exitCode = 1;
   } finally {

@@ -133,7 +133,7 @@ def test_home_prioritizes_exact_assigned_review() -> None:
         "item.independentAssignment?.status === \"assigned\"",
         "item.independentAssignment.assignedToMe",
         "item.independentAssignment.decisionEligible",
-        "`#/workspace/review/${assignedReview.id}`",
+        "`#/workspace/review?view=current&review=${encodeURIComponent(assignedReview.id)}`",
         "Назначен независимый QA",
         "const unassignedReview",
         "QA ожидает проверяющего",

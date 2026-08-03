@@ -44,6 +44,21 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     assert "generation-model-acceptance-view.js" in manifest["sha256"]
     assert "generation-provider-readiness.js" in manifest["sha256"]
     assert "generation-quality-training.js" in manifest["sha256"]
+    for workspace_asset in (
+        "workspace-action-key.js",
+        "workspace-os-v4-loader.js",
+        "workspace-os-v4.js",
+        "workspace-os-v4-flow.css",
+        "workspace-os-v4-finder.js",
+        "workspace-os-v4-finder.css",
+        "workspace-os-v4-context-trash.js",
+        "workspace-os-v4-context-trash.css",
+        "workspace-board-view.js",
+        "workspace-board.css",
+        "content-review-view.js",
+        "content-review.css",
+    ):
+        assert workspace_asset in manifest["sha256"]
     assert "config.example.js" not in manifest["sha256"]
     assert (output / ".nojekyll").is_file()
 

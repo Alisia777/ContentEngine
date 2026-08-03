@@ -156,9 +156,11 @@ def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
         assert marker in SCRIPT
 
 
-def test_trash_window_supports_restore_purge_empty_and_safe_previews() -> None:
+def test_inline_trash_surface_supports_restore_purge_empty_and_safe_previews() -> None:
     for marker in (
-        "createTrashWindow",
+        "createTrashSurface",
+        'window.location.hash = "#/workspace/board?view=trash"',
+        "ensureTrashSurface",
         "Корзина",
         "Восстановить",
         "Удалить окончательно…",
@@ -243,17 +245,25 @@ def test_context_trash_styles_are_desktop_mobile_and_accessibility_aware() -> No
         ".ce-v4-context-menu",
         ".ce-v4-system-toast",
         ".ce-v4-trash-dock__badge",
-        ".ce-v4-trash-window",
+        ".ce-v4-trash-surface",
         ".ce-v4-trash-grid",
         ".ce-v4-trash-item",
         ".ce-v4-trash-preview",
-        ".ce-v4-confirm",
+        ".ce-v4-trash-confirm",
         "@media (max-width: 680px)",
         "@media (max-height: 680px)",
         "@media (prefers-reduced-motion: reduce)",
         "content-visibility: auto",
     ):
         assert marker in STYLES
+
+    for forbidden in (
+        ".ce-v4-trash-backdrop",
+        ".ce-v4-trash-preview-backdrop",
+        ".ce-v4-confirm-backdrop",
+        "body.ce-v4-trash-open .ce-v4-dock",
+    ):
+        assert forbidden not in STYLES
 
     assert STYLES.count("{") == STYLES.count("}")
 

@@ -52,7 +52,7 @@ const runtime = {
   menu: null,
   menuRestoreFocus: null,
   trashDock: null,
-  trashWindow: null,
+  trashSurface: null,
   trashBody: null,
   trashItems: [],
   trashSelected: new Set(),
@@ -63,9 +63,11 @@ const runtime = {
   trashQuery: "",
   trashEntityType: "all",
   trashLoading: false,
-  preview: null,
-  confirm: null,
-  confirmRestoreFocus: null,
+  trashMutating: false,
+  trashPreviewItem: null,
+  inlineConfirm: null,
+  inlineRestoreFocus: null,
+  pendingTrashIntent: "",
   longPressTimer: 0,
   longPressStart: null,
   suppressClickUntil: 0,
@@ -137,6 +139,15 @@ function friendlyError(error) {
   return messages[code] || compact(error?.message, 260) || "Действие не выполнено. Обновите рабочее место и повторите.";
 }
 
+function routeQuery() {
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  return new URLSearchParams(raw.split("?")[1] || "");
+}
+
+function trashRouteActive() {
+  return routePath() === "/workspace/board" && routeQuery().get("view") === "trash";
+}
+
 function removeWithMotion(node, keyframes, duration = 140) {
   if (!(node instanceof Element)) return;
   if (node.dataset.ceV4Closing === "true") return;
@@ -164,16 +175,6 @@ function animateContextMenuIn(menu) {
     ],
     { duration: 130, easing: "cubic-bezier(.16,1,.3,1)" },
   );
-}
-
-function syncModalInert() {
-  const modalOpen = Boolean(runtime.trashWindow || runtime.confirm || runtime.preview);
-  [q("#app"), q(".ce-v4-menubar"), q(".ce-v4-dock")].forEach((node) => {
-    if (node instanceof HTMLElement) node.toggleAttribute("inert", modalOpen);
-  });
-  if (runtime.trashWindow instanceof HTMLElement) {
-    runtime.trashWindow.toggleAttribute("inert", Boolean(runtime.confirm || runtime.preview));
-  }
 }
 
 async function getApi() {
@@ -267,11 +268,12 @@ function folderDescriptor(node) {
   if (!(node instanceof Element)) return null;
   const row = node.closest(".workspace-board__folder-row[data-folder-id]");
   const id = String(row?.dataset.folderId || "");
-  if (!row || !id || id === "all" || id === "root") return null;
+  if (!row || !id) return null;
   return {
     id,
     name: compact(q(".workspace-board__folder-button span:nth-child(2)", row)?.textContent || "Папка"),
     row,
+    system: row.dataset.systemFolder === "true" || id === "all" || id === "root",
   };
 }
 
@@ -290,6 +292,27 @@ function finderOrganizeMode() {
   if (routePath() !== "/workspace/board") return false;
   const raw = String(window.location.hash || "").replace(/^#/, "");
   return new URLSearchParams(raw.split("?")[1] || "").get("view") === "organize";
+}
+
+function authorizedWorkspaceRoutes() {
+  const shell = q(".workspace-shell[data-workspace-authorized-routes]");
+  return new Set(
+    String(shell?.dataset.workspaceAuthorizedRoutes || "")
+      .split(/\s+/)
+      .map((route) => route.split("?")[0].replace(/\/$/, ""))
+      .filter(Boolean),
+  );
+}
+
+function workspaceRouteAuthorized(route) {
+  const normalized = String(route || "").split("?")[0].replace(/\/$/, "");
+  const routes = authorizedWorkspaceRoutes();
+  if (routes.size) return routes.has(normalized);
+  const shell = q(".workspace-shell[data-workspace-section]");
+  if (!shell) return routePath() === normalized;
+  return qa(".workspace-nav a[href]", shell).some((link) => (
+    String(link.getAttribute("href") || "").replace(/^#/, "").split("?")[0].replace(/\/$/, "") === normalized
+  ));
 }
 
 function createFromFinderMedia(entity) {
@@ -326,7 +349,11 @@ function focusFinderSearch() {
 function finderItemActions(entity) {
   const actions = [];
   actions.push(menuAction("Открыть", "open", () => {
+    if (window.ContentEngineFinderV4?.openQuickLook) {
+      return window.ContentEngineFinderV4.openQuickLook(entity.node);
+    }
     q('[data-action="open-workspace-item"]', entity.node)?.click();
+    return undefined;
   }, { shortcut: "↵" }));
   if (entity.type === "media" && ["product_photo", "packshot"].includes(entity.kind)) {
     actions.push(menuAction("Создать из этого файла", "plus", () => {
@@ -365,16 +392,18 @@ function folderActions(folder) {
   const actions = [
     menuAction("Открыть папку", "folder", () => q(".workspace-board__folder-button", folder.row)?.click(), { shortcut: "↵" }),
   ];
-  if (finderOrganizeMode()) actions.push(
+  if (finderOrganizeMode() && !folder.system) actions.push(
     menuAction("Новая папка внутри", "plus", () => focusFolderEditor(folder, "create")),
     menuAction("Переименовать", "rename", () => focusFolderEditor(folder, "rename")),
   );
   actions.push(
     { separator: true },
     menuAction("Скопировать название", "copy", () => copyText(folder.name, "Название папки скопировано")),
+  );
+  if (!folder.system) actions.push(
     menuAction("Скопировать ID", "copy", () => copyText(folder.id, "ID папки скопирован")),
   );
-  if (finderOrganizeMode()) actions.push(
+  if (finderOrganizeMode() && !folder.system) actions.push(
     { separator: true },
     menuAction("Архивировать пустую папку", "remove", () => archiveFolder(folder), { danger: true }),
   );
@@ -384,36 +413,52 @@ function folderActions(folder) {
 function emptySurfaceActions(target) {
   const route = routePath();
   if (route === "/workspace/board") {
-    const actions = [
+    const actions = [];
+    if (workspaceRouteAuthorized("/workspace/media")) actions.push(
       menuAction("Добавить материал", "upload", () => { window.location.hash = "#/workspace/media"; }),
       { separator: true },
+    );
+    actions.push(
       menuAction("Сетка", "grid", () => q('[data-ce-v4-finder-view="grid"]')?.click()),
       menuAction("Список", "list", () => q('[data-ce-v4-finder-view="list"]')?.click()),
       { separator: true },
       menuAction("Обновить", "refresh", refreshCurrentWorkspace, { shortcut: "⌘R" }),
       menuAction("Открыть Корзину", "trash", openTrash),
-    ];
+    );
     if (finderOrganizeMode()) actions.unshift(menuAction("Новая папка", "plus", () => focusFolderEditor(null, "create")));
     return actions;
   }
   if (route === "/workspace/tasks") {
-    return [
+    const actions = [
       menuAction("Найти задачу", "search", () => q(".ce-v4-task-filter input")?.focus({ preventScroll: true })),
       menuAction("Обновить", "refresh", refreshCurrentWorkspace),
+    ];
+    if (workspaceRouteAuthorized("/workspace/board")) actions.push(
       { separator: true },
       menuAction("Открыть Корзину", "trash", openTrash),
-    ];
+    );
+    return actions;
   }
-  return [
+  const navigation = [];
+  if (workspaceRouteAuthorized("/workspace/board")) navigation.push(
     menuAction("Найти в Файлах", "search", focusFinderSearch, { shortcut: "⌘K" }),
-    { separator: true },
+  );
+  if (workspaceRouteAuthorized("/workspace/research")) navigation.push(
     menuAction("Разбор товара", "search", () => { window.location.hash = "#/workspace/research"; }),
+  );
+  if (workspaceRouteAuthorized("/workspace/team")) navigation.push(
     menuAction("Команда", "open", () => { window.location.hash = "#/workspace/team"; }),
+  );
+  if (workspaceRouteAuthorized("/workspace/feedback")) navigation.push(
     menuAction("Помощь и обратная связь", "info", () => { window.location.hash = "#/workspace/feedback"; }),
-    { separator: true },
+  );
+  const actions = [...navigation];
+  if (actions.length) actions.push({ separator: true });
+  if (workspaceRouteAuthorized("/workspace/board")) actions.push(
     menuAction("Открыть Корзину", "trash", openTrash),
-    menuAction("Обновить", "refresh", refreshCurrentWorkspace),
-  ];
+  );
+  actions.push(menuAction("Обновить", "refresh", refreshCurrentWorkspace));
+  return actions;
 }
 
 function contextActions(target) {
@@ -452,14 +497,14 @@ function positionMenu(menu, x, y) {
   menu.style.top = `${top}px`;
 }
 
-function openContextMenu(target, x, y) {
+function openContextMenu(target, x, y, restoreFocus = target) {
   const actions = contextActions(target);
   if (!actions.length) return;
   closeContextMenu();
   const menu = create("div", "ce-v4-context-menu");
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", "Действия");
-  runtime.menuRestoreFocus = target instanceof HTMLElement ? target : null;
+  runtime.menuRestoreFocus = restoreFocus instanceof HTMLElement ? restoreFocus : null;
 
   actions.forEach((action) => {
     if (action.separator) {
@@ -507,6 +552,7 @@ function prefersNativeContextMenu(target) {
 
 function handleContextMenu(event) {
   if (prefersNativeContextMenu(event.target)) return;
+  if (event.target instanceof Element && event.target.closest(".ce-v4-trash-item")) return;
   const target = contextTarget(event.target);
   if (!target) return;
   event.preventDefault();
@@ -645,6 +691,10 @@ async function copyText(value, successMessage) {
 
 function refreshCurrentWorkspace() {
   closeContextMenu();
+  if (trashRouteActive()) {
+    void loadTrash();
+    return;
+  }
   if (routePath() === "/workspace/board") {
     const form = q("#workspace-board-filter-form");
     if (form) {
@@ -778,32 +828,34 @@ async function refreshTrashSummary() {
     runtime.trashSummary = data.summary || { total: 0, media: 0, tasks: 0 };
     runtime.trashCapabilities = data.capabilities || {};
     updateTrashDock();
-    syncTrashWindowHeader();
+    syncTrashSurfaceHeader();
   } catch {
     // Auth/bootstrap can still be settling. The next route or visibility event retries.
   }
 }
 
-function syncTrashWindowHeader() {
-  if (!runtime.trashWindow) return;
-  const count = q("[data-ce-v4-trash-total]", runtime.trashWindow);
+function syncTrashSurfaceHeader() {
+  if (!runtime.trashSurface) return;
+  const count = q("[data-ce-v4-trash-total]", runtime.trashSurface);
   if (count) count.textContent = `${runtime.trashSummary.total || 0}`;
-  const empty = q("[data-ce-v4-trash-empty]", runtime.trashWindow);
+  const empty = q("[data-ce-v4-trash-empty]", runtime.trashSurface);
   if (empty) {
-    empty.disabled = !runtime.trashSummary.total || !runtime.trashCapabilities.empty_trash || runtime.trashLoading;
+    empty.disabled = !runtime.trashSummary.total
+      || !runtime.trashCapabilities.empty_trash
+      || runtime.trashLoading
+      || runtime.trashMutating;
   }
 }
 
-function createTrashWindow() {
-  const backdrop = create("div", "ce-v4-trash-backdrop");
-  const dialog = create("section", "ce-v4-trash-window");
-  dialog.setAttribute("role", "dialog");
-  dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-label", "Корзина ContentEngine");
+function createTrashSurface() {
+  const surface = create("section", "ce-v4-trash-surface");
+  surface.setAttribute("aria-label", "Корзина ContentEngine");
+  surface.dataset.ceV4TrashSurface = "true";
+  surface.dataset.inlineMode = "list";
 
-  const header = create("header", "ce-v4-trash-window__header");
-  const titleGroup = create("div", "ce-v4-trash-window__title");
-  const mark = create("span", "ce-v4-trash-window__mark");
+  const header = create("header", "ce-v4-trash-surface__header");
+  const titleGroup = create("div", "ce-v4-trash-surface__title");
+  const mark = create("span", "ce-v4-trash-surface__mark");
   mark.append(svgIcon("trash", 21));
   const copy = create("span");
   const title = create("strong", "", "Корзина");
@@ -813,15 +865,14 @@ function createTrashWindow() {
   copy.append(title, subtitle);
   titleGroup.append(mark, copy);
 
-  const headerActions = create("div", "ce-v4-trash-window__header-actions");
+  const headerActions = create("div", "ce-v4-trash-surface__header-actions");
   const emptyButton = create("button", "ce-v4-trash-empty", "Очистить Корзину…");
   emptyButton.type = "button";
   emptyButton.dataset.ceV4TrashEmpty = "true";
-  const close = create("button", "ce-v4-trash-close");
-  close.type = "button";
-  close.setAttribute("aria-label", "Закрыть Корзину");
-  close.append(svgIcon("close", 18));
-  headerActions.append(emptyButton, close);
+  const back = create("button", "ce-v4-trash-back", "Назад к файлам");
+  back.type = "button";
+  back.setAttribute("aria-label", "Вернуться к файлам");
+  headerActions.append(emptyButton, back);
   header.append(titleGroup, headerActions);
 
   const toolbar = create("form", "ce-v4-trash-toolbar");
@@ -848,13 +899,13 @@ function createTrashWindow() {
   purge.dataset.ceV4TrashPurge = "true";
   toolbar.append(searchLabel, type, restore, purge);
 
-  const body = create("div", "ce-v4-trash-window__body");
+  const body = create("div", "ce-v4-trash-surface__body");
   body.dataset.ceV4TrashBody = "true";
   const loading = create("div", "ce-v4-trash-loading");
   loading.append(create("span"), create("p", "", "Открываем Корзину…"));
   body.append(loading);
 
-  const footer = create("footer", "ce-v4-trash-window__footer");
+  const footer = create("footer", "ce-v4-trash-surface__footer");
   footer.append(
     create("span", "", "Delete — в Корзину · Shift+Delete — окончательно только внутри Корзины"),
   );
@@ -864,13 +915,11 @@ function createTrashWindow() {
   more.hidden = true;
   footer.append(more);
 
-  dialog.append(header, toolbar, body, footer);
-  backdrop.append(dialog);
+  surface.append(header, toolbar, body, footer);
 
-  close.addEventListener("click", closeTrash);
-  backdrop.addEventListener("click", (event) => { if (event.target === backdrop) closeTrash(); });
+  back.addEventListener("click", closeTrash);
   emptyButton.addEventListener("click", confirmEmptyTrash);
-  restore.addEventListener("click", restoreSelectedTrash);
+  restore.addEventListener("click", confirmRestoreSelectedTrash);
   purge.addEventListener("click", purgeSelectedTrash);
   more.addEventListener("click", () => loadTrash({ append: true }));
   toolbar.addEventListener("submit", (event) => event.preventDefault());
@@ -890,51 +939,82 @@ function createTrashWindow() {
   body.addEventListener("keydown", handleTrashBodyKeydown);
   body.addEventListener("contextmenu", handleTrashBodyContextMenu);
 
-  return { backdrop, dialog, body, search };
+  return { surface, body, search };
 }
 
 async function openTrash() {
   closeContextMenu();
-  if (runtime.trashWindow) return;
-  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "trash" } }));
-  const parts = createTrashWindow();
-  document.body.append(parts.backdrop);
-  runtime.trashWindow = parts.backdrop;
-  runtime.trashBody = parts.body;
-  document.body.classList.add("ce-v4-trash-open");
-  syncModalInert();
-  syncTrashWindowHeader();
-  parts.search.focus({ preventScroll: true });
-  if (!REDUCED_MOTION.matches && typeof parts.dialog.animate === "function") {
-    parts.dialog.animate(
-      [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }],
-      { duration: 200, easing: "cubic-bezier(.16,1,.3,1)" },
-    );
+  if (!trashRouteActive()) {
+    window.location.hash = "#/workspace/board?view=trash";
+    return;
   }
-  await loadTrash();
+  await ensureTrashSurface({ focusSearch: true });
 }
 
 function closeTrash() {
   closeContextMenu();
-  closePreview();
-  const windowNode = runtime.trashWindow;
-  if (!windowNode) return;
-  runtime.trashWindow = null;
+  closePreview({ renderList: false, restoreFocus: false });
+  closeConfirm({ renderList: false, restoreFocus: false });
+  if (trashRouteActive()) {
+    window.location.hash = "#/workspace/board";
+    return;
+  }
+  teardownTrashSurface();
+}
+
+function teardownTrashSurface({ clearItems = true } = {}) {
+  q("video", runtime.trashSurface)?.pause?.();
+  const board = runtime.trashSurface?.closest?.(".workspace-board");
+  board?.classList.remove("is-trash-view");
+  runtime.trashSurface?.remove();
+  runtime.trashSurface = null;
   runtime.trashBody = null;
-  runtime.trashItems = [];
-  runtime.trashSelected.clear();
-  runtime.trashCursor = null;
-  document.body.classList.remove("ce-v4-trash-open");
-  syncModalInert();
-  removeWithMotion(
-    windowNode,
-    [
-      { opacity: 1 },
-      { opacity: 0 },
-    ],
-    150,
-  );
-  runtime.trashDock?.focus({ preventScroll: true });
+  runtime.trashPreviewItem = null;
+  runtime.inlineConfirm = null;
+  runtime.inlineRestoreFocus = null;
+  document.body.classList.remove("ce-v4-trash-route");
+  runtime.trashDock?.classList.remove("is-active");
+  runtime.trashDock?.removeAttribute("aria-current");
+  if (clearItems) {
+    runtime.trashItems = [];
+    runtime.trashSelected.clear();
+    runtime.trashCursor = null;
+    runtime.trashHasMore = false;
+  }
+}
+
+async function ensureTrashSurface({ focusSearch = false } = {}) {
+  if (!trashRouteActive()) return null;
+  const board = q(".workspace-board");
+  if (!board) return null;
+  if (runtime.trashSurface?.isConnected && runtime.trashSurface.closest(".workspace-board") === board) {
+    if (focusSearch) q(".ce-v4-trash-search input", runtime.trashSurface)?.focus({ preventScroll: true });
+    return runtime.trashSurface;
+  }
+
+  teardownTrashSurface({ clearItems: false });
+  const parts = createTrashSurface();
+  board.classList.add("is-trash-view");
+  board.append(parts.surface);
+  runtime.trashSurface = parts.surface;
+  runtime.trashBody = parts.body;
+  document.body.classList.add("ce-v4-trash-route");
+  runtime.trashDock?.classList.add("is-active");
+  runtime.trashDock?.setAttribute("aria-current", "page");
+  syncTrashSurfaceHeader();
+  if (focusSearch) parts.search.focus({ preventScroll: true });
+  if (!REDUCED_MOTION.matches && typeof parts.surface.animate === "function") {
+    parts.surface.animate(
+      [{ opacity: 0, transform: "translate3d(0,8px,0)" }, { opacity: 1, transform: "translate3d(0,0,0)" }],
+      { duration: 190, easing: "cubic-bezier(.16,1,.3,1)" },
+    );
+  }
+  await loadTrash();
+  if (runtime.pendingTrashIntent === "empty") {
+    runtime.pendingTrashIntent = "";
+    confirmEmptyTrash();
+  }
+  return parts.surface;
 }
 
 async function loadTrash({ append = false } = {}) {
@@ -964,7 +1044,7 @@ async function loadTrash({ append = false } = {}) {
     runtime.trashLoading = false;
     updateTrashToolbar();
     updateTrashDock();
-    syncTrashWindowHeader();
+    syncTrashSurfaceHeader();
   }
 }
 
@@ -1005,8 +1085,11 @@ function trashItemCard(item) {
   select.setAttribute("aria-pressed", String(selected));
   if (selected) select.append(svgIcon("check", 15));
 
-  const preview = create("div", "ce-v4-trash-item__preview");
+  const preview = create("button", "ce-v4-trash-item__preview");
+  preview.type = "button";
   preview.dataset.trashPreview = key;
+  preview.dataset.trashOpen = key;
+  preview.setAttribute("aria-label", `Просмотреть: ${compact(item.title || id, 100)}`);
   preview.append(svgIcon(type === "media" ? "eye" : "open", 27));
 
   const copy = create("div", "ce-v4-trash-item__copy");
@@ -1038,7 +1121,7 @@ function renderTrashItems() {
     runtime.trashItems.forEach((item) => grid.append(trashItemCard(item)));
     runtime.trashBody.replaceChildren(grid);
   }
-  const more = q("[data-ce-v4-trash-more]", runtime.trashWindow);
+  const more = q("[data-ce-v4-trash-more]", runtime.trashSurface);
   if (more) more.hidden = !runtime.trashHasMore;
   updateTrashToolbar();
 }
@@ -1052,23 +1135,30 @@ function selectedTrashItems() {
 }
 
 function updateTrashToolbar() {
-  if (!runtime.trashWindow) return;
+  if (!runtime.trashSurface) return;
   const selected = selectedTrashItems();
-  const restore = q("[data-ce-v4-trash-restore]", runtime.trashWindow);
-  const purge = q("[data-ce-v4-trash-purge]", runtime.trashWindow);
+  const restore = q("[data-ce-v4-trash-restore]", runtime.trashSurface);
+  const purge = q("[data-ce-v4-trash-purge]", runtime.trashSurface);
+  const busy = runtime.trashLoading || runtime.trashMutating;
   if (restore) {
-    restore.disabled = !selected.length || runtime.trashLoading;
+    restore.disabled = !selected.length || busy;
     restore.textContent = selected.length ? `Восстановить · ${selected.length}` : "Восстановить";
   }
   if (purge) {
-    purge.disabled = !selected.length || !runtime.trashCapabilities.purge_items || runtime.trashLoading;
+    purge.disabled = !selected.length || !runtime.trashCapabilities.purge_items || busy;
     purge.textContent = selected.length ? `Удалить окончательно · ${selected.length}` : "Удалить окончательно…";
   }
-  syncTrashWindowHeader();
+  syncTrashSurfaceHeader();
 }
 
 function handleTrashBodyClick(event) {
   const target = event.target instanceof Element ? event.target : null;
+  const opener = target?.closest("[data-trash-open]");
+  if (opener) {
+    const item = runtime.trashItems.find((candidate) => trashKey(candidate) === opener.dataset.trashOpen);
+    if (item) void openTrashPreview(item);
+    return;
+  }
   const selector = target?.closest("[data-trash-select]");
   const card = target?.closest(".ce-v4-trash-item[data-trash-key]");
   if (!selector && !card) return;
@@ -1101,6 +1191,11 @@ function handleTrashBodyKeydown(event) {
   const card = target?.closest(".ce-v4-trash-item[data-trash-key]");
   if (!card) return;
   event.preventDefault();
+  if (event.key === "Enter") {
+    const item = runtime.trashItems.find((candidate) => trashKey(candidate) === card.dataset.trashKey);
+    if (item) void openTrashPreview(item);
+    return;
+  }
   const key = String(card.dataset.trashKey || "");
   setTrashCardSelection(card, key, !runtime.trashSelected.has(key));
 }
@@ -1113,7 +1208,7 @@ function handleTrashBodyContextMenu(event) {
   if (!item) return;
   closeContextMenu();
   const actions = [
-    menuAction("Восстановить", "restore", () => restoreTrashItems([item])),
+    menuAction("Восстановить…", "restore", () => confirmRestoreTrashItems([item])),
     menuAction("Скопировать ID", "copy", () => copyText(item.id, "ID скопирован")),
     { separator: true },
     menuAction("Удалить окончательно…", "remove", () => confirmPurge([item]), { danger: true, disabled: !runtime.trashCapabilities.purge_items }),
@@ -1176,21 +1271,26 @@ async function hydrateTrashPreviews() {
 }
 
 async function openTrashPreview(item) {
-  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "trash" } }));
-  closePreview();
-  const backdrop = create("div", "ce-v4-trash-preview-backdrop");
-  const dialog = create("section", "ce-v4-trash-preview");
-  dialog.setAttribute("role", "dialog");
-  dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-label", compact(item.title || "Объект Корзины"));
+  if (!runtime.trashBody || !runtime.trashSurface) return;
+  closeConfirm({ renderList: false, restoreFocus: false });
+  closePreview({ renderList: false, restoreFocus: false });
+  runtime.trashPreviewItem = item;
+  runtime.trashSurface.dataset.inlineMode = "preview";
+  const panel = create("section", "ce-v4-trash-preview");
+  panel.setAttribute("aria-label", compact(item.title || "Объект Корзины"));
   const header = create("header");
   const copy = create("div");
-  copy.append(create("small", "", "QUICK LOOK · КОРЗИНА"), create("strong", "", compact(item.title || item.id, 120)));
-  const close = create("button");
-  close.type = "button";
-  close.setAttribute("aria-label", "Закрыть просмотр");
-  close.append(svgIcon("close", 18));
-  header.append(copy, close);
+  copy.append(create("small", "", "КОРЗИНА · ПРОСМОТР"), create("strong", "", compact(item.title || item.id, 120)));
+  const actions = create("div", "ce-v4-trash-preview__actions");
+  const restore = create("button", "", "Восстановить");
+  restore.type = "button";
+  const purge = create("button", "is-danger", "Удалить окончательно…");
+  purge.type = "button";
+  purge.disabled = !runtime.trashCapabilities.purge_items;
+  const back = create("button", "", "Назад к Корзине");
+  back.type = "button";
+  actions.append(restore, purge, back);
+  header.append(copy, actions);
   const body = create("div", "ce-v4-trash-preview__body");
   const placeholder = create("div", "ce-v4-trash-preview__placeholder");
   placeholder.append(svgIcon(item.type === "media" ? "eye" : "open", 54));
@@ -1205,16 +1305,14 @@ async function openTrashPreview(item) {
   );
   if (item.instructions) aside.append(create("p", "", compact(item.instructions, 600)));
   body.append(aside);
-  dialog.append(header, body);
-  backdrop.append(dialog);
-  document.body.append(backdrop);
-  runtime.preview = backdrop;
-  document.body.classList.add("ce-v4-preview-open");
-  close.addEventListener("click", closePreview);
-  backdrop.addEventListener("click", (event) => { if (event.target === backdrop) closePreview(); });
-  close.focus({ preventScroll: true });
-  if (!REDUCED_MOTION.matches && typeof dialog.animate === "function") {
-    dialog.animate(
+  panel.append(header, body);
+  runtime.trashBody.replaceChildren(panel);
+  restore.addEventListener("click", () => confirmRestoreTrashItems([item]));
+  purge.addEventListener("click", () => confirmPurge([item]));
+  back.addEventListener("click", () => closePreview());
+  back.focus({ preventScroll: true });
+  if (!REDUCED_MOTION.matches && typeof panel.animate === "function") {
+    panel.animate(
       [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }],
       { duration: 180, easing: "cubic-bezier(.16,1,.3,1)" },
     );
@@ -1226,7 +1324,7 @@ async function openTrashPreview(item) {
       const { data, error } = await api.supabase.storage
         .from(item.bucket_id || "contentengine-private")
         .createSignedUrl(item.object_name, 600);
-      if (!error && data?.signedUrl && runtime.preview === backdrop) {
+      if (!error && data?.signedUrl && runtime.trashPreviewItem === item && placeholder.isConnected) {
         let media;
         if (String(item.mime_type || "").startsWith("image/")) {
           media = create("img");
@@ -1254,20 +1352,36 @@ function fact(label, value) {
   return row;
 }
 
-function closePreview() {
-  q("video", runtime.preview)?.pause?.();
-  runtime.preview?.remove();
-  runtime.preview = null;
-  document.body.classList.remove("ce-v4-preview-open");
+function closePreview({ renderList = true, restoreFocus = true } = {}) {
+  const item = runtime.trashPreviewItem;
+  q("video", runtime.trashBody)?.pause?.();
+  runtime.trashPreviewItem = null;
+  if (runtime.trashSurface) runtime.trashSurface.dataset.inlineMode = "list";
+  if (renderList && runtime.trashBody) renderTrashItems();
+  if (restoreFocus && item) {
+    window.requestAnimationFrame(() => {
+      q(`[data-trash-key="${CSS.escape(trashKey(item))}"]`, runtime.trashBody)?.focus({ preventScroll: true });
+    });
+  }
 }
 
-async function restoreSelectedTrash() {
+function confirmRestoreSelectedTrash() {
   const items = selectedTrashItems();
-  if (items.length) await restoreTrashItems(items);
+  if (items.length) confirmRestoreTrashItems(items);
+}
+
+function confirmRestoreTrashItems(items) {
+  const count = items.length;
+  openConfirm({
+    title: count === 1 ? "Восстановить объект?" : `Восстановить объектов: ${count}?`,
+    description: "Объекты вернутся в прежние папки и снова появятся в рабочем процессе.",
+    actionLabel: count === 1 ? "Восстановить" : `Восстановить · ${count}`,
+    run: () => restoreTrashItems(items),
+  });
 }
 
 async function restoreTrashItems(items) {
-  runtime.trashLoading = true;
+  runtime.trashMutating = true;
   updateTrashToolbar();
   try {
     await mutateTrash(RPC.restore, {
@@ -1275,14 +1389,14 @@ async function restoreTrashItems(items) {
     });
     showToast(items.length === 1 ? "Объект восстановлен" : `Восстановлено: ${items.length}`, "success");
     await refreshTrashSummary();
-    await loadTrash();
-    if (routePath() === "/workspace/board") {
+    if (routePath() === "/workspace/board" && !trashRouteActive()) {
       q("#workspace-board-filter-form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     }
   } finally {
-    runtime.trashLoading = false;
+    runtime.trashMutating = false;
     updateTrashToolbar();
   }
+  await loadTrash();
 }
 
 async function purgeSelectedTrash() {
@@ -1297,11 +1411,17 @@ function confirmPurge(items) {
     description: "Восстановить эти файлы или задачи после удаления будет нельзя. Система сохранит только технический аудит операции.",
     actionLabel: "Удалить окончательно",
     danger: true,
+    phrase: "УДАЛИТЬ",
     run: () => purgeTrashItems(items),
   });
 }
 
 function confirmEmptyTrash() {
+  if (!trashRouteActive()) {
+    runtime.pendingTrashIntent = "empty";
+    void openTrash();
+    return;
+  }
   if (!runtime.trashSummary.total || !runtime.trashCapabilities.empty_trash) return;
   openConfirm({
     title: "Очистить всю Корзину?",
@@ -1314,19 +1434,19 @@ function confirmEmptyTrash() {
 }
 
 function openConfirm({ title, description, actionLabel, danger = false, phrase = "", run }) {
-  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "trash" } }));
-  closeConfirm();
-  runtime.confirmRestoreFocus = document.activeElement instanceof HTMLElement
+  if (!runtime.trashBody || !runtime.trashSurface) return;
+  closePreview({ renderList: false, restoreFocus: false });
+  closeConfirm({ renderList: false, restoreFocus: false });
+  runtime.inlineRestoreFocus = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  const backdrop = create("div", "ce-v4-confirm-backdrop");
-  const dialog = create("section", "ce-v4-confirm");
-  dialog.setAttribute("role", "alertdialog");
-  dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-label", title);
-  const mark = create("span", `ce-v4-confirm__mark${danger ? " is-danger" : ""}`);
+  const panel = create("section", "ce-v4-trash-confirm");
+  panel.setAttribute("aria-label", title);
+  runtime.inlineConfirm = { title, run };
+  runtime.trashSurface.dataset.inlineMode = "confirm";
+  const mark = create("span", `ce-v4-trash-confirm__mark${danger ? " is-danger" : ""}`);
   mark.append(svgIcon(danger ? "warning" : "info", 25));
-  dialog.append(mark, create("h2", "", title), create("p", "", description));
+  panel.append(mark, create("h2", "", title), create("p", "", description));
   let input = null;
   if (phrase) {
     input = create("input");
@@ -1334,30 +1454,30 @@ function openConfirm({ title, description, actionLabel, danger = false, phrase =
     input.autocomplete = "off";
     input.placeholder = phrase;
     input.setAttribute("aria-label", `Введите ${phrase}`);
-    dialog.append(input);
+    panel.append(input);
   }
-  const actions = create("div", "ce-v4-confirm__actions");
+  const actions = create("div", "ce-v4-trash-confirm__actions");
   const cancel = create("button", "", "Отмена");
   cancel.type = "button";
   const action = create("button", danger ? "is-danger" : "", actionLabel);
   action.type = "button";
   action.disabled = Boolean(phrase);
   actions.append(cancel, action);
-  dialog.append(actions);
-  backdrop.append(dialog);
-  document.body.append(backdrop);
-  runtime.confirm = backdrop;
-  document.body.classList.add("ce-v4-confirm-open");
-  syncModalInert();
-  cancel.addEventListener("click", closeConfirm);
-  backdrop.addEventListener("click", (event) => { if (event.target === backdrop) closeConfirm(); });
+  panel.append(actions);
+  runtime.trashBody.replaceChildren(panel);
+  cancel.addEventListener("click", () => closeConfirm());
   input?.addEventListener("input", () => { action.disabled = input.value.trim() !== phrase; });
   action.addEventListener("click", async () => {
     action.disabled = true;
     cancel.disabled = true;
     try {
       await run();
-      closeConfirm();
+      runtime.inlineConfirm = null;
+      runtime.inlineRestoreFocus = null;
+      if (runtime.trashSurface) runtime.trashSurface.dataset.inlineMode = "list";
+      if (runtime.trashBody && !q(".ce-v4-trash-grid, .ce-v4-trash-empty-state", runtime.trashBody)) {
+        renderTrashItems();
+      }
     } catch (error) {
       action.disabled = false;
       cancel.disabled = false;
@@ -1367,26 +1487,22 @@ function openConfirm({ title, description, actionLabel, danger = false, phrase =
   (input || cancel).focus({ preventScroll: true });
 }
 
-function closeConfirm() {
-  const confirm = runtime.confirm;
-  const restoreFocus = runtime.confirmRestoreFocus;
-  runtime.confirm = null;
-  runtime.confirmRestoreFocus = null;
-  document.body.classList.remove("ce-v4-confirm-open");
-  syncModalInert();
-  removeWithMotion(
-    confirm,
-    [
-      { opacity: 1 },
-      { opacity: 0 },
-    ],
-    130,
-  );
-  if (restoreFocus?.isConnected) restoreFocus.focus({ preventScroll: true });
+function closeConfirm({ renderList = true, restoreFocus = true } = {}) {
+  const restoreControl = runtime.inlineRestoreFocus;
+  runtime.inlineConfirm = null;
+  runtime.inlineRestoreFocus = null;
+  if (runtime.trashSurface) runtime.trashSurface.dataset.inlineMode = "list";
+  if (renderList && runtime.trashBody) renderTrashItems();
+  if (restoreFocus) {
+    window.requestAnimationFrame(() => {
+      if (restoreControl?.isConnected) restoreControl.focus({ preventScroll: true });
+      else q("[data-ce-v4-trash-restore], [data-ce-v4-trash-empty]", runtime.trashSurface)?.focus({ preventScroll: true });
+    });
+  }
 }
 
 async function purgeTrashItems(items) {
-  runtime.trashLoading = true;
+  runtime.trashMutating = true;
   updateTrashToolbar();
   try {
     const response = await mutateTrash(RPC.purge, {
@@ -1400,15 +1516,15 @@ async function purgeTrashItems(items) {
       pending ? "warning" : "success",
     );
     await refreshTrashSummary();
-    await loadTrash();
   } finally {
-    runtime.trashLoading = false;
+    runtime.trashMutating = false;
     updateTrashToolbar();
   }
+  await loadTrash();
 }
 
 async function emptyTrash() {
-  runtime.trashLoading = true;
+  runtime.trashMutating = true;
   updateTrashToolbar();
   let removed = 0;
   let pending = 0;
@@ -1430,11 +1546,11 @@ async function emptyTrash() {
       pending ? "warning" : "success",
     );
     await refreshTrashSummary();
-    await loadTrash();
   } finally {
-    runtime.trashLoading = false;
+    runtime.trashMutating = false;
     updateTrashToolbar();
   }
+  await loadTrash();
 }
 
 async function cleanupStorage(items) {
@@ -1494,51 +1610,16 @@ function formatDate(value) {
   }).format(date);
 }
 
-function trapDialogFocus(event, root) {
-  if (event.key !== "Tab" || !(root instanceof Element)) return false;
-  const controls = qa(
-    "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), "
-      + "textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
-    root,
-  ).filter((node) => !node.hidden && node.getClientRects().length > 0);
-  if (!controls.length) {
-    event.preventDefault();
-    return true;
-  }
-  const first = controls[0];
-  const last = controls.at(-1);
-  if (!root.contains(document.activeElement)) {
-    event.preventDefault();
-    (event.shiftKey ? last : first).focus({ preventScroll: true });
-    return true;
-  }
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus({ preventScroll: true });
-    return true;
-  }
-  if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus({ preventScroll: true });
-    return true;
-  }
-  return false;
-}
-
 function handleGlobalKeydown(event) {
   if (handleMenuKeyboard(event)) return;
-  if (event.key === "Tab") {
-    const modal = runtime.confirm || runtime.preview || runtime.trashWindow;
-    if (trapDialogFocus(event, modal)) return;
-  }
   if (event.key === "Escape") {
-    if (runtime.confirm) { closeConfirm(); return; }
-    if (runtime.preview) { closePreview(); return; }
-    if (runtime.trashWindow) { closeTrash(); return; }
+    if (runtime.inlineConfirm) { event.preventDefault(); closeConfirm(); return; }
+    if (runtime.trashPreviewItem) { event.preventDefault(); closePreview(); return; }
+    if (trashRouteActive()) { event.preventDefault(); closeTrash(); return; }
   }
   const editing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
   if (editing) return;
-  if (runtime.trashWindow && event.shiftKey && event.key === "Delete") {
+  if (trashRouteActive() && event.shiftKey && event.key === "Delete") {
     const items = selectedTrashItems();
     if (items.length && runtime.trashCapabilities.purge_items) {
       event.preventDefault();
@@ -1546,7 +1627,7 @@ function handleGlobalKeydown(event) {
     }
     return;
   }
-  if (!runtime.trashWindow && event.key === "Delete") {
+  if (!trashRouteActive() && event.key === "Delete") {
     if (routePath() === "/workspace/board" && !finderOrganizeMode()) return;
     const entity = entityDescriptor(document.activeElement);
     if (entity) {
@@ -1595,6 +1676,8 @@ function cancelLongPress(event) {
 function mount() {
   ensureTrashDock();
   updateTrashDock();
+  if (trashRouteActive()) void ensureTrashSurface();
+  else if (runtime.trashSurface) teardownTrashSurface();
   if (!runtime.summaryTimer && q(".ce-v4-dock")) {
     runtime.summaryTimer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshTrashSummary();
@@ -1607,13 +1690,23 @@ document.addEventListener("contextmenu", handleContextMenu, true);
 document.addEventListener("keydown", handleGlobalKeydown, true);
 document.addEventListener("pointerdown", handlePointerDown, { passive: true });
 document.addEventListener(CLOSE_TRANSIENTS_EVENT, (event) => {
-  if (event.detail?.source === "trash") return;
+  void event;
   closeContextMenu();
-  closeConfirm();
-  closePreview();
-  closeTrash();
 });
 document.addEventListener("click", (event) => {
+  const trigger = event.target instanceof Element
+    ? event.target.closest("[data-ce-v4-context-trigger]")
+    : null;
+  if (trigger instanceof HTMLButtonElement && !trigger.disabled) {
+    const target = contextTarget(trigger);
+    if (target) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const rect = trigger.getBoundingClientRect();
+      openContextMenu(target, rect.right, rect.bottom + 4, trigger);
+      return;
+    }
+  }
   if (
     Date.now() < runtime.suppressClickUntil
     && runtime.suppressClickTarget instanceof Element

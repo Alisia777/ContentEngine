@@ -54,6 +54,7 @@ def test_v43_loader_has_a_single_intentional_route_adapter() -> None:
 
     loaded_scripts = set(re.findall(r"(workspace[-a-z0-9]+\.js)\?v=", LOADER))
     assert loaded_scripts == {
+        "workspace-action-key.js",
         "workspace-os-v4.js",
         "workspace-os-v4-trash-rpc-alias.js",
         "workspace-os-v4-context-trash.js",
@@ -171,8 +172,10 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
     handle = _between(CORE, "function handleHashChange(", "\nfunction handleKeydown(")
     assert handle.index("window.clearTimeout(runtime.scrollTimer)") < handle.index(
-        "captureScroll(runtime.route)"
+        "const previousActionKey = runtime.actionKey"
     )
+    assert "runtime.preNavigationActionKey === previousActionKey" in handle
+    assert "captureScroll(runtime.route, previousActionKey)" in handle
     assert "runtime.restoredScrollNodes = new WeakSet()" in handle
     assert 'window.addEventListener("hashchange", handleHashChange, { capture: true, passive: true })' in CORE
 
@@ -229,7 +232,10 @@ def test_same_route_patch_recoordinates_runtime_state_after_one_dom_pass() -> No
         "\n  if (\n    window.CONTENTENGINE_DESKTOP_V4 === true",
     )
     assert same_route.count("patchWorkspaceContent(existingContent, content)") == 1
-    assert same_route.count("window.ContentEngineDesktopV4?.requestMount?.()") == 1
+    assert same_route.count("window.ContentEngineDesktopV4?.requestMount?.()") == 2
+    assert "const sameAction = previousActionKey === nextActionKey" in same_route
+    assert "if (!sameAction)" in same_route
+    assert "resetWorkspaceRouteEntry(existingContent, section)" in same_route
     assert "existingContent.innerHTML" not in same_route
 
     assert "const contentReviewDecisionMediaBindings = new WeakMap()" in APP_JS

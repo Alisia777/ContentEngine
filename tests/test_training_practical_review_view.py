@@ -97,6 +97,9 @@ def test_learner_and_manager_markup_are_explicit_and_accessible() -> None:
     assert "Что исправить" in learner
     assert 'aria-labelledby="training-practical-title"' in learner
     assert 'data-action="open-training-practical-media"' in queue
+    assert 'data-training-practical-media' in queue
+    assert 'data-training-practical-video' in queue
+    assert 'aria-expanded="false"' in queue
     assert 'value="approve"' in queue
     assert 'value="request_changes"' in queue
     assert 'name="media_watched_confirmed"' in queue

@@ -28,8 +28,8 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 def test_desktop_v4_4_is_the_only_eager_workspace_shell() -> None:
     assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260803.os4.4" />' in INDEX
     assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260803.os4.4"></script>' in INDEX
-    assert INDEX.index('./app.js') < INDEX.index('./workspace-os-v4-loader.js')
-    assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./workspace-build-guard.js')
+    assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
+    assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
     active_modules = re.findall(
         r'^\s*<script type="module" src="([^\"]+)"',
@@ -37,8 +37,8 @@ def test_desktop_v4_4_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './app.js?v=20260803.os4.4',
         './workspace-os-v4-loader.js?v=20260803.os4.4',
+        './app.js?v=20260803.os4.4',
         './workspace-build-guard.js?v=20260803.os4.4',
     ]
 
@@ -168,8 +168,8 @@ def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() 
         'По имени',
         'По типу',
         'По статусу',
-        'QUICK LOOK',
-        'contentengine-v4-finder-drawer',
+        'ФАЙЛЫ · ПРОСМОТР',
+        'ce-v4-quicklook-inline',
         'Добавить материал',
     ):
         assert marker in FINDER

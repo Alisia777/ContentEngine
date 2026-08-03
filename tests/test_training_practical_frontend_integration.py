@@ -36,6 +36,9 @@ def test_manager_queue_decision_and_protected_view_are_wired() -> None:
     assert 'form.classList.contains("training-practical-review__form")' in APP
     assert 'action === "open-training-practical-media"' in APP
     assert "signedTrainingPracticalObjectUrls(bucketId, [objectKey], 600)" in APP
+    assert 'querySelector("[data-training-practical-video]")' in APP
+    assert "video.src = signedUrl" in APP
+    assert "window.open" not in APP
 
 
 def test_manager_review_queue_is_available_before_workspace_unlock() -> None:

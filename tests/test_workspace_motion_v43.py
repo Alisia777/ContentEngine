@@ -33,11 +33,13 @@ def test_motion_layer_is_loaded_after_the_stability_contract() -> None:
     assert LOADER.index(stability) < LOADER.index(motion)
 
 
-def test_query_only_view_switch_does_not_restart_the_global_route_gate() -> None:
-    assert 'let lastScheduledRoute = "";' in LOADER
-    assert "const sameRoutePath = route === lastScheduledRoute;" in LOADER
-    assert "if (sameRoutePath && isManagedRoute(route))" in LOADER
-    same_route_guard = LOADER.index("if (sameRoutePath && isManagedRoute(route))")
+def test_same_action_refresh_skips_the_route_gate_but_query_actions_do_not() -> None:
+    assert 'let lastScheduledActionKey = "";' in LOADER
+    assert "const actionKey = workspaceActionKey();" in LOADER
+    assert "const sameAction = actionKey === lastScheduledActionKey;" in LOADER
+    assert "lastScheduledActionKey = actionKey;" in LOADER
+    assert "if (sameAction && isManagedRoute(route))" in LOADER
+    same_route_guard = LOADER.index("if (sameAction && isManagedRoute(route))")
     loading_gate = LOADER.index("setLoading(isManagedRoute(route), route)")
     assert same_route_guard < loading_gate
 
@@ -79,12 +81,12 @@ def test_route_motion_keeps_the_desktop_chrome_stable() -> None:
 
 def test_route_enter_is_one_animation_and_is_released_after_it_finishes() -> None:
     assert 'entering?.querySelector("#workspace-content")?.classList.remove("ce-v4-content-reveal")' in LOADER
-    assert "function armRouteEnterCleanup(route, epoch)" in LOADER
+    assert "function armRouteEnterCleanup(route, actionKey, epoch)" in LOADER
     assert 'event.animationName !== "ce-v4-route-enter"' in LOADER
     assert 'main.classList.remove("route-enter")' in LOADER
     assert "window.setTimeout(finish, 450)" in LOADER
     load_route = LOADER[LOADER.index("async function loadRoute(") : LOADER.index("\nfunction schedule(")]
-    assert load_route.index("armRouteEnterCleanup(route, epoch)") < load_route.index("setLoading(false, route)")
+    assert load_route.index("armRouteEnterCleanup(route, actionKey, epoch)") < load_route.index("setLoading(false, route)")
 
 
 def test_menubar_has_mac_traffic_lights_and_real_fullscreen_control() -> None:
@@ -111,6 +113,30 @@ def test_menubar_has_mac_traffic_lights_and_real_fullscreen_control() -> None:
     assert "control.hidden = !supported" in CORE
     assert "Браузер не разрешил полноэкранный режим" in CORE
     assert ".ce-v4-menubar__start" in CORE_CSS
+
+
+def test_persistent_menubar_does_not_retain_a_webkit_transform_layer() -> None:
+    selector = 'body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {'
+    start = MOTION.index(selector)
+    rule = MOTION[start : MOTION.index("\n}", start)]
+    assert "ce-v4-menubar-enter" in rule
+    assert " both" not in rule
+    assert "forwards" not in rule
+
+
+def test_dock_magnification_moves_only_tiles_and_has_accessible_fallbacks() -> None:
+    assert "transform-origin: 50% 100%" in STABILITY
+    assert "@media (hover: hover) and (pointer: fine)" in STABILITY
+    assert "@supports selector(.ce-v4-dock__item:has(" in STABILITY
+    assert "@supports not selector(.ce-v4-dock__item:has(" in STABILITY
+    for scale in ("scale(1.025)", "scale(1.055)", "scale(1.1)"):
+        assert scale in STABILITY
+    assert ".ce-v4-dock__item:focus-visible .ce-v4-dock__tile" in STABILITY
+    assert ".ce-v4-dock__item:hover .ce-v4-dock__tile" in STABILITY
+    assert ".ce-v4-dock__item:hover {" not in STABILITY
+    reduced = MOTION[MOTION.index("@media (prefers-reduced-motion: reduce)") :]
+    assert ".ce-v4-dock__glass:is(:hover, :focus-within) .ce-v4-dock__tile" in reduced
+    assert "transform: none !important" in reduced
 
 
 def test_fullscreen_layout_does_not_reserve_a_second_body_scrollbar_gutter() -> None:
@@ -152,7 +178,7 @@ def test_keyboard_search_opens_finder_without_a_spotlight_subwindow() -> None:
     assert "openSpotlight();" not in handler
 
 
-def test_context_menu_preserves_native_editing_and_closes_only_the_top_layer() -> None:
+def test_context_menu_preserves_native_editing_without_modal_layers() -> None:
     assert "function prefersNativeContextMenu(target)" in CONTEXT
     for selector in (
         "input",
@@ -165,9 +191,11 @@ def test_context_menu_preserves_native_editing_and_closes_only_the_top_layer() -
         assert selector in CONTEXT
     assert "if (prefersNativeContextMenu(event.target)) return;" in CONTEXT
     assert "if (handleMenuKeyboard(event)) return;" in CONTEXT
-    assert "function trapDialogFocus(event, root)" in CONTEXT
-    assert "function syncModalInert()" in CONTEXT
-    assert 'node.toggleAttribute("inert", modalOpen)' in CONTEXT
+    assert "function trapDialogFocus(event, root)" not in CONTEXT
+    assert "function syncModalInert()" not in CONTEXT
+    assert 'toggleAttribute("inert"' not in CONTEXT
+    assert "aria-modal" not in CONTEXT
+    assert 'window.location.hash = "#/workspace/board?view=trash"' in CONTEXT
     assert "runtime.suppressClickUntil = Date.now() + 800" in CONTEXT
 
 

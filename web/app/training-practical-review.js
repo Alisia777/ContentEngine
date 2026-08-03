@@ -181,7 +181,7 @@ function statusCopy(project) {
 
 function evidenceSummaryMarkup(project, options = {}) {
   const mediaButton = project.media.objectKey
-    ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-training-practical-media" data-object-key="${escapeHtml(project.media.objectKey)}">Открыть защищённый MP4</button>`
+    ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-training-practical-media" data-object-key="${escapeHtml(project.media.objectKey)}" aria-expanded="false">Показать MP4 здесь</button>`
     : "";
   const link = project.evidenceUrl
     ? `<a class="btn btn-secondary btn-small" href="${escapeHtml(project.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>`
@@ -193,6 +193,10 @@ function evidenceSummaryMarkup(project, options = {}) {
       ${project.media.filename ? `<div><span>Файл</span><strong>${escapeHtml(project.media.filename)}</strong></div>` : ""}
       ${project.learnerNote ? `<p>${escapeHtml(project.learnerNote)}</p>` : ""}
       <div class="inline-actions">${mediaButton}${link}${options.compact ? "" : `<small>${project.submittedAt ? `Отправлено: ${escapeHtml(project.submittedAt)}` : ""}</small>`}</div>
+      ${project.media.objectKey ? `<div class="training-practical__media" data-training-practical-media hidden>
+        <video controls preload="metadata" playsinline data-training-practical-video aria-label="Пробная работа ${escapeHtml(project.media.filename || "MP4")}"></video>
+        <p role="status" data-training-practical-media-status>Защищённый MP4 открыт в этом экране.</p>
+      </div>` : ""}
     </div>
   `;
 }

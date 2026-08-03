@@ -168,6 +168,264 @@ process.stdout.write(JSON.stringify(result));
     )
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is unavailable")
+def test_open_academy_refreshes_an_external_waiver_without_page_reload() -> None:
+    policy_functions = "\n\n".join(
+        (
+            _function_source(APP, "membershipLockDetails", "hasOperationalWorkspaceRole"),
+            _function_source(APP, "hasOperationalWorkspaceRole", "practicalProjectApproved"),
+            _function_source(APP, "practicalProjectApproved", "trainingAccessWaiverActive"),
+            _function_source(APP, "trainingAccessWaiverActive", "academyRequired"),
+            _function_source(APP, "academyRequired", "hasWorkspaceAccess"),
+            _function_source(APP, "hasWorkspaceAccess", "prerequisitesComplete"),
+            _function_source(APP, "authenticatedStartPath", "establishDefaultRoute"),
+        )
+    )
+    refresh_functions = _between(
+        APP,
+        "function authenticatedRouteCompatible(",
+        "\nfunction normalizeBootstrap(",
+    )
+    harness = r"""
+const MEMBERSHIP_LOCK_COPY = Object.freeze({});
+const OPERATIONAL_WORKSPACE_ROLES = new Set(["operator"]);
+const REQUIRED_MODULE_CODES = Object.freeze(["course-a", "course-b"]);
+const WORKSPACE_START_PATH = "/workspace/home";
+const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
+const BOOTSTRAP_ACCESS_REFRESH_INTERVAL_MS = 30_000;
+const document = { visibilityState: "visible" };
+function normalizeTrainingPracticalProject(value) {
+  return { approved: value?.approved === true };
+}
+function trainingCatalogReady() { return true; }
+const training = (waiver = false) => ({
+  accessWaiver: { active: waiver, scope: waiver ? "workspace_generation" : "" },
+  completedModules: [],
+  practicalProject: { approved: false },
+  exam: { passed: false },
+});
+const state = {
+  session: { user: { id: "qa" } },
+  user: { id: "qa" },
+  forcePassword: false,
+  api: {},
+  bootstrapStatus: "ready",
+  bootstrapConfirmedAt: 0,
+  bootstrapRefreshPromise: null,
+  bootstrap: {
+    accessState: "learning",
+    workspaceAccess: false,
+    membership: { role: "operator" },
+    training: training(false),
+  },
+  route: { path: "/learn/exam" },
+};
+let silentLoads = 0;
+let navigations = [];
+let nextBootstrap = {
+  accessState: "learning",
+  workspaceAccess: true,
+  membership: { role: "operator" },
+  training: training(true),
+};
+async function loadBootstrap(options) {
+  if (options?.silent !== true) throw new Error("refresh replaced the Academy shell");
+  silentLoads += 1;
+  await Promise.resolve();
+  state.bootstrap = nextBootstrap;
+  state.bootstrapConfirmedAt = Date.now();
+  return state.bootstrap;
+}
+function navigate(path, replace) {
+  navigations.push([path, replace]);
+  state.route = { path };
+}
+
+__POLICY_FUNCTIONS__
+
+__REFRESH_FUNCTIONS__
+
+(async () => {
+  await Promise.all([
+    refreshBootstrapAccessState({ force: true }),
+    refreshBootstrapAccessState({ force: true }),
+  ]);
+  nextBootstrap = {
+    accessState: "learning",
+    workspaceAccess: false,
+    membership: { role: "operator" },
+    training: training(false),
+  };
+  state.route = { path: "/workspace/tasks" };
+  state.bootstrapConfirmedAt = 0;
+  await refreshBootstrapAccessState();
+  process.stdout.write(JSON.stringify({
+    silentLoads,
+    navigations,
+    route: state.route.path,
+    academyRequired: academyRequired(),
+    workspaceAccess: hasWorkspaceAccess(),
+    refreshSettled: state.bootstrapRefreshPromise === null,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+""".replace("__POLICY_FUNCTIONS__", policy_functions).replace(
+        "__REFRESH_FUNCTIONS__",
+        refresh_functions,
+    )
+    result = subprocess.run(
+        [shutil.which("node"), "-e", harness],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout == (
+        '{"silentLoads":2,"navigations":[["/workspace/home",true],["/learn",true]],'
+        '"route":"/learn","academyRequired":true,'
+        '"workspaceAccess":false,"refreshSettled":true}'
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is unavailable")
+def test_background_access_refresh_times_out_without_replacing_the_current_shell() -> None:
+    loader = _between(
+        APP,
+        "async function loadBootstrap({ silent = false } = {}) {",
+        "\nfunction authenticatedRouteCompatible(",
+    )
+    refresh = _between(
+        APP,
+        "async function refreshBootstrapAccessState(",
+        "\nfunction normalizeBootstrap(",
+    )
+    harness = r"""
+const WORKSPACE_REQUEST_TIMEOUT_MS = 5;
+const window = globalThis;
+let renderCount = 0;
+let requestCount = 0;
+const originalBootstrap = { marker: "preserve-me" };
+const state = {
+  dataEpoch: 0,
+  user: { id: "qa" },
+  api: {
+    bootstrap() {
+      requestCount += 1;
+      return new Promise(() => {});
+    },
+  },
+  sessionId: "session",
+  bootstrapRequestId: 0,
+  bootstrap: originalBootstrap,
+  bootstrapStatus: "ready",
+  bootstrapError: null,
+  bootstrapConfirmedAt: 123,
+};
+function render() { renderCount += 1; }
+function withUiTimeout(operation, timeoutMs, message) {
+  let timerId;
+  const timeout = new Promise((_, reject) => {
+    timerId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([operation, timeout]).finally(() => clearTimeout(timerId));
+}
+
+__LOADER__
+
+(async () => {
+  const result = await loadBootstrap({ silent: true });
+  process.stdout.write(JSON.stringify({
+    result,
+    requestCount,
+    renderCount,
+    preserved: state.bootstrap === originalBootstrap,
+    status: state.bootstrapStatus,
+    error: state.bootstrapError,
+    refreshable: state.bootstrapRequestId === 1,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+""".replace("__LOADER__", loader)
+    result = subprocess.run(
+        [shutil.which("node"), "-e", harness],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout == (
+        '{"result":null,"requestCount":1,"renderCount":0,"preserved":true,'
+        '"status":"ready","error":null,"refreshable":true}'
+    )
+    assert 'const bootstrap = await loadBootstrap({ silent: true });' in refresh
+    assert "WORKSPACE_REQUEST_TIMEOUT_MS" in loader
+    assert 'path.startsWith("/workspace/")' in refresh
+    assert "state.bootstrapRefreshPromise" in refresh
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is unavailable")
+def test_auth_identity_switch_clears_the_previous_users_workspace_before_loading() -> None:
+    handler = _between(
+        APP,
+        "async function handleAuthStateChange(",
+        "\nasync function requireAuthLinkSession(",
+    )
+    harness = r"""
+const events = [];
+const state = {
+  session: { user: { id: "old-user" } },
+  user: { id: "old-user" },
+  bootstrap: { owner: "old-user" },
+  bootstrapStatus: "ready",
+  forcePassword: false,
+  authPurpose: null,
+};
+function clearAuthenticatedState() {
+  events.push("clear");
+  state.session = null;
+  state.user = null;
+  state.bootstrap = null;
+  state.bootstrapStatus = "idle";
+}
+function requiresPasswordChange() { return false; }
+async function loadBootstrap() {
+  events.push(`load:${state.user?.id || "none"}:${state.bootstrap === null}`);
+  state.bootstrap = { owner: state.user.id };
+  state.bootstrapStatus = "ready";
+}
+function authenticatedStartPath() { return "/workspace/home"; }
+function navigate(path, replace) { events.push(`navigate:${path}:${replace}`); }
+function refreshBootstrapAccessState() { events.push("silent-refresh"); }
+
+__HANDLER__
+
+(async () => {
+  await handleAuthStateChange("SIGNED_IN", { user: { id: "new-user" } });
+  process.stdout.write(JSON.stringify({
+    events,
+    user: state.user.id,
+    bootstrapOwner: state.bootstrap.owner,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+""".replace("__HANDLER__", handler)
+    result = subprocess.run(
+        [shutil.which("node"), "-e", harness],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout == (
+        '{"events":["clear","load:new-user:true",'
+        '"navigate:/workspace/home:true"],"user":"new-user",'
+        '"bootstrapOwner":"new-user"}'
+    )
+
+
 def test_academy_renders_only_for_people_who_still_require_it() -> None:
     render = _between(APP, "function render() {", "\n}\n\nfunction renderLogin")
     academy_gate = _between(render, "if (academyRequired()) {", '\n  if (path === "/learn" || path.startsWith("/learn/"))')
@@ -268,6 +526,14 @@ def test_secondary_menu_is_navigation_not_a_window() -> None:
         "window.open",
     ):
         assert forbidden not in menubar
+
+
+def test_flowbar_shows_position_and_next_step_without_faking_completion() -> None:
+    update = _between(CORE, "function updateFlowbar() {", "\n}\n\nfunction ensureDock")
+    assert 'link.classList.toggle("is-next", next)' in update
+    assert 'next ? "next" : "available"' in update
+    assert "is-past" not in update
+    assert 'data-state = "past"' not in update
 
 
 def test_nested_academy_chrome_has_a_global_fail_closed_guard() -> None:

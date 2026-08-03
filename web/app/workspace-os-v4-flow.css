@@ -66,6 +66,102 @@ body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
   transform: none !important;
 }
 
+/* Compact instruction strip: one current action, one completion criterion and
+   one next destination. It replaces the old three-card route banner. */
+body.contentengine-desktop-v4 .workspace-action-guide {
+  display: grid;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(236, 136, 75, .18);
+  border-radius: 15px;
+  grid-template-columns: 30px minmax(0, 1fr) minmax(190px, auto);
+  align-items: center;
+  gap: 10px 14px;
+  color: var(--ce-v4-text);
+  background: linear-gradient(100deg, rgba(236, 136, 75, .07), rgba(255, 255, 255, .015));
+}
+
+.workspace-action-guide__step {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(236, 136, 75, .3);
+  border-radius: 9px;
+  place-items: center;
+  color: var(--ce-v4-copper-bright);
+  background: rgba(236, 136, 75, .08);
+  font-weight: 800;
+}
+
+.workspace-action-guide__now,
+.workspace-action-guide__next {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workspace-action-guide small {
+  color: var(--ce-v4-dim);
+  font-size: .61rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workspace-action-guide__now strong {
+  font-size: .82rem;
+  line-height: 1.35;
+}
+
+.workspace-action-guide__now > span,
+.workspace-action-guide > p {
+  color: var(--ce-v4-muted);
+  font-size: .69rem;
+  line-height: 1.4;
+}
+
+.workspace-action-guide__next {
+  justify-items: end;
+  text-align: right;
+}
+
+.workspace-action-guide__next a {
+  color: var(--ce-v4-copper-bright);
+  font-size: .76rem;
+  font-weight: 780;
+  text-decoration: none;
+}
+
+.workspace-action-guide__next a:is(:hover, :focus-visible) {
+  color: #fff;
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.workspace-action-guide > p {
+  grid-column: 2 / -1;
+  margin: -1px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+}
+
+@media (max-width: 720px) {
+  body.contentengine-desktop-v4 .workspace-action-guide {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .workspace-action-guide__next {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .workspace-action-guide > p {
+    grid-column: 1 / -1;
+  }
+}
+
 body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
   .split-grid,
   .generation-workspace-layout,
@@ -163,6 +259,113 @@ body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
   border-color: rgba(236, 136, 75, 0.28);
   color: var(--ce-v4-text);
   background: rgba(236, 136, 75, 0.1);
+}
+
+.workspace-action-sequence {
+  display: grid;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 14px;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  align-items: center;
+  gap: 10px 18px;
+  background: rgba(255, 255, 255, .018);
+}
+
+.workspace-action-sequence > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workspace-action-sequence small {
+  color: var(--ce-v4-dim);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workspace-action-sequence strong {
+  overflow: hidden;
+  color: var(--ce-v4-text);
+  font-size: .86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-action-sequence nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.workspace-action-sequence a {
+  display: inline-flex;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 10px;
+  align-items: center;
+  color: var(--ce-v4-muted);
+  background: rgba(255, 255, 255, .02);
+  font-size: .73rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.workspace-action-sequence a[data-sequence-direction="next"] {
+  border-color: rgba(236, 136, 75, .26);
+  color: var(--ce-v4-copper-bright);
+  background: rgba(236, 136, 75, .07);
+}
+
+.workspace-action-sequence a:is(:hover, :focus-visible) {
+  color: #fff;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.team-action-switch.team-action-switch--groups {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: visible;
+}
+
+.team-action-switch--groups a {
+  justify-content: center;
+}
+
+.team-action-switch.team-action-switch--context {
+  margin-top: -10px;
+  border-color: rgba(255, 255, 255, .065);
+  background: transparent;
+}
+
+@media (max-width: 680px) {
+  .workspace-action-sequence {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-action-sequence nav {
+    justify-content: flex-start;
+  }
+
+  .workspace-action-sequence a {
+    flex: 1 1 150px;
+    justify-content: center;
+  }
+
+  .team-action-switch.team-action-switch--groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .team-action-switch--groups a {
+    justify-content: flex-start;
+  }
 }
 
 [data-generation-view="create"] .generation-archive-card,

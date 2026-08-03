@@ -6,6 +6,8 @@
  * reads secrets or clones file inputs.
  */
 
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.4";
+
 const BUILD = "20260803.os4.4";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
@@ -28,13 +30,9 @@ const ROUTES = Object.freeze([
 ]);
 
 const SECONDARY_ROUTES = Object.freeze([
-  Object.freeze({ route: "/workspace/tasks", label: "Задачи", icon: "tasks", description: "Работа, которая требует человека" }),
-  Object.freeze({ route: "/workspace/work", label: "Моя работа", icon: "work", description: "Сейчас, жду и дальше" }),
-  Object.freeze({ route: "/workspace/media", label: "Добавить файлы", icon: "folder", description: "Загрузить точные фото и видео" }),
-  Object.freeze({ route: "/workspace/payouts", label: "Выплаты", icon: "money", description: "Основание, решение и перевод" }),
-  Object.freeze({ route: "/workspace/research", label: "Разбор товара", icon: "search", description: "Факты, источники и сценарии" }),
-  Object.freeze({ route: "/workspace/feedback", label: "Помощь", icon: "tasks", description: "Сообщить о препятствии" }),
+  Object.freeze({ route: "/workspace/research", label: "Исследования", icon: "search", description: "Факты, источники и сценарии" }),
   Object.freeze({ route: "/workspace/team", label: "Команда", icon: "work", description: "Доступы и участники" }),
+  Object.freeze({ route: "/workspace/feedback", label: "Помощь", icon: "tasks", description: "Сообщить о препятствии" }),
 ]);
 
 const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES]);
@@ -64,6 +62,7 @@ const ICONS = Object.freeze({
 
 const runtime = {
   route: routePath(),
+  actionKey: workspaceActionKey(),
   queued: false,
   mounting: false,
   needsMount: false,
@@ -72,6 +71,7 @@ const runtime = {
   adapters: new Map(),
   flushWaiters: [],
   menubar: null,
+  flowbar: null,
   dock: null,
   mission: null,
   spotlight: null,
@@ -85,6 +85,8 @@ const runtime = {
   fullscreenListening: false,
   restoredRoute: "",
   restoredScrollNodes: new WeakSet(),
+  pendingActionReset: "",
+  preNavigationActionKey: "",
   state: readState(),
 };
 
@@ -154,8 +156,10 @@ function routeQuery() {
 }
 
 function routeMatches(route, expected) {
+  if (expected === "/workspace/home") {
+    return route === expected || route === "/workspace/tasks" || route === "/workspace/work";
+  }
   if (expected === "/workspace/board") return route === expected || route === "/workspace/media";
-  if (expected === "/workspace/tasks") return route === expected || route === "/workspace/work";
   if (expected === "/workspace/stats") return route === expected || route === "/workspace/payouts";
   return route === expected;
 }
@@ -178,6 +182,7 @@ function hasAuthenticatedWorkspace() {
 }
 
 function navigate(route) {
+  captureCurrentAction();
   document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
   closeTransientOverlays(true);
   window.location.hash = `#${route || "/workspace/home"}`;
@@ -264,7 +269,12 @@ function toolsMenuParts() {
 
 function secondaryRouteIsAuthorized(route) {
   if (!ROLE_GATED_SECONDARY_ROUTES.has(route)) return true;
-  const navigation = q(".workspace-shell[data-workspace-section] .workspace-nav");
+  const shell = q(".workspace-shell[data-workspace-section]");
+  const declaredRoutes = String(shell?.dataset.workspaceAuthorizedRoutes || "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (declaredRoutes.length) return declaredRoutes.includes(route);
+  const navigation = q(".workspace-nav", shell);
   return qa("a[href]", navigation).some((link) => (
     String(link.getAttribute("href") || "").split("?")[0] === `#${route}`
   ));
@@ -516,30 +526,89 @@ function updateClock() {
   clock.textContent = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(now);
 }
 
+function ensureFlowbar() {
+  if (runtime.flowbar?.isConnected) return runtime.flowbar;
+  const flowbar = create("nav", "ce-v4-flowbar");
+  flowbar.setAttribute("aria-label", "Путь создания контента: 6 этапов");
+  const track = create("ol", "ce-v4-flowbar__track");
+  ROUTES.forEach((item, index) => {
+    const step = create("li", "ce-v4-flowbar__step");
+    const link = create("a", "ce-v4-flowbar__link");
+    const number = index + 1;
+    const title = `${number}. ${item.label} — ${item.description}`;
+    link.href = `#${item.route}`;
+    link.dataset.ceV4FlowRoute = item.route;
+    link.setAttribute("aria-label", `${number} из ${ROUTES.length}. ${item.label}. ${item.description}`);
+    link.title = title;
+    link.append(
+      create("span", "ce-v4-flowbar__number", String(number)),
+      create("span", "ce-v4-flowbar__label", item.label),
+    );
+    step.append(link);
+    track.append(step);
+  });
+  flowbar.append(track);
+  document.body.append(flowbar);
+  runtime.flowbar = flowbar;
+  return flowbar;
+}
+
+function updateFlowbar() {
+  const route = routePath();
+  const activeIndex = ROUTES.findIndex((item) => routeMatches(route, item.route));
+  let activeLink = null;
+  qa("[data-ce-v4-flow-route]", runtime.flowbar).forEach((link, index) => {
+    const active = index === activeIndex;
+    const next = activeIndex >= 0 && index === activeIndex + 1;
+    link.classList.toggle("is-active", active);
+    link.classList.toggle("is-next", next);
+    link.dataset.state = active ? "current" : next ? "next" : "available";
+    if (active) {
+      link.setAttribute("aria-current", "step");
+      activeLink = link;
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  });
+  const track = q(".ce-v4-flowbar__track", runtime.flowbar);
+  if (activeLink && track && window.innerWidth <= 680) {
+    window.requestAnimationFrame(() => {
+      const left = activeLink.offsetLeft - (track.clientWidth - activeLink.offsetWidth) / 2;
+      track.scrollTo({
+        left: Math.max(0, left),
+        behavior: REDUCED_MOTION.matches ? "auto" : "smooth",
+      });
+    });
+  }
+}
+
 function ensureDock() {
   if (runtime.dock?.isConnected) return runtime.dock;
   const dock = create("nav", "ce-v4-dock");
-  dock.setAttribute("aria-label", "Приложения ContentEngine");
+  dock.setAttribute("aria-label", "Основные этапы ContentEngine");
   const glass = create("div", "ce-v4-dock__glass");
   ROUTES.forEach((item, index) => {
     const link = create("a", "ce-v4-dock__item");
+    const shortcut = `⌥${Math.min(index + 1, 9)}`;
     link.href = `#${item.route}`;
     link.dataset.ceV4Route = item.route;
-    link.setAttribute("aria-label", item.label);
-    link.append(create("span", "ce-v4-dock__tooltip", `${item.label} · ⌥${Math.min(index + 1, 9)}`));
+    link.setAttribute("aria-label", `${item.label}. ${item.description}. ${shortcut}`);
+    link.title = `${item.label} — ${item.description}`;
+    link.append(create("span", "ce-v4-dock__tooltip", `${item.description} · ${shortcut}`));
     const tile = create("span", "ce-v4-dock__tile");
     tile.append(icon(item.icon, 22));
-    link.append(tile, create("i"));
+    link.append(tile, create("span", "ce-v4-dock__label", item.label), create("i"));
     glass.append(link);
   });
   const separator = create("span", "ce-v4-dock__separator ce-v4-trash-separator");
   const trash = create("button", "ce-v4-dock__item ce-v4-dock__utility ce-v4-trash-dock");
   trash.type = "button";
   trash.setAttribute("aria-label", "Корзина");
-  trash.append(create("span", "ce-v4-dock__tooltip", "Корзина"));
+  trash.title = "Корзина — удалённые файлы и папки";
+  trash.append(create("span", "ce-v4-dock__tooltip", "Удалённые файлы и папки"));
   const trashTile = create("span", "ce-v4-dock__tile");
   trashTile.append(icon("trash", 22));
-  trash.append(trashTile, create("i"));
+  trash.append(trashTile, create("span", "ce-v4-dock__label", "Корзина"), create("i"));
   glass.append(separator, trash);
   dock.append(glass);
   document.body.append(dock);
@@ -921,20 +990,39 @@ function scrollKey(node, index) {
   return (node.dataset.ceV4ScrollKey || node.id || [...node.classList].slice(0, 2).join(".") || `scroll-${index}`).slice(0, 120);
 }
 
-function captureScroll(route = runtime.route) {
-  if (!isWorkspaceRoute(route)) return;
+function captureScroll(route = runtime.route, actionKey = runtime.actionKey) {
+  if (!isWorkspaceRoute(route) || !isWorkspaceActionKey(actionKey)) return;
   const nested = {};
   scrollContainers().forEach((node, index) => { nested[scrollKey(node, index)] = { top: Math.round(node.scrollTop || 0), left: Math.round(node.scrollLeft || 0) }; });
   const states = { ...(runtime.state.scroll || {}) };
-  states[route] = { windowY: Math.round(window.scrollY || 0), nested, at: Date.now() };
+  states[actionKey] = { windowY: Math.round(window.scrollY || 0), nested, at: Date.now() };
   remember({ scroll: states });
 }
 
-function restoreScroll(route = routePath()) {
-  const saved = runtime.state.scroll?.[route];
+function captureCurrentAction(expectedActionKey = runtime.actionKey) {
+  const expected = String(expectedActionKey || "");
+  if (!expected || expected !== runtime.actionKey) return false;
+  window.clearTimeout(runtime.scrollTimer);
+  captureScroll(runtime.route, runtime.actionKey);
+  runtime.preNavigationActionKey = runtime.actionKey;
+  return true;
+}
 
-  if (runtime.restoredRoute !== route) {
-    runtime.restoredRoute = route;
+function restoreScroll(actionKey = workspaceActionKey()) {
+  const main = q("#main-content");
+  const appAlreadyReset = main?.dataset?.ceV4ActionEntry === actionKey;
+  const pendingReset = runtime.pendingActionReset === actionKey;
+  const saved = pendingReset ? null : runtime.state.scroll?.[actionKey];
+
+  if (pendingReset && appAlreadyReset) {
+    runtime.restoredRoute = actionKey;
+    runtime.restoredScrollNodes = new WeakSet(scrollContainers());
+    runtime.pendingActionReset = "";
+    return;
+  }
+
+  if (runtime.restoredRoute !== actionKey) {
+    runtime.restoredRoute = actionKey;
     runtime.restoredScrollNodes = new WeakSet();
     window.scrollTo({ top: Math.max(0, Number(saved?.windowY) || 0), behavior: "auto" });
   }
@@ -945,6 +1033,7 @@ function restoreScroll(route = routePath()) {
     node.scrollLeft = Math.max(0, Number(point?.left) || 0);
     runtime.restoredScrollNodes.add(node);
   });
+  if (runtime.pendingActionReset === actionKey) runtime.pendingActionReset = "";
 }
 
 function governVideo(video) {
@@ -992,8 +1081,10 @@ function mount() {
   if (!isWorkspaceRoute(route) || !hasAuthenticatedWorkspace()) {
     closeTransientOverlays(true);
     runtime.menubar?.remove();
+    runtime.flowbar?.remove();
     runtime.dock?.remove();
     runtime.menubar = null;
+    runtime.flowbar = null;
     runtime.dock = null;
     document.body.classList.remove("contentengine-desktop-v4");
     document.body.removeAttribute("data-ce-v4-stable");
@@ -1005,8 +1096,10 @@ function mount() {
   document.body.dataset.ceV4Stable = "true";
   cleanLegacyChrome();
   ensureMenubar();
+  ensureFlowbar();
   ensureDock();
   updateMenubar();
+  updateFlowbar();
   updateDock();
   mountHome();
 }
@@ -1049,7 +1142,7 @@ function runMount() {
     setupVideoGovernor();
     markSurface();
     bindScrollOwner();
-    restoreScroll(routePath());
+    restoreScroll(runtime.actionKey);
   } finally {
     runtime.mounting = false;
     observeWorkspace();
@@ -1082,9 +1175,16 @@ function flush() {
 
 function handleHashChange() {
   window.clearTimeout(runtime.scrollTimer);
-  captureScroll(runtime.route);
+  const previousActionKey = runtime.actionKey;
+  if (runtime.preNavigationActionKey === previousActionKey) {
+    runtime.preNavigationActionKey = "";
+  } else {
+    captureScroll(runtime.route, previousActionKey);
+  }
   closeTransientOverlays(true);
   runtime.route = routePath();
+  runtime.actionKey = workspaceActionKey();
+  runtime.pendingActionReset = previousActionKey === runtime.actionKey ? "" : runtime.actionKey;
   runtime.restoredRoute = "";
   runtime.restoredScrollNodes = new WeakSet();
   scheduleMount();
@@ -1114,7 +1214,7 @@ function handleKeydown(event) {
 
 function handleScroll() {
   window.clearTimeout(runtime.scrollTimer);
-  runtime.scrollTimer = window.setTimeout(() => captureScroll(routePath()), 180);
+  runtime.scrollTimer = window.setTimeout(() => captureScroll(routePath(), workspaceActionKey()), 180);
 }
 
 function handlePointerDown(event) {
@@ -1144,10 +1244,13 @@ window.ContentEngineDesktopV4 = Object.freeze({
   build: BUILD,
   routes: ROUTES,
   route: routePath,
+  actionKey: workspaceActionKey,
   navigate,
   icon,
   create,
   registerAdapter,
+  captureCurrentAction,
+  syncRoute: handleHashChange,
   requestMount: scheduleMount,
   flush,
   scheduleMount,

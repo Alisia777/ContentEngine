@@ -32,12 +32,7 @@ def _run_node(source: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_v4_scaffold_mounts_inline_notification_route_without_a_legacy_subwindow() -> None:
-    notification_link = _between(
-        APP,
-        "function workspaceNotificationButtonMarkup()",
-        "\n}\n\nfunction workspaceScaffold",
-    ) + "\n}"
+def test_v4_scaffold_exposes_authorized_inline_route_without_legacy_navigation() -> None:
     scaffold = _between(
         APP,
         "function workspaceScaffold(content, activeSection)",
@@ -55,10 +50,11 @@ def test_v4_scaffold_mounts_inline_notification_route_without_a_legacy_subwindow
             notificationsError: "",
           }},
           mobileNavOpen: false,
+          bootstrap: {{ membership: {{ role: "operator" }} }},
         }};
-        const formatNumber = (value) => String(value);
         const escapeHtml = (value) => String(value);
         const displayProfile = () => ({{}});
+        const visibleWorkspaceTabs = () => [["home"], ["work"], ["board"]];
         const workspaceNavigationTabs = () => [["work", "Моя работа", "✓"]];
         const consumeRouteTransitionClass = () => "";
         const brandMarkup = () => "";
@@ -69,13 +65,14 @@ def test_v4_scaffold_mounts_inline_notification_route_without_a_legacy_subwindow
         const mobileTopbarMarkup = () => "";
         const mobileNavMarkup = () => "";
         const notificationCenterMarkup = () => {{ throw new Error("legacy drawer mounted in v4"); }};
-        {notification_link}
         {scaffold}
         const html = workspaceScaffold("<section data-notification-view></section>", "work");
         process.stdout.write(JSON.stringify({{
-          directRoute: html.includes('href="#/workspace/work?view=notifications"'),
-          current: html.includes('aria-current="page"'),
-          unread: html.includes("3 новых"),
+          nativeShell: html.includes("workspace-shell-v4"),
+          authorized: html.includes('data-workspace-authorized-routes="/workspace/home /workspace/work /workspace/board"'),
+          role: html.includes('data-workspace-role="operator"'),
+          content: html.includes("data-notification-view"),
+          sidebar: html.includes('class="sidebar"'),
           layer: html.includes("workspace-notification-layer"),
           dialog: html.includes('role="dialog"') || html.includes('aria-modal="true"'),
           backdrop: html.includes("notification-backdrop"),
@@ -84,9 +81,11 @@ def test_v4_scaffold_mounts_inline_notification_route_without_a_legacy_subwindow
         """
     )
     assert result == {
-        "directRoute": True,
-        "current": True,
-        "unread": True,
+        "nativeShell": True,
+        "authorized": True,
+        "role": True,
+        "content": True,
+        "sidebar": False,
         "layer": False,
         "dialog": False,
         "backdrop": False,
@@ -204,8 +203,8 @@ def test_async_notification_patch_keeps_shell_focus_and_nested_scroll_identity()
 
     ordered_markers = [
         "const existingShell = app.querySelector",
-        "const focusedControl = captureWorkspaceFocus(existingContent)",
-        "const scrollSnapshot = captureWorkspaceScroll(existingContent)",
+        "const focusedControl = sameAction ? captureWorkspaceFocus(existingContent) : null",
+        "const scrollSnapshot = sameAction ? captureWorkspaceScroll(existingContent) : []",
         "patchWorkspaceContent(existingContent, content)",
         "restoreWorkspaceFocus(existingContent, focusedControl, section)",
         "restoreWorkspaceScroll(existingContent, scrollSnapshot, section)",

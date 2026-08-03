@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -9,6 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "web" / "app"
+APP = (APP_DIR / "app.js").read_text(encoding="utf-8")
 SPEND = (APP_DIR / "generation-spend-view.js").read_text(encoding="utf-8")
 MY_WORK = (APP_DIR / "my-work-view.js").read_text(encoding="utf-8")
 RESEARCH = (APP_DIR / "product-research-view.js").read_text(encoding="utf-8")
@@ -242,7 +244,12 @@ def test_menubar_has_notification_bell_while_navigation_counts_stay_stable() -> 
     tools_keyboard = _between(CORE, "function handleToolsMenuKeydown(event) {", "async function toggleFullscreen()")
 
     assert routes.count("Object.freeze({ route:") == 6
-    assert secondary.count("Object.freeze({ route:") == 7
+    assert secondary.count("Object.freeze({ route:") == 3
+    assert re.findall(r'route: "([^"]+)"', secondary) == [
+        "/workspace/research",
+        "/workspace/team",
+        "/workspace/feedback",
+    ]
     assert 'route: "/learn"' not in routes + secondary
     assert 'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications"' in menubar
     assert 'iconButton("", "Открыть уведомления", "bell")' in menubar
@@ -251,9 +258,33 @@ def test_menubar_has_notification_bell_while_navigation_counts_stay_stable() -> 
     assert 'const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"])' in CORE
     authorization = _between(CORE, "function secondaryRouteIsAuthorized(route) {", "function createToolsMenuItem(item) {")
     sync = _between(CORE, "function syncToolsMenu() {", "function closeToolsMenu(")
-    assert '.workspace-shell[data-workspace-section] .workspace-nav' in authorization
+    assert "shell?.dataset.workspaceAuthorizedRoutes" in authorization
+    assert "if (declaredRoutes.length) return declaredRoutes.includes(route)" in authorization
+    assert 'const navigation = q(".workspace-nav", shell)' in authorization
     assert 'String(link.getAttribute("href") || "").split("?")[0] === `#${route}`' in authorization
     assert "SECONDARY_ROUTES.filter((item) => secondaryRouteIsAuthorized(item.route))" in sync
     assert "existing.forEach((link) => link.remove())" in sync
     for key in ("ArrowDown", "ArrowUp", "Home", "End", "Escape"):
         assert key in tools_keyboard
+
+
+def test_research_and_team_expose_small_action_hierarchies() -> None:
+    research = _between(APP, "function renderProductResearchSection() {", "function stopProductResearchPolling()")
+    team = _between(APP, "function renderTeamSection(sectionState) {", "function managerDashboardSectionMarkup()")
+
+    assert 'workspaceSequenceSwitch("research-action-sequence"' in research
+    assert 'workspaceActionSwitch("research-action-switch"' not in research
+    for view in ("evidence", "corrections", "brief", "approve", "handoff"):
+        assert f'view: "{view}"' in research
+
+    assert 'const teamGroup = ["invite", "access", "members"]' in team
+    assert "const teamContextActions = teamGroup === \"people\"" in team
+    assert 'workspaceActionSwitch("team-action-switch team-action-switch--groups"' in team
+    assert 'workspaceActionSwitch("team-action-switch team-action-switch--context"' not in team
+    assert '"team-action-switch team-action-switch--context"' in team
+    for view in ("people", "reviews", "spend", "health"):
+        assert f'view: "{view}"' in team
+
+    assert ".workspace-action-sequence" in FLOW_CSS
+    assert ".team-action-switch.team-action-switch--groups" in FLOW_CSS
+    assert ".team-action-switch--context" in FLOW_CSS

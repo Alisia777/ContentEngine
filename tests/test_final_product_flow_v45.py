@@ -171,14 +171,16 @@ def test_academy_reachability_controls_every_workspace_learning_link() -> None:
     learning = _function_source("generationLearningMarkup")
     payload = _run_node(
         f"""
-        let locked = false;
-        const state = {{ bootstrap: null, route: {{ path: "/workspace/generation" }} }};
+            let locked = false;
+            const window = {{ CONTENTENGINE_DESKTOP_V4: false }};
+            const state = {{ bootstrap: null, route: {{ path: "/workspace/generation" }} }};
         function membershipLockDetails() {{ return locked ? {{ reason: "locked" }} : null; }}
         function escapeHtml(value) {{ return String(value); }}
         const WORKSPACE_SECTION_META = {{ generation: {{
           kicker: "Шаг", note: "Один результат", guideHref: "#/learn/video",
         }} }};
         const FACTORY_FLOW = [];
+        function factoryFlowStage() {{ return null; }}
         function factoryFlowMarkup() {{ return ""; }}
         function workspaceDirectionMarkup() {{ return ""; }}
         {academy_required}

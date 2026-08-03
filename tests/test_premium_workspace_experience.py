@@ -14,13 +14,12 @@ WORKSPACE_OS = (ROOT / "web/app/workspace-os-v4.js").read_text(encoding="utf-8")
 
 
 EXPECTED_FLOW = [
-    "media",
+    "home",
+    "board",
     "generation",
     "review",
-    "tasks",
     "placement",
     "stats",
-    "payouts",
 ]
 
 
@@ -70,25 +69,13 @@ def test_workspace_opens_on_a_dedicated_today_home() -> None:
     assert 'href="#/workspace/home"' in APP
 
 
-def test_factory_flow_has_seven_ordered_user_facing_stages() -> None:
+def test_factory_flow_has_six_ordered_user_facing_stages() -> None:
     flow = _between(APP, "const FACTORY_FLOW", "const HOME_SECTION_KEYS")
     flow_keys = re.findall(r'key:\s*"([a-z]+)"', flow)
     flow_steps = re.findall(r'step:\s*"(\d{2})"', flow)
 
     assert flow_keys == EXPECTED_FLOW
-    assert flow_steps == ["01", "02", "03", "04", "05", "06", "07"]
-    assert _workspace_tab_keys()[:7] == EXPECTED_FLOW
-    assert [
-        "Материалы",
-        "Создание контента",
-        "Проверка контента",
-        "Задачи",
-        "Публикации",
-        "Результаты",
-        "Выплаты",
-    ] == re.findall(r'\[\s*"[a-z]+"\s*,\s*"([^"]+)"', _between(
-        CATALOG, "export const WORKSPACE_TABS", "]);"
-    ))[:7]
+    assert flow_steps == ["01", "02", "03", "04", "05", "06"]
 
 
 def test_home_and_section_headers_share_the_premium_flow_language() -> None:
@@ -120,7 +107,7 @@ def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
     direction = _between(APP, "function workspaceDirectionMarkup", "function pageHeader")
     header = _between(APP, "function pageHeader", "function factoryFlowMarkup")
 
-    for key in EXPECTED_FLOW:
+    for key in EXPECTED_FLOW[1:]:
         block = _between(metadata, f"  {key}: Object.freeze({{", "  }),")
         for field in ("now", "done", "guard", "nextLabel", "nextHref", "guideHref"):
             assert f"{field}:" in block

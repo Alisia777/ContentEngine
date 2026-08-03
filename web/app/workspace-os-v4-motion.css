@@ -55,7 +55,7 @@ body.contentengine-desktop-v4 #workspace-content.ce-v4-content-reveal > .page-wr
 /* The shell enters once after access is confirmed. It is not replayed on route
    switches because these nodes persist for the whole desktop session. */
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
-  animation: ce-v4-menubar-enter var(--ce-motion-base) var(--ce-motion-ease) both !important;
+  animation: ce-v4-menubar-enter var(--ce-motion-base) var(--ce-motion-ease) !important;
 }
 
 body.contentengine-desktop-v4 .ce-v4-dock__glass {
@@ -325,6 +325,11 @@ body.contentengine-desktop-v4 :is(
 
   html[data-ce-v4-loading="true"] body.contentengine-desktop-v4::after {
     display: none !important;
+  }
+
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"]
+    .ce-v4-dock__glass:is(:hover, :focus-within) .ce-v4-dock__tile {
+    transform: none !important;
   }
 
   body.contentengine-desktop-v4 *,

@@ -136,6 +136,7 @@ export function myWorkWorkspaceMarkup({
   savedViews = [],
   filters = {},
   selectedViewId = "",
+  pendingDeleteViewId = "",
   notice = "",
   error = "",
   loadingMore = false,
@@ -217,14 +218,30 @@ export function myWorkWorkspaceMarkup({
             </div>
             <div class="my-work-view-list">
               <button class="my-work-view-button ${selectedViewId ? "" : "active"}" type="button" data-action="apply-my-work-view" data-view-id="">Все объекты</button>
-              ${views.map((view) => `
-                <div class="my-work-view-row">
-                  <button class="my-work-view-button ${String(selectedViewId) === view.id ? "active" : ""}" type="button" data-action="apply-my-work-view" data-view-id="${escapeHtml(view.id)}">
-                    <span>${escapeHtml(view.name)}</span>${view.isDefault ? "<small>по умолчанию</small>" : ""}
-                  </button>
-                  <button class="my-work-view-delete" type="button" data-action="delete-my-work-view" data-view-id="${escapeHtml(view.id)}" data-view-version="${view.version}" aria-label="Удалить фильтр ${escapeHtml(view.name)}">×</button>
-                </div>
-              `).join("")}
+              ${views.map((view) => {
+                const deletePending = String(pendingDeleteViewId) === view.id;
+                if (deletePending) {
+                  return `
+                    <div class="my-work-view-row is-confirming">
+                      <div class="my-work-view-confirm" role="status">
+                        <span>Удалить «${escapeHtml(view.name)}»?</span>
+                        <div>
+                          <button class="btn btn-small my-work-view-confirm__delete" type="button" data-action="confirm-delete-my-work-view" data-view-id="${escapeHtml(view.id)}" data-view-version="${view.version}">Удалить</button>
+                          <button class="btn btn-secondary btn-small" type="button" data-action="cancel-delete-my-work-view">Отмена</button>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }
+                return `
+                  <div class="my-work-view-row">
+                    <button class="my-work-view-button ${String(selectedViewId) === view.id ? "active" : ""}" type="button" data-action="apply-my-work-view" data-view-id="${escapeHtml(view.id)}">
+                      <span>${escapeHtml(view.name)}</span>${view.isDefault ? "<small>по умолчанию</small>" : ""}
+                    </button>
+                    <button class="my-work-view-delete" type="button" data-action="delete-my-work-view" data-view-id="${escapeHtml(view.id)}" data-view-version="${view.version}" aria-label="Удалить фильтр ${escapeHtml(view.name)}">×</button>
+                  </div>
+                `;
+              }).join("")}
             </div>
             <form id="save-my-work-view-form" class="form-stack my-work-save-view" novalidate>
               <label class="field"><span>Название текущего фильтра</span><input name="name" minlength="2" maxlength="80" required placeholder="Например: срочные публикации" /></label>

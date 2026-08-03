@@ -103,6 +103,32 @@
   grid-column: 1 / -1;
 }
 
+.training-practical__media {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--portal-line);
+}
+
+.training-practical__media[hidden] {
+  display: none;
+}
+
+.training-practical__media video {
+  width: min(100%, 760px);
+  max-height: min(68svh, 760px);
+  border-radius: 16px;
+  background: #050403;
+  object-fit: contain;
+}
+
+.training-practical__media p {
+  margin: 0;
+  color: var(--portal-ink-soft);
+  font-size: .76rem;
+}
+
 .training-practical__form {
   position: relative;
   z-index: 1;

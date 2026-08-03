@@ -385,7 +385,7 @@ return {
     assert result["reviewId"] == "00000000-0000-4000-8000-000000000013"
     assert result["forgedPending"] is None
     assert (
-        "#/workspace/review/00000000-0000-4000-8000-000000000013"
+        "#/workspace/review?view=current&amp;review=00000000-0000-4000-8000-000000000013"
         in result["validMarkup"]
     )
     assert "../../login" not in result["forgedMarkup"]
@@ -531,7 +531,7 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "./generation-model-acceptance-view.js?v=20260728.1" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260803.1" in INDEX
+    assert "./app.js?v=20260803.os4.4" in INDEX
     assert "./supabase-api.js?v=20260729.2" in APP
 
 

@@ -189,7 +189,7 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
     assert './styles.css?v=20260730.4' in INDEX
-    assert './app.js?v=20260803.1' in INDEX
+    assert './app.js?v=20260803.os4.4' in INDEX
 
 
 def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
@@ -199,7 +199,7 @@ def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
     ]
     assert "generationModeChoiceLabel(REAL_SEEDANCE_MODE)" in select_markup
     assert "REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE].label" not in select_markup
-    assert '"Блогер + голос · Seedance 2 Fast"' in APP
+    assert '"Ролик с человеком и голосом"' in APP
     assert (
         "`Авто-ТЗ готово: ${durationSeconds} секунд, точный товар и короткая дословная реплика.`"
         in APP

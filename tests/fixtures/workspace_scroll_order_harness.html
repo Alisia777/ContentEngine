@@ -51,20 +51,23 @@
     <script type="module">
       const result = document.querySelector("#result");
       const waitForHash = () => new Promise((resolve) => window.addEventListener("hashchange", resolve, { once: true }));
+      const { workspaceActionKey } = await import("../../web/app/workspace-action-key.js");
 
       await import("../../web/app/workspace-os-v4.js");
       await window.ContentEngineDesktopV4.flush();
 
+      const boardActionKey = workspaceActionKey();
       const originalPane = document.querySelector(".workspace-board__content");
       originalPane.scrollTop = 137;
 
       let changed = waitForHash();
+      window.ContentEngineDesktopV4.captureCurrentAction(boardActionKey);
       location.hash = "#/workspace/generation";
       await changed;
       await window.ContentEngineDesktopV4.flush();
 
       const saved = JSON.parse(localStorage.getItem("contentengine.desktop-v4.v1") || "{}");
-      const capturedTop = saved.scroll?.["/workspace/board"]?.nested?.["board-pane"]?.top;
+      const capturedTop = saved.scroll?.[boardActionKey]?.nested?.["board-pane"]?.top;
 
       changed = waitForHash();
       location.hash = "#/workspace/board";
@@ -90,6 +93,7 @@
       result.dataset.capturedTop = String(capturedTop ?? "");
       result.dataset.restoredTop = String(restoredTop);
       result.dataset.preservedLiveTop = String(preservedLiveTop);
+      result.dataset.actionKey = boardActionKey;
       result.textContent = passed ? "PASS" : "FAIL";
     </script>
   </body>

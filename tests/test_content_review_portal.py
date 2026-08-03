@@ -17,14 +17,14 @@ INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
 def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert '["review", "Проверка контента", "◈"]' in CATALOG
     flow = APP[APP.index("const FACTORY_FLOW") : APP.index("const HOME_SECTION_KEYS")]
-    assert re.search(r'key:\s*"review",\s*step:\s*"03"', flow)
-    assert "Шаг 3 из 7" in APP
+    assert re.search(r'key:\s*"review",\s*step:\s*"04"', flow)
+    assert "Шаг 4 из 6" in APP
     assert "<h2>${FACTORY_FLOW.length} этапов одного результата</h2>" in APP
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260730.5' in APP
-    assert './content-review.css?v=20260730.3' in INDEX
+    assert './content-review-view.js?v=20260803.os4.4' in APP
+    assert './content-review.css?v=20260803.os4.4' in INDEX
     assert './app.js?v=20260803.os4.4' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
@@ -961,7 +961,7 @@ if (!html.includes(" controls ")) throw new Error("video controls missing");
 if (html.includes(" muted")) throw new Error("readonly exact video was muted");
 if (!html.includes('data-action="download-content-review-media"')) throw new Error("secure download action missing");
 if (!html.includes(">Скачать MP4</button>")) throw new Error("download label missing");
-if (!html.includes(">Открыть отдельно</a>")) throw new Error("separate open action missing");
+if (html.includes(">Открыть отдельно</a>")) throw new Error("duplicate separate-window action still rendered");
 """
     result = subprocess.run(
         ["node", "--input-type=module", "--eval", script],

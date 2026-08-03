@@ -7,12 +7,14 @@
  * in favour of one deterministic stability coordinator.
  */
 
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.4";
+
 const BUILD = "20260803.os4.4";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
 let routeEpoch = 0;
-let lastScheduledRoute = "";
+let lastScheduledActionKey = "";
 
 window.CONTENTENGINE_DESKTOP_V4 = true;
 
@@ -55,14 +57,14 @@ function setLoading(active, route = routePath()) {
   document.documentElement.dataset.ceV4Ready = "true";
 }
 
-function armRouteEnterCleanup(route, epoch) {
+function armRouteEnterCleanup(route, actionKey, epoch) {
   const main = document.querySelector("#main-content.route-enter");
   const page = main?.querySelector(".ce-v4-page");
   if (!main) return;
 
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!page || reduced) {
-    if (epoch === routeEpoch && route === routePath()) main.classList.remove("route-enter");
+    if (epoch === routeEpoch && route === routePath() && actionKey === workspaceActionKey()) main.classList.remove("route-enter");
     return;
   }
 
@@ -71,7 +73,7 @@ function armRouteEnterCleanup(route, epoch) {
     if (event && (event.target !== page || event.animationName !== "ce-v4-route-enter")) return;
     page.removeEventListener("animationend", finish);
     window.clearTimeout(timeout);
-    if (epoch === routeEpoch && route === routePath()) main.classList.remove("route-enter");
+    if (epoch === routeEpoch && route === routePath() && actionKey === workspaceActionKey()) main.classList.remove("route-enter");
   };
   page.addEventListener("animationend", finish);
   timeout = window.setTimeout(finish, 450);
@@ -122,7 +124,7 @@ function ensureModule(relative) {
   return loadedModules.get(href);
 }
 
-async function loadRoute(route = routePath()) {
+async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) {
   const epoch = ++routeEpoch;
   setLoading(true, route);
   await corePromise;
@@ -132,24 +134,25 @@ async function loadRoute(route = routePath()) {
   await Promise.all(styles.map(ensureStyle));
   for (const modulePath of modules) {
     await ensureModule(modulePath);
-    if (epoch !== routeEpoch) return false;
+    if (epoch !== routeEpoch || actionKey !== workspaceActionKey()) return false;
   }
-  if (epoch !== routeEpoch || route !== routePath()) return false;
+  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) return false;
   await window.ContentEngineDesktopV4?.flush?.();
-  if (epoch !== routeEpoch || route !== routePath()) return false;
-  armRouteEnterCleanup(route, epoch);
+  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) return false;
+  armRouteEnterCleanup(route, actionKey, epoch);
   setLoading(false, route);
   window.dispatchEvent(new CustomEvent("contentengine:v4-route-ready", {
-    detail: Object.freeze({ route, build: BUILD }),
+    detail: Object.freeze({ route, actionKey, build: BUILD }),
   }));
   return true;
 }
 
 function schedule() {
   const route = routePath();
-  const sameRoutePath = route === lastScheduledRoute;
-  lastScheduledRoute = route;
-  if (sameRoutePath && isManagedRoute(route)) {
+  const actionKey = workspaceActionKey();
+  const sameAction = actionKey === lastScheduledActionKey;
+  lastScheduledActionKey = actionKey;
+  if (sameAction && isManagedRoute(route)) {
     window.queueMicrotask(() => {
       void window.ContentEngineDesktopV4?.flush?.();
     });
@@ -160,7 +163,7 @@ function schedule() {
   queued = true;
   window.queueMicrotask(() => {
     queued = false;
-    void loadRoute(routePath()).catch((error) => {
+    void loadRoute(routePath(), workspaceActionKey()).catch((error) => {
       setFailed(routePath());
       console.error("ContentEngine Desktop v4.4 route failed to start", error);
     });
@@ -186,5 +189,6 @@ schedule();
 window.ContentEngineDesktopV4Loader = Object.freeze({
   build: BUILD,
   route: routePath,
+  actionKey: workspaceActionKey,
   load: () => loadRoute(),
 });
