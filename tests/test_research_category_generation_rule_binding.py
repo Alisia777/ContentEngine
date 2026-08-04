@@ -11,7 +11,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040008_research_category_generation_rule_binding.sql"
+    / "202608040009_research_category_generation_rule_binding.sql"
 )
 
 

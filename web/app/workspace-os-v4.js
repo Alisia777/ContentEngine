@@ -77,6 +77,18 @@ const PROJECT_STAGE_STATE_LABELS = Object.freeze({
   unknown: "Статус уточняется",
 });
 const ROLE_GATED_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"]);
+const PROJECT_REQUIRED_ROUTES = new Set([
+  "/workspace/board",
+  "/workspace/media",
+  "/workspace/generation",
+  "/workspace/review",
+  "/workspace/tasks",
+  "/workspace/placement",
+  "/workspace/stats",
+  "/workspace/payouts",
+  "/workspace/research",
+  "/workspace/work",
+]);
 const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const NEXT_ACTION_PATHS = new Set([
   ...ALL_ROUTES.map((item) => item.route),
@@ -220,6 +232,32 @@ function routeWithProject(route, projectId = "") {
   return `${path}${search ? `?${search}` : ""}`;
 }
 
+function workspaceRouteRequiresProject(route) {
+  const { path, query } = routeParts(route);
+  if (
+    path === "/workspace/work"
+    && String(query.get("view") || "").trim().toLowerCase() === "notifications"
+  ) return false;
+  return PROJECT_REQUIRED_ROUTES.has(path);
+}
+
+function explainProjectRequired() {
+  showSystemToast(
+    "Сначала выберите проект — после этого откроется нужный раздел.",
+    "warning",
+  );
+  if (routePath() !== "/workspace/home") {
+    window.location.hash = "#/workspace/home";
+    return;
+  }
+  window.queueMicrotask(() => {
+    const heading = q("#home-projects-title");
+    if (!(heading instanceof HTMLElement)) return;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: false });
+  });
+}
+
 function routeMatches(route, expected) {
   if (expected === "/workspace/home") return route === expected;
   if (expected === "/workspace/board") return route === expected || route === "/workspace/media";
@@ -249,6 +287,10 @@ function navigate(route, options) {
   const requested = String(route || "/workspace/home");
   const requestedProjectId = routeParts(requested).query.get("project_id");
   const currentProjectId = routeQuery().get("project_id") || projectContext()?.id || "";
+  if (workspaceRouteRequiresProject(requested) && !requestedProjectId && !currentProjectId) {
+    explainProjectRequired();
+    return "/workspace/home";
+  }
   const destination = settings.preserveProject === false
     ? routeWithProject(requested, requestedProjectId || "")
     : routeWithProject(requested, requestedProjectId || currentProjectId);
@@ -262,7 +304,10 @@ function navigate(route, options) {
 function focusFinderSearch(query = "") {
   const value = String(query || "").trim();
   if (value) storage("session")?.setItem(FINDER_QUERY_KEY, value);
-  if (routePath() !== "/workspace/board") navigate("/workspace/board");
+  if (routePath() !== "/workspace/board") {
+    const destination = navigate("/workspace/board");
+    if (routeParts(destination).path !== "/workspace/board") return;
+  }
   let attempts = 0;
   const focus = () => {
     const input = q('#workspace-board-filter-form input[name="query"]');
@@ -890,6 +935,11 @@ function ensureDock() {
     if (!(item instanceof HTMLElement)) return;
     const destination = String(item.dataset.ceV4Route || "");
     const snapshot = projectFlowSnapshot();
+    if (workspaceRouteRequiresProject(destination) && !snapshot.id) {
+      event.preventDefault();
+      explainProjectRequired();
+      return;
+    }
     const stage = stageForRoute(destination, snapshot);
     if (stageLocked(stage, snapshot)) {
       event.preventDefault();
@@ -932,15 +982,17 @@ function updateDock() {
     const stage = stageForRoute(item.dataset.ceV4Route, snapshot);
     const hasStageState = Boolean(snapshot.hasFlow && stage && stage.state !== "unknown");
     const locked = stageLocked(stage, snapshot);
+    const projectRequired = workspaceRouteRequiresProject(item.dataset.ceV4Route) && !snapshot.id;
     const destination = stage?.destination || projectRoute(item.dataset.ceV4Route, context);
     item.href = `#${destination}`;
     item.classList.toggle("is-active", active);
+    item.classList.toggle("is-project-required", projectRequired);
     ["done", "current", "blocked", "future"].forEach((state) => {
       item.classList.toggle(`is-stage-${state}`, hasStageState && stage.state === state);
     });
     item.dataset.ceV4StageState = hasStageState ? stage.state : "unknown";
     item.setAttribute("aria-current", active ? "page" : "false");
-    if (locked) item.setAttribute("aria-disabled", "true");
+    if (locked || projectRequired) item.setAttribute("aria-disabled", "true");
     else item.removeAttribute("aria-disabled");
     const count = q("[data-ce-v4-dock-count]", item);
     const showCount = Boolean(stage && Number.isFinite(stage.count) && stage.count > 0);
@@ -948,7 +1000,9 @@ function updateDock() {
       count.hidden = !showCount;
       count.textContent = showCount ? (stage.count > 99 ? "99+" : String(stage.count)) : "0";
     }
-    const stateText = hasStageState ? PROJECT_STAGE_STATE_LABELS[stage.state] : "";
+    const stateText = projectRequired
+      ? "Сначала выберите проект"
+      : hasStageState ? PROJECT_STAGE_STATE_LABELS[stage.state] : "";
     const countText = stage && Number.isFinite(stage.count) ? `${stage.count} ${stage.countLabel}` : "";
     const reasonText = locked && stage.reason ? stage.reason : "";
     const shortcutIndex = shortcutIndexByRoute.get(item.dataset.ceV4Route);

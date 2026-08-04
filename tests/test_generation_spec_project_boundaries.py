@@ -13,7 +13,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040009_generation_spec_project_boundaries.sql"
+    / "202608040010_generation_spec_project_boundaries.sql"
 )
 
 
@@ -36,7 +36,7 @@ def _function(source: str, qualified_name: str) -> str:
 
 
 def test_forward_migration_parses_and_is_ordered_after_rule_binding() -> None:
-    assert MIGRATION.name > "202608040008_research_category_generation_rule_binding.sql"
+    assert MIGRATION.name > "202608040009_research_category_generation_rule_binding.sql"
     assert parse_sql(_read())
 
 

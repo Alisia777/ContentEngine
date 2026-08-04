@@ -167,7 +167,8 @@ def test_dock_geometry_is_stable_and_home_uses_the_native_project_chooser() -> N
     assert "project.next_action" in project_markup
     assert "exactProjectNextActionRoute" in project_markup
     assert 'href="#${escapeHtml(nextRoute)}"' in project_markup
-    assert "!folder.parentId" in project_markup
+    assert "const projects = projectFlow.projects" in project_markup
+    assert "board.folders" not in project_markup
     for retired_home_control in (
         "ce-v4-home__secondary",
         "ce-v4-home__rail",

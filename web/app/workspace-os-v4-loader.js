@@ -183,6 +183,11 @@ function ensureModule(relative) {
   return loadedModules.get(href);
 }
 
+function reconcileStaleLoad(epoch) {
+  if (epoch === routeEpoch) schedule();
+  return false;
+}
+
 async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) {
   const epoch = ++routeEpoch;
   setLoading(true, route);
@@ -194,11 +199,15 @@ async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) 
   await Promise.all(styles.map(ensureStyle));
   for (const modulePath of modules) {
     await ensureModule(modulePath);
-    if (epoch !== routeEpoch || actionKey !== workspaceActionKey()) return false;
+    if (epoch !== routeEpoch || actionKey !== workspaceActionKey()) return reconcileStaleLoad(epoch);
   }
-  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) return false;
+  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) {
+    return reconcileStaleLoad(epoch);
+  }
   await window.ContentEngineDesktopV4?.flush?.();
-  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) return false;
+  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) {
+    return reconcileStaleLoad(epoch);
+  }
   armRouteEnterCleanup(route, actionKey, epoch);
   setLoading(false, route);
   window.dispatchEvent(new CustomEvent("contentengine:v4-route-ready", {
@@ -248,6 +257,18 @@ function retry() {
   return retryPromise;
 }
 
+function loadCurrentRoute() {
+  const route = routePath();
+  const actionKey = workspaceActionKey();
+  return loadRoute(route, actionKey).catch((error) => {
+    if (route === routePath() && actionKey === workspaceActionKey()) {
+      setFailed(route, error);
+    }
+    console.error("ContentEngine Desktop v4.13 current route failed to load", error);
+    return false;
+  });
+}
+
 function handleRouteLoaderRetry(event) {
   const target = event.target instanceof Element ? event.target.closest("[data-route-loader-retry]") : null;
   if (!target) return;
@@ -260,7 +281,11 @@ function schedule() {
   const actionKey = workspaceActionKey();
   const sameAction = actionKey === lastScheduledActionKey;
   lastScheduledActionKey = actionKey;
-  if (sameAction && isManagedRoute(route)) {
+  if (
+    sameAction
+    && isManagedRoute(route)
+    && document.documentElement.dataset.ceV4Loading !== "true"
+  ) {
     window.queueMicrotask(() => {
       void window.ContentEngineDesktopV4?.flush?.();
     });
@@ -290,6 +315,6 @@ window.ContentEngineDesktopV4Loader = Object.freeze({
   build: BUILD,
   route: routePath,
   actionKey: workspaceActionKey,
-  load: () => loadRoute(),
+  load: () => loadCurrentRoute(),
   retry: () => retry(),
 });

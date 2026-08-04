@@ -108,6 +108,22 @@ async function routeMotionResult(context) {
       dockDrift: maxDrift(before.dock, after.dock),
     };
   });
+  const redirect = await page.evaluate(async () => {
+    const loader = window.ContentEngineDesktopV4Loader;
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    history.replaceState({}, "", `${location.pathname}#/workspace/board?project_id=${projectId}`);
+    const stale = loader.load();
+    history.replaceState({}, "", `${location.pathname}#/workspace/home?project_id=${projectId}`);
+    const current = loader.load();
+    await Promise.all([stale, current]);
+    const main = document.querySelector(".workspace-main");
+    return {
+      route: location.hash,
+      loading: document.documentElement.dataset.ceV4Loading === "true",
+      ready: document.documentElement.dataset.ceV4Ready === "true",
+      pointerEvents: main ? getComputedStyle(main).pointerEvents : "missing",
+    };
+  });
   await page.close();
 
   const enterSamples = result.samples.filter((sample) => sample.animation === "ce-v4-route-enter");
@@ -122,6 +138,7 @@ async function routeMotionResult(context) {
   ));
   return {
     ...result,
+    redirect,
     firstLoading: result.samples.find((sample) => sample.loading),
     enterSampleCount: enterSamples.length,
     last: result.samples.at(-1),
@@ -449,6 +466,10 @@ async function dockMagnificationResult(browser) {
         && motion.dockSame
         && motion.menubarDrift <= 0.5
         && motion.dockDrift <= 0.5,
+      motionRedirectRecovery: motion.redirect.route.startsWith("#/workspace/home")
+        && !motion.redirect.loading
+        && motion.redirect.ready
+        && motion.redirect.pointerEvents !== "none",
       menuOpen: !menu.opened.hidden
         && menu.opened.expanded === "true"
         && menu.opened.routeCount === 2

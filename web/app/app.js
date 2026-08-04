@@ -543,6 +543,7 @@ const MEMBERSHIP_LOCK_COPY = Object.freeze({
 
 const WORKSPACE_START_PATH = "/workspace/home";
 const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
+const PROJECT_OPTIONAL_WORKSPACE_SECTIONS = new Set(["home", "team", "feedback", "ai"]);
 
 const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
@@ -1755,11 +1756,16 @@ function persistGenerationFormDraft(form, { manual = false } = {}) {
   return saved;
 }
 
-function scheduleGenerationFormDraftSave(form, options = {}) {
-  if (!form) return;
+function cancelGenerationFormDraftSave() {
   if (state.generationDraftSaveTimer) {
     window.clearTimeout(state.generationDraftSaveTimer);
+    state.generationDraftSaveTimer = null;
   }
+}
+
+function scheduleGenerationFormDraftSave(form, options = {}) {
+  if (!form) return;
+  cancelGenerationFormDraftSave();
   state.generationDraftSaveTimer = window.setTimeout(() => {
     state.generationDraftSaveTimer = null;
     if (form.isConnected) persistGenerationFormDraft(form, options);
@@ -6816,6 +6822,16 @@ function currentWorkspaceProjectId() {
   return storedWorkspaceProject()?.id || "";
 }
 
+function workspaceSectionRequiresProject(section, query = state.route.query) {
+  const normalizedSection = String(section || "").trim().toLowerCase();
+  if (PROJECT_OPTIONAL_WORKSPACE_SECTIONS.has(normalizedSection)) return false;
+  if (
+    normalizedSection === "work"
+    && String(query?.get?.("view") || "").trim().toLowerCase() === "notifications"
+  ) return false;
+  return true;
+}
+
 function currentWorkspaceProjectName() {
   const projectId = currentWorkspaceProjectId();
   const flow = normalizeProjectFlow(state.projectFlow?.data || {});
@@ -6851,8 +6867,10 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   const id = String(projectId || "").trim().toLowerCase();
   if (!isWorkspaceProjectId(id)) return false;
   const previousId = String(state.projectFlow.projectId || storedWorkspaceProject()?.id || "");
+  const projectChanged = previousId !== id;
+  if (projectChanged) cancelGenerationFormDraftSave();
   persistWorkspaceProject(id, projectName);
-  if (previousId === id) return true;
+  if (!projectChanged) return true;
   invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
@@ -6895,6 +6913,7 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   state.generatedVideoQa.entries.clear();
   state.generatedVideoQa.recoveryJobIds.clear();
   state.generatedVideoQa.restored = false;
+  resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
   clearGenerationMediaSelection();
@@ -6907,6 +6926,7 @@ function clearWorkspaceProjectSelection(projectId = "") {
     state.projectFlow.projectId || storedWorkspaceProject()?.id || "",
   ).trim().toLowerCase();
   if (expectedId && selectedId && expectedId !== selectedId) return false;
+  cancelGenerationFormDraftSave();
   try {
     window.sessionStorage.removeItem(WORKSPACE_PROJECT_STORAGE_KEY);
   } catch {
@@ -6930,6 +6950,10 @@ function clearWorkspaceProjectSelection(projectId = "") {
     target.data = null;
     target.error = null;
   }
+  resetGenerationSpecState();
+  clearContentGenerationHandoff();
+  clearGenerationRepair();
+  clearGenerationMediaSelection();
   return true;
 }
 
@@ -7071,7 +7095,7 @@ function renderWorkspace(section) {
     window.queueMicrotask(() => navigate("/workspace/home", true));
     return;
   }
-  if (section !== "home" && !currentWorkspaceProjectId()) {
+  if (workspaceSectionRequiresProject(section) && !currentWorkspaceProjectId()) {
     window.queueMicrotask(() => navigate("/workspace/home", true));
     return;
   }
@@ -7090,7 +7114,13 @@ function renderWorkspace(section) {
     window.queueMicrotask(() => loadMyWorkNotifications({ silent: true }));
   }
   const sectionState = section === "home" ? state.home : state.sections[section];
+  const notificationOnlyWork = section === "work"
+    && !routeProjectId
+    && String(state.route.query.get("view") || "").trim().toLowerCase() === "notifications";
   if (section === "home" && sectionState.status === "idle") {
+    sectionState.status = "ready";
+    sectionState.data = {};
+  } else if (notificationOnlyWork && sectionState.status === "idle") {
     sectionState.status = "ready";
     sectionState.data = {};
   } else if (section === "ai" && sectionState.status === "idle") {
@@ -7999,7 +8029,12 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
 }
 
 async function loadProjectFlow({ silent = false, force = false } = {}) {
-  if (!state.api?.projectFlow) return null;
+  if (!state.api?.projectFlow) {
+    state.projectFlow.status = "error";
+    state.projectFlow.error = new Error("workspace_project_flow_unavailable");
+    if (state.route.path.startsWith("/workspace/")) render();
+    return null;
+  }
   const projectId = currentWorkspaceProjectId();
   if (
     !force
@@ -8055,7 +8090,10 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       !flow.project_id
       && flow.projects.length
       && state.route.path.startsWith("/workspace/")
-      && state.route.path !== "/workspace/home"
+      && workspaceSectionRequiresProject(
+        state.route.path.split("/").filter(Boolean).at(-1) || "home",
+        state.route.query,
+      )
     ) {
       navigate("/workspace/home", true);
       return flow;
@@ -8068,6 +8106,23 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
     ) return null;
+    const serverCode = String(error?.serverCode || error?.code || "").trim().toLowerCase();
+    if (
+      projectId
+      && ["workspace_project_not_found", "workspace_project_archived"].includes(serverCode)
+    ) {
+      const activeSection = state.route.path.split("/").filter(Boolean).at(-1) || "home";
+      const mustLeaveRoute = workspaceSectionRequiresProject(activeSection, state.route.query);
+      clearWorkspaceProjectSelection(projectId);
+      if (mustLeaveRoute) navigate("/workspace/home", true, { scopeProject: false });
+      else if (state.route.path.startsWith("/workspace/")) {
+        const query = new URLSearchParams(state.route.query);
+        query.delete("project_id");
+        const search = query.toString();
+        navigate(`${state.route.path}${search ? `?${search}` : ""}`, true, { scopeProject: false });
+      }
+      return null;
+    }
     state.projectFlow.status = "error";
     state.projectFlow.error = error;
     if (state.route.path.startsWith("/workspace/")) render();
@@ -9246,24 +9301,15 @@ function homeProjectSwitcherMarkup(action) {
   const board = normalizeWorkspaceBoard(boardState?.data || {});
   const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {});
   const projectFlowLoading = ["idle", "loading"].includes(state.projectFlow.status) && !state.projectFlow.data;
-  const projects = projectFlow.projects.length
-    ? projectFlow.projects
-    : board.folders
-      .filter((folder) => folder.smart !== true && !folder.parentId)
-      .map((folder) => ({
-        ...folder,
-        counts: { files: Number(board.counts[folder.id] || 0) },
-        current_stage: "files",
-        next_action: {
-          label: "Открыть файлы",
-          route: `/workspace/board?project_id=${encodeURIComponent(folder.id)}`,
-        },
-      }));
+  const projects = projectFlow.projects;
   const role = String(state.bootstrap?.membership?.role || "").toLowerCase();
-  const canCreateProject = board.capabilities.manageFolders || ["owner", "admin"].includes(role);
-  const loading = projectFlowLoading
-    || (["idle", "loading"].includes(String(boardState?.status || "idle")) && !boardState?.data && !projects.length);
-  const projectsUnavailable = state.workspaceBoard.notice === WORKSPACE_BOARD_FALLBACK_NOTICE;
+  const canCreateProject = board.capabilities.manageFolders
+    || ["owner", "admin", "producer"].includes(role);
+  const projectFlowFailed = state.projectFlow.status === "error";
+  const loading = !projects.length && projectFlowLoading;
+  const projectListFailed = !loading
+    && !projects.length
+    && projectFlowFailed;
   const projectCards = loading
     ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
     : projects.map((project) => {
@@ -9281,7 +9327,10 @@ function homeProjectSwitcherMarkup(action) {
         project,
         next_action: nextAction,
       }, projectId) || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
-      const fileCount = Number(project.counts?.files ?? board.counts[projectId] ?? 0);
+      const rawFileCount = project.counts?.files;
+      const fileCount = Number(rawFileCount);
+      const hasFileCount = Number.isFinite(fileCount);
+      const stageLabel = stageLabels[project.current_stage] || "уточнится после открытия";
       return `
         <a class="home-project-card"
            href="#${escapeHtml(nextRoute)}"
@@ -9290,15 +9339,15 @@ function homeProjectSwitcherMarkup(action) {
           <span class="home-project-card__folder" aria-hidden="true">◇</span>
           <span class="home-project-card__copy">
             <strong>${escapeHtml(project.name)}</strong>
-            <small>${fileCount} объектов · этап: ${escapeHtml(stageLabels[project.current_stage] || "Файлы")}</small>
+            <small>${hasFileCount ? `${fileCount} объектов · ` : ""}этап: ${escapeHtml(stageLabel)}</small>
             <small>Следующее: ${escapeHtml(nextAction.label || "Открыть проект")}</small>
             <small>Обновлено: ${project.updated_at ? escapeHtml(formatDate(project.updated_at, true)) : "только что"}</small>
           </span>
           <span class="home-project-card__open">Продолжить <i aria-hidden="true">→</i></span>
         </a>`;
     }).join("");
-  const createProject = canCreateProject ? `
-    <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
+  const createProject = projectListFailed ? "" : canCreateProject ? `
+    <details class="home-project-create" ${!loading && !projects.length && !projectListFailed ? "open" : ""}>
       <summary><span aria-hidden="true">＋</span> Новый проект</summary>
       <form id="home-project-create-form">
         <label for="home-project-name">Название проекта</label>
@@ -9333,16 +9382,29 @@ function homeProjectSwitcherMarkup(action) {
         </div>
         ${createProject}
       </header>
-      ${state.workspaceBoard.error ? `<div class="home-project-message" role="alert">${escapeHtml(state.workspaceBoard.error)}</div>` : ""}
-      ${state.workspaceBoard.notice ? `<div class="home-project-message" role="status">${escapeHtml(state.workspaceBoard.notice)}</div>` : ""}
-      ${projectsUnavailable ? `<button class="btn btn-secondary home-project-board-retry" type="button" data-action="refresh-section" data-section="board">Повторить загрузку проектов</button>` : ""}
+      ${projectFlowFailed ? `
+        <div class="home-project-message" role="${projects.length ? "status" : "alert"}">
+          ${projects.length
+            ? "Точный этап проекта пока не обновился. Проект можно открыть — портал уточнит следующий шаг внутри."
+            : "Не удалось загрузить список проектов. Проверьте соединение и повторите загрузку."}
+        </div>` : ""}
+      ${projectFlowFailed ? `
+        <button class="btn ${projects.length ? "btn-secondary" : ""} home-project-board-retry"
+                type="button"
+                ${projects.length ? "" : 'data-primary-action="true"'}
+                data-action="retry-project-flow">Повторить загрузку проектов</button>` : ""}
       <div class="home-project-grid">
-        ${projectCards || `
+        ${projectCards || (projectListFailed ? `
+          <div class="home-project-empty home-project-empty--error" role="alert">
+            <span aria-hidden="true">!</span>
+            <strong>Проекты временно не загрузились</strong>
+            <p>Ничего не потеряно. Нажмите «Повторить загрузку проектов» — портал заново запросит список и папки.</p>
+          </div>` : `
           <div class="home-project-empty">
             <span aria-hidden="true">◇</span>
             <strong>Проектов пока нет</strong>
             <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
-          </div>`}
+          </div>`)}
       </div>
       <aside class="home-next-action-compact" aria-label="Следующее доступное действие">
         <span><small>${escapeHtml(action.step || "Следующее действие")}</small><strong>${escapeHtml(actionTitle)}</strong></span>
@@ -13760,6 +13822,7 @@ function renderAiLearningSection(sectionState) {
       detailMarkup: marketDetailMarkup,
       loading: ["idle", "loading", "refreshing"].includes(sectionState.status),
       error: state.aiLearning.marketError,
+      requiresProject: !isWorkspaceProjectId(currentWorkspaceProjectId()),
     },
   );
   return aiLearningControlRoomMarkup(snapshot, {
@@ -13826,11 +13889,11 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
   const category = currentAiLearningCategory();
   const requestedMarketScopeId = requestedAiLearningMarketScopeId();
   const projectId = currentWorkspaceProjectId();
+  const hasProject = isWorkspaceProjectId(projectId);
   if (
     !section
     || !state.api
     || !canViewAiLearning()
-    || !isWorkspaceProjectId(projectId)
   ) return null;
   const requestId = state.aiLearning.requestId + 1;
   const requestEpoch = state.dataEpoch;
@@ -13841,17 +13904,20 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
   section.error = null;
   if (!silent && state.route.path === "/workspace/ai") renderWorkspace("ai");
   try {
+    const marketIndexRequest = hasProject
+      ? withUiTimeout(
+        state.api.aiLearningMarketScopeIndex({ projectId, limit: 50 }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "ai_learning_market_scope_index_timeout",
+      ).then((value) => ({ value }), (error) => ({ error }))
+      : Promise.resolve({ skipped: true });
     const [raw, marketIndexResult] = await Promise.all([
       withUiTimeout(
         state.api.aiLearningControlRoom({ category }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "ai_learning_control_room_timeout",
       ),
-      withUiTimeout(
-        state.api.aiLearningMarketScopeIndex({ projectId, limit: 50 }),
-        WORKSPACE_REQUEST_TIMEOUT_MS,
-        "ai_learning_market_scope_index_timeout",
-      ).then((value) => ({ value }), (error) => ({ error })),
+      marketIndexRequest,
     ]);
     if (
       requestId !== state.aiLearning.requestId
@@ -13877,12 +13943,19 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
       )
     ) ? current : normalized;
 
-    let nextMarketIndex = currentProjectAiLearningMarketIndex();
+    let nextMarketIndex = hasProject
+      ? currentProjectAiLearningMarketIndex()
+      : null;
     let nextMarketDetail = nextMarketIndex
       ? state.aiLearning.marketDetail
       : null;
-    let marketError = "";
-    if (marketIndexResult.error) {
+    let marketError = hasProject
+      ? ""
+      : "Выберите проект: процент обученности, источники и правила категории всегда привязаны к точному проекту.";
+    if (marketIndexResult.skipped) {
+      nextMarketIndex = null;
+      nextMarketDetail = null;
+    } else if (marketIndexResult.error) {
       marketError = String(marketIndexResult.error?.message || "")
         === "ai_learning_market_scope_index_timeout"
         ? "Список рыночных категорий не ответил вовремя. Последний проверенный индекс оставлен на экране."
@@ -13904,7 +13977,8 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
       }
     }
 
-    const availableScopes = nextMarketIndex?.available
+    const availableScopes = hasProject
+      && nextMarketIndex?.available
       && nextMarketIndex.projectId === projectId
       ? nextMarketIndex.scopes.filter((scope) => scope.projectId === projectId)
       : [];
@@ -13918,7 +13992,7 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
     const targetScope = availableScopes.find(
       (scope) => scope.scopeId === targetScopeId,
     ) || null;
-    if (requestedMarketScopeId && !targetScope) {
+    if (hasProject && requestedMarketScopeId && !targetScope) {
       marketError = "Выбранная привязка категории устарела или больше недоступна. Выберите актуальный product context.";
       nextMarketDetail = null;
     } else if (targetScope) {
@@ -24551,6 +24625,9 @@ function navigate(path, replace = false, { scopeProject = true } = {}) {
       && !["loading", "refreshing"].includes(state.home.status)
     ) state.home.status = "idle";
     render();
+    if (actionChanged && state.route.path.startsWith("/workspace/")) {
+      void window.ContentEngineDesktopV4Loader?.load?.();
+    }
     settleRouteView({ resetAction: actionChanged, expectedActionKey: nextActionKey });
   } else if (window.location.hash === hash) {
     const previousActionKey = workspaceActionKey(state.route);
@@ -24564,6 +24641,9 @@ function navigate(path, replace = false, { scopeProject = true } = {}) {
       && !["loading", "refreshing"].includes(state.home.status)
     ) state.home.status = "idle";
     render();
+    if (actionChanged && state.route.path.startsWith("/workspace/")) {
+      void window.ContentEngineDesktopV4Loader?.load?.();
+    }
     settleRouteView({ resetAction: actionChanged, expectedActionKey: nextActionKey });
   } else {
     window.ContentEngineDesktopV4?.captureCurrentAction?.(workspaceActionKey(state.route));

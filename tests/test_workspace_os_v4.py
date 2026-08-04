@@ -170,6 +170,51 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
     assert "requestSubmit" not in STABILITY
 
 
+def test_dock_explains_that_a_project_is_required_instead_of_silently_bouncing_home() -> None:
+    dock = CORE[
+        CORE.index("function ensureDock()") : CORE.index("\nfunction updateDock()")
+    ]
+
+    assert 'workspaceRouteRequiresProject(destination)' in dock
+    assert '!snapshot.id' in dock
+    assert "event.preventDefault()" in dock
+    assert "explainProjectRequired()" in dock
+
+    policy = CORE[
+        CORE.index("function workspaceRouteRequiresProject(") :
+        CORE.index("\nfunction explainProjectRequired()")
+    ]
+    explanation = CORE[
+        CORE.index("function explainProjectRequired()") :
+        CORE.index("\nfunction routeMatches(")
+    ]
+    assert 'path === "/workspace/work"' in policy
+    assert '=== "notifications"' in policy
+    assert "PROJECT_REQUIRED_ROUTES.has(path)" in policy
+    assert "Сначала выберите проект" in explanation
+    assert 'window.location.hash = "#/workspace/home"' in explanation
+
+    update = CORE[CORE.index("function updateDock()") : CORE.index("\nfunction projectFlowRoot(")]
+    assert 'item.classList.toggle("is-project-required", projectRequired)' in update
+    assert 'locked || projectRequired' in update
+    assert "Сначала выберите проект" in update
+    assert ".ce-v4-dock__item.is-project-required" in CORE_CSS
+
+
+def test_loader_reconciles_stale_routes_and_replace_state_reloads_the_current_action() -> None:
+    loader = LOADER
+    load_route = loader[loader.index("async function loadRoute(") : loader.index("\nfunction ensureCore()")]
+    schedule = loader[loader.index("function schedule()") : loader.index("\nwindow.addEventListener")]
+
+    assert "function reconcileStaleLoad(epoch)" in loader
+    assert load_route.count("return reconcileStaleLoad(epoch)") == 3
+    assert 'document.documentElement.dataset.ceV4Loading !== "true"' in schedule
+    assert "function loadCurrentRoute()" in loader
+    assert "setFailed(route, error)" in loader
+    assert "load: () => loadCurrentRoute()" in loader
+    assert "ContentEngineDesktopV4Loader?.load?.()" in APP_SCRIPT
+
+
 def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() -> None:
     for marker in (
         'ROUTE = "/workspace/board"',

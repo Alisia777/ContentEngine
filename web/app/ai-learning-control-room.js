@@ -326,6 +326,7 @@ export function aiLearningMarketScopeIndexMarkup(value, options = {}) {
     : control.scopes[0] || null;
   const loading = options.loading === true;
   const error = cleanText(options.error, 800);
+  const requiresProject = options.requiresProject === true;
   const detailMarkup = selected ? String(options.detailMarkup || "") : "";
   const selectorMarkup = control.scopes.map((scope) => {
     const active = scope.scopeId === selected?.scopeId;
@@ -339,7 +340,9 @@ export function aiLearningMarketScopeIndexMarkup(value, options = {}) {
       <b>${scope.score}%</b>
     </button>`;
   }).join("");
-  const content = !control.available
+  const content = requiresProject
+    ? `<div class="ai-market-learning-empty" role="status"><strong>Выберите проект для рыночного обучения</strong><p>Процент, источники и правила категории считаются только внутри точного проекта. Глобальный ИИ‑центр остаётся доступен, но проектные данные не смешиваются.</p><a class="btn btn-secondary btn-small" href="#/workspace/home">Выбрать проект</a></div>`
+    : !control.available
     ? `<div class="ai-market-learning-empty" role="status"><strong>Динамические категории временно недоступны</strong><p>Процент скрыт: сервер не подтвердил точный UUID scope или readiness v3. Legacy‑оценка не подставляется.</p></div>`
     : !selected && control.scopes.length
       ? `<div class="ai-market-learning-layout">
@@ -358,7 +361,7 @@ export function aiLearningMarketScopeIndexMarkup(value, options = {}) {
   return `<section class="ai-market-learning" aria-labelledby="ai-market-learning-title" data-ce-patch-key="ai-market-learning">
     <div class="ai-market-learning-heading">
       <div><p class="ai-learning-eyebrow">Evidence-grounded market learning</p><h2 id="ai-market-learning-title">Новые категории, источники и управляемый анализ</h2><p>Здесь процент означает покрытие доказательств, а не IQ модели. Каждую интерпретацию можно проверить и исправить.</p></div>
-      <span class="ai-learning-status-pill is-${selected?.guidance.status === "strong_evidence" ? "strong" : selected?.guidance.status === "developing_evidence" ? "developing" : "insufficient"}">${selected ? `${selected.score}% evidence` : "нет scope"}</span>
+      <span class="ai-learning-status-pill is-${selected?.guidance.status === "strong_evidence" ? "strong" : selected?.guidance.status === "developing_evidence" ? "developing" : "insufficient"}">${selected ? `${selected.score}% evidence` : requiresProject ? "нужен проект" : "нет scope"}</span>
     </div>
     ${error ? `<div class="ai-learning-message is-error" role="alert">${escapeHtml(error)}</div>` : ""}
     ${content}

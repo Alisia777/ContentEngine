@@ -16,7 +16,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040011_ai_market_learning_bridge.sql"
+    / "202608040012_ai_market_learning_bridge.sql"
 )
 PGTAP = ROOT / "supabase" / "tests" / "ai_market_learning_bridge_test.sql"
 VIEW = ROOT / "web" / "app" / "ai-learning-control-room.js"
@@ -212,6 +212,9 @@ const staleMarkup = subject.aiLearningMarketScopeIndexMarkup(normalized, {
   selectedScopeId: "20000000-0000-4000-8000-000000000099",
   detailMarkup: '<div id="stale-evidence-detail">must-not-render</div>',
 });
+const projectRequiredMarkup = subject.aiLearningMarketScopeIndexMarkup(null, {
+  requiresProject: true,
+});
 const invalid = subject.normalizeAiLearningMarketScopeIndex({
   ...raw,
   scopes: [{ ...raw.scopes[0], market_category_id: "other" }],
@@ -236,6 +239,9 @@ return {
   staleContainsDetail: staleMarkup.includes("stale-evidence-detail"),
   staleContainsSelector: staleMarkup.includes('data-action="select-ai-market-learning-scope"'),
   staleMarksFirstActive: staleMarkup.includes("ai-market-scope-card is-active"),
+  projectRequiredPrompt: projectRequiredMarkup.includes("Выберите проект для рыночного обучения"),
+  projectRequiredLink: projectRequiredMarkup.includes('href="#/workspace/home"'),
+  projectRequiredStatus: projectRequiredMarkup.includes("нужен проект"),
   invalidAvailable: invalid.available,
   missingProjectAvailable: missingProject.available,
   crossProjectAvailable: crossProject.available,
@@ -255,6 +261,9 @@ return {
         "staleContainsDetail": False,
         "staleContainsSelector": True,
         "staleMarksFirstActive": False,
+        "projectRequiredPrompt": True,
+        "projectRequiredLink": True,
+        "projectRequiredStatus": True,
         "invalidAvailable": False,
         "missingProjectAvailable": False,
         "crossProjectAvailable": False,
@@ -285,6 +294,19 @@ def test_spa_reuses_research_detail_and_routes_exact_scope() -> None:
     assert "state.aiLearning.marketMutationId += 1" in app
     assert "state.aiLearning.marketIndex = null" in app
     assert "state.aiLearning.marketDetail = null" in app
+    assert "requiresProject: !isWorkspaceProjectId(currentWorkspaceProjectId())" in app
+
+    load_at = app.index("async function loadAiLearningControlRoom(")
+    load_end = app.index("\nfunction applyAuthoritativeAiLearningResponse(", load_at)
+    load = app[load_at:load_end]
+    initial_guard = load[:load.index("const requestId")]
+    assert "!isWorkspaceProjectId(projectId)" not in initial_guard
+    assert "const hasProject = isWorkspaceProjectId(projectId)" in load
+    assert "const marketIndexRequest = hasProject" in load
+    assert "Promise.resolve({ skipped: true })" in load
+    assert "state.api.aiLearningControlRoom({ category })" in load
+    assert "if (marketIndexResult.skipped)" in load
+    assert "if (hasProject && requestedMarketScopeId && !targetScope)" in load
 
     guard_at = app.index("candidateIndex.projectId !== projectId")
     commit_at = app.index("state.aiLearning.marketIndex = nextMarketIndex", guard_at)
@@ -293,9 +315,15 @@ def test_spa_reuses_research_detail_and_routes_exact_scope() -> None:
     activate_at = app.index("function activateWorkspaceProject(")
     activate_end = app.index("\nfunction ", activate_at + 1)
     assert "invalidateAiLearningMarketProjectContext();" in app[activate_at:activate_end]
+    assert "cancelGenerationFormDraftSave();" in app[activate_at:activate_end]
+    assert "resetGenerationSpecState();" in app[activate_at:activate_end]
+    assert "clearContentGenerationHandoff();" in app[activate_at:activate_end]
     clear_at = app.index("function clearWorkspaceProjectSelection(")
     clear_end = app.index("\nfunction ", clear_at + 1)
     assert "invalidateAiLearningMarketProjectContext();" in app[clear_at:clear_end]
+    assert "cancelGenerationFormDraftSave();" in app[clear_at:clear_end]
+    assert "resetGenerationSpecState();" in app[clear_at:clear_end]
+    assert "clearContentGenerationHandoff();" in app[clear_at:clear_end]
     assert 'previousAiPath !== "/workspace/ai"' in app
     assert 'entities: { scope:' in action_key
     assert 'action === "select-ai-market-learning-scope"' in app
