@@ -38,8 +38,8 @@ def test_same_action_refresh_skips_the_route_gate_but_query_actions_do_not() -> 
     assert "const actionKey = workspaceActionKey();" in LOADER
     assert "const sameAction = actionKey === lastScheduledActionKey;" in LOADER
     assert "lastScheduledActionKey = actionKey;" in LOADER
-    assert "if (sameAction && isManagedRoute(route))" in LOADER
-    same_route_guard = LOADER.index("if (sameAction && isManagedRoute(route))")
+    assert 'sameAction\n    && isManagedRoute(route)\n    && document.documentElement.dataset.ceV4Loading !== "true"' in LOADER
+    same_route_guard = LOADER.index("sameAction\n    && isManagedRoute(route)")
     loading_gate = LOADER.index("setLoading(isManagedRoute(route), route)")
     assert same_route_guard < loading_gate
 

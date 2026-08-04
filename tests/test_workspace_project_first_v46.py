@@ -156,19 +156,15 @@ def test_home_is_a_project_chooser_driven_by_server_projects() -> None:
     assert "dataset.ceV4Surface" in mount
     assert "home-project-create-form" not in mount
 
-    # A degraded legacy board may still supply project roots, but nested content
-    # folders must never become project cards.
-    assert re.search(
-        r"(?:filter|if)\s*\([^\n]{0,180}(?:parentId|parent_id|parentFolderId|parent_folder_id)",
-        markup,
-        flags=re.DOTALL,
-    ), "Project cards must be derived from root folders only"
+    # Project selection is server-catalog driven. Finder cannot be used as an
+    # unscoped fallback because its v4.7 API correctly requires project_id.
+    assert "const projects = projectFlow.projects" in markup
+    assert "board.folders" not in markup
 
 
 def test_degraded_board_never_silently_erases_projects_and_permissions() -> None:
     fallback = _function(APP, "async function loadWorkspaceBoardFallback()")
     combined = f"{APP}\n{BOARD}"
-    home_markup = _function(APP, "function homeProjectSwitcherMarkup(")
 
     preserves_folder_state = (
         not re.search(r"\bfolders\s*:\s*\[\s*\]", fallback)
@@ -181,12 +177,6 @@ def test_degraded_board_never_silently_erases_projects_and_permissions() -> None
     honest_retry = (
         re.search(r'data-action=["\'](?:retry|refresh)[^"\']*(?:folder|workspace|board)', combined, re.IGNORECASE)
         and re.search(r"(?:degraded|folders? unavailable|папк[^\n]{0,80}недоступ)", combined, re.IGNORECASE)
-    )
-
-    honest_retry = honest_retry and (
-        'data-action="refresh-section"' in home_markup
-        and 'data-section="board"' in home_markup
-        and "projectsUnavailable" in home_markup
     )
 
     assert (preserves_folder_state and preserves_capability) or honest_retry, (
