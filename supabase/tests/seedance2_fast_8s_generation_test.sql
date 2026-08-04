@@ -334,6 +334,11 @@ begin
     '91111111-1111-4111-8111-111111111111'::uuid,
     'seedance-owner'
   );
+  perform set_config(
+    'contentengine.project_id',
+    '90100000-0000-4000-8000-000000000001',
+    true
+  );
 end;
 $$;
 
