@@ -129,14 +129,13 @@ def test_native_v4_scaffold_contains_only_the_authorized_content_surface() -> No
     assert INDEX.index("./workspace-os-v4-loader.js") < INDEX.index("./app.js")
 
 
-def test_canonical_factory_flow_is_the_same_six_apps_as_the_dock() -> None:
+def test_canonical_factory_flow_is_five_actions_beneath_the_project_chooser() -> None:
     flow = _source_between(
         APP,
         "const FACTORY_FLOW = Object.freeze([",
         "\n]);\nconst FACTORY_FLOW_ALIASES",
     )
     assert re.findall(r'key:\s*"([^"]+)"', flow) == [
-        "home",
         "board",
         "generation",
         "review",
@@ -149,7 +148,6 @@ def test_canonical_factory_flow_is_the_same_six_apps_as_the_dock() -> None:
         "03",
         "04",
         "05",
-        "06",
     ]
     aliases = _source_between(
         APP,
@@ -161,6 +159,20 @@ def test_canonical_factory_flow_is_the_same_six_apps_as_the_dock() -> None:
     for deep_context in ("tasks", "work", "media", "payouts"):
         assert f'key: "{deep_context}"' not in flow
 
+    dock = _source_between(
+        CORE,
+        "const ROUTES = Object.freeze([",
+        "\n]);\n\nconst SECONDARY_ROUTES",
+    )
+    assert re.findall(r'route:\s*"([^"]+)"', dock) == [
+        "/workspace/home",
+        "/workspace/board",
+        "/workspace/generation",
+        "/workspace/review",
+        "/workspace/placement",
+        "/workspace/stats",
+    ]
+
 
 def test_v4_page_headers_replace_the_large_direction_bar_with_one_compact_instruction() -> None:
     header = _source_between(
@@ -171,7 +183,8 @@ def test_v4_page_headers_replace_the_large_direction_bar_with_one_compact_instru
     assert "const nativeV4 = window.CONTENTENGINE_DESKTOP_V4 === true" in header
     assert "!nativeV4 && inFactoryFlow ? factoryFlowMarkup(activeSection)" in header
     assert 'nativeV4 ? "" : workspaceDirectionMarkup(meta)' in header
-    assert 'nativeV4 ? workspaceActionGuideMarkup(meta) : ""' in header
+    assert 'nativeV4 && !ownsFocusedAction ? workspaceActionGuideMarkup(meta) : ""' in header
+    assert '["board", "generation", "review", "placement", "stats", "tasks"]' in header
     assert ".workspace-action-guide" in FLOW_CSS
     assert "Готово, когда:" in APP
     assert "После выполнения" in APP
@@ -185,11 +198,15 @@ def test_review_decision_hands_the_user_to_the_only_logical_next_screen() -> Non
     )
     assert 'const resolvedDecision = contextApproval ? "approved" : decision.decision' in decision
     assert 'if (resolvedDecision === "needs_changes")' in decision
-    assert 'navigate("/workspace/generation")' in decision
+    assert 'flowHandoff(' in decision
+    assert 'const freshFlow = await loadProjectFlow({ silent: true, force: true })' in decision
+    assert 'const exactNext = exactProjectNextActionRoute(freshFlow, projectId)' in decision
+    assert 'exactNext.startsWith("/workspace/generation?")' in decision
     assert 'if (resolvedDecision === "approved")' in decision
-    assert 'navigate("/workspace/placement?view=next")' in decision
+    assert '/workspace/placement?view=next&placement=' in decision
+    assert 'content_review_exact_placement_missing' in decision
     assert decision.index('await track("content_review_decided"') < decision.index(
-        'navigate("/workspace/placement?view=next")'
+        '/workspace/placement?view=next&placement='
     )
 
 
@@ -235,7 +252,10 @@ def test_home_is_project_first_and_keeps_valid_server_driven_review_links() -> N
     assert "data-ce-v4-project-home" in project_home
     assert "data-ce-v4-project-id" in project_home
     assert "home-project-create-form" in project_home
-    assert "board.folders.filter" in project_home
+    assert "projectFlow.projects" in project_home
+    assert "project.next_action" in project_home
+    assert "exactProjectNextActionRoute" in project_home
+    assert 'href="#${escapeHtml(nextRoute)}"' in project_home
     assert "!folder.parentId" in project_home
     assert 'q("[data-ce-v4-project-home]", page)' in compositor
     assert "dataset.ceV4Surface" in compositor
@@ -310,7 +330,7 @@ def test_finder_media_handoff_is_persisted_and_preferred_by_generation() -> None
         "\n}\n\nfunction prepareRecommendedResearchHandoff",
     )
     assert "window.sessionStorage" in selection_storage
-    assert "persistGenerationMediaSelection(mediaId)" in APP
+    assert "persistGenerationMediaSelection(mediaId, projectId)" in APP
     assert re.search(
         r"finderSelectedMediaId\s*\|\|\s*chooseInitialGenerationMedia",
         APP,
@@ -323,7 +343,7 @@ def test_trash_reuses_the_authenticated_workspace_runtime_api() -> None:
     assert "window.ContentEngineWorkspaceRuntime?.getApi?.()" in TRASH
 
 
-def test_secondary_tools_only_contain_real_tools_outside_the_six_step_route() -> None:
+def test_secondary_and_context_routes_stay_outside_the_six_item_dock() -> None:
     menubar = _source_between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
     assert "SECONDARY_ROUTES.forEach" in menubar
     assert 'setAttribute("role", "menu")' in menubar
@@ -334,26 +354,30 @@ def test_secondary_tools_only_contain_real_tools_outside_the_six_step_route() ->
     secondary = _source_between(
         CORE,
         "const SECONDARY_ROUTES = Object.freeze([",
+        "\n]);\n\nconst CONTEXT_ROUTES",
+    )
+    context = _source_between(
+        CORE,
+        "const CONTEXT_ROUTES = Object.freeze([",
         "\n]);\n\nconst ALL_ROUTES",
     )
-    for duplicate in (
-        "/workspace/tasks",
-        "/workspace/work",
-        "/workspace/media",
-        "/workspace/payouts",
-    ):
+    for duplicate in ("/workspace/tasks", "/workspace/work", "/workspace/media", "/workspace/payouts"):
         assert f'route: "{duplicate}"' not in secondary
+    for contextual in ("/workspace/tasks", "/workspace/work"):
+        assert f'route: "{contextual}"' in context
+    for detached in ("/workspace/media", "/workspace/payouts"):
+        assert f'route: "{detached}"' not in context
     ensure_dock = _source_between(CORE, "function ensureDock() {", "\n}\n\nfunction updateDock")
     assert "ROUTES.forEach" in ensure_dock
     assert "SECONDARY_ROUTES.forEach" not in ensure_dock
     assert 'route: "/learn"' not in CORE
     for label, href in (
-        ("Разбор товара", "#/workspace/research"),
-        ("Команда", "#/workspace/team"),
-        ("Помощь и обратная связь", "#/workspace/feedback"),
+        ("Разбор товара", "/workspace/research"),
+        ("Команда", "/workspace/team"),
+        ("Помощь и обратная связь", "/workspace/feedback"),
     ):
         assert f'menuAction("{label}"' in TRASH
-        assert href in TRASH
+        assert f'openWorkspaceRoute("{href}")' in TRASH
     assert 'menuAction("Инструкции"' not in TRASH
     assert '"#/learn"' not in TRASH
 
@@ -362,6 +386,12 @@ def test_dock_is_the_only_global_switcher_and_project_progress_is_contextual() -
     progress = _source_between(CORE, "function syncProjectProgress() {", "\n}\n\nfunction overlayBase")
     dock = _source_between(CORE, "function ensureDock() {", "\n}\n\nfunction updateDock")
     matches = _source_between(CORE, "function routeMatches(route, expected) {", "\n}\n\nfunction routeRecord")
+    active_index = _source_between(
+        CORE,
+        "function activeProjectFlowIndex(",
+        "\n}\n\nfunction stageLocked",
+    )
+    update_dock = _source_between(CORE, "function updateDock() {", "\n}\n\nfunction updateMenubar")
 
     assert "function ensureFlowbar" not in CORE
     assert 'create("nav", "ce-v4-flowbar")' not in CORE
@@ -376,10 +406,11 @@ def test_dock_is_the_only_global_switcher_and_project_progress_is_contextual() -
     assert 'create("span", "ce-v4-dock__label", item.label)' in dock
     assert "link.title = `${item.label} — ${item.description}`" in dock
     assert 'expected === "/workspace/home"' in matches
-    assert 'route === "/workspace/tasks"' in matches
-    assert 'route === "/workspace/work"' in matches
-    assert 'route === "/workspace/media"' in matches
-    assert 'route === "/workspace/payouts"' in matches
+    assert 'route !== "/workspace/tasks"' in active_index
+    assert 'routeQuery().get("stage") || routeQuery().get("origin_stage")' in active_index
+    assert 'route === "/workspace/tasks"' in update_dock
+    assert 'focusedStageIndex >= 0 ? PROJECT_FLOW[focusedStageIndex].route : "/workspace/home"' in update_dock
+    assert "PROJECT_FLOW[focusedStageIndex].route" in update_dock
 
 
 def test_flow_css_hides_every_surface_that_is_inactive_for_the_selected_view() -> None:
@@ -400,14 +431,15 @@ def test_flow_css_hides_every_surface_that_is_inactive_for_the_selected_view() -
 
 def test_review_stats_tasks_and_placement_have_explicit_action_views() -> None:
     for marker in (
-        'workspaceActionSwitch("review-action-switch"',
-        'workspaceActionSwitch("placement-action-switch"',
+        'class="focus-queue__bar"',
         'workspaceActionSwitch("stats-action-switch"',
-        'workspaceActionSwitch("tasks-action-switch"',
         'data-review-view="${escapeHtml(reviewView)}"',
         'data-placement-view="${placementView}"',
         'data-stats-view="${statsView}"',
         'data-task-view="${taskView}"',
+        'data-focus-queue="review"',
+        'data-focus-queue="placement"',
+        'data-focus-queue="tasks"',
     ):
         assert marker in APP
 

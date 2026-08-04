@@ -204,6 +204,7 @@ type ContentEngineDatabase = {
         Row: {
           id: string;
           organization_id: string;
+          project_id: string;
           batch_id: string;
           campaign_id: string;
           status: string;
@@ -248,6 +249,7 @@ type ProductCategory =
 type CommonStartPayload = {
   action: "start";
   organization_id: string;
+  project_id: string;
   campaign_id: string;
   idempotency_key: string;
   sku: string;
@@ -357,12 +359,14 @@ type PreflightPayload = {
 type StatusPayload = {
   action: "status";
   organization_id: string;
+  project_id?: string;
   job_id: string;
 };
 
 type ReconcilePayload = {
   action: "reconcile";
   organization_id: string;
+  project_id: string;
   job_id: string;
   incident_id: string;
   idempotency_key: string;
@@ -767,6 +771,7 @@ function readStartPayload(value: unknown): StartPayload | null {
   const required = new Set([
     "action",
     "organization_id",
+    "project_id",
     "campaign_id",
     "idempotency_key",
     "sku",
@@ -788,6 +793,7 @@ function readStartPayload(value: unknown): StartPayload | null {
   ]);
   const allowed = new Set([
     ...required,
+    "project_id",
     "audio",
     "assignee_id",
     "payout_minor",
@@ -882,6 +888,9 @@ function readStartPayload(value: unknown): StartPayload | null {
     return null;
   }
   if (Object.hasOwn(value, "assignee_id") && !isUuid(value.assignee_id)) {
+    return null;
+  }
+  if (Object.hasOwn(value, "project_id") && !isUuid(value.project_id)) {
     return null;
   }
   if (
@@ -1363,13 +1372,18 @@ function generationRepairPromptIsBound(
 
 function readStatusPayload(value: unknown): StatusPayload | null {
   if (!isRecord(value)) return null;
-  const allowed = new Set(["action", "organization_id", "job_id"]);
-  if (!hasOnlyKeys(value, allowed) || Object.keys(value).length !== 3) {
+  const required = new Set(["action", "organization_id", "job_id"]);
+  const allowed = new Set([...required, "project_id"]);
+  if (
+    !hasOnlyKeys(value, allowed) ||
+    ![...required].every((key) => Object.hasOwn(value, key))
+  ) {
     return null;
   }
   if (
     value.action !== "status" || !isUuid(value.organization_id) ||
-    !isUuid(value.job_id)
+    !isUuid(value.job_id) ||
+    (Object.hasOwn(value, "project_id") && !isUuid(value.project_id))
   ) {
     return null;
   }
@@ -1401,6 +1415,7 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
   if (
     value.action !== "reconcile" ||
     !isUuid(value.organization_id) ||
+    !isUuid(value.project_id) ||
     !isUuid(value.job_id) ||
     !isUuid(value.incident_id) ||
     typeof value.idempotency_key !== "string" ||
@@ -1737,6 +1752,7 @@ function readReconciliationContext(
   if (
     job.id !== payload.job_id ||
     job.organization_id !== payload.organization_id ||
+    job.project_id !== payload.project_id ||
     job.status !== "starting" ||
     job.reconciliation_incident_id !== payload.incident_id ||
     typeof job.starting_at !== "string" ||
@@ -2296,10 +2312,11 @@ async function handleCreatorGenerate(
   const readCurrentStatus = async (
     organizationId: string,
     jobId: string,
+    projectId?: string,
   ): Promise<StatusJob | null> => {
     if (internalWorker) {
       try {
-        const { data, error } = await supabaseAdmin
+        let query = supabaseAdmin
           .schema("content_factory")
           .from("generation_jobs")
           .select(
@@ -2308,8 +2325,9 @@ async function handleCreatorGenerate(
           .eq("organization_id", organizationId)
           .eq("id", jobId)
           .eq("mode", "real")
-          .eq("provider", "runway")
-          .maybeSingle();
+          .eq("provider", "runway");
+        if (projectId) query = query.eq("project_id", projectId);
+        const { data, error } = await query.maybeSingle();
         if (error || !isRecord(data) || !isUuid(data.campaign_id)) return null;
         const { data: campaignData, error: campaignError } = await supabaseAdmin
           .schema("content_factory")
@@ -2335,7 +2353,13 @@ async function handleCreatorGenerate(
     try {
       const { data, error } = await context.supabase.rpc(
         "creator_real_generation_status",
-        { p_payload: { organization_id: organizationId, job_id: jobId } },
+        {
+          p_payload: {
+            organization_id: organizationId,
+            job_id: jobId,
+            ...(projectId ? { project_id: projectId } : {}),
+          },
+        },
       );
       if (error) return null;
       const job = readStatusJob(data);
@@ -2426,6 +2450,7 @@ async function handleCreatorGenerate(
         {
           p_payload: {
             organization_id: payload.organization_id,
+            project_id: payload.project_id,
             job_id: payload.job_id,
           },
         },
@@ -2491,8 +2516,9 @@ async function handleCreatorGenerate(
     organizationId: string,
     jobId: string,
     batch?: { id: string; status: string },
+    projectId?: string,
   ): Promise<Response> => {
-    const current = await readCurrentStatus(organizationId, jobId);
+    const current = await readCurrentStatus(organizationId, jobId, projectId);
     if (current === null) {
       return json(
         request,
@@ -2533,6 +2559,7 @@ async function handleCreatorGenerate(
     let current = currentOverride ?? await readCurrentStatus(
       payload.organization_id,
       payload.job_id,
+      payload.project_id,
     );
     if (current === null) {
       return json(
@@ -2570,6 +2597,7 @@ async function handleCreatorGenerate(
         current = await readCurrentStatus(
           payload.organization_id,
           payload.job_id,
+          payload.project_id,
         ) ??
           current;
       }
@@ -2729,6 +2757,7 @@ async function handleCreatorGenerate(
       const refreshed = await readCurrentStatus(
         payload.organization_id,
         payload.job_id,
+        payload.project_id,
       );
       if (refreshed === null) {
         return json(request, {
@@ -2861,6 +2890,7 @@ async function handleCreatorGenerate(
     current = await readCurrentStatus(
       payload.organization_id,
       payload.job_id,
+      payload.project_id,
     );
     if (current === null || current.status !== "succeeded") {
       return json(
@@ -3006,6 +3036,8 @@ async function handleCreatorGenerate(
     return await respondWithCurrent(
       payload.organization_id,
       payload.job_id,
+      undefined,
+      payload.project_id,
     );
   };
 
@@ -3185,6 +3217,7 @@ async function handleCreatorGenerate(
       {
         p_payload: {
           organization_id: startPayload.organization_id,
+          project_id: startPayload.project_id,
           media_id: startPayload.media_ids[0],
           platform: startPayload.platform,
           model: startPayload.model,
@@ -3281,6 +3314,7 @@ async function handleCreatorGenerate(
         {
           p_payload: {
             organization_id: startPayload.organization_id,
+            project_id: startPayload.project_id,
             review_id: startPayload.repair_context.source_review_id,
           },
         },
@@ -3422,6 +3456,7 @@ async function handleCreatorGenerate(
   const current = await readCurrentStatus(
     startPayload.organization_id,
     startJob.id,
+    startPayload.project_id,
   );
   if (
     current === null || current.batchId !== startJob.batchId ||
@@ -3439,6 +3474,7 @@ async function handleCreatorGenerate(
     action: "status",
     organization_id: startPayload.organization_id,
     job_id: startJob.id,
+    ...(startPayload.project_id ? { project_id: startPayload.project_id } : {}),
   };
   if (current.status !== "queued") {
     return await handleStatus(statusRequest, current, batch);

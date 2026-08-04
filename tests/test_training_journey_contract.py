@@ -210,9 +210,10 @@ def test_completion_requires_server_confirmation_then_returns_to_the_next_step()
     complete_call = completion.index("await state.api.completeModule(moduleCode)")
     refresh_call = completion.index("await loadBootstrap()")
     confirmed = completion.index("const serverCompleted")
-    success = completion.index('toast("Курс завершён и сохранён.", "success")')
-    next_step = completion.index('navigate("/learn", true)')
-    assert complete_call < refresh_call < confirmed < success < next_step
+    next_course = completion.index("const nextCourse")
+    destination = completion.index("const destination = nextCourse")
+    handoff = completion.index("await flowHandoff(")
+    assert complete_call < refresh_call < confirmed < next_course < destination < handoff
     assert "state.bootstrap.training.completedModules.includes(moduleCode)" in completion
     assert "if (!serverCompleted) throw new Error" in completion
     assert "showTrainingAchievement" not in completion
@@ -234,15 +235,16 @@ def test_completion_flow_does_not_open_an_achievement_subwindow() -> None:
         "training-achievement-open",
     ):
         assert modal_side_effect not in completion
-    assert completion.count('toast("Курс завершён и сохранён.", "success")') == 1
-    assert completion.count('navigate("/learn", true)') == 1
+    assert completion.count("await flowHandoff(") == 1
+    assert completion.count('navigate("/learn", true)') == 0
+    assert '"/learn/practical"' in completion
 
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
-    assert './training-journey.css?v=20260718.3' in INDEX
-    assert BUILD == "20260803.os4.6"
+    assert './training-journey.css?v=20260804.os4.7' in INDEX
+    assert BUILD == "20260804.os4.7"
     assert f'./app.js?v={BUILD}' in INDEX
-    assert 'from "./training-journey.js?v=20260718.3"' in APP
+    assert 'from "./training-journey.js?v=20260804.os4.7"' in APP
     assert 'from "./training-interactive.js?v=20260718.4"' in APP
 
 

@@ -81,8 +81,20 @@ def test_worker_dispatches_due_durable_research_and_review_queues() -> None:
     assert '.eq("status", "queued")' in source
     assert "creator-product-research" in source
     assert "creator-content-review" in source
-    assert 'body: { action: "analyze", research_id: row.id }' in source
-    assert 'body: { action: "analyze", review_id: row.id }' in source
+    assert 'research_id: row.id' in source
+    assert 'project_id: row.project_id as string' in source
+    assert '.select("id, organization_id, project_id, created_by, status, created_at")' in source
+    assert (
+        '"id, organization_id, project_id, requested_by, media_object_id, '
+        'status, created_at, evidence_set_id, next_attempt_at"'
+    ) in source
+    assert "isQueueRow(row, true) && isUuid(row.project_id)" in source
+    review_target_start = source.index('kind: "review"')
+    review_target = source[
+        review_target_start : source.index("organizationId", review_target_start)
+    ]
+    assert 'review_id: row.id' in review_target
+    assert 'project_id: row.project_id as string' in review_target
     assert "IMAGE_MIME_TYPES.has(media.mime_type)" in source
     assert 'media.mime_type === "video/mp4"' in source
     assert "isUuid(row.evidence_set_id)" in source

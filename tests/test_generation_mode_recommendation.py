@@ -132,6 +132,7 @@ def test_research_mode_recommendation_survives_to_generation_handoff() -> None:
         const record = {
           ...normalized,
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           productName: "Точный товар",
           sku: "SKU-MODE-1",
           sourceIds: ["source-1"],
@@ -399,12 +400,12 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     assert "checked" not in confirmation
     assert "required" in confirmation
     assert (
-        'from "./product-research-view.js?v=20260728.5"'
+        'from "./product-research-view.js?v=20260804.os4.7"'
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260730.1"'
+        'from "./content-generation-handoff.js?v=20260804.os4.7"'
         in APP
     )
     assert 'from "./generation-autopilot.js?v=20260729.1"' in APP
-    assert './app.js?v=20260803.os4.6' in INDEX
+    assert './app.js?v=20260804.os4.7' in INDEX

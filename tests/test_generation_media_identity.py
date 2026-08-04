@@ -131,7 +131,8 @@ def test_generation_form_autofills_and_locks_exact_product_for_paid_runs() -> No
     for token in (
         'generationMediaIdentity: "creator_generation_media_identity"',
         "mergeGenerationMediaIdentity(response, identityResponse)",
-        "generationMediaIdentity(mediaIds)",
+        "generationMediaIdentity(mediaIds, {",
+        "project_id: requiredProjectId(projectIdSnake || projectId)",
         'data-media-identity-verified="${identity.verified ? "true" : "false"}"',
         'data-media-rights-confirmed="${identity.rightsConfirmed ? "true" : "false"}"',
         "function syncGenerationProductIdentity(form)",
@@ -144,8 +145,8 @@ def test_generation_form_autofills_and_locks_exact_product_for_paid_runs() -> No
     assert ".generation-product-identity" in STYLES
     assert ".generation-media-option:has(input:disabled)" in STYLES
     assert './styles.css?v=20260730.4' in INDEX
-    assert './app.js?v=20260803.os4.6' in INDEX
-    assert './supabase-api.js?v=20260729.2' in APP
+    assert './app.js?v=20260804.os4.7' in INDEX
+    assert './supabase-api.js?v=20260804.os4.7' in APP
 
 
 def test_primary_generation_photo_is_first_in_paid_payload() -> None:

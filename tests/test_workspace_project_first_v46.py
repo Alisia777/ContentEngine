@@ -129,13 +129,16 @@ def test_dock_always_exposes_plain_labels_and_labelled_hover_tooltips() -> None:
     assert any(":focus-visible" in selector and "opacity: 1" in body for selector, body in tooltip_rules)
 
 
-def test_home_is_a_project_chooser_built_from_root_folders() -> None:
+def test_home_is_a_project_chooser_driven_by_server_projects() -> None:
     mount = _function(CORE, "function mountHome()")
     markup = _function(APP, "function homeProjectSwitcherMarkup(")
     assert "data-ce-v4-project-home" in markup
     assert "data-ce-v4-project-id" in markup
     assert "home-project-create-form" in markup
-    assert re.search(r"#/workspace/board\?folder=|/workspace/board\?folder=", markup)
+    assert "projectFlow.projects" in markup
+    assert "project.next_action" in markup
+    assert "exactProjectNextActionRoute" in markup
+    assert "project_id" in markup
 
     # Core is only the compositor: it promotes the native project chooser to
     # the single v4 surface instead of rebuilding or duplicating its markup.
@@ -143,8 +146,8 @@ def test_home_is_a_project_chooser_built_from_root_folders() -> None:
     assert "dataset.ceV4Surface" in mount
     assert "home-project-create-form" not in mount
 
-    # A nested content folder is not another top-level project card.  The source
-    # must explicitly select root folders instead of mapping every folder.
+    # A degraded legacy board may still supply project roots, but nested content
+    # folders must never become project cards.
     assert re.search(
         r"(?:filter|if)\s*\([^\n]{0,180}(?:parentId|parent_id|parentFolderId|parent_folder_id)",
         markup,
@@ -284,8 +287,13 @@ def test_finder_uses_one_surface_for_list_preview_context_actions_and_trash() ->
 
 def test_review_decision_hands_the_user_to_the_real_next_stage() -> None:
     decision = _function(APP, "async function submitContentReviewDecision(")
-    assert re.search(r'resolvedDecision\s*===\s*"needs_changes"[\s\S]+?navigate\("/workspace/generation"\)', decision)
-    assert re.search(r'resolvedDecision\s*===\s*"approved"[\s\S]+?navigate\("/workspace/placement\?view=next"\)', decision)
+    assert re.search(r'resolvedDecision\s*===\s*"needs_changes"[\s\S]+?flowHandoff\(', decision)
+    assert "const freshFlow = await loadProjectFlow({ silent: true, force: true })" in decision
+    assert "const exactNext = exactProjectNextActionRoute(freshFlow, projectId)" in decision
+    assert 'exactNext.startsWith("/workspace/generation?")' in decision
+    assert re.search(r'resolvedDecision\s*===\s*"approved"[\s\S]+?flowHandoff\(', decision)
+    assert "/workspace/placement?view=next&placement=" in decision
+    assert "content_review_exact_placement_missing" in decision
 
     progress = _function(CORE, "function syncProjectProgress()")
     for route in ("/workspace/board", "/workspace/generation", "/workspace/review", "/workspace/placement", "/workspace/stats"):

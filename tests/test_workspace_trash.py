@@ -159,7 +159,7 @@ def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
 def test_inline_trash_surface_supports_restore_purge_empty_and_safe_previews() -> None:
     for marker in (
         "createTrashSurface",
-        'window.location.hash = "#/workspace/board?view=trash"',
+            'openWorkspaceRoute("/workspace/board?view=trash")',
         "ensureTrashSurface",
         "Корзина",
         "Восстановить",

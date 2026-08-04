@@ -194,7 +194,9 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         assert token in EDGE
     for token in (
         'generationLearningPolicy: "creator_generation_learning_policy"',
-            "generationLearningPolicy({ mediaId, platform, model, productCategory })",
+            "generationLearningPolicy({",
+            "project_id: projectIdSnake",
+            "project_id: requiredProjectId(projectIdSnake || projectId)",
         "RPC.generationLearningPolicy",
     ):
         assert token in ADAPTER
@@ -213,8 +215,8 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         assert token in APP
     assert ".generation-learning-status" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260803.os4.6" in INDEX
-    assert "./supabase-api.js?v=20260729.2" in APP
+    assert "./app.js?v=20260804.os4.7" in INDEX
+    assert "./supabase-api.js?v=20260804.os4.7" in APP
 
 
 def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call() -> None:

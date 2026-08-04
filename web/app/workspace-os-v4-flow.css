@@ -1,4 +1,4 @@
-/* ContentEngine Desktop v4.6 · one desktop, one surface, one action. */
+/* ContentEngine Desktop v4.7 · one desktop, one surface, one action. */
 
 body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) {
   width: 100% !important;
@@ -100,21 +100,21 @@ body.contentengine-desktop-v4 .workspace-action-guide {
 
 .workspace-action-guide small {
   color: var(--ce-v4-dim);
-  font-size: .61rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 800;
   letter-spacing: .08em;
   text-transform: uppercase;
 }
 
 .workspace-action-guide__now strong {
-  font-size: .82rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.35;
 }
 
 .workspace-action-guide__now > span,
 .workspace-action-guide > p {
   color: var(--ce-v4-muted);
-  font-size: .69rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   line-height: 1.4;
 }
 
@@ -125,7 +125,7 @@ body.contentengine-desktop-v4 .workspace-action-guide {
 
 .workspace-action-guide__next a {
   color: var(--ce-v4-copper-bright);
-  font-size: .76rem;
+  font-size: var(--ce-v4-font-control, 14px);
   font-weight: 780;
   text-decoration: none;
 }
@@ -236,7 +236,7 @@ body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
   border-radius: 10px;
   align-items: center;
   color: var(--ce-v4-muted);
-  font-size: 0.78rem;
+  font-size: var(--ce-v4-font-control, 14px);
   font-weight: 760;
   text-decoration: none;
   white-space: nowrap;
@@ -279,7 +279,7 @@ body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
 
 .workspace-action-sequence small {
   color: var(--ce-v4-dim);
-  font-size: .62rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 800;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -288,7 +288,7 @@ body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
 .workspace-action-sequence strong {
   overflow: hidden;
   color: var(--ce-v4-text);
-  font-size: .86rem;
+  font-size: var(--ce-v4-font-control, 14px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -309,7 +309,7 @@ body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) :is(
   align-items: center;
   color: var(--ce-v4-muted);
   background: rgba(255, 255, 255, .02);
-  font-size: .73rem;
+  font-size: var(--ce-v4-font-control, 14px);
   font-weight: 760;
   text-decoration: none;
 }
@@ -550,6 +550,247 @@ body.contentengine-desktop-v4 .workspace-board__layout {
   min-height: inherit;
 }
 
+/* Tasks, review and placement are focus queues: the current object owns the
+   work surface, while the rest of the queue stays behind one compact control. */
+body.contentengine-desktop-v4 .focus-queue {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-height: 100%;
+}
+
+body.contentengine-desktop-v4 .focus-queue__bar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 62px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--ce-v4-line-strong) 78%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ce-v4-surface) 94%, transparent);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 16%);
+}
+
+body.contentengine-desktop-v4 .focus-queue__bar > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+body.contentengine-desktop-v4 .focus-queue__bar strong {
+  font-size: var(--ce-v4-font-control);
+  line-height: 1.25;
+}
+
+body.contentengine-desktop-v4 .focus-queue__bar small {
+  overflow: hidden;
+  color: var(--ce-v4-muted);
+  font-size: var(--ce-v4-font-helper);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.contentengine-desktop-v4 .focus-queue :is(.task-list, .placement-list, [data-review-view]) {
+  min-height: min(62vh, 720px);
+}
+
+/* Inline completion belongs to the current action. It is deliberately not a
+   dialog: the user sees the result for 700 ms and the exact next object opens. */
+body.contentengine-desktop-v4 .workspace-flow-confirmation {
+  position: fixed;
+  top: calc(var(--ce-v4-top, 46px) + 14px);
+  left: 50%;
+  z-index: 120;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  width: min(420px, calc(100vw - 24px));
+  min-height: 58px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--ce-v4-success, #6ecf9b) 48%, var(--ce-v4-line-strong));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ce-v4-surface) 96%, var(--ce-v4-success, #6ecf9b) 4%);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 26%);
+  opacity: 0;
+  transform: translate3d(-50%, -8px, 0) scale(.985);
+  transition:
+    opacity var(--ce-motion-fast, 140ms) var(--ce-motion-ease, ease),
+    transform var(--ce-motion-base, 210ms) var(--ce-motion-spring, ease);
+  pointer-events: none;
+}
+
+body.contentengine-desktop-v4 .workspace-flow-confirmation.is-visible {
+  opacity: 1;
+  transform: translate3d(-50%, 0, 0) scale(1);
+}
+
+body.contentengine-desktop-v4 .workspace-home--single-action {
+  min-height: calc(100% - 24px);
+  display: grid;
+  place-items: center;
+}
+
+body.contentengine-desktop-v4 .home-single-action {
+  width: min(880px, 100%);
+  display: grid;
+  gap: 24px;
+  padding: clamp(24px, 4vw, 48px);
+  border-color: color-mix(in srgb, var(--ce-v4-accent) 26%, var(--ce-v4-line));
+}
+
+body.contentengine-desktop-v4 .home-single-action > header,
+body.contentengine-desktop-v4 .home-single-action > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+body.contentengine-desktop-v4 .home-single-action > header p,
+body.contentengine-desktop-v4 .home-single-action > footer small {
+  margin: 0;
+}
+
+body.contentengine-desktop-v4 .home-single-action > footer small {
+  max-width: 420px;
+  color: var(--ce-v4-muted);
+  font-size: var(--ce-v4-font-helper, 12px);
+  line-height: 1.45;
+  text-align: right;
+}
+
+body.contentengine-desktop-v4 .home-single-action__body {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+body.contentengine-desktop-v4 .home-single-action__mark {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  color: var(--ce-v4-accent);
+  background: color-mix(in srgb, var(--ce-v4-accent) 13%, transparent);
+  font-size: 28px;
+}
+
+body.contentengine-desktop-v4 .home-single-action__body h1 {
+  margin: 0 0 10px;
+  font: 650 clamp(2rem, 4.5vw, 4rem)/1.02 Georgia, serif;
+  letter-spacing: -0.035em;
+}
+
+body.contentengine-desktop-v4 .home-single-action__body p {
+  max-width: 65ch;
+  margin: 0;
+  color: var(--ce-v4-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+body.contentengine-desktop-v4 .home-single-action__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+body.contentengine-desktop-v4 .home-single-action__facts > div {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ce-v4-surface) 84%, transparent);
+}
+
+body.contentengine-desktop-v4 .home-single-action__facts dt {
+  margin-bottom: 6px;
+  color: var(--ce-v4-muted);
+  font-size: var(--ce-v4-font-helper, 12px);
+  font-weight: 760;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+body.contentengine-desktop-v4 .home-single-action__facts dd {
+  margin: 0;
+  font-size: var(--ce-v4-font-control, 14px);
+  line-height: 1.45;
+}
+
+@media (max-width: 680px) {
+  body.contentengine-desktop-v4 .workspace-home--single-action {
+    min-height: auto;
+    place-items: start stretch;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action,
+  body.contentengine-desktop-v4 .home-single-action > header,
+  body.contentengine-desktop-v4 .home-single-action > footer {
+    align-items: stretch;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action > header,
+  body.contentengine-desktop-v4 .home-single-action > footer {
+    flex-direction: column;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action__body {
+    grid-template-columns: 1fr;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action__facts {
+    grid-template-columns: 1fr;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action > footer small {
+    text-align: left;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action > footer .btn {
+    width: 100%;
+  }
+}
+
+body.contentengine-desktop-v4 .workspace-flow-confirmation__check {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #08140d;
+  background: var(--ce-v4-success, #6ecf9b);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+body.contentengine-desktop-v4 .workspace-flow-confirmation > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+body.contentengine-desktop-v4 .workspace-flow-confirmation strong {
+  font-size: var(--ce-v4-font-control);
+  line-height: 1.25;
+}
+
+body.contentengine-desktop-v4 .workspace-flow-confirmation small {
+  color: var(--ce-v4-muted);
+  font-size: var(--ce-v4-font-helper);
+  line-height: 1.35;
+}
+
 @media (max-width: 760px) {
   body.contentengine-desktop-v4 .ce-v4-page:not(.ce-v4-home-page) {
     width: calc(100vw - 12px) !important;
@@ -588,6 +829,21 @@ body.contentengine-desktop-v4 .workspace-board__layout {
     flex: 1 0 auto;
     justify-content: center;
   }
+
+  body.contentengine-desktop-v4 .focus-queue__bar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  body.contentengine-desktop-v4 .focus-queue__bar small {
+    white-space: normal;
+  }
+
+  body.contentengine-desktop-v4 .focus-queue__bar .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -602,5 +858,6 @@ body.contentengine-desktop-v4 .workspace-board__layout {
   .feedback-action-switch a,
   .team-action-switch a,
   .research-action-switch a,
-  .learning-action-switch a { transition: none !important; }
+  .learning-action-switch a,
+  .workspace-flow-confirmation { transition: none !important; }
 }

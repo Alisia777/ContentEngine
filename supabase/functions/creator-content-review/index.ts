@@ -125,6 +125,7 @@ type ContentEngineDatabase = {
       content_review_runs: {
         Row: {
           id: string;
+          project_id: string;
           status: string;
         };
         Insert: Record<string, never>;
@@ -140,6 +141,7 @@ type ContentEngineDatabase = {
 type AnalyzePayload = {
   action: "analyze";
   review_id: string;
+  project_id: string;
 };
 
 type ReviewAttempt = {
@@ -304,12 +306,14 @@ function hasOnlyKeys(
 function readRequestPayload(value: unknown): AnalyzePayload | null {
   if (!isRecord(value)) return null;
   if (
-    !hasOnlyKeys(value, new Set(["action", "review_id"])) ||
-    value.action !== "analyze" || !isUuid(value.review_id)
+    !hasOnlyKeys(value, new Set(["action", "review_id", "project_id"])) ||
+    value.action !== "analyze" || !isUuid(value.review_id) ||
+    !isUuid(value.project_id)
   ) return null;
   return {
     action: "analyze",
     review_id: value.review_id,
+    project_id: value.project_id,
   };
 }
 
@@ -2859,10 +2863,13 @@ async function handleCreatorContentReview(
         const { data, error } = await supabaseAdmin
           .schema("content_factory")
           .from("content_review_runs")
-          .select("id, status")
+          .select("id, project_id, status")
           .eq("id", payload.review_id)
+          .eq("project_id", payload.project_id)
           .maybeSingle();
-        if (error || data === null) return null;
+        if (
+          error || data === null || data.project_id !== payload.project_id
+        ) return null;
         return readPublicStatusEnvelope({
           ok: true,
           run: { id: data.id, status: data.status },
@@ -2874,7 +2881,12 @@ async function handleCreatorContentReview(
     try {
       const { data, error } = await context.supabase.rpc(
         "creator_content_review_status",
-        { p_payload: { review_id: payload.review_id } },
+        {
+          p_payload: {
+            review_id: payload.review_id,
+            project_id: payload.project_id,
+          },
+        },
       );
       if (error) return null;
       return readPublicStatusEnvelope(data, payload.review_id);

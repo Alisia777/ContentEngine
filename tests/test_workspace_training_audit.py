@@ -91,8 +91,8 @@ def test_workspace_board_recovers_with_media_and_tasks_when_folder_rpc_fails() -
         APP.index("async function loadWorkspaceBoardFallback()") :
         APP.index("function emptyState", APP.index("async function loadWorkspaceBoardFallback()"))
     ]
-    assert 'state.api.workspaceSection("media")' in fallback
-    assert 'state.api.workspaceSection("tasks")' in fallback
+    assert 'state.api.workspaceSection("media", { projectId: currentWorkspaceProjectId() })' in fallback
+    assert 'state.api.workspaceSection("tasks", { projectId: currentWorkspaceProjectId() })' in fallback
     assert "Promise.allSettled" in fallback
     assert "manage_folders: false" not in fallback
     assert 'manage_folders: ["owner", "admin"].includes(' in fallback

@@ -62,11 +62,12 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
     )
     result = _evaluate(
         f"subject.buildGenerationFormDraft({value}, {{"
-        "now: 1000, context: {handoffDraftId: 'draft-1'}"
+        "now: 1000, context: {projectId: '11111111-1111-4111-8111-111111111111', handoffDraftId: 'draft-1'}"
         "})"
     )
-    assert result["version"] == 1
+    assert result["version"] == 2
     assert result["updatedAt"] == 1000
+    assert result["context"]["projectId"] == "11111111-1111-4111-8111-111111111111"
     assert result["context"]["handoffDraftId"] == "draft-1"
     assert result["values"]["sku"] == "WB-42"
     assert result["values"]["duration_seconds"] == "15"
@@ -87,12 +88,17 @@ def test_generation_draft_fails_closed_for_age_version_and_context() -> None:
         media_ids: ["media-a"],
       }, {
         now: 10_000,
-        context: {handoffDraftId: "draft-1", handoffResearchId: "research-1"},
+        context: {
+          projectId: "11111111-1111-4111-8111-111111111111",
+          handoffDraftId: "draft-1",
+          handoffResearchId: "research-1",
+        },
       });
       const options = {
         now: 11_000,
         maxAgeMs: 5_000,
         activeContext: {
+          projectId: "11111111-1111-4111-8111-111111111111",
           handoffDraftId: "draft-1",
           handoffResearchId: "research-1",
         },
@@ -105,16 +111,27 @@ def test_generation_draft_fails_closed_for_age_version_and_context() -> None:
         ),
         subject.normalizeGenerationFormDraft(
           draft,
-          {...options, activeContext: {handoffDraftId: "draft-2"}},
+          {...options, activeContext: {
+            projectId: "11111111-1111-4111-8111-111111111111",
+            handoffDraftId: "draft-2",
+          }},
         ),
         subject.normalizeGenerationFormDraft(
           {...draft, version: 99},
           options,
         ),
+        subject.normalizeGenerationFormDraft(
+          draft,
+          {...options, activeContext: {
+            projectId: "22222222-2222-4222-8222-222222222222",
+            handoffDraftId: "draft-1",
+            handoffResearchId: "research-1",
+          }},
+        ),
       ];
     })()
     """
-    assert _evaluate(expression) == [True, None, None, None]
+    assert _evaluate(expression) == [True, None, None, None, None]
 
 
 def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation() -> None:
@@ -128,9 +145,9 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         "persistGenerationFormDraft(form, { manual: true })",
     ):
         assert token in APP
-    assert "generation-form-draft.js?v=20260729.2" in APP
+    assert "generation-form-draft.js?v=20260804.os4.7" in APP
     assert "form.dataset.generationScenarioIntent" in APP
-    assert "app.js?v=20260803.os4.6" in INDEX
+    assert "app.js?v=20260804.os4.7" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:

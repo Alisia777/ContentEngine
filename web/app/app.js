@@ -2,9 +2,9 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260729.2";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6";
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
+} from "./supabase-api.js?v=20260804.os4.7";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.7";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.7";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -59,7 +59,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260728.5";
+} from "./product-research-view.js?v=20260804.os4.7";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -71,7 +71,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260730.1";
+} from "./content-generation-handoff.js?v=20260804.os4.7";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -85,7 +85,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260729.2";
+} from "./generation-form-draft.js?v=20260804.os4.7";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -117,7 +117,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260803.os4.6";
+} from "./content-review-view.js?v=20260804.os4.7";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -146,7 +146,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260803.os4.6";
+} from "./workspace-board-view.js?v=20260804.os4.7";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -175,7 +175,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260718.3";
+} from "./training-journey.js?v=20260804.os4.7";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -194,7 +194,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260803.os4.6";
+} from "./training-practical-review.js?v=20260804.os4.7";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -213,7 +213,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260803.os4.6";
+} from "./my-work-view.js?v=20260804.os4.7";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -241,6 +241,9 @@ const WORKSPACE_REQUEST_TIMEOUT_MS = 12_000;
 const WORKSPACE_BOARD_VISIBLE_STEP = 80;
 const WORKSPACE_BOARD_MEMORY_CAP = 300;
 const WORKSPACE_BOARD_FALLBACK_NOTICE = "Не удалось обновить проекты и папки. Показаны последние доступные данные; повторите загрузку.";
+const WORKSPACE_PROJECT_STORAGE_KEY = "contentengine.desktop-v4.project";
+const WORKSPACE_PROJECT_FLOW_TIMEOUT_MS = 10_000;
+const WORKSPACE_FLOW_CONFIRMATION_MS = 700;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
 const PUBLIC_RECOVERY_RECEIPT_STORAGE_KEY = "contentengine.public-recovery-receipt.v1";
 const PUBLIC_RECOVERY_PENDING_STATUSES = new Set(["requesting", "outcome_unknown", "provider_outcome_unknown"]);
@@ -262,7 +265,7 @@ const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitte
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
 const CONTENT_REVIEW_POLL_INTERVAL_MS = 5_000;
-const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9;
+const CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 10;
 const CONTENT_REVIEW_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const GENERATED_VIDEO_QA_STORAGE_VERSION = 6;
 const GENERATED_VIDEO_QA_MAX_EVIDENCE = 8;
@@ -496,43 +499,36 @@ const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
 const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
   Object.freeze({
-    key: "home",
-    step: "01",
-    label: "Сегодня",
-    hint: "один следующий шаг",
-    learning: "Откройте одно главное действие на сегодня и доведите его до результата.",
-  }),
-  Object.freeze({
     key: "board",
-    step: "02",
+    step: "01",
     label: "Файлы",
     hint: "папки, видео и поиск",
     learning: "Найдите или добавьте точный исходник и проверьте его связь с товаром.",
   }),
   Object.freeze({
     key: "generation",
-    step: "03",
+    step: "02",
     label: "Создать",
     hint: "один контент за запуск",
     learning: "Выберите режим и точный исходник, проверьте авто-ТЗ и подтвердите стоимость.",
   }),
   Object.freeze({
     key: "review",
-    step: "04",
+    step: "03",
     label: "Проверить",
     hint: "качество и одно решение",
     learning: "Проверьте готовый ролик, рекламный контекст и все найденные блокеры.",
   }),
   Object.freeze({
     key: "placement",
-    step: "05",
+    step: "04",
     label: "Опубликовать",
     hint: "один пост и ссылка",
     learning: "Разместите одобренный ролик в назначенном аккаунте и сохраните ссылку.",
   }),
   Object.freeze({
     key: "stats",
-    step: "06",
+    step: "05",
     label: "Результаты",
     hint: "метрики и выплаты",
     learning: "Запишите показатели с источником, затем проверьте начисление и фактическую выплату.",
@@ -553,7 +549,7 @@ const HOME_SECTION_KEYS = Object.freeze([
 ]);
 const WORKSPACE_SECTION_META = Object.freeze({
   home: Object.freeze({
-    kicker: "Шаг 1 из 6",
+    kicker: "Следующее действие проекта",
     note: "Одно главное действие и весь цикл без лишних переходов",
   }),
   work: Object.freeze({
@@ -567,7 +563,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/factory_basics",
   }),
   board: Object.freeze({
-    kicker: "Шаг 2 из 6",
+    kicker: "Шаг 1 из 5",
     note: "Все исходники разложены по папкам и доступны через один поиск",
     now: "Найдите нужный товар или откройте папку с его точными фото и видео.",
     done: "Выбранный файл относится к нужному товару и готов к следующему действию.",
@@ -597,7 +593,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/video_quality",
   }),
   generation: Object.freeze({
-    kicker: "Шаг 3 из 6",
+    kicker: "Шаг 2 из 5",
     note: "Сначала товар и сценарий, затем отдельное подтверждение стоимости",
     now: "Выберите один точный исходник и опишите один короткий ролик.",
     done: "Проверены формат, реплика и цена; создан ровно один запуск.",
@@ -607,7 +603,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/video_quality",
   }),
   review: Object.freeze({
-    kicker: "Шаг 4 из 6",
+    kicker: "Шаг 3 из 5",
     note: "Качество и правовые риски оцениваются отдельно до решения человека",
     now: "Выберите готовый файл, площадку и честно заполните рекламный контекст.",
     done: "Блокеры прочитаны, рекомендации понятны, а решение ответственного сохранено отдельной записью.",
@@ -627,7 +623,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/factory_basics",
   }),
   placement: Object.freeze({
-    kicker: "Шаг 5 из 6",
+    kicker: "Шаг 4 из 5",
     note: "Публикуйте только одобренный файл и верните ссылку на сам пост",
     now: "Сверьте площадку, аккаунт и готовое решение по маркировке.",
     done: "Пост опубликован, а в портал сохранён URL самого ролика.",
@@ -637,7 +633,7 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guideHref: "#/learn/publishing_funnel",
   }),
   stats: Object.freeze({
-    kicker: "Шаг 6 из 6",
+    kicker: "Шаг 5 из 5",
     note: "Каждая цифра хранится вместе с источником и временем снимка",
     now: "Добавьте первый снимок показателей с датой и источником.",
     done: "Метрики привязаны к конкретному опубликованному ролику.",
@@ -1050,6 +1046,11 @@ const state = {
     notice: "",
     requestId: 0,
   },
+  workspaceAccessRequest: {
+    status: "idle",
+    result: null,
+    error: "",
+  },
   managerRecoveryCooldowns: new Map(),
   managerInviteCooldowns: new Map(),
   productResearch: {
@@ -1069,6 +1070,7 @@ const state = {
     pollTimer: null,
     requestId: 0,
     pendingMediaId: "",
+    routeMediaKey: "",
     durableEvidence: null,
   },
   workspaceBoard: {
@@ -1085,6 +1087,13 @@ const state = {
     hasMore: false,
     nextCursor: null,
     visibleItemLimit: WORKSPACE_BOARD_VISIBLE_STEP,
+  },
+  projectFlow: {
+    status: "idle",
+    data: null,
+    error: null,
+    requestId: 0,
+    projectId: "",
   },
   myWork: {
     filters: normalizeMyWorkFilters(),
@@ -1221,23 +1230,36 @@ function safeStorageRemove(storage, key) {
 
 function readStoredContentGenerationHandoff() {
   try {
-    return parseContentGenerationHandoff(
+    const handoff = parseContentGenerationHandoff(
       safeStorageGet(window.sessionStorage, CONTENT_GENERATION_HANDOFF_STORAGE_KEY),
     );
+    const route = parseRoute();
+    const routeProjectId = String(route.query.get("project_id") || "").trim().toLowerCase();
+    const activeProjectId = isWorkspaceProjectId(routeProjectId)
+      ? routeProjectId
+      : storedWorkspaceProject()?.id || "";
+    return handoff && activeProjectId && handoff.projectId === activeProjectId
+      ? handoff
+      : null;
   } catch {
     return null;
   }
 }
 
 function persistContentGenerationHandoff(handoff) {
+  if (
+    !handoff
+    || handoff.projectId !== currentWorkspaceProjectId()
+  ) return false;
   try {
-    safeStorageSet(
+    return safeStorageSet(
       window.sessionStorage,
       CONTENT_GENERATION_HANDOFF_STORAGE_KEY,
       JSON.stringify(handoff),
     );
   } catch {
     // The handoff remains usable in memory when session storage is unavailable.
+    return false;
   }
 }
 
@@ -1250,10 +1272,13 @@ function readStoredGenerationMediaSelection() {
     if (!serialized || serialized.length > 2_000) return null;
     const value = JSON.parse(serialized);
     const mediaId = String(value?.media_id || "").trim();
+    const projectId = String(value?.project_id || "").trim().toLowerCase();
     const savedAt = Number(value?.saved_at);
     if (
-      value?.version !== 1
+      value?.version !== 2
       || !mediaId
+      || !isWorkspaceProjectId(projectId)
+      || projectId !== currentWorkspaceProjectId()
       || !Number.isFinite(savedAt)
       || savedAt <= 0
       || Date.now() - savedAt > 24 * 60 * 60 * 1_000
@@ -1261,20 +1286,26 @@ function readStoredGenerationMediaSelection() {
       safeStorageRemove(window.sessionStorage, GENERATION_MEDIA_SELECTION_STORAGE_KEY);
       return null;
     }
-    return { mediaId, savedAt };
+    return { mediaId, projectId, savedAt };
   } catch {
     safeStorageRemove(window.sessionStorage, GENERATION_MEDIA_SELECTION_STORAGE_KEY);
     return null;
   }
 }
 
-function persistGenerationMediaSelection(mediaId) {
+function persistGenerationMediaSelection(mediaId, projectId = currentWorkspaceProjectId()) {
   const normalizedId = String(mediaId || "").trim();
-  if (!normalizedId) return false;
+  const normalizedProjectId = String(projectId || "").trim().toLowerCase();
+  if (!normalizedId || !isWorkspaceProjectId(normalizedProjectId)) return false;
   return safeStorageSet(
     window.sessionStorage,
     GENERATION_MEDIA_SELECTION_STORAGE_KEY,
-    JSON.stringify({ version: 1, media_id: normalizedId, saved_at: Date.now() }),
+    JSON.stringify({
+      version: 2,
+      project_id: normalizedProjectId,
+      media_id: normalizedId,
+      saved_at: Date.now(),
+    }),
   );
 }
 
@@ -1303,7 +1334,9 @@ function prepareRecommendedResearchHandoff(record) {
     return existing;
   }
   try {
-    const handoff = createContentGenerationHandoff(record, recommendedIndex);
+    const handoff = createContentGenerationHandoff(record, recommendedIndex, Date.now(), {
+      projectId: currentWorkspaceProjectId(),
+    });
     state.contentGenerationHandoff = handoff;
     persistContentGenerationHandoff(handoff);
     state.sections.generation.status = "idle";
@@ -1334,14 +1367,29 @@ function readStoredGenerationRepair() {
     if (!serialized || serialized.length > 12_000) return empty;
     const envelope = JSON.parse(serialized);
     const savedAt = Number(envelope?.saved_at);
+    const projectId = String(envelope?.project_id || "").trim().toLowerCase();
+    const hash = String(window.location.hash || "").replace(/^#/, "");
+    const routeProjectId = String(
+      new URLSearchParams(hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "")
+        .get("project_id") || "",
+    ).trim().toLowerCase();
     const policy = normalizeGenerationRepairPolicy(envelope?.policy);
     if (
       !Number.isFinite(savedAt)
       || savedAt <= 0
       || Date.now() - savedAt > 24 * 60 * 60 * 1_000
+      || !isWorkspaceProjectId(projectId)
+      || (isWorkspaceProjectId(routeProjectId) && routeProjectId !== projectId)
       || !policy?.applied
     ) return empty;
-    return { status: "ready", data: envelope.policy, error: null };
+    return {
+      status: "ready",
+      data: envelope.policy,
+      error: null,
+      projectId,
+      reviewId: policy.sourceReviewId,
+      routeKey: "",
+    };
   } catch {
     return empty;
   }
@@ -1349,24 +1397,27 @@ function readStoredGenerationRepair() {
 
 function persistGenerationRepair(policy) {
   const normalized = normalizeGenerationRepairPolicy(policy);
-  if (!normalized?.applied) return false;
+  const projectId = currentWorkspaceProjectId();
+  if (!normalized?.applied || !isWorkspaceProjectId(projectId)) return false;
   return safeStorageSet(
     window.sessionStorage,
     GENERATION_REPAIR_STORAGE_KEY,
     JSON.stringify({
       saved_at: Date.now(),
+      project_id: projectId,
       policy,
     }),
   );
 }
 
-async function loadGenerationRepairForReview(reviewId) {
+async function loadGenerationRepairForReview(reviewId, { invalidateGeneration = true } = {}) {
   const normalizedReviewId = String(reviewId || "").trim().toLowerCase();
   if (!contentReviewUuid(normalizedReviewId)) {
     throw new Error("generation_repair_review_invalid");
   }
   const repairRaw = await state.api.generationRepairPolicy(
     normalizedReviewId,
+    { projectId: requireWorkspaceProjectId() },
   );
   const repairPolicy = normalizeGenerationRepairPolicy(
     repairRaw?.data ?? repairRaw,
@@ -1375,11 +1426,17 @@ async function loadGenerationRepairForReview(reviewId) {
     clearGenerationRepair();
     return null;
   }
+  if (String(repairPolicy.sourceReviewId || "").trim().toLowerCase() !== normalizedReviewId) {
+    clearGenerationRepair();
+    throw new Error("generation_repair_review_mismatch");
+  }
   state.generationRepair.status = "ready";
   state.generationRepair.data = repairRaw?.data ?? repairRaw;
   state.generationRepair.error = null;
+  state.generationRepair.projectId = currentWorkspaceProjectId();
+  state.generationRepair.reviewId = normalizedReviewId;
   persistGenerationRepair(state.generationRepair.data);
-  state.sections.generation.status = "idle";
+  if (invalidateGeneration) state.sections.generation.status = "idle";
   return repairPolicy;
 }
 
@@ -1387,6 +1444,9 @@ function clearGenerationRepair() {
   state.generationRepair.status = "idle";
   state.generationRepair.data = null;
   state.generationRepair.error = null;
+  state.generationRepair.projectId = "";
+  state.generationRepair.reviewId = "";
+  state.generationRepair.routeKey = "";
   try {
     safeStorageRemove(window.sessionStorage, GENERATION_REPAIR_STORAGE_KEY);
   } catch {
@@ -1397,13 +1457,15 @@ function clearGenerationRepair() {
 function generationFormDraftStorageKey() {
   const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
   const userId = String(state.user?.id || "").trim().toLowerCase();
-  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
-  return `contentengine.generation-form-draft.v${GENERATION_FORM_DRAFT_VERSION}:${organizationId}:${userId}`;
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId) || !contentReviewUuid(projectId)) return "";
+  return `contentengine.generation-form-draft.v${GENERATION_FORM_DRAFT_VERSION}:${organizationId}:${userId}:${projectId}`;
 }
 
 function generationFormDraftContext({ manual = false } = {}) {
   if (manual) {
     return {
+      projectId: currentWorkspaceProjectId(),
       handoffDraftId: "",
       handoffResearchId: "",
       repairSourceReviewId: "",
@@ -1412,6 +1474,7 @@ function generationFormDraftContext({ manual = false } = {}) {
   const handoff = state.contentGenerationHandoff;
   const repair = normalizeGenerationRepairPolicy(state.generationRepair.data);
   return {
+    projectId: currentWorkspaceProjectId(),
     handoffDraftId: String(handoff?.draftId || ""),
     handoffResearchId: String(handoff?.researchId || ""),
     repairSourceReviewId: repair?.applied ? String(repair.sourceReviewId || "") : "",
@@ -1579,8 +1642,9 @@ function clearGenerationFormDraft() {
 function generationReviewAutostartStorageKey() {
   const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
   const userId = String(state.user?.id || "").trim().toLowerCase();
-  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
-  return `contentengine.generation-review-autostart.v${GENERATION_REVIEW_AUTOSTART_VERSION}:${organizationId}:${userId}`;
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId) || !contentReviewUuid(projectId)) return "";
+  return `contentengine.generation-review-autostart.v${GENERATION_REVIEW_AUTOSTART_VERSION}:${organizationId}:${userId}:${projectId}`;
 }
 
 function generationReviewAutostartJobs() {
@@ -1859,9 +1923,14 @@ function bindGlobalEvents() {
     BOOTSTRAP_ACCESS_REFRESH_INTERVAL_MS,
   );
   window.addEventListener("hashchange", () => {
+    const previousProjectId = currentWorkspaceProjectId();
     const previousActionKey = workspaceActionKey(state.route);
     window.ContentEngineDesktopV4?.captureCurrentAction?.(previousActionKey);
     state.route = parseRoute();
+    const routeProjectId = String(state.route.query.get("project_id") || "").trim().toLowerCase();
+    if (isWorkspaceProjectId(routeProjectId) && routeProjectId !== previousProjectId) {
+      activateWorkspaceProject(routeProjectId);
+    }
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
@@ -2798,12 +2867,12 @@ function closeTrainingAchievement({ restoreFocus = true } = {}) {
 function showTrainingAchievement(courseCode, returnFocus = document.activeElement) {
   closeTrainingAchievement({ restoreFocus: false });
   const achievement = learningCourses().find((course) => course.code === courseCode)?.achievement;
-  document.body.insertAdjacentHTML("beforeend", achievementMarkup(courseCode, achievement));
-  const root = document.querySelector("[data-training-achievement]");
+  const host = document.querySelector("#learning-gate-main, #main-content");
+  if (!(host instanceof HTMLElement)) return;
+  host.insertAdjacentHTML("afterbegin", achievementMarkup(courseCode, achievement));
+  const root = host.querySelector("[data-training-achievement]");
   if (!root) return;
   root.__returnFocus = returnFocus;
-  document.body.classList.add("training-achievement-open");
-  root.querySelector('[data-action="close-training-achievement"]')?.focus({ preventScroll: true });
 }
 
 function learningCourses() {
@@ -3495,17 +3564,39 @@ function clearAcademyBootstrapLoading(shell) {
 function renderWorkspaceAccessRequired() {
   const profile = displayProfile();
   const role = String(state.bootstrap?.membership?.role || "").trim();
+  const academyComplete = trainingAccessWaiverActive() || (
+    prerequisitesComplete()
+    && practicalProjectApproved()
+    && state.bootstrap?.training?.exam?.passed === true
+  );
+  const requestState = state.workspaceAccessRequest;
+  const requestResult = requestState.result?.data ?? requestState.result ?? {};
+  const requestRecord = requestResult.request || {};
+  const responsible = requestResult.responsible_manager || {};
+  const requestPending = String(requestRecord.status || "") === "pending";
   app.innerHTML = `
     <main id="main-content" class="error-page workspace-access-required" tabindex="-1" aria-labelledby="workspace-access-title">
       <div class="boot-mark" aria-hidden="true">КИ</div>
       <p class="eyebrow">Рабочее место ещё не подключено</p>
       <h1 id="workspace-access-title">Нужен рабочий доступ</h1>
       <p class="muted">${escapeHtml(profile.name)}, ваша сессия активна, но сервер пока не выдал доступ к производственному рабочему столу.</p>
+      ${academyComplete ? `
+        <p class="workspace-access-proof"><strong>Академия завершена.</strong> Теперь отправьте один запрос на рабочий допуск — он не выдаёт роль автоматически и остаётся в очереди ответственного.</p>
+      ` : ""}
       <p class="tiny muted">${role
         ? `Текущая роль: ${escapeHtml(role)}. Попросите руководителя проверить роль и доступ к рабочему пространству.`
         : "Попросите руководителя назначить рабочую роль и доступ к пространству команды."}</p>
+      ${requestState.error ? `<p class="form-error" role="alert">${escapeHtml(requestState.error)}</p>` : ""}
+      ${requestPending ? `
+        <div class="workspace-access-owner" role="status">
+          <strong>Запрос рабочего допуска отправлен</strong>
+          <span>Ответственный: ${escapeHtml(responsible.name || responsible.email || "руководитель команды")}</span>
+          ${responsible.email ? `<small>${escapeHtml(responsible.email)}</small>` : ""}
+        </div>
+      ` : ""}
       <div class="inline-actions" style="justify-content:center; margin-top:20px">
-        <button class="btn" type="button" data-action="retry-bootstrap">Проверить доступ</button>
+        ${academyComplete ? `<button class="btn" type="button" data-action="request-workspace-access" data-primary-action="true" ${requestState.status === "loading" || requestPending ? "disabled" : ""}>${requestState.status === "loading" ? "Отправляем…" : requestPending ? "Запрос уже отправлен" : "Запросить доступ"}</button>` : ""}
+        <button class="btn btn-secondary" type="button" data-action="retry-bootstrap">Проверить доступ</button>
         <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
       </div>
     </main>
@@ -5952,6 +6043,8 @@ function currentWorkspaceBoard() {
 
 function workspaceBoardBrowserOptions(cursor = null) {
   const options = { page_size: 100 };
+  const projectId = currentWorkspaceProjectId();
+  if (projectId) options.project_id = projectId;
   const folderId = String(state.workspaceBoard.selectedFolderId || "all");
   if (folderId === "root") options.folder_id = null;
   else if (folderId !== "all" && !isWorkspaceSmartFolderId(folderId)) options.folder_id = folderId;
@@ -5990,7 +6083,7 @@ async function submitWorkspaceFolderCreate(form) {
   try {
     const response = await state.api.createWorkspaceFolder({
       name,
-      parentId: rawParentId === "root" ? null : rawParentId,
+      parentId: rawParentId === "root" ? currentWorkspaceProjectId() : rawParentId,
     });
     const source = response?.data ?? response ?? {};
     const folderId = String(source.folder?.id || source.folder_id || "");
@@ -6010,8 +6103,14 @@ async function submitWorkspaceFolderEdit(form) {
   const folderId = String(values.get("folder_id") || "");
   const name = String(values.get("folder_name") || "").trim();
   const expectedVersion = Math.max(1, Number(values.get("folder_version")) || 1);
+  const folder = currentWorkspaceBoard().folders.find((item) => item.id === folderId);
   if (isWorkspaceSmartFolderId(folderId)) {
     state.workspaceBoard.error = "Системную папку нельзя переименовать.";
+    renderWorkspace("board");
+    return;
+  }
+  if (folder?.systemRole) {
+    state.workspaceBoard.error = "Системная папка поддерживает этап проекта и не переименовывается вручную.";
     renderWorkspace("board");
     return;
   }
@@ -6059,6 +6158,11 @@ async function archiveWorkspaceBoardFolder(folderId, expectedVersion, { confirme
     renderWorkspace("board");
     return;
   }
+  if (folder.systemRole) {
+    state.workspaceBoard.error = "Системную папку нельзя архивировать отдельно от проекта.";
+    renderWorkspace("board");
+    return;
+  }
   if (!confirmed) {
     state.workspaceBoard.pendingArchiveFolderId = folder.id;
     state.workspaceBoard.notice = "";
@@ -6075,6 +6179,19 @@ async function archiveWorkspaceBoardFolder(folderId, expectedVersion, { confirme
   state.workspaceBoard.notice = "";
   renderWorkspace("board");
   try {
+    if (folder.kind === "project") {
+      await state.api.archiveProject(
+        folder.id,
+        Math.max(1, Number(expectedVersion) || folder.version || 1),
+      );
+      clearWorkspaceProjectSelection(folder.id);
+      state.workspaceBoard.pendingArchiveFolderId = "";
+      state.workspaceBoard.selectedFolderId = "all";
+      state.workspaceBoard.selectedItemKey = "";
+      toast(`Проект «${folder.name}» отправлен в архив.`, "success");
+      navigate("/workspace/home", false, { scopeProject: false });
+      return;
+    }
     await state.api.updateWorkspaceFolder(folder.id, {
       expectedVersion: Math.max(1, Number(expectedVersion) || folder.version || 1),
       archive: true,
@@ -6164,7 +6281,10 @@ async function loadMoreWorkspaceBoard() {
   renderWorkspace("board");
   try {
     const raw = await withUiTimeout(
-      state.api.workspaceBrowser(workspaceBoardBrowserOptions(cursor)),
+      state.api.workspaceBrowser({
+        ...workspaceBoardBrowserOptions(cursor),
+        projectId: currentWorkspaceProjectId(),
+      }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "workspace_section_timeout",
     );
@@ -6234,8 +6354,369 @@ function factoryFlowStage(section) {
   return FACTORY_FLOW.find((item) => item.key === canonical) || null;
 }
 
+function generationRepairRouteState(reviewId) {
+  const normalizedReviewId = String(reviewId || "").trim().toLowerCase();
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(normalizedReviewId) || !isWorkspaceProjectId(projectId)) return "error";
+  const routeKey = `${projectId}:${normalizedReviewId}`;
+  const repair = normalizeGenerationRepairPolicy(state.generationRepair.data);
+  if (
+    state.generationRepair.status === "ready"
+    && repair?.applied
+    && state.generationRepair.projectId === projectId
+    && repair.sourceReviewId === normalizedReviewId
+  ) return "ready";
+  if (state.generationRepair.routeKey === routeKey) return state.generationRepair.status;
+  state.generationRepair.routeKey = routeKey;
+  state.generationRepair.reviewId = normalizedReviewId;
+  state.generationRepair.status = "loading";
+  state.generationRepair.error = null;
+  window.queueMicrotask(async () => {
+    try {
+      const policy = await loadGenerationRepairForReview(normalizedReviewId, {
+        invalidateGeneration: false,
+      });
+      if (
+        currentWorkspaceProjectId() !== projectId
+        || safeWorkspaceRouteEntityId("review") !== normalizedReviewId
+      ) return;
+      if (!policy?.applied) throw new Error("generation_repair_unavailable");
+      state.generationRepair.status = "ready";
+    } catch (error) {
+      if (
+        currentWorkspaceProjectId() !== projectId
+        || safeWorkspaceRouteEntityId("review") !== normalizedReviewId
+      ) return;
+      state.generationRepair.status = "error";
+      state.generationRepair.error = error;
+      state.generationRepair.reviewId = normalizedReviewId;
+      state.generationRepair.routeKey = routeKey;
+    }
+    if (
+      state.route.path === "/workspace/generation"
+      && safeWorkspaceRouteEntityId("review") === normalizedReviewId
+    ) renderWorkspace("generation");
+  });
+  return "loading";
+}
+
+function isWorkspaceProjectId(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+    String(value || "").trim(),
+  );
+}
+
+function storedWorkspaceProject() {
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(WORKSPACE_PROJECT_STORAGE_KEY) || "null");
+    const id = String(stored?.id || stored?.project_id || "").trim().toLowerCase();
+    return isWorkspaceProjectId(id)
+      ? { id, name: String(stored?.name || "Проект").trim() || "Проект" }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProjectFlow(raw) {
+  const source = raw?.data ?? raw ?? {};
+  const projects = Array.isArray(source.projects) ? source.projects : [];
+  const project = source.project && typeof source.project === "object" ? source.project : null;
+  const projectId = String(source.project_id || project?.id || "").trim().toLowerCase();
+  const stages = Array.isArray(source.stages) ? source.stages : [];
+  const nextAction = source.next_action && typeof source.next_action === "object"
+    ? source.next_action
+    : null;
+  const counts = source.counts && typeof source.counts === "object" ? source.counts : {};
+  return {
+    ok: source.ok !== false,
+    project_id: isWorkspaceProjectId(projectId) ? projectId : null,
+    projects,
+    project,
+    stages,
+    next_action: nextAction,
+    counts,
+  };
+}
+
+function exactProjectNextActionRoute(rawFlow, expectedProjectId = currentWorkspaceProjectId()) {
+  const flow = normalizeProjectFlow(rawFlow || {});
+  const projectId = String(expectedProjectId || "").trim().toLowerCase();
+  const action = flow.next_action;
+  const route = String(action?.route || "").trim();
+  const actionProjectId = String(action?.project_id || action?.projectId || "").trim().toLowerCase();
+  if (
+    !isWorkspaceProjectId(projectId)
+    || flow.project_id !== projectId
+    || actionProjectId !== projectId
+    || !route.startsWith("/workspace/")
+  ) return "";
+  const [pathname, query = ""] = route.split("?");
+  const params = new URLSearchParams(query);
+  const stage = String(action?.stage || "").trim().toLowerCase();
+  const allowedPaths = {
+    files: new Set(["/workspace/board", "/workspace/media"]),
+    generation: new Set(["/workspace/generation", "/workspace/research", "/workspace/tasks"]),
+    review: new Set(["/workspace/review", "/workspace/tasks"]),
+    placement: new Set(["/workspace/placement", "/workspace/review", "/workspace/work", "/workspace/tasks"]),
+    stats: new Set(["/workspace/stats", "/workspace/tasks"]),
+  };
+  const routeProjectIds = params.getAll("project_id");
+  if (
+    !allowedPaths[stage]?.has(pathname)
+    || routeProjectIds.length !== 1
+    || String(routeProjectIds[0] || "").trim().toLowerCase() !== projectId
+  ) return "";
+  const entityId = String(action?.entity_id || action?.entityId || "").trim().toLowerCase();
+  if (entityId && !isWorkspaceProjectId(entityId)) return "";
+  const entityType = String(action?.entity_type || action?.entityType || "").trim().toLowerCase();
+  const entityQueryKey = {
+    media: "media",
+    media_object: "media",
+    generation_job: "job",
+    job: "job",
+    content_review: "review",
+    content_review_run: "review",
+    review: "review",
+    placement: "placement",
+    creator_task: "item",
+    task: "item",
+  }[entityType];
+  if (entityType === "workspace_project" && entityId !== projectId) return "";
+  if (entityQueryKey) {
+    const entityValues = params.getAll(entityQueryKey);
+    if (entityValues.length !== 1 || String(entityValues[0] || "").trim().toLowerCase() !== entityId) {
+      return "";
+    }
+  }
+  if (pathname === "/workspace/tasks" && params.get("origin_stage") !== stage) return "";
+  return workspaceProjectHref(route, projectId);
+}
+
+function currentWorkspaceProjectId() {
+  if (state.route.path.startsWith("/workspace/")) {
+    const values = state.route.query.getAll("project_id");
+    const routeProjectId = values.length === 1
+      ? String(state.route.query.get("project_id") || "").trim().toLowerCase()
+      : "";
+    if (isWorkspaceProjectId(routeProjectId)) return routeProjectId;
+  }
+  const flowProjectId = String(state.projectFlow?.data?.project_id || state.projectFlow?.projectId || "")
+    .trim()
+    .toLowerCase();
+  if (isWorkspaceProjectId(flowProjectId)) return flowProjectId;
+  return storedWorkspaceProject()?.id || "";
+}
+
+function currentWorkspaceProjectName() {
+  const projectId = currentWorkspaceProjectId();
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const candidate = [flow.project, ...flow.projects]
+    .find((project) => String(project?.id || "").toLowerCase() === projectId);
+  return String(candidate?.name || storedWorkspaceProject()?.name || "Проект").trim() || "Проект";
+}
+
+function requireWorkspaceProjectId() {
+  const projectId = currentWorkspaceProjectId();
+  if (projectId) return projectId;
+  toast("Сначала выберите проект. Все действия и файлы должны оставаться внутри одного проекта.", "error");
+  navigate("/workspace/home");
+  return "";
+}
+
+function persistWorkspaceProject(projectId, projectName = "Проект") {
+  const id = String(projectId || "").trim().toLowerCase();
+  if (!isWorkspaceProjectId(id)) return false;
+  state.projectFlow.projectId = id;
+  try {
+    window.sessionStorage.setItem(WORKSPACE_PROJECT_STORAGE_KEY, JSON.stringify({
+      id,
+      name: String(projectName || "Проект").trim() || "Проект",
+    }));
+  } catch {
+    // The URL remains the authoritative project context when storage is unavailable.
+  }
+  return true;
+}
+
+function activateWorkspaceProject(projectId, projectName = "Проект") {
+  const id = String(projectId || "").trim().toLowerCase();
+  if (!isWorkspaceProjectId(id)) return false;
+  const previousId = String(state.projectFlow.projectId || storedWorkspaceProject()?.id || "");
+  persistWorkspaceProject(id, projectName);
+  if (previousId === id) return true;
+  state.projectFlow.requestId += 1;
+  state.projectFlow.status = "idle";
+  state.projectFlow.data = null;
+  state.projectFlow.error = null;
+  state.projectFlow.projectId = id;
+  state.home.requestId += 1;
+  state.home.status = "idle";
+  state.home.data = null;
+  state.home.error = null;
+  state.home.unavailable = [];
+  for (const section of ["work", "board", "media", "generation", "review", "tasks", "placement", "stats", "payouts"]) {
+    const target = state.sections[section];
+    if (!target) continue;
+    target.requestId += 1;
+    target.status = "idle";
+    target.data = null;
+    target.error = null;
+  }
+  state.workspaceBoard.selectedFolderId = "all";
+  state.workspaceBoard.selectedItemKey = "";
+  state.workspaceBoard.nextCursor = null;
+  state.workspaceBoard.hasMore = false;
+  state.generationArchive.nextCursor = null;
+  state.generationArchive.serverLoaded = false;
+  stopProductResearchPolling();
+  state.productResearch.requestId += 1;
+  state.productResearch.phase = "idle";
+  state.productResearch.record = null;
+  state.productResearch.error = "";
+  state.productResearch.notice = "";
+  state.productResearch.restoreAttempted = false;
+  state.contentReview.requestId += 1;
+  state.contentReview.phase = "idle";
+  state.contentReview.record = null;
+  state.contentReview.error = "";
+  state.contentReview.notice = "";
+  state.contentReview.pendingMediaId = "";
+  state.contentReview.routeMediaKey = "";
+  state.generatedVideoQa.entries.clear();
+  state.generatedVideoQa.recoveryJobIds.clear();
+  state.generatedVideoQa.restored = false;
+  clearContentGenerationHandoff();
+  clearGenerationRepair();
+  clearGenerationMediaSelection();
+  return true;
+}
+
+function clearWorkspaceProjectSelection(projectId = "") {
+  const expectedId = String(projectId || "").trim().toLowerCase();
+  const selectedId = String(
+    state.projectFlow.projectId || storedWorkspaceProject()?.id || "",
+  ).trim().toLowerCase();
+  if (expectedId && selectedId && expectedId !== selectedId) return false;
+  try {
+    window.sessionStorage.removeItem(WORKSPACE_PROJECT_STORAGE_KEY);
+  } catch {
+    // A clean URL remains authoritative when storage is unavailable.
+  }
+  state.projectFlow.requestId += 1;
+  state.projectFlow.status = "idle";
+  state.projectFlow.data = null;
+  state.projectFlow.error = null;
+  state.projectFlow.projectId = "";
+  state.home.requestId += 1;
+  state.home.status = "idle";
+  state.home.data = null;
+  state.home.error = null;
+  for (const section of ["work", "board", "media", "generation", "review", "tasks", "placement", "stats", "payouts"]) {
+    const target = state.sections[section];
+    if (!target) continue;
+    target.requestId += 1;
+    target.status = "idle";
+    target.data = null;
+    target.error = null;
+  }
+  return true;
+}
+
+function workspaceProjectHref(path, projectId = currentWorkspaceProjectId()) {
+  const raw = String(path || "").trim();
+  if (!raw) return raw;
+  const hasHash = raw.startsWith("#");
+  const normalized = hasHash ? raw.slice(1) : raw;
+  const [pathname, query = ""] = normalized.split("?");
+  if (!pathname.startsWith("/workspace/")) return raw;
+  const params = new URLSearchParams(query);
+  const explicitId = String(params.get("project_id") || "").trim().toLowerCase();
+  const requestedId = String(projectId || "").trim().toLowerCase();
+  const id = isWorkspaceProjectId(explicitId)
+    ? explicitId
+    : requestedId;
+  if (isWorkspaceProjectId(id)) params.set("project_id", id);
+  const value = `${pathname}${params.size ? `?${params.toString()}` : ""}`;
+  return hasHash ? `#${value}` : value;
+}
+
+function scopedWorkspaceAnchorHref(path) {
+  const href = String(path || "").trim();
+  const normalized = href.startsWith("#") ? href.slice(1) : href;
+  const query = normalized.includes("?")
+    ? normalized.slice(normalized.indexOf("?") + 1)
+    : "";
+  const explicitProjects = new URLSearchParams(query).getAll("project_id");
+  const explicitProjectId = explicitProjects.length === 1
+    && isWorkspaceProjectId(explicitProjects[0])
+    ? String(explicitProjects[0]).trim().toLowerCase()
+    : "";
+  return workspaceProjectHref(
+    href,
+    explicitProjectId || currentWorkspaceProjectId(),
+  );
+}
+
+function scopeWorkspaceAnchorHrefs(root = document) {
+  if (!(root instanceof Document || root instanceof Element)) return;
+  root.querySelectorAll('a[href^="#/workspace/"]').forEach((link) => {
+    const href = String(link.getAttribute("href") || "");
+    const scopedHref = scopedWorkspaceAnchorHref(href);
+    if (scopedHref && scopedHref !== href) link.setAttribute("href", scopedHref);
+  });
+}
+
+function projectFlowSnapshotMarkup() {
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const project = flow.project || flow.projects.find((item) => String(item?.id || "") === flow.project_id) || null;
+  const currentStage = flow.stages.find((stage) => stage?.state === "current") || null;
+  const unreadCount = Math.max(0, Number(state.myWork.notifications?.counts?.unread) || 0);
+  const serialized = JSON.stringify(flow).replace(/</gu, "\\u003c");
+  return `
+    <div data-project-flow-root
+         data-project-id="${escapeHtml(flow.project_id || "")}"
+         data-project-name="${escapeHtml(project?.name || "")}"
+         data-current-stage="${escapeHtml(currentStage?.code || "")}"
+         data-next-route="${escapeHtml(flow.next_action?.route || "")}"
+         data-next-entity-id="${escapeHtml(flow.next_action?.entity_id || "")}"
+         data-unread-count="${unreadCount}" hidden></div>
+    <script id="workspace-project-flow-snapshot" type="application/json">${serialized}</script>
+  `;
+}
+
+function syncProjectFlowSnapshot(shell) {
+  if (!(shell instanceof HTMLElement)) return;
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const project = flow.project || flow.projects.find((item) => String(item?.id || "") === flow.project_id) || null;
+  const currentStage = flow.stages.find((stage) => stage?.state === "current") || null;
+  const unreadCount = Math.max(0, Number(state.myWork.notifications?.counts?.unread) || 0);
+  let root = shell.querySelector("[data-project-flow-root]");
+  if (!root) {
+    root = document.createElement("div");
+    root.hidden = true;
+    root.dataset.projectFlowRoot = "";
+    shell.prepend(root);
+  }
+  root.dataset.projectId = flow.project_id || "";
+  root.dataset.projectName = String(project?.name || "");
+  root.dataset.currentStage = String(currentStage?.code || "");
+  root.dataset.nextRoute = String(flow.next_action?.route || "");
+  root.dataset.nextEntityId = String(flow.next_action?.entity_id || "");
+  root.dataset.unreadCount = String(unreadCount);
+  let snapshot = shell.querySelector("#workspace-project-flow-snapshot");
+  if (!snapshot) {
+    snapshot = document.createElement("script");
+    snapshot.id = "workspace-project-flow-snapshot";
+    snapshot.type = "application/json";
+    shell.prepend(snapshot);
+  }
+  snapshot.textContent = JSON.stringify(flow);
+}
+
 function syncPersistentWorkspaceShell(shell, section) {
   if (!(shell instanceof HTMLElement)) return;
+  syncProjectFlowSnapshot(shell);
   shell.dataset.workspaceSection = section;
   shell.dataset.workspaceRoute = `/workspace/${section}`;
   shell.dataset.workspaceActionKey = workspaceActionKey(state.route);
@@ -6269,21 +6750,43 @@ function syncPersistentWorkspaceShell(shell, section) {
 }
 
 function renderWorkspace(section) {
+  const routeProjectValues = state.route.query.getAll("project_id");
+  if (
+    routeProjectValues.length > 1
+    || (
+      routeProjectValues.length === 1
+      && !isWorkspaceProjectId(String(routeProjectValues[0] || "").trim().toLowerCase())
+    )
+  ) {
+    window.queueMicrotask(() => navigate("/workspace/home", true));
+    return;
+  }
+  if (section !== "home" && !currentWorkspaceProjectId()) {
+    window.queueMicrotask(() => navigate("/workspace/home", true));
+    return;
+  }
+  const routeProjectId = currentWorkspaceProjectId();
+  if (
+    state.projectFlow.status === "idle"
+    || (
+      routeProjectId
+      && routeProjectId !== state.projectFlow.projectId
+      && !["loading", "refreshing"].includes(state.projectFlow.status)
+    )
+  ) {
+    window.queueMicrotask(() => { void loadProjectFlow({ silent: true }); });
+  }
   if (state.myWork.notificationsStatus === "idle") {
     window.queueMicrotask(() => loadMyWorkNotifications({ silent: true }));
   }
-  if (section === "home" && state.sections.board?.status === "idle") {
-    window.queueMicrotask(() => {
-      if (state.route.path === "/workspace/home" && state.sections.board?.status === "idle") {
-        void loadSection("board", { silent: true, rerenderSection: "home" });
-      }
-    });
-  }
   const sectionState = section === "home" ? state.home : state.sections[section];
-  if (section === "research" && sectionState.status === "idle") {
+  if (section === "home" && sectionState.status === "idle") {
+    sectionState.status = "ready";
+    sectionState.data = {};
+  } else if (section === "research" && sectionState.status === "idle") {
     sectionState.status = "ready";
   } else if (sectionState.status === "idle") {
-    window.queueMicrotask(() => section === "home" ? loadHome() : loadSection(section));
+    window.queueMicrotask(() => loadSection(section));
   }
 
   const renderer = {
@@ -6321,6 +6824,7 @@ function renderWorkspace(section) {
         resetWorkspaceRouteEntry(existingContent, section);
         window.ContentEngineDesktopV4?.requestMount?.();
       }
+      scopeWorkspaceAnchorHrefs(existingShell);
       refreshNotificationLayer();
       scheduleWorkspaceDeepLinkFocus(section);
       return;
@@ -6351,6 +6855,7 @@ function renderWorkspace(section) {
       resetWorkspaceRouteEntry(existingContent, section);
     }
     window.ContentEngineDesktopV4?.requestMount?.();
+    scopeWorkspaceAnchorHrefs(existingShell);
     if (revealLoadedContent) revealWorkspaceContent(existingContent);
     refreshNotificationLayer();
     scheduleWorkspaceDeepLinkFocus(section);
@@ -6372,6 +6877,7 @@ function renderWorkspace(section) {
     }
     resetWorkspaceRouteEntry(existingContent, section);
     revealWorkspaceContent(existingContent);
+    scopeWorkspaceAnchorHrefs(existingShell);
     refreshNotificationLayer();
     scheduleWorkspaceDeepLinkFocus(section);
     return;
@@ -6379,6 +6885,7 @@ function renderWorkspace(section) {
   app.innerHTML = workspaceScaffold(content, section);
   const mountedShell = app.querySelector(".workspace-shell[data-workspace-section]");
   syncPersistentWorkspaceShell(mountedShell, section);
+  scopeWorkspaceAnchorHrefs(mountedShell);
   const mountedContent = app.querySelector("#workspace-content");
   if (mountedContent) {
     mountedContent.dataset.ceV4RenderSignature = contentSignature;
@@ -6735,6 +7242,7 @@ function workspaceScaffold(content, activeSection) {
     const workspaceRole = String(state.bootstrap?.membership?.role || "");
     return `
       <div class="workspace-shell workspace-shell-v4" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}" data-workspace-authorized-routes="${escapeHtml(authorizedRoutes)}" data-workspace-role="${escapeHtml(workspaceRole)}">
+        ${projectFlowSnapshotMarkup()}
         <section class="workspace-main workspace-main-v4">
           <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
         </section>
@@ -6753,6 +7261,7 @@ function workspaceScaffold(content, activeSection) {
   `;
   return `
     <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}">
+      ${projectFlowSnapshotMarkup()}
       <aside class="sidebar" aria-label="Основная навигация">
         ${brandMarkup()}
         <nav class="workspace-nav">
@@ -7045,20 +7554,6 @@ function handleKeyDown(event) {
     closeTrainingAchievement();
     return;
   }
-  if (achievement && event.key === "Tab") {
-    const focusable = Array.from(achievement.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'));
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-    return;
-  }
   const trainingTimelineControl = event.target.closest?.('[data-training-timeline] [data-action="training-walkthrough-jump"]');
   if (trainingTimelineControl && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
     const root = trainingWalkthroughRoot(trainingTimelineControl);
@@ -7176,6 +7671,118 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
   `;
 }
 
+async function loadProjectFlow({ silent = false, force = false } = {}) {
+  if (!state.api?.projectFlow) return null;
+  const projectId = currentWorkspaceProjectId();
+  if (
+    !force
+    && ["loading", "refreshing"].includes(state.projectFlow.status)
+    && state.projectFlow.projectId === projectId
+  ) return null;
+  if (
+    !force
+    && state.projectFlow.status === "ready"
+    && state.projectFlow.projectId === projectId
+  ) return state.projectFlow.data;
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = state.projectFlow.requestId + 1;
+  state.projectFlow.requestId = requestId;
+  state.projectFlow.projectId = projectId;
+  state.projectFlow.status = state.projectFlow.data ? "refreshing" : "loading";
+  state.projectFlow.error = null;
+  if (!silent && state.route.path.startsWith("/workspace/")) render();
+
+  try {
+    const raw = await withUiTimeout(
+      state.api.projectFlow({ projectId, includeProjects: true }),
+      WORKSPACE_PROJECT_FLOW_TIMEOUT_MS,
+      "workspace_project_flow_timeout",
+    );
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestId !== state.projectFlow.requestId
+    ) return null;
+    const flow = normalizeProjectFlow(raw);
+    state.projectFlow.data = flow;
+    state.projectFlow.projectId = flow.project_id || projectId;
+    state.projectFlow.status = "ready";
+    state.projectFlow.error = null;
+    if (flow.project_id) {
+      persistWorkspaceProject(flow.project_id, flow.project?.name || currentWorkspaceProjectName());
+    }
+    const routeProjectId = String(state.route.query.get("project_id") || "").trim().toLowerCase();
+    if (
+      flow.project_id
+      && state.route.path.startsWith("/workspace/")
+      && routeProjectId !== flow.project_id
+    ) {
+      const query = new URLSearchParams(state.route.query);
+      query.set("project_id", flow.project_id);
+      navigate(`${state.route.path}?${query.toString()}`, true);
+      return flow;
+    }
+    if (
+      !flow.project_id
+      && flow.projects.length
+      && state.route.path.startsWith("/workspace/")
+      && state.route.path !== "/workspace/home"
+    ) {
+      navigate("/workspace/home", true);
+      return flow;
+    }
+    if (state.route.path.startsWith("/workspace/")) render();
+    return flow;
+  } catch (error) {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestId !== state.projectFlow.requestId
+    ) return null;
+    state.projectFlow.status = "error";
+    state.projectFlow.error = error;
+    if (state.route.path.startsWith("/workspace/")) render();
+    return null;
+  }
+}
+
+async function openFirstAvailableWorkspaceProject() {
+  if (!state.api?.projectFlow || !hasWorkspaceAccess()) return false;
+  const cardsRaw = await withUiTimeout(
+    state.api.projectFlow({ includeProjects: true }),
+    WORKSPACE_PROJECT_FLOW_TIMEOUT_MS,
+    "workspace_project_flow_timeout",
+  );
+  const cardsFlow = normalizeProjectFlow(cardsRaw);
+  const storedId = storedWorkspaceProject()?.id || "";
+  const project = cardsFlow.projects.find((item) => String(item?.id || "") === storedId)
+    || cardsFlow.projects[0]
+    || null;
+  const projectId = String(project?.id || "").trim().toLowerCase();
+  if (!isWorkspaceProjectId(projectId)) {
+    navigate("/workspace/home");
+    return false;
+  }
+  activateWorkspaceProject(projectId, project?.name || "Проект");
+  const selectedRaw = await withUiTimeout(
+    state.api.projectFlow({ projectId, includeProjects: true }),
+    WORKSPACE_PROJECT_FLOW_TIMEOUT_MS,
+    "workspace_project_flow_timeout",
+  );
+  const selectedFlow = normalizeProjectFlow(selectedRaw);
+  state.projectFlow.data = selectedFlow;
+  state.projectFlow.projectId = projectId;
+  state.projectFlow.status = "ready";
+  state.projectFlow.error = null;
+  navigate(
+    exactProjectNextActionRoute(selectedFlow, projectId)
+      || `/workspace/home?project_id=${encodeURIComponent(projectId)}`,
+  );
+  return true;
+}
+
 async function loadSection(section, options = {}) {
   const target = state.sections[section];
   if (!target || ["loading", "refreshing"].includes(target.status)) return;
@@ -7188,16 +7795,20 @@ async function loadSection(section, options = {}) {
   if (section === "work") state.myWork.error = "";
   if (!options.silent) render();
 
+  const projectId = currentWorkspaceProjectId();
   try {
     const sectionRequest = section === "work"
-      ? state.api.myWork(myWorkRequestOptions(state.myWork.filters))
+      ? state.api.myWork({ ...myWorkRequestOptions(state.myWork.filters), projectId })
       : section === "board"
-      ? state.api.workspaceBrowser(workspaceBoardBrowserOptions())
+      ? state.api.workspaceBrowser({ ...workspaceBoardBrowserOptions(), projectId })
       : section === "review"
-        ? state.api.contentReviewCatalog({ limit: 50 })
+        ? state.api.contentReviewCatalog({ limit: 50, projectId })
         : state.api.workspaceSection(
           section,
-          section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {},
+          {
+            ...(section === "generation" ? { page_size: GENERATION_ARCHIVE_PAGE_SIZE } : {}),
+            projectId,
+          },
         );
     const initialGenerationFilters = section === "generation"
       ? normalizeGenerationFilters(state.generationArchive.filters)
@@ -7209,6 +7820,7 @@ async function loadSection(section, options = {}) {
           status: initialGenerationFilters.status,
           query: initialGenerationFilters.query,
           page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+          projectId,
         }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "generation_archive_timeout",
@@ -7222,9 +7834,35 @@ async function loadSection(section, options = {}) {
       : "";
     const generationDeepLinkRequest = routeGenerationJobId
       ? withUiTimeout(
-        state.api.realGenerationStatus(routeGenerationJobId),
+        state.api.realGenerationStatus(routeGenerationJobId, { projectId }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "generation_deep_link_timeout",
+      ).then(
+        (value) => ({ status: "fulfilled", value }),
+        (reason) => ({ status: "rejected", reason }),
+      )
+      : null;
+    const routeMediaId = ["generation", "review"].includes(section)
+      ? safeWorkspaceRouteEntityId("media")
+      : "";
+    const projectMediaRequest = routeMediaId
+      ? withUiTimeout(
+        state.api.projectMedia(routeMediaId, { projectId, surface: section }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "project_media_deep_link_timeout",
+      ).then(
+        (value) => ({ status: "fulfilled", value }),
+        (reason) => ({ status: "rejected", reason }),
+      )
+      : null;
+    const routePlacementId = ["placement", "stats"].includes(section)
+      ? safeWorkspaceRouteEntityId("placement")
+      : "";
+    const projectPlacementRequest = routePlacementId
+      ? withUiTimeout(
+        state.api.projectPlacement(routePlacementId, { projectId }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "project_placement_deep_link_timeout",
       ).then(
         (value) => ({ status: "fulfilled", value }),
         (reason) => ({ status: "rejected", reason }),
@@ -7277,7 +7915,7 @@ async function loadSection(section, options = {}) {
         state.myWork.selectedViewId = defaultView.id;
         state.myWork.filters = normalizeMyWorkFilters(defaultView.filters);
         raw = await withUiTimeout(
-          state.api.myWork(myWorkRequestOptions(state.myWork.filters)),
+          state.api.myWork({ ...myWorkRequestOptions(state.myWork.filters), projectId }),
           WORKSPACE_REQUEST_TIMEOUT_MS,
           "workspace_section_timeout",
         );
@@ -7333,6 +7971,57 @@ async function loadSection(section, options = {}) {
           "Deep-linked generation job is unavailable",
           deepLinkOutcome.reason?.code || "",
           deepLinkOutcome.reason?.serverCode || "",
+        );
+      }
+    }
+    if (projectMediaRequest) {
+      const mediaOutcome = await projectMediaRequest;
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      if (mediaOutcome.status === "fulfilled") {
+        const exactMedia = mediaOutcome.value?.data
+          ?? mediaOutcome.value
+          ?? {};
+        data = mergeProjectMediaDeepLink(
+          data,
+          routeMediaId,
+          projectId,
+          section,
+          exactMedia,
+        );
+      } else {
+        console.warn(
+          "Deep-linked project media is unavailable",
+          mediaOutcome.reason?.code || "",
+          mediaOutcome.reason?.serverCode || "",
+        );
+      }
+    }
+    if (projectPlacementRequest) {
+      const placementOutcome = await projectPlacementRequest;
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      if (placementOutcome.status === "fulfilled") {
+        const exactPlacement = placementOutcome.value?.data
+          ?? placementOutcome.value
+          ?? {};
+        data = mergeProjectPlacementDeepLink(
+          data,
+          routePlacementId,
+          projectId,
+          exactPlacement,
+        );
+      } else {
+        console.warn(
+          "Deep-linked project placement is unavailable",
+          placementOutcome.reason?.code || "",
+          placementOutcome.reason?.serverCode || "",
         );
       }
     }
@@ -7395,7 +8084,7 @@ async function loadSection(section, options = {}) {
       if (routeReviewId && !routeRecord) {
         try {
           const routeStatus = await withUiTimeout(
-            state.api.contentReviewStatus(routeReviewId),
+            state.api.contentReviewStatus(routeReviewId, { projectId }),
             WORKSPACE_REQUEST_TIMEOUT_MS,
             "content_review_status_timeout",
           );
@@ -7620,7 +8309,10 @@ async function loadMoreMyWork() {
   renderWorkspace("work");
   try {
     const raw = await withUiTimeout(
-      state.api.myWork(myWorkRequestOptions(state.myWork.filters, current.nextCursor)),
+      state.api.myWork({
+        ...myWorkRequestOptions(state.myWork.filters, current.nextCursor),
+        projectId: currentWorkspaceProjectId(),
+      }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "workspace_section_timeout",
     );
@@ -7920,12 +8612,13 @@ async function loadHome() {
   render();
 
   const previousData = state.home.data || {};
+  const projectId = currentWorkspaceProjectId();
   const results = await Promise.all(HOME_SECTION_KEYS.map(async (section) => {
     try {
       const raw = await withUiTimeout(
         section === "review"
-          ? state.api.contentReviewCatalog({ limit: 50 })
-          : state.api.workspaceSection(section),
+          ? state.api.contentReviewCatalog({ limit: 50, projectId })
+          : state.api.workspaceSection(section, { projectId }),
         HOME_SECTION_TIMEOUT_MS,
         "home_section_timeout",
       );
@@ -8165,6 +8858,31 @@ function readableHomeActionTitle(action) {
   return "Продолжить работу с видео";
 }
 
+function serverProjectNextAction(nextAction, rawFlow = state.projectFlow?.data) {
+  if (!nextAction || typeof nextAction !== "object") return null;
+  const projectId = currentWorkspaceProjectId();
+  const route = exactProjectNextActionRoute(rawFlow, projectId);
+  if (!route) return null;
+  const stageLabels = {
+    files: "Файлы проекта",
+    generation: "Создание контента",
+    review: "Проверка контента",
+    placement: "Публикация",
+    stats: "Результаты",
+  };
+  return {
+    step: stageLabels[String(nextAction.stage || "")] || "Следующее действие",
+    title: String(nextAction.label || "Продолжите работу"),
+    description: String(nextAction.reason || "Портал откроет точный объект этого проекта."),
+    href: `#${route}`,
+    cta: String(nextAction.label || "Открыть действие"),
+    doneWhen: "Результат этого действия сохранён на сервере.",
+    nextHint: "Портал автоматически покажет следующий доступный этап.",
+    entityId: String(nextAction.entity_id || ""),
+    projectId,
+  };
+}
+
 async function submitHomeProjectCreate(form) {
   const values = new FormData(form);
   const name = String(values.get("folder_name") || "").trim();
@@ -8174,20 +8892,20 @@ async function submitHomeProjectCreate(form) {
   state.workspaceBoard.notice = "";
   renderWorkspace("home");
   try {
-    const response = await state.api.createWorkspaceFolder({ name, parentId: null });
+    const response = await state.api.createProject({ name });
     const source = response?.data ?? response ?? {};
     const folderId = String(source.folder?.id || source.folder_id || "");
-    if (!folderId) throw new Error("workspace_project_id_missing");
-    state.workspaceBoard.selectedFolderId = folderId;
+    const projectId = String(source.project?.id || source.project_id || folderId || "").trim().toLowerCase();
+    if (!isWorkspaceProjectId(projectId)) throw new Error("workspace_project_id_missing");
+    state.workspaceBoard.selectedFolderId = "all";
     state.workspaceBoard.notice = `Проект «${name}» создан.`;
-    try {
-      window.sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({
-        id: folderId,
-        name,
-      }));
-    } catch { /* project context is also kept in application state */ }
+    persistWorkspaceProject(projectId, name);
+    state.projectFlow.data = normalizeProjectFlow(source);
+    state.projectFlow.projectId = projectId;
+    state.projectFlow.status = "ready";
+    state.projectFlow.error = null;
     await refreshWorkspaceBoardAfterMutation();
-    window.location.hash = `#/workspace/board?folder=${encodeURIComponent(folderId)}`;
+    navigate(`/workspace/board?project_id=${encodeURIComponent(projectId)}`);
   } catch (error) {
     state.workspaceBoard.error = actionErrorMessage(error);
   } finally {
@@ -8199,25 +8917,59 @@ async function submitHomeProjectCreate(form) {
 function homeProjectSwitcherMarkup(action) {
   const boardState = state.sections.board;
   const board = normalizeWorkspaceBoard(boardState?.data || {});
-  const projects = board.folders.filter((folder) => folder.smart !== true && !folder.parentId);
+  const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const projectFlowLoading = ["idle", "loading"].includes(state.projectFlow.status) && !state.projectFlow.data;
+  const projects = projectFlow.projects.length
+    ? projectFlow.projects
+    : board.folders
+      .filter((folder) => folder.smart !== true && !folder.parentId)
+      .map((folder) => ({
+        ...folder,
+        counts: { files: Number(board.counts[folder.id] || 0) },
+        current_stage: "files",
+        next_action: {
+          label: "Открыть файлы",
+          route: `/workspace/board?project_id=${encodeURIComponent(folder.id)}`,
+        },
+      }));
   const role = String(state.bootstrap?.membership?.role || "").toLowerCase();
   const canCreateProject = board.capabilities.manageFolders || ["owner", "admin"].includes(role);
-  const loading = ["idle", "loading"].includes(String(boardState?.status || "idle")) && !boardState?.data;
+  const loading = projectFlowLoading
+    || (["idle", "loading"].includes(String(boardState?.status || "idle")) && !boardState?.data && !projects.length);
   const projectsUnavailable = state.workspaceBoard.notice === WORKSPACE_BOARD_FALLBACK_NOTICE;
   const projectCards = loading
     ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
-    : projects.map((project) => `
+    : projects.map((project) => {
+      const projectId = String(project.id || "");
+      const nextAction = project.next_action || project.nextAction || {};
+      const stageLabels = {
+        files: "Файлы",
+        generation: "Создание",
+        review: "Проверка",
+        placement: "Публикация",
+        stats: "Результаты",
+      };
+      const nextRoute = exactProjectNextActionRoute({
+        project_id: projectId,
+        project,
+        next_action: nextAction,
+      }, projectId) || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
+      const fileCount = Number(project.counts?.files ?? board.counts[projectId] ?? 0);
+      return `
         <a class="home-project-card"
-           href="#/workspace/board?folder=${encodeURIComponent(project.id)}"
-           data-ce-v4-project-id="${escapeHtml(project.id)}"
+           href="#${escapeHtml(nextRoute)}"
+           data-ce-v4-project-id="${escapeHtml(projectId)}"
            data-ce-v4-project-name="${escapeHtml(project.name)}">
           <span class="home-project-card__folder" aria-hidden="true">◇</span>
           <span class="home-project-card__copy">
             <strong>${escapeHtml(project.name)}</strong>
-            <small>${Number(board.counts[project.id] || 0)} объектов</small>
+            <small>${fileCount} объектов · этап: ${escapeHtml(stageLabels[project.current_stage] || "Файлы")}</small>
+            <small>Следующее: ${escapeHtml(nextAction.label || "Открыть проект")}</small>
+            <small>Обновлено: ${project.updated_at ? escapeHtml(formatDate(project.updated_at, true)) : "только что"}</small>
           </span>
-          <span class="home-project-card__open">Открыть <i aria-hidden="true">→</i></span>
-        </a>`).join("");
+          <span class="home-project-card__open">Продолжить <i aria-hidden="true">→</i></span>
+        </a>`;
+    }).join("");
   const createProject = canCreateProject ? `
     <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
       <summary><span aria-hidden="true">＋</span> Новый проект</summary>
@@ -8274,6 +9026,46 @@ function homeProjectSwitcherMarkup(action) {
 }
 
 function renderHomeSection(homeState) {
+  const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const routeProjectId = currentWorkspaceProjectId();
+  if (
+    routeProjectId
+    && (
+      state.projectFlow.status !== "ready"
+      || projectFlow.project_id !== routeProjectId
+    )
+  ) {
+    const failed = state.projectFlow.status === "error";
+    return `
+      <div class="page-wrap workspace-home workspace-home--single-action">
+        <section class="card home-single-action" aria-labelledby="home-project-flow-status">
+          <header><p class="eyebrow">Проект</p><span class="badge ${failed ? "badge-danger" : "badge-info"}">${failed ? "Нужна повторная загрузка" : "Определяем следующий шаг"}</span></header>
+          <div class="home-single-action__body">
+            <span class="home-single-action__mark" aria-hidden="true">${failed ? "!" : "…"}</span>
+            <div>
+              <h1 id="home-project-flow-status">${failed ? "Не удалось открыть цепочку проекта" : "Собираем одно точное действие"}</h1>
+              <p>${failed ? "Портал не подставит действие из другого проекта. Повторите безопасную загрузку." : "Не нужно выбирать раздел вручную — сервер проверяет этап, блокеры и назначенный объект."}</p>
+            </div>
+          </div>
+          <footer>
+            ${failed ? '<button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Повторить</button>' : '<span class="muted" role="status">Подождите несколько секунд…</span>'}
+          </footer>
+        </section>
+      </div>`;
+  }
+  if (!projectFlow.project_id) {
+    return `
+      <div class="page-wrap workspace-home workspace-home--project-choice">
+        ${homeProjectSwitcherMarkup({
+          step: "Один проект — одна цепочка",
+          title: projectFlow.projects.length ? "Выберите проект" : "Создайте первый проект",
+          description: "Файлы, генерация, проверка, публикация и метрики не смешиваются между проектами.",
+          href: "#/workspace/home",
+          cta: "Выбрать проект",
+        })}
+      </div>
+    `;
+  }
   if ((homeState.status === "loading" || homeState.status === "idle") && !homeState.data) {
     return `
       <div class="page-wrap workspace-home">
@@ -8302,122 +9094,50 @@ function renderHomeSection(homeState) {
     `;
   }
 
-  const data = homeState.data || {};
-  const media = listFrom(data.media || {}, "media", "items", "artifacts");
-  const batches = listFrom(data.generation || {}, "batches");
-  const reviewRuns = normalizeContentReviewCatalog(data.review || {}).runs;
-  const tasks = listFrom(data.tasks || {}, "tasks", "items", "rows");
-  const placements = listFrom(data.placement || {}, "placements", "items", "tasks");
-  const stats = data.stats || {};
-  const publications = listFrom(stats, "publications", "items", "rows");
-  const payouts = listFrom(data.payouts || {}, "payouts", "items", "rows");
-  const activeTasks = tasks.filter(
-    (item) => !["done", "cancelled"].includes(String(item.status || "")) && !isAutomaticGenerationWait(item),
-  ).length;
-  const activeGenerations = batches.filter((item) => ["queued", "starting", "submitted", "processing", "running"].includes(String(item.status || "").toLowerCase())).length;
-  const reviewBlockers = reviewRuns.filter((item) => (
-    contentReviewStatusKind(item.status) === "ready" && contentReviewHasBlockers(item) && !item.decision
-  )).length;
-  const activeReviews = reviewRuns.filter((item) => contentReviewStatusKind(item.status) === "active").length;
-  const openPlacements = placements.filter(isActionablePlacement).length;
-  const waitingPayoutMinor = sumMinor(payouts.filter((item) => ["pending", "approved"].includes(String(item.status || ""))));
-  const action = homeNextAction({
-    media,
-    batches,
-    reviews: reviewRuns,
-    tasks,
-    placements,
-    publications,
-    payouts,
-    role: state.bootstrap?.membership?.role,
-  });
-  const firstName = displayProfile().name.split(/\s+/).filter(Boolean)[0] || "Сергей";
-  const flowValues = {
-    home: activeTasks ? `${activeTasks} действий` : "1 следующий шаг",
-    board: `${media.length} файлов`,
-    generation: activeGenerations ? `${activeGenerations} в работе` : `${batches.length}`,
-    review: activeReviews ? `${activeReviews} в работе` : reviewBlockers ? `${reviewBlockers} блокеров` : `${reviewRuns.length}`,
-    placement: openPlacements ? `${openPlacements} к выходу` : "0",
-    stats: waitingPayoutMinor
-      ? `${publications.length} публикаций · ${formatMoney(waitingPayoutMinor)}`
-      : `${publications.length} публикаций`,
-  };
-
+  const action = serverProjectNextAction(projectFlow.next_action, projectFlow);
+  if (!action) {
+    return `
+      <div class="page-wrap workspace-home workspace-home--single-action">
+        <section class="card home-single-action" aria-labelledby="home-next-action-missing">
+          <header><p class="eyebrow">Проект · ${escapeHtml(projectFlow.project?.name || currentWorkspaceProjectName())}</p><span class="badge badge-danger">Цепочка не подтверждена</span></header>
+          <div class="home-single-action__body">
+            <span class="home-single-action__mark" aria-hidden="true">!</span>
+            <div><h1 id="home-next-action-missing">Следующее действие не определено</h1><p>Портал не откроет случайный раздел или объект из общей очереди. Обновите серверное состояние проекта.</p></div>
+          </div>
+          <footer><button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Обновить цепочку</button></footer>
+        </section>
+      </div>`;
+  }
+  const projectName = String(projectFlow.project?.name || currentWorkspaceProjectName());
+  const actionControl = action.controlAction
+    ? `<button class="btn" type="button" data-primary-action="true" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
+    : `<a class="btn" data-primary-action="true" href="${escapeHtml(action.href)}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>`;
   return `
-    <div class="page-wrap workspace-home">
-      ${homeState.status === "refreshing" ? '<div class="refresh-indicator" role="status"><span aria-hidden="true"></span>Обновляем сводку…</div>' : ""}
-      ${homeState.unavailable?.length ? alertMarkup("Часть свежих данных пока недоступна. Показаны последние сохранённые значения; повторите обновление позже.", "warning") : ""}
-      ${homeProjectSwitcherMarkup(action)}
-      <section class="home-hero">
-        <div class="home-hero-copy">
-          <p class="eyebrow">Сегодня в производстве</p>
-          <h1>${escapeHtml(firstName)}, всё важное — перед вами</h1>
-          <p>Портал сам собирает следующий шаг: от точного исходника до публикации, результата и выплаты.</p>
-          <article class="home-next-action">
-            <div class="home-next-action-main">
-              <div>
-                <span>${escapeHtml(action.step)}</span>
-                <h2>${escapeHtml(action.title)}</h2>
-                <p>${escapeHtml(action.description)}</p>
-              </div>
-              ${action.controlAction
-                ? `<button class="btn btn-light" type="button" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
-                : `<a class="btn btn-light" href="${action.href}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></a>`}
-            </div>
-            <div class="home-next-action-proof">
-              <span><small>Готово, когда</small><strong>${escapeHtml(action.doneWhen)}</strong></span>
-              <span><small>Потом</small><strong>${escapeHtml(action.nextHint)}</strong></span>
-            </div>
-          </article>
+    <div class="page-wrap workspace-home workspace-home--single-action">
+      ${homeState.status === "refreshing" ? '<div class="refresh-indicator" role="status"><span aria-hidden="true"></span>Обновляем следующий шаг…</div>' : ""}
+      ${homeState.unavailable?.length ? alertMarkup("Часть данных временно недоступна. Портал показывает последнее подтверждённое действие и не подменяет объект.", "warning") : ""}
+      <section class="card home-single-action" aria-labelledby="home-single-action-title">
+        <header>
+          <p class="eyebrow">Проект · ${escapeHtml(projectName)}</p>
+          <span class="badge badge-info">${escapeHtml(action.step || "Следующее действие")}</span>
+        </header>
+        <div class="home-single-action__body">
+          <span class="home-single-action__mark" aria-hidden="true">→</span>
+          <div>
+            <h1 id="home-single-action-title">${escapeHtml(action.title)}</h1>
+            <p>${escapeHtml(action.description)}</p>
+          </div>
         </div>
-        <div class="home-hero-visual" role="img" aria-label="${FACTORY_FLOW.length} этапов производственного цикла">
-          <span class="home-orbit home-orbit-one"></span>
-          <span class="home-orbit home-orbit-two"></span>
-          <div class="home-seal"><strong>${FACTORY_FLOW.length}</strong><span>этапов</span></div>
-        </div>
+        <dl class="home-single-action__facts">
+          <div><dt>Готово, когда</dt><dd>${escapeHtml(action.doneWhen)}</dd></div>
+          <div><dt>После этого</dt><dd>${escapeHtml(action.nextHint)}</dd></div>
+        </dl>
+        <footer>
+          ${actionControl}
+          <small>Другой проект выбирается в постоянной панели сверху. Этапы переключаются через Dock.</small>
+        </footer>
       </section>
-
-      <div class="metrics-grid home-metrics">
-        ${[
-          ["Активные задачи", activeTasks, "что требует действия сейчас", "tasks"],
-          ["Видео создаётся", activeGenerations, "запуски без повторной оплаты", "generation"],
-          ["К публикации", openPlacements, "одобренные ролики без ссылки", "placement"],
-          ["Ждёт выплаты", formatMoney(waitingPayoutMinor), "одобрено или на проверке", "payouts"],
-        ].map(([label, value, hint, key]) => `<a class="card metric-card home-metric-card" href="#/workspace/${key}"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small><span class="metric-arrow" aria-hidden="true">↗</span></a>`).join("")}
-      </div>
-      <p class="home-data-scope">Оперативная сводка показывает последние 50 записей каждого раздела. Старые видео подгружаются в архиве порциями, не замедляя рабочий день.</p>
-      <a class="card home-board-shortcut" href="#/workspace/board">
-        <span class="home-board-shortcut__mark" aria-hidden="true">▦</span>
-        <span class="home-board-shortcut__copy">
-          <small>Рабочее пространство</small>
-          <strong>Разложить материалы и задачи по папкам</strong>
-          <span>Карточки открываются нажатием, перемещаются мышью или через доступное меню на телефоне.</span>
-        </span>
-        <span class="home-board-shortcut__action">Открыть <i aria-hidden="true">→</i></span>
-      </a>
-
-      <section class="card home-flow-card">
-        <div class="section-heading home-section-heading">
-          <div><p class="eyebrow">Карта производства</p><h2>${FACTORY_FLOW.length} этапов одного результата</h2></div>
-          <p>Каждый этап хранит свою часть истории товара. Нажмите на этап, чтобы продолжить работу.</p>
-        </div>
-        <ol class="home-flow-list" style="--workflow-step-count:${FACTORY_FLOW.length}">
-          ${FACTORY_FLOW.map((item) => `<li><a href="#/workspace/${item.key}"><span>${item.step}</span><div><strong>${item.label}</strong><small>${item.hint}</small></div><em>${escapeHtml(flowValues[item.key])}</em></a></li>`).join("")}
-        </ol>
-      </section>
-
-      <div class="home-guidance-grid">
-        <section class="card home-guidance-card">
-          <span class="guidance-mark" aria-hidden="true">✓</span>
-          <div><p class="eyebrow">Перед любым запуском</p><h2>Товар, файл и задача совпадают</h2><p>Не используйте похожий артикул, случайный референс или другой аккаунт публикации.</p></div>
-        </section>
-        <section class="card home-guidance-card home-guidance-card-accent">
-          <span class="guidance-mark" aria-hidden="true">!</span>
-          <div><p class="eyebrow">Если чего-то не хватает</p><h2>Остановитесь и зафиксируйте блокер</h2><p>Так руководитель увидит проблему, а результат не потеряет связь с исходной задачей.</p></div>
-        </section>
-      </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function realGenerationSku(mode, duration = null) {
@@ -9007,7 +9727,12 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
 function renderGenerationSection(sectionState) {
   const data = sectionState.data || {};
   const routeJobId = safeWorkspaceRouteEntityId("job");
+  const routeMediaId = safeWorkspaceRouteEntityId("media");
+  const routeReviewId = safeWorkspaceRouteEntityId("review");
   const requestedView = String(state.route.query.get("view") || (routeJobId ? "history" : "create"));
+  const repairRouteState = routeReviewId && requestedView === "create"
+    ? generationRepairRouteState(routeReviewId)
+    : "";
   const batches = listFrom(data, "batches");
   const archiveFilters = normalizeGenerationFilters(state.generationArchive.filters);
   const filteredBatches = filterGenerationBatches(batches, archiveFilters);
@@ -9032,9 +9757,9 @@ function renderGenerationSection(sectionState) {
   const gen4SpendAllowed = Boolean(gen4Campaign);
   const photoSpendAllowed = Boolean(photoCampaign);
   const handoff = state.contentGenerationHandoff;
-  const repairPolicy = normalizeGenerationRepairPolicy(
-    state.generationRepair.data,
-  );
+  const repairPolicy = state.generationRepair.projectId === currentWorkspaceProjectId()
+    ? normalizeGenerationRepairPolicy(state.generationRepair.data)
+    : null;
   const repairMode = generationRepairMode(repairPolicy?.model);
   const repairMedia = repairPolicy?.applied
     ? exactMedia.find((item) =>
@@ -9094,9 +9819,20 @@ function renderGenerationSection(sectionState) {
   const finderSelectedMediaId = String(
     finderSelectedMedia?.public_id || finderSelectedMedia?.id || "",
   );
+  const routeSelectedMedia = routeMediaId
+    ? exactMedia.find((item) => (
+        String(item.public_id || item.id || "") === routeMediaId
+        && (!defaultIsReal || generationMediaIdentity(item).paidReady)
+      ))
+    : null;
+  const routeSelectedMediaId = String(
+    routeSelectedMedia?.public_id || routeSelectedMedia?.id || "",
+  );
   const automaticMediaId = repairReady
     ? repairPolicy.inputMediaId
-    : finderSelectedMediaId || chooseInitialGenerationMedia(exactMedia, {
+    : routeMediaId
+      ? routeSelectedMediaId
+      : finderSelectedMediaId || chooseInitialGenerationMedia(exactMedia, {
         real: defaultIsReal,
       });
   const defaultPlatform = repairReady ? repairPolicy.platform : "instagram";
@@ -9127,6 +9863,43 @@ function renderGenerationSection(sectionState) {
     : ["create", "history", "products"].includes(requestedView)
       ? requestedView
       : "create";
+  const exactRouteUnavailable = generationView === "create" && (
+    (routeReviewId && repairRouteState !== "ready")
+    || (routeMediaId && !routeSelectedMediaId)
+  ) || (generationView === "history" && routeJobId && routeFilteredBatches.length === 0);
+  if (exactRouteUnavailable) {
+    const loadingRepair = Boolean(routeReviewId && repairRouteState === "loading");
+    const title = loadingRepair
+      ? "Восстанавливаем точное исправление"
+      : routeJobId
+        ? "Запуск по этой ссылке недоступен"
+      : routeReviewId
+        ? "Исправление по этой проверке недоступно"
+        : "Исходник по этой ссылке недоступен";
+    const message = loadingRepair
+      ? "Портал загружает решение проверки и связанный исходник. Другой материал выбран не будет."
+      : "Портал не подменил объект другим из общей очереди. Вернитесь к его проверке или откройте файлы проекта.";
+    const action = loadingRepair
+      ? null
+      : routeJobId
+        ? { href: workspaceProjectHref("#/workspace/generation?view=history"), label: "Открыть историю запусков" }
+      : routeReviewId
+        ? {
+            href: workspaceProjectHref(`#/workspace/review?view=current&review=${encodeURIComponent(routeReviewId)}`),
+            label: "Вернуться к проверке",
+          }
+        : { href: workspaceProjectHref("#/workspace/board"), label: "Открыть файлы проекта" };
+    return `
+      <div class="page-wrap" data-generation-view="${escapeHtml(generationView)}" data-exact-route-state="${loadingRepair ? "loading" : "unavailable"}">
+        ${pageHeader(
+          "Создание контента",
+          "Один точный исходник — один запуск — один следующий результат.",
+          `<span class="badge badge-info">Объект закреплён</span>`,
+        )}
+        ${generationActionSwitch(generationView, canManageAliases || aliases.length > 0)}
+        ${emptyState(loadingRepair ? "…" : "?", title, message, action)}
+      </div>`;
+  }
   const canAssignTeam = canManageTeam();
   if (canAssignTeam && state.sections.team.status === "idle") {
     window.queueMicrotask(() => loadSection("team", { silent: true }));
@@ -9474,6 +10247,7 @@ async function reloadGenerationArchive() {
         status: filters.status,
         query: filters.query,
         page_size: GENERATION_ARCHIVE_PAGE_SIZE,
+        projectId: currentWorkspaceProjectId(),
       }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "generation_archive_timeout",
@@ -9536,10 +10310,12 @@ async function loadMoreGenerationArchive() {
           query: filters.query,
           page_size: GENERATION_ARCHIVE_PAGE_SIZE,
           cursor,
+          projectId: currentWorkspaceProjectId(),
         })
         : state.api.workspaceSection("generation", {
           page_size: GENERATION_ARCHIVE_PAGE_SIZE,
           cursor: { generation_batches: cursor },
+          projectId: currentWorkspaceProjectId(),
         }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "generation_archive_timeout",
@@ -9764,6 +10540,100 @@ function mergeGenerationDeepLinkedBatch(data, jobId, result) {
     });
   }
   return { ...source, batches: nextBatches };
+}
+
+function exactPlacementItemId(item) {
+  return String(item?.id || item?.placement_id || "").trim().toLowerCase();
+}
+
+function mergeProjectMediaDeepLink(data, mediaId, projectId, surface, result) {
+  const source = data && typeof data === "object" && !Array.isArray(data)
+    ? data
+    : {};
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const normalizedProjectId = String(projectId || "").trim().toLowerCase();
+  const normalizedSurface = String(surface || "").trim().toLowerCase();
+  const resultProjectId = String(result?.project_id || "").trim().toLowerCase();
+  const resultSurface = String(result?.surface || "").trim().toLowerCase();
+  const media = result?.media;
+  const exactMediaId = String(media?.public_id || media?.id || "")
+    .trim()
+    .toLowerCase();
+  if (
+    !normalizedMediaId
+    || !normalizedProjectId
+    || !["generation", "review"].includes(normalizedSurface)
+    || resultProjectId !== normalizedProjectId
+    || resultSurface !== normalizedSurface
+    || exactMediaId !== normalizedMediaId
+    || String(media?.project_id || "").trim().toLowerCase() !== normalizedProjectId
+  ) return source;
+
+  const existing = listFrom(source, "media", "media_items", "artifacts");
+  return {
+    ...source,
+    media: [
+      media,
+      ...existing.filter((item) => (
+        String(item?.public_id || item?.id || "").trim().toLowerCase()
+        !== normalizedMediaId
+      )),
+    ],
+  };
+}
+
+function prependExactPlacementItem(items, item, placementId, removeWhenMissing = false) {
+  const normalizedPlacementId = String(placementId || "").trim().toLowerCase();
+  const existing = Array.isArray(items) ? items : [];
+  const withoutExact = existing.filter((candidate) => (
+    exactPlacementItemId(candidate) !== normalizedPlacementId
+  ));
+  if (
+    !item
+    || typeof item !== "object"
+    || Array.isArray(item)
+    || exactPlacementItemId(item) !== normalizedPlacementId
+  ) {
+    return removeWhenMissing ? withoutExact : existing;
+  }
+  return [item, ...withoutExact];
+}
+
+function mergeProjectPlacementDeepLink(data, placementId, projectId, result) {
+  const source = data && typeof data === "object" && !Array.isArray(data)
+    ? data
+    : {};
+  const normalizedPlacementId = String(placementId || "").trim().toLowerCase();
+  const normalizedProjectId = String(projectId || "").trim().toLowerCase();
+  const resultProjectId = String(result?.project_id || "").trim().toLowerCase();
+  const placement = result?.placement;
+  if (
+    !normalizedPlacementId
+    || !normalizedProjectId
+    || resultProjectId !== normalizedProjectId
+    || exactPlacementItemId(placement) !== normalizedPlacementId
+    || String(placement?.project_id || "").trim().toLowerCase() !== normalizedProjectId
+  ) return source;
+
+  return {
+    ...source,
+    placements: prependExactPlacementItem(
+      listFrom(source, "placements"),
+      placement,
+      normalizedPlacementId,
+    ),
+    publications: prependExactPlacementItem(
+      listFrom(source, "publications"),
+      result?.publication,
+      normalizedPlacementId,
+    ),
+    publication_options: prependExactPlacementItem(
+      listFrom(source, "publication_options"),
+      result?.publication_option,
+      normalizedPlacementId,
+      true,
+    ),
+  };
 }
 
 function generationStageMarkup(status) {
@@ -10037,7 +10907,9 @@ function requestRealGenerationStatus(jobId, source = "manual") {
   if (existing?.promise) return existing.promise;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
-  const promise = state.api.realGenerationStatus(normalizedJobId);
+  const promise = state.api.realGenerationStatus(normalizedJobId, {
+    projectId: currentWorkspaceProjectId(),
+  });
   state.realGenerationStatusRequests.set(normalizedJobId, { promise, source });
   promise.then(
     (result) => {
@@ -10264,6 +11136,7 @@ function formatGenerationUsd(minor) {
 
 function realGenerationDraftFromPayload(payload, mode) {
   return {
+    project_id: payload.project_id,
     generation_mode: mode,
     campaign_id: payload.campaign_id,
     sku: payload.sku,
@@ -10285,7 +11158,7 @@ function realGenerationDraftFromPayload(payload, mode) {
 function restoreRealGenerationDraft(jobId) {
   const draft = state.realGenerationDrafts.get(String(jobId || ""));
   const form = document.querySelector("#mock-batch-form");
-  if (!draft || !form) {
+  if (!draft || !form || draft.project_id !== currentWorkspaceProjectId()) {
     toast("Сохранённые поля этого запуска недоступны. Заполните новый запуск вручную.", "info");
     return;
   }
@@ -10356,8 +11229,9 @@ function canDecideContentReview() {
 function generatedVideoQaStorageKey() {
   const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
   const userId = String(state.user?.id || "").trim().toLowerCase();
-  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
-  return `contentengine.generated-video-qa.v${GENERATED_VIDEO_QA_STORAGE_VERSION}:${organizationId}:${userId}`;
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId) || !contentReviewUuid(projectId)) return "";
+  return `contentengine.generated-video-qa.v${GENERATED_VIDEO_QA_STORAGE_VERSION}:${organizationId}:${userId}:${projectId}`;
 }
 
 function restoreGeneratedVideoQaEvidence() {
@@ -10556,6 +11430,7 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
     const raw = await state.api.startGeneratedVideoReview({
       mediaId: normalizedMediaId,
       evidenceId: evidence.evidenceId,
+      projectId: currentWorkspaceProjectId(),
     });
     if (
       requestEpoch !== state.dataEpoch
@@ -10628,7 +11503,7 @@ function resumeGeneratedVideoReviewAutopilot() {
 async function loadGeneratedVideoQaMedia(mediaId, fallbackUrl = "") {
   const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
   const raw = await withUiTimeout(
-    state.api.contentReviewCatalog({ limit: 50 }),
+    state.api.contentReviewCatalog({ limit: 50, projectId: currentWorkspaceProjectId() }),
     WORKSPACE_REQUEST_TIMEOUT_MS,
     "content_review_catalog_timeout",
   );
@@ -10657,7 +11532,9 @@ async function resolveGeneratedVideoReviewMedia(media, fallbackUrl = "") {
     : "";
   let url = source.url || safeFallbackUrl;
   if (!url && contentReviewUuid(source.generationJobId)) {
-    const status = await state.api.realGenerationStatus(source.generationJobId);
+    const status = await state.api.realGenerationStatus(source.generationJobId, {
+      projectId: currentWorkspaceProjectId(),
+    });
     const job = status?.job || {};
     const outputMediaId = String(
       job.output_media_id || job.output?.output_media_id || "",
@@ -10812,8 +11689,9 @@ function scheduleGeneratedVideoTechnicalQa(job, signedUrl = "", { force = false 
 function contentReviewDraftStorageKey() {
   const organizationId = String(state.bootstrap?.organization?.id || "").trim().toLowerCase();
   const userId = String(state.user?.id || "").trim().toLowerCase();
-  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId)) return "";
-  return `contentengine.content-review-draft.v${CONTENT_REVIEW_DRAFT_STORAGE_VERSION}:${organizationId}:${userId}`;
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(organizationId) || !contentReviewUuid(userId) || !contentReviewUuid(projectId)) return "";
+  return `contentengine.content-review-draft.v${CONTENT_REVIEW_DRAFT_STORAGE_VERSION}:${organizationId}:${userId}:${projectId}`;
 }
 
 function persistContentReviewDraft(form, { durableEvidence = state.contentReview.durableEvidence } = {}) {
@@ -10827,6 +11705,7 @@ function persistContentReviewDraft(form, { durableEvidence = state.contentReview
   try {
     window.localStorage.setItem(key, JSON.stringify({
       version: CONTENT_REVIEW_DRAFT_STORAGE_VERSION,
+      project_id: currentWorkspaceProjectId(),
       updatedAt: new Date().toISOString(),
       input,
       evidence,
@@ -10859,6 +11738,7 @@ function restoreContentReviewDraft() {
   if (
     !draft
     || draft.version !== CONTENT_REVIEW_DRAFT_STORAGE_VERSION
+    || draft.project_id !== currentWorkspaceProjectId()
     || !draft.input
     || typeof draft.input !== "object"
     || Array.isArray(draft.input)
@@ -11000,6 +11880,14 @@ function contentReviewUuid(value) {
 
 function renderContentReviewSection(sectionState) {
   const catalog = normalizeContentReviewCatalog(sectionState.data || {});
+  const routeMediaId = safeWorkspaceRouteEntityId("media");
+  const routeMediaKey = routeMediaId ? `${currentWorkspaceProjectId()}:${routeMediaId}` : "";
+  if (routeMediaKey && state.contentReview.routeMediaKey !== routeMediaKey) {
+    state.contentReview.routeMediaKey = routeMediaKey;
+    state.contentReview.pendingMediaId = routeMediaId;
+    state.contentReview.record = null;
+    state.contentReview.phase = "idle";
+  }
   const routeReviewId = safeWorkspaceRouteEntityId("review");
   const currentId = routeReviewId || String(state.contentReview.record?.id || "");
   const catalogRecord = catalog.runs.find((item) => item.id === currentId);
@@ -11035,13 +11923,22 @@ function renderContentReviewSection(sectionState) {
     : routeReviewId || activeReview || pendingDecision
       ? "current"
       : "new";
-  const currentReviewHref = state.contentReview.record?.id
+  const currentReviewHref = workspaceProjectHref(state.contentReview.record?.id
     ? `#/workspace/review?view=current&review=${encodeURIComponent(state.contentReview.record.id)}`
-    : "#/workspace/review?view=current";
+    : "#/workspace/review?view=current");
+  const reviewQueueHref = workspaceProjectHref("#/workspace/review?view=history");
   const exactReviewMissing = Boolean(
     routeReviewId
     && String(state.contentReview.record?.id || "") !== routeReviewId
   );
+  const exactMediaMissing = Boolean(
+    routeMediaId
+    && !catalog.media.some((item) => String(item.id || "") === routeMediaId)
+  );
+  const reviewQueueCount = catalog.runs.filter((item) => (
+    contentReviewStatusKind(item.status) === "active"
+    || (contentReviewStatusKind(item.status) === "ready" && !item.decision)
+  )).length;
   window.queueMicrotask(() => {
     bindContentReviewDecisionMedia();
     restoreContentReviewDraft();
@@ -11049,24 +11946,30 @@ function renderContentReviewSection(sectionState) {
     hydrateContentReviewWizard(document.querySelector("#content-review-form"));
   });
   return `
-    <div class="page-wrap content-review-page">
+    <div class="page-wrap content-review-page focus-queue" data-focus-queue="review">
       ${pageHeader(
         "Проверка контента",
         "Проверьте готовый файл до публикации: отдельно качество фото или видео, отдельно риски и обязательные реквизиты.",
         `<span class="badge badge-info">Решение принимает человек</span>`,
       )}
-      ${workspaceActionSwitch("review-action-switch", "Действие в проверке контента", reviewView, [
-        { view: "new", href: "#/workspace/review?view=new", label: "Новая проверка" },
-        { view: "current", href: currentReviewHref, label: "Текущее решение" },
-        { view: "history", href: "#/workspace/review?view=history", label: "История" },
-      ])}
+      <nav class="focus-queue__bar" aria-label="Фокус-очередь проверок">
+        <span><strong>${reviewView === "current" ? "Одна проверка" : reviewView === "history" ? "Очередь проверок" : "Новая проверка"}</strong><small>${reviewView === "current" ? "Сохраните одно решение — портал откроет точный следующий объект" : reviewView === "history" ? "Выберите один объект для решения" : "Создайте одну проверку для выбранного файла"}</small></span>
+        <a class="btn btn-secondary btn-small" href="${reviewView === "current" ? reviewQueueHref : currentReviewHref}">${reviewView === "current" ? `Очередь · ${reviewQueueCount}` : reviewQueueCount ? "Вернуться к одной проверке" : "Текущих проверок нет"}</a>
+      </nav>
       <div data-review-view="${escapeHtml(reviewView)}">
-        ${exactReviewMissing
+        ${exactMediaMissing
+          ? emptyState(
+            "?",
+            "Файл по этой ссылке не найден",
+            "Портал не выбрал другой ролик из общей очереди. Файл мог быть удалён, перемещён в другой проект или ссылка устарела.",
+            { href: workspaceProjectHref("#/workspace/board"), label: "Открыть файлы проекта" },
+          )
+          : exactReviewMissing
           ? emptyState(
             "?",
             "Проверка по этой ссылке не найдена",
             "Портал не подменил её другой проверкой. Возможно, запись недоступна этой команде или ссылка устарела.",
-            { href: "#/workspace/review?view=history", label: "Открыть историю проверок" },
+            { href: reviewQueueHref, label: "Открыть историю проверок" },
           )
           : contentReviewWorkspaceMarkup({
             catalog,
@@ -11076,6 +11979,7 @@ function renderContentReviewSection(sectionState) {
             notice: state.contentReview.notice,
             canDecide: canDecideContentReview(),
             view: reviewView,
+            restorePlacement: state.route.query.get("action") === "restore-placement",
           })}
       </div>
     </div>`;
@@ -11106,7 +12010,10 @@ function selectPendingContentReviewMedia() {
   state.contentReview.notice = preparedEvidence?.status === "ready"
     ? "Контрольные кадры и технические метрики уже подготовлены. Заполните рекламные реквизиты — повторно считывать MP4 не потребуется."
     : state.contentReview.notice;
-  target.closest(".content-review-media-option")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.closest(".content-review-media-option")?.scrollIntoView({
+    block: "center",
+    behavior: prefersReducedMotion() ? "auto" : "smooth",
+  });
   target.focus({ preventScroll: true });
 }
 
@@ -11358,7 +12265,7 @@ async function pollContentReviewStatus({ silent = false, refreshMedia = false } 
   }
   try {
     let raw = await withUiTimeout(
-      state.api.contentReviewStatus(reviewId),
+      state.api.contentReviewStatus(reviewId, { projectId: currentWorkspaceProjectId() }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "content_review_status_timeout",
     );
@@ -11450,6 +12357,10 @@ function renderPlacementSection(sectionState) {
   const openCount = actionableItems.length;
   const requestedView = String(state.route.query.get("view") || "next");
   const placementView = requestedView === "history" ? "history" : "next";
+  const placementQueueHref = workspaceProjectHref(
+    `#/workspace/placement?view=${placementView === "next" ? "history" : "next"}`,
+  );
+  const placementHistoryHref = workspaceProjectHref("#/workspace/placement?view=history");
   const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
   const requestedPlacement = requestedPlacementId
     ? items.find((item) => String(item.id || item.placement_id || "") === requestedPlacementId) || null
@@ -11462,19 +12373,19 @@ function renderPlacementSection(sectionState) {
     ? visibleItems.map(placementHistoryCard).join("")
     : visibleItems.map(placementCard).join("");
   return `
-    <div class="page-wrap" data-placement-view="${placementView}">
+    <div class="page-wrap focus-queue" data-focus-queue="placement" data-placement-view="${placementView}">
       ${pageHeader("Публикации", "Скачайте одобренный ролик, разместите его на указанной площадке и сохраните ссылку на сам пост.", `<span class="badge badge-info">${openCount} ждут действия</span>`)}
-      ${workspaceActionSwitch("placement-action-switch", "Действие с публикациями", placementView, [
-        { view: "next", href: "#/workspace/placement?view=next", label: "Следующая публикация" },
-        { view: "history", href: "#/workspace/placement?view=history", label: "Вся история" },
-      ])}
+      <nav class="focus-queue__bar" aria-label="Фокус-очередь публикаций">
+        <span><strong>${placementView === "next" ? "Одна публикация" : "История публикаций"}</strong><small>${placementView === "next" ? "Сохраните ссылку — затем откроются метрики этого же поста" : "Выберите один пост и вернитесь в фокус"}</small></span>
+        <a class="btn btn-secondary btn-small" href="${placementQueueHref}">${placementView === "next" ? `Очередь · ${openCount}` : "Вернуться к одной публикации"}</a>
+      </nav>
       ${alertMarkup("Нужна публичная ссылка именно на опубликованный пост. Ссылка на карточку товара не завершает задачу.", "info")}
       <div class="placement-list" style="margin-top:18px">
         ${sectionBody(sectionState, visibleItems.length
           ? placementMarkup
           : requestedPlacementId && placementView === "next"
-            ? emptyState("?", "Публикация по этой ссылке не найдена", "Портал не открыл другую публикацию вместо неё. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: "#/workspace/placement?view=history", label: "Открыть историю публикаций" })
-            : emptyState("↗", "Публиковать пока нечего", "Ничего делать не нужно: здесь появится только одобренный ролик с назначенной площадкой.", { href: "#/workspace/tasks", label: "Проверить задачи" }))}
+            ? emptyState("?", "Публикация по этой ссылке не найдена", "Портал не открыл другую публикацию вместо неё. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: placementHistoryHref, label: "Открыть историю публикаций" })
+            : emptyState("↗", "Публиковать пока нечего", "Ничего делать не нужно: здесь появится только одобренный ролик с назначенной площадкой.", { href: workspaceProjectHref("#/workspace/tasks?stage=placement"), label: "Проверить задачи" }))}
       </div>
     </div>
   `;
@@ -11493,7 +12404,7 @@ function placementHistoryCard(item) {
         </div>
         ${statusBadge(item.status || "todo")}
       </div>
-      ${actionable ? `<a class="btn btn-secondary btn-small" href="#/workspace/placement?view=next&placement=${encodeURIComponent(placementId)}">Открыть одно действие</a>` : ""}
+      ${actionable ? `<a class="btn btn-secondary btn-small" href="${workspaceProjectHref(`#/workspace/placement?view=next&placement=${encodeURIComponent(placementId)}`)}">Открыть одно действие</a>` : ""}
     </article>
   `;
 }
@@ -11746,6 +12657,9 @@ function renderTasksSection(sectionState) {
   const items = listFrom(data, "tasks", "items", "rows");
   const requestedView = String(state.route.query.get("view") || "next");
   const taskView = requestedView === "queue" ? "queue" : "next";
+  const taskQueueHref = workspaceProjectHref(
+    `#/workspace/tasks?view=${taskView === "next" ? "queue" : "next"}`,
+  );
   const requestedTaskId = safeWorkspaceRouteEntityId("item");
   const actionableItems = items.filter((item) => !["done", "cancelled"].includes(String(item.status || "todo")));
   const requestedTask = requestedTaskId
@@ -11759,18 +12673,18 @@ function renderTasksSection(sectionState) {
     ? visibleItems.map(taskQueueCard).join("")
     : visibleItems.map(taskCard).join("");
   return `
-    <div class="page-wrap" data-task-view="${taskView}">
+    <div class="page-wrap focus-queue" data-focus-queue="tasks" data-task-view="${taskView}">
       ${pageHeader("Задачи", "Выполняйте только назначенные вам действия. Блокер лучше скрытой ошибки.", `<span class="badge badge-info">${actionableItems.length} активных</span>`)}
-      ${workspaceActionSwitch("tasks-action-switch", "Действие с задачами", taskView, [
-        { view: "next", href: "#/workspace/tasks?view=next", label: "Следующее действие" },
-        { view: "queue", href: "#/workspace/tasks?view=queue", label: "Вся очередь" },
-      ])}
+      <nav class="focus-queue__bar" aria-label="Фокус-очередь задач">
+        <span><strong>${taskView === "next" ? "Одно действие" : "Очередь задач"}</strong><small>${taskView === "next" ? "Завершите его — следующий объект появится автоматически" : "Выберите один объект и вернитесь в фокус"}</small></span>
+        <a class="btn btn-secondary btn-small" href="${taskQueueHref}">${taskView === "next" ? `Очередь · ${actionableItems.length}` : "Вернуться к одному действию"}</a>
+      </nav>
       <div class="task-list">
         ${sectionBody(sectionState, visibleItems.length
           ? taskMarkup
           : requestedTaskId && taskView === "next"
-            ? emptyState("?", "Задача по этой ссылке не найдена", "Портал не открыл другую задачу вместо неё. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: "#/workspace/tasks?view=queue", label: "Открыть очередь задач" })
-            : emptyState("✓", "Задач пока нет", "Ничего делать не нужно: новая работа появится здесь после назначения руководителем.", { href: "#/workspace/home", label: "Вернуться к обзору" }))}
+            ? emptyState("?", "Задача по этой ссылке не найдена", "Портал не открыл другую задачу вместо неё. Запись могла выйти за пределы загруженной страницы или стать недоступной.", { href: workspaceProjectHref("#/workspace/tasks?view=queue"), label: "Открыть очередь задач" })
+            : emptyState("✓", "Задач пока нет", "Ничего делать не нужно: новая работа появится здесь после назначения руководителем.", { href: workspaceProjectHref("#/workspace/home"), label: "Вернуться к обзору" }))}
       </div>
     </div>
   `;
@@ -11788,7 +12702,7 @@ function taskQueueCard(item) {
         </div>
         ${statusBadge(item.status || "todo")}
       </div>
-      <a class="btn btn-secondary btn-small" href="#/workspace/tasks?view=next&item=${encodeURIComponent(taskId)}">Открыть одно действие</a>
+      <a class="btn btn-secondary btn-small" href="${workspaceProjectHref(`#/workspace/tasks?view=next&item=${encodeURIComponent(taskId)}`)}">Открыть одно действие</a>
     </article>
   `;
 }
@@ -11854,7 +12768,7 @@ function taskActionsMarkup(item) {
     return '<span class="muted tiny">Видео создаётся. Статус задачи изменится автоматически.</span>';
   }
   const action = (nextStatus, label, secondary = false) =>
-    `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}">${label}</button>`;
+    `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}" ${secondary ? "" : 'data-primary-action="true"'}>${label}</button>`;
   const generatedVideoReady = item.task_type === "video_review"
     && String(result.generation_status || "").toLowerCase() === "succeeded"
     && String(result.output_media_id || "").trim();
@@ -11972,8 +12886,9 @@ function stopProductResearchPolling() {
 function productResearchRunStorageKey() {
   const userId = String(state.user?.id || "").trim();
   const organizationId = String(state.bootstrap?.organization?.id || state.api?.organizationId || "").trim();
-  return userId && organizationId
-    ? `${PRODUCT_RESEARCH_RUN_STORAGE_KEY}:${organizationId}:${userId}`
+  const projectId = currentWorkspaceProjectId();
+  return userId && organizationId && isWorkspaceProjectId(projectId)
+    ? `${PRODUCT_RESEARCH_RUN_STORAGE_KEY}:${organizationId}:${userId}:${projectId}`
     : "";
 }
 
@@ -12000,6 +12915,31 @@ function clearProductResearchRunId() {
 
 function restoreProductResearchSession() {
   const research = state.productResearch;
+  if (state.route.query.has("run")) {
+    const routeProjectId = safeWorkspaceRouteEntityId("project_id");
+    const routeRunId = safeWorkspaceRouteEntityId("run");
+    const activeProjectId = currentWorkspaceProjectId();
+    research.restoreAttempted = true;
+    if (
+      !routeProjectId
+      || routeProjectId !== activeProjectId
+      || !routeRunId
+    ) {
+      research.record = null;
+      research.phase = "error";
+      research.error = "Ссылка на разбор товара не соответствует выбранному проекту.";
+      return;
+    }
+    if (String(research.record?.id || "").toLowerCase() === routeRunId) return;
+    research.record = normalizeProductResearch({
+      run: { id: routeRunId, status: "queued" },
+    });
+    research.phase = "processing";
+    research.error = "";
+    persistProductResearchRunId(routeRunId);
+    window.queueMicrotask(() => pollProductResearchStatus({ silent: true }));
+    return;
+  }
   if (research.restoreAttempted || research.record) return;
   research.restoreAttempted = true;
   const key = productResearchRunStorageKey();
@@ -12032,6 +12972,7 @@ function scheduleProductResearchPolling(delay = PRODUCT_RESEARCH_POLL_INTERVAL_M
 async function pollProductResearchStatus({ silent = false } = {}) {
   const research = state.productResearch;
   const runId = String(research.record?.id || "");
+  const projectId = currentWorkspaceProjectId();
   if (!runId || ["starting", "saving", "approving"].includes(research.phase)) return;
   const requestId = research.requestId + 1;
   research.requestId = requestId;
@@ -12042,11 +12983,15 @@ async function pollProductResearchStatus({ silent = false } = {}) {
   }
   try {
     const raw = await withUiTimeout(
-      state.api.productResearchStatus(runId),
+      state.api.productResearchStatus(runId, { projectId }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "product_research_status_timeout",
     );
-    if (requestId !== research.requestId || runId !== String(research.record?.id || "")) return;
+    if (
+      requestId !== research.requestId
+      || runId !== String(research.record?.id || "")
+      || projectId !== currentWorkspaceProjectId()
+    ) return;
     research.record = normalizeProductResearch(raw, research.record);
     prepareRecommendedResearchHandoff(research.record);
     const kind = productResearchStatusKind(research.record.status);
@@ -12498,11 +13443,12 @@ function pageHeader(title, description, actions = "") {
   const meta = WORKSPACE_SECTION_META[activeSection] || WORKSPACE_SECTION_META.home;
   const inFactoryFlow = Boolean(factoryFlowStage(activeSection));
   const nativeV4 = window.CONTENTENGINE_DESKTOP_V4 === true;
+  const ownsFocusedAction = ["board", "generation", "review", "placement", "stats", "tasks"].includes(activeSection);
   const guideLink = academyRoutesReachable()
     ? `<a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>`
     : "";
   return `
-    ${nativeV4 ? workspaceActionGuideMarkup(meta) : ""}
+    ${nativeV4 && !ownsFocusedAction ? workspaceActionGuideMarkup(meta) : ""}
     <section class="workspace-page-intro">
       <header class="page-header">
         <div class="page-header-copy">
@@ -12563,12 +13509,12 @@ function sectionBody(sectionState, readyMarkup) {
 async function loadWorkspaceBoardFallback() {
   const [mediaResult, tasksResult] = await Promise.allSettled([
     withUiTimeout(
-      state.api.workspaceSection("media"),
+      state.api.workspaceSection("media", { projectId: currentWorkspaceProjectId() }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "workspace_board_media_fallback_timeout",
     ),
     withUiTimeout(
-      state.api.workspaceSection("tasks"),
+      state.api.workspaceSection("tasks", { projectId: currentWorkspaceProjectId() }),
       WORKSPACE_REQUEST_TIMEOUT_MS,
       "workspace_board_tasks_fallback_timeout",
     ),
@@ -12627,14 +13573,15 @@ async function handleClick(event) {
     const projectId = String(homeProject.dataset.ceV4ProjectId || "");
     const projectName = String(homeProject.dataset.ceV4ProjectName || "Проект");
     if (projectId) {
-      state.workspaceBoard.selectedFolderId = projectId;
-      try {
-        window.sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({
-          id: projectId,
-          name: projectName,
-        }));
-      } catch { /* application state still preserves the selected folder */ }
+      activateWorkspaceProject(projectId, projectName);
+      state.workspaceBoard.selectedFolderId = "all";
     }
+  }
+  const workspaceAnchor = event.target.closest('a[href^="#/workspace/"]');
+  if (workspaceAnchor) {
+    const href = String(workspaceAnchor.getAttribute("href") || "");
+    const scopedHref = scopedWorkspaceAnchorHref(href);
+    if (scopedHref && scopedHref !== href) workspaceAnchor.setAttribute("href", scopedHref);
   }
   const workspaceDragHandle = event.target.closest("[data-workspace-drag-item]");
   if (workspaceDragHandle) {
@@ -12652,6 +13599,19 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "retry-project-flow") {
+    control.disabled = true;
+    state.projectFlow.status = "idle";
+    state.projectFlow.error = null;
+    try {
+      await loadProjectFlow({ silent: true, force: true });
+      if (state.route.path === "/workspace/home") render();
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
+    return;
+  }
 
   if (action === "choose-media-upload-files") {
     const form = control.closest("#media-upload-form");
@@ -12822,7 +13782,7 @@ async function handleClick(event) {
   if (action === "toggle-work-notifications") {
     event.preventDefault();
     if (window.CONTENTENGINE_DESKTOP_V4 === true) {
-      window.location.hash = "#/workspace/work?view=notifications";
+      navigate("/workspace/work?view=notifications");
       return;
     }
     if (!state.myWork.notificationsOpen && state.mobileNavOpen) setMobileNavOpen(false);
@@ -13014,16 +13974,18 @@ async function handleClick(event) {
   }
 
   if (action === "create-from-workspace-media") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
     const mediaId = String(control.dataset.entityId || "").trim();
     if (!mediaId) {
       toast("Файл больше не найден. Обновите раздел «Файлы».", "error");
       return;
     }
-    persistGenerationMediaSelection(mediaId);
+    persistGenerationMediaSelection(mediaId, projectId);
     clearGenerationFormDraft();
     state.sections.generation.status = "idle";
     state.sections.generation.error = null;
-    navigate("/workspace/generation?view=create");
+    navigate(`/workspace/generation?view=create&project_id=${encodeURIComponent(projectId)}`);
     return;
   }
 
@@ -13101,6 +14063,8 @@ async function handleClick(event) {
   }
 
   if (action === "generate-research-scenario") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
     if (normalizeGenerationRepairPolicy(state.generationRepair?.data)?.applied) {
       toast("Сначала завершите точное исправление после QA. Новый сценарий не должен подменять активный repair-контекст.", "error");
       return;
@@ -13109,6 +14073,8 @@ async function handleClick(event) {
       const handoff = createContentGenerationHandoff(
         state.productResearch.record,
         Number(control.dataset.scenarioIndex),
+        Date.now(),
+        { projectId },
       );
       state.contentGenerationHandoff = handoff;
       persistContentGenerationHandoff(handoff);
@@ -13121,7 +14087,7 @@ async function handleClick(event) {
         scenario_position: handoff.scenario.position,
         platform: handoff.scenario.platform,
       });
-      navigate("/workspace/generation");
+      navigate(workspaceProjectHref("/workspace/generation?view=create", projectId));
     } catch (error) {
       toast(actionErrorMessage(error), "error");
     }
@@ -13235,6 +14201,43 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "restore-project-placement") {
+    const projectId = requireWorkspaceProjectId();
+    const reviewId = String(control.dataset.reviewId || "").trim().toLowerCase();
+    if (!projectId || !contentReviewUuid(reviewId)) {
+      toast("Не удалось определить проверку и проект. Обновите страницу.", "error");
+      return;
+    }
+    control.disabled = true;
+    try {
+      const raw = await state.api.restoreProjectPlacement(reviewId, { projectId });
+      const result = raw?.data ?? raw ?? {};
+      const placementId = String(
+        result.placement_id || result.placement?.id || "",
+      ).trim().toLowerCase();
+      if (!contentReviewUuid(placementId)) throw new Error("project_placement_restore_invalid");
+      state.sections.placement.status = "idle";
+      state.sections.stats.status = "idle";
+      state.projectFlow.status = "idle";
+      const freshFlow = await loadProjectFlow({ silent: true, force: true });
+      const nextRoute = exactProjectNextActionRoute(freshFlow, projectId)
+        || workspaceProjectHref(
+          `/workspace/placement?view=next&placement=${encodeURIComponent(placementId)}`,
+          projectId,
+        );
+      await flowHandoff(
+        nextRoute,
+        "Публикация восстановлена",
+        "Открываем точный материал",
+      );
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
+    return;
+  }
+
   if (action === "prepare-generation-repair") {
     const reviewId = String(control.dataset.reviewId || "").trim().toLowerCase();
     if (!contentReviewUuid(reviewId)) {
@@ -13251,7 +14254,10 @@ async function handleClick(event) {
         );
         return;
       }
-      navigate("/workspace/generation");
+      navigate(workspaceProjectHref(
+        `/workspace/generation?view=create&review=${encodeURIComponent(reviewId)}`,
+        requireWorkspaceProjectId(),
+      ));
       toast(
         "Исправление восстановлено. Проверьте авто-ТЗ и отдельно подтвердите цену одного запуска.",
         "success",
@@ -13267,6 +14273,8 @@ async function handleClick(event) {
   }
 
   if (action === "open-generated-content-review") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
     const mediaId = String(control.dataset.mediaId || "").trim();
     if (!mediaId) {
       toast("У готового материала не найден точный файл. Обновите задачи и генерацию.", "error");
@@ -13277,7 +14285,7 @@ async function handleClick(event) {
     state.contentReview.phase = "idle";
     state.contentReview.error = "";
     state.contentReview.notice = "Выберите контекст публикации и запустите обязательную проверку готового фото или видео.";
-    navigate("/workspace/review");
+    navigate(`/workspace/review?project_id=${encodeURIComponent(projectId)}`);
     return;
   }
 
@@ -13314,7 +14322,9 @@ async function handleClick(event) {
     }
     control.disabled = true;
     try {
-      const response = await state.api.contentReviewStatus(reviewId);
+      const response = await state.api.contentReviewStatus(reviewId, {
+        projectId: currentWorkspaceProjectId(),
+      });
       const hydrated = await hydratePrivateMedia(response, { refreshSignedUrls: true });
       const run = normalizeContentReviewRun(hydrated, state.contentReview.record);
       if (!run.media?.isVideo || !run.media.url || run.mediaIsStale) {
@@ -13507,9 +14517,36 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "request-workspace-access") {
+    if (state.workspaceAccessRequest.status === "loading") return;
+    state.workspaceAccessRequest.status = "loading";
+    state.workspaceAccessRequest.error = "";
+    renderWorkspaceAccessRequired();
+    try {
+      const response = await state.api.requestWorkspaceAccess();
+      state.workspaceAccessRequest.result = response;
+      state.workspaceAccessRequest.status = "ready";
+      await track("workspace_access_requested", {
+        request_id: String((response?.data ?? response)?.request?.id || ""),
+      });
+    } catch (error) {
+      state.workspaceAccessRequest.status = "error";
+      state.workspaceAccessRequest.error = actionErrorMessage(error);
+    }
+    renderWorkspaceAccessRequired();
+    return;
+  }
+
   if (action === "retry-bootstrap") {
     control.disabled = true;
     await loadBootstrap();
+    if (hasWorkspaceAccess()) {
+      try {
+        if (await openFirstAvailableWorkspaceProject()) return;
+      } catch (error) {
+        state.workspaceAccessRequest.error = actionErrorMessage(error);
+      }
+    }
     establishDefaultRoute();
     render();
     return;
@@ -13618,8 +14655,16 @@ async function handleClick(event) {
       await loadBootstrap();
       const serverCompleted = state.bootstrap.training.completedModules.includes(moduleCode);
       if (!serverCompleted) throw new Error("Сервер не подтвердил завершение блока. Обновите страницу и проверьте результат.");
-      toast("Курс завершён и сохранён.", "success");
-      navigate("/learn", true);
+      const completed = new Set(state.bootstrap.training.completedModules);
+      const nextCourse = learningCourses().find((item) => !completed.has(item.code));
+      const destination = nextCourse
+        ? `/learn/${encodeURIComponent(nextCourse.code)}`
+        : "/learn/practical";
+      await flowHandoff(
+        destination,
+        "Блок завершён",
+        nextCourse ? "Открываем следующий учебный блок" : "Открываем пробную работу",
+      );
     } catch (error) {
       toast(actionErrorMessage(error), "error");
     } finally {
@@ -13726,11 +14771,26 @@ async function handleClick(event) {
     try {
       const taskId = control.dataset.taskId;
       const status = control.dataset.status;
-      await state.api.transitionTask(taskId, status);
+      await state.api.transitionTask(taskId, status, {}, {
+        projectId: currentWorkspaceProjectId(),
+      });
       await track("task_status_changed", { task_id: String(taskId), status });
       state.sections.tasks.status = "idle";
-      toast(status === "blocked" ? "Блокер зафиксирован." : "Статус задачи обновлён.", "success");
-      render();
+      state.projectFlow.status = "idle";
+      if (["submitted", "done"].includes(status)) {
+        const projectId = currentWorkspaceProjectId();
+        const freshFlow = await loadProjectFlow({ silent: true, force: true });
+        const nextRoute = exactProjectNextActionRoute(freshFlow, projectId)
+          || workspaceProjectHref("/workspace/home", projectId);
+        await flowHandoff(
+          nextRoute,
+          status === "done" ? "Задача завершена" : "Задача отправлена на проверку",
+          "Открываем следующее действие проекта",
+        );
+      } else {
+        toast(status === "blocked" ? "Блокер зафиксирован." : "Статус задачи обновлён.", "success");
+        render();
+      }
     } catch (error) {
       control.disabled = false;
       toast(actionErrorMessage(error), "error");
@@ -13746,7 +14806,9 @@ async function handleClick(event) {
     control.disabled = true;
     try {
       const payoutId = control.dataset.payoutId;
-      await state.api.decidePayout(payoutId, "approve");
+      await state.api.decidePayout(payoutId, "approve", {
+        projectId: requireWorkspaceProjectId(),
+      });
       await track("payout_decided", { payout_id: String(payoutId), decision: "approve" });
       state.sections.payouts.status = "idle";
       toast("Начисление одобрено. Теперь можно отдельно зафиксировать внешнюю оплату.", "success");
@@ -15089,6 +16151,7 @@ async function prepareGenerationLearningFallback(
             productCategory: String(
               form.elements.product_category?.value || "",
             ).trim().toLowerCase(),
+            projectId: requireWorkspaceProjectId(),
           }),
           WORKSPACE_REQUEST_TIMEOUT_MS,
           "generation_learning_fallback_timeout",
@@ -15241,6 +16304,7 @@ async function loadGenerationLearningPolicy(
           productCategory: String(
             form.elements.product_category?.value || "",
           ).trim().toLowerCase(),
+          projectId: requireWorkspaceProjectId(),
         }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "generation_learning_policy_timeout",
@@ -16221,6 +17285,7 @@ async function submitExam(form) {
 }
 
 async function submitGenerationBatch(form) {
+  if (!requireWorkspaceProjectId()) return;
   const values = new FormData(form);
   const mode = String(values.get("generation_mode") || "mock");
   if (isRealGenerationMode(mode)) {
@@ -16642,6 +17707,8 @@ async function runGenerationPreflightForPaidStart(form) {
 }
 
 async function submitRealGenerationReconciliation(form, submitter) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const resolution = String(submitter?.value || "");
   const values = new FormData(form);
   const jobId = String(form.dataset.jobId || "");
@@ -16675,6 +17742,7 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const requestUserId = state.user?.id;
   try {
     const result = await state.api.reconcileRealGeneration(jobId, {
+      project_id: projectId,
       incident_id: incidentId,
       resolution,
       provider_task_id: providerTaskId,
@@ -16707,6 +17775,8 @@ async function submitRealGenerationReconciliation(form, submitter) {
 }
 
 async function submitRealGeneration(form, values, mode) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   if (state.realGenerationStartInFlight) {
     toast("Платный запуск уже отправляется. Дождитесь результата текущего запроса.", "info");
     return;
@@ -16869,6 +17939,7 @@ async function submitRealGeneration(form, values, mode) {
   }
 
   const payload = {
+    project_id: projectId,
     campaign_id: campaignId,
     sku: String(values.get("sku") || "").trim(),
     product_name: String(values.get("product_name") || "").trim(),
@@ -17023,6 +18094,8 @@ async function submitRealGeneration(form, values, mode) {
 }
 
 async function submitMockBatch(form, values = new FormData(form)) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   if (!MOCK_GENERATION_ENABLED) {
     toast("Dry-run сейчас недоступен.", "error");
     return;
@@ -17045,6 +18118,7 @@ async function submitMockBatch(form, values = new FormData(form)) {
   setFormBusy(form, true, "Создаём dry-run задачи…");
   try {
     const payload = {
+      project_id: projectId,
       sku: String(values.get("sku") || "").trim(),
       product_name: String(values.get("product_name") || "").trim(),
       count,
@@ -17091,6 +18165,8 @@ async function submitMockBatch(form, values = new FormData(form)) {
 }
 
 async function submitManualMetric(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const views = nonnegativeInteger(values.get("views"));
   const clicks = nonnegativeInteger(values.get("clicks"));
@@ -17114,6 +18190,7 @@ async function submitManualMetric(form) {
   try {
     const placementId = String(values.get("placement_id") || "");
     await state.api.recordMetric({
+      project_id: projectId,
       placement_id: placementId,
       views,
       clicks,
@@ -17130,8 +18207,15 @@ async function submitManualMetric(form) {
     });
     delete form.dataset.dirty;
     state.sections.stats.status = "idle";
-    toast("Текущие показатели сохранены как введённые вручную.", "success");
-    render();
+    state.projectFlow.status = "idle";
+    const freshFlow = await loadProjectFlow({ silent: true, force: true });
+    const nextRoute = exactProjectNextActionRoute(freshFlow, projectId)
+      || workspaceProjectHref("/workspace/stats?view=overview", projectId);
+    await flowHandoff(
+      nextRoute,
+      "Результат сохранён",
+      "Открываем актуальное состояние проекта",
+    );
   } catch (error) {
     setFormBusy(form, false);
       toast(actionErrorMessage(error), "error");
@@ -17139,6 +18223,8 @@ async function submitManualMetric(form) {
 }
 
 async function submitTrackingLink(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const placementId = String(form.dataset.placementId || "");
   const targetUrl = String(values.get("target_url") || "").trim();
@@ -17151,6 +18237,7 @@ async function submitTrackingLink(form) {
     const result = await state.api.configureTrackingLink(
       placementId,
       targetUrl,
+      { projectId },
     );
     const trackingUrl = trackingRedirectUrl(result?.tracking_slug);
     if (!isHttpsUrl(trackingUrl)) {
@@ -17246,7 +18333,10 @@ async function submitPayoutReject(form) {
   setFormBusy(form, true, "Отклоняем…");
   try {
     const payoutId = form.dataset.payoutId;
-    await state.api.decidePayout(payoutId, "reject", { notes });
+    await state.api.decidePayout(payoutId, "reject", {
+      notes,
+      projectId: requireWorkspaceProjectId(),
+    });
     await track("payout_decided", { payout_id: String(payoutId), decision: "reject" });
     delete form.dataset.dirty;
     state.sections.payouts.status = "idle";
@@ -17273,6 +18363,7 @@ async function submitPayoutPaid(form) {
     const payoutId = form.dataset.payoutId;
     await state.api.decidePayout(payoutId, "paid", {
       external_payment_reference: reference,
+      projectId: requireWorkspaceProjectId(),
     });
     await track("payout_decided", { payout_id: String(payoutId), decision: "paid" });
     delete form.dataset.dirty;
@@ -17286,6 +18377,8 @@ async function submitPayoutPaid(form) {
 }
 
 async function submitPlacement(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const finalUrl = String(values.get("final_url") || "").trim();
   const complianceAck = values.get("compliance_ack") === "confirmed";
@@ -17296,14 +18389,21 @@ async function submitPlacement(form) {
   setFormBusy(form, true, "Проверяем ссылку…");
   try {
     const taskId = form.dataset.placementId;
-    await state.api.confirmPlacement(taskId, finalUrl, complianceAck);
+    const response = await state.api.confirmPlacement(taskId, finalUrl, complianceAck, { projectId });
+    const result = response?.data ?? response ?? {};
+    const placementId = String(result.placement_id || result.placement?.id || result.id || taskId || "").trim().toLowerCase();
+    if (!contentReviewUuid(placementId)) throw new Error("placement_exact_id_missing");
     await track("placement_confirmed", { task_id: String(taskId), hostname: new URL(finalUrl).hostname });
     delete form.dataset.dirty;
     state.sections.placement.status = "idle";
     state.sections.stats.status = "idle";
     state.sections.payouts.status = "idle";
-    toast("Ссылка на пост сохранена. Публикация подтверждена.", "success");
-    render();
+    state.projectFlow.status = "idle";
+    await flowHandoff(
+      `/workspace/stats?view=new&placement=${encodeURIComponent(placementId)}&project_id=${encodeURIComponent(projectId)}`,
+      "Публикация подтверждена",
+      "Открываем метрики этого же поста",
+    );
   } catch (error) {
     setFormBusy(form, false);
       toast(actionErrorMessage(error), "error");
@@ -17453,6 +18553,9 @@ function resetManagerAccessCenter() {
   state.accessCenter.result = null;
   state.accessCenter.error = "";
   state.accessCenter.notice = "";
+  state.workspaceAccessRequest.status = "idle";
+  state.workspaceAccessRequest.result = null;
+  state.workspaceAccessRequest.error = "";
   if (state.route.path === "/workspace/team") {
     renderWorkspace("team");
     window.queueMicrotask(() => document.querySelector("#manager-access-email")?.focus());
@@ -17649,6 +18752,8 @@ async function normalizePasswordFunctionError(error) {
 }
 
 async function submitProductResearchStart(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const productName = String(values.get("product_name") || "").trim();
   const sku = String(values.get("sku") || "").trim();
@@ -17709,6 +18814,7 @@ async function submitProductResearchStart(form) {
         platforms,
       },
       {
+        projectId,
         onRunCreated: (run) => {
           persistProductResearchRunId(run?.id);
           state.productResearch.record = normalizeProductResearch({ run }, previous);
@@ -17738,6 +18844,8 @@ async function submitProductResearchStart(form) {
 
 async function submitProductResearchBrief(form, submitter) {
   const research = state.productResearch;
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const mode = String(submitter?.dataset?.researchSubmit || "save");
   if (!research.record?.id || !["save", "approve"].includes(mode)) {
     toast("Не удалось определить действие с ТЗ. Обновите раздел.", "error");
@@ -17792,7 +18900,7 @@ async function submitProductResearchBrief(form, submitter) {
       brief: editableBrief,
       source_ids: sourceIds,
       task_blueprint: taskBlueprint,
-    });
+    }, { projectId });
     const savedDraftId = String(saved?.draft?.id || saved?.data?.draft?.id || "");
     const localRecord = normalizeProductResearch({
       run: { id: research.record.id, status: "completed" },
@@ -17817,7 +18925,7 @@ async function submitProductResearchBrief(form, submitter) {
     form.removeAttribute("data-dirty");
     if (mode === "approve") {
       const draftId = savedDraftId || localRecord.draftId;
-      const approved = await state.api.approveCreativeBrief(draftId);
+      const approved = await state.api.approveCreativeBrief(draftId, { projectId });
       research.record = normalizeProductResearch(approved, {
         ...localRecord,
         status: "approved",
@@ -17830,12 +18938,22 @@ async function submitProductResearchBrief(form, submitter) {
         ? `ТЗ утверждено. Портал создал три задачи и уже подготовил сценарий ${recommendedHandoff.scenario.position} в генераторе без оплаты и рендера.`
         : "ТЗ утверждено. Портал создал три связанные задачи без повторного копирования текста.";
       state.sections.tasks.status = "idle";
+      state.projectFlow.status = "idle";
       await track("product_research_approved", {
         run_id: research.record.id,
         task_count: research.record.taskIds.length,
         recommended_scenario_position:
           recommendedHandoff?.scenario?.position || null,
       });
+      const freshFlow = await loadProjectFlow({ silent: true, force: true });
+      const nextRoute = exactProjectNextActionRoute(freshFlow, projectId)
+        || workspaceProjectHref("/workspace/generation?view=create", projectId);
+      await flowHandoff(
+        nextRoute,
+        "ТЗ утверждено",
+        "Открываем первую точную задачу",
+      );
+      return;
     } else {
       research.phase = "ready";
       research.notice = "Черновик сохранён новой версией. Задачи ещё не создавались.";
@@ -17946,6 +19064,8 @@ function splitResearchLines(value) {
 }
 
 async function persistContentReviewVideoEvidence(media, capturedEvidence, form, options = {}) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) throw new Error("workspace_project_required");
   const customPersistence = typeof options.persistEvidence === "function";
   const persistEvidence = (value) => {
     if (customPersistence) return options.persistEvidence(value);
@@ -17982,6 +19102,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form, 
   };
   if (existing?.status === "commit_pending") {
     await state.api.commitContentReviewEvidence({
+      projectId,
       evidenceId: existing.evidenceId,
       technicalMetrics: existing.technicalMetrics,
       frames: existing.frames,
@@ -17992,6 +19113,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form, 
 
   const frameFiles = await buildContentReviewFrameFiles(capturedEvidence);
   const prepared = await state.api.prepareContentReviewEvidence({
+    projectId,
     mediaId: media.id,
     frameCount: frameFiles.length,
   });
@@ -18030,6 +19152,7 @@ async function persistContentReviewVideoEvidence(media, capturedEvidence, form, 
     }
     commitStarted = true;
     await state.api.commitContentReviewEvidence({
+      projectId,
       evidenceId: pending.evidenceId,
       technicalMetrics: pending.technicalMetrics,
       frames: pending.frames,
@@ -18169,12 +19292,15 @@ async function submitContentReviewImageBatch(form, input, catalog, mediaItems) {
 }
 
 async function submitContentReview(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const review = state.contentReview;
   if (contentReviewIsBusy(review.phase, null)) {
     toast("Выбранные файлы уже ставятся в очередь. Дождитесь завершения текущей операции.", "info");
     return;
   }
   const input = readContentReviewForm(form);
+  input.project_id = projectId;
   const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
   const selection = resolveContentReviewMediaSelection(catalog.media, input.media_ids);
   if (!selection.ok) {
@@ -18368,6 +19494,8 @@ async function submitContentReview(form) {
 }
 
 async function submitContentReviewDecision(form, submitter) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   if (!canDecideContentReview()) {
     toast("Финальное решение доступно только руководителю, продюсеру или проверяющему.", "error");
     return;
@@ -18481,6 +19609,7 @@ async function submitContentReviewDecision(form, submitter) {
           resolvedRecommendationCodes: decision.resolvedRecommendationCodes,
           riskAcknowledgements: decision.riskAcknowledgements,
           mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
+          projectId,
         },
       )
       : await state.api.decideContentReview(
@@ -18491,10 +19620,12 @@ async function submitContentReviewDecision(form, submitter) {
           resolvedRecommendationCodes: decision.resolvedRecommendationCodes,
           riskAcknowledgements: decision.riskAcknowledgements,
           mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
+          projectId,
         },
       );
+    const decisionResult = raw?.data ?? raw ?? {};
     const decidedReviewId = contextApproval
-      ? String(raw?.review_id || "")
+      ? String(decisionResult.review_id || decisionResult.review?.id || "")
       : reviewId;
     if (!contentReviewUuid(decidedReviewId)) {
       throw new Error("content_review_run_missing");
@@ -18517,8 +19648,8 @@ async function submitContentReviewDecision(form, submitter) {
     }
     try {
       const [freshStatus, freshCatalog] = await Promise.all([
-        state.api.contentReviewStatus(decidedReviewId),
-        state.api.contentReviewCatalog({ limit: 50 }),
+        state.api.contentReviewStatus(decidedReviewId, { projectId }),
+        state.api.contentReviewCatalog({ limit: 50, projectId }),
       ]);
       const [hydratedStatus, hydratedCatalog] = await Promise.all([
         hydratePrivateMedia(freshStatus, { refreshSignedUrls: true }),
@@ -18563,13 +19694,42 @@ async function submitContentReviewDecision(form, submitter) {
         review.notice = "Решение сохранено, но автоматическое исправление временно не подготовилось. Повторно решение не отправляйте.";
         review.error = actionErrorMessage(repairError);
       }
-      toast("Решение сохранено. Открываем создание исправленной версии.", "success");
-      navigate("/workspace/generation");
+      state.projectFlow.status = "idle";
+      const freshFlow = await loadProjectFlow({ silent: true, force: true });
+      const exactNext = exactProjectNextActionRoute(freshFlow, projectId);
+      if (!exactNext || !exactNext.startsWith("/workspace/generation?")) {
+        throw new Error("content_review_exact_repair_missing");
+      }
+      await flowHandoff(
+        exactNext,
+        "Проверка завершена",
+        "Открываем создание исправленной версии",
+      );
       return;
     }
     if (resolvedDecision === "approved") {
-      toast("Контент одобрен. Открываем следующий пост для публикации.", "success");
-      navigate("/workspace/placement?view=next");
+      let placementId = String(
+        decisionResult.placement_id
+        || decisionResult.placement?.id
+        || decisionResult.next_action?.entity_id
+        || "",
+      ).trim().toLowerCase();
+      if (!contentReviewUuid(placementId)) {
+        const flow = await loadProjectFlow({ silent: true, force: true });
+        const exactNext = normalizeProjectFlow(flow || {}).next_action;
+        if (String(exactNext?.entity_type || "") === "placement") {
+          placementId = String(exactNext?.entity_id || "").trim().toLowerCase();
+        }
+      }
+      if (!contentReviewUuid(placementId)) {
+        throw new Error("content_review_exact_placement_missing");
+      }
+      state.projectFlow.status = "idle";
+      await flowHandoff(
+        `/workspace/placement?view=next&placement=${encodeURIComponent(placementId)}&project_id=${encodeURIComponent(projectId)}`,
+        "Проверка завершена",
+        "Открываем публикацию этого же ролика",
+      );
       return;
     }
   } catch (error) {
@@ -18580,6 +19740,8 @@ async function submitContentReviewDecision(form, submitter) {
 }
 
 async function submitMedia(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const files = Array.from(form.elements.file?.files || []);
   if (!files.length) {
@@ -18652,6 +19814,7 @@ async function submitMedia(form) {
         objectUploaded = true;
         setMediaUploadItemStatus(form, index, "registering", "Сохраняем…");
         await state.api.registerMedia({
+          project_id: projectId,
           bucket: state.bootstrap.storage.bucket,
           object_key: objectKey,
           original_filename: file.name,
@@ -18861,8 +20024,9 @@ function parseRoute() {
   return { path, query: new URLSearchParams(queryPart) };
 }
 
-function navigate(path, replace = false) {
-  const normalized = path.startsWith("/") ? path : `/${path}`;
+function navigate(path, replace = false, { scopeProject = true } = {}) {
+  const rawNormalized = path.startsWith("/") ? path : `/${path}`;
+  const normalized = scopeProject ? workspaceProjectHref(rawNormalized) : rawNormalized;
   const hash = `#${normalized}`;
   if (replace) {
     const previousActionKey = workspaceActionKey(state.route);
@@ -19012,6 +20176,7 @@ function clearAuthenticatedState() {
   state.contentReview.error = "";
   state.contentReview.notice = "";
   state.contentReview.pendingMediaId = "";
+  state.contentReview.routeMediaKey = "";
   state.contentReview.durableEvidence = null;
   state.workspaceBoard.selectedFolderId = "all";
   state.workspaceBoard.selectedItemKey = "";
@@ -19071,6 +20236,41 @@ function consumeRouteTransitionClass() {
 
 function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+}
+
+async function flowHandoff(route, message, nextLabel = "Открываем следующий шаг") {
+  const destination = workspaceProjectHref(route);
+  const sameDestination = workspaceActionKey(state.route) === workspaceActionKey(destination);
+  const host = document.querySelector("#workspace-content, #learning-gate-main, #main-content");
+  if (host instanceof HTMLElement) {
+    host.querySelector("[data-flow-confirmation]")?.remove();
+    const confirmation = document.createElement("div");
+    confirmation.className = "workspace-flow-confirmation";
+    confirmation.dataset.flowConfirmation = "true";
+    confirmation.setAttribute("role", "status");
+    confirmation.setAttribute("aria-live", "polite");
+    confirmation.innerHTML = `
+      <span class="workspace-flow-confirmation__check" aria-hidden="true">✓</span>
+      <span><strong>${escapeHtml(message)}</strong><small>${escapeHtml(nextLabel)}</small></span>
+    `;
+    host.prepend(confirmation);
+    window.requestAnimationFrame(() => confirmation.classList.add("is-visible"));
+  }
+  if (window.ContentEngineDesktopV4?.handoff) {
+    await window.ContentEngineDesktopV4.handoff(destination, {
+      delay: WORKSPACE_FLOW_CONFIRMATION_MS,
+    });
+    if (sameDestination) {
+      window.ContentEngineDesktopV4.resetActionScroll?.(destination);
+      navigate(destination);
+    }
+    return;
+  }
+
+  if (!prefersReducedMotion()) {
+    await new Promise((resolve) => window.setTimeout(resolve, WORKSPACE_FLOW_CONFIRMATION_MS));
+  }
+  navigate(destination);
 }
 
 function scrollElementIntoView(element, block = "start") {

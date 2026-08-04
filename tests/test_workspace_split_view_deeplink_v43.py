@@ -140,7 +140,8 @@ def test_research_views_hide_every_competing_primary_action() -> None:
     assert '["evidence", "corrections", "brief", "approve", "handoff"].includes(view)' in render
     assert 'data-research-view="${researchView}"' in render
     assert "view: researchView" in route
-    assert render.count('data-research-submit="save" data-primary-action="true"') == 1
+    assert render.count('data-research-submit="save" data-primary-action="true"') == 0
+    assert render.count('class="btn btn-secondary" type="submit" data-research-submit="save"') == 1
     assert render.count('data-research-submit="approve" data-primary-action="true"') == 1
 
     for marker in (
@@ -237,10 +238,10 @@ def test_generation_and_content_review_fetch_and_render_only_the_requested_uuid(
     review = _between(APP, "function renderContentReviewSection(", "function selectPendingContentReviewMedia(")
 
     for marker in (
-        'state.api.realGenerationStatus(routeGenerationJobId)',
+        'state.api.realGenerationStatus(routeGenerationJobId, { projectId })',
         'String(deepLinkJob?.id || "") === routeGenerationJobId',
         "mergeGenerationDeepLinkedBatch(",
-        'state.api.contentReviewStatus(routeReviewId)',
+        'state.api.contentReviewStatus(routeReviewId, { projectId })',
         "normalizedRouteRecord.id === routeReviewId",
         "state.contentReview.record = routeReviewId",
         "? routeRecord",

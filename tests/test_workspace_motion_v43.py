@@ -211,7 +211,8 @@ def test_context_menu_preserves_native_editing_without_modal_layers() -> None:
     assert "function syncModalInert()" not in CONTEXT
     assert 'toggleAttribute("inert"' not in CONTEXT
     assert "aria-modal" not in CONTEXT
-    assert 'window.location.hash = "#/workspace/board?view=trash"' in CONTEXT
+    assert 'openWorkspaceRoute("/workspace/board?view=trash")' in CONTEXT
+    assert "window.location.hash = scopedWorkspaceHash(route)" in CONTEXT
     assert "runtime.suppressClickUntil = Date.now() + 800" in CONTEXT
 
 
@@ -230,7 +231,7 @@ def test_trash_selection_updates_one_card_without_rebuilding_the_grid() -> None:
 def test_finder_reconciles_sort_without_unnecessary_dom_moves_and_stabilizes_scroll() -> None:
     assert "sortCards(sortValue);" in FINDER
     assert "ordered.some((card, index) => current[index] !== card)" in FINDER
-    assert 'filterFolders(q(".ce-v4-folder-search input", board)?.value || "")' in FINDER
+    assert 'filterFolders(q(\'#workspace-board-filter-form input[name="query"]\', board)?.value || "")' in FINDER
     assert "document.createDocumentFragment()" in FINDER
     assert "scrollbar-gutter: stable" in FINDER_CSS
     assert "contain-intrinsic-size: 210px 66px" in FINDER_CSS

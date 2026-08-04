@@ -46,7 +46,8 @@ def test_generated_video_recovers_a_fresh_url_from_its_exact_job() -> None:
         APP.index("async function resolveGeneratedVideoReviewMedia") :
         APP.index("async function prepareGeneratedVideoTechnicalQa")
     ]
-    assert "state.api.realGenerationStatus(source.generationJobId)" in resolver
+    assert "state.api.realGenerationStatus(source.generationJobId, {" in resolver
+    assert "projectId: currentWorkspaceProjectId()" in resolver
     assert "outputMediaId === String(source.id" in resolver
     assert "isTrustedGenerationDownload(signedUrl)" in resolver
     assert '["succeeded", "completed"].includes' in resolver

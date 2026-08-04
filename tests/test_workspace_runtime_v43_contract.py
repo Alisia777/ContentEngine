@@ -38,8 +38,8 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index:end_index]
 
 
-def test_v46_loader_has_exactly_the_three_intentional_route_adapters() -> None:
-    assert 'const BUILD = "20260803.os4.6"' in LOADER
+def test_v47_loader_has_three_script_adapters_and_one_shared_operations_style() -> None:
+    assert 'const BUILD = "20260804.os4.7"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -50,7 +50,9 @@ def test_v46_loader_has_exactly_the_three_intentional_route_adapters() -> None:
         route_assets,
         flags=re.MULTILINE,
     )
-    assert route_keys == ["finder", "generation", "review"]
+    assert route_keys == ["finder", "generation", "review", "operations"]
+    assert 'styles: [`workspace-os-v4-operations.css?v=${BUILD}`]' in route_assets
+    assert "modules: []" in route_assets
 
     loaded_scripts = set(re.findall(r"(workspace[-a-z0-9]+\.js)\?v=", LOADER))
     assert loaded_scripts == {
@@ -161,7 +163,10 @@ def test_dock_geometry_is_stable_and_home_uses_the_native_project_chooser() -> N
     assert "data-ce-v4-project-home" in project_markup
     assert "data-ce-v4-project-id" in project_markup
     assert "home-project-create-form" in project_markup
-    assert "board.folders.filter" in project_markup
+    assert "projectFlow.projects" in project_markup
+    assert "project.next_action" in project_markup
+    assert "exactProjectNextActionRoute" in project_markup
+    assert 'href="#${escapeHtml(nextRoute)}"' in project_markup
     assert "!folder.parentId" in project_markup
     for retired_home_control in (
         "ce-v4-home__secondary",
@@ -194,7 +199,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.7"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',
@@ -263,7 +268,7 @@ def test_same_route_patch_recoordinates_runtime_state_after_one_dom_pass() -> No
 
     finder_mount = _between(FINDER, "function mount()", "\ndocument.addEventListener(\"keydown\"")
     assert "sortCards(sortValue);" in finder_mount
-    assert 'filterFolders(q(".ce-v4-folder-search input", board)?.value || "")' in finder_mount
+    assert 'filterFolders(q(\'#workspace-board-filter-form input[name="query"]\', board)?.value || "")' in finder_mount
     assert "runtime.sortedBoard !== board" not in finder_mount
     annotate = _between(FINDER, "function annotateCards()", "\nfunction applyView()")
     assert 'card.dataset.ceV4FinderAnnotated === "true") return' not in annotate

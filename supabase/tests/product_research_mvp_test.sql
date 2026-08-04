@@ -91,7 +91,7 @@ begin
 end;
 $course_gate_fixture$;
 
-select plan(75);
+select plan(78);
 
 select has_table('content_factory', 'product_research_runs', 'research runs table exists');
 select has_table('content_factory', 'product_research_sources', 'research sources table exists');
@@ -149,11 +149,25 @@ select is(
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname = 'public'
      and procedure.proname in (
-       'creator_start_product_research', 'creator_product_research_status',
-       'creator_save_creative_brief_draft', 'creator_approve_creative_brief'
+       'creator_start_project_research', 'creator_project_research_status',
+       'creator_save_project_creative_brief_draft',
+       'creator_approve_project_creative_brief'
+     ) and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'),
+  4,
+  'four project-scoped browser research RPCs expose one jsonb payload'
+);
+
+select is(
+  (select count(*)::integer from pg_proc procedure
+   join pg_namespace namespace on namespace.oid = procedure.pronamespace
+   where namespace.nspname = 'public'
+     and procedure.proname in (
+       'creator_start_project_research', 'creator_project_research_status',
+       'creator_save_project_creative_brief_draft',
+       'creator_approve_project_creative_brief'
      ) and has_function_privilege('authenticated', procedure.oid, 'execute')),
   4,
-  'authenticated can execute all creator research RPCs'
+  'authenticated can execute all project-scoped creator research RPCs'
 );
 
 select is(
@@ -166,6 +180,31 @@ select is(
      ) and has_function_privilege('anon', procedure.oid, 'execute')),
   0,
   'anon cannot execute creator research RPCs'
+);
+
+select is(
+  (select count(*)::integer from pg_proc procedure
+   join pg_namespace namespace on namespace.oid = procedure.pronamespace
+   where namespace.nspname = 'public'
+     and procedure.proname in (
+       'creator_start_product_research', 'creator_product_research_status',
+       'creator_save_creative_brief_draft', 'creator_approve_creative_brief'
+     ) and has_function_privilege('authenticated', procedure.oid, 'execute')),
+  0,
+  'authenticated cannot bypass project scope through legacy research RPCs'
+);
+
+select is(
+  (select count(*)::integer from pg_proc procedure
+   join pg_namespace namespace on namespace.oid = procedure.pronamespace
+   where namespace.nspname = 'public'
+     and procedure.proname in (
+       'creator_start_project_research', 'creator_project_research_status',
+       'creator_save_project_creative_brief_draft',
+       'creator_approve_project_creative_brief'
+     ) and has_function_privilege('anon', procedure.oid, 'execute')),
+  0,
+  'anon cannot execute project-scoped creator research RPCs'
 );
 
 select is(

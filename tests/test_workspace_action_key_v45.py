@@ -175,7 +175,7 @@ def test_reduced_motion_action_enter_is_removed_synchronously() -> None:
 
 
 def test_loader_core_and_app_share_the_same_action_key_contract() -> None:
-    import_marker = 'from "./workspace-action-key.js?v=20260803.os4.6"'
+    import_marker = 'from "./workspace-action-key.js?v=20260804.os4.7"'
     assert import_marker in APP
     assert import_marker in CORE
     assert import_marker in LOADER
