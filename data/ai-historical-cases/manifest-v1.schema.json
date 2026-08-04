@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentengine.local/schemas/ai-historical-cases-v1.json",
+  "title": "ContentEngine AI historical cases manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "product_category",
+    "original_filename",
+    "source_sha256",
+    "parser_version",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": { "const": "ai_historical_cases.v1" },
+    "product_category": { "$ref": "#/$defs/productCategory" },
+    "original_filename": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+\\.(xlsx|csv)$"
+    },
+    "source_sha256": { "$ref": "#/$defs/sha256" },
+    "parser_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$"
+    },
+    "sku": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+()-]{0,119}$"
+    },
+    "channel": {
+      "type": "string",
+      "maxLength": 60,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,59}$"
+    },
+    "productCategory": {
+      "enum": [
+        "cosmetics", "baa", "sports_food", "food", "household",
+        "apparel", "electronics", "other"
+      ]
+    },
+    "case": {
+      "type": "object",
+      "$comment": "period_end must be no earlier than period_start and no more than 3660 days after it; CLI and Edge enforce this cross-field invariant.",
+      "x-contentengine-max-period-days": 3660,
+      "additionalProperties": false,
+      "required": [
+        "external_case_id", "product_category", "product_title", "brand",
+        "platform", "channel", "period_start", "period_end", "outcome",
+        "outcome_dimension", "status_label", "metrics", "confidence",
+        "provenance"
+      ],
+      "properties": {
+        "external_case_id": { "$ref": "#/$defs/identifier" },
+        "product_category": { "$ref": "#/$defs/productCategory" },
+        "product_sku": { "$ref": "#/$defs/sku" },
+        "marketplace_sku": { "$ref": "#/$defs/sku" },
+        "product_title": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "brand": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "platform": {
+          "maxLength": 40,
+          "enum": [
+            "wildberries", "ozon", "instagram", "tiktok", "youtube",
+            "vk", "telegram", "other"
+          ]
+        },
+        "channel": { "$ref": "#/$defs/channel" },
+        "period_start": { "type": "string", "format": "date" },
+        "period_end": { "type": "string", "format": "date" },
+        "outcome": { "enum": ["good", "bad", "review"] },
+        "outcome_dimension": {
+          "enum": [
+            "overall", "sales", "orders", "conversion", "buyout",
+            "engagement", "cart_to_order", "visit_to_cart", "visit_to_order",
+            "sale_per_view", "revenue", "profitability", "ad_efficiency",
+            "funnel", "attribution", "creative_angle", "data_quality", "other",
+            "overall_performance", "organic_growth", "advertising_efficiency",
+            "product_card_conversion", "inventory", "evidence_sufficiency",
+            "purchase_transition", "content_conversion", "product_mapping",
+            "attribution_window"
+          ]
+        },
+        "status_label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "metrics": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 20,
+          "propertyNames": {
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9_]{0,39}$"
+          },
+          "additionalProperties": {
+            "type": "number",
+            "minimum": -1000000000000,
+            "maximum": 1000000000000
+          }
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "creative_angle": {
+          "enum": [
+            "product_focus", "trust_builder", "demonstration", "comparison",
+            "objection_handling", "curiosity_gap"
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sheet", "row", "row_hash"],
+          "properties": {
+            "sheet": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "row": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+            "row_hash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  }
+}
