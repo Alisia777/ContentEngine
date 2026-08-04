@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.9";
+} from "./supabase-api.js?v=20260804.os4.10";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.9";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.9";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.10";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.10";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -73,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260804.os4.9";
+} from "./product-research-view.js?v=20260804.os4.10";
 import {
   AI_PRODUCT_CATEGORIES,
   aiLearningCategory,
@@ -93,7 +93,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.9";
+} from "./content-generation-handoff.js?v=20260804.os4.10";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -107,7 +107,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.9";
+} from "./generation-form-draft.js?v=20260804.os4.10";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -139,7 +139,8 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260804.os4.9";
+  validateGeneratedVideoSoundAssessment,
+} from "./content-review-view.js?v=20260804.os4.10";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -168,7 +169,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.9";
+} from "./workspace-board-view.js?v=20260804.os4.10";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -197,7 +198,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.9";
+} from "./training-journey.js?v=20260804.os4.10";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -216,7 +217,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.9";
+} from "./training-practical-review.js?v=20260804.os4.10";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -235,7 +236,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.9";
+} from "./my-work-view.js?v=20260804.os4.10";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -10176,7 +10177,7 @@ function renderGenerationSection(sectionState) {
             </label>
             <div id="real-generation-confirmation" ${defaultIsReal ? "" : "hidden"}>
               <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong><span id="real-generation-price">Один результат — около $${defaultRealSku.estimatedUsd} (${defaultRealSku.estimatedCredits} кредитов). Окончательная стоимость зависит от тарифа сервиса.</span></div>
-              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией." : defaultMode === REAL_PHOTO_MODE ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст." : "Этот режим создаёт видео без сгенерированной речи."}</p>
+              <p id="real-generation-note" class="muted tiny" style="margin:8px 0 0">${defaultMode === REAL_SEEDANCE_MODE ? "Встроенный голос — черновик. Портал требует точную русскую дикцию, но финал откроется только после полного прослушивания и отдельной записи звуковых ошибок." : defaultMode === REAL_PHOTO_MODE ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст." : "Этот режим создаёт видео без сгенерированной речи."}</p>
               <div class="inline-actions" style="align-items:center; margin-top:10px">
                 <button class="btn btn-secondary btn-small" type="button" data-action="check-runway-readiness" data-runway-model="${defaultRealSku.model}">Проверить Runway бесплатно</button>
                 <small id="runway-readiness-status" class="muted" role="status" aria-live="polite">Портал проверит Runway автоматически. Проверка не создаёт задачу и ничего не списывает.</small>
@@ -10832,7 +10833,7 @@ function generatedVideoTechnicalQaMarkup(details) {
   if (entry?.status === "consumed") {
     return `
       <div class="generation-technical-qa is-ready" role="status">
-        <strong>Видео передано в обязательную проверку</strong>
+        <strong>Рендер готов · звук ещё не принят</strong>
         <span>Четыре контрольных кадра и атлас таймлайна сохранены и привязаны к проверке. Автоматическое одобрение отключено — финальное решение принимает человек после полного просмотра MP4 со звуком.</span>
         <a class="btn btn-secondary btn-small" href="#/workspace/review">Открыть статус проверки</a>
       </div>
@@ -10841,7 +10842,7 @@ function generatedVideoTechnicalQaMarkup(details) {
   if (entry?.status === "starting_review") {
     return `
       <div class="generation-technical-qa is-running" role="status">
-        <strong>Ставим AI-проверку в фоновую очередь</strong>
+        <strong>Рендер готов · звук ещё не принят</strong>
         <span>Площадка, категория, сценарий и evidence берутся с сервера. Транскрипция и повторная генерация не запускаются.</span>
       </div>
     `;
@@ -10874,8 +10875,8 @@ function generatedVideoTechnicalQaMarkup(details) {
       : " Это старый запуск без сохранённого согласия на автоматическую передачу в AI-QA; проверку можно запустить явно, транскрипция останется выключенной.";
     return `
       <div class="generation-technical-qa is-ready" role="status">
-        <strong>Технический скан готов автоматически</strong>
-        <span>${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${continuityReady && continuityCount ? ` Дополнительно локально проверены ${continuityCount} показанных кадров; они не сохранялись и не отправлялись во внешний AI.` : ""}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
+        <strong>Рендер готов · звук не принят</strong>
+        <span>Технический скан готов автоматически. ${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${continuityReady && continuityCount ? ` Дополнительно локально проверены ${continuityCount} показанных кадров; они не сохранялись и не отправлялись во внешний AI.` : ""}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
         ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
         <div class="generation-result-actions">
           ${reviewStartControl}
@@ -10887,7 +10888,7 @@ function generatedVideoTechnicalQaMarkup(details) {
   if (entry?.status === "error") {
     return `
       <div class="generation-technical-qa is-error" role="alert">
-        <strong>Автоподготовка кадров остановилась безопасно</strong>
+        <strong>Рендер готов · звук не принят</strong>
         <span>${escapeHtml(entry.error || "Готовый MP4 сохранён, но технические кадры пока не подготовлены.")}</span>
         <div class="generation-result-actions">
           <button class="btn btn-secondary btn-small" type="button" data-action="retry-generated-video-qa" data-job-id="${escapeHtml(details.jobId)}" data-media-id="${escapeHtml(mediaId)}">Повторить без нового рендера</button>
@@ -10909,7 +10910,7 @@ function generatedVideoTechnicalQaMarkup(details) {
       : "Проверяем точный MP4 и готовим четыре кадра с атласом без внешнего AI.";
   return `
     <div class="generation-technical-qa is-progress" role="status" aria-live="polite">
-      <strong>Автоматическая техническая проверка</strong>
+      <strong>Рендер готов · звук не принят</strong>
       <span>${escapeHtml(message)}</span>
     </div>
   `;
@@ -12332,11 +12333,31 @@ function bindContentReviewDecisionMedia() {
   media.addEventListener("error", onError);
   if (media instanceof HTMLVideoElement) {
     let loadedSource = "";
+    let audibleWallMs = 0;
+    let audibleSegmentStartedAt = 0;
+    let playbackInvalid = false;
+    let playbackStartedFromBeginning = false;
+    let lastPlaybackTime = 0;
+    const stopAudibleSegment = () => {
+      if (audibleSegmentStartedAt > 0) {
+        audibleWallMs += Math.max(0, performance.now() - audibleSegmentStartedAt);
+        audibleSegmentStartedAt = 0;
+      }
+    };
+    const resetAudiblePlayback = ({ invalid = false } = {}) => {
+      audibleWallMs = 0;
+      audibleSegmentStartedAt = 0;
+      playbackInvalid = invalid;
+      playbackStartedFromBeginning = false;
+      lastPlaybackTime = Number(media.currentTime || 0);
+      delete media.dataset.contentReviewAudibleComplete;
+    };
     const onLoadStart = () => {
       loadedSource = "";
       delete media.dataset.contentReviewEndedSrc;
+      resetAudiblePlayback();
       syncContentReviewSafeZoneStage(media, { clear: true });
-      setLocked("loading", "Загружаем метаданные MP4. После загрузки воспроизведите этот же файл до конца.");
+      setLocked("loading", "Загружаем метаданные MP4. После загрузки прослушайте этот же файл целиком с включённым звуком.");
     };
     const onLoadedMetadata = () => {
       loadedSource = mediaSource();
@@ -12346,23 +12367,102 @@ function bindContentReviewDecisionMedia() {
       }
       syncContentReviewSafeZoneStage(media);
       media.dataset.contentReviewLoadedSrc = loadedSource;
-      setLocked("metadata", "MP4 доступен. Воспроизведите этот же файл до события окончания; затем подтвердите личный просмотр.");
+      resetAudiblePlayback();
+      setLocked("metadata", "MP4 доступен. Начните с 00:00, включите звук и прослушайте без перемотки и ускорения до конца.");
+    };
+    const onPlay = () => {
+      if (media.currentTime <= 0.35) {
+        resetAudiblePlayback();
+        playbackStartedFromBeginning = true;
+      }
+      if (
+        !playbackStartedFromBeginning
+        || media.muted
+        || media.volume <= 0
+        || media.playbackRate < 0.75
+        || media.playbackRate > 1.1
+      ) {
+        playbackInvalid = true;
+        setLocked("metadata", "Прослушивание не засчитано. Верните ролик на 00:00, включите громкость и скорость 1×, затем запустите заново.");
+      }
+    };
+    const onPlaying = () => {
+      if (
+        !playbackInvalid
+        && !media.muted
+        && media.volume > 0
+        && media.playbackRate >= 0.75
+        && media.playbackRate <= 1.1
+        && audibleSegmentStartedAt === 0
+      ) {
+        audibleSegmentStartedAt = performance.now();
+      }
+    };
+    const onPause = () => stopAudibleSegment();
+    const onTimeUpdate = () => {
+      const currentTime = Number(media.currentTime || 0);
+      if (
+        !media.paused
+        && lastPlaybackTime > 0
+        && currentTime - lastPlaybackTime > 1.5
+      ) {
+        stopAudibleSegment();
+        playbackInvalid = true;
+        setLocked("metadata", "Обнаружена перемотка или слишком быстрое воспроизведение. Начните прослушивание заново с 00:00 на скорости 1×.");
+      }
+      lastPlaybackTime = currentTime;
+    };
+    const onSeeking = () => {
+      stopAudibleSegment();
+      resetAudiblePlayback({ invalid: true });
+      setLocked("metadata", "Перемотка сбросила проверку звука. Верните ролик на 00:00 и прослушайте его заново целиком.");
+    };
+    const onAudioSettingChange = () => {
+      if (
+        !media.paused
+        && (media.muted || media.volume <= 0 || media.playbackRate > 1.1)
+      ) {
+        stopAudibleSegment();
+        playbackInvalid = true;
+        setLocked("metadata", "Звук выключен или скорость повышена. Начните заново с 00:00, с включённой громкостью и скоростью 1×.");
+      }
     };
     const onEnded = () => {
+      stopAudibleSegment();
       const endedSource = mediaSource();
       if (!loadedSource || endedSource !== loadedSource || media.dataset.contentReviewLoadedSrc !== endedSource) {
         setLocked("error", "Источник MP4 изменился во время просмотра. Обновите статус и просмотрите точный файл заново.");
         return;
       }
+      const minimumAudibleMs = Math.max(1_000, Number(media.duration || 0) * 850);
+      if (
+        playbackInvalid
+        || media.muted
+        || media.volume <= 0
+        || media.playbackRate < 0.75
+        || media.playbackRate > 1.1
+        || audibleWallMs < minimumAudibleMs
+      ) {
+        setLocked("metadata", "Полное прослушивание не подтверждено: звук был выключен, ролик перематывался или шёл быстрее 1×. Запустите заново с 00:00.");
+        return;
+      }
       media.dataset.contentReviewEndedSrc = endedSource;
-      setReady("Браузер получил событие окончания для этого MP4. Теперь подтвердите личную проверку звука и субтитров.");
+      media.dataset.contentReviewAudibleComplete = "true";
+      setReady("Полное непрерывное прослушивание с включённым звуком завершено. Теперь отдельно зафиксируйте дикцию и найденные ошибки.");
     };
     media.addEventListener("loadstart", onLoadStart);
     media.addEventListener("loadedmetadata", onLoadedMetadata);
+    media.addEventListener("play", onPlay);
+    media.addEventListener("playing", onPlaying);
+    media.addEventListener("pause", onPause);
+    media.addEventListener("timeupdate", onTimeUpdate);
+    media.addEventListener("seeking", onSeeking);
+    media.addEventListener("volumechange", onAudioSettingChange);
+    media.addEventListener("ratechange", onAudioSettingChange);
     media.addEventListener("ended", onEnded);
     media.addEventListener("emptied", onLoadStart);
     if (media.readyState >= HTMLMediaElement.HAVE_METADATA) onLoadedMetadata();
-    else setLocked("loading", "Загружаем метаданные MP4. После загрузки воспроизведите этот же файл до конца.");
+    else setLocked("loading", "Загружаем метаданные MP4. После загрузки прослушайте этот же файл целиком с включённым звуком.");
     return;
   }
   if (media instanceof HTMLImageElement) {
@@ -12392,6 +12492,7 @@ function contentReviewExactMediaReady(form) {
       currentSource
       && media.dataset.contentReviewLoadedSrc === currentSource
       && media.dataset.contentReviewEndedSrc === currentSource
+      && media.dataset.contentReviewAudibleComplete === "true"
       && media.ended,
     );
   }
@@ -18557,7 +18658,7 @@ function syncGenerationModeForm(form) {
   }
   if (note && sku) {
     note.textContent = seedance
-      ? "Голос создаётся по сценарию, но реплика может отличаться. Обязательно прослушайте ролик перед публикацией."
+      ? "Встроенный голос — черновик. Портал требует точную русскую дикцию, но финал откроется только после полного прослушивания и отдельной записи звуковых ошибок."
       : photo
         ? "Фото создаётся по точному исходнику. Перед использованием проверьте этикетку, форму упаковки и текст."
         : `Этот режим создаёт ${sku.durationSeconds}-секундное видео без сгенерированной речи.`;
@@ -22889,6 +22990,59 @@ async function submitContentReviewDecision(form, submitter) {
   const decision = readContentReviewDecision(form, submitter);
   const contextApproval = decision.decision === "approve_with_context";
   const resolvedDecision = contextApproval ? "approved" : decision.decision;
+  if (review.record?.media?.kind === "generated_video") {
+    const audioExpected = review.record.media.audioExpected !== false;
+    decision.soundAssessment.audio = audioExpected;
+    const soundValidation = validateGeneratedVideoSoundAssessment(
+      decision.soundAssessment,
+      { audioExpected, decision: decision.decision },
+    );
+    if (!soundValidation.valid) {
+      const message = {
+        sound_silence_confirmation_required:
+          "Подтвердите, что немой режим действительно не содержит речи, музыки или шума.",
+        sound_issue_code_required:
+          "Для найденной ошибки звука отметьте хотя бы один точный тип проблемы.",
+        sound_unexpected_audio_code_required:
+          "Для немого режима отметьте, что неожиданно появились речь, музыка или шум.",
+        sound_issue_note_required:
+          "Коротко запишите, что именно слышно: это сохранится в истории звуковых ошибок.",
+        sound_issues_block_approval:
+          "Ролик со звуковой ошибкой нельзя одобрить. Выберите «На доработку» или «Отклонить».",
+        sound_clear_confirmation_required:
+          "Для чистого звука отдельно подтвердите дословную реплику, дикцию, голос и синхронизацию.",
+        sound_clear_issue_conflict:
+          "Нельзя одновременно отметить чистый звук и звуковую ошибку.",
+        sound_silent_issue_conflict:
+          "Ожидаемая тишина не может одновременно содержать отмеченную звуковую ошибку.",
+      }[soundValidation.code]
+        || "После полного прослушивания выберите итог отдельной проверки звука.";
+      toast(message, "error");
+      const focusTarget = soundValidation.code === "sound_issue_note_required"
+        ? form.elements.sound_note
+        : soundValidation.code === "sound_issue_code_required"
+          ? form.querySelector('input[name="sound_issue_codes"]')
+          : soundValidation.code === "sound_clear_confirmation_required"
+            ? form.elements.spoken_script_heard_exactly_confirmed
+            : form.elements.sound_status
+              || form.elements.silence_expected_confirmed;
+      focusTarget?.focus?.();
+      return;
+    }
+    if (
+      audioExpected
+      && resolvedDecision === "approved"
+      && !String(
+        review.record.media.spokenScript
+        || review.record.input?.scriptText
+        || "",
+      ).trim()
+    ) {
+      toast("У ролика нет server-bound точной реплики. Одобрение звука заблокировано; верните файл на доработку.", "error");
+      form.elements.sound_status?.focus?.();
+      return;
+    }
+  }
   if (contextApproval && !generatedMediaContextCanApprove(review.record)) {
     toast("Контекст не может скрыть замечания к самому материалу. Используйте «На доработку».", "error");
     return;
@@ -22980,6 +23134,7 @@ async function submitContentReviewDecision(form, submitter) {
           riskAcknowledgements: decision.riskAcknowledgements,
           mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
           projectId,
+          soundAssessment: decision.soundAssessment,
         },
       )
       : await state.api.decideContentReview(
@@ -22991,6 +23146,7 @@ async function submitContentReviewDecision(form, submitter) {
           riskAcknowledgements: decision.riskAcknowledgements,
           mediaWatchedConfirmed: decision.mediaWatchedConfirmed,
           projectId,
+          soundAssessment: decision.soundAssessment,
         },
       );
     const decisionResult = raw?.data ?? raw ?? {};
@@ -23041,6 +23197,12 @@ async function submitContentReviewDecision(form, submitter) {
       resolved_recommendation_count: decision.resolvedRecommendationCodes.length,
       risk_acknowledgement_count: decision.riskAcknowledgements.length,
       media_watched_confirmed: true,
+      sound_status: review.record?.media?.kind === "generated_video"
+        ? decision.soundAssessment.status
+        : null,
+      sound_issue_codes: review.record?.media?.kind === "generated_video"
+        ? decision.soundAssessment.issueCodes
+        : null,
       context_amendment_version: contextApproval
         ? review.record?.media?.kind === "generated_video"
           ? "generated-video-context-v1"

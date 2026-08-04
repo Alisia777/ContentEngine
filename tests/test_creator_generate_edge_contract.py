@@ -102,6 +102,28 @@ def test_generation_status_and_readback_are_fail_closed_to_exact_project() -> No
         ), f"{function_name} call dropped project_id"
 
 
+def test_generation_reconciliation_requires_and_accepts_exact_project() -> None:
+    source = _source()
+    reconcile_type = source[
+        source.index("type ReconcilePayload") : source.index(
+            "type ReconciliationContext"
+        )
+    ]
+    reconcile_parser = source[
+        source.index("function readReconcilePayload") : source.index(
+            "function rpcPayload"
+        )
+    ]
+
+    assert "project_id: string;" in reconcile_type
+    assert '"project_id",' in reconcile_parser
+    assert "!isUuid(value.project_id)" in reconcile_parser
+    assert (
+        'const allowed = new Set([...required, "provider_task_id"]);'
+        in reconcile_parser
+    )
+
+
 def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> None:
     source = _source()
 

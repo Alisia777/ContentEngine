@@ -5,6 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_MIGRATION = (ROOT / "supabase/migrations/202608040005_project_scoped_workflow.sql").read_text(encoding="utf-8")
+SOUND_GATE_MIGRATION = (
+    ROOT / "supabase/migrations/202608040004_generated_video_sound_release_gate.sql"
+).read_text(encoding="utf-8")
 COMPLIANCE_MIGRATION = (ROOT / "supabase/migrations/202607140007_placement_compliance_ack.sql").read_text(
     encoding="utf-8"
 )
@@ -45,3 +48,15 @@ def test_project_media_guard_defers_empty_list_validation_to_inner_rpc() -> None
     assert "media.status = 'ready'" in dispatcher
     assert "jsonb_array_length(media_ids_value) < 1" not in dispatcher
     assert "jsonb_typeof(media_ids_value) <> 'array'" not in dispatcher
+
+
+def test_sound_gate_precedes_project_scope_and_repairs_the_preserved_inner_video_command() -> None:
+    assert "creator_approve_generated_video_review_pre_sound_gate_v1" in SOUND_GATE_MIGRATION
+
+    repair_start = PROJECT_MIGRATION.index("do $repair_preserved_command_receipts_v47$")
+    repair_end = PROJECT_MIGRATION.index("$repair_preserved_command_receipts_v47$;", repair_start)
+    repair = PROJECT_MIGRATION[repair_start:repair_end]
+    assert "'creator_approve_generated_video_review_pre_sound_gate_v1'" in repair
+    assert "'creator_approve_generated_video_review_with_context_pre_project_v47'" not in repair
+
+    assert "'creator_approve_generated_video_review_with_context_pre_project_v47'" in PROJECT_MIGRATION

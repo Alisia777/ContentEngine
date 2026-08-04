@@ -11,6 +11,8 @@ const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
+export const SEEDANCE_RUSSIAN_DICTION_GUARD =
+  "Русская дикция: чётко, без акцента/лишних гласных; все слова/окончания; числа/градусы/названия точно; чёткие паузы.";
 const PRODUCT_INTERACTION_PREFIX = "Масштаб и действие:";
 const COUNTERTOP_PRODUCT_PATTERN =
   /(?:пароварк|мультиварк|аэрогрил|духовк|микроволнов|кофемашин|кофеварк|электрогрил|тостер|соковыжимал|хлебопеч|кухонн\p{L}*\s+комбайн|стационарн\p{L}*\s+блендер|steamer|air\s*fryer|microwave|coffee\s*machine|countertop\s*appliance)/iu;
@@ -270,6 +272,11 @@ export function compileContentGenerationPrompt(
     required(`Действие в кадре: ${action || "[ДОБАВЬТЕ ОДНО ПОНЯТНОЕ ДЕЙСТВИЕ]"}.`),
     required(interaction.requirement),
     required(spokenLine),
+    required(
+      seedance && /\p{Script=Cyrillic}/u.test(scenario.spokenScript)
+        ? SEEDANCE_RUSSIAN_DICTION_GUARD
+        : "",
+    ),
     required(seedance ? GENERATED_TEXT_GUARD : ""),
     optional(brief.visualDirection ? `Визуальное направление: ${brief.visualDirection}.` : ""),
     optional(brief.keyMessage ? `Главная мысль: ${brief.keyMessage}.` : ""),
@@ -447,6 +454,11 @@ export function compileSafeGenerationBrief({
       ),
       required(interaction.requirement),
       required(`Реплика героя дословно: «${spokenLine}»`),
+      required(
+        /\p{Script=Cyrillic}/u.test(spokenLine)
+          ? SEEDANCE_RUSSIAN_DICTION_GUARD
+          : "",
+      ),
       required(GENERATED_TEXT_GUARD),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
@@ -1016,6 +1028,34 @@ function generationLearningDirection(value, mode, repairValue = null) {
     .join(" ");
 }
 
+function compactGenerationLearningDirection(value) {
+  let direction = cleanText(value);
+  if (!direction) return "";
+  const qualityFragments = [];
+  const qualityReplacements = [
+    ["QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.", "постоянны упаковка/этикетка/текст/цвет/пропорции; без морфинга"],
+    ["QA: стабильный проход без чёрных кадров, скачков и мерцания.", "без чёрных кадров/скачков/мерцания"],
+    ["QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.", "речь чистая/слышна; без тишины/клиппинга/рассинхрона"],
+    ["QA: реплика произносится дословно, без пропусков, замен и новых слов.", "реплика дословно; без пропусков/замен/новых слов"],
+    ["QA: точный товар и одно действие видны в первые 2 секунды.", "товар+действие видны в первые 2 с"],
+    ["QA: руки, лицо и фактуры без деформаций, дублей и мерцания.", "руки/лицо/фактуры без деформаций/дублей"],
+    ["QA: естественная подача без гиперболы и новых обещаний.", "естественно; без гиперболы/новых обещаний"],
+    ["QA: мастер 9:16; товар и лицо в безопасных полях.", "9:16; товар/лицо в безопасных полях"],
+  ];
+  for (const [fullText, compactText] of qualityReplacements) {
+    if (!direction.includes(fullText)) continue;
+    direction = direction.replace(fullText, "");
+    qualityFragments.push(compactText);
+  }
+  direction = cleanText(direction)
+    .replace("Обученное направление: заметная деталь, затем товар целиком.", "Обучен: деталь→товар;")
+    .replace("Структурный hook: сравнение без второго товара, цифр и обещаний.", "hook: сравнение без 2-го товара/цифр/обещаний.");
+  return cleanText([
+    direction,
+    qualityFragments.length ? `QA: ${qualityFragments.join("; ")}.` : "",
+  ].filter(Boolean).join(" "));
+}
+
 export function inspectContentGenerationPrompt(
   prompt,
   mode,
@@ -1131,6 +1171,15 @@ export function inspectContentGenerationPrompt(
         blockers.push({
           code: "spoken_script_too_long",
           message: `Для ${normalizedDuration} секунд оставьте в точной реплике не больше ${spokenWordLimit} слов.`,
+        });
+      }
+      if (
+        /\p{Script=Cyrillic}/u.test(match[1])
+        && !normalized.includes(SEEDANCE_RUSSIAN_DICTION_GUARD)
+      ) {
+        blockers.push({
+          code: "russian_diction_guard_missing",
+          message: "Верните обязательное требование к русской дикции, окончаниям, числам и паузам.",
         });
       }
     }
@@ -1390,14 +1439,25 @@ function fitPrompt(items, maximum) {
   const render = () => active.map((item) => item.text).join("\n");
   while (render().length > maximum) {
     const index = active.map((item) => item.required).lastIndexOf(false);
-    if (index < 0) return "";
+    if (index < 0) break;
     active.splice(index, 1);
   }
-  return render();
+  if (render().length <= maximum) return render();
+  for (const item of active) {
+    if (!item.compactText || item.compactText.length >= item.text.length) continue;
+    item.text = item.compactText;
+    if (render().length <= maximum) return render();
+  }
+  return "";
 }
 
 function required(text) {
-  return { text: cleanText(text), required: true };
+  const normalized = cleanText(text);
+  return {
+    text: normalized,
+    compactText: compactGenerationLearningDirection(normalized),
+    required: true,
+  };
 }
 
 function optional(text) {

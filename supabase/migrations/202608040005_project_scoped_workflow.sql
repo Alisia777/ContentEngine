@@ -3601,7 +3601,7 @@ begin
   foreach alias_name in array array[
     'creator_approve_generated_photo_review_with_context_pre_project_v47',
     'creator_start_generated_video_review_pre_project_v47',
-    'creator_approve_generated_video_review_with_context_pre_project_v47'
+    'creator_approve_generated_video_review_pre_sound_gate_v1'
   ] loop
     select proc.oid
       into function_oid
@@ -3846,7 +3846,8 @@ create or replace function public.creator_start_content_review(
   p_payload jsonb default '{}'::jsonb
 ) returns jsonb language sql volatile security definer set search_path = '' as $$
   select content_factory_private.call_project_scoped_v47(
-    'creator_start_content_review_pre_project_v47', p_payload,
+    'creator_start_content_review_pre_project_v47',
+    content_factory_private.project_payload_from_context_v47(p_payload),
     'media', 'media_id', false
   )
 $$;
@@ -3873,7 +3874,8 @@ create or replace function public.creator_decide_content_review(
   p_payload jsonb default '{}'::jsonb
 ) returns jsonb language sql volatile security definer set search_path = '' as $$
   select content_factory_private.call_project_scoped_v47(
-    'creator_decide_content_review_pre_project_v47', p_payload,
+    'creator_decide_content_review_pre_project_v47',
+    content_factory_private.project_payload_from_context_v47(p_payload),
     'review', 'review_id', false
   )
 $$;

@@ -31,6 +31,105 @@ const CONTINUITY_SCAN_MAX_GAP_SECONDS = 0.5;
 const CONTINUITY_DUPLICATE_DIFFERENCE = 0.0015;
 const CONTENT_REVIEW_DECISION_VIDEO_MAX_HEIGHT = 420;
 export const MAX_CONTENT_REVIEW_IMAGE_SELECTION = 5;
+export const GENERATED_VIDEO_SOUND_ISSUE_CODES = Object.freeze([
+  "slurred_words",
+  "wrong_words",
+  "foreign_accent",
+  "numbers_units",
+  "wrong_voice_tone",
+  "lip_sync",
+  "noise_clipping",
+  "silence_dropout",
+  "unexpected_audio",
+  "other",
+]);
+const GENERATED_VIDEO_SOUND_ISSUE_CODE_SET = new Set(
+  GENERATED_VIDEO_SOUND_ISSUE_CODES,
+);
+const GENERATED_VIDEO_SOUND_ISSUE_LABELS = Object.freeze({
+  slurred_words: "Слова или окончания проглочены",
+  wrong_words: "Слова заменены, добавлены или произнесены неверно",
+  foreign_accent: "Нежелательный акцент или неестественное произношение",
+  numbers_units: "Искажены числа, градусы, единицы или названия",
+  wrong_voice_tone: "Не тот дикторский тон, темп или характер голоса",
+  lip_sync: "Речь не совпадает с движением губ или действием",
+  noise_clipping: "Шум, перегруз, треск или неприятная громкость",
+  silence_dropout: "Провалы, обрывы или неожиданная тишина",
+  unexpected_audio: "В немом режиме неожиданно появились речь, музыка или шум",
+  other: "Другая проблема звука",
+});
+const GENERATED_VIDEO_SOUND_CLEAR_CONFIRMATIONS = Object.freeze([
+  "spokenScriptHeardExactlyConfirmed",
+  "dictionClearConfirmed",
+  "voiceStyleConfirmed",
+  "audioSyncConfirmed",
+]);
+
+export function validateGeneratedVideoSoundAssessment(
+  value,
+  { audioExpected = true, decision = "" } = {},
+) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const status = String(source.status || "").trim().toLowerCase();
+  const issueCodes = [...new Set(
+    (Array.isArray(source.issueCodes) ? source.issueCodes : [])
+      .map((item) => String(item || "").trim().toLowerCase())
+      .filter((item) => GENERATED_VIDEO_SOUND_ISSUE_CODE_SET.has(item)),
+  )];
+  const approval = ["approved", "approve_with_context"].includes(
+    String(decision || "").trim().toLowerCase(),
+  );
+  if (audioExpected === false) {
+    if (status === "issues_found") {
+      if (!issueCodes.includes("unexpected_audio")) {
+        return { valid: false, code: "sound_unexpected_audio_code_required" };
+      }
+      if (String(source.note || "").trim().length < 5) {
+        return { valid: false, code: "sound_issue_note_required" };
+      }
+      if (source.silenceExpectedConfirmed === true) {
+        return { valid: false, code: "sound_silent_issue_conflict" };
+      }
+      if (approval) {
+        return { valid: false, code: "sound_issues_block_approval" };
+      }
+      return { valid: true, code: "sound_issues_recorded" };
+    }
+    if (status !== "silent_expected" || source.silenceExpectedConfirmed !== true) {
+      return { valid: false, code: "sound_silence_confirmation_required" };
+    }
+    if (issueCodes.length > 0) {
+      return { valid: false, code: "sound_silent_issue_conflict" };
+    }
+    return { valid: true, code: "sound_silent_confirmed" };
+  }
+  if (status === "issues_found") {
+    if (issueCodes.length < 1) {
+      return { valid: false, code: "sound_issue_code_required" };
+    }
+    if (String(source.note || "").trim().length < 5) {
+      return { valid: false, code: "sound_issue_note_required" };
+    }
+    if (approval) {
+      return { valid: false, code: "sound_issues_block_approval" };
+    }
+    return { valid: true, code: "sound_issues_recorded" };
+  }
+  if (status !== "clear") {
+    return { valid: false, code: "sound_assessment_required" };
+  }
+  if (issueCodes.length > 0) {
+    return { valid: false, code: "sound_clear_issue_conflict" };
+  }
+  if (GENERATED_VIDEO_SOUND_CLEAR_CONFIRMATIONS.some(
+    (key) => source[key] !== true,
+  )) {
+    return { valid: false, code: "sound_clear_confirmation_required" };
+  }
+  return { valid: true, code: "sound_clear_confirmed" };
+}
 const GENERATED_IMAGE_CONTEXT_RESOLVABLE_CODES = new Set([
   "CONTEXT.GENERATED_PROVENANCE",
   "AD.MARKING.LABEL",
@@ -211,6 +310,11 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     || previous?.input
     || {};
   const decisionSource = objectFrom(envelope.decision) || objectFrom(source.decision) || previous?.decision || null;
+  const soundAssessmentSource = objectFrom(envelope.sound_assessment)
+    || objectFrom(source.sound_assessment)
+    || objectFrom(decisionSource?.sound_assessment)
+    || previous?.soundAssessment
+    || null;
   const assignmentSource = objectFrom(
     source.independent_assignment
     || envelope.independent_assignment,
@@ -244,6 +348,9 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     summaryOnly: Boolean(!source.result && !envelope.result && (source.result_summary || envelope.result_summary)),
     moderation: objectFrom(source.moderation) || objectFrom(envelope.moderation) || previous?.moderation || null,
     decision: decisionSource ? normalizeDecision(decisionSource) : null,
+    soundAssessment: soundAssessmentSource
+      ? normalizeSoundAssessment(soundAssessmentSource)
+      : null,
     independentAssignment: assignmentSource
       ? normalizeIndependentAssignment(assignmentSource)
       : previous?.independentAssignment || null,
@@ -542,6 +649,23 @@ export function readContentReviewDecision(form, submitter) {
     resolvedRecommendationCodes: values.getAll("resolved_recommendation_codes").map((value) => text(value, 120)).filter(Boolean),
     riskAcknowledgements: values.getAll("risk_acknowledgements").map((value) => text(value, 120)).filter(Boolean),
     mediaWatchedConfirmed: values.get("media_watched_confirmed") === "yes",
+    soundAssessment: {
+      status: stringValue(values, "sound_status").toLowerCase(),
+      issueCodes: values.getAll("sound_issue_codes")
+        .map((value) => text(value, 80).toLowerCase())
+        .filter((value) => GENERATED_VIDEO_SOUND_ISSUE_CODE_SET.has(value)),
+      spokenScriptHeardExactlyConfirmed:
+        values.get("spoken_script_heard_exactly_confirmed") === "yes",
+      dictionClearConfirmed:
+        values.get("diction_clear_confirmed") === "yes",
+      voiceStyleConfirmed:
+        values.get("voice_style_confirmed") === "yes",
+      audioSyncConfirmed:
+        values.get("audio_sync_confirmed") === "yes",
+      silenceExpectedConfirmed:
+        values.get("silence_expected_confirmed") === "yes",
+      note: stringValue(values, "sound_note"),
+    },
     generatedPhotoContext: {
       productCategory: stringValue(values, "release_product_category"),
       advertiserName: stringValue(values, "release_advertiser_name"),
@@ -1283,13 +1407,84 @@ function generatedContextApprovalMarkup(run) {
         ${checkMarkup("release_ord_confirmed", "ERID и передача сведений через ОРД проверены", "Портал не регистрирует рекламу автоматически.")}
         ${checkMarkup("release_rights_confirmed", "Права на товар, логотипы, исходник и графику подтверждены", "Без прав автоматическое одобрение контекста невозможно.")}
         ${checkMarkup("release_claims_verified", `Все надписи и обещания на итоговом ${video ? "MP4" : "PNG"} сверены с товаром и approved research`, "Это подтверждение итогового файла, а не только задания генерации.")}
-        ${video ? checkMarkup("release_captions_confirmed", "Речь, титры и субтитры итогового MP4 проверены вручную", "Транскрипция не запускалась: подтвердите дословную реплику либо отсутствие речи, синхронизацию и читаемость.") : ""}
+        ${video ? checkMarkup("release_captions_confirmed", "Титры и субтитры итогового MP4 проверены вручную", "Звук и дикция фиксируются отдельной неизменяемой оценкой ниже; здесь подтвердите только читаемость текста в кадре.") : ""}
         ${checkMarkup("release_person_consent_confirmed", "Если в кадре есть узнаваемые люди, их согласие подтверждено", "Для варианта «Нет» сервер не требует эту отметку.")}
         ${checkMarkup("release_ai_disclosure_confirmed", "Для YouTube проверена необходимая пометка синтетического контента", "Для других площадок отметка сохраняется как дополнительное подтверждение.")}
         ${checkMarkup("release_mandatory_warning_confirmed", "Для БАД предусмотрено обязательное предупреждение", "Для других категорий отметка не обязательна.")}
         ${checkMarkup("release_audience_over_10000", "Аудитория канала превышает 10 000", "Отметьте только если это действительно так.")}
         ${checkMarkup("release_rkn_registered", "Если аудитория больше 10 000, канал проверен в перечне Роскомнадзора", "Для меньшей аудитории отметка не обязательна.")}
       </div>
+    </fieldset>`;
+}
+
+function soundAssessmentStatusLabel(status) {
+  return {
+    clear: "Звук принят",
+    issues_found: "Найдены ошибки звука",
+    silent_expected: "Ожидаемая тишина подтверждена",
+  }[status] || "Звук не оценён";
+}
+
+function soundAssessmentSummaryMarkup(run) {
+  if (run.media?.kind !== "generated_video") return "";
+  const assessment = run.soundAssessment;
+  if (!assessment) {
+    return `
+      <section class="content-review-sound-summary is-legacy">
+        <strong>Звук: нет отдельной записи</strong>
+        <p>Это решение создано до обязательной истории звуковых ошибок. Оно не считается подтверждением дикции.</p>
+      </section>`;
+  }
+  const issues = assessment.issueCodes
+    .map((code) => GENERATED_VIDEO_SOUND_ISSUE_LABELS[code] || code);
+  const tone = assessment.status === "issues_found" ? "issues" : "clear";
+  return `
+    <section class="content-review-sound-summary is-${tone}">
+      <strong>${escapeHtml(soundAssessmentStatusLabel(assessment.status))}</strong>
+      ${issues.length ? `<ul>${issues.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+      ${assessment.note ? `<p>${escapeHtml(assessment.note)}</p>` : ""}
+      <small>${escapeHtml(assessment.assessedBy || "Ответственный проверяющий")} · ${formatDate(assessment.assessedAt)}</small>
+    </section>`;
+}
+
+function generatedVideoSoundAssessmentMarkup(run) {
+  if (run.media?.kind !== "generated_video") return "";
+  const audioExpected = run.media?.audioExpected !== false;
+  const spokenScript = text(
+    run.media?.spokenScript || run.input?.scriptText,
+    6000,
+  );
+  if (!audioExpected) {
+    return `
+      <fieldset class="content-review-sound-assessment" data-content-review-sound-assessment data-audio-expected="false">
+        <legend>Обязательная оценка звука</legend>
+        <p>Этот режим должен дать немой ролик. Прослушайте файл с включённой громкостью: неожиданную речь, музыку или шум нужно сохранить как ошибку и вернуть на доработку.</p>
+        <label class="field"><span>Результат прослушивания *</span><select name="sound_status" required><option value="">Выберите после полного прослушивания</option><option value="silent_expected">Ожидаемая тишина подтверждена</option><option value="issues_found">Слышен неожиданный звук — только на доработку или отклонить</option></select></label>
+        ${checkMarkup("silence_expected_confirmed", "Подтверждаю ожидаемую тишину во всём ролике", "Прослушайте файл с включённой громкостью: речь, музыка, шум и провалы отсутствуют.")}
+        <fieldset class="content-review-sound-issues">
+          <legend>Если слышен неожиданный звук — отметьте проблему</legend>
+          ${GENERATED_VIDEO_SOUND_ISSUE_CODES.map((code) => `<label><input type="checkbox" name="sound_issue_codes" value="${escapeHtml(code)}" /><span>${escapeHtml(GENERATED_VIDEO_SOUND_ISSUE_LABELS[code])}</span></label>`).join("")}
+        </fieldset>
+        <label class="field"><span>Что именно слышно</span><textarea name="sound_note" maxlength="1000" rows="2" placeholder="Например: на 00:04 появилась чужая речь и треск"></textarea><small class="field-hint">Для ошибки немого режима обязательно отметьте «неожиданно появились речь, музыка или шум» и опишите момент.</small></label>
+      </fieldset>`;
+  }
+  return `
+    <fieldset class="content-review-sound-assessment" data-content-review-sound-assessment data-audio-expected="true">
+      <legend>Обязательная оценка дикции и звука</legend>
+      <p>Автоматический уровень громкости не доказывает разборчивость. Сначала прослушайте весь ролик без перемотки и без ускорения, затем зафиксируйте результат.</p>
+      ${spokenScript ? `<blockquote><small>Ожидаемая реплика дословно</small><strong>«${escapeHtml(spokenScript)}»</strong></blockquote>` : `<div class="content-review-sound-warning">Точная реплика не найдена в данных проверки. Одобрение звука невозможно — верните ролик на доработку.</div>`}
+      <label class="field"><span>Результат прослушивания *</span><select name="sound_status" required><option value="">Выберите после полного прослушивания</option><option value="clear">Звук чистый — можно рассматривать к одобрению</option><option value="issues_found">Есть ошибки — только на доработку или отклонить</option></select></label>
+      <div class="content-review-sound-confirmations">
+        ${checkMarkup("spoken_script_heard_exactly_confirmed", "Каждое слово реплики услышано дословно", "Нет замен, добавлений, «товарищки», «воть», растянутых окончаний и потерянных слов.")}
+        ${checkMarkup("diction_clear_confirmed", "Дикция и окончания полностью разборчивы", "Слова не съедаются; произношение естественное, без нежелательного акцента.")}
+        ${checkMarkup("voice_style_confirmed", "Темп и дикторский тон соответствуют заданию", "Голос не режет слух, не тараторит и не меняет заданный характер подачи.")}
+        ${checkMarkup("audio_sync_confirmed", "Синхронизация, числа и единицы произнесены корректно", "Проверьте градусы, секунды, названия режимов, таймер и совпадение речи с кадром.")}
+      </div>
+      <fieldset class="content-review-sound-issues">
+        <legend>Если есть ошибка — отметьте каждую найденную</legend>
+        ${GENERATED_VIDEO_SOUND_ISSUE_CODES.map((code) => `<label><input type="checkbox" name="sound_issue_codes" value="${escapeHtml(code)}" /><span>${escapeHtml(GENERATED_VIDEO_SOUND_ISSUE_LABELS[code])}</span></label>`).join("")}
+      </fieldset>
+      <label class="field"><span>Что именно слышно</span><textarea name="sound_note" maxlength="1000" rows="2" placeholder="Например: «товарищки воть пароваркаа»; на 00:03 съедено окончание"></textarea><small class="field-hint">При выборе «Есть ошибки» укажите не меньше 5 символов. Запись попадёт в неизменяемую историю QA.</small></label>
     </fieldset>`;
 }
 
@@ -1301,7 +1496,7 @@ function reviewDecisionMarkup(
     return `
       <section class="card content-review-decision is-recorded">
         <span aria-hidden="true">⌁</span>
-        <div><p class="eyebrow">Неизменяемое решение человека</p><h3>${escapeHtml(decisionLabel(run.decision.decision))}</h3><p>${escapeHtml(run.decision.reason || "Причина не указана.")}</p><small>${escapeHtml(run.decision.decidedBy || "Ответственный участник")} · ${formatDate(run.decision.decidedAt)}</small></div>
+        <div><p class="eyebrow">Неизменяемое решение человека</p><h3>${escapeHtml(decisionLabel(run.decision.decision))}</h3><p>${escapeHtml(run.decision.reason || "Причина не указана.")}</p><small>${escapeHtml(run.decision.decidedBy || "Ответственный участник")} · ${formatDate(run.decision.decidedAt)}</small>${soundAssessmentSummaryMarkup(run)}</div>
       </section>
       ${restorePlacement && run.decision.decision === "approved" ? `
         <section class="card content-review-next-action">
@@ -1396,7 +1591,7 @@ function reviewDecisionMarkup(
     ? "Я подтверждаю, что лично просмотрел(а) именно этот защищённый файл до конца и проверил(а) звук и субтитры"
     : "Я подтверждаю, что лично осмотрел(а) именно этот защищённый PNG в полном размере и проверил(а) товар, этикетку и все надписи";
   const confirmationCopy = run.media?.isVideo
-    ? "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после загрузки метаданных и события окончания без смены файла."
+    ? "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после непрерывного воспроизведения от 00:00 до конца с включённым звуком и без ускорения."
     : "Это подтверждение пользователя, а не автоматическое доказательство качества. Поле откроется только после успешной загрузки неизменённого изображения.";
   return `
     <form class="card content-review-decision-form" data-review-id="${escapeHtml(run.id)}" data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}" data-release-context-ready="${generatedImageContextReady ? "true" : "false"}" data-context-approval-ready="${contextApprovalAvailable ? "true" : "false"}" data-release-captions-required="${run.media?.kind === "generated_video" ? "true" : "false"}" novalidate>
@@ -1404,9 +1599,10 @@ function reviewDecisionMarkup(
       <section class="content-review-decision-preview">
         <div><strong>${previewTitle}</strong><small>${previewCopy}</small></div>
         ${exactPreview}
-        <p class="content-review-decision-preview__state ${mediaAvailable ? "" : "is-error"}" data-content-review-media-state role="status">${mediaAvailable ? (run.media.isVideo ? "Загружаем метаданные MP4. Затем воспроизведите файл до события окончания." : "Проверяем доступность изображения.") : escapeHtml(unavailableMessage)}</p>
+        <p class="content-review-decision-preview__state ${mediaAvailable ? "" : "is-error"}" data-content-review-media-state role="status">${mediaAvailable ? (run.media.isVideo ? "Загружаем метаданные MP4. Затем прослушайте файл от 00:00 до конца с включённым звуком." : "Проверяем доступность изображения.") : escapeHtml(unavailableMessage)}</p>
       </section>
       <label class="content-review-check content-review-watch-confirmation"><input type="checkbox" name="media_watched_confirmed" value="yes" required disabled /><span><strong>${confirmationTitle}</strong><small>${confirmationCopy}</small></span></label>
+      ${generatedVideoSoundAssessmentMarkup(run)}
       ${contextApprovalAvailable ? generatedContextApprovalMarkup(run) : ""}
       ${riskItems.length || fallbackRisk.length ? `
         <fieldset class="content-review-decision-checks">
@@ -1518,10 +1714,15 @@ function historyCardMarkup(run, active) {
   const kind = contentReviewStatusKind(run.status);
   const result = run.result;
   const compliance = COMPLIANCE_META[result.complianceStatus] || COMPLIANCE_META.human_review;
+  const soundLabel = run.media?.kind === "generated_video"
+    ? run.soundAssessment
+      ? soundAssessmentStatusLabel(run.soundAssessment.status)
+      : "Звук не зафиксирован"
+    : "";
   return `
     <button class="card content-review-history-card ${active ? "is-active" : ""}" type="button" data-action="open-content-review" data-review-id="${escapeHtml(run.id)}" aria-pressed="${active ? "true" : "false"}">
       <span class="content-review-history-card__score">${kind === "ready" ? result.overallScore : kind === "active" ? "…" : "!"}</span>
-      <span><small>${formatDate(run.createdAt)} · ${escapeHtml(PLATFORM_LABELS[run.input.platform] || run.input.platform || "—")}</small><strong>${escapeHtml(run.media?.name || "Материал")}</strong><em>${kind === "ready" ? escapeHtml(compliance.short) : kind === "active" ? "Проверяется" : "Ошибка"}</em></span>
+      <span><small>${formatDate(run.createdAt)} · ${escapeHtml(PLATFORM_LABELS[run.input.platform] || run.input.platform || "—")}</small><strong>${escapeHtml(run.media?.name || "Материал")}</strong><em>${kind === "ready" ? escapeHtml(compliance.short) : kind === "active" ? "Проверяется" : "Ошибка"}${soundLabel ? ` · ${escapeHtml(soundLabel)}` : ""}</em></span>
       <i aria-hidden="true">→</i>
     </button>`;
 }
@@ -2780,6 +2981,49 @@ function normalizeDecision(raw) {
     reason: text(raw.comment || raw.reason || raw.notes, 2000),
     decidedBy: text(raw.decided_by_name || raw.reviewer_name || raw.decided_by, 240),
     decidedAt: raw.decided_at || raw.created_at || null,
+  };
+}
+
+function normalizeSoundAssessment(raw) {
+  const source = objectFrom(raw) || {};
+  const status = text(source.status, 40).toLowerCase();
+  if (!["clear", "issues_found", "silent_expected"].includes(status)) {
+    return null;
+  }
+  const issueCodes = stringList(
+    source.issue_codes || source.issueCodes,
+    GENERATED_VIDEO_SOUND_ISSUE_CODES.length,
+    80,
+  ).map((code) => code.toLowerCase())
+    .filter((code) => GENERATED_VIDEO_SOUND_ISSUE_CODE_SET.has(code));
+  return {
+    id: text(source.id, 180),
+    status,
+    issueCodes: [...new Set(issueCodes)],
+    spokenScriptHeardExactlyConfirmed: Boolean(
+      source.spoken_script_heard_exactly_confirmed
+      ?? source.spokenScriptHeardExactlyConfirmed,
+    ),
+    dictionClearConfirmed: Boolean(
+      source.diction_clear_confirmed ?? source.dictionClearConfirmed,
+    ),
+    voiceStyleConfirmed: Boolean(
+      source.voice_style_confirmed ?? source.voiceStyleConfirmed,
+    ),
+    audioSyncConfirmed: Boolean(
+      source.audio_sync_confirmed ?? source.audioSyncConfirmed,
+    ),
+    silenceExpectedConfirmed: Boolean(
+      source.silence_expected_confirmed ?? source.silenceExpectedConfirmed,
+    ),
+    note: text(source.note, 1000),
+    assessedBy: text(
+      source.assessed_by_name || source.assessedByName
+      || source.assessed_by || source.assessedBy,
+      240,
+    ),
+    assessedAt: source.assessed_at || source.assessedAt
+      || source.created_at || source.createdAt || null,
   };
 }
 

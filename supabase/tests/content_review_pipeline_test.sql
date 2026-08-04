@@ -741,6 +741,7 @@ values (
     'kind', 'generated_video',
     'provider', 'runway',
     'model', 'gen4_turbo',
+    'audio', false,
     'generation_job_id', '95500000-0000-4000-8000-000000000002',
     'rights_confirmed', true
   ),
@@ -1875,6 +1876,16 @@ set decision_value = public.creator_decide_content_review(jsonb_build_object(
   'media_watched_confirmed', true,
   'risk_acknowledgements', jsonb_build_array(
     'AD.STATUS_UNRESOLVED'
+  ),
+  'sound_assessment', jsonb_build_object(
+    'audio', false,
+    'status', 'silent_expected',
+    'issue_codes', jsonb_build_array(),
+    'spoken_script_heard_exactly_confirmed', false,
+    'diction_clear_confirmed', false,
+    'voice_style_confirmed', false,
+    'audio_sync_confirmed', false,
+    'silence_expected_confirmed', true
   )
 ));
 
