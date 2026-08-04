@@ -16,7 +16,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040004_ai_market_learning_bridge.sql"
+    / "202608040005_ai_market_learning_bridge.sql"
 )
 PGTAP = ROOT / "supabase" / "tests" / "ai_market_learning_bridge_test.sql"
 VIEW = ROOT / "web" / "app" / "ai-learning-control-room.js"

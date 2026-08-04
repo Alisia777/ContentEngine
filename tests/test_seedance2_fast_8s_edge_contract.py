@@ -64,7 +64,7 @@ def test_portal_requires_explicit_seedance_price_confirmation() -> None:
         'estimatedUsd: "2.32"',
         'confirmation: "RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32"',
         "values.get(\"real_spend_confirmation\") !== generationSku.confirmation",
-        "Голос создаётся по сценарию, но реплика может отличаться",
+        "Встроенный голос — черновик",
         "state.api.startRealGeneration(payload)",
     ):
         assert token in APP
