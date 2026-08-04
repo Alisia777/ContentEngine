@@ -3565,12 +3565,12 @@ begin
       'content_factory_private.' || alias_name || '(jsonb)'
     ) is null then
       execute format(
-        'alter function public.%I(jsonb) set schema content_factory_private',
-        function_name
+        'alter function public.%I(jsonb) rename to %I',
+        function_name, alias_name
       );
       execute format(
-        'alter function content_factory_private.%I(jsonb) rename to %I',
-        function_name, alias_name
+        'alter function public.%I(jsonb) set schema content_factory_private',
+        alias_name
       );
     end if;
     execute format(
