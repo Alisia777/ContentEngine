@@ -17,13 +17,16 @@ as $$
 declare
   user_id uuid;
   organization_id_value uuid;
+  project_id_value uuid;
   limit_value integer := 50;
   numeric_value numeric;
   as_of_value timestamptz := statement_timestamp();
   scopes_value jsonb := '[]'::jsonb;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
-  if p_payload - array['organization_id', 'limit']::text[] <> '{}'::jsonb then
+  if p_payload - array[
+    'organization_id', 'project_id', 'limit'
+  ]::text[] <> '{}'::jsonb then
     raise exception using
       errcode = '22023',
       message = 'ai_learning_market_scope_index_payload_invalid';
@@ -58,6 +61,12 @@ begin
     raise exception using
       errcode = '42501', message = 'organization_access_denied';
   end if;
+  project_id_value := content_factory_private.require_uuid(
+    p_payload, 'project_id'
+  );
+  perform content_factory_private.require_workspace_project(
+    organization_id_value, project_id_value
+  );
 
   if p_payload ? 'limit' then
     if jsonb_typeof(p_payload -> 'limit') <> 'number' then
@@ -84,6 +93,11 @@ begin
   with current_bindings as (
     select distinct on (binding.product_id) binding.*
     from content_factory.research_product_market_category_bindings binding
+    join content_factory.product_research_runs source_run
+      on source_run.organization_id = binding.organization_id
+     and source_run.product_id = binding.product_id
+     and source_run.id = binding.source_run_id
+     and source_run.project_id = project_id_value
     where binding.organization_id = organization_id_value
     order by binding.product_id, binding.binding_version desc, binding.id desc
   ), bounded_bindings as (
@@ -97,6 +111,11 @@ begin
       on category.organization_id = binding.organization_id
      and category.id = binding.category_id
      and category.status = 'active'
+    join content_factory.product_research_runs source_run
+      on source_run.organization_id = binding.organization_id
+     and source_run.product_id = binding.product_id
+     and source_run.id = binding.source_run_id
+     and source_run.project_id = project_id_value
     order by binding.confirmed_at desc, binding.id desc
     limit limit_value
   ), readiness_categories as materialized (
@@ -116,6 +135,7 @@ begin
       product.status as product_status,
       category.canonical_name,
       category.definition,
+      source_run.project_id,
       source_run.id as run_id,
       source_run.status as run_status,
       source_run.finished_at as run_finished_at,
@@ -131,6 +151,7 @@ begin
       on source_run.organization_id = binding.organization_id
      and source_run.product_id = binding.product_id
      and source_run.id = binding.source_run_id
+     and source_run.project_id = project_id_value
     join readiness_by_category readiness
       on readiness.category_id = binding.category_id
     where readiness.value ->> 'metric_kind'
@@ -140,6 +161,7 @@ begin
   )
   select coalesce(jsonb_agg(jsonb_build_object(
     'scope_id', scope.id,
+    'project_id', scope.project_id,
     'product_id', scope.product_id,
     'product_name', scope.product_name,
     'product_status', scope.product_status,
@@ -189,8 +211,9 @@ begin
 
   return jsonb_build_object(
     'ok', true,
-    'version', 'ai-learning-market-scope-index-v1',
+    'version', 'ai-learning-market-scope-index-v2',
     'organization_id', organization_id_value,
+    'project_id', project_id_value,
     'metric_kind', 'category_evidence_readiness_not_model_iq',
     'as_of', as_of_value,
     'scopes', scopes_value,
@@ -210,13 +233,14 @@ revoke all on function public.creator_ai_learning_market_scope_index(jsonb)
 grant execute on function public.creator_ai_learning_market_scope_index(jsonb)
   to authenticated;
 
--- The legacy teaching-card overlay can reach a strong/high-confidence policy
--- without one parsed source because its old score counts registrations and
--- rejected cards.  Keep its append-only history readable, but remove it from
--- paid generation until a future exact dynamic-category policy carries
--- research readiness and source-analysis lineage.  The audited v8 policy
--- chain remains the authoritative generation policy in the meantime.
-create or replace function public.creator_generation_learning_policy(
+-- Migration 005 owns the public project-scoped learning-policy wrapper.  Its
+-- private pre-project alias is the only safe integration seam: replacing the
+-- public function here would bypass require_workspace_project and the exact
+-- media/project check in call_project_scoped_v47.  The legacy teaching-card
+-- overlay can reach a strong/high-confidence policy without one parsed source,
+-- so replace only that private alias with the audited v8 policy chain.
+create or replace function
+  content_factory_private.creator_generation_learning_policy_pre_project_v47(
   p_payload jsonb default '{}'::jsonb
 )
 returns jsonb
@@ -235,15 +259,18 @@ begin
 end;
 $$;
 
-revoke all on function public.creator_generation_learning_policy(jsonb)
-  from public, anon;
-grant execute on function public.creator_generation_learning_policy(jsonb)
-  to authenticated;
+revoke all on function
+  content_factory_private.creator_generation_learning_policy_pre_project_v47(
+    jsonb
+  ) from public, anon, authenticated, service_role;
 
 comment on function public.creator_ai_learning_market_scope_index(jsonb) is
   'Read-only dynamic market-category index. Scores are research evidence readiness v3, never model IQ and never legacy knowledge-source inventory.';
-comment on function public.creator_generation_learning_policy(jsonb) is
-  'Authoritative pre-legacy generation-learning policy; ungrounded static AI teaching history is audit-only and cannot affect paid generation.';
+comment on function
+  content_factory_private.creator_generation_learning_policy_pre_project_v47(
+    jsonb
+  ) is
+  'Private project-scoped delegate to the authoritative pre-legacy v8 policy; ungrounded static AI teaching history is audit-only and cannot affect paid generation.';
 
 notify pgrst, 'reload schema';
 

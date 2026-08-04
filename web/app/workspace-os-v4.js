@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.9";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.11";
 
-const BUILD = "20260804.os4.9";
+const BUILD = "20260804.os4.11";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -37,15 +37,52 @@ const SECONDARY_ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/feedback", label: "Помощь", icon: "tasks", description: "Сообщить о препятствии" }),
 ]);
 
-const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES]);
-const PROJECT_FLOW = Object.freeze([
-  Object.freeze({ route: "/workspace/board", label: "Файлы" }),
-  Object.freeze({ route: "/workspace/generation", label: "Создать" }),
-  Object.freeze({ route: "/workspace/review", label: "Проверить" }),
-  Object.freeze({ route: "/workspace/placement", label: "Опубликовать" }),
-  Object.freeze({ route: "/workspace/stats", label: "Результат" }),
+const CONTEXT_ROUTES = Object.freeze([
+  Object.freeze({ route: "/workspace/tasks", label: "Задача", icon: "tasks", description: "Одно назначенное действие внутри текущего этапа" }),
+  Object.freeze({ route: "/workspace/work", label: "Моя работа", icon: "work", description: "Личная очередь и уведомления" }),
 ]);
+const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES, ...CONTEXT_ROUTES]);
+const PROJECT_FLOW = Object.freeze([
+  Object.freeze({ code: "files", route: "/workspace/board", label: "Файлы", countLabel: "файлов" }),
+  Object.freeze({ code: "generation", route: "/workspace/generation", label: "Создать", countLabel: "запусков" }),
+  Object.freeze({ code: "review", route: "/workspace/review", label: "Проверить", countLabel: "на проверке" }),
+  Object.freeze({ code: "placement", route: "/workspace/placement", label: "Опубликовать", countLabel: "к публикации" }),
+  Object.freeze({ code: "stats", route: "/workspace/stats", label: "Результат", countLabel: "результатов" }),
+]);
+const PROJECT_STAGE_ALIASES = Object.freeze({
+  board: "files",
+  file: "files",
+  files: "files",
+  materials: "files",
+  media: "files",
+  create: "generation",
+  generation: "generation",
+  generated: "generation",
+  quality: "review",
+  review: "review",
+  check: "review",
+  publish: "placement",
+  publishing: "placement",
+  placement: "placement",
+  result: "stats",
+  results: "stats",
+  metrics: "stats",
+  stats: "stats",
+});
+const PROJECT_STAGE_STATE_LABELS = Object.freeze({
+  done: "Готово",
+  current: "Текущий этап",
+  blocked: "Нужна помощь",
+  future: "После текущего этапа",
+  unknown: "Статус уточняется",
+});
 const ROLE_GATED_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"]);
+const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const NEXT_ACTION_PATHS = new Set([
+  ...ALL_ROUTES.map((item) => item.route),
+  "/workspace/media",
+  "/workspace/payouts",
+]);
 
 const ICONS = Object.freeze({
   home: ["M3 10.5 12 3l9 7.5", "M5.5 9.5V21h13V9.5", "M9 21v-6h6v6"],
@@ -91,6 +128,7 @@ const runtime = {
   clockTimer: 0,
   scrollTimer: 0,
   fullscreenListening: false,
+  handoffTimer: 0,
   restoredRoute: "",
   restoredScrollNodes: new WeakSet(),
   pendingActionReset: "",
@@ -163,10 +201,27 @@ function routeQuery() {
   return new URLSearchParams(raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "");
 }
 
-function routeMatches(route, expected) {
-  if (expected === "/workspace/home") {
-    return route === expected || route === "/workspace/tasks" || route === "/workspace/work";
+function routeParts(route) {
+  const raw = String(route || "/workspace/home").replace(/^#/, "");
+  const splitAt = raw.indexOf("?");
+  const path = (splitAt >= 0 ? raw.slice(0, splitAt) : raw) || "/workspace/home";
+  const query = new URLSearchParams(splitAt >= 0 ? raw.slice(splitAt + 1) : "");
+  return { path, query };
+}
+
+function routeWithProject(route, projectId = "") {
+  const { path, query } = routeParts(route);
+  const canonicalProjectId = String(projectId || "").trim();
+  if (path.startsWith("/workspace/") && canonicalProjectId && !query.has("project_id")) {
+    query.set("project_id", canonicalProjectId);
   }
+  query.delete("project");
+  const search = query.toString();
+  return `${path}${search ? `?${search}` : ""}`;
+}
+
+function routeMatches(route, expected) {
+  if (expected === "/workspace/home") return route === expected;
   if (expected === "/workspace/board") return route === expected || route === "/workspace/media";
   if (expected === "/workspace/stats") return route === expected || route === "/workspace/payouts";
   return route === expected;
@@ -189,11 +244,19 @@ function hasAuthenticatedWorkspace() {
   );
 }
 
-function navigate(route) {
+function navigate(route, options) {
+  const settings = options || {};
+  const requested = String(route || "/workspace/home");
+  const requestedProjectId = routeParts(requested).query.get("project_id");
+  const currentProjectId = routeQuery().get("project_id") || projectContext()?.id || "";
+  const destination = settings.preserveProject === false
+    ? routeWithProject(requested, requestedProjectId || "")
+    : routeWithProject(requested, requestedProjectId || currentProjectId);
   captureCurrentAction();
   document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
   closeTransientOverlays(true);
-  window.location.hash = `#${route || "/workspace/home"}`;
+  window.location.hash = `#${destination}`;
+  return destination;
 }
 
 function focusFinderSearch(query = "") {
@@ -320,7 +383,9 @@ function syncToolsMenu() {
   if (!menu) return;
   const existing = new Map(qa("[data-ce-v4-tools-route]", menu).map((link) => [link.dataset.ceV4ToolsRoute, link]));
   authorizedRoutes(SECONDARY_ROUTES).forEach((item) => {
-    menu.append(existing.get(item.route) || createToolsMenuItem(item));
+    const link = existing.get(item.route) || createToolsMenuItem(item);
+    link.href = `#${projectRoute(item.route)}`;
+    menu.append(link);
     existing.delete(item.route);
   });
   existing.forEach((link) => link.remove());
@@ -338,6 +403,7 @@ function closeToolsMenu(restoreFocus = false) {
 function openToolsMenu(focusIndex = -1) {
   const { trigger, menu, items } = toolsMenuParts();
   if (!trigger || !menu) return;
+  closeProjectMenu();
   menu.hidden = false;
   trigger.setAttribute("aria-expanded", "true");
   if (focusIndex >= 0 && items.length) safeFocus(items[Math.min(focusIndex, items.length - 1)]);
@@ -455,6 +521,164 @@ function animate(node, frames, duration = 380) {
   node.animate(frames, { duration, easing: SPRING });
 }
 
+function handoff(route, options = {}) {
+  const destination = String(route || "").trim();
+  if (!destination) return Promise.resolve(false);
+  window.clearTimeout(runtime.handoffTimer);
+  const page = currentPage();
+  page?.classList.remove("ce-v4-handoff-leaving");
+  document.documentElement.dataset.ceV4Handoff = "true";
+  window.requestAnimationFrame(() => page?.classList.add("ce-v4-handoff-leaving"));
+  if (options.message) showSystemToast(String(options.message), options.tone || "success");
+  const requestedDelay = Number(options.delay);
+  const delay = REDUCED_MOTION.matches
+    ? 0
+    : Math.max(600, Math.min(800, Number.isFinite(requestedDelay) ? requestedDelay : 700));
+  return new Promise((resolve) => {
+    runtime.handoffTimer = window.setTimeout(() => {
+      page?.classList.remove("ce-v4-handoff-leaving");
+      delete document.documentElement.dataset.ceV4Handoff;
+      runtime.handoffTimer = 0;
+      navigate(destination);
+      resolve(true);
+    }, delay);
+  });
+}
+
+function projectMenuParts() {
+  const trigger = q("[data-ce-v4-project-trigger]", runtime.menubar);
+  const menu = q("[data-ce-v4-project-menu]", runtime.menubar);
+  const items = qa("[data-ce-v4-project-option], [data-ce-v4-all-projects]", menu);
+  return { trigger, menu, items };
+}
+
+function closeProjectMenu(restoreFocus = false) {
+  const { trigger, menu } = projectMenuParts();
+  if (!trigger || !menu) return;
+  const wasOpen = !menu.hidden;
+  menu.hidden = true;
+  trigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus && wasOpen) safeFocus(trigger);
+}
+
+function openProjectMenu(focusIndex = -1) {
+  const { trigger, menu, items } = projectMenuParts();
+  if (!trigger || !menu) return;
+  closeToolsMenu();
+  menu.hidden = false;
+  trigger.setAttribute("aria-expanded", "true");
+  if (focusIndex >= 0 && items.length) safeFocus(items[Math.min(focusIndex, items.length - 1)]);
+}
+
+function toggleProjectMenu() {
+  const { menu } = projectMenuParts();
+  if (!menu || menu.hidden) openProjectMenu();
+  else closeProjectMenu();
+}
+
+function handleProjectMenuKeydown(event) {
+  const { trigger, menu, items } = projectMenuParts();
+  if (!trigger || !menu || !items.length) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target === trigger && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    event.preventDefault();
+    openProjectMenu(event.key === "ArrowUp" ? items.length - 1 : 0);
+    return;
+  }
+  if (menu.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeProjectMenu(true);
+    return;
+  }
+  if (event.key === "Tab") {
+    closeProjectMenu();
+    return;
+  }
+  const current = items.indexOf(target?.closest?.("[data-ce-v4-project-option], [data-ce-v4-all-projects]"));
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const next = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? items.length - 1
+      : (Math.max(0, current) + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  safeFocus(items[next]);
+}
+
+function projectStageLabel(project) {
+  const stage = PROJECT_FLOW.find((item) => item.code === project.currentStage);
+  if (stage) return `Сейчас: ${stage.label}`;
+  if (project.progress > 0) return `Готово на ${project.progress}%`;
+  return project.status ? compact(project.status, 48) : "Открыть рабочую папку";
+}
+
+function projectSelectionRoute(project) {
+  const nextAction = normalizeProjectNextAction(project?.nextAction, project?.id);
+  if (nextAction?.route) return nextAction.route;
+  const query = new URLSearchParams({ project_id: project.id });
+  if (project.rootFolderId) query.set("folder", project.rootFolderId);
+  return `/workspace/board?${query.toString()}`;
+}
+
+function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
+  const { trigger, menu } = projectMenuParts();
+  if (!trigger || !menu) return;
+  const triggerName = q("[data-ce-v4-project-name]", trigger);
+  const triggerMeta = q("[data-ce-v4-project-meta]", trigger);
+  if (triggerName) triggerName.textContent = snapshot.id ? snapshot.name : "Выбрать проект";
+  if (triggerMeta) triggerMeta.textContent = snapshot.id ? "Проект" : "Рабочее пространство";
+  trigger.setAttribute("aria-label", snapshot.id ? `Текущий проект: ${snapshot.name}. Выбрать другой` : "Выбрать проект");
+  trigger.title = snapshot.id ? `Проект: ${snapshot.name}` : "Выбрать проект";
+
+  const signature = JSON.stringify({
+    id: snapshot.id,
+    nextAction: snapshot.nextAction?.route || "",
+    projects: snapshot.projects.map((project) => [
+      project.id,
+      project.name,
+      project.currentStage,
+      project.progress,
+      project.status,
+      project.nextAction?.route || "",
+    ]),
+  });
+  if (menu.dataset.ceV4ProjectSignature === signature) return;
+  const wasOpen = !menu.hidden;
+  const records = snapshot.projects.length
+    ? snapshot.projects
+    : snapshot.id
+      ? [{ id: snapshot.id, name: snapshot.name, rootFolderId: snapshot.rootFolderId, currentStage: snapshot.currentStage, progress: 0, status: "" }]
+      : [];
+  const fragment = document.createDocumentFragment();
+  fragment.append(create("span", "ce-v4-project-menu__eyebrow", "ПРОЕКТЫ"));
+  records.forEach((project) => {
+    const link = create("a", "ce-v4-project-menu__item");
+    link.href = `#${projectSelectionRoute(project)}`;
+    link.dataset.ceV4ProjectOption = project.id;
+    link.dataset.ceV4ProjectName = project.name;
+    link.dataset.ceV4ProjectRoot = project.rootFolderId || project.id;
+    link.setAttribute("role", "menuitem");
+    const mark = create("span", "ce-v4-project-menu__mark");
+    mark.append(icon("folder", 17));
+    const copy = create("span", "ce-v4-project-menu__copy");
+    copy.append(create("strong", "", project.name), create("small", "", projectStageLabel(project)));
+    const selected = project.id === snapshot.id;
+    link.classList.toggle("is-active", selected);
+    if (selected) link.setAttribute("aria-current", "true");
+    link.append(mark, copy, create("span", "ce-v4-project-menu__check", selected ? "✓" : ""));
+    fragment.append(link);
+  });
+  const allProjects = create("a", "ce-v4-project-menu__all", "Все проекты");
+  allProjects.href = `#${routeWithProject("/workspace/home", snapshot.id)}`;
+  allProjects.dataset.ceV4AllProjects = "true";
+  allProjects.setAttribute("role", "menuitem");
+  fragment.append(allProjects);
+  menu.replaceChildren(fragment);
+  menu.dataset.ceV4ProjectSignature = signature;
+  menu.hidden = !wasOpen;
+}
+
 function ensureMenubar() {
   if (runtime.menubar?.isConnected) return runtime.menubar;
   const bar = create("header", "ce-v4-menubar");
@@ -470,7 +694,30 @@ function ensureMenubar() {
   const traffic = create("span", "ce-v4-traffic");
   traffic.setAttribute("aria-hidden", "true");
   traffic.append(create("i"), create("i"), create("i"));
-  start.append(traffic, identity);
+  const projectSwitcher = create("div", "ce-v4-project-switcher");
+  const projectTrigger = create("button", "ce-v4-project-switcher__trigger");
+  projectTrigger.type = "button";
+  projectTrigger.dataset.ceV4ProjectTrigger = "true";
+  projectTrigger.setAttribute("aria-haspopup", "menu");
+  projectTrigger.setAttribute("aria-expanded", "false");
+  projectTrigger.setAttribute("aria-controls", "ce-v4-project-menu");
+  const projectIcon = create("span", "ce-v4-project-switcher__icon");
+  projectIcon.append(icon("folder", 16));
+  const projectCopy = create("span", "ce-v4-project-switcher__copy");
+  const projectMeta = create("small", "", "Рабочее пространство");
+  projectMeta.dataset.ceV4ProjectMeta = "true";
+  const projectName = create("strong", "", "Выбрать проект");
+  projectName.dataset.ceV4ProjectName = "true";
+  projectCopy.append(projectMeta, projectName);
+  projectTrigger.append(projectIcon, projectCopy, create("span", "ce-v4-project-switcher__chevron", "⌄"));
+  const projectMenu = create("nav", "ce-v4-project-menu");
+  projectMenu.id = "ce-v4-project-menu";
+  projectMenu.dataset.ceV4ProjectMenu = "true";
+  projectMenu.hidden = true;
+  projectMenu.setAttribute("role", "menu");
+  projectMenu.setAttribute("aria-label", "Сменить проект");
+  projectSwitcher.append(projectTrigger, projectMenu);
+  start.append(traffic, identity, projectSwitcher);
 
   const globalSearch = create("form", "ce-v4-menubar__search");
   globalSearch.setAttribute("role", "search");
@@ -490,6 +737,11 @@ function ensureMenubar() {
   const notifications = iconButton("", "Открыть уведомления", "bell");
   notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications";
   notifications.setAttribute("aria-pressed", "false");
+  const notificationBadge = create("span", "ce-v4-menubar__notification-badge", "0");
+  notificationBadge.dataset.ceV4NotificationBadge = "true";
+  notificationBadge.hidden = true;
+  notificationBadge.setAttribute("aria-hidden", "true");
+  notifications.append(notificationBadge);
   const tools = create("div", "ce-v4-menubar__tools");
   const toolsTrigger = iconButton("ce-v4-menubar__tools-trigger", "Другие разделы", "grid");
   toolsTrigger.dataset.ceV4ToolsTrigger = "true";
@@ -525,6 +777,20 @@ function ensureMenubar() {
   bar.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("[data-ce-v4-home]")) navigate("/workspace/home");
+    if (target?.closest("[data-ce-v4-project-trigger]")) toggleProjectMenu();
+    const projectOption = target?.closest("[data-ce-v4-project-option]");
+    if (projectOption instanceof HTMLAnchorElement) {
+      event.preventDefault();
+      const selected = {
+        id: String(projectOption.dataset.ceV4ProjectOption || ""),
+        name: String(projectOption.dataset.ceV4ProjectName || "Проект"),
+        rootFolderId: String(projectOption.dataset.ceV4ProjectRoot || projectOption.dataset.ceV4ProjectOption || ""),
+      };
+      writeJson(storage("session"), PROJECT_CONTEXT_KEY, selected);
+      closeProjectMenu();
+      navigate(projectOption.getAttribute("href")?.replace(/^#/, "") || projectSelectionRoute(selected));
+    }
+    if (target?.closest("[data-ce-v4-all-projects]")) closeProjectMenu();
     if (target?.closest("[data-ce-v4-refresh]")) refreshWorkspace();
     if (target?.closest("[data-ce-v4-fullscreen]")) void toggleFullscreen();
     const notificationControl = target?.closest("[data-ce-v4-notifications]");
@@ -532,6 +798,7 @@ function ensureMenubar() {
     if (target?.closest("[data-ce-v4-tools-trigger]")) toggleToolsMenu();
     if (target?.closest("[data-ce-v4-tools-route]")) closeToolsMenu();
   });
+  projectSwitcher.addEventListener("keydown", handleProjectMenuKeydown);
   tools.addEventListener("keydown", handleToolsMenuKeydown);
   globalSearch.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -597,7 +864,11 @@ function ensureDock() {
     link.title = `${item.label} — ${item.description}`;
     link.append(create("span", "ce-v4-dock__tooltip", `${item.label} · ${item.description} · ${shortcut}`));
     const tile = create("span", "ce-v4-dock__tile");
-    tile.append(icon(item.icon, 22));
+    const count = create("span", "ce-v4-dock__count", "0");
+    count.dataset.ceV4DockCount = "true";
+    count.hidden = true;
+    count.setAttribute("aria-hidden", "true");
+    tile.append(icon(item.icon, 22), count);
     link.append(tile, create("span", "ce-v4-dock__label", item.label), create("i"));
     glass.append(link);
   });
@@ -618,6 +889,13 @@ function ensureDock() {
     const item = target?.closest(".ce-v4-dock__item");
     if (!(item instanceof HTMLElement)) return;
     const destination = String(item.dataset.ceV4Route || "");
+    const snapshot = projectFlowSnapshot();
+    const stage = stageForRoute(destination, snapshot);
+    if (stageLocked(stage, snapshot)) {
+      event.preventDefault();
+      explainLockedStage(stage);
+      return;
+    }
     if (!destination || routeMatches(routePath(), destination)) return;
     item.classList.remove("is-launching");
     window.requestAnimationFrame(() => {
@@ -633,16 +911,53 @@ function ensureDock() {
 
 function updateDock() {
   const route = routePath();
+  const snapshot = projectFlowSnapshot();
+  const context = projectContext(snapshot);
+  const shortcutIndexByRoute = new Map(
+    authorizedRoutes(ROUTES).map((item, index) => [item.route, index]),
+  );
+  const focusedStageIndex = activeProjectFlowIndex(route, snapshot);
+  const dockRoute = route === "/workspace/tasks"
+    ? (focusedStageIndex >= 0 ? PROJECT_FLOW[focusedStageIndex].route : "/workspace/home")
+    : route;
   let activeItem = null;
-  qa("[data-ce-v4-route]", runtime.dock).forEach((item) => {
+  qa("[data-ce-v4-route]", runtime.dock).forEach((item, index) => {
     if (item.hidden) {
       item.classList.remove("is-active");
       item.removeAttribute("aria-current");
       return;
     }
-    const active = routeMatches(route, item.dataset.ceV4Route);
+    const active = routeMatches(dockRoute, item.dataset.ceV4Route);
+    const record = ROUTES[index];
+    const stage = stageForRoute(item.dataset.ceV4Route, snapshot);
+    const hasStageState = Boolean(snapshot.hasFlow && stage && stage.state !== "unknown");
+    const locked = stageLocked(stage, snapshot);
+    const destination = stage?.destination || projectRoute(item.dataset.ceV4Route, context);
+    item.href = `#${destination}`;
     item.classList.toggle("is-active", active);
+    ["done", "current", "blocked", "future"].forEach((state) => {
+      item.classList.toggle(`is-stage-${state}`, hasStageState && stage.state === state);
+    });
+    item.dataset.ceV4StageState = hasStageState ? stage.state : "unknown";
     item.setAttribute("aria-current", active ? "page" : "false");
+    if (locked) item.setAttribute("aria-disabled", "true");
+    else item.removeAttribute("aria-disabled");
+    const count = q("[data-ce-v4-dock-count]", item);
+    const showCount = Boolean(stage && Number.isFinite(stage.count) && stage.count > 0);
+    if (count) {
+      count.hidden = !showCount;
+      count.textContent = showCount ? (stage.count > 99 ? "99+" : String(stage.count)) : "0";
+    }
+    const stateText = hasStageState ? PROJECT_STAGE_STATE_LABELS[stage.state] : "";
+    const countText = stage && Number.isFinite(stage.count) ? `${stage.count} ${stage.countLabel}` : "";
+    const reasonText = locked && stage.reason ? stage.reason : "";
+    const shortcutIndex = shortcutIndexByRoute.get(item.dataset.ceV4Route);
+    const shortcut = Number.isInteger(shortcutIndex) ? `⌥${shortcutIndex + 1}` : "";
+    const semantic = [record?.label, stateText, countText, reasonText, record?.description, shortcut].filter(Boolean).join(" · ");
+    const tooltip = q(".ce-v4-dock__tooltip", item);
+    if (tooltip) tooltip.textContent = semantic;
+    item.title = semantic;
+    item.setAttribute("aria-label", semantic);
     if (active) activeItem = item;
   });
   const glass = q(".ce-v4-dock__glass", runtime.dock);
@@ -658,6 +973,8 @@ function updateDock() {
 }
 
 function updateMenubar() {
+  const snapshot = projectFlowSnapshot();
+  syncProjectSwitcher(snapshot);
   syncToolsMenu();
   qa("[data-ce-v4-tools-route]", runtime.menubar).forEach((link) => {
     const active = routePath() === link.dataset.ceV4ToolsRoute;
@@ -668,8 +985,20 @@ function updateMenubar() {
   const notifications = q("[data-ce-v4-notifications]", runtime.menubar);
   if (notifications) {
     const active = routePath() === "/workspace/work" && routeQuery().get("view") === "notifications";
+    const destination = routeWithProject("/workspace/work?view=notifications", snapshot.id);
+    notifications.dataset.ceV4Notifications = destination;
     notifications.classList.toggle("is-active", active);
     notifications.setAttribute("aria-pressed", String(active));
+    const badge = q("[data-ce-v4-notification-badge]", notifications);
+    if (badge) {
+      badge.hidden = snapshot.unread < 1;
+      badge.textContent = snapshot.unread > 99 ? "99+" : String(snapshot.unread);
+    }
+    const label = snapshot.unread > 0
+      ? `Уведомления: ${snapshot.unread} непрочитанных`
+      : "Уведомления: новых нет";
+    notifications.setAttribute("aria-label", label);
+    notifications.title = label;
   }
 }
 
@@ -683,26 +1012,256 @@ function mountHome() {
   if (projects) projects.dataset.ceV4Surface = "true";
 }
 
-function projectContext() {
+function storedProjectContext() {
   const value = readJson(storage("session"), PROJECT_CONTEXT_KEY, null);
   if (!value || typeof value !== "object" || !String(value.id || "").trim()) return null;
   return {
     id: String(value.id).trim(),
     name: compact(value.name || "Проект", 80),
+    rootFolderId: String(value.rootFolderId || value.root_folder_id || value.id || "").trim(),
   };
+}
+
+function projectFlowRoot() {
+  return q("[data-project-flow-root]") || q(".workspace-shell[data-workspace-section]");
+}
+
+function embeddedProjectFlow() {
+  const script = q("#workspace-project-flow-snapshot");
+  if (!script) return {};
+  try {
+    const value = JSON.parse(String(script.textContent || "{}"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeProjectRecord(value) {
+  if (!value || typeof value !== "object") return null;
+  const id = String(value.id || value.project_id || value.folder_id || "").trim();
+  if (!id) return null;
+  return {
+    id,
+    name: compact(value.name || value.project_name || value.title || "Проект", 80),
+    rootFolderId: String(value.root_folder_id || value.folder_id || id).trim(),
+    status: compact(value.status || "", 40),
+    currentStage: normalizeStageCode(value.current_stage || value.stage || ""),
+    progress: Math.max(0, Math.min(100, Number(value.progress_percent) || 0)),
+    updatedAt: String(value.updated_at || ""),
+    nextAction: value.next_action && typeof value.next_action === "object" ? value.next_action : null,
+  };
+}
+
+function normalizeStageCode(value) {
+  const raw = String(value || "").trim().toLocaleLowerCase("ru-RU");
+  if (!raw) return "";
+  if (raw.startsWith("/workspace/")) {
+    return PROJECT_FLOW.find((item) => routeMatches(raw.split("?")[0], item.route))?.code || "";
+  }
+  return PROJECT_STAGE_ALIASES[raw] || raw;
+}
+
+function normalizeStageState(value) {
+  const state = String(value || "").trim().toLocaleLowerCase("ru-RU");
+  if (["done", "complete", "completed", "success", "published"].includes(state)) return "done";
+  if (["current", "active", "in_progress", "ready", "working"].includes(state)) return "current";
+  if (["blocked", "error", "needs_attention", "needs_help"].includes(state)) return "blocked";
+  if (["future", "too_early", "pending", "locked", "upcoming"].includes(state)) return "future";
+  return "unknown";
+}
+
+function stageCount(rawStage, counts, item) {
+  const candidates = [
+    rawStage?.count,
+    rawStage?.items_count,
+    counts?.[item.code],
+    item.code === "files" ? counts?.files : undefined,
+    item.code === "generation" ? counts?.generation_jobs : undefined,
+    item.code === "review" ? counts?.reviews : undefined,
+    item.code === "placement" ? counts?.placements : undefined,
+    item.code === "stats" ? counts?.metric_snapshots : undefined,
+  ];
+  const found = candidates.find((candidate) => Number.isFinite(Number(candidate)));
+  return found === undefined ? null : Math.max(0, Math.trunc(Number(found)));
+}
+
+function normalizeProjectNextAction(value, projectId) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const normalizedProjectId = String(projectId || "").trim().toLowerCase();
+  const payloadProjectId = String(value.project_id || value.projectId || "").trim().toLowerCase();
+  const stage = normalizeStageCode(value.stage || "");
+  const route = String(value.route || "").trim();
+  const { path, query } = routeParts(route);
+  const routeProjectId = String(query.get("project_id") || "").trim().toLowerCase();
+  const entityId = String(value.entity_id || value.entityId || "").trim().toLowerCase();
+  if (
+    !PROJECT_ID_PATTERN.test(normalizedProjectId)
+    || !PROJECT_FLOW.some((item) => item.code === stage)
+    || !NEXT_ACTION_PATHS.has(path)
+    || (payloadProjectId && payloadProjectId !== normalizedProjectId)
+    || (routeProjectId && routeProjectId !== normalizedProjectId)
+    || (entityId && !PROJECT_ID_PATTERN.test(entityId))
+  ) return null;
+  const destination = routeWithProject(route, normalizedProjectId);
+  if (!isWorkspaceActionKey(workspaceActionKey(destination))) return null;
+  return {
+    ...value,
+    stage,
+    route: destination,
+    project_id: normalizedProjectId,
+    entity_id: entityId,
+  };
+}
+
+function projectFlowSnapshot() {
+  const root = projectFlowRoot();
+  const raw = embeddedProjectFlow();
+  const rawNextAction = raw.next_action && typeof raw.next_action === "object" ? raw.next_action : null;
+  const rawProjects = Array.isArray(raw.projects) ? raw.projects : [];
+  const projects = rawProjects.map(normalizeProjectRecord).filter(Boolean);
+  const rawProject = normalizeProjectRecord(raw.project);
+  if (rawProject && !projects.some((item) => item.id === rawProject.id)) projects.unshift(rawProject);
+
+  const stored = storedProjectContext();
+  const queryProjectId = String(routeQuery().get("project_id") || "").trim();
+  const rootProjectId = String(root?.dataset.projectId || root?.dataset.workspaceProjectId || "").trim();
+  const rawProjectId = String(raw.project_id || rawProject?.id || "").trim();
+  const id = queryProjectId || rootProjectId || rawProjectId || stored?.id || "";
+  const nextAction = normalizeProjectNextAction(rawNextAction, id);
+  const catalogProject = projects.find((item) => item.id === id) || null;
+  const rootProjectName = rootProjectId === id ? root?.dataset.projectName : "";
+  const storedProjectName = stored?.id === id ? stored.name : "";
+  const name = compact(catalogProject?.name || rootProjectName || rawProject?.name || storedProjectName || "Проект", 80);
+  const rootFolderId = String(catalogProject?.rootFolderId || rawProject?.rootFolderId || stored?.rootFolderId || id || "").trim();
+  const currentStage = normalizeStageCode(
+    root?.dataset.projectCurrentStage || root?.dataset.currentStage || raw.current_stage || rawProject?.currentStage || "",
+  );
+  const counts = raw.counts && typeof raw.counts === "object" ? raw.counts : {};
+  const rawStages = Array.isArray(raw.stages) ? raw.stages : [];
+  const stages = PROJECT_FLOW.map((item) => {
+    const match = rawStages.find((candidate) => {
+      const code = normalizeStageCode(candidate?.code || candidate?.stage || candidate?.route || "");
+      return code === item.code;
+    });
+    const state = match
+      ? normalizeStageState(match.state || match.status)
+      : currentStage === item.code
+        ? "current"
+        : "unknown";
+    return {
+      ...item,
+      state,
+      count: stageCount(match, counts, item),
+      reason: compact(match?.reason || match?.reason_text || "", 180),
+      reasonCode: String(match?.reason_code || ""),
+      canonicalRoute: routeWithProject(item.route, id),
+      destination: routeWithProject(
+        nextAction?.stage === item.code && nextAction?.route
+          ? nextAction.route
+          : match?.route || item.route,
+        id,
+      ),
+      entityType: String(
+        nextAction?.stage === item.code
+          ? nextAction?.entity_type || match?.entity_type || ""
+          : match?.entity_type || "",
+      ),
+      entityId: String(
+        nextAction?.stage === item.code
+          ? nextAction?.entity_id || match?.entity_id || ""
+          : match?.entity_id || "",
+      ),
+    };
+  });
+  const unreadCandidate = root?.dataset.projectUnreadCount
+    ?? root?.dataset.unreadCount
+    ?? root?.dataset.workspaceUnreadCount
+    ?? raw.unread_count
+    ?? counts.unread
+    ?? counts.notifications_unread;
+  const unread = Number.isFinite(Number(unreadCandidate)) ? Math.max(0, Math.trunc(Number(unreadCandidate))) : 0;
+  return {
+    id,
+    name,
+    rootFolderId,
+    projects,
+    stages,
+    unread,
+    hasFlow: rawStages.length > 0 || Boolean(currentStage),
+    currentStage,
+    nextAction,
+  };
+}
+
+function projectContext(snapshot = projectFlowSnapshot()) {
+  if (!snapshot?.id) return null;
+  return {
+    id: snapshot.id,
+    name: snapshot.name,
+    rootFolderId: snapshot.rootFolderId || snapshot.id,
+  };
+}
+
+function projectRoute(route, context = projectContext()) {
+  return routeWithProject(route, context?.id || "");
+}
+
+function stageForRoute(route, snapshot = projectFlowSnapshot()) {
+  const path = routeParts(route).path;
+  return snapshot.stages.find((stage) => routeMatches(path, routeParts(stage.canonicalRoute).path)) || null;
+}
+
+function activeProjectFlowIndex(route = routePath(), snapshot = projectFlowSnapshot()) {
+  const exactStage = normalizeStageCode(snapshot.nextAction?.stage);
+  if (
+    exactStage
+    && workspaceActionKey() === workspaceActionKey(snapshot.nextAction.route)
+  ) {
+    const exact = PROJECT_FLOW.findIndex((item) => item.code === exactStage);
+    if (exact >= 0) return exact;
+  }
+  const direct = PROJECT_FLOW.findIndex((item) => routeMatches(route, item.route));
+  if (direct >= 0) return direct;
+  if (route !== "/workspace/tasks") return -1;
+
+  const requestedStage = normalizeStageCode(routeQuery().get("stage") || routeQuery().get("origin_stage"));
+  const requested = PROJECT_FLOW.findIndex((item) => item.code === requestedStage);
+  if (requested >= 0) return requested;
+
+  const current = snapshot.stages.findIndex((stage) => stage.state === "current");
+  if (current >= 0) return current;
+  return PROJECT_FLOW.findIndex((item) => item.code === snapshot.currentStage);
+}
+
+function stageLocked(stage, snapshot = projectFlowSnapshot()) {
+  if (!snapshot.hasFlow || !stage || !["blocked", "future"].includes(stage.state)) return false;
+  const recovery = snapshot.nextAction;
+  const exactRecovery = stage.state === "blocked"
+    && normalizeStageCode(recovery?.stage) === stage.code
+    && Boolean(String(recovery?.route || "").trim());
+  return !exactRecovery;
+}
+
+function explainLockedStage(stage) {
+  const fallback = stage?.state === "blocked"
+    ? "Этот этап заблокирован. Устраните причину или обратитесь к ответственному."
+    : "Сначала завершите текущий этап проекта.";
+  showSystemToast(stage?.reason || fallback, stage?.state === "blocked" ? "error" : "warning");
 }
 
 function syncProjectProgress() {
   const route = routePath();
-  const activeIndex = PROJECT_FLOW.findIndex((item) => routeMatches(route, item.route));
-  const context = projectContext();
+  const snapshot = projectFlowSnapshot();
+  const activeIndex = activeProjectFlowIndex(route, snapshot);
+  const context = projectContext(snapshot);
   const page = currentPage();
   if (!page) return;
   qa("[data-ce-v4-project-progress]").forEach((node) => {
     if (!page.contains(node)) node.remove();
   });
   let progress = q(":scope > [data-ce-v4-project-progress]", page);
-  if (!context || activeIndex <= 0) {
+  if (!context || activeIndex < 0) {
     progress?.remove();
     return;
   }
@@ -716,25 +1275,57 @@ function syncProjectProgress() {
     PROJECT_FLOW.forEach((item, index) => {
       const entry = create("li");
       const link = create("a");
-      link.href = `#${item.route}`;
+      link.href = `#${projectRoute(item.route, context)}`;
       link.dataset.ceV4ProjectStage = item.route;
       link.title = `${index + 1}. ${item.label}`;
-      link.append(create("span"), create("strong", "", item.label));
+      const marker = create("span", "ce-v4-project-progress__marker");
+      const copy = create("span", "ce-v4-project-progress__copy");
+      copy.append(create("strong", "", item.label), create("small", "", "Статус уточняется"));
+      link.append(marker, copy);
       entry.append(link);
       list.append(entry);
     });
     progress.append(heading, list);
+    progress.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest("[data-ce-v4-project-stage]") : null;
+      if (!(target instanceof HTMLAnchorElement)) return;
+      const currentSnapshot = projectFlowSnapshot();
+      const stage = stageForRoute(target.dataset.ceV4ProjectStage, currentSnapshot);
+      if (!stageLocked(stage, currentSnapshot)) return;
+      event.preventDefault();
+      explainLockedStage(stage);
+    });
     page.prepend(progress);
   }
   progress.setAttribute("aria-label", `Этапы проекта ${context.name}`);
   q(".ce-v4-project-progress__project strong", progress).textContent = context.name;
   qa("[data-ce-v4-project-stage]", progress).forEach((link, index) => {
-    const current = index === activeIndex;
+    const stage = snapshot.stages[index];
+    const state = snapshot.hasFlow ? stage?.state || "unknown" : "unknown";
+    const current = state === "current";
+    const complete = state === "done";
+    const locked = stageLocked(stage, snapshot);
+    link.href = `#${stage?.destination || projectRoute(PROJECT_FLOW[index].route, context)}`;
+    link.dataset.ceV4StageState = state;
+    link.classList.toggle("is-viewing", index === activeIndex);
     link.classList.toggle("is-current", current);
-    link.classList.toggle("is-complete", index < activeIndex);
+    link.classList.toggle("is-complete", complete);
+    link.classList.toggle("is-blocked", state === "blocked");
+    link.classList.toggle("is-future", state === "future");
     if (current) link.setAttribute("aria-current", "step");
     else link.removeAttribute("aria-current");
-    q("span", link).textContent = index < activeIndex ? "✓" : String(index + 1);
+    if (locked) link.setAttribute("aria-disabled", "true");
+    else link.removeAttribute("aria-disabled");
+    const marker = q(".ce-v4-project-progress__marker", link);
+    if (marker) marker.textContent = complete ? "✓" : state === "blocked" ? "!" : String(index + 1);
+    const status = PROJECT_STAGE_STATE_LABELS[state] || PROJECT_STAGE_STATE_LABELS.unknown;
+    const count = stage && Number.isFinite(stage.count) ? ` · ${stage.count} ${stage.countLabel}` : "";
+    const helper = q(".ce-v4-project-progress__copy small", link);
+    if (helper) helper.textContent = `${status}${count}`;
+    const reason = locked && stage?.reason ? ` · ${stage.reason}` : "";
+    const title = `${index + 1}. ${PROJECT_FLOW[index].label} · ${status}${count}${reason}`;
+    link.title = title;
+    link.setAttribute("aria-label", title);
   });
 }
 
@@ -762,6 +1353,7 @@ function closeElementOverlay(name, immediate = false) {
 }
 
 function closeTransientOverlays(immediate = false) {
+  closeProjectMenu();
   closeToolsMenu();
   if (runtime.mission) closeElementOverlay("mission", immediate);
   if (runtime.spotlight) closeElementOverlay("spotlight", immediate);
@@ -974,11 +1566,46 @@ function toggleZen() {
 function scrollContainers(page = currentPage()) {
   const main = q("#main-content");
   return [main, ...qa(
-    ".workspace-board__content, .workspace-board__sidebar, .generation-os-panels, .review-os-workbench, "
-      + ".work-stage-items, .tasks-desk-list, .tasks-desk-main, .publishing-os-list, .publishing-os-panels, "
-      + ".results-ledger-panels, [data-ce-v4-scroll]",
+    ".workspace-board__content, .workspace-board__sidebar, [data-ce-v4-scroll]",
     page,
   )].filter((node, index, nodes) => node && nodes.indexOf(node) === index && isVisible(node)).slice(0, 12);
+}
+
+function syncSingleRouteScroll(page = currentPage()) {
+  if (!page) return;
+  const expandingSurfaces = qa(
+    ".review-os-workbench, .generation-os-workbench, .work-stage-shell, .tasks-desk-shell, "
+      + ".publishing-os-shell, .results-ledger-shell",
+    page,
+  );
+  expandingSurfaces.forEach((node) => {
+    node.dataset.ceV4PageScroll = "true";
+    node.style.setProperty("height", "auto", "important");
+    node.style.setProperty("min-height", "100%", "important");
+    node.style.setProperty("max-height", "none", "important");
+    node.style.setProperty("overflow-y", "visible", "important");
+  });
+  qa(
+    ".ce-v4-generation-guided__panel-content, .ce-v4-review-risk-group__body, "
+      + ".tasks-desk-list, .tasks-desk-main, .tasks-desk-stage, .publishing-os-list, "
+      + ".publishing-os-panels, .publishing-os-step-panel, .results-ledger-panels, "
+      + ".results-ledger-panel",
+    page,
+  ).forEach((node) => {
+    node.dataset.ceV4PageScroll = "true";
+    node.style.setProperty("height", "auto", "important");
+    node.style.setProperty("max-height", "none", "important");
+    node.style.setProperty("overflow", "visible", "important");
+    node.style.setProperty("overscroll-behavior", "auto", "important");
+    node.style.setProperty("scrollbar-gutter", "auto", "important");
+  });
+  qa(".results-ledger-panel .table-wrap", page).forEach((node) => {
+    node.dataset.ceV4PageScroll = "horizontal";
+    node.style.setProperty("height", "auto", "important");
+    node.style.setProperty("max-height", "none", "important");
+    node.style.setProperty("overflow-x", "auto", "important");
+    node.style.setProperty("overflow-y", "hidden", "important");
+  });
 }
 
 function scrollKey(node, index) {
@@ -1000,6 +1627,32 @@ function captureCurrentAction(expectedActionKey = runtime.actionKey) {
   window.clearTimeout(runtime.scrollTimer);
   captureScroll(runtime.route, runtime.actionKey);
   runtime.preNavigationActionKey = runtime.actionKey;
+  return true;
+}
+
+function resetActionScroll(input = window.location.hash) {
+  const actionKey = workspaceActionKey(input);
+  if (!isWorkspaceActionKey(actionKey)) return false;
+  window.clearTimeout(runtime.scrollTimer);
+  const states = { ...(runtime.state.scroll || {}) };
+  delete states[actionKey];
+  remember({ scroll: states });
+  runtime.pendingActionReset = actionKey;
+  runtime.restoredRoute = "";
+  runtime.restoredScrollNodes = new WeakSet();
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  scrollContainers().forEach((node) => {
+    node.scrollTop = 0;
+    node.scrollLeft = 0;
+  });
+  const main = q("#main-content");
+  if (main?.dataset.ceV4ActionEntry === actionKey) {
+    delete main.dataset.ceV4ActionEntry;
+  }
+  const shell = q(".workspace-shell[data-workspace-section]");
+  if (shell?.dataset.workspaceActionKey === actionKey) {
+    shell.dataset.workspaceActionKey = "";
+  }
   return true;
 }
 
@@ -1137,6 +1790,7 @@ function runMount() {
         catch (error) { console.error(`ContentEngine adapter ${adapter.name} failed`, error); }
       });
     setupVideoGovernor();
+    syncSingleRouteScroll();
     markSurface();
     bindScrollOwner();
     restoreScroll(runtime.actionKey);
@@ -1172,6 +1826,10 @@ function flush() {
 
 function handleHashChange() {
   window.clearTimeout(runtime.scrollTimer);
+  window.clearTimeout(runtime.handoffTimer);
+  runtime.handoffTimer = 0;
+  currentPage()?.classList.remove("ce-v4-handoff-leaving");
+  delete document.documentElement.dataset.ceV4Handoff;
   const previousActionKey = runtime.actionKey;
   if (runtime.preNavigationActionKey === previousActionKey) {
     runtime.preNavigationActionKey = "";
@@ -1207,7 +1865,13 @@ function handleKeydown(event) {
   }
   if (!editing && hasAuthenticatedWorkspace() && event.altKey && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
     const item = authorizedRoutes(ROUTES)[Number(event.code.slice(-1)) - 1];
-    if (item) { event.preventDefault(); navigate(item.route); }
+    if (item) {
+      event.preventDefault();
+      const snapshot = projectFlowSnapshot();
+      const stage = stageForRoute(item.route, snapshot);
+      if (stageLocked(stage, snapshot)) explainLockedStage(stage);
+      else navigate(item.route);
+    }
   }
 }
 
@@ -1218,6 +1882,7 @@ function handleScroll() {
 
 function handlePointerDown(event) {
   const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest(".ce-v4-project-switcher")) closeProjectMenu();
   if (!target?.closest(".ce-v4-menubar__tools")) closeToolsMenu();
 }
 
@@ -1235,6 +1900,11 @@ document.addEventListener(CLOSE_TRANSIENTS_EVENT, (event) => {
 });
 document.addEventListener("keydown", handleKeydown, true);
 document.addEventListener("pointerdown", handlePointerDown, true);
+document.addEventListener("contentengine:v4-handoff", (event) => {
+  void handoff(event.detail?.route, event.detail || {});
+});
+document.addEventListener("contentengine:workspace-shell-updated", scheduleMount);
+document.addEventListener("contentengine:notifications-updated", scheduleMount);
 observeWorkspace();
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scheduleMount, { once: true });
 else scheduleMount();
@@ -1245,10 +1915,12 @@ window.ContentEngineDesktopV4 = Object.freeze({
   route: routePath,
   actionKey: workspaceActionKey,
   navigate,
+  handoff,
   icon,
   create,
   registerAdapter,
   captureCurrentAction,
+  resetActionScroll,
   syncRoute: handleHashChange,
   requestMount: scheduleMount,
   flush,

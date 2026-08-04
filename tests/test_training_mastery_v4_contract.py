@@ -213,9 +213,10 @@ def test_gate_home_uses_server_steps_without_an_achievement_shelf() -> None:
     complete_call = completion.index("await state.api.completeModule(moduleCode)")
     refresh_call = completion.index("await loadBootstrap()")
     server_confirmation = completion.index("const serverCompleted")
-    success_toast = completion.index('toast("Курс завершён и сохранён.", "success")')
-    next_step = completion.index('navigate("/learn", true)')
-    assert complete_call < refresh_call < server_confirmation < success_toast < next_step
+    next_course = completion.index("const nextCourse")
+    destination = completion.index("const destination")
+    handoff = completion.index("await flowHandoff(")
+    assert complete_call < refresh_call < server_confirmation < next_course < destination < handoff
     assert "showTrainingAchievement" not in completion
     assert "training_achievement_unlocked" not in completion
 

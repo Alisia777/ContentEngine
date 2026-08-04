@@ -493,6 +493,22 @@ values
     'owner', 'active'
   );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, kind, status, position,
+  created_by, updated_by
+)
+values (
+  '95100000-0000-4000-8000-000000000101',
+  '95100000-0000-4000-8000-000000000001',
+  null,
+  'Content review project',
+  'project',
+  'active',
+  1024,
+  '95000000-0000-4000-8000-000000000001',
+  '95000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.generation_spend_policies (
   organization_id, paid_generation_enabled,
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
@@ -519,7 +535,7 @@ values (
 );
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, owner_id, product_id, project_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 values
@@ -528,6 +544,7 @@ values
     '95100000-0000-4000-8000-000000000001',
     '95000000-0000-4000-8000-000000000001',
     '95200000-0000-4000-8000-000000000001',
+    '95100000-0000-4000-8000-000000000101',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/owner.mp4',
     'image/webp', 4096, repeat('a', 64), 'ready',
@@ -539,6 +556,7 @@ values
     '95100000-0000-4000-8000-000000000001',
     '95000000-0000-4000-8000-000000000003',
     '95200000-0000-4000-8000-000000000001',
+    '95100000-0000-4000-8000-000000000101',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000003/review/operator.mp4',
     'image/webp', 4096, repeat('b', 64), 'ready',
@@ -550,6 +568,7 @@ values
     '95100000-0000-4000-8000-000000000001',
     '95000000-0000-4000-8000-000000000003',
     '95200000-0000-4000-8000-000000000001',
+    '95100000-0000-4000-8000-000000000101',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000003/review/stale.webp',
     'image/webp', 2048, repeat('c', 64), 'ready',
@@ -561,6 +580,7 @@ values
     '95100000-0000-4000-8000-000000000001',
     '95000000-0000-4000-8000-000000000001',
     '95200000-0000-4000-8000-000000000001',
+    '95100000-0000-4000-8000-000000000101',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/timeout.webp',
     'image/webp', 2048, repeat('d', 64), 'ready',
@@ -572,6 +592,7 @@ values
     '95100000-0000-4000-8000-000000000001',
     '95000000-0000-4000-8000-000000000001',
     null,
+    '95100000-0000-4000-8000-000000000101',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/productless-a.webp',
     'image/webp', 2048, repeat('6', 64), 'ready',
@@ -583,6 +604,7 @@ values
     '95100000-0000-4000-8000-000000000001',
     '95000000-0000-4000-8000-000000000001',
     null,
+    '95100000-0000-4000-8000-000000000101',
     'contentengine-private',
     '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000001/review/productless-b.webp',
     'image/webp', 2048, repeat('7', 64), 'ready',
@@ -591,7 +613,7 @@ values
   );
 
 insert into content_factory.generation_batches (
-  id, organization_id, product_id, created_by, name,
+  id, organization_id, product_id, created_by, project_id, name,
   mode, allow_real_spend, status, total_requested, total_created,
   input, request_hash, idempotency_key,
   provider, model, duration_seconds, audio,
@@ -602,6 +624,7 @@ values (
   '95100000-0000-4000-8000-000000000001',
   '95200000-0000-4000-8000-000000000001',
   '95000000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000101',
   'Content review real generation fixture',
   'real', true, 'succeeded', 1, 1,
   jsonb_build_object(
@@ -626,7 +649,7 @@ values (
 
 insert into content_factory.generation_jobs (
   id, organization_id, product_id, batch_id, ordinal,
-  requested_by, assigned_to, mode, provider, allow_real_spend,
+  requested_by, assigned_to, project_id, mode, provider, allow_real_spend,
   estimated_cost_minor, actual_cost_minor, status,
   input, output, request_hash, idempotency_key
 )
@@ -638,6 +661,7 @@ values (
   1,
   '95000000-0000-4000-8000-000000000001',
   '95000000-0000-4000-8000-000000000003',
+  '95100000-0000-4000-8000-000000000101',
   'real', 'runway', true, 25, 25, 'succeeded',
   jsonb_build_object(
     'sku', 'REVIEW-SKU-1',
@@ -675,7 +699,7 @@ values (
 
 insert into content_factory.creator_tasks (
   id, organization_id, assignee_id, created_by, product_id,
-  generation_job_id, task_type, title, instructions,
+  generation_job_id, project_id, task_type, title, instructions,
   status, priority, payout_minor, result, idempotency_key
 )
 values (
@@ -685,6 +709,7 @@ values (
   '95000000-0000-4000-8000-000000000001',
   '95200000-0000-4000-8000-000000000001',
   '95500000-0000-4000-8000-000000000002',
+  '95100000-0000-4000-8000-000000000101',
   'video_review',
   'Проверить сгенерированный ролик',
   'Просмотреть точный MP4 и проверить качество.',
@@ -699,7 +724,7 @@ values (
 
 insert into content_factory.media_objects (
   id, organization_id, owner_id, task_id, product_id,
-  bucket_id, object_name, mime_type, size_bytes, sha256,
+  project_id, bucket_id, object_name, mime_type, size_bytes, sha256,
   status, metadata, idempotency_key
 )
 values (
@@ -708,6 +733,7 @@ values (
   '95000000-0000-4000-8000-000000000003',
   '95600000-0000-4000-8000-000000000001',
   '95200000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000101',
   'contentengine-private',
   '95100000-0000-4000-8000-000000000001/95000000-0000-4000-8000-000000000003/review/generated.mp4',
   'video/mp4', 8192, repeat('5', 64), 'ready',
@@ -807,6 +833,7 @@ create temporary table content_review_test_context (
 insert into content_review_test_context (blocked_start)
 select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-blocked-0001',
   'media_id', '95300000-0000-4000-8000-000000000001',
   'platform', 'instagram',
@@ -869,6 +896,7 @@ select ok(
 select is(
   public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-blocked-0001',
     'media_id', '95300000-0000-4000-8000-000000000001',
     'platform', 'instagram',
@@ -900,8 +928,9 @@ select is(
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-invalid-extra',
-    'media_object_id', '95300000-0000-4000-8000-000000000002',
+    'media_id', '95300000-0000-4000-8000-000000000002',
     'platform', 'vk',
     'product_category', 'cosmetics',
     'unexpected', true
@@ -924,8 +953,9 @@ $$;
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-foreign-media',
-    'media_object_id', '95300000-0000-4000-8000-000000000001',
+    'media_id', '95300000-0000-4000-8000-000000000001',
     'platform', 'vk',
     'product_category', 'cosmetics'
   ))$$,
@@ -939,7 +969,8 @@ select is(
     select array_agg(item.value ->> 'id' order by item.value ->> 'id')
     from jsonb_array_elements(
       public.creator_content_review_catalog(jsonb_build_object(
-        'organization_id', '95100000-0000-4000-8000-000000000001'
+        'organization_id', '95100000-0000-4000-8000-000000000001',
+        'project_id', '95100000-0000-4000-8000-000000000101'
       )) -> 'media'
     ) item(value)
   ),
@@ -1053,6 +1084,7 @@ select throws_ok(
 );
 select is(
   public.creator_content_review_status(jsonb_build_object(
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'review_id',
     (select blocked_review_id from content_review_test_context)
   )) -> 'run' -> 'result' ->> 'compliance_status',
@@ -1066,6 +1098,7 @@ select throws_ok(
     'review_id', (
       select blocked_review_id from content_review_test_context
     ),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-self-decision',
     'decision', 'needs_changes',
     'comment', 'Нужно исправить лечебное обещание перед публикацией.'
@@ -1091,6 +1124,7 @@ select throws_ok(
     'review_id', (
       select blocked_review_id from content_review_test_context
     ),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-blocked-approval',
     'decision', 'approved',
     'media_watched_confirmed', true,
@@ -1106,6 +1140,7 @@ select public.creator_decide_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
   'review_id',
     (select blocked_review_id from content_review_test_context),
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-needs-changes',
   'decision', 'needs_changes',
   'comment', 'Удалить лечебное обещание и отправить новый файл на проверку.',
@@ -1125,6 +1160,7 @@ select is(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id',
       (select blocked_review_id from content_review_test_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-needs-changes',
     'decision', 'needs_changes',
     'comment', 'Удалить лечебное обещание и отправить новый файл на проверку.',
@@ -1160,8 +1196,9 @@ $$;
 update content_review_test_context
 set pass_start = public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-pass-0001',
-  'media_object_id', '95300000-0000-4000-8000-000000000002',
+  'media_id', '95300000-0000-4000-8000-000000000002',
   'platform', 'vk',
   'product_category', 'cosmetics',
   'declared_ad_status', 'informational',
@@ -1309,6 +1346,7 @@ select throws_ok(
     'review_id', (
       select pass_review_id from content_review_test_context
     ),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-operator-decision',
     'decision', 'approved',
     'media_watched_confirmed', true,
@@ -1334,6 +1372,7 @@ select throws_ok(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id',
       (select pass_review_id from content_review_test_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-unknown-recommendation',
     'decision', 'approved',
     'media_watched_confirmed', true,
@@ -1350,6 +1389,7 @@ select is(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id',
       (select pass_review_id from content_review_test_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-pass-approval',
     'decision', 'approved',
     'media_watched_confirmed', true,
@@ -1363,7 +1403,7 @@ select is(
 );
 
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, result, moderation, ruleset_version,
   model_provider, model_version, request_hash, completion_hash,
   idempotency_key, started_at, finished_at
@@ -1373,6 +1413,7 @@ values (
   '95100000-0000-4000-8000-000000000001',
   '95300000-0000-4000-8000-000000000004',
   '95000000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000101',
   'completed',
   repeat('d', 64),
   jsonb_build_object(
@@ -1401,6 +1442,7 @@ select throws_ok(
   $$select public.creator_decide_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id', '95400000-0000-4000-8000-000000000010',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-actual-risk-ack',
     'decision', 'approved',
     'media_watched_confirmed', true,
@@ -1424,8 +1466,9 @@ $$;
 create temporary table stale_sha_completion on commit drop as
 select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-stale-sha-completion',
-  'media_object_id', '95300000-0000-4000-8000-000000000003',
+  'media_id', '95300000-0000-4000-8000-000000000003',
   'platform', 'vk',
   'product_category', 'cosmetics',
   'declared_ad_status', 'informational'
@@ -1490,8 +1533,9 @@ where id = '95300000-0000-4000-8000-000000000003';
 create temporary table stale_status_completion on commit drop as
 select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-stale-status-completion',
-  'media_object_id', '95300000-0000-4000-8000-000000000003',
+  'media_id', '95300000-0000-4000-8000-000000000003',
   'platform', 'vk',
   'product_category', 'cosmetics',
   'declared_ad_status', 'informational'
@@ -1552,8 +1596,9 @@ where id = '95300000-0000-4000-8000-000000000003';
 update content_review_test_context
 set stale_start = public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-stale-0001',
-  'media_object_id', '95300000-0000-4000-8000-000000000003',
+  'media_id', '95300000-0000-4000-8000-000000000003',
   'platform', 'youtube',
   'product_category', 'cosmetics',
   'declared_ad_status', 'informational'
@@ -1600,6 +1645,7 @@ select throws_ok(
     'review_id', (
       select stale_review_id from content_review_test_context
     ),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-stale-approval',
     'decision', 'approved',
     'media_watched_confirmed', true,
@@ -1643,6 +1689,7 @@ create temporary table generated_review_context (
 insert into generated_review_context (start_value)
 select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-generated-0001',
   'media_id', '95300000-0000-4000-8000-000000000005',
   'evidence_id', '95700000-0000-4000-8000-000000000001',
@@ -1747,6 +1794,7 @@ select throws_ok(
   $$select public.creator_decide_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id', (select review_id from generated_review_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-generated-job-requester',
     'decision', 'approved',
     'reason', 'Создатель платного задания не должен утверждать собственный результат.',
@@ -1772,6 +1820,7 @@ select throws_ok(
   $$select public.creator_decide_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id', (select review_id from generated_review_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-generated-not-watched',
     'decision', 'approved',
     'reason', 'Ролик требует ручного подтверждения полного просмотра.',
@@ -1788,6 +1837,7 @@ select throws_ok(
   $$select public.creator_decide_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id', (select review_id from generated_review_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-generated-unknown-risk',
     'decision', 'approved',
     'reason', 'Произвольная строка не является подтверждением найденного риска.',
@@ -1803,6 +1853,7 @@ select throws_ok(
   $$select public.creator_decide_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'review_id', (select review_id from generated_review_context),
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-generated-missing-risk',
     'decision', 'approved',
     'reason', 'Все обязательные риски должны быть отмечены по точному коду.',
@@ -1818,6 +1869,7 @@ update generated_review_context
 set decision_value = public.creator_decide_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
   'review_id', review_id,
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-generated-approved',
   'decision', 'approved',
   'reason', 'Полностью просмотрен точный MP4 со звуком и субтитрами.',
@@ -1925,7 +1977,7 @@ select throws_ok(
 );
 
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, ruleset_version, request_hash,
   idempotency_key, started_at, lease_expires_at
 )
@@ -1934,6 +1986,7 @@ values (
   '95100000-0000-4000-8000-000000000001',
   '95300000-0000-4000-8000-000000000004',
   '95000000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000101',
   'processing',
   repeat('d', 64),
   jsonb_build_object(
@@ -1990,7 +2043,7 @@ select ok(
 );
 
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, ruleset_version, request_hash,
   idempotency_key, created_at
 )
@@ -1999,6 +2052,7 @@ values (
   '95100000-0000-4000-8000-000000000001',
   '95300000-0000-4000-8000-000000000004',
   '95000000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000101',
   'queued',
   repeat('d', 64),
   jsonb_build_object(
@@ -2015,6 +2069,7 @@ values (
 
 select is(
   public.creator_content_review_status(jsonb_build_object(
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'review_id', '95400000-0000-4000-8000-000000000002'
   )) -> 'run' ->> 'status',
   'queued',
@@ -2032,6 +2087,7 @@ select is(
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-after-abandoned-queue',
     'media_id', '95300000-0000-4000-8000-000000000004',
     'platform', 'vk',
@@ -2046,6 +2102,7 @@ select throws_ok(
 create temporary table stale_before_claim on commit drop as
 select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-stale-before-provider',
   'media_id', '95300000-0000-4000-8000-000000000003',
   'platform', 'vk',
@@ -2095,7 +2152,7 @@ end;
 $$;
 
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, result, moderation, ruleset_version,
   model_provider, model_version, request_hash, completion_hash,
   idempotency_key, started_at, finished_at
@@ -2105,6 +2162,7 @@ values (
   '95100000-0000-4000-8000-000000000001',
   '95300000-0000-4000-8000-000000000006',
   '95000000-0000-4000-8000-000000000001',
+  '95100000-0000-4000-8000-000000000101',
   'completed',
   repeat('6', 64),
   jsonb_build_object(
@@ -2128,8 +2186,9 @@ values (
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-parent-null-vs-product',
-    'media_object_id', '95300000-0000-4000-8000-000000000001',
+    'media_id', '95300000-0000-4000-8000-000000000001',
     'parent_review_id', '95400000-0000-4000-8000-000000000011',
     'platform', 'vk',
     'product_category', 'cosmetics',
@@ -2143,8 +2202,9 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-parent-productless-cross-media',
-    'media_object_id', '95300000-0000-4000-8000-000000000007',
+    'media_id', '95300000-0000-4000-8000-000000000007',
     'parent_review_id', '95400000-0000-4000-8000-000000000011',
     'platform', 'vk',
     'product_category', 'other',
@@ -2158,8 +2218,9 @@ select throws_ok(
 select is(
   public.creator_start_content_review(jsonb_build_object(
     'organization_id', '95100000-0000-4000-8000-000000000001',
+    'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-parent-productless-same-media',
-    'media_object_id', '95300000-0000-4000-8000-000000000006',
+    'media_id', '95300000-0000-4000-8000-000000000006',
     'parent_review_id', '95400000-0000-4000-8000-000000000011',
     'platform', 'vk',
     'product_category', 'other',
@@ -2182,8 +2243,9 @@ $$;
 create temporary table parent_start on commit drop as
 select public.creator_start_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
+  'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-parent-0001',
-  'media_object_id', '95300000-0000-4000-8000-000000000001',
+  'media_id', '95300000-0000-4000-8000-000000000001',
   'platform', 'instagram',
   'product_category', 'cosmetics',
   'declared_ad_status', 'advertising'

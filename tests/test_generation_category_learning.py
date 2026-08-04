@@ -19,9 +19,11 @@ EDGE = (
 
 
 def test_learning_rpc_and_browser_request_bind_product_category():
-    assert "generationLearningPolicy({ mediaId, platform, model, productCategory })" in API
+    assert "generationLearningPolicy({" in API
     assert "product_category: normalizedProductCategory" in API
+    assert "project_id: requiredProjectId(projectIdSnake || projectId)" in API
     assert APP.count("productCategory: String(") >= 2
+    assert APP.count("projectId: requireWorkspaceProjectId()") >= 2
     assert APP.count("product_category: productCategory") >= 3
     assert '"product_category",' in EDGE
     assert "product_category: startPayload.product_category" in EDGE

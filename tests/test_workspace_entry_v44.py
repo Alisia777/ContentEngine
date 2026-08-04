@@ -29,7 +29,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260804.os4.9"' in INDEX
+    assert 'content="20260804.os4.11"' in INDEX
     assert './startup-route.js?v=20260803.entry1' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP
@@ -467,7 +467,7 @@ def test_academy_is_one_gate_screen_without_workspace_or_duplicate_navigation() 
 def test_workspace_navigation_has_one_production_dock_and_no_academy_entry() -> None:
     scaffold = _between(APP, "function workspaceScaffold(", "\n}\n\nfunction refreshNotificationLayer")
     primary_routes = _between(CORE, "const ROUTES = Object.freeze([", "\n]);\n\nconst SECONDARY_ROUTES")
-    secondary_routes = _between(CORE, "const SECONDARY_ROUTES = Object.freeze([", "\n]);\n\nconst ALL_ROUTES")
+    secondary_routes = _between(CORE, "const SECONDARY_ROUTES = Object.freeze([", "\n]);\n\nconst CONTEXT_ROUTES")
 
     assert "#/learn" not in scaffold
     assert "Обучение" not in scaffold

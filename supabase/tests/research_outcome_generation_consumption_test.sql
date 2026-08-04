@@ -90,22 +90,34 @@ select ok(
 );
 select ok(
   strpos(lower(pg_get_functiondef(
-    'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+    'content_factory_private.research_outcome_generation_advisory_pre_project_v47(uuid,uuid,text,text,text)'::regprocedure
   )), 'creator_generation_learning_policy') > 0
   and strpos(lower(pg_get_functiondef(
-    'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+    'content_factory_private.research_outcome_generation_advisory_pre_project_v47(uuid,uuid,text,text,text)'::regprocedure
   )), 'bounded_exploration') > 0
   and strpos(lower(pg_get_functiondef(
-    'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+    'content_factory_private.research_outcome_generation_advisory_pre_project_v47(uuid,uuid,text,text,text)'::regprocedure
   )), 'research_current_eligible_outcomes') > 0
   and strpos(lower(pg_get_functiondef(
-    'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+    'content_factory_private.research_outcome_generation_advisory_pre_project_v47(uuid,uuid,text,text,text)'::regprocedure
   )), 'signal.product_category = product_category_value') > 0,
   'resolver preserves base precedence and revalidates exact live/category evidence'
 );
 select ok(
   strpos(lower(pg_get_functiondef(
     'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+  )), 'select media.project_id') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+  )), 'require_workspace_project') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.research_outcome_generation_advisory(uuid,uuid,text,text,text)'::regprocedure
+  )), 'research_outcome_generation_advisory_pre_project_v47') > 0,
+  'project wrapper derives the exact media project before the preserved advisory'
+);
+select ok(
+  strpos(lower(pg_get_functiondef(
+    'content_factory_private.research_outcome_generation_advisory_pre_project_v47(uuid,uuid,text,text,text)'::regprocedure
   )), '''hook_patterns'', ''[]''::jsonb') > 0
   and strpos(lower(pg_get_functiondef(
     'public.creator_prepare_research_outcome_generation_selection(jsonb)'::regprocedure
@@ -125,8 +137,10 @@ select is(
        lower(pg_get_functiondef(procedure.oid)),
        'insert into content_factory.research_outcome_generation_assignments'
      ) > 0),
-  array['public.creator_start_real_generation']::text[],
-  'only the governed paid-start wrapper can create a bound assignment'
+  array[
+    'content_factory_private.creator_start_real_generation_pre_project_v47'
+  ]::text[],
+  'only the preserved implementation behind the project-scoped paid start can create a bound assignment'
 );
 select ok(
   strpos(lower(pg_get_functiondef(
@@ -193,6 +207,7 @@ select ok(
 create temporary table outcome_generation_context (
   organization_id uuid not null,
   actor_id uuid not null,
+  project_id uuid not null,
   product_id uuid not null,
   product_two_id uuid not null,
   input_media_id uuid not null,
@@ -207,11 +222,13 @@ create temporary table outcome_generation_context (
 ) on commit drop;
 
 insert into outcome_generation_context (
-  organization_id, actor_id, product_id, product_two_id, input_media_id
+  organization_id, actor_id, project_id, product_id, product_two_id,
+  input_media_id
 )
 select
   (bootstrap -> 'organization' ->> 'id')::uuid,
   'e8000000-0000-4000-8000-000000000001'::uuid,
+  'e8100000-0000-4000-8000-000000000001'::uuid,
   'e8200000-0000-4000-8000-000000000001'::uuid,
   'e8200000-0000-4000-8000-000000000002'::uuid,
   'e8300000-0000-4000-8000-000000000001'::uuid
@@ -231,6 +248,16 @@ select
   'e8000000-0000-4000-8000-000000000002'::uuid,
   'reviewer',
   'active'
+from outcome_generation_context context;
+
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+)
+select
+  context.project_id, context.organization_id, null,
+  'Outcome Generation project', 'blue', 'project', null,
+  'active', 1024, context.actor_id, context.actor_id
 from outcome_generation_context context;
 
 insert into content_factory.products (
@@ -614,12 +641,13 @@ $$;
 set local session_replication_role = origin;
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 select
   context.input_media_id,
   context.organization_id,
+  context.project_id,
   context.actor_id,
   context.product_id,
   'contentengine-private',

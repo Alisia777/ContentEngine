@@ -149,11 +149,12 @@ def test_work_next_action_and_research_save_are_visually_primary() -> None:
         const html = subject.productResearchResultMarkup({}, { view: "brief" });
         return {
           savePrimary: html.includes('class="btn" type="submit" data-research-submit="save" data-primary-action="true"'),
-          saveSecondary: html.includes('class="btn btn-secondary" type="submit" data-research-submit="save" data-primary-action="true"'),
+          saveSecondary: html.includes('class="btn btn-secondary" type="submit" data-research-submit="save"'),
+          primaryCount: (html.match(/data-primary-action="true"/g) || []).length,
         };
         """,
     )
-    assert result == {"savePrimary": True, "saveSecondary": False}
+    assert result == {"savePrimary": False, "saveSecondary": True, "primaryCount": 1}
     assert '[data-research-view="brief"] [data-research-submit="approve"]' in FLOW_CSS
 
 
@@ -239,12 +240,14 @@ def test_work_hash_mode_is_deterministic_without_an_app_js_argument() -> None:
 
 def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> None:
     routes = _between(CORE, "const ROUTES = Object.freeze([", "const SECONDARY_ROUTES")
-    secondary = _between(CORE, "const SECONDARY_ROUTES = Object.freeze([", "const ALL_ROUTES")
+    secondary = _between(CORE, "const SECONDARY_ROUTES = Object.freeze([", "const CONTEXT_ROUTES")
+    context = _between(CORE, "const CONTEXT_ROUTES = Object.freeze([", "const ALL_ROUTES")
     menubar = _between(CORE, "function ensureMenubar() {", "function updateClock()")
     tools_keyboard = _between(CORE, "function handleToolsMenuKeydown(event) {", "async function toggleFullscreen()")
 
     assert routes.count("Object.freeze({ route:") == 8
     assert secondary.count("Object.freeze({ route:") == 2
+    assert context.count("Object.freeze({ route:") == 2
     assert re.findall(r'route: "([^"]+)"', routes) == [
         "/workspace/home",
         "/workspace/board",
@@ -258,6 +261,10 @@ def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> N
     assert re.findall(r'route: "([^"]+)"', secondary) == [
         "/workspace/team",
         "/workspace/feedback",
+    ]
+    assert re.findall(r'route: "([^"]+)"', context) == [
+        "/workspace/tasks",
+        "/workspace/work",
     ]
     assert 'route: "/learn"' not in routes + secondary
     assert 'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications"' in menubar

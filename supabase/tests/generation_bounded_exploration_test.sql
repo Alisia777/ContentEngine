@@ -45,16 +45,18 @@ select ok(
 create temporary table exploration_test_context (
   organization_id uuid not null,
   profile_id uuid not null,
+  project_id uuid not null,
   product_id uuid not null,
   media_id uuid not null
 ) on commit drop;
 
 insert into exploration_test_context (
-  organization_id, profile_id, product_id, media_id
+  organization_id, profile_id, project_id, product_id, media_id
 )
 select
   (bootstrap -> 'organization' ->> 'id')::uuid,
   '91919191-9191-4191-8191-919191919191'::uuid,
+  '92929292-9292-4292-8292-929292929291'::uuid,
   '92929292-9292-4292-8292-929292929292'::uuid,
   '93939393-9393-4393-8393-939393939393'::uuid
 from (select public.creator_bootstrap('{}'::jsonb) as bootstrap) response;
@@ -83,6 +85,16 @@ select
   context.profile_id
 from exploration_test_context context;
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+)
+select
+  context.project_id, context.organization_id, null,
+  'Bounded exploration project', 'blue', 'project', null,
+  'active', 1024, context.profile_id, context.profile_id
+from exploration_test_context context;
+
 insert into content_factory.products (
   id, organization_id, sku, title, status, metadata, created_by
 )
@@ -97,12 +109,13 @@ select
 from exploration_test_context context;
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 select
   context.media_id,
   context.organization_id,
+  context.project_id,
   context.profile_id,
   context.product_id,
   'contentengine-private',
@@ -127,6 +140,7 @@ create temporary table first_exploration_policy (
 insert into first_exploration_policy (policy)
 select public.creator_generation_learning_policy(jsonb_build_object(
   'organization_id', context.organization_id,
+  'project_id', context.project_id,
   'media_id', context.media_id,
   'platform', 'youtube',
   'model', 'seedream5_lite'
@@ -165,13 +179,14 @@ select matches(
 );
 
 insert into content_factory.generation_batches (
-  id, organization_id, product_id, created_by, name, mode,
+  id, organization_id, project_id, product_id, created_by, name, mode,
   allow_real_spend, status, total_requested, total_created,
   input, request_hash, idempotency_key
 )
 select
   '94949494-9494-4494-8494-949494949494'::uuid,
   context.organization_id,
+  context.project_id,
   context.product_id,
   context.profile_id,
   'Exploration balancing fixture',
@@ -186,7 +201,7 @@ select
 from exploration_test_context context;
 
 insert into content_factory.generation_jobs (
-  id, organization_id, product_id, batch_id, ordinal,
+  id, organization_id, project_id, product_id, batch_id, ordinal,
   requested_by, assigned_to, mode, provider, allow_real_spend,
   estimated_cost_minor, actual_cost_minor, status, input, output,
   request_hash, idempotency_key
@@ -194,6 +209,7 @@ insert into content_factory.generation_jobs (
 select
   '95959595-9595-4595-8595-959595959595'::uuid,
   context.organization_id,
+  context.project_id,
   context.product_id,
   '94949494-9494-4494-8494-949494949494'::uuid,
   1,
@@ -240,6 +256,7 @@ create temporary table second_exploration_policy (
 insert into second_exploration_policy (policy)
 select public.creator_generation_learning_policy(jsonb_build_object(
   'organization_id', context.organization_id,
+  'project_id', context.project_id,
   'media_id', context.media_id,
   'platform', 'youtube',
   'model', 'seedream5_lite'
@@ -268,6 +285,7 @@ insert into category_learning_policies (product_category, policy)
 select category.product_category,
        public.creator_generation_learning_policy(jsonb_build_object(
          'organization_id', context.organization_id,
+         'project_id', context.project_id,
          'media_id', context.media_id,
          'platform', 'youtube',
          'model', 'seedream5_lite',
@@ -474,7 +492,7 @@ begin
     blockers_value := case when position <= 3 then 0 else 1 end;
 
     insert into content_factory.generation_batches (
-      id, organization_id, product_id, created_by, name,
+      id, organization_id, project_id, product_id, created_by, name,
       mode, allow_real_spend, status, total_requested, total_created,
       input, request_hash, idempotency_key, provider, model,
       duration_seconds, audio, estimated_cost_minor, estimated_credits,
@@ -482,6 +500,7 @@ begin
     ) values (
       batch_id_value,
       context_row.organization_id,
+      context_row.project_id,
       context_row.product_id,
       context_row.profile_id,
       'Quality observation ' || position::text,
@@ -508,13 +527,14 @@ begin
     );
 
     insert into content_factory.generation_jobs (
-      id, organization_id, product_id, batch_id, ordinal,
+      id, organization_id, project_id, product_id, batch_id, ordinal,
       requested_by, assigned_to, mode, provider, allow_real_spend,
       estimated_cost_minor, actual_cost_minor, status, input, output,
       request_hash, idempotency_key, campaign_id
     ) values (
       job_id_value,
       context_row.organization_id,
+      context_row.project_id,
       context_row.product_id,
       batch_id_value,
       1,
@@ -543,11 +563,12 @@ begin
     );
 
     insert into content_factory.media_objects (
-      id, organization_id, owner_id, product_id, bucket_id, object_name,
+      id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
       mime_type, size_bytes, sha256, status, metadata, idempotency_key
     ) values (
       media_id_value,
       context_row.organization_id,
+      context_row.project_id,
       context_row.profile_id,
       context_row.product_id,
       'contentengine-private',
@@ -566,13 +587,14 @@ begin
     );
 
     insert into content_factory.content_review_runs (
-      id, organization_id, media_object_id, requested_by, status,
+      id, organization_id, project_id, media_object_id, requested_by, status,
       media_sha256_snapshot, input, result, ruleset_version,
       model_provider, model_version, request_hash, completion_hash,
       idempotency_key, finished_at
     ) values (
       review_id_value,
       context_row.organization_id,
+      context_row.project_id,
       media_id_value,
       context_row.profile_id,
       'completed',
@@ -641,6 +663,7 @@ create temporary table quality_learning_policy (
 insert into quality_learning_policy (policy)
 select public.creator_generation_learning_policy(jsonb_build_object(
   'organization_id', context.organization_id,
+  'project_id', context.project_id,
   'media_id', context.media_id,
   'platform', 'youtube',
   'model', 'gen4_turbo'

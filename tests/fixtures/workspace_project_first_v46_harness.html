@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ContentEngine project-first v4.6 harness</title>
+    <title>ContentEngine project-flow v4.7 harness</title>
     <link rel="stylesheet" href="../../web/app/styles.css" />
     <link rel="stylesheet" href="../../web/app/interface-system.css" />
     <link rel="stylesheet" href="../../web/app/content-review.css" />
     <link rel="stylesheet" href="../../web/app/workspace-board.css" />
-    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260804.os4.11" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-context-trash.css" />
-    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260804.os4.11" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css" />
@@ -21,6 +21,7 @@
   <body>
     <div id="app" class="app-root">
       <div class="workspace-shell" data-workspace-section="home" data-workspace-authorized-routes="/workspace/research /workspace/team /workspace/feedback" data-workspace-role="owner">
+        <script id="workspace-project-flow-snapshot" type="application/json">{"project_id":"11111111-1111-4111-8111-111111111111","project":{"id":"11111111-1111-4111-8111-111111111111","name":"Bombbar · Август"},"projects":[{"id":"11111111-1111-4111-8111-111111111111","name":"Bombbar · Август","current_stage":"review","next_action":{"label":"Принять решение","route":"/workspace/review?view=current&review=33333333-3333-4333-8333-333333333333"},"counts":{"files":18},"updated_at":"2026-08-04T07:30:00Z"},{"id":"22222222-2222-4222-8222-222222222222","name":"Milio · Новинки","current_stage":"files","next_action":{"label":"Добавить исходник","route":"/workspace/board"},"counts":{"files":7},"updated_at":"2026-08-04T07:20:00Z"}],"stages":[{"code":"files","state":"done","label":"Файлы"},{"code":"generation","state":"done","label":"Создать"},{"code":"review","state":"current","label":"Проверить"},{"code":"placement","state":"too_early","label":"Опубликовать","reason":"Сначала примите решение по проверке"},{"code":"stats","state":"too_early","label":"Результат","reason":"Метрики появятся после публикации"}],"next_action":{"label":"Принять решение","route":"/workspace/review?view=current&review=33333333-3333-4333-8333-333333333333","entity_type":"review","entity_id":"33333333-3333-4333-8333-333333333333"},"unread_count":2,"counts":{"files":18,"reviews":1,"placements":0,"notifications_unread":2}}</script>
         <aside class="sidebar"><nav class="workspace-nav"><a href="#/workspace/team">Команда</a><a href="#/workspace/research">Исследования</a></nav></aside>
         <section class="workspace-main">
           <main id="main-content" tabindex="-1"><div id="workspace-content"></div></main>
@@ -30,7 +31,7 @@
     <output id="runtime-qa" hidden></output>
     <script>
       window.CONTENTENGINE_DESKTOP_V4 = true;
-      sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({ id: "project-bombbar", name: "Bombbar · Август" }));
+      sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", name: "Bombbar · Август" }));
       if (!location.hash.startsWith("#/workspace/")) location.hash = "#/workspace/home";
 
       const content = document.querySelector("#workspace-content");
@@ -49,10 +50,10 @@
               <details class="home-project-create"><summary><span>＋</span> Новый проект</summary><form id="home-project-create-form"><label>Название проекта</label><div><input placeholder="Например: Bombbar · Август" /><button class="btn" type="button" data-primary-action="true">Создать и открыть</button></div><small>Внутри проекта можно создавать папки.</small></form></details>
             </header>
             <div class="home-project-grid">
-              <a class="home-project-card" href="#/workspace/board?folder=project-bombbar" data-ce-v4-project-id="project-bombbar" data-ce-v4-project-name="Bombbar · Август"><span class="home-project-card__folder">◇</span><span class="home-project-card__copy"><strong>Bombbar · Август</strong><small>18 объектов</small></span><span class="home-project-card__open">Открыть →</span></a>
-              <a class="home-project-card" href="#/workspace/board?folder=project-milio" data-ce-v4-project-id="project-milio" data-ce-v4-project-name="Milio · Новинки"><span class="home-project-card__folder">◇</span><span class="home-project-card__copy"><strong>Milio · Новинки</strong><small>7 объектов</small></span><span class="home-project-card__open">Открыть →</span></a>
+              <a class="home-project-card" href="#/workspace/review?view=current&amp;review=33333333-3333-4333-8333-333333333333&amp;project_id=11111111-1111-4111-8111-111111111111" data-ce-v4-project-id="11111111-1111-4111-8111-111111111111" data-ce-v4-project-name="Bombbar · Август"><span class="home-project-card__folder">◇</span><span class="home-project-card__copy"><strong>Bombbar · Август</strong><small>18 объектов · этап: Проверка</small><small>Следующее: принять решение</small><small>Обновлено 5 минут назад</small></span><span class="home-project-card__open">Продолжить →</span></a>
+              <a class="home-project-card" href="#/workspace/board?project_id=22222222-2222-4222-8222-222222222222" data-ce-v4-project-id="22222222-2222-4222-8222-222222222222" data-ce-v4-project-name="Milio · Новинки"><span class="home-project-card__folder">◇</span><span class="home-project-card__copy"><strong>Milio · Новинки</strong><small>7 объектов · этап: Файлы</small><small>Следующее: добавить исходник</small><small>Обновлено 15 минут назад</small></span><span class="home-project-card__open">Продолжить →</span></a>
             </div>
-            <aside class="home-next-action-compact"><span><small>Следующее действие</small><strong>Проверить готовое видео</strong></span><p>Откройте проект, чтобы увидеть точный файл и продолжить работу.</p><a class="btn btn-secondary" href="#/workspace/review">Открыть проверку →</a></aside>
+            <aside class="home-next-action-compact"><span><small>Следующее действие</small><strong>Принять решение по ролику</strong></span><p>Открывается одна точная проверка выбранного проекта.</p><a class="btn btn-secondary" href="#/workspace/review?view=current&amp;review=33333333-3333-4333-8333-333333333333&amp;project_id=11111111-1111-4111-8111-111111111111">Открыть проверку →</a></aside>
           </section>
         </div>`;
       }
@@ -83,14 +84,14 @@
       }
 
       function reviewMarkup() {
-        return `<div class="page-wrap ce-v4-page"><article class="content-review-result" data-review-result-id="review-demo">
+        return `<div class="page-wrap content-review-page focus-queue ce-v4-page" data-focus-queue="review"><nav class="focus-queue__bar" aria-label="Фокус-очередь проверок"><span><strong>Одна проверка</strong><small>Сохраните одно решение — портал откроет публикацию этого же ролика</small></span><a class="btn btn-secondary btn-small" href="#/workspace/review?view=history">Очередь · 12</a></nav><article class="content-review-result" data-review-result-id="33333333-3333-4333-8333-333333333333">
           <header class="content-review-result__header card"><p class="eyebrow">Проверка завершена</p><h2>Bombbar · рекламный ролик</h2><p>Общий результат понятен без технического UUID.</p></header>
           <div class="content-review-score-grid"><section class="card content-review-quality"><strong>82/100</strong><span>Качество</span></section><section class="card content-review-compliance"><strong>Нужны правки</strong><span>Соответствие</span></section></div>
           <section class="card content-review-breakdown"><h3>Материал</h3><p>Точный ролик, упаковка и заявленный товар совпадают.</p></section>
           <section class="card content-review-strengths"><h3>Сильные стороны</h3><p>Товар виден, хук понятен, монтаж аккуратный.</p></section>
           <section class="card content-review-findings"><h3>13 замечаний</h3><div class="content-review-finding-list">${findings}</div></section>
           <section class="card content-review-recommendations"><h3>Что исправить</h3><p>Сначала два замечания высокого риска, затем повторная проверка.</p></section>
-          <form class="content-review-decision-form card"><h3>Решение человека</h3><label>Комментарий<textarea>Исправить обещание и отправить снова.</textarea></label><div class="content-review-decision-actions"><button class="btn" type="button">Одобрить</button><button class="btn" type="button">На доработку</button><button class="btn btn-ghost" type="button">Отклонить</button></div></form>
+          <form class="content-review-decision-form card"><h3>Решение человека</h3><label>Комментарий<textarea>Исправить обещание и отправить снова.</textarea></label><div class="content-review-decision-actions"><button class="btn" type="button" data-primary-action="true">Сохранить решение</button><button class="btn btn-secondary" type="button">На доработку</button><button class="btn btn-ghost" type="button">Отклонить</button></div></form>
         </article></div>`;
       }
 
@@ -150,7 +151,7 @@
       });
     </script>
     <script type="module">
-      await import("../../web/app/workspace-os-v4.js");
+      await import("../../web/app/workspace-os-v4.js?v=20260804.os4.11");
       await import("../../web/app/workspace-os-v4-context-trash.js");
       await import("../../web/app/workspace-os-v4-finder.js");
       await import("../../web/app/workspace-os-v4-generation-guided.js");

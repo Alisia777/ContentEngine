@@ -116,7 +116,7 @@ def test_trash_uses_a_dedicated_system_rpc_namespace() -> None:
     assert "CreatorApi.prototype.mutate" in ALIAS
     assert "Symbol.for" in ALIAS
     for source in (ALIAS, SCRIPT):
-        assert '"./supabase-api.js?v=20260804.4"' in source
+        assert '"./supabase-api.js?v=20260804.os4.11"' in source
         assert "supabase-api.js?v=20260729.2" not in source
 
 
@@ -162,7 +162,7 @@ def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
 def test_inline_trash_surface_supports_restore_purge_empty_and_safe_previews() -> None:
     for marker in (
         "createTrashSurface",
-        'window.location.hash = "#/workspace/board?view=trash"',
+            'openWorkspaceRoute("/workspace/board?view=trash")',
         "ensureTrashSurface",
         "Корзина",
         "Восстановить",

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(47);
+select plan(48);
 
 create or replace function pg_temp.final_exam_test_rationales()
 returns jsonb
@@ -154,7 +154,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  91,
+  98,
   'authenticated can execute all creator RPCs'
 );
 
@@ -261,14 +261,18 @@ select ok(
 create temporary table creator_test_context (
   organization_id uuid not null,
   profile_id uuid not null,
+  project_id uuid not null,
   media_id uuid,
   bootstrap jsonb not null
 ) on commit drop;
 
-insert into creator_test_context (organization_id, profile_id, bootstrap)
+insert into creator_test_context (
+  organization_id, profile_id, project_id, bootstrap
+)
 select
   (bootstrap -> 'organization' ->> 'id')::uuid,
   '11111111-1111-4111-8111-111111111111'::uuid,
+  '88888888-8888-4888-8888-888888888888'::uuid,
   bootstrap
 from (select public.creator_bootstrap('{}'::jsonb) as bootstrap) response;
 
@@ -310,6 +314,22 @@ select
   '77777777-7777-4777-8777-777777777777'::uuid,
   'admin',
   'active'
+from creator_test_context context;
+
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, kind, status, position,
+  created_by, updated_by
+)
+select
+  context.project_id,
+  context.organization_id,
+  null,
+  'Creator factory project',
+  'project',
+  'active',
+  1024,
+  context.profile_id,
+  context.profile_id
 from creator_test_context context;
 
 insert into storage.objects (id, bucket_id, name, owner, metadata)
@@ -733,6 +753,7 @@ begin
   select * into context_row from creator_test_context;
   response := public.creator_register_media(jsonb_build_object(
     'organization_id', context_row.organization_id,
+    'project_id', context_row.project_id,
     'bucket', 'contentengine-private',
     'object_key', context_row.organization_id::text || '/' ||
       context_row.profile_id::text || '/uploads/pgtap-product.jpg',
@@ -773,6 +794,7 @@ select throws_ok(
   $$
     select public.creator_create_mock_batch(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'sku', 'PGTAP-SKU-1',
       'product_name', 'PgTAP product',
       'count', 2,
@@ -800,6 +822,7 @@ begin
   select * into context_row from creator_test_context;
   perform public.creator_create_mock_batch(jsonb_build_object(
     'organization_id', context_row.organization_id,
+    'project_id', context_row.project_id,
     'sku', 'PGTAP-SKU-1',
     'product_name', 'PgTAP product',
     'count', 2,
@@ -877,6 +900,7 @@ select is(
   (
     public.creator_workspace_section(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'section', 'generation'
     )) -> '_meta' ->> 'page_size'
   )::integer,
@@ -893,6 +917,7 @@ select ok(
     from (
       select public.creator_workspace_section(jsonb_build_object(
         'organization_id', (select organization_id from creator_test_context),
+        'project_id', (select project_id from creator_test_context),
         'section', 'generation',
         'page_size', 1
       )) as response
@@ -905,6 +930,7 @@ select throws_ok(
   $$
     select public.creator_workspace_section(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'section', 'generation',
       'page_size', 101
     ))
@@ -943,6 +969,7 @@ select throws_ok(
   $$
     select public.creator_workspace_section(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'section', 'generation',
       'page_size', 999999999999999999999999999999::numeric
     ))
@@ -956,6 +983,21 @@ select throws_ok(
   $$
     select public.creator_workspace_section(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
+      'section', 'generation',
+      'page_size', 'not-an-integer'
+    ))
+  $$,
+  '22023',
+  'workspace_page_size_invalid',
+  'workspace page invalid text has a stable validation error'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'section', 'generation',
       'cursor', jsonb_build_object(
         'unknown_collection', jsonb_build_object(
@@ -993,6 +1035,7 @@ select is(
     with first_page as (
       select public.creator_workspace_section(jsonb_build_object(
         'organization_id', (select organization_id from creator_test_context),
+        'project_id', (select project_id from creator_test_context),
         'section', 'generation',
         'page_size', 1
       )) as response
@@ -1000,6 +1043,7 @@ select is(
     select jsonb_array_length(
       public.creator_workspace_section(jsonb_build_object(
         'organization_id', (select organization_id from creator_test_context),
+        'project_id', (select project_id from creator_test_context),
         'section', 'generation',
         'page_size', 1,
         'cursor', jsonb_build_object(
@@ -1017,6 +1061,7 @@ select throws_ok(
   $$
     select public.creator_create_mock_batch(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'sku', 'PGTAP-SKU-1',
       'product_name', 'PgTAP product',
       'count', 999999999999999999999999999999::numeric,
@@ -1038,12 +1083,13 @@ select throws_ok(
 );
 
 insert into content_factory.generation_batches (
-  organization_id, product_id, created_by, name,
+  organization_id, project_id, product_id, created_by, name,
   mode, allow_real_spend, status, total_requested, total_created,
   input, request_hash, idempotency_key
 )
 select
   context.organization_id,
+  context.project_id,
   product.id,
   context.profile_id,
   'PgTAP quota seed ' || seed.ordinal::text,
@@ -1060,6 +1106,7 @@ cross join (values (1, 50), (2, 50), (3, 50), (4, 47))
 select ok(
   (public.creator_create_mock_batch(jsonb_build_object(
     'organization_id', (select organization_id from creator_test_context),
+    'project_id', (select project_id from creator_test_context),
     'sku', 'PGTAP-SKU-1',
     'product_name', 'PgTAP product',
     'count', 1,
@@ -1081,6 +1128,7 @@ select throws_ok(
   $$
     select public.creator_create_mock_batch(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'sku', 'PGTAP-SKU-1',
       'product_name', 'PgTAP product',
       'count', 1,
@@ -1124,6 +1172,7 @@ select ok(
 select ok(
   (public.creator_create_mock_batch(jsonb_build_object(
     'organization_id', (select organization_id from creator_test_context),
+    'project_id', (select project_id from creator_test_context),
     'sku', 'PGTAP-SKU-1',
     'product_name', 'PgTAP product',
     'count', 1,
@@ -1142,11 +1191,12 @@ select ok(
 );
 
 insert into content_factory.media_objects (
-  organization_id, owner_id, bucket_id, object_name,
+  organization_id, project_id, owner_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 select
   context.organization_id,
+  context.project_id,
   context.profile_id,
   'contentengine-private',
   context.organization_id::text || '/' || context.profile_id::text ||
@@ -1171,6 +1221,7 @@ from creator_test_context;
 select ok(
   (public.creator_register_media(jsonb_build_object(
     'organization_id', (select organization_id from creator_test_context),
+    'project_id', (select project_id from creator_test_context),
     'bucket', 'contentengine-private',
     'object_key', (select organization_id::text || '/' || profile_id::text ||
       '/uploads/quota-boundary.jpg' from creator_test_context),
@@ -1196,6 +1247,7 @@ select throws_ok(
   $$
     select public.creator_register_media(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'bucket', 'contentengine-private',
       'object_key', (select organization_id::text || '/' || profile_id::text ||
         '/uploads/quota-reject.jpg' from creator_test_context),
@@ -1225,6 +1277,7 @@ select ok(
 select ok(
   (public.creator_register_media(jsonb_build_object(
     'organization_id', (select organization_id from creator_test_context),
+    'project_id', (select project_id from creator_test_context),
     'bucket', 'contentengine-private',
     'object_key', (select organization_id::text || '/' || profile_id::text ||
       '/uploads/quota-boundary.jpg' from creator_test_context),
@@ -1243,6 +1296,7 @@ select throws_ok(
   $$
     select public.creator_register_media(jsonb_build_object(
       'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
       'bucket', 'contentengine-private',
       'object_key', (select organization_id::text || '/' || profile_id::text ||
         '/uploads/quota-boundary.jpg' from creator_test_context),

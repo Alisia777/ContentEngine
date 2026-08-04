@@ -836,28 +836,22 @@
 }
 
 .training-achievement {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
+  position: relative;
+  z-index: 1;
   display: grid;
-  place-items: center;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 20px;
-  background: color-mix(in srgb, #071b18 78%, transparent);
-  backdrop-filter: blur(14px);
+  margin: 0 0 18px;
+  padding: 0;
+  background: transparent;
 }
 
 .training-achievement__card {
   position: relative;
   z-index: 2;
-  width: min(520px, 100%);
-  padding: clamp(28px, 5vw, 48px);
-  max-height: calc(100svh - 40px);
-  overflow-x: hidden;
-  overflow-y: auto;
+  width: 100%;
+  padding: 22px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--gold, #d6b26a) 54%, transparent);
-  border-radius: 32px;
+  border-radius: 20px;
   color: var(--ink);
   text-align: center;
   background:
@@ -865,9 +859,8 @@
     var(--surface);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--gold, #d6b26a) 14%, transparent),
-    0 0 68px color-mix(in srgb, var(--gold, #d6b26a) 24%, transparent),
-    0 32px 90px rgba(0, 0, 0, 0.34);
-  animation: achievement-arrive 560ms cubic-bezier(.2, .9, .25, 1.16) both;
+    0 12px 34px rgba(0, 0, 0, 0.14);
+  animation: achievement-arrive 420ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
 .training-achievement__card::before,
@@ -975,7 +968,7 @@
 }
 
 body.training-achievement-open {
-  overflow: hidden;
+  overflow: auto;
 }
 
 @keyframes lesson-reveal {

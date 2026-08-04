@@ -1,4 +1,4 @@
-export const CONTENT_GENERATION_HANDOFF_VERSION = 1;
+export const CONTENT_GENERATION_HANDOFF_VERSION = 2;
 export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
@@ -23,6 +23,7 @@ const VIDEO_DURATION_OPTIONS = Object.freeze({
   [REAL_SEEDANCE_MODE]: Object.freeze([4, 8, 12, 15]),
 });
 const SAFE_SCENARIO_INTENT_LIMIT = 400;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const EXPLICIT_SPOKEN_LINE_PATTERN =
   /(^|[.!?…]\s+)((?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\s+(?:говорит|произносит|рассказывает)|реплика\s+героя(?:\s+дословно)?))\s*:\s*[«“"]([^»”"]{2,500})[»”"]\s*[.!?…]?/iu;
 
@@ -48,7 +49,12 @@ export function seedanceSpokenWordLimit(durationSeconds = 8) {
   );
 }
 
-export function createContentGenerationHandoff(record, scenarioIndex, now = Date.now()) {
+export function createContentGenerationHandoff(
+  record,
+  scenarioIndex,
+  now = Date.now(),
+  { projectId = "" } = {},
+) {
   if (record?.approved !== true) {
     throw new Error("Сначала утвердите ТЗ и сценарии после ручной проверки.");
   }
@@ -63,7 +69,8 @@ export function createContentGenerationHandoff(record, scenarioIndex, now = Date
   const sku = cleanText(record?.sku);
   const researchId = cleanText(record?.id);
   const draftId = cleanText(record?.draftId);
-  if (!productName || !sku || !researchId || !draftId) {
+  const normalizedProjectId = cleanText(projectId || record?.project_id || record?.projectId).toLowerCase();
+  if (!productName || !sku || !researchId || !draftId || !UUID_PATTERN.test(normalizedProjectId)) {
     throw new Error("У утверждённого ТЗ не хватает связи с товаром или исследованием.");
   }
 
@@ -92,6 +99,7 @@ export function createContentGenerationHandoff(record, scenarioIndex, now = Date
   return {
     version: CONTENT_GENERATION_HANDOFF_VERSION,
     createdAt: Number(now),
+    projectId: normalizedProjectId,
     researchId,
     draftId,
     productName,
@@ -1389,7 +1397,8 @@ function validHandoff(value, now = Date.now()) {
   ) return false;
   if (
     !cleanText(value.researchId) || !cleanText(value.draftId) ||
-    !cleanText(value.productName) || !cleanText(value.sku)
+    !cleanText(value.productName) || !cleanText(value.sku) ||
+    !UUID_PATTERN.test(cleanText(value.projectId).toLowerCase())
   ) return false;
   const guidanceStatus = cleanText(value.researchGuidanceStatus);
   const researchDecision = cleanText(value.researchDecision);

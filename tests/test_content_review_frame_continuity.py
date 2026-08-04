@@ -156,7 +156,7 @@ def test_browser_capture_is_local_bounded_and_not_persisted_as_frames() -> None:
         assert marker in view
     assert "value.continuity_scan_status === \"completed\"" in api
     assert "value.continuity_raw_frames_persisted === false" in api
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in app
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 10" in app
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in app
 
 

@@ -157,6 +157,7 @@ def test_browser_api_reads_monitor_status_and_requires_explicit_actions() -> Non
         API_PATH,
         """
         const calls = [];
+        const projectId = "40000000-0000-4000-8000-000000000001";
         const api = Object.create(subject.CreatorApi.prototype);
         api.withOrganization = (payload) => ({
           ...payload,
@@ -164,7 +165,7 @@ def test_browser_api_reads_monitor_status_and_requires_explicit_actions() -> Non
         });
         api.call = async (rpc, payload) => {
           calls.push({ kind: "call", rpc, payload });
-          if (rpc === "creator_product_research_status") {
+          if (rpc === "creator_project_research_status") {
             return { run: { id: payload.run_id, status: "approved" } };
           }
           if (rpc === "creator_research_watchlist_status") {
@@ -195,22 +196,23 @@ def test_browser_api_reads_monitor_status_and_requires_explicit_actions() -> Non
 
         const status = await api.productResearchStatus(
           "10000000-0000-4000-8000-000000000001",
+          { projectId },
         );
         await api.configureResearchWatchlist(
           "10000000-0000-4000-8000-000000000001",
-          { action: "enable", refresh_interval_days: 7 },
+          { action: "enable", refresh_interval_days: 7, projectId },
         );
         await api.configureResearchWatchlist(
           "10000000-0000-4000-8000-000000000001",
-          { action: "update", refresh_interval_days: 21 },
+          { action: "update", refresh_interval_days: 21, projectId },
         );
         await api.configureResearchWatchlist(
           "10000000-0000-4000-8000-000000000001",
-          { action: "pause" },
+          { action: "pause", projectId },
         );
         await api.configureResearchWatchlist(
           "10000000-0000-4000-8000-000000000001",
-          { action: "resume", refresh_interval_days: 14 },
+          { action: "resume", refresh_interval_days: 14, projectId },
         );
 
         const rejected = [];
@@ -221,7 +223,7 @@ def test_browser_api_reads_monitor_status_and_requires_explicit_actions() -> Non
           try {
             await api.configureResearchWatchlist(
               "10000000-0000-4000-8000-000000000001",
-              options,
+              { ...options, projectId },
             );
           } catch (error) {
             rejected.push(String(error?.code || ""));
@@ -254,7 +256,7 @@ def test_browser_api_reads_monitor_status_and_requires_explicit_actions() -> Non
         "guidanceCode": "refresh_due",
     }
     assert result["statusRpcs"] == [
-        "creator_product_research_status",
+        "creator_project_research_status",
         "creator_research_category_learning_status",
         "creator_research_market_category_registry",
         "creator_research_outcome_learning_scopes",

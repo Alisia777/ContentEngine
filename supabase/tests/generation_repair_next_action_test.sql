@@ -81,9 +81,12 @@ select is(
 select ok(
   (
     select lower(pg_get_functiondef(
-      'public.creator_content_review_catalog(jsonb)'::regprocedure
+      'content_factory_private.creator_content_review_catalog_pre_project_v47(jsonb)'::regprocedure
     ))
-  ) like '%repair_next_action%',
+  ) like '%repair_next_action%'
+  and pg_get_functiondef(
+    'public.creator_content_review_catalog(jsonb)'::regprocedure
+  ) like '%creator_content_review_catalog_pre_project_v47%',
   'public catalog includes the privacy-minimized repair action'
 );
 

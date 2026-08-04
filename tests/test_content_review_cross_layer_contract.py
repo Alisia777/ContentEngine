@@ -148,8 +148,11 @@ def test_start_and_decision_payloads_have_one_canonical_shape() -> None:
     assert 'action: "analyze"' in adapter
     assert 'action: "analyze"' in edge
     assert "review_id" in edge
-    assert 'new Set(["action", "review_id"])' in edge
+    assert 'new Set(["action", "review_id", "project_id"])' in edge
     assert 'new Set(["action", "review_id", "frames"])' not in edge
+    assert "!isUuid(value.project_id)" in edge
+    assert '.eq("project_id", payload.project_id)' in edge
+    assert "project_id: payload.project_id" in edge
 
     for field in (
         "review_id",
@@ -188,7 +191,12 @@ def test_video_review_is_durable_and_paid_dispatch_is_fenced() -> None:
         assert marker in migration
 
     assert 'MAX_BODY_BYTES = 4_096' in edge
-    assert 'body: { action: "analyze", review_id: row.id }' in worker
+    review_target_start = worker.index('kind: "review"')
+    review_target = worker[
+        review_target_start : worker.index("organizationId", review_target_start)
+    ]
+    assert 'review_id: row.id' in review_target
+    assert 'project_id: row.project_id as string' in review_target
     assert 'frames: []' not in worker
     assert "attempt.providerIdempotencyKey" in edge
     assert "providerDispatchStarted = true" in edge

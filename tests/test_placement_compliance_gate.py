@@ -38,7 +38,8 @@ def test_placement_ui_makes_the_compliance_gate_explicit() -> None:
     assert 'name="compliance_ack" value="confirmed" required' in APP
     assert "Рекламный статус проверен по инструкции задачи" in APP
     assert "Если в задаче нет решения по рекламе" in APP
-    assert "await state.api.confirmPlacement(taskId, finalUrl, complianceAck)" in APP
+    assert "await state.api.confirmPlacement(taskId, finalUrl, complianceAck, { projectId })" in APP
     assert "confirmPlacement(taskId, finalUrl, complianceAck)" in ADAPTER
     assert "compliance_ack: complianceAck === true" in ADAPTER
+    assert "project_id: normalizedProjectId" in ADAPTER
     assert "placement_compliance_ack_required" in ADAPTER

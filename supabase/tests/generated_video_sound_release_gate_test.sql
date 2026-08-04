@@ -536,24 +536,27 @@ select is(
 
 select ok(
   pg_get_functiondef(
-    'public.creator_decide_content_review(jsonb)'::regprocedure
+    'content_factory_private.creator_decide_content_review_pre_project_v47(jsonb)'
+      ::regprocedure
   ) like '%content_review_sound_assessment_required%'
   and pg_get_functiondef(
-    'public.creator_decide_content_review(jsonb)'::regprocedure
+    'content_factory_private.creator_decide_content_review_pre_project_v47(jsonb)'
+      ::regprocedure
   ) like '%record_content_review_sound_assessment%'
   and pg_get_functiondef(
-    'public.creator_decide_content_review(jsonb)'::regprocedure
+    'content_factory_private.creator_decide_content_review_pre_project_v47(jsonb)'
+      ::regprocedure
   ) like '%context_copy%',
-  'decision wrapper requires, stores, and lineage-copies sound assessment'
+  'preserved decision wrapper requires, stores, and lineage-copies sound assessment'
 );
 
 select ok(
   pg_get_functiondef(
-    'public.creator_approve_generated_video_review_with_context(jsonb)'
+    'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'
       ::regprocedure
   ) like '%''context_source''%'
   and pg_get_functiondef(
-    'public.creator_approve_generated_video_review_with_context(jsonb)'
+    'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'
       ::regprocedure
   ) like '%''context_copy''%'
   and pg_get_functiondef(
@@ -565,12 +568,14 @@ select ok(
 
 select ok(
   pg_get_functiondef(
-    'public.creator_content_review_status(jsonb)'::regprocedure
+    'content_factory_private.creator_content_review_status_pre_project_v47(jsonb)'
+      ::regprocedure
   ) like '%sound_assessment_history%'
   and pg_get_functiondef(
-    'public.creator_content_review_catalog(jsonb)'::regprocedure
+    'content_factory_private.creator_content_review_catalog_pre_project_v47(jsonb)'
+      ::regprocedure
   ) like '%sound_assessment_history%',
-  'status and catalog expose bounded assessment history'
+  'preserved status and catalog expose bounded assessment history'
 );
 
 select ok(

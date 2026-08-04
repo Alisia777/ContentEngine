@@ -14,6 +14,12 @@ export const RPC = Object.freeze({
   submitPlatformSimulator: "creator_submit_platform_simulator",
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
+  projectFlow: "creator_project_flow",
+  projectMedia: "creator_project_media",
+  projectPlacement: "creator_project_placement",
+  createProject: "creator_create_workspace_project",
+  archiveProject: "creator_archive_workspace_project",
+  requestWorkspaceAccess: "creator_request_workspace_access",
   generationMediaIdentity: "creator_generation_media_identity",
   generationLearningPolicy: "creator_generation_learning_policy",
   aiLearningControlRoom: "creator_ai_learning_control_room",
@@ -56,8 +62,8 @@ export const RPC = Object.freeze({
   savePracticalProject: "creator_save_practical_project",
   decidePracticalProject: "creator_decide_practical_project",
   savedWorkViews: "creator_saved_work_views",
-  startProductResearch: "creator_start_product_research",
-  productResearchStatus: "creator_product_research_status",
+  startProductResearch: "creator_start_project_research",
+  productResearchStatus: "creator_project_research_status",
   researchStageControlStatus: "creator_research_stage_control_status",
   controlResearchStage: "creator_control_research_stage",
   researchCategoryLearningStatus: "creator_research_category_learning_status",
@@ -82,8 +88,8 @@ export const RPC = Object.freeze({
   requestResearchYoutubeRefresh: "creator_request_research_youtube_refresh",
   decideResearchYoutubeRollout: "creator_decide_research_youtube_rollout",
   decideResearchYoutubeCandidate: "creator_decide_research_youtube_candidate",
-  saveCreativeBriefDraft: "creator_save_creative_brief_draft",
-  approveCreativeBrief: "creator_approve_creative_brief",
+  saveCreativeBriefDraft: "creator_save_project_creative_brief_draft",
+  approveCreativeBrief: "creator_approve_project_creative_brief",
   contentReviewCatalog: "creator_content_review_catalog",
   prepareContentReviewEvidence: "creator_prepare_content_review_evidence",
   commitContentReviewEvidence: "creator_commit_content_review_evidence",
@@ -91,6 +97,7 @@ export const RPC = Object.freeze({
   startGeneratedVideoReview: "creator_start_generated_video_review",
   contentReviewStatus: "creator_content_review_status",
   decideContentReview: "creator_decide_content_review",
+  restoreProjectPlacement: "creator_restore_project_placement",
   approveGeneratedPhotoWithContext:
     "creator_approve_generated_photo_review_with_context",
   approveGeneratedVideoWithContext:
@@ -535,6 +542,11 @@ export class CreatorApi {
 
   workspaceSection(section, options = {}) {
     const payload = { section };
+    const organizationSection = ["team", "feedback"].includes(section);
+    const projectId = organizationSection
+      ? ""
+      : requiredProjectId(options.project_id ?? options.projectId);
+    if (!organizationSection) payload.project_id = projectId;
     if (options.page_size !== undefined) {
       const pageSize = Number(options.page_size);
       if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
@@ -568,7 +580,7 @@ export class CreatorApi {
       )].slice(0, 100);
       if (!mediaIds.length) return response;
 
-      return this.generationMediaIdentity(mediaIds)
+      return this.generationMediaIdentity(mediaIds, { projectId })
         .then((identityResponse) =>
           mergeGenerationMediaIdentity(response, identityResponse)
         )
@@ -582,7 +594,10 @@ export class CreatorApi {
     });
   }
 
-  generationMediaIdentity(mediaIds) {
+  generationMediaIdentity(mediaIds, {
+    projectId = "",
+    project_id: projectIdSnake = "",
+  } = {}) {
     const normalized = [...new Set(
       (Array.isArray(mediaIds) ? mediaIds : [])
         .map((mediaId) => String(mediaId || "").trim())
@@ -599,10 +614,18 @@ export class CreatorApi {
     }
     return this.call(RPC.generationMediaIdentity, this.withOrganization({
       media_ids: normalized,
+      project_id: requiredProjectId(projectIdSnake || projectId),
     }));
   }
 
-  generationLearningPolicy({ mediaId, platform, model, productCategory }) {
+  generationLearningPolicy({
+    mediaId,
+    platform,
+    model,
+    productCategory,
+    projectId = "",
+    project_id: projectIdSnake = "",
+  }) {
     const normalizedMediaId = String(mediaId || "").trim();
     const normalizedPlatform = String(platform || "").trim().toLowerCase();
     const normalizedModel = String(model || "").trim().toLowerCase();
@@ -645,6 +668,7 @@ export class CreatorApi {
       platform: normalizedPlatform,
       model: normalizedModel,
       product_category: normalizedProductCategory,
+      project_id: requiredProjectId(projectIdSnake || projectId),
     }));
   }
 
@@ -661,7 +685,7 @@ export class CreatorApi {
     );
   }
 
-  aiLearningMarketScopeIndex({ limit = 50 } = {}) {
+  aiLearningMarketScopeIndex({ projectId, limit = 50 } = {}) {
     const normalizedLimit = Number(limit);
     if (
       !Number.isSafeInteger(normalizedLimit)
@@ -674,7 +698,10 @@ export class CreatorApi {
     }
     return this.call(
       RPC.aiLearningMarketScopeIndex,
-      this.withOrganization({ limit: normalizedLimit }),
+      this.withOrganization({
+        project_id: requiredProjectId(projectId),
+        limit: normalizedLimit,
+      }),
     );
   }
 
@@ -807,8 +834,7 @@ export class CreatorApi {
     });
   }
 
-
-  generationRepairPolicy(reviewId) {
+  generationRepairPolicy(reviewId, { projectId = "", project_id: projectIdSnake = "" } = {}) {
     const normalizedReviewId = String(reviewId || "").trim();
     if (!isUuid(normalizedReviewId)) {
       throw new CreatorApiError("Не удалось определить проверку для исправления.", {
@@ -817,6 +843,7 @@ export class CreatorApi {
     }
     return this.call(RPC.generationRepairPolicy, this.withOrganization({
       review_id: normalizedReviewId,
+      project_id: requiredProjectId(projectIdSnake || projectId),
     }));
   }
 
@@ -964,6 +991,8 @@ export class CreatorApi {
       status,
       page_size: pageSize,
     };
+    const projectId = requiredProjectId(options.project_id ?? options.projectId);
+    payload.project_id = projectId;
     if (query) payload.query = query;
     if (options.cursor !== undefined && options.cursor !== null) {
       const cursor = options.cursor;
@@ -989,6 +1018,8 @@ export class CreatorApi {
 
   workspaceBrowser(options = {}) {
     const payload = {};
+    const projectId = requiredProjectId(options.project_id ?? options.projectId);
+    payload.project_id = projectId;
     if (
       Object.prototype.hasOwnProperty.call(options, "folder_id")
       || Object.prototype.hasOwnProperty.call(options, "folderId")
@@ -1057,6 +1088,99 @@ export class CreatorApi {
       parent_id: parentId || null,
       color_token: color,
     });
+  }
+
+  projectFlow({ projectId = "", project_id: projectIdSnake = "", includeProjects = true } = {}) {
+    const normalizedProjectId = optionalProjectId(projectIdSnake || projectId);
+    if (typeof includeProjects !== "boolean") {
+      throw new CreatorApiError("Не удалось определить состав списка проектов.", {
+        code: "project_flow_include_projects_invalid",
+      });
+    }
+    return this.call(RPC.projectFlow, this.withOrganization({
+      ...(normalizedProjectId ? { project_id: normalizedProjectId } : {}),
+      ...(includeProjects === false ? { include_projects: false } : {}),
+    }));
+  }
+
+  projectMedia(
+    mediaId,
+    {
+      projectId = "",
+      project_id: projectIdSnake = "",
+      surface = "",
+    } = {},
+  ) {
+    const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+    const normalizedSurface = String(surface || "").trim().toLowerCase();
+    if (!isUuid(normalizedMediaId)) {
+      throw new CreatorApiError("Некорректная ссылка на материал.", {
+        code: "project_media_id_invalid",
+      });
+    }
+    if (!["generation", "review"].includes(normalizedSurface)) {
+      throw new CreatorApiError("Некорректный раздел материала.", {
+        code: "project_media_surface_invalid",
+      });
+    }
+    return this.call(RPC.projectMedia, this.withOrganization({
+      project_id: requiredProjectId(projectIdSnake || projectId),
+      media_id: normalizedMediaId,
+      surface: normalizedSurface,
+    }));
+  }
+
+  projectPlacement(
+    placementId,
+    { projectId = "", project_id: projectIdSnake = "" } = {},
+  ) {
+    const normalizedPlacementId = String(placementId || "").trim().toLowerCase();
+    if (!isUuid(normalizedPlacementId)) {
+      throw new CreatorApiError("Некорректная ссылка на публикацию.", {
+        code: "project_placement_id_invalid",
+      });
+    }
+    return this.call(RPC.projectPlacement, this.withOrganization({
+      project_id: requiredProjectId(projectIdSnake || projectId),
+      placement_id: normalizedPlacementId,
+    }));
+  }
+
+  createProject({ name, colorToken = "emerald", color_token: colorTokenSnake = "" } = {}) {
+    const projectName = String(name || "").trim();
+    const color = String(colorTokenSnake || colorToken || "emerald").trim().toLowerCase();
+    if (!projectName || projectName.length > 120 || /[\u0000-\u001f\u007f]/u.test(projectName)) {
+      throw new CreatorApiError("Укажите название проекта длиной до 120 символов.", {
+        code: "workspace_project_name_invalid",
+      });
+    }
+    if (!["emerald", "gold", "rose", "blue", "violet", "slate"].includes(color)) {
+      throw new CreatorApiError("Выберите доступный цвет проекта.", {
+        code: "workspace_project_color_invalid",
+      });
+    }
+    return this.mutate(RPC.createProject, {
+      name: projectName,
+      color_token: color,
+    });
+  }
+
+  archiveProject(projectId, expectedVersion) {
+    const normalizedProjectId = requiredProjectId(projectId);
+    const normalizedVersion = Number(expectedVersion);
+    if (!Number.isInteger(normalizedVersion) || normalizedVersion < 1) {
+      throw new CreatorApiError("Проект изменился. Обновите Finder и повторите действие.", {
+        code: "workspace_project_version_invalid",
+      });
+    }
+    return this.mutate(RPC.archiveProject, {
+      project_id: normalizedProjectId,
+      expected_version: normalizedVersion,
+    });
+  }
+
+  requestWorkspaceAccess() {
+    return this.mutate(RPC.requestWorkspaceAccess, {});
   }
 
   updateWorkspaceFolder(folderId, changes = {}) {
@@ -1366,6 +1490,8 @@ export class CreatorApi {
 
   myWork(options = {}) {
     const payload = {};
+    const projectId = requiredProjectId(options.project_id ?? options.projectId);
+    payload.project_id = projectId;
     const query = String(options.query || "").trim();
     if (query.length > 120 || /[\u0000-\u001f\u007f]/u.test(query)) {
       throw new CreatorApiError("Сократите запрос поиска до 120 символов.", {
@@ -1573,7 +1699,11 @@ export class CreatorApi {
     return this.mutate(RPC.savedWorkViews, payload);
   }
 
-  async startProductResearch(input, { onRunCreated } = {}) {
+  async startProductResearch(input, {
+    onRunCreated,
+    projectId = "",
+    project_id: projectIdSnake = "",
+  } = {}) {
     const productName = String(input?.product_name || "").trim();
     const sku = String(input?.sku || "").trim();
     if (!productName || !sku || productName.length > 180 || sku.length > 120) {
@@ -1598,7 +1728,12 @@ export class CreatorApi {
       });
     }
 
-    const created = await this.mutate(RPC.startProductResearch, input);
+    const normalizedProjectId = requiredProjectId(
+      projectIdSnake || projectId || input?.project_id || input?.projectId,
+    );
+    const payload = { ...input, project_id: normalizedProjectId };
+    delete payload.projectId;
+    const created = await this.mutate(RPC.startProductResearch, payload);
     const source = created?.data && typeof created.data === "object" ? created.data : created;
     const run = source?.run || source?.research || {};
     const runId = String(run?.id || source?.run_id || source?.research_id || source?.id || "").trim();
@@ -1609,7 +1744,11 @@ export class CreatorApi {
     }
     if (typeof onRunCreated === "function") {
       try {
-        onRunCreated({ id: runId, status: String(run?.status || "queued") });
+        onRunCreated({
+          id: runId,
+          status: String(run?.status || "queued"),
+          project_id: normalizedProjectId,
+        });
       } catch {
         // Recovery storage is a UI convenience; it must not cancel a paid run.
       }
@@ -1620,6 +1759,7 @@ export class CreatorApi {
       accepted = await this.invokeProductResearch({
         action: "analyze",
         research_id: runId,
+        project_id: normalizedProjectId,
       });
     } catch (error) {
       error.job = { id: runId, status: String(run?.status || "queued") };
@@ -1631,6 +1771,10 @@ export class CreatorApi {
   async productResearchStatus(runId, options = {}) {
     const normalizedRunId = this.requireResearchRunId(runId);
     const scopedPayload = this.withOrganization({ run_id: normalizedRunId });
+    const projectScopedPayload = {
+      ...scopedPayload,
+      project_id: requiredProjectId(options.project_id ?? options.projectId),
+    };
     const requestedOutcomeScope = options?.outcome_scope
       ? requireResearchOutcomeScope(options.outcome_scope)
       : null;
@@ -1643,7 +1787,7 @@ export class CreatorApi {
       youtubeOverviewResult,
       categoryLearningResult,
     ] = await Promise.all([
-      this.call(RPC.productResearchStatus, scopedPayload),
+      this.call(RPC.productResearchStatus, projectScopedPayload),
       settleResearchSatellite(
         this.call(RPC.researchWatchlistStatus, scopedPayload),
         "research_watchlist_status",
@@ -2502,8 +2646,9 @@ export class CreatorApi {
       }
       payload.refresh_interval_days = intervalDays;
     }
+    const projectId = requiredProjectId(options.project_id ?? options.projectId);
     await this.mutate(RPC.configureResearchWatchlist, payload);
-    return this.productResearchStatus(normalizedRunId);
+    return this.productResearchStatus(normalizedRunId, { projectId });
   }
 
   async resolveResearchMarketCategory(runId, options = {}) {
@@ -2946,9 +3091,10 @@ export class CreatorApi {
     return source;
   }
 
-  saveCreativeBriefDraft(runId, draft) {
+  saveCreativeBriefDraft(runId, draft, { projectId = "", project_id: projectIdSnake = "" } = {}) {
     return this.mutate(RPC.saveCreativeBriefDraft, {
       run_id: this.requireResearchRunId(runId),
+      project_id: requiredProjectId(projectIdSnake || projectId),
       title: draft?.title,
       brief: draft?.brief,
       source_ids: draft?.source_ids,
@@ -2956,7 +3102,7 @@ export class CreatorApi {
     });
   }
 
-  approveCreativeBrief(draftId) {
+  approveCreativeBrief(draftId, { projectId = "", project_id: projectIdSnake = "" } = {}) {
     const normalizedDraftId = String(draftId || "").trim();
     if (!normalizedDraftId || normalizedDraftId.length > 128) {
       throw new CreatorApiError("Сначала сохраните актуальный черновик ТЗ.", {
@@ -2965,6 +3111,7 @@ export class CreatorApi {
     }
     return this.mutate(RPC.approveCreativeBrief, {
       draft_id: normalizedDraftId,
+      project_id: requiredProjectId(projectIdSnake || projectId),
     });
   }
 
@@ -3012,20 +3159,27 @@ export class CreatorApi {
     return data;
   }
 
-  contentReviewCatalog({ limit = 50 } = {}) {
+  contentReviewCatalog({ limit = 50, projectId = "", project_id: projectIdSnake = "" } = {}) {
     const normalizedLimit = Number(limit);
     if (!Number.isInteger(normalizedLimit) || normalizedLimit < 1 || normalizedLimit > 50) {
       throw new CreatorApiError("История проверки может содержать от 1 до 50 записей.", {
         code: "content_review_limit_invalid",
       });
     }
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     return this.call(RPC.contentReviewCatalog, this.withOrganization({
       media_limit: normalizedLimit,
       run_limit: normalizedLimit,
+      project_id: normalizedProjectId,
     }));
   }
 
-  async prepareContentReviewEvidence({ mediaId, frameCount }) {
+  async prepareContentReviewEvidence({
+    mediaId,
+    frameCount,
+    projectId = "",
+    project_id: projectIdSnake = "",
+  }) {
     const normalizedMediaId = String(mediaId || "").trim();
     const normalizedFrameCount = Number(frameCount);
     if (!isUuid(normalizedMediaId)) {
@@ -3041,6 +3195,7 @@ export class CreatorApi {
     const response = await this.mutate(RPC.prepareContentReviewEvidence, {
       media_id: normalizedMediaId,
       frame_count: normalizedFrameCount,
+      project_id: requiredProjectId(projectIdSnake || projectId),
     });
     const source = response?.data && typeof response.data === "object" && !Array.isArray(response.data)
       ? response.data
@@ -3069,7 +3224,14 @@ export class CreatorApi {
     };
   }
 
-  async commitContentReviewEvidence({ evidenceId, frames, technicalMetrics, idempotencyKey = "" }) {
+  async commitContentReviewEvidence({
+    evidenceId,
+    frames,
+    technicalMetrics,
+    idempotencyKey = "",
+    projectId = "",
+    project_id: projectIdSnake = "",
+  }) {
     const normalizedEvidenceId = String(evidenceId || "").trim();
     const normalizedIdempotencyKey = String(idempotencyKey || "").trim().toLowerCase();
     if (
@@ -3122,6 +3284,7 @@ export class CreatorApi {
       evidence_id: normalizedEvidenceId,
       frames: normalizedFrames,
       technical_metrics: technicalMetrics,
+      project_id: requiredProjectId(projectIdSnake || projectId),
     };
     const response = normalizedIdempotencyKey
       ? await this.call(RPC.commitContentReviewEvidence, {
@@ -3144,6 +3307,7 @@ export class CreatorApi {
 
   async startContentReview(input, { onRunCreated } = {}) {
     const mediaId = String(input?.media_id || "").trim();
+    const normalizedProjectId = requiredProjectId(input?.project_id ?? input?.projectId);
     const platform = String(input?.platform || "").trim().toLowerCase();
     const contentKind = String(input?.content_kind || "").trim().toLowerCase();
     const productCategory = String(input?.product_category || "").trim().toLowerCase();
@@ -3204,6 +3368,7 @@ export class CreatorApi {
 
     const payload = {
       media_id: mediaId,
+      project_id: normalizedProjectId,
       ...(input?.parent_review_id ? { parent_review_id: String(input.parent_review_id) } : {}),
       platform,
       content_kind: contentKind,
@@ -3255,6 +3420,7 @@ export class CreatorApi {
     void this.invokeContentReview({
       action: "analyze",
       review_id: reviewId,
+      project_id: normalizedProjectId,
     }).catch(() => {});
     return {
       ...source,
@@ -3263,11 +3429,12 @@ export class CreatorApi {
     };
   }
 
-  async startGeneratedVideoReview({ mediaId, evidenceId } = {}, {
+  async startGeneratedVideoReview({ mediaId, evidenceId, projectId = "", project_id: projectIdSnake = "" } = {}, {
     onRunCreated,
   } = {}) {
     const normalizedMediaId = String(mediaId || "").trim();
     const normalizedEvidenceId = String(evidenceId || "").trim();
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     if (!isUuid(normalizedMediaId) || !isUuid(normalizedEvidenceId)) {
       throw new CreatorApiError("Сначала дождитесь сохранения точного MP4 и его контрольных кадров.", {
         code: "generated_video_review_evidence_required",
@@ -3276,6 +3443,7 @@ export class CreatorApi {
     const created = await this.mutate(RPC.startGeneratedVideoReview, {
       media_id: normalizedMediaId,
       evidence_id: normalizedEvidenceId,
+      project_id: normalizedProjectId,
     });
     const source = created?.data && typeof created.data === "object"
       ? created.data
@@ -3308,6 +3476,7 @@ export class CreatorApi {
     void this.invokeContentReview({
       action: "analyze",
       review_id: reviewId,
+      project_id: normalizedProjectId,
     }).catch(() => {});
     return {
       ...source,
@@ -3320,9 +3489,11 @@ export class CreatorApi {
     };
   }
 
-  contentReviewStatus(reviewId) {
+  contentReviewStatus(reviewId, { projectId = "", project_id: projectIdSnake = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     return this.call(RPC.contentReviewStatus, this.withOrganization({
       review_id: this.requireContentReviewId(reviewId),
+      project_id: normalizedProjectId,
     }));
   }
 
@@ -3330,6 +3501,8 @@ export class CreatorApi {
     resolvedRecommendationCodes = [],
     riskAcknowledgements = [],
     mediaWatchedConfirmed = false,
+    projectId = "",
+    project_id: projectIdSnake = "",
     soundAssessment = null,
   } = {}) {
     const normalizedDecision = String(decision || "").trim().toLowerCase();
@@ -3346,6 +3519,7 @@ export class CreatorApi {
     }
     const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
     const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     const safeSoundAssessment = normalizeGeneratedVideoSoundAssessment(
       soundAssessment,
       { required: false },
@@ -3362,9 +3536,17 @@ export class CreatorApi {
       resolved_recommendation_codes: safeResolvedCodes,
       risk_acknowledgements: safeRiskAcknowledgements,
       media_watched_confirmed: true,
+      project_id: normalizedProjectId,
       ...(safeSoundAssessment
         ? { sound_assessment: safeSoundAssessment }
         : {}),
+    });
+  }
+
+  restoreProjectPlacement(reviewId, { projectId = "", project_id: projectIdSnake = "" } = {}) {
+    return this.mutate(RPC.restoreProjectPlacement, {
+      review_id: this.requireContentReviewId(reviewId),
+      project_id: requiredProjectId(projectIdSnake || projectId),
     });
   }
 
@@ -3372,6 +3554,8 @@ export class CreatorApi {
     riskAcknowledgements = [],
     resolvedRecommendationCodes = [],
     mediaWatchedConfirmed = false,
+    projectId = "",
+    project_id: projectIdSnake = "",
   } = {}) {
     const normalizedComment = String(comment || "").trim();
     const productCategory = String(context?.productCategory || "").trim().toLowerCase();
@@ -3410,6 +3594,7 @@ export class CreatorApi {
     }
     const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
     const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     return this.mutate(RPC.approveGeneratedPhotoWithContext, {
       review_id: this.requireContentReviewId(reviewId),
       reason: normalizedComment,
@@ -3429,6 +3614,7 @@ export class CreatorApi {
       rkn_registered: context?.rknRegistered === true,
       risk_acknowledgements: safeRiskAcknowledgements,
       resolved_recommendation_codes: safeResolvedCodes,
+      project_id: normalizedProjectId,
     });
   }
 
@@ -3436,6 +3622,8 @@ export class CreatorApi {
     riskAcknowledgements = [],
     resolvedRecommendationCodes = [],
     mediaWatchedConfirmed = false,
+    projectId = "",
+    project_id: projectIdSnake = "",
     soundAssessment = null,
   } = {}) {
     const normalizedComment = String(comment || "").trim();
@@ -3476,6 +3664,7 @@ export class CreatorApi {
     }
     const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
     const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     const safeSoundAssessment = normalizeGeneratedVideoSoundAssessment(
       soundAssessment,
       { required: true },
@@ -3500,6 +3689,7 @@ export class CreatorApi {
       rkn_registered: context?.rknRegistered === true,
       risk_acknowledgements: safeRiskAcknowledgements,
       resolved_recommendation_codes: safeResolvedCodes,
+      project_id: normalizedProjectId,
       sound_assessment: safeSoundAssessment,
     });
   }
@@ -3556,6 +3746,9 @@ export class CreatorApi {
   }
 
   createMockBatch(batch) {
+    const projectId = requiredProjectId(batch?.project_id ?? batch?.projectId);
+    const batchPayload = { ...(batch || {}) };
+    delete batchPayload.projectId;
     const count = Number(batch?.count);
     if (!Number.isInteger(count) || count < 1 || count > 50) {
       throw new CreatorApiError("За один раз можно создать от 1 до 50 тестовых вариантов.", {
@@ -3583,7 +3776,8 @@ export class CreatorApi {
       });
     }
     return this.mutate(RPC.createMockBatch, {
-      ...batch,
+      ...batchPayload,
+      project_id: projectId,
       mode: "mock",
       allow_real_spend: false,
       spend_confirmation: "MOCK_ONLY",
@@ -3591,6 +3785,9 @@ export class CreatorApi {
   }
 
   startRealGeneration(batch) {
+    const projectId = requiredProjectId(batch?.project_id ?? batch?.projectId);
+    const batchPayload = { ...(batch || {}) };
+    delete batchPayload.projectId;
     if (this.config.REAL_GENERATION_ENABLED !== true) {
       throw new CreatorApiError("Платная генерация выключена в конфигурации портала.", {
         code: "real_generation_is_disabled",
@@ -3729,7 +3926,8 @@ export class CreatorApi {
     }
 
     return this.invokeRealGeneration("start", {
-      ...batch,
+      ...batchPayload,
+      project_id: projectId,
       generation_spec_context: generationSpecContext,
       campaign_id: campaignId,
       count: 1,
@@ -3758,14 +3956,21 @@ export class CreatorApi {
     });
   }
 
-  realGenerationStatus(jobId) {
+  realGenerationStatus(jobId, {
+    projectId = "",
+    project_id: projectIdSnake = "",
+  } = {}) {
     const normalizedJobId = String(jobId || "").trim();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedJobId)) {
       throw new CreatorApiError("Не удалось определить платную задачу. Обновите раздел.", {
         code: "generation_job_id_invalid",
       });
     }
-    return this.invokeRealGeneration("status", { job_id: normalizedJobId });
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    return this.invokeRealGeneration("status", {
+      job_id: normalizedJobId,
+      project_id: normalizedProjectId,
+    });
   }
 
   reconcileRealGeneration(jobId, details = {}) {
@@ -3776,6 +3981,7 @@ export class CreatorApi {
     const evidenceReference = String(details.evidence_reference || "").trim();
     const reason = String(details.reason || "").trim();
     const providerTaskId = String(details.provider_task_id || "").trim();
+    const projectId = requiredProjectId(details.project_id ?? details.projectId);
     const attachExistingTask = resolution === "attach_existing_task";
     const confirmNoSubmission = resolution === "confirm_no_submission";
 
@@ -3810,6 +4016,7 @@ export class CreatorApi {
 
     return this.invokeRealGeneration("reconcile", {
       job_id: normalizedJobId,
+      project_id: projectId,
       incident_id: incidentId,
       resolution,
       evidence_reference: evidenceReference,
@@ -3915,16 +4122,22 @@ export class CreatorApi {
   }
 
   recordMetric(snapshot) {
+    const projectId = requiredProjectId(snapshot?.project_id ?? snapshot?.projectId);
+    const snapshotPayload = { ...(snapshot || {}) };
+    delete snapshotPayload.projectId;
     return this.mutate(RPC.recordMetric, {
-      ...snapshot,
+      ...snapshotPayload,
+      project_id: projectId,
       source: "manual",
     });
   }
 
-  configureTrackingLink(placementId, targetUrl) {
+  configureTrackingLink(placementId, targetUrl, { projectId = "", project_id: projectIdSnake = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     return this.mutate(RPC.configureTrackingLink, {
       placement_id: placementId,
       target_url: targetUrl,
+      project_id: normalizedProjectId,
     });
   }
 
@@ -3933,26 +4146,39 @@ export class CreatorApi {
   }
 
   decidePayout(payoutId, decision, details = {}) {
+    const projectId = requiredProjectId(details?.project_id ?? details?.projectId);
+    const payload = { ...(details || {}) };
+    delete payload.projectId;
     return this.mutate(RPC.decidePayout, {
       payout_id: payoutId,
       decision,
-      ...details,
+      ...payload,
+      project_id: projectId,
     });
   }
 
   confirmPlacement(taskId, finalUrl, complianceAck) {
+    const projectScope = arguments[3] && typeof arguments[3] === "object"
+      ? arguments[3]
+      : {};
+    const normalizedProjectId = requiredProjectId(
+      projectScope.project_id ?? projectScope.projectId,
+    );
     return this.mutate(RPC.confirmPlacement, {
       task_id: taskId,
       final_url: finalUrl,
       compliance_ack: complianceAck === true,
+      project_id: normalizedProjectId,
     });
   }
 
-  transitionTask(taskId, status, result = {}) {
+  transitionTask(taskId, status, result = {}, { projectId = "", project_id: projectIdSnake = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
     return this.mutate(RPC.transitionTask, {
       task_id: taskId,
       status,
       result,
+      project_id: normalizedProjectId,
     });
   }
 
@@ -3962,7 +4188,14 @@ export class CreatorApi {
 
   registerMedia(media) {
     const kind = String(media?.kind || "").trim();
-    const payload = { ...media, kind };
+    const projectId = requiredProjectId(media?.project_id ?? media?.projectId);
+    const mediaPayload = { ...(media || {}) };
+    delete mediaPayload.projectId;
+    const payload = {
+      ...mediaPayload,
+      kind,
+      project_id: projectId,
+    };
     if (mediaKindRequiresProduct(kind)) {
       const sku = String(media?.sku || "").trim();
       const productName = String(media?.product_name || "").trim();
@@ -4955,6 +5188,27 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     String(value || ""),
   );
+}
+
+function optionalProjectId(value) {
+  const projectId = String(value || "").trim().toLowerCase();
+  if (!projectId) return "";
+  if (!isUuid(projectId)) {
+    throw new CreatorApiError("Не удалось определить активный проект. Вернитесь на рабочий стол и откройте проект снова.", {
+      code: "project_id_invalid",
+    });
+  }
+  return projectId;
+}
+
+function requiredProjectId(value) {
+  const projectId = optionalProjectId(value);
+  if (!projectId) {
+    throw new CreatorApiError("Сначала выберите проект. Исследование, ТЗ и задачи не могут быть общей очередью компании.", {
+      code: "project_id_required",
+    });
+  }
+  return projectId;
 }
 
 function validContentReviewTechnicalMetrics(value) {

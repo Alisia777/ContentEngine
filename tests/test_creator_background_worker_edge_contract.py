@@ -57,12 +57,24 @@ def test_background_worker_is_named_secret_authenticated_and_bounded() -> None:
 def test_generation_worker_only_retrieves_existing_runway_tasks() -> None:
     source = _text(WORKER)
 
+    generation_query = source.split("const generationQuery", 1)[1].split(
+        "const researchQuery", 1
+    )[0]
+    generation_candidates = source.split(
+        "const generationCandidates", 1
+    )[1].split("const staleStartingRows", 1)[0]
     assert '.in("status", ["starting", "submitted", "processing"])' in source
+    assert (
+        '"id, organization_id, project_id, requested_by, status, mode, '
+        'provider, provider_next_poll_at, updated_at"'
+    ) in generation_query
+    assert "isUuid(row.project_id)" in generation_candidates
     assert "reconcileStaleStartingJobs" in source
     assert 'reason_code: "provider_create_state_stale"' in source
     assert 'row.status === "submitted" || row.status === "processing"' in source
     generation_target = source.split('kind: "generation",', 1)[1].split("})),", 1)[0]
     assert 'action: "status",' in generation_target
+    assert 'project_id: row.project_id as string' in generation_target
     assert "creator-generate" in source
     assert "image_to_video" not in source
     assert '"action": "start"' not in source
@@ -85,8 +97,20 @@ def test_worker_dispatches_due_durable_research_and_review_queues() -> None:
     assert '.eq("status", "queued")' in source
     assert "creator-product-research" in source
     assert "creator-content-review" in source
-    assert 'body: { action: "analyze", research_id: row.id }' in source
-    assert 'body: { action: "analyze", review_id: row.id }' in source
+    assert 'research_id: row.id' in source
+    assert 'project_id: row.project_id as string' in source
+    assert '.select("id, organization_id, project_id, created_by, status, created_at")' in source
+    assert (
+        '"id, organization_id, project_id, requested_by, media_object_id, '
+        'status, created_at, evidence_set_id, next_attempt_at"'
+    ) in source
+    assert "isQueueRow(row, true) && isUuid(row.project_id)" in source
+    review_target_start = source.index('kind: "review"')
+    review_target = source[
+        review_target_start : source.index("organizationId", review_target_start)
+    ]
+    assert 'review_id: row.id' in review_target
+    assert 'project_id: row.project_id as string' in review_target
     assert "IMAGE_MIME_TYPES.has(media.mime_type)" in source
     assert 'media.mime_type === "video/mp4"' in source
     assert "isUuid(row.evidence_set_id)" in source

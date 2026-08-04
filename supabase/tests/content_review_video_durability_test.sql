@@ -115,6 +115,22 @@ values (
   'owner', 'active'
 );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, kind, status, position,
+  created_by, updated_by
+)
+values (
+  'a1100000-0000-4000-8000-000000000101',
+  'a1100000-0000-4000-8000-000000000001',
+  null,
+  'Durable review project',
+  'project',
+  'active',
+  1024,
+  'a1000000-0000-4000-8000-000000000001',
+  'a1000000-0000-4000-8000-000000000001'
+);
+
 with inserted_course_attempts as (
   insert into content_factory.training_attempts (
     organization_id, profile_id, module_code, status, score,
@@ -173,7 +189,7 @@ select
 from inserted_final_attempt attempt;
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, bucket_id, object_name,
+  id, organization_id, owner_id, project_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 values
@@ -181,6 +197,7 @@ values
     'a1200000-0000-4000-8000-000000000001',
     'a1100000-0000-4000-8000-000000000001',
     'a1000000-0000-4000-8000-000000000001',
+    'a1100000-0000-4000-8000-000000000101',
     'contentengine-private',
     'a1100000-0000-4000-8000-000000000001/a1000000-0000-4000-8000-000000000001/durable/source.mp4',
     'video/mp4', 8192, repeat('a', 64), 'ready',
@@ -191,6 +208,7 @@ values
     'a1200000-0000-4000-8000-000000000002',
     'a1100000-0000-4000-8000-000000000001',
     'a1000000-0000-4000-8000-000000000001',
+    'a1100000-0000-4000-8000-000000000101',
     'contentengine-private',
     'a1100000-0000-4000-8000-000000000001/a1000000-0000-4000-8000-000000000001/durable/retry.webp',
     'image/webp', 2048, repeat('b', 64), 'ready',
@@ -201,6 +219,7 @@ values
     'a1200000-0000-4000-8000-000000000003',
     'a1100000-0000-4000-8000-000000000001',
     'a1000000-0000-4000-8000-000000000001',
+    'a1100000-0000-4000-8000-000000000101',
     'contentengine-private',
     'a1100000-0000-4000-8000-000000000001/a1000000-0000-4000-8000-000000000001/durable/unknown.webp',
     'image/webp', 2048, repeat('c', 64), 'ready',
@@ -218,6 +237,7 @@ select set_config(
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', 'a1100000-0000-4000-8000-000000000001',
+    'project_id', 'a1100000-0000-4000-8000-000000000101',
     'idempotency_key', 'durable-video-missing-evidence',
     'media_id', 'a1200000-0000-4000-8000-000000000001',
     'platform', 'vk',
@@ -240,6 +260,7 @@ create temporary table durable_review_context (
 insert into durable_review_context (prepare_result)
 select public.creator_prepare_content_review_evidence(jsonb_build_object(
   'organization_id', 'a1100000-0000-4000-8000-000000000001',
+  'project_id', 'a1100000-0000-4000-8000-000000000101',
   'idempotency_key', 'durable-evidence-prepare-0001',
   'media_id', 'a1200000-0000-4000-8000-000000000001',
   'frame_count', 5
@@ -279,6 +300,7 @@ update durable_review_context
 set commit_result = public.creator_commit_content_review_evidence(
   jsonb_build_object(
     'organization_id', 'a1100000-0000-4000-8000-000000000001',
+    'project_id', 'a1100000-0000-4000-8000-000000000101',
     'idempotency_key', 'durable-evidence-commit-0001',
     'evidence_id', prepare_result ->> 'evidence_id',
     'technical_metrics', jsonb_build_object(
@@ -370,6 +392,7 @@ select ok(
 select throws_ok(
   $$select public.creator_start_content_review(jsonb_build_object(
     'organization_id', 'a1100000-0000-4000-8000-000000000001',
+    'project_id', 'a1100000-0000-4000-8000-000000000101',
     'idempotency_key', 'durable-video-metrics-mismatch',
     'media_id', 'a1200000-0000-4000-8000-000000000001',
     'evidence_id', prepare_result ->> 'evidence_id',
@@ -390,7 +413,7 @@ where evidence.id = (
 );
 
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, ruleset_version, request_hash,
   idempotency_key, evidence_set_id
 )
@@ -399,6 +422,7 @@ values (
   'a1100000-0000-4000-8000-000000000001',
   'a1200000-0000-4000-8000-000000000001',
   'a1000000-0000-4000-8000-000000000001',
+  'a1100000-0000-4000-8000-000000000101',
   'queued', repeat('a', 64),
   '{"platform":"vk","product_category":"other"}'::jsonb,
   'ugc-rules-2026-07', repeat('d', 64),
@@ -520,7 +544,7 @@ select is(
 
 -- A pre-dispatch lease may retry, but a post-dispatch lease is unknown/dead.
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, ruleset_version, request_hash,
   idempotency_key, attempt_count, next_attempt_at,
   started_at, lease_expires_at
@@ -531,6 +555,7 @@ values
     'a1100000-0000-4000-8000-000000000001',
     'a1200000-0000-4000-8000-000000000002',
     'a1000000-0000-4000-8000-000000000001',
+    'a1100000-0000-4000-8000-000000000101',
     'queued', repeat('b', 64), '{"platform":"vk"}'::jsonb,
     'ugc-rules-2026-07', repeat('e', 64),
     'durable-review-retry-run', 1, now(), null, null
@@ -540,6 +565,7 @@ values
     'a1100000-0000-4000-8000-000000000001',
     'a1200000-0000-4000-8000-000000000003',
     'a1000000-0000-4000-8000-000000000001',
+    'a1100000-0000-4000-8000-000000000101',
     'processing', repeat('c', 64), '{"platform":"vk"}'::jsonb,
     'ugc-rules-2026-07', repeat('f', 64),
     'durable-review-unknown-run', 1, null,

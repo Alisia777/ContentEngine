@@ -117,6 +117,14 @@
           <button type="submit" data-review-decision-submit disabled>Decide</button>
         </form>
       `);
+
+      const securityHost = document.createElement("div");
+      patchWorkspaceContent(securityHost, `
+        <script>window.__workspacePatchXss = true<\/script>
+        <img src="javascript:alert(1)" srcset="javascript:alert(2) 1x" onerror="alert(3)" />
+        <a href="javascript:alert(4)" target="_blank">unsafe</a>
+        <div style="background:url(javascript:alert(5))">unsafe style</div>
+      `);
       const changedReviewForm = reviewHost.querySelector("form");
 
       const keys = [...container.querySelectorAll("[data-workspace-item-key]")]
@@ -145,6 +153,14 @@
         updatedText: alpha.querySelector("strong")?.textContent === "Alpha updated",
         removedStaleNode: !container.querySelector('[data-workspace-item-key="removed"]'),
         onePage: container.querySelectorAll(".page-wrap").length === 1,
+        unsafeScriptNotExecuted: window.__workspacePatchXss !== true,
+        unsafeScriptRemoved: securityHost.querySelector("script") === null,
+        unsafeEventsRemoved: securityHost.querySelector("[onerror]") === null,
+        unsafeUrlsRemoved: securityHost.querySelector("img")?.hasAttribute("src") === false
+          && securityHost.querySelector("a")?.hasAttribute("href") === false,
+        unsafeSrcsetRemoved: securityHost.querySelector("img")?.hasAttribute("srcset") === false,
+        unsafeStyleRemoved: securityHost.querySelector("[style]") === null,
+        blankTargetProtected: securityHost.querySelector("a")?.rel === "noopener noreferrer",
       };
       const passed = Object.values(checks).every(Boolean);
       result.dataset.passed = String(passed);

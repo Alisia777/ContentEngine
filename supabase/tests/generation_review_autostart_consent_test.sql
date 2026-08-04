@@ -80,6 +80,9 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) like '%call_project_scoped_v47%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_project_v47(jsonb)'::regprocedure
   ) like '%creator_start_real_generation_pre_generation_spec_v15%'
   and pg_get_functiondef(
     'content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb)'::regprocedure
@@ -120,10 +123,10 @@ select ok(
 
 select ok(
   pg_get_functiondef(
-    'public.creator_real_generation_status(jsonb)'::regprocedure
+    'content_factory_private.creator_real_generation_status_pre_project_v47(jsonb)'::regprocedure
   ) like '%''{job,review_autostart_confirmed}''%'
   and pg_get_functiondef(
-    'public.creator_real_generation_status(jsonb)'::regprocedure
+    'content_factory_private.creator_real_generation_status_pre_project_v47(jsonb)'::regprocedure
   ) not like '%confirmed_by%',
   'status returns the bounded consent flag without actor identity'
 );

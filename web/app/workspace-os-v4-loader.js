@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.7 route loader.
+ * ContentEngine Desktop v4.11 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,21 +7,23 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.9";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.11";
 
-const BUILD = "20260804.os4.9";
+const BUILD = "20260804.os4.11";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
 let routeEpoch = 0;
 let lastScheduledActionKey = "";
+let corePromise = null;
+let retryPromise = null;
 
 window.CONTENTENGINE_DESKTOP_V4 = true;
 
 const ROUTE_ASSETS = Object.freeze({
   aiLearning: Object.freeze({
     match: (route) => route === "/workspace/ai",
-    styles: ["ai-learning-control-room.css?v=20260804.4"],
+    styles: ["ai-learning-control-room.css?v=20260804.os4.11"],
     modules: [],
   }),
   finder: Object.freeze({
@@ -39,6 +41,11 @@ const ROUTE_ASSETS = Object.freeze({
     styles: [`workspace-os-v4-review-guided.css?v=${BUILD}`],
     modules: [`workspace-os-v4-review-guided.js?v=${BUILD}`],
   }),
+  operations: Object.freeze({
+    match: (route) => ["/workspace/tasks", "/workspace/review", "/workspace/placement", "/workspace/stats"].includes(route),
+    styles: [`workspace-os-v4-operations.css?v=${BUILD}`],
+    modules: [],
+  }),
 });
 
 function routePath() {
@@ -54,12 +61,14 @@ function isManagedRoute(route = routePath()) {
 
 function setLoading(active, route = routePath()) {
   if (!isManagedRoute(route)) {
+    clearRouteFailure();
     delete document.documentElement.dataset.ceV4Loading;
     delete document.documentElement.dataset.ceV4Ready;
     delete document.documentElement.dataset.ceV4Failed;
     return;
   }
   if (active) {
+    clearRouteFailure();
     const entering = document.querySelector("#main-content.route-enter");
     entering?.querySelector("#workspace-content")?.classList.remove("ce-v4-content-reveal");
     document.documentElement.dataset.ceV4Loading = "true";
@@ -94,11 +103,46 @@ function armRouteEnterCleanup(route, actionKey, epoch) {
   timeout = window.setTimeout(finish, 450);
 }
 
-function setFailed(route = routePath()) {
-  if (!isManagedRoute(route)) return;
+function clearRouteFailure() {
+  document.querySelectorAll("[data-route-loader-failure]").forEach((node) => node.remove());
+}
+
+function renderRouteFailure(route = routePath()) {
+  clearRouteFailure();
+  const host = document.querySelector("#main-content") || document.querySelector("#workspace-content");
+  if (!(host instanceof HTMLElement)) return null;
+  const failure = document.createElement("section");
+  failure.className = "ce-v4-route-load-failure card card-pad";
+  failure.dataset.routeLoaderFailure = "true";
+  failure.dataset.route = route;
+  failure.setAttribute("role", "alert");
+  failure.setAttribute("aria-live", "assertive");
+  failure.tabIndex = -1;
+
+  const title = document.createElement("h2");
+  title.textContent = "Не удалось открыть раздел";
+  const description = document.createElement("p");
+  description.textContent = "Рабочий стол сохранён. Проверьте соединение и повторите попытку.";
+  const retryButton = document.createElement("button");
+  retryButton.type = "button";
+  retryButton.className = "btn btn-primary";
+  retryButton.dataset.routeLoaderRetry = "true";
+  retryButton.textContent = "Повторить";
+  failure.append(title, description, retryButton);
+  host.prepend(failure);
+  window.requestAnimationFrame(() => failure.focus({ preventScroll: true }));
+  return failure;
+}
+
+function setFailed(route = routePath(), error = null) {
+  if (!isManagedRoute(route) || route !== routePath()) return;
   delete document.documentElement.dataset.ceV4Loading;
   delete document.documentElement.dataset.ceV4Ready;
   document.documentElement.dataset.ceV4Failed = "true";
+  renderRouteFailure(route);
+  window.dispatchEvent(new CustomEvent("contentengine:v4-route-failed", {
+    detail: Object.freeze({ route, build: BUILD, retryable: true, reason: error ? "asset-load" : "unknown" }),
+  }));
 }
 
 function absoluteAsset(relative) {
@@ -142,6 +186,7 @@ function ensureModule(relative) {
 async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) {
   const epoch = ++routeEpoch;
   setLoading(true, route);
+  ensureCore();
   await corePromise;
   const matches = Object.values(ROUTE_ASSETS).filter((entry) => entry.match(route));
   const styles = [...new Set(matches.flatMap((entry) => entry.styles))];
@@ -162,6 +207,54 @@ async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) 
   return true;
 }
 
+function ensureCore() {
+  if (corePromise) return corePromise;
+  corePromise = (async () => {
+    await Promise.all([
+      ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`),
+      ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`),
+      ensureStyle(`workspace-os-v4-flow.css?v=${BUILD}`),
+      ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`),
+      ensureStyle(`workspace-os-v4-motion.css?v=${BUILD}`),
+    ]);
+    await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
+    await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
+    await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
+  })().catch((error) => {
+    corePromise = null;
+    throw error;
+  });
+  return corePromise;
+}
+
+function retry() {
+  if (retryPromise) return retryPromise;
+  const route = routePath();
+  const actionKey = workspaceActionKey();
+  const control = document.querySelector("[data-route-loader-retry]");
+  if (control instanceof HTMLButtonElement) {
+    control.disabled = true;
+    control.textContent = "Повторяем…";
+  }
+  retryPromise = loadRoute(route, actionKey)
+    .catch((error) => {
+      setFailed(route, error);
+      console.error("ContentEngine Desktop v4.10 route retry failed", error);
+      return false;
+    })
+    .finally(() => {
+      retryPromise = null;
+    });
+  return retryPromise;
+}
+
+function handleRouteLoaderRetry(event) {
+  const target = event.target instanceof Element ? event.target.closest("[data-route-loader-retry]") : null;
+  if (!target) return;
+  event.preventDefault();
+  void retry();
+}
+
 function schedule() {
   const route = routePath();
   const actionKey = workspaceActionKey();
@@ -178,27 +271,19 @@ function schedule() {
   queued = true;
   window.queueMicrotask(() => {
     queued = false;
-    void loadRoute(routePath(), workspaceActionKey()).catch((error) => {
-      setFailed(routePath());
-      console.error("ContentEngine Desktop v4.7 route failed to start", error);
+    const scheduledRoute = routePath();
+    const scheduledActionKey = workspaceActionKey();
+    void loadRoute(scheduledRoute, scheduledActionKey).catch((error) => {
+      if (scheduledRoute === routePath() && scheduledActionKey === workspaceActionKey()) {
+        setFailed(scheduledRoute, error);
+      }
+      console.error("ContentEngine Desktop v4.10 route failed to start", error);
     });
   });
 }
 
-const corePromise = (async () => {
-  await Promise.all([
-    ensureStyle(`workspace-os-v4-polish.css?v=${BUILD}`),
-    ensureStyle(`workspace-os-v4-context-trash.css?v=${BUILD}`),
-    ensureStyle(`workspace-os-v4-flow.css?v=${BUILD}`),
-    ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`),
-    ensureStyle(`workspace-os-v4-motion.css?v=${BUILD}`),
-  ]);
-  await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
-  await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
-  await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
-})();
-
 window.addEventListener("hashchange", schedule, { passive: true });
+document.addEventListener("click", handleRouteLoaderRetry);
 schedule();
 
 window.ContentEngineDesktopV4Loader = Object.freeze({
@@ -206,4 +291,5 @@ window.ContentEngineDesktopV4Loader = Object.freeze({
   route: routePath,
   actionKey: workspaceActionKey,
   load: () => loadRoute(),
+  retry: () => retry(),
 });

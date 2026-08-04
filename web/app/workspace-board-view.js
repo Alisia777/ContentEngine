@@ -149,9 +149,15 @@ function normalizeFolder(folder, index, canManageFolders = false) {
   const id = normalizedId(source.id ?? source.public_id ?? source.folder_id);
   if (!id || RESERVED_FOLDER_IDS.has(id)) return null;
   const name = safeText(source.name ?? source.title ?? source.label, 120) || `Папка ${index + 1}`;
+  const parentId = normalizedFolderReference(source.parent_id ?? source.parentId);
+  const rawKind = safeText(source.kind ?? source.folder_kind, 20).toLowerCase();
+  const systemRole = safeText(source.system_role ?? source.systemRole, 40).toLowerCase();
   return {
     id,
-    parentId: normalizedFolderReference(source.parent_id ?? source.parentId),
+    parentId,
+    kind: rawKind === "project" || (!rawKind && !parentId) ? "project" : "folder",
+    projectId: normalizedFolderReference(source.project_id ?? source.projectId),
+    systemRole,
     name,
     status: normalizedStatus(source.status, "active"),
     version: Math.max(1, Math.trunc(finiteNumber(source.version, 1))),
@@ -168,13 +174,13 @@ function normalizeFolder(folder, index, canManageFolders = false) {
       ),
     ),
     sortOrder: finiteNumber(source.position, source.sort_order, source.sortOrder, index),
-    editable: source.can_edit === true
+    editable: !systemRole && (source.can_edit === true
       || source.editable === true
       || (
         source.can_edit === undefined
         && source.editable === undefined
         && canManageFolders
-      ),
+      )),
     createdAt: safeText(source.created_at ?? source.createdAt, 80),
     updatedAt: safeText(source.updated_at ?? source.updatedAt, 80),
   };
@@ -286,7 +292,7 @@ function smartFoldersForItems(items) {
 
 function normalizeFolderParents(folders) {
   const byId = new Map(folders.map((folder) => [folder.id, folder]));
-  return folders.map((folder) => {
+  const normalized = folders.map((folder) => {
     if (!folder.parentId || !byId.has(folder.parentId) || folder.parentId === folder.id) {
       return { ...folder, parentId: null };
     }
@@ -298,6 +304,19 @@ function normalizeFolderParents(folders) {
       parentId = byId.get(parentId)?.parentId || null;
     }
     return folder;
+  });
+  const normalizedById = new Map(normalized.map((folder) => [folder.id, folder]));
+  return normalized.map((folder) => {
+    if (folder.kind === "project") return { ...folder, projectId: folder.id };
+    let cursor = folder;
+    let depth = 0;
+    while (cursor?.parentId && depth < 12) {
+      cursor = normalizedById.get(cursor.parentId);
+      if (!cursor) break;
+      if (cursor.kind === "project") return { ...folder, projectId: cursor.id };
+      depth += 1;
+    }
+    return { ...folder, projectId: folder.projectId || null };
   });
 }
 
@@ -510,6 +529,47 @@ function filteredItems(board, folderId, query, entityType) {
   });
 }
 
+function folderBreadcrumbs(board, selectedFolderId) {
+  if (selectedFolderId === "all") return [{ id: "all", name: "Все файлы", projectId: "" }];
+  if (selectedFolderId === "root") return [{ id: "root", name: "Без папки", projectId: "" }];
+  const selected = board.folders.find((folder) => folder.id === selectedFolderId);
+  if (!selected) return [{ id: "all", name: "Все файлы", projectId: "" }];
+  if (selected.smart === true) return [{ id: selected.id, name: selected.name, projectId: "" }];
+
+  const byId = new Map(board.folders.map((folder) => [folder.id, folder]));
+  const lineage = [];
+  const visited = new Set();
+  let cursor = selected;
+  while (cursor && !visited.has(cursor.id) && lineage.length < 12) {
+    visited.add(cursor.id);
+    lineage.unshift({ id: cursor.id, name: cursor.name, projectId: cursor.projectId || "" });
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : null;
+  }
+  return lineage;
+}
+
+function folderBreadcrumbMarkup(board, selectedFolderId, busy) {
+  const breadcrumbs = folderBreadcrumbs(board, selectedFolderId);
+  return `
+    <nav class="workspace-board__breadcrumb" aria-label="Путь к папке">
+      <ol>
+        ${breadcrumbs.map((folder, index) => {
+          const current = index === breadcrumbs.length - 1;
+          return `
+            <li>
+              ${index ? '<span aria-hidden="true">›</span>' : ""}
+              <button type="button"
+                      data-action="select-workspace-folder"
+                      data-folder-id="${escapeHtml(folder.id)}"
+                      data-project-id="${escapeHtml(folder.projectId)}"
+                      ${current ? 'aria-current="page"' : ""}
+                      ${busy ? "disabled" : ""}>${escapeHtml(folder.name)}</button>
+            </li>`;
+        }).join("")}
+      </ol>
+    </nav>`;
+}
+
 function folderTreeMarkup(board, selectedFolderId, busy) {
   const children = new Map();
   const smartFolders = board.folders.filter((folder) => folder.smart === true);
@@ -531,9 +591,21 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
         <li class="workspace-board__folder-row ${selected ? "is-selected" : ""}"
             data-workspace-drop-folder
             data-folder-id="${escapeHtml(folder.id)}"
+            data-parent-folder-id="${escapeHtml(folder.parentId || "root")}"
+            data-project-id="${escapeHtml(folder.projectId || "")}"
+            data-folder-kind="${escapeHtml(folder.kind || "folder")}"
+            data-system-role="${escapeHtml(folder.systemRole || "")}"
+            data-has-children="${nested ? "true" : "false"}"
             data-folder-version="${folder.version}"
             data-folder-color="${escapeHtml(folder.colorToken)}"
             style="--workspace-folder-depth:${depth}">
+          ${nested ? `
+            <button class="workspace-board__folder-toggle"
+                    type="button"
+                    data-folder-toggle="${escapeHtml(folder.id)}"
+                    aria-controls="workspace-folder-branch-${escapeHtml(domToken(folder.id))}"
+                    aria-expanded="true"
+                    aria-label="Свернуть папку «${escapeHtml(folder.name)}»">⌄</button>` : ""}
           <button class="workspace-board__folder-button"
                   type="button"
                   data-action="select-workspace-folder"
@@ -550,7 +622,9 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
                   aria-label="Действия с папкой «${escapeHtml(folder.name)}»"
                   title="Действия с папкой"
                   ${busy ? "disabled" : ""}>⋯</button>
-          ${nested ? `<ul class="workspace-board__folder-branch">${nested}</ul>` : ""}
+          ${nested ? `<ul id="workspace-folder-branch-${escapeHtml(domToken(folder.id))}"
+                           class="workspace-board__folder-branch"
+                           data-folder-branch="${escapeHtml(folder.id)}">${nested}</ul>` : ""}
         </li>`;
     }).join("");
   };
@@ -641,11 +715,16 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
   const confirmingArchive = Boolean(
     selected?.editable && String(pendingArchiveFolderId || "") === selected.id,
   );
+  const selectedIsProject = selected?.kind === "project";
+  const archiveLabel = selectedIsProject ? "Архивировать проект" : "Архивировать папку";
+  const archiveHint = selectedIsProject
+    ? "Проект можно архивировать, когда в нём нет материалов, задач и публикаций."
+    : "Папка должна быть пустой.";
   return `
     <div class="workspace-board__folder-management">
       <form id="workspace-folder-create-form" class="workspace-board__compact-form">
         <input type="hidden" name="parent_folder_id" value="${escapeHtml(parentFolderId)}" />
-        <label for="workspace-folder-name">${selected ? "Новая папка" : "Новый проект"}</label>
+        <label for="workspace-folder-name">Новая папка</label>
         <div>
           <input id="workspace-folder-name"
                  name="folder_name"
@@ -653,12 +732,12 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
                  minlength="1"
                  maxlength="120"
                  autocomplete="off"
-                 placeholder="${selected ? "Внутри выбранной папки" : "Например: Bombbar · Август"}"
+                  placeholder="${selected ? "Внутри выбранной папки" : "Например: Материалы августа"}"
                  ${busy ? "disabled" : ""} />
           <button class="workspace-board__icon-button"
                   type="submit"
-                  aria-label="${selected ? "Создать папку" : "Создать проект"}"
-                  title="${selected ? "Создать папку" : "Создать проект"}"
+                  aria-label="Создать папку"
+                  title="Создать папку"
                   ${busy ? "disabled" : ""}>+</button>
         </div>
       </form>
@@ -667,7 +746,7 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
             ${selected && selected.editable ? "" : 'hidden aria-hidden="true"'}>
           <input type="hidden" name="folder_id" value="${escapeHtml(selected?.id || "")}" />
           <input type="hidden" name="folder_version" value="${selected?.version || 1}" />
-          <label for="workspace-folder-edit-name">Название выбранной папки</label>
+           <label for="workspace-folder-edit-name">${selectedIsProject ? "Название проекта" : "Название папки"}</label>
           <div>
             <input id="workspace-folder-edit-name"
                    name="folder_name"
@@ -679,8 +758,8 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
                    ${busy || !selected?.editable ? "disabled" : ""} />
             <button class="workspace-board__icon-button"
                     type="submit"
-                    aria-label="Сохранить название папки"
-                    title="Сохранить название папки"
+                     aria-label="Сохранить название"
+                     title="Сохранить название"
                     ${busy || !selected?.editable ? "disabled" : ""}>✓</button>
           </div>
           <button class="workspace-board__text-action workspace-board__text-action--danger"
@@ -688,11 +767,11 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
                   data-action="archive-workspace-folder"
                   data-folder-id="${escapeHtml(selected?.id || "")}"
                   data-folder-version="${selected?.version || 1}"
-                  ${busy || !selected?.editable ? "disabled" : ""}>Архивировать папку</button>
+                   ${busy || !selected?.editable ? "disabled" : ""}>${escapeHtml(archiveLabel)}</button>
           ${confirmingArchive ? `
             <div class="workspace-board__inline-confirm" role="group" aria-label="Подтверждение архивации папки">
               <strong>Архивировать «${escapeHtml(selected.name)}»?</strong>
-              <span>Папка должна быть пустой. Это действие не открывает отдельное окно.</span>
+               <span>${escapeHtml(archiveHint)} Это действие не открывает отдельное окно.</span>
               <div>
                 <button type="button" data-action="cancel-archive-workspace-folder">Отмена</button>
                 <button type="button"
@@ -763,7 +842,11 @@ function itemCardMarkup(item, selectedItemKey, busy) {
              data-workspace-item-key="${escapeHtml(item.key)}"
              data-entity-type="${escapeHtml(item.entityType)}"
              data-entity-id="${escapeHtml(item.id)}"
-             data-entity-kind="${escapeHtml(item.kind)}">
+             data-entity-kind="${escapeHtml(item.kind)}"
+             data-folder-id="${escapeHtml(item.folderId || "root")}"
+             data-selected="false"
+             role="option"
+             aria-selected="false">
       <button class="workspace-board__item-open"
               type="button"
               data-action="open-workspace-item"
@@ -784,6 +867,14 @@ function itemCardMarkup(item, selectedItemKey, busy) {
           ${escapeHtml(humanStatus(item.status))}
         </span>
       </button>
+      <button class="workspace-board__select-item"
+              type="button"
+              data-ce-v4-select-item
+              data-item-key="${escapeHtml(item.key)}"
+              title="Выбрать для группового действия"
+              aria-label="Выбрать «${escapeHtml(item.title)}»"
+              aria-pressed="false"
+              ${busy ? "disabled" : ""}><span aria-hidden="true">✓</span></button>
       <button class="workspace-board__context-trigger workspace-board__context-trigger--item"
               type="button"
               data-ce-v4-context-trigger="item"
@@ -955,6 +1046,7 @@ export function workspaceBoardMarkup(board, options = {}) {
           )}
         </aside>
         <section class="workspace-board__content" aria-labelledby="workspace-board-collection-title">
+          ${folderBreadcrumbMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
           ${filterMarkup(normalizedBoard, normalizedOptions, items.length, normalizedOptions.busy)}
           <div class="workspace-board__collection-head">
             <div>
@@ -967,7 +1059,10 @@ export function workspaceBoardMarkup(board, options = {}) {
             </div>
           </div>
           ${items.length ? `
-            <div class="workspace-board__grid" aria-label="Объекты папки">
+            <div class="workspace-board__grid"
+                 role="listbox"
+                 aria-label="Объекты папки"
+                 aria-multiselectable="true">
               ${visibleItems.map((item) => itemCardMarkup(
                 item,
                 normalizedOptions.selectedItemKey,

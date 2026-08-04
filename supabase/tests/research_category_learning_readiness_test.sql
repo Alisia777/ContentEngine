@@ -383,6 +383,11 @@ begin
     'c0100000-0000-4000-8000-000000000001', true
   );
   perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'contentengine.project_id',
+    'c0100000-0000-4000-8000-000000000007',
+    true
+  );
 end;
 $$;
 insert into content_factory.organizations (id, name, slug, status)
@@ -395,6 +400,24 @@ insert into content_factory.memberships (
 ) values (
   'c0100000-0000-4000-8000-000000000002',
   'c0100000-0000-4000-8000-000000000001', 'owner', 'active'
+);
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+) values (
+  'c0100000-0000-4000-8000-000000000007',
+  'c0100000-0000-4000-8000-000000000002', null,
+  'Category Readiness project', 'blue', 'project', null,
+  'active', 1024,
+  'c0100000-0000-4000-8000-000000000001',
+  'c0100000-0000-4000-8000-000000000001'
+), (
+  'c0100000-0000-4000-8000-000000000008',
+  'c0100000-0000-4000-8000-000000000002', null,
+  'Unrelated category project', 'violet', 'project', null,
+  'active', 2048,
+  'c0100000-0000-4000-8000-000000000001',
+  'c0100000-0000-4000-8000-000000000001'
 );
 insert into content_factory.training_access_waivers (
   organization_id, profile_id, previous_role, granted_role,
@@ -427,11 +450,12 @@ insert into content_factory.products (
   'c0100000-0000-4000-8000-000000000001'
 );
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 ) values (
   'c0100000-0000-4000-8000-000000000006',
   'c0100000-0000-4000-8000-000000000002',
+  'c0100000-0000-4000-8000-000000000007',
   'c0100000-0000-4000-8000-000000000001',
   'c0100000-0000-4000-8000-000000000003',
   'contentengine-private',
@@ -619,18 +643,41 @@ insert into content_factory.product_research_runs (
 create temporary table runtime_ai_market_scope_index on commit drop as
 select public.creator_ai_learning_market_scope_index(jsonb_build_object(
   'organization_id', 'c0100000-0000-4000-8000-000000000002',
+  'project_id', 'c0100000-0000-4000-8000-000000000007',
   'limit', 50
 )) value;
 select is(
   (select value ->> 'version' from runtime_ai_market_scope_index),
-  'ai-learning-market-scope-index-v1',
-  'the AI control room reads the dynamic market-scope contract'
+  'ai-learning-market-scope-index-v2',
+  'the AI control room reads the project-scoped dynamic market contract'
+);
+select is(
+  (select value ->> 'project_id' from runtime_ai_market_scope_index),
+  'c0100000-0000-4000-8000-000000000007',
+  'the AI market index preserves the exact requested workspace project'
 );
 select is(
   (select jsonb_array_length(value -> 'scopes')
    from runtime_ai_market_scope_index),
   1,
   'one current product binding creates one explicit AI market context'
+);
+select is(
+  (select value #>> '{scopes,0,project_id}'
+   from runtime_ai_market_scope_index),
+  'c0100000-0000-4000-8000-000000000007',
+  'each AI market scope is bound to its exact source-run project'
+);
+select is(
+  jsonb_array_length(
+    public.creator_ai_learning_market_scope_index(jsonb_build_object(
+      'organization_id', 'c0100000-0000-4000-8000-000000000002',
+      'project_id', 'c0100000-0000-4000-8000-000000000008',
+      'limit', 50
+    )) -> 'scopes'
+  ),
+  0,
+  'a different workspace project cannot see the bound research scope'
 );
 select is(
   (select value #>> '{scopes,0,run_id}'
@@ -852,6 +899,7 @@ update correction_generation_state state
 set start_result = public.creator_start_real_generation(
   jsonb_build_object(
     'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'project_id', 'c0100000-0000-4000-8000-000000000007',
     'campaign_id', (
       select campaign.id
       from content_factory.generation_campaigns campaign

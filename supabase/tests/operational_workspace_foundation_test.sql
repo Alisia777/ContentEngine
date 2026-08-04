@@ -343,6 +343,22 @@ values
     'owner', 'active'
   );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, kind, status, position,
+  created_by, updated_by
+)
+values (
+  '96100000-0000-4000-8000-000000000101',
+  '96100000-0000-4000-8000-000000000001',
+  null,
+  'Operational workspace project',
+  'project',
+  'active',
+  1024,
+  '96000000-0000-4000-8000-000000000001',
+  '96000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.generation_spend_policies (
   organization_id, paid_generation_enabled,
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
@@ -385,7 +401,7 @@ values
   );
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, owner_id, product_id, project_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 values (
@@ -393,6 +409,7 @@ values (
   '96100000-0000-4000-8000-000000000001',
   '96000000-0000-4000-8000-000000000001',
   '96200000-0000-4000-8000-000000000001',
+  '96100000-0000-4000-8000-000000000101',
   'contentengine-private',
   '96100000-0000-4000-8000-000000000001/96000000-0000-4000-8000-000000000001/ops/source.webp',
   'image/webp',
@@ -404,7 +421,7 @@ values (
 );
 
 insert into content_factory.content_review_runs (
-  id, organization_id, media_object_id, requested_by, status,
+  id, organization_id, media_object_id, requested_by, project_id, status,
   media_sha256_snapshot, input, ruleset_version, request_hash,
   idempotency_key
 )
@@ -413,6 +430,7 @@ values (
   '96100000-0000-4000-8000-000000000001',
   '96300000-0000-4000-8000-000000000001',
   '96000000-0000-4000-8000-000000000001',
+  '96100000-0000-4000-8000-000000000101',
   'queued',
   repeat('a', 64),
   '{"content_kind":"organic"}'::jsonb,
@@ -422,7 +440,7 @@ values (
 );
 
 insert into content_factory.creator_tasks (
-  id, organization_id, assignee_id, created_by, product_id,
+  id, organization_id, assignee_id, created_by, product_id, project_id,
   task_type, title, instructions, status, priority, payout_minor,
   idempotency_key, completed_at
 )
@@ -433,6 +451,7 @@ values
     '96000000-0000-4000-8000-000000000001',
     '96000000-0000-4000-8000-000000000001',
     '96200000-0000-4000-8000-000000000001',
+    '96100000-0000-4000-8000-000000000101',
     'general',
     'Operational payout task',
     'Completed operational fixture',
@@ -448,6 +467,7 @@ values
     '96000000-0000-4000-8000-000000000001',
     '96000000-0000-4000-8000-000000000001',
     '96200000-0000-4000-8000-000000000001',
+    '96100000-0000-4000-8000-000000000101',
     'placement',
     'Operational placement task',
     'Publish the operational fixture.',
@@ -475,7 +495,7 @@ values (
 
 insert into content_factory.placements (
   id, organization_id, product_id, task_id, assigned_to, created_by,
-  platform, destination_ref, status, scheduled_at, request_hash,
+  project_id, platform, destination_ref, status, scheduled_at, request_hash,
   idempotency_key, metadata
 )
 values (
@@ -485,6 +505,7 @@ values (
   '96500000-0000-4000-8000-000000000002',
   '96000000-0000-4000-8000-000000000001',
   '96000000-0000-4000-8000-000000000001',
+  '96100000-0000-4000-8000-000000000101',
   'vk',
   'ops-vk-destination',
   'scheduled',
@@ -589,6 +610,11 @@ begin
   perform set_config(
     'request.jwt.claim.sub',
     '96000000-0000-4000-8000-000000000001',
+    true
+  );
+  perform set_config(
+    'contentengine.project_id',
+    '96100000-0000-4000-8000-000000000101',
     true
   );
 end;
@@ -957,6 +983,7 @@ values (
   'my_work',
   public.creator_my_work(jsonb_build_object(
     'organization_id', '96100000-0000-4000-8000-000000000001',
+    'project_id', '96100000-0000-4000-8000-000000000101',
     'page_size', 100
   ))
 );
@@ -992,6 +1019,7 @@ select is(
 select is(
   public.creator_my_work(jsonb_build_object(
     'organization_id', '96100000-0000-4000-8000-000000000001',
+    'project_id', '96100000-0000-4000-8000-000000000101',
     'item_types', '["generation"]'::jsonb,
     'statuses', '["queued"]'::jsonb
   )) #>> '{counts,total}',
@@ -1001,6 +1029,7 @@ select is(
 select is(
   public.creator_my_work(jsonb_build_object(
     'organization_id', '96100000-0000-4000-8000-000000000001',
+    'project_id', '96100000-0000-4000-8000-000000000101',
     'query', 'operational payout'
   )) #>> '{counts,payout}',
   '1',
@@ -1009,6 +1038,7 @@ select is(
 select ok(
   public.creator_my_work(jsonb_build_object(
     'organization_id', '96100000-0000-4000-8000-000000000001',
+    'project_id', '96100000-0000-4000-8000-000000000101',
     'page_size', 1
   )) -> 'next_cursor' <> 'null'::jsonb,
   'my work returns a keyset cursor when another page exists'
@@ -1017,6 +1047,7 @@ select throws_ok(
   $$
     select public.creator_my_work(jsonb_build_object(
       'organization_id', '96100000-0000-4000-8000-000000000001',
+      'project_id', '96100000-0000-4000-8000-000000000101',
       'item_types', '["unknown"]'::jsonb
     ))
   $$,

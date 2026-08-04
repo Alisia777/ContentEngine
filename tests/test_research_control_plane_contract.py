@@ -106,11 +106,12 @@ def test_browser_status_degrades_satellite_controls_independently() -> None:
         API_PATH,
         """
         const calls = [];
+        const projectId = "40000000-0000-4000-8000-000000000001";
         const api = Object.create(subject.CreatorApi.prototype);
         api.withOrganization = (payload) => ({ ...payload, organization_id: "org-1" });
         api.call = async (rpc, payload) => {
           calls.push(rpc);
-          if (rpc === "creator_product_research_status") {
+          if (rpc === "creator_project_research_status") {
             return { run: { id: payload.run_id, status: "completed" } };
           }
           if (rpc === "creator_research_provider_status") {
@@ -120,7 +121,7 @@ def test_browser_status_degrades_satellite_controls_independently() -> None:
           if (rpc === "creator_research_market_category_registry") throw Object.assign(new Error("market"), { code: "market_down" });
           throw new Error(`unexpected ${rpc}`);
         };
-        const status = await api.productResearchStatus("run-1");
+        const status = await api.productResearchStatus("run-1", { projectId });
         return {
           runStatus: status.run.status,
           watchUnavailable: status.watchlist_monitor_unavailable,
@@ -139,7 +140,7 @@ def test_browser_status_degrades_satellite_controls_independently() -> None:
         "providerKey": "openai_web_search",
         "marketUnavailable": True,
             "calls": [
-                "creator_product_research_status",
+                "creator_project_research_status",
                 "creator_research_category_learning_status",
                 "creator_research_market_category_registry",
             "creator_research_outcome_learning_scopes",
@@ -154,10 +155,11 @@ def test_never_settling_provider_status_is_bounded_without_losing_core_run() -> 
     result = _run_module(
         API_PATH,
         """
+        const projectId = "40000000-0000-4000-8000-000000000001";
         const api = Object.create(subject.CreatorApi.prototype);
         api.withOrganization = (payload) => ({ ...payload, organization_id: "org-1" });
         api.call = async (rpc, payload) => {
-          if (rpc === "creator_product_research_status") return { run: { id: payload.run_id, status: "processing" } };
+          if (rpc === "creator_project_research_status") return { run: { id: payload.run_id, status: "processing" } };
           if (rpc === "creator_research_provider_status") return await new Promise(() => {});
           if (rpc === "creator_research_watchlist_status") return { watchlist: null, snapshots: [] };
           if (rpc === "creator_research_market_category_registry") return { ok: true, can_resolve: true, categories: [], trend_timeline: [], guidance: {} };
@@ -168,7 +170,7 @@ def test_never_settling_provider_status_is_bounded_without_losing_core_run() -> 
         globalThis.setTimeout = (callback) => { queueMicrotask(callback); return 1; };
         globalThis.clearTimeout = () => {};
         try {
-          const status = await api.productResearchStatus("run-active");
+          const status = await api.productResearchStatus("run-active", { projectId });
           return {
             runStatus: status.run.status,
             providerUnavailable: status.research_provider_control_unavailable,

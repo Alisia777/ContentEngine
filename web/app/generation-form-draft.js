@@ -21,7 +21,7 @@ const FORMATS = new Set(["9:16", "1:1", "16:9", "2048:2048"]);
 const VIDEO_DURATIONS = new Set(["2", "4", "5", "8", "10", "12", "15"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
-export const GENERATION_FORM_DRAFT_VERSION = 1;
+export const GENERATION_FORM_DRAFT_VERSION = 2;
 export const GENERATION_FORM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function boundedText(value, maximum) {
@@ -43,6 +43,7 @@ function boundedInteger(value, minimum, maximum, fallback) {
 
 function normalizedContext(value = {}) {
   return {
+    projectId: optionalUuid(value.projectId || value.project_id),
     handoffDraftId: boundedText(value.handoffDraftId, 180),
     handoffResearchId: boundedText(value.handoffResearchId, 180),
     repairSourceReviewId: optionalUuid(value.repairSourceReviewId),
@@ -52,7 +53,9 @@ function normalizedContext(value = {}) {
 export function generationDraftContextMatches(draftContext, activeContext) {
   const draft = normalizedContext(draftContext);
   const active = normalizedContext(activeContext);
-  return draft.handoffDraftId === active.handoffDraftId
+  return Boolean(draft.projectId)
+    && draft.projectId === active.projectId
+    && draft.handoffDraftId === active.handoffDraftId
     && draft.handoffResearchId === active.handoffResearchId
     && draft.repairSourceReviewId === active.repairSourceReviewId;
 }

@@ -87,7 +87,8 @@ def test_research_chain_appends_after_deployed_training_waiver() -> None:
         "202608040002_ai_learning_control_room.sql",
         "202608040003_research_youtube_observation_analysis.sql",
         "202608040004_generated_video_sound_release_gate.sql",
-        "202608040005_ai_market_learning_bridge.sql",
+        "202608040005_project_scoped_workflow.sql",
+        "202608040006_ai_market_learning_bridge.sql",
     ]
     deployed_boundary = migration_names.index(expected_chain[0])
 

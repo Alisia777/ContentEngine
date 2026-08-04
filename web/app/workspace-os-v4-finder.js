@@ -4,6 +4,8 @@ const ROUTE = "/workspace/board";
 const STATE_KEY = "contentengine.desktop-v4.finder.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
+const PROJECT_QUERY_KEY = "project_id";
+const FOLDER_QUERY_KEY = "folder";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
 
@@ -14,6 +16,9 @@ const runtime = {
   quickLook: null,
   sortedBoard: null,
   sortedValue: "",
+  selectedKeys: new Set(),
+  selectionAnchorKey: "",
+  batchBusy: false,
   state: readState(),
 };
 
@@ -58,6 +63,63 @@ function remember(patch) {
   catch { /* preference is optional */ }
 }
 
+function collapsedFolderIds() {
+  return new Set(
+    (Array.isArray(runtime.state.collapsedFolders) ? runtime.state.collapsedFolders : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
+}
+
+function rememberCollapsedFolders(collapsed) {
+  remember({ collapsedFolders: [...collapsed].sort() });
+}
+
+function finderProjectId() {
+  const queryId = String(routeFinderQuery().get(PROJECT_QUERY_KEY) || "").trim();
+  if (queryId) return queryId;
+  const root = q("[data-project-flow-root]");
+  const snapshotId = String(root?.dataset.projectId || "").trim();
+  if (snapshotId) return snapshotId;
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(PROJECT_CONTEXT_KEY) || "null");
+    return String(stored?.id || stored?.project_id || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function setFolderUrl(folderId, { replace = false, projectId: projectOverride = "" } = {}) {
+  const raw = String(window.location.hash || "#/workspace/board").replace(/^#/, "");
+  const [path, queryString = ""] = raw.split("?");
+  if ((`/${path || ""}`).replace(/\/{2,}/g, "/").replace(/\/$/, "") !== ROUTE) return;
+  const query = new URLSearchParams(queryString);
+  const projectId = String(projectOverride || finderProjectId()).trim();
+  if (projectId) query.set("project_id", projectId);
+  query.set("folder", String(folderId || "all"));
+  const nextHash = `#${path}${query.size ? `?${query.toString()}` : ""}`;
+  if (nextHash === window.location.hash) return;
+  const state = { ...(window.history.state || {}), ceV4FinderFolder: String(folderId || "all") };
+  window.history[replace ? "replaceState" : "pushState"](state, "", nextHash);
+}
+
+function finderHref(view) {
+  const query = routeFinderQuery();
+  const projectId = finderProjectId();
+  if (projectId) query.set("project_id", projectId);
+  query.set("folder", String(query.get("folder") || "all"));
+  query.set("view", view);
+  query.delete("create");
+  return `#/workspace/board?${query.toString()}`;
+}
+
+function scopedWorkspaceHref(path) {
+  const projectId = finderProjectId();
+  return projectId
+    ? `#${path}?project_id=${encodeURIComponent(projectId)}`
+    : `#${path}`;
+}
+
 function visible(node) {
   if (!(node instanceof Element) || node.hidden) return false;
   const style = window.getComputedStyle(node);
@@ -80,6 +142,218 @@ function cards() {
 
 function selectedCard() {
   return cards().find((card) => card.classList.contains("is-selected") || q('[aria-expanded="true"]', card)) || null;
+}
+
+function finderCardKey(card) {
+  return String(card?.dataset?.workspaceItemKey || "").trim();
+}
+
+function selectedItems() {
+  return cards()
+    .filter((card) => runtime.selectedKeys.has(finderCardKey(card)))
+    .map((card) => ({
+      type: String(card.dataset.entityType || ""),
+      id: String(card.dataset.entityId || ""),
+      kind: String(card.dataset.entityKind || card.dataset.kind || ""),
+      title: compact(q(".workspace-board__item-copy strong", card)?.textContent || "Объект", 160),
+      folderId: String(card.dataset.folderId || "root"),
+      source: "finder",
+      node: card,
+    }))
+    .filter((item) => item.id && ["media", "task"].includes(item.type));
+}
+
+function selectionCards() {
+  return cards().filter((card) => visible(card));
+}
+
+function ensureBatchToolbar() {
+  const content = q(".workspace-board__content", runtime.board);
+  if (!content) return null;
+  let toolbar = q(":scope > [data-ce-v4-finder-batch]", content);
+  if (toolbar) return toolbar;
+
+  toolbar = create("section", "ce-v4-finder-batch");
+  toolbar.dataset.ceV4FinderBatch = "true";
+  toolbar.hidden = true;
+  toolbar.setAttribute("aria-label", "Действия с выбранными объектами");
+
+  const summary = create("strong", "ce-v4-finder-batch__summary", "Выбрано: 0");
+  summary.dataset.ceV4BatchSummary = "true";
+  const destination = create("select", "ce-v4-finder-batch__destination");
+  destination.dataset.ceV4BatchDestination = "true";
+  destination.setAttribute("aria-label", "Папка назначения");
+  const placeholder = create("option", "", "Куда переместить…");
+  placeholder.value = "";
+  destination.append(placeholder);
+
+  const destinations = qa(".workspace-board__folder-row[data-folder-id]", runtime.board)
+    .filter((row) => (
+      row.dataset.folderId !== "all"
+      && (row.dataset.systemFolder !== "true" || row.dataset.folderId === "root")
+    ));
+  const seen = new Set();
+  destinations.forEach((row) => {
+    const id = String(row.dataset.folderId || "");
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const option = create("option", "", compact(q(".workspace-board__folder-button > span:nth-child(2)", row)?.textContent || id, 100));
+    option.value = id;
+    destination.append(option);
+  });
+
+  const move = create("button", "ce-v4-finder-batch__move", "Переместить");
+  move.type = "button";
+  move.dataset.ceV4BatchMove = "true";
+  const trash = create("button", "ce-v4-finder-batch__trash", "В Корзину");
+  trash.type = "button";
+  trash.dataset.ceV4BatchTrash = "true";
+  const clear = create("button", "ce-v4-finder-batch__clear", "Снять выбор");
+  clear.type = "button";
+  clear.dataset.ceV4BatchClear = "true";
+  const status = create("span", "ce-v4-finder-batch__status");
+  status.dataset.ceV4BatchStatus = "true";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  toolbar.append(summary, destination, move, trash, clear, status);
+
+  const anchor = q(".workspace-board__breadcrumb", content)
+    || q("#workspace-board-filter-form", content)
+    || content.firstElementChild;
+  if (anchor) anchor.insertAdjacentElement("afterend", toolbar);
+  else content.prepend(toolbar);
+  return toolbar;
+}
+
+function setBatchStatus(message, tone = "") {
+  const status = q("[data-ce-v4-batch-status]", runtime.board);
+  if (!status) return;
+  status.textContent = String(message || "");
+  status.dataset.tone = tone;
+}
+
+function syncSelectionDom() {
+  if (!runtime.board) return;
+  const currentKeys = new Set(cards().map(finderCardKey).filter(Boolean));
+  [...runtime.selectedKeys].forEach((key) => {
+    if (!currentKeys.has(key)) runtime.selectedKeys.delete(key);
+  });
+  cards().forEach((card) => {
+    const key = finderCardKey(card);
+    const selected = Boolean(key && runtime.selectedKeys.has(key));
+    card.classList.toggle("is-multi-selected", selected);
+    card.dataset.selected = String(selected);
+    card.setAttribute("aria-selected", String(selected));
+    const button = q("[data-ce-v4-select-item]", card);
+    button?.setAttribute("aria-pressed", String(selected));
+    if (button) {
+      const title = compact(q(".workspace-board__item-copy strong", card)?.textContent || "объект", 100);
+      button.setAttribute("aria-label", `${selected ? "Снять выбор" : "Выбрать"}: ${title}`);
+      button.title = selected ? "Снять выбор" : "Выбрать для группового действия";
+    }
+  });
+  const toolbar = ensureBatchToolbar();
+  if (!toolbar) return;
+  const count = runtime.selectedKeys.size;
+  toolbar.hidden = count === 0;
+  q("[data-ce-v4-batch-summary]", toolbar).textContent = `Выбрано: ${count}`;
+  qa("button, select", toolbar).forEach((control) => { control.disabled = runtime.batchBusy; });
+}
+
+function clearSelection({ restoreFocus = false } = {}) {
+  const anchor = runtime.selectionAnchorKey;
+  runtime.selectedKeys.clear();
+  runtime.selectionAnchorKey = "";
+  setBatchStatus("");
+  syncSelectionDom();
+  if (restoreFocus && anchor) {
+    q(`[data-workspace-item-key="${CSS.escape(anchor)}"] [data-ce-v4-select-item]`, runtime.board)
+      ?.focus({ preventScroll: true });
+  }
+}
+
+function selectCard(card, event = {}) {
+  const key = finderCardKey(card);
+  if (!key) return;
+  const available = selectionCards();
+  const additive = Boolean(event.ctrlKey || event.metaKey);
+  if (event.shiftKey) {
+    const anchorIndex = available.findIndex((item) => finderCardKey(item) === runtime.selectionAnchorKey);
+    const targetIndex = available.indexOf(card);
+    if (!additive) runtime.selectedKeys.clear();
+    if (anchorIndex >= 0 && targetIndex >= 0) {
+      const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+      available.slice(start, end + 1).forEach((item) => runtime.selectedKeys.add(finderCardKey(item)));
+    } else {
+      runtime.selectedKeys.add(key);
+    }
+  } else if (additive || event.fromSelectionControl) {
+    if (runtime.selectedKeys.has(key)) runtime.selectedKeys.delete(key);
+    else runtime.selectedKeys.add(key);
+    runtime.selectionAnchorKey = key;
+  } else {
+    runtime.selectedKeys.clear();
+    runtime.selectedKeys.add(key);
+    runtime.selectionAnchorKey = key;
+  }
+  if (!runtime.selectionAnchorKey) runtime.selectionAnchorKey = key;
+  syncSelectionDom();
+}
+
+function refreshFinderBoard() {
+  q("#workspace-board-filter-form", runtime.board)
+    ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+}
+
+async function moveSelectedItems(destinationFolderId = "") {
+  const items = selectedItems();
+  const destination = String(
+    destinationFolderId || q("[data-ce-v4-batch-destination]", runtime.board)?.value || "",
+  );
+  if (!items.length) return;
+  if (!destination) {
+    setBatchStatus("Выберите папку назначения.", "error");
+    q("[data-ce-v4-batch-destination]", runtime.board)?.focus({ preventScroll: true });
+    return;
+  }
+  const api = window.ContentEngineWorkspaceRuntime?.getApi?.();
+  if (!api?.moveWorkspaceItems) {
+    setBatchStatus("Перемещение сейчас недоступно.", "error");
+    return;
+  }
+  runtime.batchBusy = true;
+  setBatchStatus("Перемещаем…");
+  syncSelectionDom();
+  try {
+    await api.moveWorkspaceItems(
+      items.map(({ type, id }) => ({ type, id })),
+      destination === "root" ? null : destination,
+    );
+    clearSelection();
+    refreshFinderBoard();
+  } catch (error) {
+    setBatchStatus(error?.message || "Не удалось переместить выбранные объекты.", "error");
+  } finally {
+    runtime.batchBusy = false;
+    syncSelectionDom();
+  }
+}
+
+async function trashSelectedItems() {
+  const items = selectedItems();
+  if (!items.length || !window.ContentEngineTrashV4?.trash) return;
+  runtime.batchBusy = true;
+  setBatchStatus("Перемещаем в Корзину…");
+  syncSelectionDom();
+  try {
+    await window.ContentEngineTrashV4.trash(items);
+    clearSelection();
+  } catch (error) {
+    setBatchStatus(error?.message || "Не удалось переместить выбранные объекты в Корзину.", "error");
+  } finally {
+    runtime.batchBusy = false;
+    syncSelectionDom();
+  }
 }
 
 function routeView() {
@@ -162,6 +436,48 @@ function filterFolders(query) {
     const text = compact(row.textContent, 260).toLocaleLowerCase("ru-RU");
     row.hidden = Boolean(needle && !text.includes(needle));
   });
+}
+
+function applyFolderTreeState() {
+  if (!runtime.board) return;
+  const collapsed = collapsedFolderIds();
+  qa("[data-folder-branch]", runtime.board).forEach((branch) => {
+    const folderId = String(branch.dataset.folderBranch || "");
+    const hidden = collapsed.has(folderId);
+    branch.hidden = hidden;
+    const row = q(`.workspace-board__folder-row[data-folder-id="${CSS.escape(folderId)}"]`, runtime.board);
+    row?.classList.toggle("is-collapsed", hidden);
+    const toggle = q(`[data-folder-toggle="${CSS.escape(folderId)}"]`, row);
+    toggle?.setAttribute("aria-expanded", String(!hidden));
+    if (toggle) {
+      const name = compact(q(".workspace-board__folder-button > span:nth-child(2)", row)?.textContent || "папку", 80);
+      toggle.setAttribute("aria-label", `${hidden ? "Развернуть" : "Свернуть"} папку «${name}»`);
+    }
+  });
+}
+
+function revealFolderAncestors(row) {
+  if (!(row instanceof Element)) return;
+  const collapsed = collapsedFolderIds();
+  let changed = false;
+  let branch = row.parentElement?.closest?.("[data-folder-branch]");
+  while (branch) {
+    const folderId = String(branch.dataset.folderBranch || "");
+    if (collapsed.delete(folderId)) changed = true;
+    branch = branch.parentElement?.closest?.("[data-folder-branch]");
+  }
+  if (changed) rememberCollapsedFolders(collapsed);
+  applyFolderTreeState();
+}
+
+function toggleFolderBranch(folderId) {
+  const id = String(folderId || "").trim();
+  if (!id) return;
+  const collapsed = collapsedFolderIds();
+  if (collapsed.has(id)) collapsed.delete(id);
+  else collapsed.add(id);
+  rememberCollapsedFolders(collapsed);
+  applyFolderTreeState();
 }
 
 function finderMode() {
@@ -276,14 +592,16 @@ function buildToolbar() {
   }
   const toolbar = create("header", "ce-v4-finder-toolbar");
   const title = create("div", "ce-v4-finder-toolbar__title");
-  title.append(create("small", "", "CONTENTENGINE FINDER"), create("strong", "", "Файлы и задачи"));
+  title.append(create("small", "", "CONTENTENGINE FINDER"), create("strong", "", "Файлы и папки"));
 
   const controls = create("div", "ce-v4-finder-toolbar__controls");
   const browse = create("a", "ce-v4-finder-mode", "Просмотр");
   browse.href = "#/workspace/board?view=browse";
+  browse.href = finderHref("browse");
   browse.dataset.ceV4FinderMode = "browse";
   const organize = create("a", "ce-v4-finder-mode", "Организация");
   organize.href = "#/workspace/board?view=organize";
+  organize.href = finderHref("organize");
   organize.dataset.ceV4FinderMode = "organize";
   const sort = create("select", "ce-v4-finder-sort");
   sort.setAttribute("aria-label", "Сортировка объектов");
@@ -302,7 +620,7 @@ function buildToolbar() {
   list.dataset.ceV4FinderView = "list";
   list.textContent = "Список";
   const upload = create("a", "ce-v4-finder-upload", "Добавить материал");
-  upload.href = "#/workspace/media";
+  upload.href = scopedWorkspaceHref("/workspace/media");
   controls.append(browse, organize, sort, grid, list, upload);
   toolbar.append(title, controls);
   content.prepend(toolbar);
@@ -361,11 +679,18 @@ function applyRouteFolder() {
   if (folderId) {
     const row = q(`.workspace-board__folder-row[data-folder-id="${CSS.escape(folderId)}"]`, runtime.board);
     if (row) {
+      revealFolderAncestors(row);
       rememberProjectRow(row);
       if (!row.classList.contains("is-selected")) {
         q(".workspace-board__folder-button", row)?.click();
         return;
       }
+    }
+  } else {
+    const allRow = q('.workspace-board__folder-row[data-folder-id="all"]', runtime.board);
+    if (allRow && !allRow.classList.contains("is-selected")) {
+      q(".workspace-board__folder-button", allRow)?.click();
+      return;
     }
   }
   if (query.get("create") === "project") {
@@ -486,11 +811,70 @@ function handleBoardQuickLookKeydown(event) {
   void openQuickLook(card);
 }
 
+function handleBoardSelectionClick(event) {
+  if (!(event.target instanceof Element)) return;
+  const action = event.target.closest(
+    "[data-ce-v4-batch-move], [data-ce-v4-batch-trash], [data-ce-v4-batch-clear]",
+  );
+  if (action) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (action.matches("[data-ce-v4-batch-move]")) void moveSelectedItems();
+    if (action.matches("[data-ce-v4-batch-trash]")) void trashSelectedItems();
+    if (action.matches("[data-ce-v4-batch-clear]")) clearSelection({ restoreFocus: true });
+    return;
+  }
+
+  const selectionControl = event.target.closest("[data-ce-v4-select-item]");
+  const card = event.target.closest(".workspace-board__item");
+  const modifierSelection = Boolean(card && (event.ctrlKey || event.metaKey || event.shiftKey));
+  if (card && (selectionControl || modifierSelection)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    selectCard(card, {
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      fromSelectionControl: Boolean(selectionControl),
+    });
+    return;
+  }
+
+  if (
+    runtime.selectedKeys.size
+    && event.target.closest(".workspace-board__grid")
+    && !card
+  ) clearSelection();
+}
+
+function handleBoardSelectionKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "a") {
+    if (!(event.target instanceof Element) || !event.target.closest(".workspace-board__grid")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    selectionCards().forEach((card) => runtime.selectedKeys.add(finderCardKey(card)));
+    runtime.selectionAnchorKey = finderCardKey(selectionCards()[0]);
+    syncSelectionDom();
+  }
+}
+
 function handleBoardFolderSelection(event) {
   if (!(event.target instanceof Element)) return;
-  const button = event.target.closest(".workspace-board__folder-button");
+  const toggle = event.target.closest("[data-folder-toggle]");
+  if (toggle) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toggleFolderBranch(toggle.dataset.folderToggle);
+    return;
+  }
+  const button = event.target.closest('[data-action="select-workspace-folder"]');
   if (!button) return;
-  rememberProjectRow(button.closest(".workspace-board__folder-row"));
+  const folderId = String(button.dataset.folderId || "all");
+  const row = q(`.workspace-board__folder-row[data-folder-id="${CSS.escape(folderId)}"]`, runtime.board);
+  revealFolderAncestors(row);
+  rememberProjectRow(row);
+  const projectId = String(button.dataset.projectId || row?.dataset.projectId || "").trim();
+  setFolderUrl(folderId, { projectId });
   if (MOBILE_SIDEBAR.matches) window.requestAnimationFrame(() => setSidebarOpen(false));
 }
 
@@ -514,6 +898,8 @@ function bindBoard() {
   if (runtime.board.dataset.ceV4FinderBound === "true") return;
   runtime.board.dataset.ceV4FinderBound = "true";
   runtime.board.addEventListener("dblclick", handleBoardDoubleClick);
+  runtime.board.addEventListener("click", handleBoardSelectionClick);
+  runtime.board.addEventListener("keydown", handleBoardSelectionKeydown, true);
   runtime.board.addEventListener("keydown", handleBoardQuickLookKeydown, true);
   runtime.board.addEventListener("click", handleBoardItemSelection);
   runtime.board.addEventListener("click", handleBoardFolderSelection);
@@ -544,13 +930,20 @@ function mount() {
   applyView();
   const sortValue = q(".ce-v4-finder-sort", board)?.value || runtime.state.sort || "name";
   sortCards(sortValue);
-  filterFolders(q(".ce-v4-folder-search input", board)?.value || "");
+  filterFolders(q('#workspace-board-filter-form input[name="query"]', board)?.value || "");
   bindBoard();
+  applyFolderTreeState();
+  syncSelectionDom();
   finderQueryHandoff();
   applyRouteFolder();
 }
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && runtime.selectedKeys.size && routePath() === ROUTE) {
+    event.preventDefault();
+    clearSelection({ restoreFocus: true });
+    return;
+  }
   if (event.key === "Escape" && runtime.sidebarOpen) {
     event.preventDefault();
     setSidebarOpen(false, { restoreFocus: true });
@@ -561,6 +954,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") { event.preventDefault(); navigateQuickLook(-1); }
   if (event.key === "ArrowRight") { event.preventDefault(); navigateQuickLook(1); }
 }, true);
+
+window.addEventListener("popstate", () => {
+  if (routePath() !== ROUTE) return;
+  window.ContentEngineDesktopV4.requestMount();
+});
 
 const handleSidebarViewport = () => setSidebarOpen(false);
 if (typeof MOBILE_SIDEBAR.addEventListener === "function") {
@@ -574,5 +972,10 @@ window.ContentEngineDesktopV4.registerAdapter("finder-board", mount, { priority:
 window.ContentEngineFinderV4 = Object.freeze({
   openQuickLook,
   closeQuickLook,
+  selectedItems,
+  clearSelection,
+  moveSelection: (folderId) => moveSelectedItems(folderId),
+  trashSelection: trashSelectedItems,
+  focusBatchMove: () => q("[data-ce-v4-batch-destination]", runtime.board)?.focus({ preventScroll: true }),
   schedule: () => window.ContentEngineDesktopV4.requestMount(),
 });

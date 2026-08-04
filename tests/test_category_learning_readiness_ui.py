@@ -994,7 +994,7 @@ try {
 const satellite = Object.create(subject.CreatorApi.prototype);
 satellite.organizationId = "11111111-1111-4111-8111-111111111111";
 satellite.call = async (rpc) => {
-  if (rpc === "creator_product_research_status") {
+  if (rpc === "creator_project_research_status") {
     return { run: { id: ids.run, status: "completed" } };
   }
   if (rpc === "creator_research_category_learning_status") {
@@ -1007,7 +1007,9 @@ satellite.call = async (rpc) => {
 };
 const originalWarn = console.warn;
 console.warn = () => {};
-const status = await satellite.productResearchStatus(ids.run);
+const status = await satellite.productResearchStatus(ids.run, {
+  projectId: "33333333-3333-4333-8333-333333333333",
+});
 console.warn = originalWarn;
 const sourceCorrectionCall = calls.find(
   (entry) => entry.rpc === "creator_correct_research_source_analysis",
@@ -1110,8 +1112,8 @@ def test_runtime_wiring_is_bounded_honest_and_mobile_safe() -> None:
     assert "> summary:focus-visible::after" in css
     assert ":hover > summary::after" in css
     assert "@media (max-width: 620px)" in css
-    assert '"./supabase-api.js?v=20260804.4"' in app
-    assert '"./product-research-view.js?v=20260804.2"' in app
+    assert '"./supabase-api.js?v=20260804.os4.11"' in app
+    assert '"./product-research-view.js?v=20260804.os4.11"' in app
     assert 'href="./product-research.css?v=20260803.9"' in index
-    assert 'src="./app.js?v=20260804.4"' in index
+    assert 'src="./app.js?v=20260804.os4.11"' in index
     assert "20260803.os4.8" not in index

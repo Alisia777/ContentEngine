@@ -1,5 +1,5 @@
 const AI_LEARNING_CONTROL_ROOM_VERSION = "ai-learning-control-room-v1";
-const AI_MARKET_SCOPE_INDEX_VERSION = "ai-learning-market-scope-index-v1";
+const AI_MARKET_SCOPE_INDEX_VERSION = "ai-learning-market-scope-index-v2";
 const AI_MARKET_READINESS_KIND = "category_evidence_readiness_not_model_iq";
 const AI_MARKET_READINESS_VERSION = "category-evidence-readiness-v3";
 const AI_MARKET_SCOPE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -149,6 +149,7 @@ export function normalizeAiLearningMarketScopeIndex(value) {
     ok: false,
     version: AI_MARKET_SCOPE_INDEX_VERSION,
     organizationId: "",
+    projectId: "",
     metricKind: AI_MARKET_READINESS_KIND,
     asOf: null,
     scopes: [],
@@ -161,18 +162,21 @@ export function normalizeAiLearningMarketScopeIndex(value) {
     "ok",
     "version",
     "organization_id",
+    "project_id",
     "metric_kind",
     "as_of",
     "scopes",
     "limits",
   ])) return unavailable();
   const organizationId = exactUuid(source.organization_id);
+  const projectId = exactUuid(source.project_id);
   const asOf = timestamp(source.as_of);
   const limits = objectValue(source.limits);
   if (
     source.ok !== true
     || source.version !== AI_MARKET_SCOPE_INDEX_VERSION
     || !organizationId
+    || !projectId
     || source.metric_kind !== AI_MARKET_READINESS_KIND
     || !asOf
     || !exactObjectKeys(limits, [
@@ -200,6 +204,7 @@ export function normalizeAiLearningMarketScopeIndex(value) {
     const scope = objectValue(rawScope);
     if (!exactObjectKeys(scope, [
       "scope_id",
+      "project_id",
       "product_id",
       "product_name",
       "product_status",
@@ -215,6 +220,7 @@ export function normalizeAiLearningMarketScopeIndex(value) {
       "guidance",
     ])) return unavailable();
     const scopeId = exactUuid(scope.scope_id);
+    const scopeProjectId = exactUuid(scope.project_id);
     const productId = exactUuid(scope.product_id);
     const categoryId = exactUuid(scope.market_category_id);
     const bindingId = exactUuid(scope.binding_id);
@@ -228,6 +234,8 @@ export function normalizeAiLearningMarketScopeIndex(value) {
       : timestamp(scope.run_finished_at);
     if (
       !scopeId
+      || !scopeProjectId
+      || scopeProjectId !== projectId
       || !productId
       || !categoryId
       || !bindingId
@@ -255,6 +263,7 @@ export function normalizeAiLearningMarketScopeIndex(value) {
     productIds.add(productId);
     scopes.push({
       scopeId,
+      projectId: scopeProjectId,
       productId,
       productName,
       productStatus: scope.product_status,
@@ -277,6 +286,7 @@ export function normalizeAiLearningMarketScopeIndex(value) {
     ok: true,
     version: AI_MARKET_SCOPE_INDEX_VERSION,
     organizationId,
+    projectId,
     metricKind: AI_MARKET_READINESS_KIND,
     asOf,
     scopes,

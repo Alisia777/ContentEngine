@@ -1,4 +1,4 @@
-import { CreatorApi } from "./supabase-api.js?v=20260804.4";
+import { CreatorApi } from "./supabase-api.js?v=20260804.os4.11";
 
 /*
  * ContentEngine Desktop v4 · Context menus and Trash.
@@ -144,6 +144,26 @@ function routeQuery() {
   return new URLSearchParams(raw.split("?")[1] || "");
 }
 
+function scopedWorkspaceHash(route) {
+  const raw = String(route || "/workspace/board").replace(/^#/, "");
+  const [path, search = ""] = raw.split("?");
+  const query = new URLSearchParams(search);
+  const projectId = String(
+    routeQuery().get("project_id")
+    || q("[data-project-flow-root]")?.dataset.projectId
+    || "",
+  ).trim().toLowerCase();
+  if (
+    path.startsWith("/workspace/")
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(projectId)
+  ) query.set("project_id", projectId);
+  return `#${path}${query.size ? `?${query.toString()}` : ""}`;
+}
+
+function openWorkspaceRoute(route) {
+  window.location.hash = scopedWorkspaceHash(route);
+}
+
 function trashRouteActive() {
   return routePath() === "/workspace/board" && routeQuery().get("view") === "trash";
 }
@@ -271,9 +291,13 @@ function folderDescriptor(node) {
   if (!row || !id) return null;
   return {
     id,
+    kind: String(row.dataset.folderKind || "folder"),
     name: compact(q(".workspace-board__folder-button span:nth-child(2)", row)?.textContent || "Папка"),
     row,
-    system: row.dataset.systemFolder === "true" || id === "all" || id === "root",
+    system: row.dataset.systemFolder === "true"
+      || Boolean(String(row.dataset.systemRole || "").trim())
+      || id === "all"
+      || id === "root",
   };
 }
 
@@ -333,7 +357,7 @@ function createFromFinderMedia(entity) {
 }
 
 function focusFinderSearch() {
-  if (routePath() !== "/workspace/board") window.location.hash = "#/workspace/board";
+  if (routePath() !== "/workspace/board") openWorkspaceRoute("/workspace/board");
   let attempts = 0;
   const focus = () => {
     const input = q('#workspace-board-filter-form input[name="query"]');
@@ -348,6 +372,24 @@ function focusFinderSearch() {
 }
 
 function finderItemActions(entity) {
+  const finderSelection = window.ContentEngineFinderV4?.selectedItems?.() || [];
+  const selectedBatch = finderSelection.length > 1
+    && finderSelection.some((item) => item.type === entity.type && item.id === entity.id);
+  if (selectedBatch) {
+    return [
+      menuAction("Открыть", "open", () => window.ContentEngineFinderV4?.openQuickLook?.(entity.node)),
+      menuAction(`Переместить выбранные (${finderSelection.length})…`, "folder", () => {
+        window.ContentEngineFinderV4?.focusBatchMove?.();
+      }),
+      { separator: true },
+      menuAction(
+        `В Корзину выбранные (${finderSelection.length})`,
+        "trash",
+        () => window.ContentEngineFinderV4?.trashSelection?.(),
+        { danger: true },
+      ),
+    ];
+  }
   const actions = [];
   actions.push(menuAction("Открыть", "open", () => {
     if (window.ContentEngineFinderV4?.openQuickLook) {
@@ -406,7 +448,12 @@ function folderActions(folder) {
   );
   if (finderOrganizeMode() && !folder.system) actions.push(
     { separator: true },
-    menuAction("Архивировать пустую папку", "remove", () => archiveFolder(folder), { danger: true }),
+    menuAction(
+      folder.kind === "project" ? "Архивировать пустой проект" : "Архивировать пустую папку",
+      "remove",
+      () => archiveFolder(folder),
+      { danger: true },
+    ),
   );
   return actions;
 }
@@ -416,7 +463,7 @@ function emptySurfaceActions(target) {
   if (route === "/workspace/board") {
     const actions = [];
     if (workspaceRouteAuthorized("/workspace/media")) actions.push(
-      menuAction("Добавить материал", "upload", () => { window.location.hash = "#/workspace/media"; }),
+      menuAction("Добавить материал", "upload", () => openWorkspaceRoute("/workspace/media")),
       { separator: true },
     );
     actions.push(
@@ -445,13 +492,13 @@ function emptySurfaceActions(target) {
     menuAction("Найти в Файлах", "search", focusFinderSearch, { shortcut: "⌘K" }),
   );
   if (workspaceRouteAuthorized("/workspace/research")) navigation.push(
-    menuAction("Разбор товара", "search", () => { window.location.hash = "#/workspace/research"; }),
+    menuAction("Разбор товара", "search", () => openWorkspaceRoute("/workspace/research")),
   );
   if (workspaceRouteAuthorized("/workspace/team")) navigation.push(
-    menuAction("Команда", "open", () => { window.location.hash = "#/workspace/team"; }),
+    menuAction("Команда", "open", () => openWorkspaceRoute("/workspace/team")),
   );
   if (workspaceRouteAuthorized("/workspace/feedback")) navigation.push(
-    menuAction("Помощь и обратная связь", "info", () => { window.location.hash = "#/workspace/feedback"; }),
+    menuAction("Помощь и обратная связь", "info", () => openWorkspaceRoute("/workspace/feedback")),
   );
   const actions = [...navigation];
   if (actions.length) actions.push({ separator: true });
@@ -651,7 +698,7 @@ function focusTask(card) {
 function showEntityInFinder(value) {
   try { window.sessionStorage.setItem(FINDER_QUERY_KEY, String(value || "")); }
   catch { /* optional */ }
-  window.location.hash = "#/workspace/board";
+  openWorkspaceRoute("/workspace/board");
 }
 
 function focusFolderEditor(folder, mode) {
@@ -729,7 +776,9 @@ async function trashEntities(entities) {
     .map((entity) => ({ type: entity.type, id: entity.id }));
   if (!normalized.length) return;
   await mutateTrash(RPC.trash, { items: normalized });
-  entities.forEach(removeEntityFromCurrentSurface);
+  const finderEntities = entities.filter((entity) => entity.source === "finder");
+  entities.filter((entity) => entity.source !== "finder").forEach(removeEntityFromCurrentSurface);
+  if (finderEntities.length) removeEntityFromCurrentSurface(finderEntities[0]);
   await refreshTrashSummary();
   const label = entities.length === 1 ? entities[0].title : `${entities.length} объектов`;
   showUndoToast(`${label} перемещено в Корзину`, async () => {
@@ -946,7 +995,7 @@ function createTrashSurface() {
 async function openTrash() {
   closeContextMenu();
   if (!trashRouteActive()) {
-    window.location.hash = "#/workspace/board?view=trash";
+    openWorkspaceRoute("/workspace/board?view=trash");
     return;
   }
   await ensureTrashSurface({ focusSearch: true });
@@ -957,7 +1006,7 @@ function closeTrash() {
   closePreview({ renderList: false, restoreFocus: false });
   closeConfirm({ renderList: false, restoreFocus: false });
   if (trashRouteActive()) {
-    window.location.hash = "#/workspace/board";
+    openWorkspaceRoute("/workspace/board");
     return;
   }
   teardownTrashSurface();

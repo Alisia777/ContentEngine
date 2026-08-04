@@ -215,7 +215,7 @@ def test_academy_reachability_controls_every_workspace_learning_link() -> None:
         assert "trainingAccessWaiverActive()" not in source
 
 
-def test_course_completion_returns_to_home_without_achievement_subwindow() -> None:
+def test_course_completion_hands_off_to_the_next_required_academy_action() -> None:
     click = _function_source("handleClick", asynchronous=True)
     start = click.index('if (action === "complete-course")')
     end = click.index('if (action === "refresh-section")', start)
@@ -225,8 +225,9 @@ def test_course_completion_returns_to_home_without_achievement_subwindow() -> No
         "await state.api.completeModule(moduleCode)",
         "await loadBootstrap()",
         "if (!serverCompleted) throw new Error",
-        'toast("Курс завершён и сохранён.", "success")',
-        'navigate("/learn", true)',
+        "const nextCourse",
+        "const destination = nextCourse",
+        "await flowHandoff(",
     ]
     assert all(checkpoint in completion for checkpoint in checkpoints)
     assert [completion.index(checkpoint) for checkpoint in checkpoints] == sorted(
@@ -235,6 +236,8 @@ def test_course_completion_returns_to_home_without_achievement_subwindow() -> No
     assert "showTrainingAchievement" not in completion
     assert "celebration" not in completion
     assert "training_achievement_unlocked" not in completion
+    assert 'navigate("/learn", true)' not in completion
+    assert '"/learn/practical"' in completion
 
 
 def test_generation_archive_executes_browse_and_exact_job_modes() -> None:

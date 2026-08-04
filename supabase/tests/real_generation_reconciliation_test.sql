@@ -14,6 +14,7 @@ create or replace function pg_temp.create_starting_real_job(
   p_batch_id uuid,
   p_task_id uuid,
   p_organization_id uuid,
+  p_project_id uuid,
   p_product_id uuid,
   p_requested_by uuid,
   p_assigned_to uuid,
@@ -29,6 +30,7 @@ begin
      or p_batch_id is null
      or p_task_id is null
      or p_organization_id is null
+     or p_project_id is null
      or p_product_id is null
      or p_requested_by is null
      or p_assigned_to is null
@@ -40,7 +42,7 @@ begin
   end if;
 
   insert into content_factory.generation_batches (
-    id, organization_id, product_id, created_by, name,
+    id, organization_id, project_id, product_id, created_by, name,
     mode, allow_real_spend, status, total_requested, total_created,
     input, request_hash, idempotency_key,
     provider, model, duration_seconds, audio,
@@ -48,6 +50,7 @@ begin
   ) values (
     p_batch_id,
     p_organization_id,
+    p_project_id,
     p_product_id,
     p_requested_by,
     left('Reconciliation fixture ' || p_key_suffix, 180),
@@ -87,13 +90,14 @@ begin
   );
 
   insert into content_factory.generation_jobs (
-    id, organization_id, product_id, batch_id, ordinal,
+    id, organization_id, project_id, product_id, batch_id, ordinal,
     requested_by, assigned_to, mode, provider, allow_real_spend,
     estimated_cost_minor, actual_cost_minor, status,
     input, output, request_hash, idempotency_key
   ) values (
     p_job_id,
     p_organization_id,
+    p_project_id,
     p_product_id,
     p_batch_id,
     1,
@@ -140,12 +144,13 @@ begin
   );
 
   insert into content_factory.creator_tasks (
-    id, organization_id, assignee_id, created_by, product_id,
+    id, organization_id, project_id, assignee_id, created_by, product_id,
     generation_job_id, task_type, title, instructions,
     status, priority, payout_minor, result, idempotency_key
   ) values (
     p_task_id,
     p_organization_id,
+    p_project_id,
     p_assigned_to,
     p_requested_by,
     p_product_id,
@@ -456,6 +461,26 @@ values
     'active'
   );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+)
+values
+  (
+    '97150000-0000-4000-8000-000000000001',
+    '97100000-0000-4000-8000-000000000001', null,
+    'Reconciliation main project', 'blue', 'project', null,
+    'active', 1024, '97000000-0000-4000-8000-000000000001',
+    '97000000-0000-4000-8000-000000000001'
+  ),
+  (
+    '97150000-0000-4000-8000-000000000002',
+    '97100000-0000-4000-8000-000000000002', null,
+    'Reconciliation other project', 'slate', 'project', null,
+    'active', 1024, '97000000-0000-4000-8000-000000000001',
+    '97000000-0000-4000-8000-000000000001'
+  );
+
 insert into content_factory.generation_spend_policies (
   organization_id, paid_generation_enabled,
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
@@ -557,6 +582,7 @@ select lives_ok(
     '97300000-0000-4000-8000-000000000001',
     '97300000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000001',
+    '97150000-0000-4000-8000-000000000001',
     '97200000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000003',
@@ -571,6 +597,7 @@ select lives_ok(
     '97500000-0000-4000-8000-000000000001',
     '97500000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000001',
+    '97150000-0000-4000-8000-000000000001',
     '97200000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000002',
@@ -708,6 +735,7 @@ select throws_ok(
     '97400000-0000-4000-8000-000000000001',
     '97400000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000001',
+    '97150000-0000-4000-8000-000000000001',
     '97200000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000002',
@@ -764,6 +792,7 @@ select throws_ok(
     '97400000-0000-4000-8000-000000000001',
     '97400000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000001',
+    '97150000-0000-4000-8000-000000000001',
     '97200000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000002',
@@ -807,6 +836,7 @@ select lives_ok(
     '97600000-0000-4000-8000-000000000001',
     '97600000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000002',
+    '97150000-0000-4000-8000-000000000002',
     '97200000-0000-4000-8000-000000000002',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
@@ -829,6 +859,7 @@ $$;
 select is(
   public.creator_real_generation_status(jsonb_build_object(
     'organization_id', '97100000-0000-4000-8000-000000000001',
+    'project_id', '97150000-0000-4000-8000-000000000001',
     'job_id', '97300000-0000-4000-8000-000000000002'
   )) #>> '{job,reconciliation_required}',
   'true',
@@ -837,6 +868,7 @@ select is(
 select is(
   public.creator_real_generation_status(jsonb_build_object(
     'organization_id', '97100000-0000-4000-8000-000000000001',
+    'project_id', '97150000-0000-4000-8000-000000000001',
     'job_id', '97300000-0000-4000-8000-000000000002'
   )) #>> '{job,can_reconcile}',
   'true',
@@ -847,6 +879,7 @@ select is(
   public.creator_real_generation_reconciliation_context(
     jsonb_build_object(
       'organization_id', '97100000-0000-4000-8000-000000000001',
+      'project_id', '97150000-0000-4000-8000-000000000001',
       'job_id', '97300000-0000-4000-8000-000000000002'
     )
   ) ->> 'actor_role',
@@ -948,6 +981,7 @@ select throws_ok(
     '97400000-0000-4000-8000-000000000001',
     '97400000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000001',
+    '97150000-0000-4000-8000-000000000001',
     '97200000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000002',
@@ -999,6 +1033,7 @@ select lives_ok(
     '97400000-0000-4000-8000-000000000001',
     '97400000-0000-4000-8000-000000000003',
     '97100000-0000-4000-8000-000000000001',
+    '97150000-0000-4000-8000-000000000001',
     '97200000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000001',
     '97000000-0000-4000-8000-000000000002',
