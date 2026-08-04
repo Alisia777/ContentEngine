@@ -201,6 +201,14 @@ def _fixture_migrations(tmp_path: Path):
     return load_migrations(tmp_path)
 
 
+def test_repository_migrations_match_the_production_transaction_contract() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+
+    migrations = load_migrations(repository_root / "supabase" / "migrations")
+
+    assert migrations
+
+
 def _client(fake_http: FakeManagementApi) -> ManagementApiClient:
     return ManagementApiClient(
         project_ref=EXPECTED_PROJECT_REF,

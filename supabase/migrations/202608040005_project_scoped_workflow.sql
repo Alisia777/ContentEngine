@@ -1,6 +1,6 @@
--- Ordered after the generated-video sound release gate installed at 202608040004.
 begin;
 
+-- Ordered after the generated-video sound release gate installed at 202608040004.
 -- A project is a durable workflow boundary, not the folder currently visible
 -- in Finder. Existing root folders become projects; existing workflow rows stay
 -- nullable when their project cannot be established without guessing.
