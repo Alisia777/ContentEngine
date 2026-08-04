@@ -1159,7 +1159,7 @@ set search_path = ''
 as $$
 declare
   result_value jsonb;
-  organization_id uuid;
+  organization_id_value uuid;
   review_id_value uuid;
   assessment_row
     content_factory.content_review_sound_assessments%rowtype;
@@ -1169,12 +1169,12 @@ begin
   result_value := content_factory_private
     .creator_content_review_status_without_sound_release_gate(p_payload);
   review_id_value := (result_value #>> '{run,id}')::uuid;
-  select review.organization_id into organization_id
+  select review.organization_id into organization_id_value
   from content_factory.content_review_runs review
   where review.id = review_id_value;
   select assessment.* into assessment_row
   from content_factory.content_review_sound_assessments assessment
-  where assessment.organization_id = organization_id
+  where assessment.organization_id = organization_id_value
     and assessment.review_id = review_id_value;
   assessment_value :=
     content_factory_private.content_review_sound_assessment_json(
@@ -1182,7 +1182,7 @@ begin
     );
   history_value :=
     content_factory_private.content_review_sound_assessment_history(
-      organization_id, review_id_value
+      organization_id_value, review_id_value
     );
   result_value := jsonb_set(
     result_value,
@@ -1227,13 +1227,13 @@ security definer
 set search_path = ''
 as $$
 declare
-  organization_id uuid;
+  organization_id_value uuid;
   catalog_value jsonb;
   reviews_value jsonb;
 begin
   catalog_value := content_factory_private
     .creator_content_review_catalog_without_sound_release_gate(p_payload);
-  organization_id :=
+  organization_id_value :=
     content_factory_private.resolve_organization(p_payload);
 
   select coalesce(
@@ -1247,7 +1247,7 @@ begin
                'sound_assessment_history',
                  content_factory_private
                    .content_review_sound_assessment_history(
-                     organization_id,
+                     organization_id_value,
                      (item.value ->> 'id')::uuid
                    )
              )
@@ -1260,7 +1260,7 @@ begin
     coalesce(catalog_value -> 'recent_reviews', '[]'::jsonb)
   ) with ordinality item(value, ordinality)
   left join content_factory.content_review_sound_assessments assessment
-    on assessment.organization_id = organization_id
+    on assessment.organization_id = organization_id_value
    and assessment.review_id = (item.value ->> 'id')::uuid;
 
   return jsonb_set(
