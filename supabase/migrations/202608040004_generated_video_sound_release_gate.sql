@@ -882,6 +882,7 @@ declare
   lineage_kind_value text := 'direct_decision';
   source_assessment_id_value uuid;
   generated_video_value boolean := false;
+  assessment_missing_value boolean := false;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
   if length(p_payload::text) > 65536 then
@@ -947,34 +948,33 @@ begin
       and assessment.lineage_kind = 'context_source'
       and assessment.lineage_depth = 0;
     if source_assessment_row.id is null then
-      raise exception using
-        errcode = '22023',
-        message = 'content_review_sound_assessment_required';
-    end if;
-    assessment_value := jsonb_build_object(
-      'version', source_assessment_row.assessment_version,
-      'audio', source_assessment_row.audio,
-      'status', source_assessment_row.status,
-      'issue_codes', source_assessment_row.issue_codes,
-      'spoken_script_heard_exactly_confirmed',
-        source_assessment_row.spoken_script_heard_exactly_confirmed,
-      'diction_clear_confirmed',
-        source_assessment_row.diction_clear_confirmed,
-      'voice_style_confirmed',
-        source_assessment_row.voice_style_confirmed,
-      'audio_sync_confirmed',
-        source_assessment_row.audio_sync_confirmed,
-      'silence_expected_confirmed',
-        source_assessment_row.silence_expected_confirmed,
-      'note', source_assessment_row.note
-    );
-    assessment_value :=
-      content_factory_private.normalize_content_review_sound_assessment(
-        assessment_value - 'version',
-        decision_value
+      assessment_missing_value := true;
+    else
+      assessment_value := jsonb_build_object(
+        'version', source_assessment_row.assessment_version,
+        'audio', source_assessment_row.audio,
+        'status', source_assessment_row.status,
+        'issue_codes', source_assessment_row.issue_codes,
+        'spoken_script_heard_exactly_confirmed',
+          source_assessment_row.spoken_script_heard_exactly_confirmed,
+        'diction_clear_confirmed',
+          source_assessment_row.diction_clear_confirmed,
+        'voice_style_confirmed',
+          source_assessment_row.voice_style_confirmed,
+        'audio_sync_confirmed',
+          source_assessment_row.audio_sync_confirmed,
+        'silence_expected_confirmed',
+          source_assessment_row.silence_expected_confirmed,
+        'note', source_assessment_row.note
       );
-    lineage_kind_value := 'context_copy';
-    source_assessment_id_value := source_assessment_row.id;
+      assessment_value :=
+        content_factory_private.normalize_content_review_sound_assessment(
+          assessment_value - 'version',
+          decision_value
+        );
+      lineage_kind_value := 'context_copy';
+      source_assessment_id_value := source_assessment_row.id;
+    end if;
   elsif p_payload ? 'sound_assessment' then
     raise exception using
       errcode = '22023',
@@ -992,6 +992,13 @@ begin
     .creator_decide_content_review_without_sound_release_gate(
       p_payload - 'sound_assessment'
     );
+  if assessment_missing_value then
+    -- Let mature safety, independence and watch checks keep their specific
+    -- error precedence. This exception still rolls back delegated writes.
+    raise exception using
+      errcode = '22023',
+      message = 'content_review_sound_assessment_required';
+  end if;
   decision_id_value :=
     content_factory_private.require_uuid(result_value, 'decision_id');
   assessment_row :=
@@ -1231,6 +1238,8 @@ declare
   catalog_value jsonb;
   reviews_value jsonb;
 begin
+  -- The delegated catalog continues to supply the privacy-minimized
+  -- repair_next_action; this wrapper only appends bounded sound history.
   catalog_value := content_factory_private
     .creator_content_review_catalog_without_sound_release_gate(p_payload);
   organization_id_value :=
