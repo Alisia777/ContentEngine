@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: the operational fixture keeps exercising the preserved pre-v15
+-- paid-start layer. The public v15 spec boundary is covered separately by
+-- generation_spec_control_test.sql.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.canonical_gen4_prompt(
   p_product_name text,
   p_sku text
@@ -594,12 +600,10 @@ create temporary table operational_rpc_results (
 ) on commit drop;
 grant select, insert, update on operational_rpc_results to authenticated;
 
-set local role authenticated;
-
 insert into operational_rpc_results (name, payload)
 values (
   'paid_generation',
-  public.creator_start_real_generation(jsonb_build_object(
+  content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
     'organization_id', '96100000-0000-4000-8000-000000000001',
     'idempotency_key', 'operational-generation-0001',
     'sku', 'OPS-SKU-1',
@@ -622,6 +626,8 @@ values (
     'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25'
   ))
 );
+
+set local role authenticated;
 
 insert into operational_rpc_results (name, payload)
 values (
@@ -1068,6 +1074,9 @@ select throws_ok(
   'notification_deletion_forbidden',
   'notification audit history cannot be deleted'
 );
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

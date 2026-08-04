@@ -113,7 +113,10 @@ select ok(
   'only an empty-hook structural directive is exposed and consumption stays gated'
 );
 select is(
-  (select count(*)::integer
+  (select array_agg(
+      namespace.nspname || '.' || procedure.proname
+      order by namespace.nspname, procedure.proname
+    )
    from pg_proc procedure
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname in ('public', 'content_factory_private')
@@ -122,14 +125,26 @@ select is(
        lower(pg_get_functiondef(procedure.oid)),
        'insert into content_factory.research_outcome_generation_assignments'
      ) > 0),
-  0,
-  'no installed function can create a paid assignment yet'
+  array['public.creator_start_real_generation']::text[],
+  'only the governed paid-start wrapper can create a bound assignment'
 );
 select ok(
   strpos(lower(pg_get_functiondef(
     'content_factory_private.validate_research_outcome_generation_assignment()'::regprocedure
-  )), 'research_outcome_generation_assignment_binding_not_wired') > 0,
-  'assignment trigger remains a hard gate until final consumption is proven'
+  )), 'generation_job_spec_bindings') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.validate_research_outcome_generation_assignment()'::regprocedure
+  )), 'generation_spec_outcome_apply_revalidation_required') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.validate_research_outcome_generation_assignment()'::regprocedure
+  )), 'selection_row.selection_action <> ''control''') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.validate_research_outcome_generation_assignment()'::regprocedure
+  )), 'new.final_policy_hash <> binding_row.final_policy_hash') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.validate_research_outcome_generation_assignment()'::regprocedure
+  )), 'new.prompt_hash <> binding_row.prompt_hash') > 0,
+  'assignment trigger accepts only an exact bound control and keeps apply fail-closed'
 );
 
 insert into auth.users (

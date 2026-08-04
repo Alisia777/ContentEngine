@@ -17,6 +17,10 @@ export const RPC = Object.freeze({
   generationMediaIdentity: "creator_generation_media_identity",
   generationLearningPolicy: "creator_generation_learning_policy",
   generationRepairPolicy: "creator_generation_repair_policy",
+  generationSpecStatus: "creator_generation_spec_status",
+  prepareGenerationSpec: "creator_prepare_generation_spec",
+  controlGenerationSpec: "creator_control_generation_spec",
+  generationSpecEffectivePolicy: "creator_generation_spec_effective_policy",
   generationArchive: "creator_generation_archive",
   workspaceBrowser: "creator_workspace_browser",
   createWorkspaceFolder: "creator_create_workspace_folder",
@@ -621,6 +625,110 @@ export class CreatorApi {
     return this.call(RPC.generationRepairPolicy, this.withOrganization({
       review_id: normalizedReviewId,
     }));
+  }
+
+  generationSpecStatus(context) {
+    return this.call(
+      RPC.generationSpecStatus,
+      this.withOrganization(normalizeGenerationSpecReference(context)),
+    );
+  }
+
+  prepareGenerationSpec(input = {}) {
+    const exactScope = normalizeGenerationSpecScopeInput(input.exact_scope);
+    const editableIntent = String(input.editable_intent || "").trim();
+    const proposedPrompt = String(input.proposed_prompt || "").trim();
+    const reason = String(input.reason || "").trim();
+    if (
+      editableIntent.length < 1
+      || editableIntent.length > 1_200
+      || proposedPrompt.length < 1
+      || proposedPrompt.length > 1_200
+      || reason.length < 3
+      || reason.length > 500
+      || input.confirmation !== true
+    ) {
+      throw new CreatorApiError("Проверьте замысел и подготовленное ТЗ перед сохранением версии.", {
+        code: "generation_spec_prepare_payload_invalid",
+      });
+    }
+    return this.mutate(RPC.prepareGenerationSpec, {
+      exact_scope: exactScope,
+      editable_intent: editableIntent,
+      proposed_prompt: proposedPrompt,
+      learning_context: normalizeGenerationSpecLearningContext(
+        input.learning_context,
+      ),
+      repair_context: normalizeGenerationSpecRepairContext(
+        input.repair_context,
+      ),
+      research_provenance: normalizeGenerationSpecResearchProvenance(
+        input.research_provenance,
+      ),
+      performance_policy_provenance:
+        normalizeGenerationSpecPerformanceProvenance(
+          input.performance_policy_provenance,
+        ),
+      repair_provenance: normalizeGenerationSpecRepairProvenance(
+        input.repair_provenance,
+      ),
+      ...(input.outcome_selection_id
+        ? { outcome_selection_id: requireGenerationSpecUuid(
+            input.outcome_selection_id,
+            "generation_spec_outcome_selection_invalid",
+          ) }
+        : {}),
+      confirmation: true,
+      reason,
+    });
+  }
+
+  controlGenerationSpec(input = {}) {
+    const reference = normalizeGenerationSpecReference({
+      spec_id: input.spec_id,
+      spec_version: input.expected_spec_version,
+      spec_hash: input.expected_spec_hash,
+    });
+    const action = String(input.action || "").trim().toLowerCase();
+    const reason = String(input.reason || "").trim();
+    if (
+      !["patch", "approve", "reject", "revert", "recompute"].includes(action)
+      || input.confirmation !== true
+      || reason.length < 3
+      || reason.length > 500
+    ) {
+      throw new CreatorApiError("Действие с версией ТЗ заполнено не полностью.", {
+        code: "generation_spec_control_payload_invalid",
+      });
+    }
+    const payload = {
+      spec_id: reference.spec_id,
+      expected_spec_version: reference.spec_version,
+      expected_spec_hash: reference.spec_hash,
+      action,
+      confirmation: true,
+      reason,
+    };
+    if (action === "patch") {
+      payload.patch = normalizeGenerationSpecPatch(input.patch);
+    }
+    if (action === "revert") {
+      const target = Number(input.target_spec_version);
+      if (!Number.isInteger(target) || target < 1 || target >= reference.spec_version) {
+        throw new CreatorApiError("Выберите существующую прошлую версию ТЗ.", {
+          code: "generation_spec_revert_target_invalid",
+        });
+      }
+      payload.target_spec_version = target;
+    }
+    return this.mutate(RPC.controlGenerationSpec, payload);
+  }
+
+  generationSpecEffectivePolicy(context) {
+    return this.call(
+      RPC.generationSpecEffectivePolicy,
+      this.withOrganization(normalizeGenerationSpecReference(context)),
+    );
   }
 
   savePracticalProject(payload) {
@@ -3252,6 +3360,17 @@ export class CreatorApi {
         { code: "generation_learning_context_required" },
       );
     }
+    if (!hasExactObjectKeys(batch?.generation_spec_context, [
+      "spec_id", "spec_version", "spec_hash",
+    ])) {
+      throw new CreatorApiError(
+        "Подготовьте и утвердите актуальную серверную версию ТЗ.",
+        { code: "generation_spec_context_required" },
+      );
+    }
+    const generationSpecContext = normalizeGenerationSpecReference(
+      batch.generation_spec_context,
+    );
     if (
       batch?.learning_opt_out !== undefined
       && (
@@ -3269,6 +3388,8 @@ export class CreatorApi {
       const allowedRepairCodes = new Set([
         "product_fidelity",
         "technical_stability",
+        "audio_quality",
+        "speech_fidelity",
         "hook_clarity",
         "visual_quality",
         "trust",
@@ -3306,6 +3427,7 @@ export class CreatorApi {
 
     return this.invokeRealGeneration("start", {
       ...batch,
+      generation_spec_context: generationSpecContext,
       campaign_id: campaignId,
       count: 1,
       media_ids: batch.media_ids.map(String),
@@ -3861,6 +3983,394 @@ function normalizeStringArray(value) {
       .map((item) => String(item || "").trim().toLowerCase())
       .filter(Boolean),
   )];
+}
+
+function normalizeGenerationSpecReference(value = {}) {
+  if (!hasExactObjectKeys(value, ["spec_id", "spec_version", "spec_hash"])) {
+    throw new CreatorApiError("Для проверки нужны точные id, версия и hash ТЗ.", {
+      code: "generation_spec_reference_invalid",
+    });
+  }
+  const specId = requireGenerationSpecUuid(
+    value.spec_id,
+    "generation_spec_id_invalid",
+  );
+  const specVersion = Number(value.spec_version);
+  const specHash = String(value.spec_hash || "").trim().toLowerCase();
+  if (
+    !Number.isInteger(specVersion)
+    || specVersion < 1
+    || specVersion > 100_000
+    || !/^[0-9a-f]{64}$/u.test(specHash)
+  ) {
+    throw new CreatorApiError("Серверная версия ТЗ устарела или повреждена.", {
+      code: "generation_spec_reference_invalid",
+    });
+  }
+  return {
+    spec_id: specId,
+    spec_version: specVersion,
+    spec_hash: specHash,
+  };
+}
+
+function normalizeGenerationSpecScopeInput(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CreatorApiError("Заполните точный товар и режим управляемого ТЗ.", {
+      code: "generation_spec_scope_invalid",
+    });
+  }
+  const allowedKeys = [
+    "primary_media_id",
+    "media_ids",
+    "platform",
+    "model",
+    "duration_seconds",
+    "product_category",
+    "format",
+    "audio",
+  ];
+  if (!hasExactObjectKeys(value, allowedKeys)) {
+    throw new CreatorApiError("Параметры управляемого ТЗ заполнены не полностью.", {
+      code: "generation_spec_scope_invalid",
+    });
+  }
+  const primaryMediaId = requireGenerationSpecUuid(
+    value.primary_media_id,
+    "generation_spec_scope_invalid",
+  );
+  const mediaIds = Array.isArray(value.media_ids)
+    ? value.media_ids.map((item) => requireGenerationSpecUuid(
+        item,
+        "generation_spec_scope_invalid",
+      ))
+    : [];
+  const platform = String(value.platform || "").trim().toLowerCase();
+  const model = String(value.model || "").trim().toLowerCase();
+  const productCategory = String(value.product_category || "").trim().toLowerCase();
+  const format = String(value.format || "").trim();
+  const audio = value.audio;
+  const durationSeconds = Number(value.duration_seconds);
+  const validDuration = model === "seedream5_lite"
+    ? durationSeconds === 0
+    : model === "gen4_turbo"
+      ? [2, 5, 8, 10].includes(durationSeconds)
+      : [4, 8, 12, 15].includes(durationSeconds);
+  if (
+    mediaIds.length < 1
+    || mediaIds.length > 5
+    || new Set(mediaIds).size !== mediaIds.length
+    || mediaIds[0] !== primaryMediaId
+    || !["instagram", "tiktok", "youtube", "vk", "telegram", "wildberries"]
+      .includes(platform)
+    || !["gen4_turbo", "seedance2_fast", "seedream5_lite"].includes(model)
+    || ![
+      "cosmetics", "baa", "sports_food", "food", "household", "apparel",
+      "electronics", "other",
+    ].includes(productCategory)
+    || !["9:16", "1:1", "16:9"].includes(format)
+    || typeof audio !== "boolean"
+    || !validDuration
+  ) {
+    throw new CreatorApiError("Параметры управляемого ТЗ не совпадают с выбранным режимом.", {
+      code: "generation_spec_scope_invalid",
+    });
+  }
+  return {
+    primary_media_id: primaryMediaId,
+    media_ids: mediaIds,
+    platform,
+    model,
+    duration_seconds: durationSeconds,
+    product_category: productCategory,
+    format,
+    audio,
+  };
+}
+
+function normalizeGenerationSpecResearchProvenance(value) {
+  if (value === null || value === undefined) return null;
+  if (
+    !hasExactObjectKeys(value, [
+      "research_id", "creative_brief_draft_id", "scenario_position",
+    ])
+    || ![1, 2, 3].includes(Number(value.scenario_position))
+  ) {
+    throw new CreatorApiError("Связь ТЗ с утверждённым исследованием устарела.", {
+      code: "generation_spec_research_provenance_invalid",
+    });
+  }
+  return {
+    research_id: requireGenerationSpecUuid(
+      value.research_id,
+      "generation_spec_research_provenance_invalid",
+    ),
+    creative_brief_draft_id: requireGenerationSpecUuid(
+      value.creative_brief_draft_id,
+      "generation_spec_research_provenance_invalid",
+    ),
+    scenario_position: Number(value.scenario_position),
+  };
+}
+
+function normalizeGenerationSpecPerformanceProvenance(value) {
+  if (value === null || value === undefined) return null;
+  if (!hasExactObjectKeys(value, ["policy_hash", "policy_version"])) {
+    throw new CreatorApiError("Связь ТЗ с обученной политикой устарела.", {
+      code: "generation_spec_performance_provenance_invalid",
+    });
+  }
+  const policyHash = String(value.policy_hash || "").trim().toLowerCase();
+  const policyVersion = String(value.policy_version || "").trim();
+  if (
+    !/^[0-9a-f]{64}$/u.test(policyHash)
+    || policyVersion.length < 3
+    || policyVersion.length > 80
+  ) {
+    throw new CreatorApiError("Связь ТЗ с обученной политикой устарела.", {
+      code: "generation_spec_performance_provenance_invalid",
+    });
+  }
+  return { policy_hash: policyHash, policy_version: policyVersion };
+}
+
+function normalizeGenerationSpecRepairProvenance(value) {
+  if (value === null || value === undefined) return null;
+  if (!hasExactObjectKeys(value, [
+    "source_review_id", "source_generation_job_id", "policy_hash",
+  ])) {
+    throw new CreatorApiError("Связь исправления с QA устарела.", {
+      code: "generation_spec_repair_provenance_invalid",
+    });
+  }
+  const policyHash = String(value.policy_hash || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/u.test(policyHash)) {
+    throw new CreatorApiError("Связь исправления с QA устарела.", {
+      code: "generation_spec_repair_provenance_invalid",
+    });
+  }
+  return {
+    source_review_id: requireGenerationSpecUuid(
+      value.source_review_id,
+      "generation_spec_repair_provenance_invalid",
+    ),
+    source_generation_job_id: requireGenerationSpecUuid(
+      value.source_generation_job_id,
+      "generation_spec_repair_provenance_invalid",
+    ),
+    policy_hash: policyHash,
+  };
+}
+
+function normalizeGenerationSpecLearningContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CreatorApiError("Контекст обучения для ТЗ отсутствует.", {
+      code: "generation_spec_learning_context_invalid",
+    });
+  }
+  const source = String(value.source || "").trim().toLowerCase();
+  const required = [
+    "creative_angle", "hook_patterns", "source", "compiler_version",
+    "product_category",
+  ];
+  const optional = source === "performance_learning"
+    ? ["applied_policy_hash"]
+    : source === "approved_research"
+      ? ["creative_brief_draft_id", "scenario_position"]
+      : [];
+  if (!hasExactObjectKeys(value, [...required, ...optional])) {
+    throw new CreatorApiError("Контекст обучения для ТЗ имеет неизвестные поля.", {
+      code: "generation_spec_learning_context_invalid",
+    });
+  }
+  const creativeAngle = String(value.creative_angle || "").trim().toLowerCase();
+  const hooks = Array.isArray(value.hook_patterns)
+    ? value.hook_patterns.map((item) => String(item || "").trim().toLowerCase())
+    : [];
+  const compilerVersion = String(value.compiler_version || "").trim();
+  const productCategory = String(value.product_category || "").trim().toLowerCase();
+  const allowedAngles = new Set([
+    "product_focus", "trust_builder", "demonstration", "comparison",
+    "objection_handling", "curiosity_gap",
+  ]);
+  const allowedHooks = new Set([
+    "question_led", "why_explanation", "before_buying", "comparison",
+    "demonstration", "first_person", "numbered", "concise",
+  ]);
+  if (
+    !["baseline", "approved_research", "performance_learning"].includes(source)
+    || !allowedAngles.has(creativeAngle)
+    || hooks.length > 8
+    || new Set(hooks).size !== hooks.length
+    || hooks.some((item) => !allowedHooks.has(item))
+    || !/^[a-z0-9][a-z0-9._-]{2,63}$/u.test(compilerVersion)
+    || ![
+      "cosmetics", "baa", "sports_food", "food", "household", "apparel",
+      "electronics", "other",
+    ].includes(productCategory)
+    || (source === "baseline" && (
+      creativeAngle !== "product_focus" || hooks.length !== 0
+    ))
+  ) {
+    throw new CreatorApiError("Контекст обучения для ТЗ устарел.", {
+      code: "generation_spec_learning_context_invalid",
+    });
+  }
+  const normalized = {
+    creative_angle: creativeAngle,
+    hook_patterns: hooks,
+    source,
+    compiler_version: compilerVersion,
+    product_category: productCategory,
+  };
+  if (source === "performance_learning") {
+    const hash = String(value.applied_policy_hash || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/u.test(hash)) {
+      throw new CreatorApiError("Hash обученной политики для ТЗ устарел.", {
+        code: "generation_spec_learning_context_invalid",
+      });
+    }
+    normalized.applied_policy_hash = hash;
+  } else if (source === "approved_research") {
+    const position = Number(value.scenario_position);
+    if (![1, 2, 3].includes(position)) {
+      throw new CreatorApiError("Позиция исследовательского сценария устарела.", {
+        code: "generation_spec_learning_context_invalid",
+      });
+    }
+    normalized.creative_brief_draft_id = requireGenerationSpecUuid(
+      value.creative_brief_draft_id,
+      "generation_spec_learning_context_invalid",
+    );
+    normalized.scenario_position = position;
+  }
+  return normalized;
+}
+
+function normalizeGenerationSpecRepairContext(value) {
+  if (value === null || value === undefined) return null;
+  if (!hasExactObjectKeys(value, [
+    "source_review_id", "source_generation_job_id", "guard_codes",
+    "policy_hash", "compiler_version",
+  ])) {
+    throw new CreatorApiError("Контекст исправления для ТЗ устарел.", {
+      code: "generation_spec_repair_context_invalid",
+    });
+  }
+  const guardCodes = Array.isArray(value.guard_codes)
+    ? value.guard_codes.map((item) => String(item || "").trim().toLowerCase())
+    : [];
+  const allowed = new Set([
+    "product_fidelity", "technical_stability", "audio_quality",
+    "speech_fidelity", "hook_clarity", "visual_quality", "trust",
+    "platform_fit",
+  ]);
+  const policyHash = String(value.policy_hash || "").trim().toLowerCase();
+  if (
+    value.compiler_version !== "review-repair-v1"
+    || guardCodes.length < 1
+    || guardCodes.length > 3
+    || new Set(guardCodes).size !== guardCodes.length
+    || guardCodes.some((code) => !allowed.has(code))
+    || !/^[0-9a-f]{64}$/u.test(policyHash)
+  ) {
+    throw new CreatorApiError("Контекст исправления для ТЗ устарел.", {
+      code: "generation_spec_repair_context_invalid",
+    });
+  }
+  return {
+    source_review_id: requireGenerationSpecUuid(
+      value.source_review_id,
+      "generation_spec_repair_context_invalid",
+    ),
+    source_generation_job_id: requireGenerationSpecUuid(
+      value.source_generation_job_id,
+      "generation_spec_repair_context_invalid",
+    ),
+    guard_codes: guardCodes,
+    policy_hash: policyHash,
+    compiler_version: "review-repair-v1",
+  };
+}
+
+function normalizeGenerationSpecPatch(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CreatorApiError("Исправленная версия ТЗ заполнена не полностью.", {
+      code: "generation_spec_patch_invalid",
+    });
+  }
+  const allowed = [
+    "exact_scope",
+    "editable_intent",
+    "proposed_prompt",
+    "learning_context",
+    "repair_context",
+    "research_provenance",
+    "performance_policy_provenance",
+    "repair_provenance",
+    "outcome_selection_id",
+  ];
+  if (
+    Object.keys(value).some((key) => !allowed.includes(key))
+    || !Object.hasOwn(value, "exact_scope")
+    || !Object.hasOwn(value, "editable_intent")
+    || !Object.hasOwn(value, "proposed_prompt")
+    || !Object.hasOwn(value, "learning_context")
+    || !Object.hasOwn(value, "repair_context")
+  ) {
+    throw new CreatorApiError("Исправленная версия ТЗ содержит неизвестные поля.", {
+      code: "generation_spec_patch_invalid",
+    });
+  }
+  const editableIntent = String(value.editable_intent || "").trim();
+  const proposedPrompt = String(value.proposed_prompt || "").trim();
+  if (
+    editableIntent.length < 1
+    || editableIntent.length > 1_200
+    || proposedPrompt.length < 1
+    || proposedPrompt.length > 1_200
+  ) {
+    throw new CreatorApiError("Исправленный замысел или prompt имеет неверную длину.", {
+      code: "generation_spec_patch_invalid",
+    });
+  }
+  return {
+    exact_scope: normalizeGenerationSpecScopeInput(value.exact_scope),
+    editable_intent: editableIntent,
+    proposed_prompt: proposedPrompt,
+    learning_context: normalizeGenerationSpecLearningContext(
+      value.learning_context,
+    ),
+    repair_context: normalizeGenerationSpecRepairContext(
+      value.repair_context,
+    ),
+    research_provenance: normalizeGenerationSpecResearchProvenance(
+      value.research_provenance,
+    ),
+    performance_policy_provenance:
+      normalizeGenerationSpecPerformanceProvenance(
+        value.performance_policy_provenance,
+      ),
+    repair_provenance: normalizeGenerationSpecRepairProvenance(
+      value.repair_provenance,
+    ),
+    ...(value.outcome_selection_id
+      ? { outcome_selection_id: requireGenerationSpecUuid(
+          value.outcome_selection_id,
+          "generation_spec_outcome_selection_invalid",
+        ) }
+      : {}),
+  };
+}
+
+function requireGenerationSpecUuid(value, code) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!isUuid(normalized)) {
+    throw new CreatorApiError("Ссылка управляемого ТЗ имеет неверный формат.", {
+      code,
+    });
+  }
+  return normalized;
 }
 
 function normalizeSpendLimit(value, label) {
@@ -4512,6 +5022,27 @@ function toFriendlyMessage(error) {
     generation_learning_policy_stale: "Обученное ТЗ обновилось. Восстановите авто-ТЗ и повторите запуск.",
     generation_learning_prompt_binding_invalid: "Обученные инструкции не попали в фактическое ТЗ. Восстановите безопасное авто-ТЗ перед запуском.",
     generation_mode_prompt_binding_invalid: "ТЗ не соответствует техническому контракту выбранной модели. Восстановите безопасное авто-ТЗ: точный товар, формат, длительность, реплика и запрет надписей будут проверены заново.",
+    generation_spec_context_required: "Подготовьте и явно утвердите актуальную серверную версию ТЗ.",
+    generation_spec_context_invalid: "Ссылка на серверную версию ТЗ повреждена. Обновите карточку и подготовьте версию заново.",
+    generation_spec_effective_payload_invalid: "Сервер не смог проверить точную версию ТЗ. Обновите карточку перед запуском.",
+    generation_spec_effective_policy_invalid: "Сервер вернул неполную проверку ТЗ. Платный запуск остановлен.",
+    generation_spec_effective_policy_unavailable: "Проверка актуальности ТЗ временно недоступна. Runway и списание не запускались.",
+    generation_spec_exact_scope_invalid: "Товар, ракурсы, модель, длительность, формат или аудио не совпадают с версией ТЗ.",
+    generation_spec_approval_required: "Текущая версия ТЗ ещё не утверждена. Проверьте prompt и утвердите её явно.",
+    generation_spec_approval_state_invalid: "Статус версии ТЗ изменился. Обновите историю и примите решение заново.",
+    generation_spec_stale: "Источники или обученная политика изменились. Бесплатно пересчитайте ТЗ и утвердите новую версию.",
+    generation_spec_head_invalid: "Появилась более новая версия ТЗ. Обновите историю перед решением.",
+    generation_spec_media_stale: "Один из исходников ТЗ изменился или недоступен. Проверьте точные ракурсы.",
+    generation_spec_request_mismatch: "Поля запуска отличаются от утверждённой версии ТЗ. Сохраните их новой версией.",
+    generation_spec_learning_binding_invalid: "Обученная политика не совпадает с утверждённым ТЗ. Пересчитайте версию бесплатно.",
+    generation_spec_repair_binding_invalid: "QA-исправление не совпадает с утверждённым ТЗ. Подготовьте новую версию.",
+    generation_spec_outcome_binding_invalid: "Выбор результата обучения изменился. Обновите advisory и подготовьте новую версию ТЗ.",
+    generation_spec_provider_start_stale: "ТЗ устарело непосредственно перед запуском. Runway и списание остановлены.",
+    generation_spec_policy_blocked: "Серверная политика качества остановила эту версию. Проверьте рекомендуемый следующий шаг.",
+    generation_spec_prompt_binding_invalid: "Фактический prompt отличается от утверждённой серверной версии. Платный запуск остановлен.",
+    generation_spec_policy_binding_invalid: "Контекст обучения или QA отличается от утверждённой версии ТЗ.",
+    generation_spec_scope_binding_invalid: "Параметры платного режима отличаются от утверждённой версии ТЗ.",
+    generation_spec_state_conflict: "Сервер остановил запуск из-за конфликта истории ТЗ. Обновите карточку; Runway не вызван.",
     generation_learning_rejection_guard_blocked: "Эта модель временно остановлена серверным контуром качества. Портал подберёт безопасную альтернативу без запуска Runway.",
     generation_quality_guard_control_review_pending: "Контрольный результат уже создан и ждёт независимого QA. Новый платный контроль не нужен.",
     generation_research_claim_evidence_invalid: "Одобренное исследование не содержит проверяемую immutable-базу safe/forbidden claims. Платный запуск не создан: обновите AI-исследование и одобрите его без ручной подмены.",

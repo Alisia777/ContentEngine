@@ -106,6 +106,10 @@ select is(
         'creator_generation_media_identity',
         'creator_generation_learning_policy',
         'creator_generation_repair_policy',
+        'creator_prepare_generation_spec',
+        'creator_control_generation_spec',
+        'creator_generation_spec_status',
+        'creator_generation_spec_effective_policy',
         'creator_configure_tracking_link',
         'creator_capture_research_category_readiness',
         'creator_claim_research_youtube_ingestion',
@@ -136,7 +140,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  82,
+  86,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -149,7 +153,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  82,
+  86,
   'authenticated can execute all creator RPCs'
 );
 

@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: campaign-budget fixtures model paid jobs created before the
+-- generation-spec rollout. Preserve every budget/lifecycle trigger and bypass
+-- only the new insert-time spec gate for those grandfathered rows.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.create_campaign_job(
   p_ordinal integer,
   p_campaign_id uuid
@@ -1052,6 +1058,9 @@ select ok(
   'organization envelope still has room after campaign-specific rejections'
 );
 reset role;
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

@@ -2,7 +2,14 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260803.7";
+} from "./supabase-api.js?v=20260803.8";
+import {
+  approvedGenerationSpecContext,
+  generationSpecCardMarkup,
+  generationSpecScopesMatch,
+  normalizeGenerationSpecEnvelope,
+  normalizeGenerationSpecScope,
+} from "./generation-spec.js?v=20260803.1";
 import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6";
 import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
 import {
@@ -1051,6 +1058,15 @@ const state = {
     retryAttempt: 0,
     retryAt: 0,
   },
+  generationSpec: {
+    status: "idle",
+    data: null,
+    error: "",
+    requestId: 0,
+    key: "",
+    dirty: true,
+    saving: false,
+  },
   generationRepair: readStoredGenerationRepair(),
   generationPreflight: {
     entries: new Map(),
@@ -1330,6 +1346,7 @@ function prepareRecommendedResearchHandoff(record) {
   try {
     const handoff = createContentGenerationHandoff(record, recommendedIndex);
     state.contentGenerationHandoff = handoff;
+    resetGenerationSpecState();
     persistContentGenerationHandoff(handoff);
     state.sections.generation.status = "idle";
     state.sections.generation.error = null;
@@ -2261,6 +2278,7 @@ async function loadBootstrap({ silent = false } = {}) {
       state.generationLearning.disabledKey = "";
       state.generationLearning.promise = null;
       state.generationLearning.recovery = null;
+      resetGenerationSpecState();
       state.generationPreflight.requestId += 1;
       clearAllGenerationPreflightRetries();
       state.generationPreflight.entries.clear();
@@ -8793,6 +8811,8 @@ function generationPaidSafetyState(form) {
       learningContextBound: true,
       promptReady: true,
       promptInspection: null,
+      generationSpecApproved: true,
+      generationSpecContext: null,
     };
   }
   const learningKey = generationLearningKey(form);
@@ -8811,6 +8831,8 @@ function generationPaidSafetyState(form) {
     learningStateMatches && state.generationLearning.status === "loading",
   );
   const learningContextBound = Boolean(generationLearningContext(form));
+  const generationSpecContext = currentGenerationSpecContext(form);
+  const generationSpecApproved = Boolean(generationSpecContext);
   const promptInspection = generationPromptInspection(form);
   const promptReady = promptInspection?.ready === true;
   let stateName = "pending";
@@ -8831,6 +8853,11 @@ function generationPaidSafetyState(form) {
   } else if (!learningContextBound) {
     stateName = "context";
     hint = "Ваш замысел сохранён. Подготовьте безопасную версию: портал добавит ограничения товара и модели, не заменяя сюжет.";
+  } else if (!generationSpecApproved) {
+    stateName = state.generationSpec.dirty ? "spec_changed" : "spec_approval";
+    hint = state.generationSpec.dirty
+      ? "Параметры или замысел изменились. Бесплатно сохраните новую версию управляемого ТЗ и утвердите её явно."
+      : "Серверная версия ТЗ ещё не утверждена. Проверьте точный prompt и нажмите «Утвердить эту версию»; Runway не запускается.";
   } else {
     stateName = "ready";
   }
@@ -8840,6 +8867,7 @@ function generationPaidSafetyState(form) {
       && learningGenerationAllowed
       && learningContextBound
       && promptReady
+      && generationSpecApproved
     ),
     state: stateName,
     hint,
@@ -8849,6 +8877,8 @@ function generationPaidSafetyState(form) {
     learningContextBound,
     promptReady,
     promptInspection,
+    generationSpecApproved,
+    generationSpecContext,
   };
 }
 
@@ -8870,6 +8900,7 @@ function syncGenerationFormReadiness(form) {
     learningLoading,
     learningContextBound,
     promptReady,
+    generationSpecApproved,
   } = safety;
   const autoBriefStatus = form.querySelector("#generation-auto-brief-status");
   if (sku && !promptReady && autoBriefStatus) {
@@ -8889,7 +8920,8 @@ function syncGenerationFormReadiness(form) {
       || !promptReady
       || !learningReady
       || !learningGenerationAllowed
-      || !learningContextBound;
+      || !learningContextBound
+      || !generationSpecApproved;
     submit.textContent = busy
       ? sku
         ? "Проверяем платный запуск — не повторяйте"
@@ -8902,6 +8934,8 @@ function syncGenerationFormReadiness(form) {
         ? "Повторите проверку обученного ТЗ"
       : sku && !learningContextBound
         ? "Подготовьте безопасную версию ТЗ"
+      : sku && !generationSpecApproved
+        ? "Утвердите серверную версию ТЗ"
       : sku && !spendAllowed
         ? "Платный запуск остановлен лимитом"
         : !readiness.ready
@@ -9178,6 +9212,10 @@ function renderGenerationSection(sectionState) {
         syncGenerationModeForm(generationForm);
         syncGenerationFormReadiness(generationForm);
       }
+      syncGenerationSpecUi(generationForm);
+      if (state.generationSpec.data?.generationSpec) {
+        void refreshGenerationSpec(generationForm).catch(() => {});
+      }
     }
   });
   const handoffEvaluation = handoff
@@ -9229,6 +9267,10 @@ function renderGenerationSection(sectionState) {
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
             <p id="generation-draft-status" class="muted tiny" role="status">Черновик сохраняется в этой вкладке. Подтверждение оплаты никогда не сохраняется.</p>
             ${generationReadinessMarkup(initialGenerationReadiness)}
+            ${generationSpecCardMarkup({
+              ...state.generationSpec,
+              hidden: !defaultIsReal,
+            })}
             <label class="field">
               <span>Режим генерации *</span>
               <select id="generation-mode" name="generation_mode" required>
@@ -10287,7 +10329,7 @@ function formatGenerationUsd(minor) {
   return Number.isFinite(numeric) ? `$${(numeric / 100).toFixed(2)}` : "—";
 }
 
-function realGenerationDraftFromPayload(payload, mode) {
+function realGenerationDraftFromPayload(payload, mode, scenarioIntent = "") {
   return {
     generation_mode: mode,
     campaign_id: payload.campaign_id,
@@ -10298,6 +10340,7 @@ function realGenerationDraftFromPayload(payload, mode) {
     format: payload.format,
     duration_seconds: payload.duration_seconds,
     brief: payload.brief,
+    scenario_intent: String(scenarioIntent || "").trim().slice(0, 1_200),
     media_ids: [...payload.media_ids],
     primary_media_id: payload.media_ids[0] || "",
     platform: payload.platform,
@@ -10314,6 +10357,7 @@ function restoreRealGenerationDraft(jobId) {
     toast("Сохранённые поля этого запуска недоступны. Заполните новый запуск вручную.", "info");
     return;
   }
+  resetGenerationSpecState();
   const setValue = (name, value) => {
     const field = form.elements[name];
     if (field) field.value = String(value ?? "");
@@ -10323,6 +10367,7 @@ function restoreRealGenerationDraft(jobId) {
   for (const name of ["sku", "product_name", "product_category", "duration_seconds", "count", "format", "brief", "platform", "destination_ref", "assignee_id", "payout_rub"]) {
     setValue(name, draft[name]);
   }
+  form.dataset.generationScenarioIntent = draft.scenario_intent || draft.brief;
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
     input.checked = draft.media_ids.includes(input.value);
   });
@@ -13387,6 +13432,7 @@ async function handleClick(event) {
         Number(control.dataset.scenarioIndex),
       );
       state.contentGenerationHandoff = handoff;
+      resetGenerationSpecState();
       persistContentGenerationHandoff(handoff);
       state.sections.generation.status = "idle";
       state.sections.generation.error = null;
@@ -13408,6 +13454,7 @@ async function handleClick(event) {
     const form = control.closest("#mock-batch-form");
     if (form) persistGenerationFormDraft(form, { manual: true });
     clearContentGenerationHandoff();
+    invalidateGenerationSpec(form, "Источник исследования удалён из текущего замысла.");
     if (state.route.path === "/workspace/generation") renderWorkspace("generation");
     toast("Связь со сценарием убрана. Форму можно заполнить вручную.", "info");
     return;
@@ -13422,11 +13469,86 @@ async function handleClick(event) {
       return;
     }
     form.dataset.dirty = "true";
+    invalidateGenerationSpec(form);
     syncContentGenerationHandoff(form);
     syncGenerationFormReadiness(form);
     persistGenerationFormDraft(form);
+    try {
+      await runGenerationSpecControl(
+        form,
+        state.generationSpec.data?.generationSpec ? "patch" : "prepare",
+      );
+      toast("Серверная версия ТЗ подготовлена бесплатно. Проверьте точный prompt и утвердите версию отдельной кнопкой.", "success");
+    } catch (error) {
+      state.generationSpec.error = actionErrorMessage(error);
+      syncGenerationSpecUi(form);
+      toast(actionErrorMessage(error), "error");
+    }
     form.elements.brief?.focus({ preventScroll: true });
-    toast("Безопасное ТЗ собрано: ваш замысел сохранён, ограничения товара добавлены.", "success");
+    return;
+  }
+
+  if ([
+    "run-generation-spec-recommended-action",
+    "control-generation-spec",
+  ].includes(action)) {
+    const form = control.closest("#mock-batch-form");
+    const specAction = String(
+      control.dataset.generationSpecControl || "",
+    ).trim().toLowerCase();
+    if (!form) return;
+    if (specAction === "confirm_spend") {
+      form.elements.real_spend_confirmation?.focus({ preventScroll: true });
+      toast("Версия ТЗ утверждена. Если хотите запуск, отдельно проверьте цену и поставьте подтверждение оплаты.", "info");
+      return;
+    }
+    if (specAction === "review") {
+      const details = form.querySelector(".generation-spec-card__prompt");
+      if (details) details.open = true;
+      scrollElementIntoView(form.querySelector("#generation-spec-card"), "center");
+      return;
+    }
+    control.disabled = true;
+    try {
+      if (specAction === "refresh") {
+        await refreshGenerationSpec(form, { force: true });
+        toast("Статус управляемого ТЗ обновлён без Runway и списания.", "success");
+      } else {
+        if (["prepare", "patch"].includes(specAction)) {
+          const identity = syncGenerationProductIdentity(form);
+          const compiled = syncAutomaticGenerationBrief(form, {
+            force: true,
+            identity,
+          });
+          if (!compiled?.ready) {
+            throw new Error(compiled?.blockers?.[0]?.message || "Не удалось собрать безопасное ТЗ.");
+          }
+        }
+        const requestedTargetVersion = Number(
+          control.dataset.targetSpecVersion,
+        );
+        const envelope = await runGenerationSpecControl(form, specAction, {
+          targetSpecVersion: Number.isInteger(requestedTargetVersion)
+            && requestedTargetVersion > 0
+            ? requestedTargetVersion
+            : null,
+        });
+        if (!envelope) throw new Error("Это действие с ТЗ сейчас недоступно.");
+        toast(
+          specAction === "approve"
+            ? "Эта серверная версия утверждена. Платный запуск всё ещё требует отдельного подтверждения цены."
+            : "История управляемого ТЗ обновлена бесплатно; Runway не запускался.",
+          "success",
+        );
+      }
+    } catch (error) {
+      state.generationSpec.error = actionErrorMessage(error);
+      syncGenerationSpecUi(form);
+      syncGenerationFormReadiness(form);
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
     return;
   }
 
@@ -13489,6 +13611,7 @@ async function handleClick(event) {
     }
     state.generationLearning.disabledKey =
       action === "disable-generation-learning" ? key : "";
+    invalidateGenerationSpec(form);
     const compiled = syncAutomaticGenerationBrief(form, {
       force: true,
       identity,
@@ -14433,6 +14556,21 @@ function handleChange(event) {
   if (generationForm && [
     "generation_mode",
     "duration_seconds",
+    "platform",
+    "product_category",
+    "format",
+    "destination_ref",
+    "media_id",
+    "primary_media_id",
+  ].includes(event.target.name)) {
+    invalidateGenerationSpec(
+      generationForm,
+      "Параметры изменились после последней серверной версии.",
+    );
+  }
+  if (generationForm && [
+    "generation_mode",
+    "duration_seconds",
     "campaign_id",
     "platform",
     "product_category",
@@ -14554,6 +14692,10 @@ function handleFormActivity(event) {
         form.dataset.generationScenarioIntent = String(
           event.target.value || "",
         ).trim().slice(0, 1_200);
+        invalidateGenerationSpec(
+          form,
+          "Замысел изменился после последней серверной версии.",
+        );
         syncGenerationModeForm(form);
         syncContentGenerationHandoff(form);
       } else {
@@ -15753,6 +15895,371 @@ function generationRepairContext(form) {
   };
 }
 
+function generationSpecExactScope(
+  form,
+  identity = selectedGenerationProductIdentity(form),
+) {
+  const sku = generationSkuForForm(form);
+  if (!form || !identity || !sku) return null;
+  return normalizeGenerationSpecScope({
+    primary_media_id: identity.mediaId,
+    media_ids: identity.mediaIds,
+    platform: String(form.elements.platform?.value || "").trim().toLowerCase(),
+    model: sku.model,
+    duration_seconds: sku.durationSeconds,
+    product_category: String(
+      form.elements.product_category?.value || "",
+    ).trim().toLowerCase(),
+    format: sku.format || String(form.elements.format?.value || "").trim(),
+    audio: sku.audio === true,
+  });
+}
+
+function applyGenerationSpecScopeToForm(form, scope) {
+  const normalized = normalizeGenerationSpecScope(scope);
+  if (!form || !normalized) return false;
+  const mode = {
+    gen4_turbo: REAL_GEN4_MODE,
+    seedance2_fast: REAL_SEEDANCE_MODE,
+    seedream5_lite: REAL_PHOTO_MODE,
+  }[normalized.model];
+  if (!mode || !form.elements.generation_mode) return false;
+  form.elements.generation_mode.value = mode;
+  if (form.elements.duration_seconds) {
+    form.elements.duration_seconds.value = String(normalized.duration_seconds);
+  }
+  if (form.elements.platform) form.elements.platform.value = normalized.platform;
+  if (form.elements.product_category) {
+    form.elements.product_category.value = normalized.product_category;
+  }
+  if (form.elements.format) form.elements.format.value = normalized.format;
+  syncGenerationModeForm(form);
+  const availableMedia = new Set(
+    Array.from(form.querySelectorAll('input[name="media_id"]'))
+      .map((input) => input.value),
+  );
+  if (normalized.media_ids.some((mediaId) => !availableMedia.has(mediaId))) {
+    return false;
+  }
+  const selectedMedia = new Set(normalized.media_ids);
+  form.querySelectorAll('input[name="media_id"]').forEach((input) => {
+    input.checked = selectedMedia.has(input.value) && !input.disabled;
+  });
+  form.querySelectorAll('input[name="primary_media_id"]').forEach((input) => {
+    input.checked = input.value === normalized.primary_media_id;
+  });
+  form.dataset.generationMediaSelectionTouched = "true";
+  syncGenerationMediaSelection(form, { notify: false });
+  syncGenerationProductIdentity(form);
+  return generationSpecScopesMatch(
+    generationSpecExactScope(form),
+    normalized,
+  );
+}
+
+function generationSpecResearchProvenance(
+  identity = null,
+) {
+  const handoff = state.contentGenerationHandoff;
+  const position = Number(handoff?.scenario?.position);
+  if (
+    !handoff
+    || !identity
+    || handoff.sku !== identity.sku
+    || handoff.productName !== identity.productName
+    || !contentReviewUuid(handoff.researchId)
+    || !contentReviewUuid(handoff.draftId)
+    || ![1, 2, 3].includes(position)
+  ) return null;
+  return {
+    research_id: String(handoff.researchId).toLowerCase(),
+    creative_brief_draft_id: String(handoff.draftId).toLowerCase(),
+    scenario_position: position,
+  };
+}
+
+function generationSpecPerformanceProvenance(form, identity = null) {
+  const policy = activeGenerationLearningPolicy(form, identity);
+  if (!policy?.applied || !policy.policyHash || !policy.version) return null;
+  return {
+    policy_hash: policy.policyHash,
+    policy_version: policy.version,
+  };
+}
+
+function generationSpecRepairProvenance(form, identity = null) {
+  const policy = activeGenerationRepairPolicy(form, identity);
+  if (!policy?.applied) return null;
+  return {
+    source_review_id: policy.sourceReviewId,
+    source_generation_job_id: policy.sourceGenerationJobId,
+    policy_hash: policy.policyHash,
+  };
+}
+
+function generationSpecPreparePayload(form) {
+  const identity = selectedGenerationProductIdentity(form);
+  const exactScope = generationSpecExactScope(form, identity);
+  const compiled = automaticGenerationBriefCandidate(form, identity);
+  const currentBrief = String(form?.elements?.brief?.value || "").trim();
+  const acceptedAutomaticBrief = String(
+    form?.dataset?.autoGenerationBrief || "",
+  );
+  const editableIntent = String(
+    form?.dataset?.generationScenarioIntent
+    || form?.elements?.brief?.value
+    || "",
+  ).trim().slice(0, 1_200);
+  const learningContext = generationLearningContext(form);
+  const learningKey = generationLearningKey(form, identity);
+  const checkedLearningPolicy = normalizeGenerationLearningPolicy(
+    state.generationLearning.data,
+  );
+  if (
+    !identity
+    || !exactScope
+    || compiled?.ready !== true
+    || !editableIntent
+    || !learningContext
+    || !learningKey
+    || state.generationLearning.key !== learningKey
+    || state.generationLearning.status !== "ready"
+    || checkedLearningPolicy?.generationAllowed === false
+  ) return null;
+  const repairContext = generationRepairContext(form);
+  return {
+    exact_scope: exactScope,
+    editable_intent: editableIntent,
+    proposed_prompt: currentBrief && currentBrief === acceptedAutomaticBrief
+      ? currentBrief
+      : compiled.prompt,
+    learning_context: learningContext,
+    repair_context: repairContext,
+    research_provenance: generationSpecResearchProvenance(identity),
+    performance_policy_provenance:
+      generationSpecPerformanceProvenance(form, identity),
+    repair_provenance: generationSpecRepairProvenance(form, identity),
+  };
+}
+
+function generationSpecPayloadKey(payload) {
+  if (!payload) return "";
+  return JSON.stringify({
+    exact_scope: payload.exact_scope,
+    editable_intent: payload.editable_intent,
+    proposed_prompt: payload.proposed_prompt,
+    research_provenance: payload.research_provenance,
+    performance_policy_provenance: payload.performance_policy_provenance,
+    repair_provenance: payload.repair_provenance,
+    outcome_selection_id: payload.outcome_selection_id || null,
+  });
+}
+
+function generationSpecDocumentKey(spec) {
+  if (!spec) return "";
+  return generationSpecPayloadKey({
+    exact_scope: spec.exact_scope,
+    editable_intent: spec.editable_intent,
+    proposed_prompt: spec.compiled_prompt,
+    research_provenance: spec.research_provenance,
+    performance_policy_provenance: spec.performance_policy_provenance,
+    repair_provenance: spec.repair_provenance,
+    outcome_selection_id: spec.outcome_selection_id,
+  });
+}
+
+function currentGenerationSpecContext(form) {
+  const payload = generationSpecPreparePayload(form);
+  const dirty = state.generationSpec.dirty === true
+    || generationSpecPayloadKey(payload) !== state.generationSpec.key;
+  return approvedGenerationSpecContext(state.generationSpec.data, {
+    expectedScope: payload?.exact_scope || null,
+    dirty,
+  });
+}
+
+function syncGenerationSpecUi(form) {
+  if (!form) return;
+  const current = form.querySelector("#generation-spec-card");
+  if (!current) return;
+  const expectedScope = generationSpecExactScope(form);
+  const currentPayload = generationSpecPreparePayload(form);
+  const dirty = state.generationSpec.dirty === true
+    || generationSpecPayloadKey(currentPayload) !== state.generationSpec.key;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = generationSpecCardMarkup({
+    ...state.generationSpec,
+    dirty,
+  }, {
+    expectedScope,
+  }).trim();
+  if (!wrapper.firstElementChild) return;
+  wrapper.firstElementChild.hidden = !generationSkuForForm(form);
+  current.replaceWith(wrapper.firstElementChild);
+}
+
+function invalidateGenerationSpec(form, reason = "") {
+  state.generationSpec.dirty = true;
+  state.generationSpec.error = reason;
+  if (form?.elements?.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  syncGenerationSpecUi(form);
+}
+
+function resetGenerationSpecState() {
+  state.generationSpec.requestId += 1;
+  state.generationSpec.status = "idle";
+  state.generationSpec.data = null;
+  state.generationSpec.error = "";
+  state.generationSpec.key = "";
+  state.generationSpec.dirty = true;
+  state.generationSpec.saving = false;
+  const form = document.querySelector("#mock-batch-form");
+  if (form) delete form.dataset.generationSpecPromptLocked;
+}
+
+function applyGenerationSpecEnvelope(raw, form, {
+  expectedContext = null,
+  preparedPayload = null,
+  adoptServerSpec = false,
+  allowScopeChange = false,
+} = {}) {
+  const expectedScope = allowScopeChange
+    ? null
+    : preparedPayload?.exact_scope || generationSpecExactScope(form);
+  const envelope = normalizeGenerationSpecEnvelope(raw, {
+    expectedScope,
+    expectedContext,
+  });
+  if (!envelope) {
+    const error = new Error("Сервер вернул управляемое ТЗ в неизвестном формате.");
+    error.code = "generation_spec_response_invalid";
+    throw error;
+  }
+  state.generationSpec.data = envelope;
+  state.generationSpec.status = "ready";
+  state.generationSpec.error = "";
+  if (adoptServerSpec) {
+    const spec = envelope.generationSpec;
+    const scopeAdopted = !allowScopeChange
+      || applyGenerationSpecScopeToForm(form, spec?.exact_scope);
+    if (spec && form?.elements?.brief) {
+      form.dataset.generationScenarioIntent = spec.editable_intent;
+      form.dataset.autoGenerationBrief = spec.compiled_prompt;
+      form.dataset.generationSpecPromptLocked =
+        `${spec.spec_id}:${spec.spec_version}:${spec.spec_hash}`;
+      form.elements.brief.value = spec.compiled_prompt;
+      state.generationSpec.key = generationSpecDocumentKey(spec);
+      state.generationSpec.dirty = !scopeAdopted;
+      state.generationSpec.error = scopeAdopted
+        ? ""
+        : "Версия возвращена на сервере, но один из старых исходников недоступен в форме. Выберите точные ракурсы и сохраните правку новой версией.";
+    }
+  }
+  syncGenerationSpecUi(form);
+  syncGenerationFormReadiness(form);
+  return envelope;
+}
+
+async function refreshGenerationSpec(form, { force = false } = {}) {
+  const current = state.generationSpec.data?.generationSpec;
+  if (!form || !current) return null;
+  const context = {
+    spec_id: current.spec_id,
+    spec_version: current.spec_version,
+    spec_hash: current.spec_hash,
+  };
+  if (state.generationSpec.status === "loading" && !force) return null;
+  const requestId = ++state.generationSpec.requestId;
+  state.generationSpec.status = "loading";
+  state.generationSpec.error = "";
+  syncGenerationSpecUi(form);
+  try {
+    const raw = await state.api.generationSpecStatus(context);
+    if (requestId !== state.generationSpec.requestId || !form.isConnected) {
+      return null;
+    }
+    return applyGenerationSpecEnvelope(raw, form, {
+      expectedContext: context,
+    });
+  } catch (error) {
+    if (requestId === state.generationSpec.requestId) {
+      state.generationSpec.status = "error";
+      state.generationSpec.error = actionErrorMessage(error);
+      state.generationSpec.dirty = true;
+      syncGenerationSpecUi(form);
+      syncGenerationFormReadiness(form);
+    }
+    throw error;
+  }
+}
+
+async function runGenerationSpecControl(form, action, {
+  targetSpecVersion = null,
+} = {}) {
+  if (!form || state.generationSpec.saving) return null;
+  const supported = new Set([
+    "prepare", "patch", "approve", "reject", "revert", "recompute",
+  ]);
+  if (!supported.has(action)) return null;
+  const preparedPayload = generationSpecPreparePayload(form);
+  const current = state.generationSpec.data?.generationSpec || null;
+  if (!preparedPayload || (action !== "prepare" && !current)) {
+    throw new Error("Сначала заполните замысел, товар и дождитесь бесплатной проверки обучения.");
+  }
+  const currentInputChanged = state.generationSpec.dirty === true
+    || generationSpecPayloadKey(preparedPayload) !== state.generationSpec.key;
+  if (["approve", "reject", "recompute"].includes(action) && currentInputChanged) {
+    throw new Error("Сначала сохраните правки как новую версию ТЗ; старая версия не будет утверждена автоматически.");
+  }
+  state.generationSpec.saving = true;
+  state.generationSpec.error = "";
+  syncGenerationSpecUi(form);
+  try {
+    let raw;
+    if (action === "prepare") {
+      raw = await state.api.prepareGenerationSpec({
+        ...preparedPayload,
+        confirmation: true,
+        reason: "Пользователь явно подготовил проверяемую версию ТЗ.",
+      });
+    } else {
+      const input = {
+        spec_id: current.spec_id,
+        expected_spec_version: current.spec_version,
+        expected_spec_hash: current.spec_hash,
+        action,
+        confirmation: true,
+        reason: {
+          patch: "Пользователь явно сохранил исправленный замысел и параметры.",
+          approve: "Пользователь явно утвердил эту версию перед платным запуском.",
+          reject: "Пользователь явно отклонил эту версию ТЗ.",
+          revert: "Пользователь явно вернул предыдущую версию ТЗ.",
+          recompute: "Пользователь явно запросил бесплатный пересчёт ТЗ.",
+        }[action],
+        ...(action === "patch" ? { patch: preparedPayload } : {}),
+        ...(action === "revert"
+          ? {
+              target_spec_version: Number.isInteger(targetSpecVersion)
+                ? targetSpecVersion
+                : current.spec_version - 1,
+            }
+          : {}),
+      };
+      raw = await state.api.controlGenerationSpec(input);
+    }
+    return applyGenerationSpecEnvelope(raw, form, {
+      preparedPayload,
+      adoptServerSpec: true,
+      allowScopeChange: action === "revert",
+    });
+  } finally {
+    state.generationSpec.saving = false;
+    syncGenerationSpecUi(form);
+  }
+}
+
 function generationLearningOptOut(form) {
   const key = generationLearningKey(form);
   return Boolean(key && state.generationLearning.disabledKey === key);
@@ -15808,8 +16315,10 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
   const canApply = Boolean(
     brief && (
       force
-      || !brief.value.trim()
-      || (previousAutomatic && brief.value === previousAutomatic)
+      || (!form.dataset.generationSpecPromptLocked && (
+        !brief.value.trim()
+        || (previousAutomatic && brief.value === previousAutomatic)
+      ))
     )
   );
   if (canApply) {
@@ -16162,6 +16671,7 @@ function syncGenerationModeForm(form) {
   if (submit) {
     syncGenerationFormReadiness(form);
   }
+  syncGenerationSpecUi(form);
   syncGenerationRepairStatus(form);
   if (real && spendAllowed) scheduleAutomaticGenerationPreflight(form);
 }
@@ -17163,6 +17673,12 @@ async function submitRealGeneration(form, values, mode) {
     return;
   }
   const repairContext = generationRepairContext(form);
+  let generationSpecContext = currentGenerationSpecContext(form);
+  if (!generationSpecContext) {
+    toast("Платный запуск заблокирован: подготовьте и явно утвердите актуальную серверную версию ТЗ.", "error");
+    scrollElementIntoView(form.querySelector("#generation-spec-card"), "center");
+    return;
+  }
   if (values.get("real_spend_confirmation") !== generationSku.confirmation) {
     toast(`Подтвердите создание одного платного ${contentLabel} примерно за $${generationSku.estimatedUsd}.`, "error");
     return;
@@ -17170,6 +17686,31 @@ async function submitRealGeneration(form, values, mode) {
   const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
   if (!Number.isFinite(payoutRub) || payoutRub < 0 || payoutRub > 10_000 || !Number.isSafeInteger(Math.round(payoutRub * 100))) {
     toast("Вознаграждение должно быть от 0 до 10 000 ₽ за задачу.", "error");
+    return;
+  }
+
+  setFormBusy(form, true, "Обновляем утверждённую версию ТЗ без списания…");
+  try {
+    await refreshGenerationSpec(form, { force: true });
+  } catch (error) {
+    if (form.isConnected) setFormBusy(form, false);
+    toast(`Платный запуск не создан: ${actionErrorMessage(error)}`, "error");
+    return;
+  }
+  generationSpecContext = currentGenerationSpecContext(form);
+  const approvedSpec = state.generationSpec.data?.generationSpec || null;
+  if (
+    !generationSpecContext
+    || approvedSpec?.status !== "approved"
+    || approvedSpec.compiled_prompt !== brief
+  ) {
+    if (form.isConnected) setFormBusy(form, false);
+    invalidateGenerationSpec(
+      form,
+      "Серверная версия ТЗ изменилась или больше не утверждена.",
+    );
+    syncGenerationFormReadiness(form);
+    toast("Платный запуск не создан: заново проверьте и утвердите текущую серверную версию ТЗ.", "error");
     return;
   }
 
@@ -17196,6 +17737,7 @@ async function submitRealGeneration(form, values, mode) {
         }
       : {}),
     learning_context: learningContext,
+    generation_spec_context: generationSpecContext,
     ...(repairContext ? { repair_context: repairContext } : {}),
     ...(generationLearningOptOut(form) ? { learning_opt_out: true } : {}),
     ...(canManageTeam()
@@ -17209,7 +17751,11 @@ async function submitRealGeneration(form, values, mode) {
   state.realGenerationStartInFlight = true;
   state.realGenerationStartNotice = "";
   setFormBusy(form, true, "Проверяем Runway без списания…");
-  const draft = realGenerationDraftFromPayload(payload, mode);
+  const draft = realGenerationDraftFromPayload(
+    payload,
+    mode,
+    form.dataset.generationScenarioIntent,
+  );
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   let providerStartAttempted = false;
@@ -17281,6 +17827,7 @@ async function submitRealGeneration(form, values, mode) {
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
     const resultStatus = String(result.job.status || "queued").toLowerCase();
+    resetGenerationSpecState();
     if (resultStatus === "failed") {
       toast(generationFailureMessage(result.job.failure_code), "error");
     } else {
@@ -17302,6 +17849,7 @@ async function submitRealGeneration(form, values, mode) {
     setFormBusy(form, false);
     if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
     form.dataset.dirty = "true";
+    if (providerStartAttempted) resetGenerationSpecState();
     if (error?.job?.id) {
       const jobId = String(error.job.id);
       state.realGenerationDrafts.set(jobId, draft);
@@ -20737,6 +21285,7 @@ function clearAuthenticatedState() {
   state.generatedVideoQa.activeRecoveryPromise = null;
   state.generatedVideoQa.recoveryJobIds.clear();
   state.generatedVideoQa.restored = false;
+  resetGenerationSpecState();
   clearContentGenerationHandoff();
   state.lastRealGenerationJobId = null;
   state.bootstrap = null;

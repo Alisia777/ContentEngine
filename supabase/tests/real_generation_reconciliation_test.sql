@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: reconciliation fixtures represent already-starting paid jobs
+-- created before generation specifications. Keep every reconciliation/spend
+-- trigger and bypass only the new insert-time spec gate for those legacy rows.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.create_starting_real_job(
   p_job_id uuid,
   p_batch_id uuid,
@@ -1139,6 +1145,9 @@ select is(
   'false',
   'successful reconciliation records that no automatic provider retry ran'
 );
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

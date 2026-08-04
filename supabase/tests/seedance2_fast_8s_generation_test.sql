@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: this legacy provider-contract suite exercises the preserved
+-- pre-v15 paid-start layer. The public v15 spec boundary is covered separately
+-- by generation_spec_control_test.sql.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.canonical_gen4_prompt(
   p_product_name text,
   p_sku text
@@ -321,7 +327,7 @@ $$;
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-instagram-preflight-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -397,7 +403,7 @@ $$;
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-audio-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -415,7 +421,7 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-ratio-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -433,7 +439,7 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-confirm-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -451,7 +457,7 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-prompt-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -469,7 +475,7 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-media-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -486,7 +492,7 @@ select throws_ok(
 );
 
 insert into seedance_test_context (success_response)
-values (public.creator_start_real_generation(jsonb_build_object(
+values (content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-success-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -571,7 +577,7 @@ select ok(
   'Seedance start creates a blocked audio review task'
 );
 select is(
-  public.creator_start_real_generation(jsonb_build_object(
+  content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
     'organization_id', '90000000-0000-4000-8000-000000000001',
     'idempotency_key', 'seedance-success-0001',
     'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -740,7 +746,7 @@ select is(
 );
 
 update seedance_test_context
-set failure_response = public.creator_start_real_generation(jsonb_build_object(
+set failure_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-failure-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -904,7 +910,7 @@ select ok(
 );
 
 update seedance_test_context
-set nonrefund_response = public.creator_start_real_generation(jsonb_build_object(
+set nonrefund_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-nonrefund-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -967,7 +973,7 @@ select ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-success-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -984,7 +990,7 @@ select throws_ok(
 );
 
 update seedance_test_context
-set gen4_response = public.creator_start_real_generation(jsonb_build_object(
+set gen4_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
   'idempotency_key', 'gen4-after-seedance-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
@@ -1058,6 +1064,9 @@ select is(
   1,
   'duplicate Seedance starting claim emits one system audit event'
 );
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;
