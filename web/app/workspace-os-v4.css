@@ -748,6 +748,8 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   transition: transform 390ms var(--ce-v4-spring), color 160ms ease, filter 190ms ease;
 }
 
+.ce-v4-dock__item[hidden] { display: none !important; }
+
 .ce-v4-dock__tile {
   position: relative;
   display: grid;

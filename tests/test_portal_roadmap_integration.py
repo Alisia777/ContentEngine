@@ -81,8 +81,8 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
     assert "managerGenerationSpendMarkup" not in health
 
     assert 'new Set(["/workspace/research", "/workspace/ai", "/workspace/team"])' in WORKSPACE_OS
-    assert "function secondaryRouteIsAuthorized(route)" in WORKSPACE_OS
-    assert "SECONDARY_ROUTES.filter((item) => secondaryRouteIsAuthorized(item.route))" in WORKSPACE_OS
+    assert "function routeIsAuthorized(route)" in WORKSPACE_OS
+    assert "authorizedRoutes(SECONDARY_ROUTES)" in WORKSPACE_OS
 
 
 def test_release_entry_assets_use_current_cache_versions() -> None:

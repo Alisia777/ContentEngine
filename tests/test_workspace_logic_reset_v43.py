@@ -129,7 +129,7 @@ def test_native_v4_scaffold_contains_only_the_authorized_content_surface() -> No
     assert INDEX.index("./workspace-os-v4-loader.js") < INDEX.index("./app.js")
 
 
-def test_canonical_factory_flow_is_the_same_six_apps_as_the_dock() -> None:
+def test_canonical_factory_flow_stays_the_same_six_production_apps() -> None:
     flow = _source_between(
         APP,
         "const FACTORY_FLOW = Object.freeze([",
@@ -193,7 +193,7 @@ def test_review_decision_hands_the_user_to_the_only_logical_next_screen() -> Non
     )
 
 
-def test_dock_is_limited_to_the_six_primary_workflow_routes() -> None:
+def test_dock_adds_research_and_ai_after_the_six_primary_workflow_routes() -> None:
     dock_source = _source_between(
         CORE,
         "const ROUTES = Object.freeze([",
@@ -208,6 +208,8 @@ def test_dock_is_limited_to_the_six_primary_workflow_routes() -> None:
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/research",
+        "/workspace/ai",
     ]
     for forbidden_label in ("Задачи", "Академия", "Выплаты", "Моя работа"):
         assert forbidden_label not in dock_source
@@ -323,7 +325,7 @@ def test_trash_reuses_the_authenticated_workspace_runtime_api() -> None:
     assert "window.ContentEngineWorkspaceRuntime?.getApi?.()" in TRASH
 
 
-def test_secondary_tools_only_contain_real_tools_outside_the_six_step_route() -> None:
+def test_secondary_tools_only_contain_infrequent_tools_outside_the_dock() -> None:
     menubar = _source_between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
     assert "SECONDARY_ROUTES.forEach" in menubar
     assert 'setAttribute("role", "menu")' in menubar
@@ -336,6 +338,10 @@ def test_secondary_tools_only_contain_real_tools_outside_the_six_step_route() ->
         "const SECONDARY_ROUTES = Object.freeze([",
         "\n]);\n\nconst ALL_ROUTES",
     )
+    assert re.findall(r'route:\s*"([^"]+)"', secondary) == [
+        "/workspace/team",
+        "/workspace/feedback",
+    ]
     for duplicate in (
         "/workspace/tasks",
         "/workspace/work",

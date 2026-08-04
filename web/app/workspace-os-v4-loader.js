@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.7";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.8";
 
-const BUILD = "20260804.os4.7";
+const BUILD = "20260804.os4.8";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;

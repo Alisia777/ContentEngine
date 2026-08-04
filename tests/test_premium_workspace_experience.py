@@ -129,7 +129,7 @@ def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
         assert selector in STYLES
 
 
-def test_primary_navigation_is_exactly_six_ordered_workspace_apps() -> None:
+def test_primary_navigation_keeps_six_step_flow_then_adds_research_and_ai() -> None:
     routes = _between(
         WORKSPACE_OS,
         "const ROUTES = Object.freeze([",
@@ -149,6 +149,8 @@ def test_primary_navigation_is_exactly_six_ordered_workspace_apps() -> None:
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/research",
+        "/workspace/ai",
     ]
     assert "/learn" not in routes
     assert "/learn" not in secondary_routes

@@ -26,8 +26,8 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 
 
 def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260804.os4.7" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260804.os4.7"></script>' in INDEX
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260804.os4.8" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260804.os4.8"></script>' in INDEX
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
     assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -37,15 +37,15 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260804.os4.7',
+        './workspace-os-v4-loader.js?v=20260804.os4.8',
         './app.js?v=20260804.1',
-        './workspace-build-guard.js?v=20260804.os4.7',
+        './workspace-build-guard.js?v=20260804.os4.8',
     ]
 
 
 def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260804.os4.7"',
+        'const BUILD = "20260804.os4.8"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -88,7 +88,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.7";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.8";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',
@@ -106,7 +106,8 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
         'const ROUTES = Object.freeze([',
         'const SECONDARY_ROUTES = Object.freeze([',
         'if (runtime.menubar?.isConnected) return runtime.menubar;',
-        'if (runtime.dock?.isConnected) return runtime.dock;',
+        'if (runtime.dock?.isConnected) {',
+        'syncDockAccess();',
         'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications";',
         'openMission',
         'openSpotlight',
@@ -127,7 +128,7 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
         flags=re.DOTALL,
     )
     assert dock_routes is not None
-    assert dock_routes.group(1).count('Object.freeze({ route: "/workspace/') == 6
+    assert dock_routes.group(1).count('Object.freeze({ route: "/workspace/') == 8
     assert '/learn' not in dock_routes.group(1)
     assert CORE.count('const bar = create("header", "ce-v4-menubar");') == 1
     assert CORE.count('const dock = create("nav", "ce-v4-dock");') == 1
