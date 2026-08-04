@@ -467,7 +467,7 @@ def test_ui_routes_watchlist_controls_without_starting_paid_analysis() -> None:
 
     assert "configureResearchWatchlist" in app
     assert 'safeWorkspaceRouteEntityId("research")' in app
-    assert 'state.route.query.has("research")' in app
+    assert 'navigate("/workspace/research", true)' in app
     assert "#/workspace/research?research=" in _all_migrations()
     for action in ("enable", "update", "pause", "resume"):
         assert re.search(
