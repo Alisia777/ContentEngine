@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
-select plan(49);
+select plan(48);
 
 -- This fixture exercises the automatic path without contacting YouTube.  The
 -- two recorded transport receipts are bounded provider observations, not raw

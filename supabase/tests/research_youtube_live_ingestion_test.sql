@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
-select plan(73);
+select plan(61);
 
 select is(
   content_factory_private.research_youtube_global_state(),
