@@ -25,13 +25,13 @@ MIGRATION_PATH = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040002_ai_learning_control_room.sql"
+    / "202608040017_ai_learning_control_room.sql"
 )
 GENERATION_SPEC_MIGRATION_PATH = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608030013_generation_spec_control.sql"
+    / "202608040015_generation_spec_control.sql"
 )
 
 PRODUCT_CATEGORIES = (

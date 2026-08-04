@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
@@ -18,6 +19,13 @@ from scripts.deploy_supabase_management_api import (
     decode_private_training_keys,
     deploy,
     load_migrations,
+)
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+DEPLOYED_PRODUCTION_TAIL = "202608030005"
+DEPLOYED_PRODUCTION_PREFIX_SHA256 = (
+    "9e74993f1ed1dbb7a7db1066b80053c93db0a2fc1555de3a9fff1c64173ff057"
 )
 
 
@@ -199,6 +207,60 @@ def _fixture_migrations(tmp_path: Path):
     _write_migration(tmp_path, "202607130001", "select 1;")
     _write_migration(tmp_path, "202607130002", "select 2;")
     return load_migrations(tmp_path)
+
+
+def test_repository_keeps_the_verified_production_prefix_immutable() -> None:
+    """A new migration must never be inserted before the deployed tail."""
+
+    migrations = load_migrations(REPOSITORY_ROOT / "supabase" / "migrations")
+    deployed_prefix: list[str] = []
+    for migration in migrations:
+        deployed_prefix.append(f"{migration.version}:{migration.sha256}")
+        if migration.version == DEPLOYED_PRODUCTION_TAIL:
+            break
+    else:
+        pytest.fail("The verified production migration tail is missing")
+
+    fingerprint = hashlib.sha256(
+        ("\n".join(deployed_prefix) + "\n").encode("ascii")
+    ).hexdigest()
+    assert len(deployed_prefix) == 108
+    assert fingerprint == DEPLOYED_PRODUCTION_PREFIX_SHA256
+    assert all(
+        migration.version > DEPLOYED_PRODUCTION_TAIL
+        for migration in migrations[len(deployed_prefix) :]
+    )
+
+
+def test_current_repository_deploys_cleanly_after_the_verified_remote_tail() -> None:
+    migrations = load_migrations(REPOSITORY_ROOT / "supabase" / "migrations")
+    remote_history = {
+        migration.version: migration.sha256
+        for migration in migrations
+        if migration.version <= DEPLOYED_PRODUCTION_TAIL
+    }
+    pending_versions = [
+        migration.version
+        for migration in migrations
+        if migration.version > DEPLOYED_PRODUCTION_TAIL
+    ]
+    fake_http = FakeManagementApi(remote_history)
+
+    applied = deploy(
+        client=_client(fake_http),
+        migrations=migrations,
+        private_exam_sql_body="select 1;",
+    )
+
+    expected_research_chain = [
+        f"2026080400{suffix:02d}" for suffix in range(4, 19)
+    ]
+    assert pending_versions[: len(expected_research_chain)] == expected_research_chain
+    assert pending_versions == sorted(pending_versions)
+    assert applied == pending_versions
+    assert fake_http.history == {
+        migration.version: migration.sha256 for migration in migrations
+    }
 
 
 def _client(fake_http: FakeManagementApi) -> ManagementApiClient:

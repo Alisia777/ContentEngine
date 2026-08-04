@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / (
     "supabase/migrations/"
-    "202608040003_research_youtube_observation_analysis.sql"
+    "202608040018_research_youtube_observation_analysis.sql"
 )
 PGTAP = ROOT / "supabase/tests/research_youtube_automatic_integration_test.sql"
 API = ROOT / "web/app/supabase-api.js"

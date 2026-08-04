@@ -12,7 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = (
-    ROOT / "supabase/migrations/202608030010_research_stage_control_loop.sql"
+    ROOT / "supabase/migrations/202608040012_research_stage_control_loop.sql"
 )
 PGTAP_PATH = ROOT / "supabase/tests/research_stage_control_loop_test.sql"
 API_PATH = ROOT / "web/app/supabase-api.js"

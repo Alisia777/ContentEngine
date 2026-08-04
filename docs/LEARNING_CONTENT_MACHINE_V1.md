@@ -33,7 +33,7 @@ ContentEngine должен стать управляемой обучающей�
 → следующая гипотеза
 ```
 
-> Важная граница: миграция `202608030007_research_youtube_live_ingestion.sql`,
+> Важная граница: миграция `202608040009_research_youtube_live_ingestion.sql`,
 > Edge adapter и UI реализуют управляемые canary/refresh для официального YouTube
 > Data API. Однако это не означает работающий production parser: provider catalog
 > по умолчанию остаётся `planned/disabled`, отдельный global rollout gate —
@@ -105,12 +105,12 @@ ContentEngine должен стать управляемой обучающей�
   и задачи после approval;
 - полные доказательства остаются неизменяемыми: человеческая правка не
   переписывает provider citations;
-- миграция `202608030001_research_stage_control_ledger.sql` подготавливает
+- миграция `202608040004_research_stage_control_ledger.sql` подготавливает
   immutable stage artifacts, per-stage evidence, dependency hashes и decision
   ledger; save/approve guards запрещают удалить v2 evidence, утвердить AI draft
   напрямую или скрыто обойти non-ready guidance;
 - production validator покрыт исполняемыми Deno fixtures и включён в CI.
-- миграция `202608030002_research_watchlist_memory.sql` добавляет RPC-only
+- миграция `202608040005_research_watchlist_memory.sql` добавляет RPC-only
   watchlist товара, immutable approved-v2 snapshots, точные source junctions,
   deterministic competitor/trend change set, contradiction marker, freshness
   и idempotent due proposals;
@@ -123,7 +123,7 @@ ContentEngine должен стать управляемой обучающей�
 - production UI даёт явные `enable/update/pause/resume`, показывает историю и
   следующий шаг, а новый анализ открывает как предзаполненную форму с отдельным
   подтверждением стоимости.
-- миграция `202608030003_research_provider_control_plane.sql` закрывает скрытый
+- миграция `202608040006_research_provider_control_plane.sql` закрывает скрытый
   spend-path: `paid_analysis_ack` атомарно создаёт authorization вместе с run,
   claim без authorization запрещён, а Edge обязан неизменяемо связать ровно
   один allowlisted provider/adapter до внешнего HTTP-вызова;
@@ -133,7 +133,7 @@ ContentEngine должен стать управляемой обучающей�
 - каталог содержит production `openai_web_search` и disabled/planned
   `youtube_data_api_v3`: наличие записи YouTube не означает работающую загрузку
   данных или пройденный commercial/quota canary;
-- миграция `202608030004_research_market_intelligence_identity.sql` отделяет
+- миграция `202608040007_research_market_intelligence_identity.sql` отделяет
   динамическую рыночную категорию от закрытого compliance-контура: tenant-scoped
   registry, точные aliases и append-only product bindings меняются только через
   явные `bind/create/reclassify` решения с stale candidate hash;
@@ -145,7 +145,7 @@ ContentEngine должен стать управляемой обучающей�
   текущую привязку и bounded trend timeline. Создание или переклассификация
   требуют отдельного checkbox и не меняют compliance category, не вызывают
   provider и не запускают новый анализ.
-- миграция `202608030006_research_outcome_learning_control.sql` добавляет пять
+- миграция `202608040008_research_outcome_learning_control.sql` добавляет пять
   RPC-only append-only ledger: exact outcome lineage, candidate evidence,
   human decisions и versioned active/inactive memory с rollback target;
 - refresh принимает только зрелые first-party cumulative metrics (не ранее 72
@@ -166,7 +166,7 @@ ContentEngine должен стать управляемой обучающей�
   generation, placement или publication actions;
 - активированная версия остаётся рекомендацией и не подключена к auto-ТЗ,
   существующей generation-learning policy или платной генерации.
-- миграция `202608030007_research_youtube_live_ingestion.sql` добавляет
+- миграция `202608040009_research_youtube_live_ingestion.sql` добавляет
   tenant-scoped request/lease/quota/retention ledger, ручные canary/refresh,
   transport receipts для `search.list` и `videos.list`, аварийную остановку и
   управляемые rollout/candidate решения. Edge и production UI поддерживают этот
@@ -180,18 +180,18 @@ ContentEngine должен стать управляемой обучающей�
   штатно очищенную только при отдельном серверном доказательстве, что retention
   heartbeat пересёк 29-дневную границу этого запуска; без такого доказательства
   интерфейс остаётся fail-closed;
-- миграция `202608030008_research_outcome_scope_registry.sql` добавляет
+- миграция `202608040010_research_outcome_scope_registry.sql` добавляет
   read-only discovery до 50 точных category/platform/model scopes из approved
   scenario lineage и outcome ledgers. UI не угадывает scope при нескольких
   вариантах: пользователь выбирает точный контур, а status загружается только
   для него;
-- миграция `202608030009_research_outcome_generation_consumption.sql` добавляет
+- миграция `202608040011_research_outcome_generation_consumption.sql` добавляет
   безопасный advisory и explicit apply/control selection с повторной проверкой
   category binding, active memory, candidate evidence и базовой policy. Эта
   foundation не записывает generation job и не может создать assignment:
   effectiveness пока `unknown`, binding `gated`, production consumption не
   подключён.
-- миграция `202608030010_research_stage_control_loop.sql` добавляет точную
+- миграция `202608040012_research_stage_control_loop.sql` добавляет точную
   идентичность входов stage artifact, tenant-scoped branches, append-only head
   events и защищённую текущую проекцию семи этапов. Каждая мутация требует
   совпадения `head_event_id`, `artifact_id`, `content_hash`, а также canonical
@@ -221,7 +221,7 @@ ContentEngine должен стать управляемой обучающей�
   и один server-recommended next action без provider, spend, generation или
   publication side effects. Corrections UI загружает этот envelope отдельно от
   обычного polling research status и не повторяет provider-вызов автоматически.
-- миграция `202608030011_research_category_learning_readiness.sql` добавляет
+- миграция `202608040013_research_category_learning_readiness.sql` добавляет
   category-level source registry, строгую схему
   `research-source-interpretation-v1`, exact-head correction chain и readiness
   из шести проверяемых измерений общим весом 100. Каждый пробел возвращает
@@ -244,7 +244,7 @@ ContentEngine должен стать управляемой обучающей�
   provider contract отображается пользователю как конкретный пробел, а не
   заменяется скрытым scraper или LLM-догадкой. Кандидаты и условия выбора
   зафиксированы отдельно в `docs/SOCIAL_SOURCE_PROVIDER_DECISION.md`.
-- миграция `202608030012_research_trend_velocity_and_readiness_truth.sql`
+- миграция `202608040014_research_trend_velocity_and_readiness_truth.sql`
   сохраняет immutable support-velocity events для соседних утверждённых
   snapshots. Формула использует basis points точных source junctions,
   минимальный интервал 72 часа, явные `baseline`, `category_reset`,

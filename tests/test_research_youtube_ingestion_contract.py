@@ -12,7 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = (
-    ROOT / "supabase/migrations/202608030007_research_youtube_live_ingestion.sql"
+    ROOT / "supabase/migrations/202608040009_research_youtube_live_ingestion.sql"
 )
 PGTAP_PATH = ROOT / "supabase/tests/research_youtube_live_ingestion_test.sql"
 VIEW_PATH = ROOT / "web/app/product-research-view.js"
