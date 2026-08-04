@@ -38,8 +38,8 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index:end_index]
 
 
-def test_v47_loader_has_three_script_adapters_and_one_shared_operations_style() -> None:
-    assert 'const BUILD = "20260804.os4.7"' in LOADER
+def test_v49_loader_has_three_script_adapters_and_one_shared_operations_style() -> None:
+    assert 'const BUILD = "20260804.os4.9"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -199,7 +199,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.7"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.9"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',

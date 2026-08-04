@@ -46,7 +46,7 @@ jobs:
           CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
         run: |
           echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
-          payload='{"generation_limit":0,"research_limit":0,"review_limit":0}'
+          payload='{"generation_limit":0,"research_limit":0,"review_limit":0,"youtube_limit":0}'
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
           status="$(

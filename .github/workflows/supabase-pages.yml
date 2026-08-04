@@ -60,6 +60,7 @@ jobs:
           SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
           RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
           CONTENTENGINE_WORKER_SECRET: ${{ secrets.CONTENTENGINE_WORKER_SECRET }}
         run: |
           if [ -n "${RUNWAYML_API_SECRET:-}" ]; then
@@ -67,6 +68,9 @@ jobs:
           fi
           if [ -n "${OPENAI_API_KEY:-}" ]; then
             echo "::add-mask::$OPENAI_API_KEY"
+          fi
+          if [ -n "${YOUTUBE_DATA_API_KEY:-}" ]; then
+            echo "::add-mask::$YOUTUBE_DATA_API_KEY"
           fi
           if [ -n "${CONTENTENGINE_WORKER_SECRET:-}" ]; then
             echo "::add-mask::$CONTENTENGINE_WORKER_SECRET"
@@ -123,6 +127,35 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF" \
             OPENAI_API_KEY="$OPENAI_API_KEY"
 
+      - name: Synchronize optional YouTube Data API secret
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+        run: |
+          if [ -z "${YOUTUBE_DATA_API_KEY:-}" ]; then
+            if supabase secrets list \
+              --project-ref "$SUPABASE_PROJECT_REF" \
+              --output json \
+              | python -c 'import json, sys; values = json.load(sys.stdin); raise SystemExit(0 if any(isinstance(value, dict) and value.get("name") == "YOUTUBE_DATA_API_KEY" for value in values) else 1)'
+            then
+              echo "YOUTUBE_DATA_API_KEY is not configured; removing the previously synchronized ingestion key."
+              supabase secrets unset YOUTUBE_DATA_API_KEY \
+                --project-ref "$SUPABASE_PROJECT_REF"
+            else
+              echo "YOUTUBE_DATA_API_KEY is not configured and no synchronized ingestion key exists."
+            fi
+            exit 0
+          fi
+          echo "::add-mask::$YOUTUBE_DATA_API_KEY"
+          if [[ ! "$YOUTUBE_DATA_API_KEY" =~ ^[A-Za-z0-9_-]{20,256}$ ]]; then
+            echo "YOUTUBE_DATA_API_KEY must contain 20 to 256 URL-safe characters" >&2
+            exit 1
+          fi
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            YOUTUBE_DATA_API_KEY="$YOUTUBE_DATA_API_KEY"
+
       - name: Synchronize private background worker secret
         shell: bash
         env:
@@ -175,6 +208,7 @@ jobs:
               "creator-set-password",
               "creator-generate",
               "creator-product-research",
+              "creator-research-ingestion",
               "creator-content-review",
               "creator-access",
           ):
@@ -230,6 +264,11 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy creator-product-research --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy authenticated research ingestion function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy creator-research-ingestion --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy authenticated content review function
         env:
@@ -333,7 +372,7 @@ jobs:
       - name: Reject server secrets and localhost from Pages artifact
         shell: bash
         run: |
-          if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN|RUNWAYML_API_SECRET|OPENAI_API_KEY' _site/config.js; then
+          if grep -n -E 'sb_secret_|service_role|SUPABASE_ACCESS_TOKEN|RUNWAYML_API_SECRET|OPENAI_API_KEY|YOUTUBE_DATA_API_KEY' _site/config.js; then
             echo "Server-only material entered the generated browser configuration" >&2
             exit 1
           fi

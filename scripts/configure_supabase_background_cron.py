@@ -42,6 +42,7 @@ WORKER_PAYLOAD = {
     "generation_limit": 4,
     "research_limit": 1,
     "review_limit": 1,
+    "youtube_limit": 1,
 }
 
 

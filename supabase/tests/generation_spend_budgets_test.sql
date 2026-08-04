@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: spend-budget fixtures model paid jobs created before the
+-- generation-spec rollout. Preserve every spend/lifecycle trigger and bypass
+-- only the new insert-time spec gate for those grandfathered rows.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.create_budget_job(p_ordinal integer)
 returns uuid
 language plpgsql
@@ -944,6 +950,9 @@ select is(
   'the spend snapshot exposes the organization-wide reconciliation freeze'
 );
 reset role;
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

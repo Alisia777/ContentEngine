@@ -1,4 +1,4 @@
-"""Focused contracts for the project-first Desktop v4.6 reset.
+"""Focused contracts for the project-first Desktop v4.7 reset.
 
 These tests intentionally check user-visible architecture instead of exact copy,
 build hashes, helper names, or incidental markup ordering.  The contract is:
@@ -107,7 +107,16 @@ def test_global_chrome_does_not_repeat_the_dock_as_a_flowbar_or_location_title()
 
 def test_dock_always_exposes_plain_labels_and_labelled_hover_tooltips() -> None:
     routes = _between(CORE, "const ROUTES", "const SECONDARY_ROUTES")
-    for label in ("Проекты", "Файлы", "Создать", "Проверить", "Опубликовать", "Результаты"):
+    for label in (
+        "Проекты",
+        "Файлы",
+        "Создать",
+        "Проверить",
+        "Опубликовать",
+        "Результаты",
+        "Исследования",
+        "ИИ-центр",
+    ):
         assert f'label: "{label}"' in routes
 
     dock = _function(CORE, "function ensureDock()")
@@ -119,6 +128,7 @@ def test_dock_always_exposes_plain_labels_and_labelled_hover_tooltips() -> None:
     assert tooltip_calls, "Every Dock item needs a textual hover/focus tooltip"
     assert "item.label" in tooltip_calls[0], "The tooltip must say what the icon is, not only describe it"
     assert "Корзина" in dock[dock.index("ce-v4-trash-dock") :], "Trash tooltip must also name the item"
+    assert ".ce-v4-dock__item[hidden] { display: none !important; }" in CORE_CSS
 
     tooltip_rules = [
         (selector, body)

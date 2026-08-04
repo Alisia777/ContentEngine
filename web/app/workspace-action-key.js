@@ -36,6 +36,16 @@ const ACTION_ROUTES = Object.freeze({
     views: ["evidence", "corrections", "brief", "approve", "handoff"],
     entities: { run: ["evidence", "corrections", "brief", "approve", "handoff"] },
   }),
+  "/workspace/ai": Object.freeze({
+    defaultView: "overview",
+    views: ["overview", "knowledge", "teach", "history"],
+    qualifiers: {
+      category: Object.freeze({
+        defaultValue: "cosmetics",
+        values: ["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"],
+      }),
+    },
+  }),
   "/workspace/feedback": Object.freeze({ defaultView: "new", views: ["new", "history"] }),
   "/workspace/team": Object.freeze({
     defaultView: "members",
@@ -74,7 +84,15 @@ export function workspaceActionDescriptor(input) {
   const { path, query } = routeParts(input);
   const definition = ACTION_ROUTES[path];
   if (!definition) {
-    return Object.freeze({ path, view: "default", projectId: "", entityParameter: "", entityId: "", key: `${path}?view=default` });
+    return Object.freeze({
+      path,
+      view: "default",
+      projectId: "",
+      qualifiers: Object.freeze({}),
+      entityParameter: "",
+      entityId: "",
+      key: `${path}?view=default`,
+    });
   }
 
   const requestedProjectId = singleQueryValue(query, "project_id");
@@ -95,6 +113,16 @@ export function workspaceActionDescriptor(input) {
     view = "current";
   }
 
+  const qualifiers = Object.freeze(Object.fromEntries(
+    Object.entries(definition.qualifiers || {}).map(([parameter, contract]) => {
+      const requested = singleQueryValue(query, parameter);
+      const value = contract.values.includes(requested) ? requested : contract.defaultValue;
+      return [parameter, value];
+    }),
+  ));
+  const qualifierSuffix = Object.entries(qualifiers)
+    .map(([parameter, value]) => `&${parameter}=${encodeURIComponent(value)}`)
+    .join("");
   const entities = validEntityCandidates.filter((candidate) => candidate.views.includes(view));
   const entity = entities[0] || null;
   const projectSuffix = projectId ? `&project_id=${encodeURIComponent(projectId)}` : "";
@@ -105,9 +133,10 @@ export function workspaceActionDescriptor(input) {
     path,
     view,
     projectId,
+    qualifiers,
     entityParameter: entity?.parameter || "",
     entityId: entity?.value || "",
-    key: `${path}?view=${encodeURIComponent(view)}${projectSuffix}${entitySuffix}`,
+    key: `${path}?view=${encodeURIComponent(view)}${projectSuffix}${qualifierSuffix}${entitySuffix}`,
   });
 }
 

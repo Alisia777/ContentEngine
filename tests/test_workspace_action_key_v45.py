@@ -49,6 +49,12 @@ def test_normalized_action_key_executes_view_and_whitelisted_entity_boundaries()
           workExplicit: workspaceActionKey("#/workspace/work?view=next"),
           workNoise: workspaceActionKey("#/workspace/work?filter=open&view=next"),
           workNotifications: workspaceActionKey("#/workspace/work?view=notifications"),
+          aiDefault: workspaceActionKey("#/workspace/ai"),
+          aiExplicitDefault: workspaceActionKey("#/workspace/ai?view=overview&category=cosmetics"),
+          aiFoodKnowledge: workspaceActionKey("#/workspace/ai?category=food&view=knowledge"),
+          aiFoodTeach: workspaceActionKey("#/workspace/ai?category=food&view=teach"),
+          aiInvalidCategory: workspaceActionKey("#/workspace/ai?category=pets&view=overview"),
+          aiDuplicateCategory: workspaceActionKey("#/workspace/ai?category=food&category=food&view=overview"),
           teamMembers: workspaceActionKey("#/workspace/team?view=members"),
           teamBudget: workspaceActionKey("#/workspace/team?view=budget"),
           taskQueue: workspaceActionKey("#/workspace/tasks?view=queue"),
@@ -66,6 +72,10 @@ def test_normalized_action_key_executes_view_and_whitelisted_entity_boundaries()
     assert result["workDefault"] == "/workspace/work?view=next"
     assert result["workExplicit"] == result["workDefault"] == result["workNoise"]
     assert result["workNotifications"] == "/workspace/work?view=notifications"
+    assert result["aiDefault"] == result["aiExplicitDefault"] == "/workspace/ai?view=overview&category=cosmetics"
+    assert result["aiFoodKnowledge"] == "/workspace/ai?view=knowledge&category=food"
+    assert result["aiFoodTeach"] == "/workspace/ai?view=teach&category=food"
+    assert result["aiInvalidCategory"] == result["aiDuplicateCategory"] == result["aiDefault"]
     assert result["teamMembers"] != result["teamBudget"]
     assert result["taskQueue"] == "/workspace/tasks?view=queue"
     assert result["taskDetail"].endswith("&item=123e4567-e89b-12d3-a456-426614174000")
@@ -175,7 +185,7 @@ def test_reduced_motion_action_enter_is_removed_synchronously() -> None:
 
 
 def test_loader_core_and_app_share_the_same_action_key_contract() -> None:
-    import_marker = 'from "./workspace-action-key.js?v=20260804.os4.7"'
+    import_marker = 'from "./workspace-action-key.js?v=20260804.os4.9"'
     assert import_marker in APP
     assert import_marker in CORE
     assert import_marker in LOADER

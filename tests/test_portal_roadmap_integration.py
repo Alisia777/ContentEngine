@@ -80,22 +80,22 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
     assert 'href: "#/workspace/team?view=health"' in team
     assert "managerGenerationSpendMarkup" not in health
 
-    assert 'new Set(["/workspace/research", "/workspace/team"])' in WORKSPACE_OS
-    assert "function secondaryRouteIsAuthorized(route)" in WORKSPACE_OS
-    assert "SECONDARY_ROUTES.filter((item) => secondaryRouteIsAuthorized(item.route))" in WORKSPACE_OS
+    assert 'new Set(["/workspace/research", "/workspace/ai", "/workspace/team"])' in WORKSPACE_OS
+    assert "function routeIsAuthorized(route)" in WORKSPACE_OS
+    assert "authorizedRoutes(SECONDARY_ROUTES)" in WORKSPACE_OS
 
 
 def test_release_entry_assets_use_current_cache_versions() -> None:
     assert './styles.css?v=20260730.4' in INDEX
     assert './config.js?v=20260729.1' in INDEX
     assert f'<meta name="contentengine-build" content="{BUILD_ID}"' in INDEX
+    assert f'./app.js?v={BUILD_ID}' in INDEX
     for asset in (
-        "app.js",
         "interface-system.css",
         "workspace-os-v4.css",
         "workspace-os-v4-loader.js",
         "workspace-build-guard.js",
     ):
         assert f'./{asset}?v={BUILD_ID}' in INDEX
-    assert './supabase-api.js?v=20260804.os4.7' in APP
-    assert './catalog.js?v=20260724.1' in APP
+    assert './supabase-api.js?v=20260804.os4.9' in APP
+    assert './catalog.js?v=20260804.1' in APP

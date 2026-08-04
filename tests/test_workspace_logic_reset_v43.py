@@ -171,6 +171,8 @@ def test_canonical_factory_flow_is_five_actions_beneath_the_project_chooser() ->
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/research",
+        "/workspace/ai",
     ]
 
 
@@ -210,7 +212,7 @@ def test_review_decision_hands_the_user_to_the_only_logical_next_screen() -> Non
     )
 
 
-def test_dock_is_limited_to_the_six_primary_workflow_routes() -> None:
+def test_dock_adds_research_and_ai_after_the_six_primary_workflow_routes() -> None:
     dock_source = _source_between(
         CORE,
         "const ROUTES = Object.freeze([",
@@ -225,6 +227,8 @@ def test_dock_is_limited_to_the_six_primary_workflow_routes() -> None:
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/research",
+        "/workspace/ai",
     ]
     for forbidden_label in ("Задачи", "Академия", "Выплаты", "Моя работа"):
         assert forbidden_label not in dock_source
@@ -274,7 +278,7 @@ def test_loader_uses_flow_css_without_legacy_route_adapters() -> None:
     assert "function setFailed(" in LOADER
     assert 'delete document.documentElement.dataset.ceV4Ready' in LOADER
     assert 'document.documentElement.dataset.ceV4Failed = "true"' in LOADER
-    assert "setFailed(routePath())" in LOADER
+    assert "setFailed(scheduledRoute, error)" in LOADER
     for retired_adapter in (
         "workspace-academy",
         "workspace-generation-os",
@@ -343,13 +347,18 @@ def test_trash_reuses_the_authenticated_workspace_runtime_api() -> None:
     assert "window.ContentEngineWorkspaceRuntime?.getApi?.()" in TRASH
 
 
-def test_secondary_and_context_routes_stay_outside_the_six_item_dock() -> None:
+def test_secondary_and_context_routes_stay_outside_the_primary_dock() -> None:
     menubar = _source_between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
     assert "SECONDARY_ROUTES.forEach" in menubar
     assert 'setAttribute("role", "menu")' in menubar
     assert 'setAttribute("role", "menuitem")' in menubar
     assert "link.dataset.ceV4ToolsRoute = item.route" in menubar
-    for route in ("/workspace/research", "/workspace/team", "/workspace/feedback"):
+    for route in (
+        "/workspace/research",
+        "/workspace/ai",
+        "/workspace/team",
+        "/workspace/feedback",
+    ):
         assert f'route: "{route}"' in CORE
     secondary = _source_between(
         CORE,
@@ -359,9 +368,18 @@ def test_secondary_and_context_routes_stay_outside_the_six_item_dock() -> None:
     context = _source_between(
         CORE,
         "const CONTEXT_ROUTES = Object.freeze([",
-        "\n]);\n\nconst ALL_ROUTES",
+        "\n]);\nconst ALL_ROUTES",
     )
-    for duplicate in ("/workspace/tasks", "/workspace/work", "/workspace/media", "/workspace/payouts"):
+    assert re.findall(r'route:\s*"([^"]+)"', secondary) == [
+        "/workspace/team",
+        "/workspace/feedback",
+    ]
+    for duplicate in (
+        "/workspace/tasks",
+        "/workspace/work",
+        "/workspace/media",
+        "/workspace/payouts",
+    ):
         assert f'route: "{duplicate}"' not in secondary
     for contextual in ("/workspace/tasks", "/workspace/work"):
         assert f'route: "{contextual}"' in context

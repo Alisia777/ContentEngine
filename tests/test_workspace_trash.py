@@ -115,6 +115,9 @@ def test_trash_uses_a_dedicated_system_rpc_namespace() -> None:
     assert "CreatorApi.prototype.call" in ALIAS
     assert "CreatorApi.prototype.mutate" in ALIAS
     assert "Symbol.for" in ALIAS
+    for source in (ALIAS, SCRIPT):
+        assert '"./supabase-api.js?v=20260804.os4.9"' in source
+        assert "supabase-api.js?v=20260729.2" not in source
 
 
 def test_permanent_media_delete_requires_a_purge_receipt() -> None:

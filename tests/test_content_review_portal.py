@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50, projectId })' in APP
-    assert './content-review-view.js?v=20260804.os4.7' in APP
-    assert './content-review.css?v=20260804.os4.7' in INDEX
-    assert './app.js?v=20260804.os4.7' in INDEX
+    assert './content-review-view.js?v=20260804.os4.9' in APP
+    assert './content-review.css?v=20260804.os4.9' in INDEX
+    assert './app.js?v=20260804.os4.9' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -611,7 +611,7 @@ def test_exact_media_is_refreshed_loaded_and_watched_before_decision() -> None:
 def test_exact_video_has_conservative_platform_safe_zone_preview() -> None:
     for platform in ("instagram", "tiktok", "youtube", "vk"):
         assert f"{platform}: Object.freeze(" in VIEW
-        assert f'data-safe-zone-platform="${{escapeHtml(normalizedPlatform)}}"'
+        assert 'data-safe-zone-platform="${escapeHtml(normalizedPlatform)}"'
     for marker in (
         "PLATFORM_SAFE_ZONE_GUIDES",
         "platformSafeZoneVideoMarkup(run.input?.platform, exactVideo)",

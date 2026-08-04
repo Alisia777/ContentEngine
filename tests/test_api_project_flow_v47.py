@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
-    ROOT / "supabase/migrations/202608030006_project_scoped_workflow.sql"
+    ROOT / "supabase/migrations/202608040004_project_scoped_workflow.sql"
 ).read_text(encoding="utf-8")
 FOLDER_MIGRATION = (
     ROOT / "supabase/migrations/202607160001_workspace_folders.sql"
@@ -426,14 +426,23 @@ def test_product_research_rpc_surface_is_explicitly_project_scoped() -> None:
     for api_name, rpc_name in expected.items():
         assert f'{api_name}: "{rpc_name}"' in rpc_block
 
-    for method, next_method in (
-        ("async startProductResearch(", "  productResearchStatus("),
-        ("productResearchStatus(", "  saveCreativeBriefDraft("),
-        ("saveCreativeBriefDraft(", "  approveCreativeBrief("),
-        ("approveCreativeBrief(", "  requireResearchRunId("),
+    for method_name in (
+        "startProductResearch",
+        "productResearchStatus",
+        "saveCreativeBriefDraft",
+        "approveCreativeBrief",
     ):
-        start = API.index(method)
-        body = API[start : API.index(next_method, start)]
+        method = re.search(
+            rf"\n  (?:async\s+)?{re.escape(method_name)}\(",
+            API,
+        )
+        assert method, f"missing CreatorApi method: {method_name}"
+        next_method = re.search(
+            r"\n  (?:async\s+)?[A-Za-z_$][\w$]*\(",
+            API[method.end() :],
+        )
+        assert next_method, f"missing method boundary after: {method_name}"
+        body = API[method.start() : method.end() + next_method.start()]
         assert "requiredProjectId(" in body
         assert "project_id" in body
 
@@ -650,9 +659,16 @@ def test_generation_start_status_and_archive_accept_project_scope() -> None:
         EDGE,
         re.DOTALL,
     )
-    assert re.search(r'type StatusPayload = \{[^}]*project_id\?: string', EDGE, re.DOTALL)
-    assert EDGE.count('Object.hasOwn(value, "project_id")') >= 2
-    assert '...(projectId ? { project_id: projectId } : {})' in EDGE
+    assert re.search(r'type StatusPayload = \{[^}]*project_id: string', EDGE, re.DOTALL)
+    assert not re.search(
+        r'type StatusPayload = \{[^}]*project_id\?: string',
+        EDGE,
+        re.DOTALL,
+    )
+    assert 'Object.hasOwn(value, "project_id")' not in EDGE
+    assert '...(projectId ? { project_id: projectId } : {})' not in EDGE
+    assert '.eq("project_id", projectId)' in EDGE
+    assert "project_id: projectId" in EDGE
     assert re.search(
         r'"creator_generation_learning_policy",\s*\{\s*p_payload:\s*\{'
         r'[^}]*project_id:\s*startPayload\.project_id',

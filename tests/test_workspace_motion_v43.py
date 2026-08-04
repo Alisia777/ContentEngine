@@ -158,6 +158,7 @@ def test_fullscreen_layout_does_not_reserve_a_second_body_scrollbar_gutter() -> 
 
 def test_motion_has_reduced_motion_and_mobile_dock_fallbacks() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in MOTION
+    assert "@media (max-width: 900px)" in MOTION
     assert "@media (max-width: 680px)" in MOTION
     assert ".ce-v4-menubar__location" not in CORE
     search_rule_start = CORE_CSS.index(".ce-v4-menubar__search {")
@@ -166,11 +167,12 @@ def test_motion_has_reduced_motion_and_mobile_dock_fallbacks() -> None:
     assert "width: 100%" in search_rule
     assert "overflow-x: auto !important" in MOTION
     assert "scroll-snap-type: x proximity" in MOTION
-    mobile = MOTION[MOTION.index("@media (max-width: 680px)") : MOTION.index("@media (prefers-reduced-motion: reduce)")]
+    compact_dock = MOTION[MOTION.index("@media (max-width: 900px)") : MOTION.index("@media (max-width: 680px)")]
     reduced = MOTION[MOTION.index("@media (prefers-reduced-motion: reduce)") :]
-    assert 'body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass' in mobile
+    assert 'body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass' in compact_dock
     assert 'body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar' in reduced
     assert "glass.scrollTo" in CORE
+    assert "window.innerWidth <= 900" in CORE
     assert 'behavior: REDUCED_MOTION.matches ? "auto" : "smooth"' in CORE
 
 

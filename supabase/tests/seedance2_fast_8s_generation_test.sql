@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: this legacy provider-contract suite exercises the preserved
+-- pre-v15 paid-start layer. The public v15 spec boundary is covered separately
+-- by generation_spec_control_test.sql.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.canonical_gen4_prompt(
   p_product_name text,
   p_sku text
@@ -184,7 +190,7 @@ begin
 end;
 $course_gate_fixture$;
 
-select plan(41);
+select plan(42);
 
 select ok(
   has_function_privilege(
@@ -331,6 +337,23 @@ begin
 end;
 $$;
 
+select throws_ok(
+  $$
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
+      'organization_id', '90000000-0000-4000-8000-000000000001',
+      'idempotency_key', 'seedance-instagram-preflight-0001',
+      'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
+      'count', 1, 'format', '9:16', 'brief', 'A paid Instagram video.',
+      'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
+      'platform', 'instagram', 'destination_ref', 'seedance-test',
+      'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
+      'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
+      'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
+    ))
+  $$,
+  '42501', 'paid_generation_platform_not_supported',
+  'Instagram fails before a paid job or spend reservation can be created'
+);
 insert into content_factory.products (
   id, organization_id, sku, title, status, created_by
 )
@@ -1086,6 +1109,9 @@ select is(
   1,
   'duplicate Seedance starting claim emits one system audit event'
 );
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

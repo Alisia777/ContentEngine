@@ -16,6 +16,27 @@ def _source() -> str:
     return SOURCE_PATH.read_text(encoding="utf-8")
 
 
+def _call_arguments(source: str, function_name: str) -> list[str]:
+    marker = f"{function_name}("
+    calls: list[str] = []
+    cursor = 0
+    while True:
+        start = source.find(marker, cursor)
+        if start < 0:
+            return calls
+        index = start + len(marker)
+        depth = 1
+        while index < len(source) and depth:
+            if source[index] == "(":
+                depth += 1
+            elif source[index] == ")":
+                depth -= 1
+            index += 1
+        assert depth == 0, f"unterminated {function_name} call"
+        calls.append(source[start + len(marker) : index - 1])
+        cursor = index
+
+
 def test_real_generation_edge_function_is_authenticated_and_origin_bound() -> None:
     source = _source()
     config = tomllib.loads(
@@ -39,6 +60,46 @@ def test_real_generation_edge_function_is_authenticated_and_origin_bound() -> No
     assert 'action: "start"' in source
     assert 'action: "status"' in source
     assert 'return creatorGenerate(request)' in source
+
+
+def test_generation_status_and_readback_are_fail_closed_to_exact_project() -> None:
+    source = _source()
+    status_type = source[
+        source.index("type StatusPayload") : source.index("type ReconcilePayload")
+    ]
+    status_parser = source[
+        source.index("function readStatusPayload") : source.index(
+            "function readReconcilePayload"
+        )
+    ]
+    status_reader = source[
+        source.index("const readCurrentStatus") : source.index(
+            "const updateSystemJob"
+        )
+    ]
+
+    assert "project_id: string;" in status_type
+    assert "project_id?: string;" not in status_type
+    assert '"project_id",' in status_parser
+    assert "!isUuid(value.project_id)" in status_parser
+    assert "projectId: string" in status_reader
+    assert "projectId?: string" not in status_reader
+    assert '.eq("project_id", projectId)' in status_reader
+    assert "data.project_id !== projectId" in status_reader
+    assert "project_id: projectId" in status_reader
+    assert "...(projectId ?" not in status_reader
+
+    for function_name in (
+        "readCurrentStatus",
+        "respondWithCurrent",
+        "respondProviderUnavailable",
+    ):
+        calls = _call_arguments(source, function_name)
+        assert calls, f"expected calls to {function_name}"
+        assert all(
+            "projectId" in arguments or "project_id" in arguments
+            for arguments in calls
+        ), f"{function_name} call dropped project_id"
 
 
 def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> None:
@@ -100,7 +161,10 @@ def test_paid_provider_post_is_guarded_by_sanitized_database_budget_claim() -> N
             "function budgetErrorHttpStatus"
         )
     ]
-    assert 'value.message === "real_generation_reconciliation_required"' in claim_sanitizer
+    assert 'code === "real_generation_reconciliation_required"' in claim_sanitizer
+    assert 'code === "generation_spec_provider_start_stale"' in claim_sanitizer
+    assert 'typeof value.message === "string"' in claim_sanitizer
+    assert 'typeof value.code === "string"' in claim_sanitizer
 
     start = source.index("const claim = await claimSystemJob(current.id)")
     provider_post = source.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`', start)

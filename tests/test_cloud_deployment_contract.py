@@ -65,6 +65,35 @@ def _production_migration_sql() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in migration_paths)
 
 
+def test_research_chain_appends_after_deployed_training_waiver() -> None:
+    migration_names = sorted(
+        path.name for path in (ROOT / "supabase/migrations").glob("*.sql")
+    )
+    expected_chain = [
+        "202608030005_selected_training_waiver_roles.sql",
+        "202608030006_research_stage_control_ledger.sql",
+        "202608030007_research_watchlist_memory.sql",
+        "202608030008_research_provider_control_plane.sql",
+        "202608030009_research_market_intelligence_identity.sql",
+        "202608030010_research_outcome_learning_control.sql",
+        "202608030011_research_youtube_live_ingestion.sql",
+        "202608030012_research_outcome_scope_registry.sql",
+        "202608030013_research_outcome_generation_consumption.sql",
+        "202608030014_research_stage_control_loop.sql",
+        "202608030015_research_category_learning_readiness.sql",
+        "202608030016_research_trend_velocity_and_readiness_truth.sql",
+        "202608030017_generation_spec_control.sql",
+        "202608040001_research_source_correction_freshness.sql",
+        "202608040002_ai_learning_control_room.sql",
+        "202608040003_research_youtube_observation_analysis.sql",
+    ]
+    deployed_boundary = migration_names.index(expected_chain[0])
+
+    assert migration_names[
+        deployed_boundary : deployed_boundary + len(expected_chain)
+    ] == expected_chain
+
+
 def test_production_path_is_supabase_native_pages_without_render_or_container_publish() -> None:
     assert not (ROOT / "render.yaml").exists()
     assert not (ROOT / ".github/workflows/container.yml").exists()
@@ -227,6 +256,21 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
     assert 'echo "::add-mask::$OPENAI_API_KEY"' in openai_secret["run"]
     assert "supabase secrets set" in openai_secret["run"]
     assert 'OPENAI_API_KEY="$OPENAI_API_KEY"' in openai_secret["run"]
+    youtube_secret = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Synchronize optional YouTube Data API secret"
+    )
+    assert youtube_secret["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+        "YOUTUBE_DATA_API_KEY": "${{ secrets.YOUTUBE_DATA_API_KEY }}",
+    }
+    assert 'echo "::add-mask::$YOUTUBE_DATA_API_KEY"' in youtube_secret["run"]
+    assert "supabase secrets list" in youtube_secret["run"]
+    assert "supabase secrets unset YOUTUBE_DATA_API_KEY" in youtube_secret["run"]
+    assert "supabase secrets set" in youtube_secret["run"]
+    assert 'YOUTUBE_DATA_API_KEY="$YOUTUBE_DATA_API_KEY"' in youtube_secret["run"]
+    assert "^[A-Za-z0-9_-]{20,256}$" in youtube_secret["run"]
     generate_deploy = next(
         step
         for step in migrate["steps"]
@@ -248,6 +292,18 @@ def test_production_workflow_migrates_before_publishing_pages() -> None:
         '--project-ref "$SUPABASE_PROJECT_REF"'
     )
     assert "--no-verify-jwt" not in research_deploy["run"]
+    ingestion_deploy = next(
+        step
+        for step in migrate["steps"]
+        if step.get("name") == "Deploy authenticated research ingestion function"
+    )
+    assert ingestion_deploy["run"] == (
+        "supabase functions deploy creator-research-ingestion "
+        '--project-ref "$SUPABASE_PROJECT_REF"'
+    )
+    assert "--no-verify-jwt" not in ingestion_deploy["run"]
+    assert '"creator-research-ingestion",' in _text(PRODUCTION_WORKFLOW)
+    assert "YOUTUBE_DATA_API_KEY" in _text(PRODUCTION_WORKFLOW)
     owner_step = next(
         step
         for step in owner["steps"]

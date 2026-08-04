@@ -101,6 +101,131 @@ def test_approved_research_scenario_compiles_to_generation_ready_seedance_prompt
     }
 
 
+def test_handoff_carries_human_research_decision_into_required_prompt_guard() -> None:
+    result = _run_module(
+        """
+        const base = {
+          approved: true,
+          projectId: "11111111-1111-4111-8111-111111111111",
+          id: "research-managed",
+          draftId: "draft-managed",
+          productName: "Точный товар",
+          sku: "SKU-MANAGED",
+          sourceIds: ["source-1"],
+          guidance: { status: "needs_user_decision" },
+          stageCorrections: {
+            competitors: "Не использовать сравнение с ложным конкурентом https://example.com/raw",
+            strategy: "Сначала проверить демонстрацию без сравнения",
+          },
+          brief: {
+            proofPoints: "Факт с упаковки",
+            avoidClaims: "Не обещать результат",
+          },
+          scenarios: [{
+            title: "Демонстрация",
+            platform: "youtube",
+            hook: "Покажем применение",
+            script: "Показываю товар в использовании без лишних обещаний.",
+            shotList: "Товар крупно\\nДемонстрация применения",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(base, 0, 1000);
+        const restored = subject.parseContentGenerationHandoff(
+          JSON.stringify(handoff),
+          1000,
+        );
+        const compiled = subject.compileContentGenerationPrompt(
+          restored,
+          "real_seedance",
+        );
+        let missingDecisionBlocked = false;
+        try {
+          subject.createContentGenerationHandoff({
+            ...base,
+            stageCorrections: {},
+          }, 0, 1000);
+        } catch (error) {
+          missingDecisionBlocked = String(error.message).includes(
+            "решение по пробелам",
+          );
+        }
+        return {
+          ready: compiled.ready,
+          decisionStored: handoff.researchDecision.includes(
+            "Сначала проверить демонстрацию без сравнения",
+          ),
+          decisionRequired: compiled.prompt.includes(
+            "Решение пользователя после исследования — имеет приоритет",
+          ),
+          noRawUrl: !handoff.researchDecision.includes("https://")
+            && !compiled.prompt.includes("https://"),
+          missingDecisionBlocked,
+        };
+        """
+    )
+    assert result == {
+        "ready": True,
+        "decisionStored": True,
+        "decisionRequired": True,
+        "noRawUrl": True,
+        "missingDecisionBlocked": True,
+    }
+
+
+def test_ozon_research_is_not_silently_relabelled_for_generation() -> None:
+    source = MODULE.read_text(encoding="utf-8")
+    assert 'normalized.includes("ozon")' in source
+    assert "платная автогенерация для Ozon пока не подключена" in source
+    assert "platform: scenarioPlatform" in source
+
+
+def test_every_filled_stage_correction_survives_the_bounded_handoff() -> None:
+    result = _run_module(
+        """
+        const long = (prefix) => `${prefix} ${"важная правка ".repeat(80)}`;
+        const record = {
+          approved: true,
+          projectId: "11111111-1111-4111-8111-111111111111",
+          id: "research-all-corrections",
+          draftId: "draft-all-corrections",
+          productName: "Точный товар",
+          sku: "SKU-CORRECTIONS",
+          sourceIds: ["source-1"],
+          guidance: { status: "needs_user_decision" },
+          stageCorrections: {
+            sources: long("SOURCE-SENTINEL"),
+            category: long("CATEGORY-SENTINEL"),
+            competitors: long("COMPETITOR-SENTINEL"),
+            trends: long("TREND-SENTINEL"),
+            strategy: long("STRATEGY-SENTINEL"),
+          },
+          brief: { proofPoints: "Факт", avoidClaims: "Не обещать" },
+          scenarios: [{
+            title: "Тест",
+            platform: "instagram",
+            hook: "Показать товар",
+            script: "Показываю точный товар без лишних обещаний.",
+            shotList: "Товар крупно\\nПрименение",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        return {
+          bounded: handoff.researchDecision.length <= 420
+            && handoff.researchDecision.length >= 300,
+          hasEveryStage: [
+            "SOURCE-SENTINEL",
+            "CATEGORY-SENTINEL",
+            "COMPETITOR-SENTINEL",
+            "TREND-SENTINEL",
+            "STRATEGY-SENTINEL",
+          ].every((sentinel) => handoff.researchDecision.includes(sentinel)),
+          marked: handoff.researchDecision.includes("…"),
+        };
+        """
+    )
+    assert result == {"bounded": True, "hasEveryStage": True, "marked": True}
+
+
 def test_long_seedance_speech_is_blocked_until_operator_shortens_exact_line() -> None:
     result = _run_module(
         """
@@ -1049,7 +1174,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260804.os4.7" in APP
-    assert "./app.js?v=20260804.os4.7" in INDEX
+    assert "./content-generation-handoff.js?v=20260804.os4.9" in APP
+    assert "./app.js?v=20260804.os4.9" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

@@ -75,6 +75,25 @@ export function createContentGenerationHandoff(
   const brief = record?.brief && typeof record.brief === "object"
     ? record.brief
     : {};
+  const researchDecision = generationResearchDecision(
+    record?.stageCorrections
+      || brief.stageCorrections
+      || brief.human_stage_corrections,
+  );
+  const researchGuidanceStatus = cleanText(record?.guidance?.status);
+  if (
+    researchGuidanceStatus
+    && researchGuidanceStatus !== "ready_for_brief"
+    && !researchDecision
+  ) {
+    throw new Error("Сначала зафиксируйте решение по пробелам исследования.");
+  }
+  const scenarioPlatform = normalizePlatform(scenario.platform);
+  if (!scenarioPlatform) {
+    throw new Error(
+      "Исследование Ozon можно утвердить и передать в задачи, но платная автогенерация для Ozon пока не подключена.",
+    );
+  }
   return {
     version: CONTENT_GENERATION_HANDOFF_VERSION,
     createdAt: Number(now),
@@ -84,10 +103,12 @@ export function createContentGenerationHandoff(
     productName,
     sku,
     sourceIds: uniqueStrings(record?.sourceIds, 24),
+    researchGuidanceStatus,
+    researchDecision,
     scenario: {
       position: normalizedIndex + 1,
       title: cleanText(scenario.title) || `Сценарий ${normalizedIndex + 1}`,
-      platform: normalizePlatform(scenario.platform),
+      platform: scenarioPlatform,
       recommendedGenerationMode: normalizeRecommendedGenerationMode(
         scenario.recommendedGenerationMode
           || scenario.recommended_generation_mode
@@ -156,6 +177,7 @@ export function compileContentGenerationPrompt(
       repairPolicy,
       durationSeconds: 0,
       productCategory,
+      researchDecision: handoff.researchDecision,
     });
   }
   const seedance = normalizedMode === REAL_SEEDANCE_MODE;
@@ -167,6 +189,7 @@ export function compileContentGenerationPrompt(
   const spokenWordLimit = seedanceSpokenWordLimit(normalizedDuration);
   const scenario = handoff.scenario;
   const brief = handoff.creativeBrief;
+  const researchDecision = cleanResearchDecision(handoff.researchDecision);
   const shotLimit = seedance
     ? normalizedDuration >= 12 ? 3 : 2
     : normalizedDuration >= 8 ? 2 : 1;
@@ -240,6 +263,9 @@ export function compileContentGenerationPrompt(
   const promptLines = [
     required(`Создай один непрерывный вертикальный ${seedance ? "UGC-" : ""}ролик длительностью ${normalizedDuration} секунд.`),
     required(`Точный товар: ${handoff.productName}, артикул ${handoff.sku}.`),
+    required(researchDecision
+      ? `Решение пользователя после исследования — имеет приоритет над исходным сценарием: ${researchDecision}.`
+      : ""),
     optional(`Хук: ${scenario.hook}.`),
     required(`Действие в кадре: ${action || "[ДОБАВЬТЕ ОДНО ПОНЯТНОЕ ДЕЙСТВИЕ]"}.`),
     required(interaction.requirement),
@@ -292,6 +318,7 @@ export function compileSafeGenerationBrief({
   scenarioIntent = "",
   visualDirection = "",
   avoidClaims = [],
+  researchDecision = "",
   learningPolicy = null,
   repairPolicy = null,
   durationSeconds: requestedDurationSeconds = null,
@@ -308,6 +335,7 @@ export function compileSafeGenerationBrief({
   );
   const safeVisualDirection = cleanText(visualDirection);
   const safeAvoidClaims = uniqueStrings(avoidClaims, 8);
+  const safeResearchDecision = cleanResearchDecision(researchDecision);
   const learningDirection = generationLearningDirection(
     learningPolicy,
     normalizedMode,
@@ -357,6 +385,9 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required("Создай одно квадратное товарное фото 2048 × 2048."),
       required(`Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как главный точный референс товара; остальные выбранные ракурсы уточняют форму и детали. ${identityLine}`),
+      required(safeResearchDecision
+        ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
+        : ""),
       optional("Студийное фото: один товар целиком по центру, нейтральный фон, мягкий свет, естественная тень, высокая детализация."),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
@@ -374,6 +405,9 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required(`Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
+      required(safeResearchDecision
+        ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
+        : ""),
       optional(
         safeScenarioIntent
           ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
@@ -403,6 +437,9 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required(`Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
+      required(safeResearchDecision
+        ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
+        : ""),
       optional(
         safeScenarioIntent
           ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
@@ -1314,6 +1351,17 @@ function validHandoff(value, now = Date.now()) {
     !cleanText(value.productName) || !cleanText(value.sku) ||
     !UUID_PATTERN.test(cleanText(value.projectId).toLowerCase())
   ) return false;
+  const guidanceStatus = cleanText(value.researchGuidanceStatus);
+  const researchDecision = cleanText(value.researchDecision);
+  if (
+    researchDecision.length > 420 || /https?:\/\//iu.test(researchDecision) ||
+    (guidanceStatus && ![
+      "ready_for_brief",
+      "needs_more_evidence",
+      "needs_user_decision",
+    ].includes(guidanceStatus)) ||
+    (guidanceStatus && guidanceStatus !== "ready_for_brief" && !researchDecision)
+  ) return false;
   if (!value.scenario || typeof value.scenario !== "object") return false;
   if (!Number.isInteger(value.scenario.position) || value.scenario.position < 1 || value.scenario.position > 3) {
     return false;
@@ -1444,6 +1492,64 @@ function cleanText(value) {
   return String(value ?? "").replace(/\s+/gu, " ").trim();
 }
 
+function generationResearchDecision(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const entries = [
+    ["Решение", value.strategy, 3],
+    ["Конкуренты", value.competitors, 1],
+    ["Тренды", value.trends, 1],
+    ["Категория", value.category, 1],
+    ["Источники", value.sources, 1],
+  ].flatMap(([label, rawValue, weight]) => {
+    const text = cleanResearchDecision(rawValue);
+    return text ? [{ label, text, weight: Number(weight), budget: 0 }] : [];
+  });
+  if (!entries.length) return "";
+
+  const overhead = entries.reduce(
+    (total, entry) => total + entry.label.length + 2,
+    Math.max(0, entries.length - 1) * 2,
+  );
+  let remaining = Math.max(0, 420 - overhead);
+  const guaranteed = Math.min(48, Math.floor(remaining / entries.length));
+  for (const entry of entries) {
+    entry.budget = Math.min(entry.text.length, guaranteed);
+    remaining -= entry.budget;
+  }
+  while (remaining > 0) {
+    const expandable = entries.filter((entry) => entry.budget < entry.text.length);
+    if (!expandable.length) break;
+    const totalWeight = expandable.reduce((total, entry) => total + entry.weight, 0);
+    let progressed = false;
+    for (const entry of expandable) {
+      const share = Math.max(1, Math.floor(remaining * entry.weight / totalWeight));
+      const grant = Math.min(share, entry.text.length - entry.budget, remaining);
+      if (grant < 1) continue;
+      entry.budget += grant;
+      remaining -= grant;
+      progressed = true;
+      if (remaining < 1) break;
+    }
+    if (!progressed) break;
+  }
+
+  const parts = entries.map((entry) => {
+    const text = entry.text.length <= entry.budget
+      ? entry.text
+      : `${entry.text.slice(0, Math.max(1, entry.budget - 1)).trimEnd()}…`;
+    return `${entry.label}: ${text}`;
+  });
+  return cleanResearchDecision(parts.join("; "));
+}
+
+function cleanResearchDecision(value) {
+  const withoutUrls = cleanText(value).replace(
+    /https?:\/\/[^\s]+/giu,
+    "[ссылка исключена из промпта]",
+  );
+  return truncateScenarioIntent(withoutUrls, 420);
+}
+
 function withTerminalPunctuation(value) {
   const normalized = cleanText(value);
   return /[.!?…]$/u.test(normalized) ? normalized : `${normalized}.`;
@@ -1498,6 +1604,7 @@ function normalizeRecommendedGenerationMode(value) {
 
 function normalizePlatform(value) {
   const normalized = cleanText(value).toLocaleLowerCase("ru-RU");
+  if (normalized.includes("ozon") || normalized.includes("озон")) return "";
   if (normalized.includes("youtube")) return "youtube";
   if (normalized.includes("vk") || normalized.includes("вк")) return "vk";
   if (normalized.includes("tiktok") || normalized.includes("тик")) return "tiktok";

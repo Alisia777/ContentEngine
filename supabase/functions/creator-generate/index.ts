@@ -93,6 +93,7 @@ const FAILURE_CODES = new Set([
   "output_download_failed",
   "output_validation_failed",
   "output_upload_failed",
+  "generation_spec_provider_start_stale",
   "internal_error",
 ]);
 const BUDGET_ERROR_CODES: ReadonlySet<string> = new Set([
@@ -111,6 +112,58 @@ const BUDGET_ERROR_CODES: ReadonlySet<string> = new Set([
   "generation_campaign_daily_budget_exceeded",
   "generation_campaign_monthly_budget_exceeded",
   "generation_campaign_budget_policy_changed",
+]);
+const GENERATION_SPEC_VALIDATION_ERROR_CODES = new Set([
+  "generation_spec_context_invalid",
+  "generation_spec_effective_payload_invalid",
+  "generation_spec_prepare_payload_invalid",
+  "generation_spec_control_payload_invalid",
+  "generation_spec_control_version_invalid",
+  "generation_spec_status_payload_invalid",
+  "generation_spec_exact_scope_invalid",
+  "generation_spec_editable_intent_invalid",
+  "generation_spec_prompt_invalid",
+  "generation_spec_learning_context_invalid",
+  "generation_spec_baseline_learning_invalid",
+  "generation_spec_research_provenance_invalid",
+  "generation_spec_performance_provenance_invalid",
+  "generation_spec_repair_provenance_invalid",
+  "generation_spec_patch_invalid",
+  "generation_spec_revert_invalid",
+  "generation_spec_not_found",
+  "generation_spec_primary_media_invalid",
+  "generation_spec_reference_bundle_invalid",
+]);
+const GENERATION_SPEC_CONFLICT_ERROR_CODES = new Set([
+  "generation_spec_approval_required",
+  "generation_spec_approval_state_invalid",
+  "generation_spec_stale",
+  "generation_spec_head_invalid",
+  "generation_spec_media_stale",
+  "generation_spec_request_mismatch",
+  "generation_spec_job_binding_invalid",
+  "generation_spec_job_identity_immutable",
+  "generation_spec_learning_binding_invalid",
+  "generation_spec_repair_binding_invalid",
+  "generation_spec_outcome_binding_invalid",
+  "generation_spec_provider_start_stale",
+  "generation_spec_research_learning_mismatch",
+  "generation_spec_research_provenance_stale",
+  "generation_spec_performance_learning_mismatch",
+  "generation_spec_performance_policy_stale",
+  "generation_spec_repair_policy_stale",
+  "generation_spec_outcome_selection_stale",
+  "generation_spec_outcome_apply_revalidation_required",
+  "generation_spec_policy_blocked",
+  "generation_spec_previous_version_invalid",
+  "generation_spec_version_sequence_invalid",
+  "generation_spec_revert_target_invalid",
+  "idempotency_key_conflict",
+]);
+const GENERATION_SPEC_INTERNAL_ERROR_CODES = new Set([
+  "generation_spec_ledger_append_only",
+  "research_outcome_generation_assignment_binding_invalid",
+  "research_outcome_generation_assignment_invalid",
 ]);
 
 type BudgetErrorCode =
@@ -132,11 +185,19 @@ type BudgetErrorCode =
 
 type ClaimErrorCode =
   | BudgetErrorCode
-  | "real_generation_reconciliation_required";
+  | "real_generation_reconciliation_required"
+  | "generation_spec_provider_start_stale";
 
 type ClaimResult =
   | { outcome: "claimed"; claimed: boolean }
-  | { outcome: "budget_rejected"; code: ClaimErrorCode }
+  | {
+    outcome: "budget_rejected";
+    code: BudgetErrorCode | "real_generation_reconciliation_required";
+  }
+  | {
+    outcome: "terminal_rejected";
+    code: "generation_spec_provider_start_stale";
+  }
   | { outcome: "unavailable" };
 
 type Json =
@@ -173,6 +234,10 @@ type ContentEngineDatabase = {
         Returns: Json;
       };
       creator_generation_repair_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      creator_generation_spec_effective_policy: {
         Args: { p_payload: Json };
         Returns: Json;
       };
@@ -273,6 +338,7 @@ type CommonStartPayload = {
   provider: "runway";
   allow_real_spend: true;
   learning_context: GenerationLearningContext;
+  generation_spec_context: GenerationSpecContext;
   learning_opt_out?: true;
   repair_context?: GenerationRepairContext;
   review_autostart_confirmed?: true;
@@ -322,6 +388,39 @@ type GenerationRepairContext = {
   compiler_version: "review-repair-v1";
 };
 
+type GenerationSpecContext = {
+  spec_id: string;
+  spec_version: number;
+  spec_hash: string;
+};
+
+type GenerationSpecScope = {
+  primary_media_id: string;
+  media_ids: string[];
+  platform: CommonStartPayload["platform"];
+  model: RunwayModel;
+  duration_seconds: number;
+  product_category: ProductCategory;
+  format: CommonStartPayload["format"];
+  audio: boolean;
+};
+
+type GenerationSpecEffectivePolicy = {
+  generationSpecContext: GenerationSpecContext;
+  exactScope: GenerationSpecScope;
+  compiledPrompt: string;
+  promptHash: string;
+  learningContext: GenerationLearningContext;
+  repairContext: GenerationRepairContext | null;
+  finalPolicyHash: string;
+  outcomeSelection: {
+    selection_id: string;
+    selection_hash: string;
+    selection_action: "apply" | "control";
+    expires_at: string;
+  } | null;
+};
+
 type StartPayload =
   & CommonStartPayload
   & (
@@ -359,7 +458,7 @@ type PreflightPayload = {
 type StatusPayload = {
   action: "status";
   organization_id: string;
-  project_id?: string;
+  project_id: string;
   job_id: string;
 };
 
@@ -547,13 +646,84 @@ function readSafeStartRpcErrorCode(value: unknown): string | null {
     : null;
 }
 
+function readGenerationSpecRpcError(value: unknown): {
+  code: string;
+  status: 409 | 422;
+  internal: boolean;
+} | null {
+  if (!isRecord(value) || typeof value.message !== "string") return null;
+  const code = value.message.trim();
+  if (GENERATION_SPEC_VALIDATION_ERROR_CODES.has(code)) {
+    return { code, status: 422, internal: false };
+  }
+  if (GENERATION_SPEC_CONFLICT_ERROR_CODES.has(code)) {
+    return { code, status: 409, internal: false };
+  }
+  if (GENERATION_SPEC_INTERNAL_ERROR_CODES.has(code)) {
+    return {
+      code: "generation_spec_state_conflict",
+      status: 409,
+      internal: true,
+    };
+  }
+  return null;
+}
+
 function readClaimErrorCode(value: unknown): ClaimErrorCode | null {
-  const budgetCode = readBudgetErrorCode(value);
-  if (budgetCode !== null) return budgetCode;
-  return isRecord(value) &&
-      value.message === "real_generation_reconciliation_required"
-    ? "real_generation_reconciliation_required"
+  if (!isRecord(value)) return null;
+  const code = typeof value.message === "string"
+    ? value.message
+    : typeof value.code === "string"
+    ? value.code
     : null;
+  if (code === null) return null;
+  const budgetCode = readBudgetErrorCode({ message: code });
+  if (budgetCode !== null) return budgetCode;
+  if (code === "real_generation_reconciliation_required") return code;
+  return code === "generation_spec_provider_start_stale" ? code : null;
+}
+
+function readTerminalClaimErrorCode(
+  value: unknown,
+  jobId: string,
+): "generation_spec_provider_start_stale" | null {
+  const keys = new Set([
+    "ok",
+    "claimed",
+    "terminal",
+    "code",
+    "retryable",
+    "job",
+  ]);
+  const jobKeys = new Set([
+    "id",
+    "batch_id",
+    "status",
+    "provider",
+    "failure_code",
+    "updated_at",
+  ]);
+  if (
+    !isRecord(value) || !hasOnlyKeys(value, keys) ||
+    Object.keys(value).length !== keys.size || value.ok !== false ||
+    value.claimed !== false || value.terminal !== true ||
+    value.retryable !== false || !isRecord(value.job)
+  ) {
+    return null;
+  }
+  const code = readClaimErrorCode(value);
+  const job = value.job;
+  if (
+    code !== "generation_spec_provider_start_stale" ||
+    !hasOnlyKeys(job, jobKeys) || Object.keys(job).length !== jobKeys.size ||
+    job.id !== jobId || !isUuid(job.id) || !isUuid(job.batch_id) ||
+    job.status !== "failed" || job.provider !== "runway" ||
+    job.failure_code !== code || typeof job.updated_at !== "string" ||
+    !Number.isFinite(Date.parse(job.updated_at))
+  ) {
+    return null;
+  }
+  return code;
 }
 
 function budgetErrorHttpStatus(code: BudgetErrorCode): 403 | 409 {
@@ -790,10 +960,10 @@ function readStartPayload(value: unknown): StartPayload | null {
     "allow_real_spend",
     "spend_confirmation",
     "learning_context",
+    "generation_spec_context",
   ]);
   const allowed = new Set([
     ...required,
-    "project_id",
     "audio",
     "assignee_id",
     "payout_minor",
@@ -890,7 +1060,7 @@ function readStartPayload(value: unknown): StartPayload | null {
   if (Object.hasOwn(value, "assignee_id") && !isUuid(value.assignee_id)) {
     return null;
   }
-  if (Object.hasOwn(value, "project_id") && !isUuid(value.project_id)) {
+  if (!isUuid(value.project_id)) {
     return null;
   }
   if (
@@ -901,6 +1071,9 @@ function readStartPayload(value: unknown): StartPayload | null {
   }
   const learningContext = readGenerationLearningContext(value.learning_context);
   if (learningContext === null) {
+    return null;
+  }
+  if (readGenerationSpecContext(value.generation_spec_context) === null) {
     return null;
   }
   if (
@@ -1114,6 +1287,179 @@ function readGenerationRepairContext(
     return null;
   }
   return value as GenerationRepairContext;
+}
+
+function readGenerationSpecContext(
+  value: unknown,
+): GenerationSpecContext | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["spec_id", "spec_version", "spec_hash"]);
+  if (
+    !hasOnlyKeys(value, keys) || Object.keys(value).length !== keys.size ||
+    !isUuid(value.spec_id) ||
+    !isIntegerInRange(value.spec_version, 1, 100_000) ||
+    typeof value.spec_hash !== "string" ||
+    !SHA256_PATTERN.test(value.spec_hash)
+  ) return null;
+  return value as GenerationSpecContext;
+}
+
+function readGenerationSpecScope(value: unknown): GenerationSpecScope | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set([
+    "primary_media_id",
+    "media_ids",
+    "platform",
+    "model",
+    "duration_seconds",
+    "product_category",
+    "format",
+    "audio",
+  ]);
+  if (!hasOnlyKeys(value, keys) || Object.keys(value).length !== keys.size) {
+    return null;
+  }
+  const model = readRunwayModel(value.model);
+  const mediaIds = value.media_ids;
+  const platforms = new Set([
+    "instagram",
+    "tiktok",
+    "youtube",
+    "vk",
+    "telegram",
+    "wildberries",
+  ]);
+  const categories = new Set([
+    "cosmetics",
+    "baa",
+    "sports_food",
+    "food",
+    "household",
+    "apparel",
+    "electronics",
+    "other",
+  ]);
+  const formats = new Set(["9:16", "1:1", "16:9"]);
+  const duration = Number(value.duration_seconds);
+  const durationValid = model === "gen4_turbo"
+    ? [2, 5, 8, 10].includes(duration)
+    : model === "seedance2_fast"
+    ? [4, 8, 12, 15].includes(duration)
+    : model === "seedream5_lite" && duration === 0;
+  const skuBindingValid = model === "seedance2_fast"
+    ? value.audio === true && value.format === "9:16"
+    : model === "seedream5_lite"
+    ? value.audio === false && value.format === "1:1"
+    : model === "gen4_turbo" && value.audio === false;
+  if (
+    !isUuid(value.primary_media_id) ||
+    !Array.isArray(mediaIds) || mediaIds.length < 1 || mediaIds.length > 5 ||
+    mediaIds.some((item) => !isUuid(item)) ||
+    new Set(mediaIds).size !== mediaIds.length ||
+    mediaIds[0] !== value.primary_media_id ||
+    typeof value.platform !== "string" || !platforms.has(value.platform) ||
+    model === null || !durationValid ||
+    typeof value.product_category !== "string" ||
+    !categories.has(value.product_category) ||
+    typeof value.format !== "string" || !formats.has(value.format) ||
+    typeof value.audio !== "boolean" || !skuBindingValid
+  ) return null;
+  return value as GenerationSpecScope;
+}
+
+function readGenerationSpecEffectivePolicy(
+  value: unknown,
+): GenerationSpecEffectivePolicy | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set([
+    "ok",
+    "version",
+    "generation_spec_context",
+    "status",
+    "exact_scope",
+    "compiled_prompt",
+    "prompt_hash",
+    "learning_context",
+    "repair_context",
+    "final_policy_hash",
+    "outcome_selection",
+    "automatic_approval",
+    "automatic_spend",
+    "automatic_generation",
+  ]);
+  if (
+    !hasOnlyKeys(value, keys) || Object.keys(value).length !== keys.size ||
+    value.ok !== true ||
+    value.version !== "generation-spec-effective-policy-v1" ||
+    value.status !== "approved_current" ||
+    value.automatic_approval !== false ||
+    value.automatic_spend !== false ||
+    value.automatic_generation !== false
+  ) return null;
+  const context = readGenerationSpecContext(value.generation_spec_context);
+  const scope = readGenerationSpecScope(value.exact_scope);
+  const learningContext = readGenerationLearningContext(value.learning_context);
+  const repairContext = value.repair_context === null
+    ? null
+    : readGenerationRepairContext(value.repair_context);
+  const outcome = value.outcome_selection;
+  let outcomeSelection: GenerationSpecEffectivePolicy["outcomeSelection"] =
+    null;
+  if (outcome !== null) {
+    const outcomeKeys = new Set([
+      "selection_id",
+      "selection_hash",
+      "selection_action",
+      "expires_at",
+    ]);
+    if (
+      !isRecord(outcome) || !hasOnlyKeys(outcome, outcomeKeys) ||
+      Object.keys(outcome).length !== outcomeKeys.size ||
+      !isUuid(outcome.selection_id) ||
+      typeof outcome.selection_hash !== "string" ||
+      !SHA256_PATTERN.test(outcome.selection_hash) ||
+      !["apply", "control"].includes(String(outcome.selection_action)) ||
+      typeof outcome.expires_at !== "string" ||
+      !Number.isFinite(Date.parse(outcome.expires_at))
+    ) return null;
+    outcomeSelection =
+      outcome as GenerationSpecEffectivePolicy["outcomeSelection"];
+  }
+  if (
+    context === null || scope === null || learningContext === null ||
+    (value.repair_context !== null && repairContext === null) ||
+    !isBoundedText(
+      value.compiled_prompt,
+      1,
+      RUNWAY_PROMPT_LIMITS[scope.model],
+    ) ||
+    typeof value.prompt_hash !== "string" ||
+    !SHA256_PATTERN.test(value.prompt_hash) ||
+    typeof value.final_policy_hash !== "string" ||
+    !SHA256_PATTERN.test(value.final_policy_hash)
+  ) return null;
+  return {
+    generationSpecContext: context,
+    exactScope: scope,
+    compiledPrompt: value.compiled_prompt,
+    promptHash: value.prompt_hash,
+    learningContext,
+    repairContext,
+    finalPolicyHash: value.final_policy_hash,
+    outcomeSelection,
+  };
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${
+      Object.keys(value).sort().map((key) =>
+        `${JSON.stringify(key)}:${stableJson(value[key])}`
+      ).join(",")
+    }}`;
+  }
+  return JSON.stringify(value);
 }
 
 function generationLearningPromptRequirements(
@@ -1372,18 +1718,20 @@ function generationRepairPromptIsBound(
 
 function readStatusPayload(value: unknown): StatusPayload | null {
   if (!isRecord(value)) return null;
-  const required = new Set(["action", "organization_id", "job_id"]);
-  const allowed = new Set([...required, "project_id"]);
+  const required = new Set([
+    "action",
+    "organization_id",
+    "project_id",
+    "job_id",
+  ]);
   if (
-    !hasOnlyKeys(value, allowed) ||
-    ![...required].every((key) => Object.hasOwn(value, key))
+    !hasOnlyKeys(value, required) || Object.keys(value).length !== required.size
   ) {
     return null;
   }
   if (
     value.action !== "status" || !isUuid(value.organization_id) ||
-    !isUuid(value.job_id) ||
-    (Object.hasOwn(value, "project_id") && !isUuid(value.project_id))
+    !isUuid(value.project_id) || !isUuid(value.job_id)
   ) {
     return null;
   }
@@ -2312,23 +2660,26 @@ async function handleCreatorGenerate(
   const readCurrentStatus = async (
     organizationId: string,
     jobId: string,
-    projectId?: string,
+    projectId: string,
   ): Promise<StatusJob | null> => {
     if (internalWorker) {
       try {
-        let query = supabaseAdmin
+        const query = supabaseAdmin
           .schema("content_factory")
           .from("generation_jobs")
           .select(
-            "id, organization_id, batch_id, campaign_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
+            "id, organization_id, project_id, batch_id, campaign_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
           )
           .eq("organization_id", organizationId)
+          .eq("project_id", projectId)
           .eq("id", jobId)
           .eq("mode", "real")
           .eq("provider", "runway");
-        if (projectId) query = query.eq("project_id", projectId);
         const { data, error } = await query.maybeSingle();
-        if (error || !isRecord(data) || !isUuid(data.campaign_id)) return null;
+        if (
+          error || !isRecord(data) || data.project_id !== projectId ||
+          !isUuid(data.campaign_id)
+        ) return null;
         const { data: campaignData, error: campaignError } = await supabaseAdmin
           .schema("content_factory")
           .from("generation_campaigns")
@@ -2356,8 +2707,8 @@ async function handleCreatorGenerate(
         {
           p_payload: {
             organization_id: organizationId,
+            project_id: projectId,
             job_id: jobId,
-            ...(projectId ? { project_id: projectId } : {}),
           },
         },
       );
@@ -2406,9 +2757,20 @@ async function handleCreatorGenerate(
       );
       if (error !== null) {
         const claimCode = readClaimErrorCode(error);
+        if (claimCode === "generation_spec_provider_start_stale") {
+          console.warn("generation claim terminalization unavailable", {
+            code: "generation_spec_claim_terminalization_failed",
+            job_id: jobId,
+          });
+          return { outcome: "unavailable" };
+        }
         return claimCode === null
           ? { outcome: "unavailable" }
           : { outcome: "budget_rejected", code: claimCode };
+      }
+      const terminalCode = readTerminalClaimErrorCode(data, jobId);
+      if (terminalCode !== null) {
+        return { outcome: "terminal_rejected", code: terminalCode };
       }
       if (
         !isRecord(data) || data.ok !== true ||
@@ -2515,8 +2877,8 @@ async function handleCreatorGenerate(
   const respondWithCurrent = async (
     organizationId: string,
     jobId: string,
-    batch?: { id: string; status: string },
-    projectId?: string,
+    batch: { id: string; status: string } | undefined,
+    projectId: string,
   ): Promise<Response> => {
     const current = await readCurrentStatus(organizationId, jobId, projectId);
     if (current === null) {
@@ -2540,9 +2902,10 @@ async function handleCreatorGenerate(
   const respondProviderUnavailable = async (
     organizationId: string,
     jobId: string,
-    batch?: { id: string; status: string },
+    batch: { id: string; status: string } | undefined,
+    projectId: string,
   ): Promise<Response> => {
-    const current = await readCurrentStatus(organizationId, jobId);
+    const current = await readCurrentStatus(organizationId, jobId, projectId);
     return json(request, {
       ok: false,
       code: "provider_unavailable",
@@ -2612,6 +2975,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -2671,6 +3035,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     const providerTask = parseRunwayTask(providerValue);
@@ -2681,6 +3046,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -2710,6 +3076,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -2729,6 +3096,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -2739,6 +3107,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (current.status === "submitted") {
@@ -2773,6 +3142,7 @@ async function handleCreatorGenerate(
           payload.organization_id,
           payload.job_id,
           batch,
+          payload.project_id,
         );
       }
       if (
@@ -2793,6 +3163,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
 
@@ -2818,6 +3189,7 @@ async function handleCreatorGenerate(
           payload.organization_id,
           payload.job_id,
           batch,
+          payload.project_id,
         );
       }
       outputBytes = await readBoundedBytes(
@@ -2829,6 +3201,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -2838,6 +3211,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     const digest = await sha256Hex(outputBytes);
@@ -2865,6 +3239,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
 
@@ -3210,6 +3585,95 @@ async function handleCreatorGenerate(
       409,
     );
   }
+  let effectiveGenerationPolicy: GenerationSpecEffectivePolicy | null = null;
+  try {
+    const { data, error } = await context.supabase.rpc(
+      "creator_generation_spec_effective_policy",
+      {
+        p_payload: {
+          organization_id: startPayload.organization_id,
+          ...startPayload.generation_spec_context,
+        },
+      },
+    );
+    if (error !== null) {
+      const generationSpecError = readGenerationSpecRpcError(error);
+      if (generationSpecError?.internal) {
+        console.warn("Generation spec invariant rejected request", {
+          stage: "effective_policy",
+        });
+      }
+      return json(
+        request,
+        {
+          ok: false,
+          code: generationSpecError?.code ||
+            "generation_spec_effective_policy_unavailable",
+        },
+        generationSpecError?.status || 503,
+      );
+    }
+    effectiveGenerationPolicy = readGenerationSpecEffectivePolicy(data);
+  } catch {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_effective_policy_unavailable" },
+      503,
+    );
+  }
+  if (effectiveGenerationPolicy === null) {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_effective_policy_invalid" },
+      503,
+    );
+  }
+  const expectedScope: GenerationSpecScope = {
+    primary_media_id: startPayload.media_ids[0],
+    media_ids: startPayload.media_ids,
+    platform: startPayload.platform,
+    model: startPayload.model,
+    duration_seconds: startPayload.duration_seconds,
+    product_category: startPayload.product_category,
+    format: startPayload.format,
+    audio: startPayload.audio === true,
+  };
+  const effectiveRepair = effectiveGenerationPolicy.repairContext;
+  const requestedRepair = startPayload.repair_context || null;
+  if (
+    stableJson(effectiveGenerationPolicy.generationSpecContext) !==
+      stableJson(startPayload.generation_spec_context) ||
+    stableJson(effectiveGenerationPolicy.exactScope) !==
+      stableJson(expectedScope)
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_scope_binding_invalid" },
+      409,
+    );
+  }
+  if (
+    effectiveGenerationPolicy.compiledPrompt !== startPayload.brief ||
+    await sha256Hex(new TextEncoder().encode(startPayload.brief)) !==
+      effectiveGenerationPolicy.promptHash
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_prompt_binding_invalid" },
+      422,
+    );
+  }
+  if (
+    stableJson(effectiveGenerationPolicy.learningContext) !==
+      stableJson(startPayload.learning_context) ||
+    stableJson(effectiveRepair) !== stableJson(requestedRepair)
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_policy_binding_invalid" },
+      409,
+    );
+  }
   let learningPolicy: Record<string, unknown> | null = null;
   try {
     const { data, error } = await context.supabase.rpc(
@@ -3366,6 +3830,12 @@ async function handleCreatorGenerate(
   );
   if (startError) {
     const budgetCode = readBudgetErrorCode(startError);
+    const generationSpecError = readGenerationSpecRpcError(startError);
+    if (generationSpecError?.internal) {
+      console.warn("Generation spec invariant rejected request", {
+        stage: "paid_start",
+      });
+    }
     const safeStartRpcCode = readSafeStartRpcErrorCode(startError);
     const validationCode = [
         "real_generation_payload_invalid",
@@ -3403,10 +3873,13 @@ async function handleCreatorGenerate(
     const code = budgetCode ??
       (startError.message === "real_generation_reconciliation_required"
         ? "real_generation_reconciliation_required"
-        : repairCode ?? validationCode ?? safeStartRpcCode ??
+        : generationSpecError?.code ?? repairCode ?? validationCode ??
+          safeStartRpcCode ??
           "generation_rejected");
     const status = budgetCode !== null
       ? budgetErrorHttpStatus(budgetCode)
+      : generationSpecError !== null
+      ? generationSpecError.status
       : code === "generation_rejected"
       ? 403
       : code === "real_generation_payload_invalid" ||
@@ -3473,8 +3946,8 @@ async function handleCreatorGenerate(
   const statusRequest: StatusPayload = {
     action: "status",
     organization_id: startPayload.organization_id,
+    project_id: startPayload.project_id,
     job_id: startJob.id,
-    ...(startPayload.project_id ? { project_id: startPayload.project_id } : {}),
   };
   if (current.status !== "queued") {
     return await handleStatus(statusRequest, current, batch);
@@ -3493,6 +3966,18 @@ async function handleCreatorGenerate(
         : budgetErrorHttpStatus(claim.code),
     );
   }
+  if (claim.outcome === "terminal_rejected") {
+    return json(
+      request,
+      {
+        ok: false,
+        code: claim.code,
+        terminal: true,
+        retryable: false,
+      },
+      409,
+    );
+  }
   if (claim.outcome !== "claimed") {
     return json(
       request,
@@ -3505,6 +3990,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
 
@@ -3515,6 +4001,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const providerReadiness = await checkRunwayProviderReadiness(
@@ -3528,6 +4015,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const signedReferenceUrls = await Promise.all(
@@ -3544,6 +4032,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const validReferenceUrls = signedReferenceUrls as string[];
@@ -3609,6 +4098,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   if (!createResponse.ok) {
@@ -3622,6 +4112,7 @@ async function handleCreatorGenerate(
         startPayload.organization_id,
         startJob.id,
         batch,
+        startPayload.project_id,
       );
     }
     await markReconciliationRequired(
@@ -3632,6 +4123,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
 
@@ -3647,6 +4139,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const providerTask = parseCreatedRunwayTask(createdValue);
@@ -3659,6 +4152,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const submittedPayload: Record<string, Json> = {
@@ -3677,12 +4171,14 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   return await respondWithCurrent(
     startPayload.organization_id,
     startJob.id,
     batch,
+    startPayload.project_id,
   );
 }
 

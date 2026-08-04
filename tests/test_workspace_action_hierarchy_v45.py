@@ -238,37 +238,142 @@ def test_work_hash_mode_is_deterministic_without_an_app_js_argument() -> None:
     }
 
 
-def test_menubar_has_notification_bell_while_navigation_counts_stay_stable() -> None:
+def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> None:
     routes = _between(CORE, "const ROUTES = Object.freeze([", "const SECONDARY_ROUTES")
     secondary = _between(CORE, "const SECONDARY_ROUTES = Object.freeze([", "const CONTEXT_ROUTES")
     context = _between(CORE, "const CONTEXT_ROUTES = Object.freeze([", "const ALL_ROUTES")
     menubar = _between(CORE, "function ensureMenubar() {", "function updateClock()")
     tools_keyboard = _between(CORE, "function handleToolsMenuKeydown(event) {", "async function toggleFullscreen()")
 
-    assert routes.count("Object.freeze({ route:") == 6
-    assert secondary.count("Object.freeze({ route:") == 3
+    assert routes.count("Object.freeze({ route:") == 8
+    assert secondary.count("Object.freeze({ route:") == 2
     assert context.count("Object.freeze({ route:") == 2
-    assert re.findall(r'route: "([^"]+)"', secondary) == [
+    assert re.findall(r'route: "([^"]+)"', routes) == [
+        "/workspace/home",
+        "/workspace/board",
+        "/workspace/generation",
+        "/workspace/review",
+        "/workspace/placement",
+        "/workspace/stats",
         "/workspace/research",
+        "/workspace/ai",
+    ]
+    assert re.findall(r'route: "([^"]+)"', secondary) == [
         "/workspace/team",
         "/workspace/feedback",
+    ]
+    assert re.findall(r'route: "([^"]+)"', context) == [
+        "/workspace/tasks",
+        "/workspace/work",
     ]
     assert 'route: "/learn"' not in routes + secondary
     assert 'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications"' in menubar
     assert 'iconButton("", "Открыть уведомления", "bell")' in menubar
     assert "notificationControl.dataset.ceV4Notifications" in menubar
     assert 'route: "/workspace/work?view=notifications"' not in routes + secondary
-    assert 'const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"])' in CORE
-    authorization = _between(CORE, "function secondaryRouteIsAuthorized(route) {", "function createToolsMenuItem(item) {")
+    assert 'const ROLE_GATED_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"])' in CORE
+    authorization = _between(CORE, "function routeIsAuthorized(route) {", "function authorizedRoutes(routes) {")
     sync = _between(CORE, "function syncToolsMenu() {", "function closeToolsMenu(")
+    dock_sync = _between(CORE, "function syncDockAccess() {", "function ensureDock() {")
+    mission = _between(CORE, "function openMission() {", "function spotlightRecords(")
+    spotlight = _between(CORE, "function spotlightRecords(", "function renderSpotlight(")
+    shortcuts = _between(CORE, "function handleKeydown(event) {", "function handleScroll() {")
+    observer = _between(CORE, "function observeWorkspace() {", "function runMount() {")
     assert "shell?.dataset.workspaceAuthorizedRoutes" in authorization
     assert "if (declaredRoutes.length) return declaredRoutes.includes(route)" in authorization
     assert 'const navigation = q(".workspace-nav", shell)' in authorization
     assert 'String(link.getAttribute("href") || "").split("?")[0] === `#${route}`' in authorization
-    assert "SECONDARY_ROUTES.filter((item) => secondaryRouteIsAuthorized(item.route))" in sync
+    assert "authorizedRoutes(SECONDARY_ROUTES)" in sync
     assert "existing.forEach((link) => link.remove())" in sync
+    assert "authorizedRoutes(ROUTES)" in dock_sync
+    assert "link.hidden = !authorized" in dock_sync
+    assert 'link.setAttribute("aria-hidden", "true")' in dock_sync
+    assert "authorizedRoutes(ROUTES).forEach" in mission
+    assert "authorizedRoutes(ALL_ROUTES).map" in spotlight
+    assert "authorizedRoutes(ROUTES)[Number(event.code.slice(-1)) - 1]" in shortcuts
+    assert 'attributeFilter: ["data-workspace-authorized-routes"]' in observer
     for key in ("ArrowDown", "ArrowUp", "Home", "End", "Escape"):
         assert key in tools_keyboard
+
+
+def test_dock_access_matrix_updates_without_recreating_the_dock() -> None:
+    routes = _between(CORE, "const ROUTES = Object.freeze([", "const SECONDARY_ROUTES")
+    gate = re.search(r"const ROLE_GATED_ROUTES = new Set\([^;]+;", CORE)
+    authorization = _between(CORE, "function routeIsAuthorized(route) {", "function createToolsMenuItem(item) {")
+    dock_sync = _between(CORE, "function syncDockAccess() {", "function ensureDock() {")
+    assert gate is not None
+
+    probe = f"""
+{routes}
+{gate.group(0)}
+const shell = {{ dataset: {{ workspaceAuthorizedRoutes: "" }} }};
+const links = ROUTES.map((item) => ({{
+  dataset: {{ ceV4Route: item.route }},
+  hidden: false,
+  attributes: {{}},
+  tooltip: {{ textContent: "" }},
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }},
+  removeAttribute(name) {{ delete this.attributes[name]; }},
+}}));
+const runtime = {{ dock: {{}} }};
+function q(selector, root) {{
+  if (selector.includes("workspace-shell")) return shell;
+  if (selector === ".ce-v4-dock__tooltip") return root?.tooltip || null;
+  return null;
+}}
+function qa(selector) {{
+  if (selector === "[data-ce-v4-route]") return links;
+  return [];
+}}
+{authorization}
+{dock_sync}
+function snapshot(declaredRoutes) {{
+  shell.dataset.workspaceAuthorizedRoutes = declaredRoutes.join(" ");
+  syncDockAccess();
+  return links.map((link) => ({{
+    route: link.dataset.ceV4Route,
+    hidden: link.hidden,
+    ariaHidden: link.attributes["aria-hidden"] || "",
+    label: link.attributes["aria-label"] || "",
+  }}));
+}}
+const base = ["home", "board", "generation", "review", "placement", "stats"]
+  .map((route) => `/workspace/${{route}}`);
+process.stdout.write(JSON.stringify({{
+  owner: snapshot([...base, "/workspace/research", "/workspace/ai", "/workspace/team"]),
+  reviewer: snapshot([...base, "/workspace/ai"]),
+  creator: snapshot(base),
+}}));
+"""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for the Dock access contract")
+    result = subprocess.run(
+        [node, "-e", probe],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    matrix = json.loads(result.stdout)
+
+    owner_visible = [item for item in matrix["owner"] if not item["hidden"]]
+    assert [item["route"] for item in owner_visible][-2:] == [
+        "/workspace/research",
+        "/workspace/ai",
+    ]
+    assert owner_visible[-2]["label"].endswith("⌥7")
+    assert owner_visible[-1]["label"].endswith("⌥8")
+
+    reviewer = {item["route"]: item for item in matrix["reviewer"]}
+    assert reviewer["/workspace/research"]["hidden"] is True
+    assert reviewer["/workspace/research"]["ariaHidden"] == "true"
+    assert reviewer["/workspace/ai"]["hidden"] is False
+    assert reviewer["/workspace/ai"]["label"].endswith("⌥7")
+
+    creator = {item["route"]: item for item in matrix["creator"]}
+    assert creator["/workspace/research"]["hidden"] is True
+    assert creator["/workspace/ai"]["hidden"] is True
 
 
 def test_research_and_team_expose_small_action_hierarchies() -> None:

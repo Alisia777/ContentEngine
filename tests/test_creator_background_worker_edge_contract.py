@@ -30,6 +30,7 @@ def test_background_worker_is_named_secret_authenticated_and_bounded() -> None:
     for name in (
         "creator-generate",
         "creator-product-research",
+        "creator-research-ingestion",
         "creator-content-review",
     ):
         assert config["functions"][name]["verify_jwt"] is True
@@ -44,7 +45,10 @@ def test_background_worker_is_named_secret_authenticated_and_bounded() -> None:
     assert 'request.headers.get("origin") !== null' in auth_source
     assert "MAX_LIMIT_PER_QUEUE = 6" in source
     assert "MAX_TOTAL_DISPATCHES = 8" in source
-    assert "generation + research + review > MAX_TOTAL_DISPATCHES" in source
+    assert (
+        "generation + research + review + youtube > MAX_TOTAL_DISPATCHES"
+        in source
+    )
     assert "MAX_BODY_BYTES = 1_024" in source
     assert "readBoundedBody(request.body, MAX_BODY_BYTES)" in source
     assert "request.text()" not in source
@@ -53,12 +57,24 @@ def test_background_worker_is_named_secret_authenticated_and_bounded() -> None:
 def test_generation_worker_only_retrieves_existing_runway_tasks() -> None:
     source = _text(WORKER)
 
+    generation_query = source.split("const generationQuery", 1)[1].split(
+        "const researchQuery", 1
+    )[0]
+    generation_candidates = source.split(
+        "const generationCandidates", 1
+    )[1].split("const staleStartingRows", 1)[0]
     assert '.in("status", ["starting", "submitted", "processing"])' in source
+    assert (
+        '"id, organization_id, project_id, requested_by, status, mode, '
+        'provider, provider_next_poll_at, updated_at"'
+    ) in generation_query
+    assert "isUuid(row.project_id)" in generation_candidates
     assert "reconcileStaleStartingJobs" in source
     assert 'reason_code: "provider_create_state_stale"' in source
     assert 'row.status === "submitted" || row.status === "processing"' in source
     generation_target = source.split('kind: "generation",', 1)[1].split("})),", 1)[0]
     assert 'action: "status",' in generation_target
+    assert 'project_id: row.project_id as string' in generation_target
     assert "creator-generate" in source
     assert "image_to_video" not in source
     assert '"action": "start"' not in source
@@ -110,19 +126,41 @@ def test_worker_dispatches_due_durable_research_and_review_queues() -> None:
     assert "skipped_video_reviews" not in source
 
 
+def test_worker_preclaims_bounded_automatic_youtube_refreshes_once() -> None:
+    source = _text(WORKER)
+
+    assert '"system_claim_due_research_youtube_collection"' in source
+    assert 'functionName: "creator-research-ingestion"' in source
+    assert 'body: { action: "ingest", ingestion_id: row.ingestionId }' in source
+    assert 'kind: "youtube"' in source
+    assert "payload.youtube_limit" in source
+    assert "generation + research + review + youtube" in source
+    claim = source.index('"system_claim_due_research_youtube_collection"')
+    dispatch = source.index("const outcomes = await Promise.all")
+    assert claim < dispatch
+    between = source[claim:dispatch]
+    assert "status: \"queued\"" not in between
+    assert "automatic retry" not in between.casefold()
+
+
 def test_existing_edges_keep_user_auth_and_add_isolated_worker_auth() -> None:
     generate = _text(GENERATE)
     research = _text(RESEARCH)
     review = _text(REVIEW)
 
-    for source in (generate, research, review):
+    ingestion = _text(
+        ROOT / "supabase/functions/creator-research-ingestion/index.ts"
+    )
+    for source in (generate, research, review, ingestion):
         assert 'auth: "user"' in source
         assert 'auth: "none"' in source
         assert '../_shared/internal-worker-auth.ts' in source
         assert "isInternalWorkerAuthorized(request)" in source
         assert 'request.headers.get(INTERNAL_WORKER_HEADER) !== "1"' in source
-        assert '.schema("content_factory")' in source
         assert "internalWorker && request.headers.get(\"origin\") !== null" in source
+    for source in (generate, research, review):
+        assert '.schema("content_factory")' in source
+    assert '"system_read_automatic_research_youtube_ingestion"' in ingestion
 
     status_gate = generate.index("if (internalWorker) {", generate.index("const statusPayload"))
     start_parser = generate.index("const startPayload", status_gate)
@@ -220,6 +258,7 @@ def test_deployment_syncs_worker_secret_and_deploys_only_worker_without_jwt() ->
     for name in (
         "Deploy authenticated real generation function",
         "Deploy authenticated product research function",
+        "Deploy authenticated research ingestion function",
         "Deploy authenticated content review function",
     ):
         step = next(item for item in steps if item.get("name") == name)
@@ -257,6 +296,7 @@ def test_health_watchdog_is_non_overlapping_secret_scoped_and_provider_free() ->
     assert '"generation_limit":0' in text
     assert '"research_limit":0' in text
     assert '"review_limit":0' in text
+    assert '"youtube_limit":0' in text
     assert '--data "$payload"' in text
     assert "payload.get(\"ok\") is not True" in text
     assert '"expired_leases": payload.get("expired_leases", {})' in text

@@ -451,20 +451,20 @@ async function dockMagnificationResult(browser) {
         && motion.dockDrift <= 0.5,
       menuOpen: !menu.opened.hidden
         && menu.opened.expanded === "true"
-        && menu.opened.routeCount === 3
+        && menu.opened.routeCount === 2
         && menu.opened.animation === "ce-v4-tools-menu-enter"
         && menu.opened.dialogCount === 0
         && menu.opened.backdropCount === 0,
-      menuKeyboard: menu.firstFocused === "/workspace/research"
+      menuKeyboard: menu.firstFocused === "/workspace/team"
         && menu.lastFocused === "/workspace/feedback"
         && menu.escaped.hidden
         && menu.escaped.triggerFocused,
       menuNavigation: menu.navigation.hidden
         && menu.navigation.current === "page"
-        && menu.navigation.dockRoutes === 6
+        && menu.navigation.dockRoutes === 8
         && menu.navigation.flowbarRoutes === 0
         && menu.navigation.flowbarCount === 0
-        && menu.navigation.dockLabels.join("|") === "Проекты|Файлы|Создать|Проверить|Опубликовать|Результаты|Корзина"
+        && menu.navigation.dockLabels.join("|") === "Проекты|Файлы|Создать|Проверить|Опубликовать|Результаты|Исследования|ИИ-центр|Корзина"
         && menu.navigation.academy === 0
         && menu.navigation.shellCount === 1
         && menu.navigation.menubarCount === 1
@@ -475,9 +475,9 @@ async function dockMagnificationResult(browser) {
         && menu.switched.route === "#/workspace/review"
         && menu.switched.current === "page"
         && menu.outsideClosed,
-      menuMobile: mobileMenu.routeCount === 3
+      menuMobile: mobileMenu.routeCount === 2
         && mobileMenu.flowbarRoutes === 0
-        && mobileMenu.dockLabels === 7
+        && mobileMenu.dockLabels === 9
         && mobileMenu.rect.x >= 7
         && mobileMenu.rect.right <= 313
         && mobileMenu.dock.x >= 0

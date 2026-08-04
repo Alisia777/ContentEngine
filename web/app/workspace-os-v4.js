@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.7";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.9";
 
-const BUILD = "20260804.os4.7";
+const BUILD = "20260804.os4.9";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -18,8 +18,8 @@ const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 /*
- * The Dock is the primary production switcher, not a dump of every route.
- * Secondary tools stay reachable from contextual actions and access gates.
+ * The Dock is the primary workspace switcher. Research and governed AI
+ * learning sit beside the production flow; infrequent tools stay in the menu.
  */
 const ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/home", label: "Проекты", icon: "home", description: "Выберите рабочий стол или создайте новый" }),
@@ -28,10 +28,11 @@ const ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/review", label: "Проверить", icon: "check", description: "Качество, риски и одно решение" }),
   Object.freeze({ route: "/workspace/placement", label: "Опубликовать", icon: "upload", description: "Один пост — один маршрут" }),
   Object.freeze({ route: "/workspace/stats", label: "Результаты", icon: "chart", description: "Метрики и следующая гипотеза" }),
+  Object.freeze({ route: "/workspace/research", label: "Исследования", icon: "search", description: "Факты, источники и сценарии" }),
+  Object.freeze({ route: "/workspace/ai", label: "ИИ-центр", icon: "spark", description: "Знания категорий и обратная связь" }),
 ]);
 
 const SECONDARY_ROUTES = Object.freeze([
-  Object.freeze({ route: "/workspace/research", label: "Исследования", icon: "search", description: "Факты, источники и сценарии" }),
   Object.freeze({ route: "/workspace/team", label: "Команда", icon: "work", description: "Доступы и участники" }),
   Object.freeze({ route: "/workspace/feedback", label: "Помощь", icon: "tasks", description: "Сообщить о препятствии" }),
 ]);
@@ -40,7 +41,6 @@ const CONTEXT_ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/tasks", label: "Задача", icon: "tasks", description: "Одно назначенное действие внутри текущего этапа" }),
   Object.freeze({ route: "/workspace/work", label: "Моя работа", icon: "work", description: "Личная очередь и уведомления" }),
 ]);
-
 const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES, ...CONTEXT_ROUTES]);
 const PROJECT_FLOW = Object.freeze([
   Object.freeze({ code: "files", route: "/workspace/board", label: "Файлы", countLabel: "файлов" }),
@@ -76,7 +76,7 @@ const PROJECT_STAGE_STATE_LABELS = Object.freeze({
   future: "После текущего этапа",
   unknown: "Статус уточняется",
 });
-const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"]);
+const ROLE_GATED_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"]);
 const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const NEXT_ACTION_PATHS = new Set([
   ...ALL_ROUTES.map((item) => item.route),
@@ -348,8 +348,8 @@ function toolsMenuParts() {
   return { trigger, menu, items };
 }
 
-function secondaryRouteIsAuthorized(route) {
-  if (!ROLE_GATED_SECONDARY_ROUTES.has(route)) return true;
+function routeIsAuthorized(route) {
+  if (!ROLE_GATED_ROUTES.has(route)) return true;
   const shell = q(".workspace-shell[data-workspace-section]");
   const declaredRoutes = String(shell?.dataset.workspaceAuthorizedRoutes || "")
     .split(/\s+/)
@@ -359,6 +359,10 @@ function secondaryRouteIsAuthorized(route) {
   return qa("a[href]", navigation).some((link) => (
     String(link.getAttribute("href") || "").split("?")[0] === `#${route}`
   ));
+}
+
+function authorizedRoutes(routes) {
+  return routes.filter((item) => routeIsAuthorized(item.route));
 }
 
 function createToolsMenuItem(item) {
@@ -378,7 +382,7 @@ function syncToolsMenu() {
   const menu = q("[data-ce-v4-tools-menu]", runtime.menubar);
   if (!menu) return;
   const existing = new Map(qa("[data-ce-v4-tools-route]", menu).map((link) => [link.dataset.ceV4ToolsRoute, link]));
-  SECONDARY_ROUTES.filter((item) => secondaryRouteIsAuthorized(item.route)).forEach((item) => {
+  authorizedRoutes(SECONDARY_ROUTES).forEach((item) => {
     const link = existing.get(item.route) || createToolsMenuItem(item);
     link.href = `#${projectRoute(item.route)}`;
     menu.append(link);
@@ -468,7 +472,7 @@ async function toggleFullscreen() {
 function refreshWorkspace() {
   const page = currentPage();
   const control = q(
-    '[data-action="refresh-section"], [data-action="refresh-home"]',
+    '[data-action="refresh-section"], [data-action="refresh-home"], [data-action="refresh-ai-learning"]',
     page,
   );
   if (control instanceof HTMLElement) control.click();
@@ -751,7 +755,7 @@ function ensureMenubar() {
   toolsMenu.setAttribute("role", "menu");
   toolsMenu.setAttribute("aria-label", "Другие разделы");
   SECONDARY_ROUTES.forEach((item) => {
-    if (!secondaryRouteIsAuthorized(item.route)) return;
+    if (!routeIsAuthorized(item.route)) return;
     const link = create("a", "ce-v4-menubar__tools-item");
     link.href = `#${item.route}`;
     link.dataset.ceV4ToolsRoute = item.route;
@@ -819,10 +823,37 @@ function updateClock() {
   clock.textContent = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(now);
 }
 
+function syncDockAccess() {
+  if (!runtime.dock) return;
+  const routeByPath = new Map(ROUTES.map((item) => [item.route, item]));
+  const shortcutIndexByRoute = new Map(
+    authorizedRoutes(ROUTES).map((item, index) => [item.route, index]),
+  );
+  qa("[data-ce-v4-route]", runtime.dock).forEach((link) => {
+    const route = String(link.dataset.ceV4Route || "");
+    const item = routeByPath.get(route);
+    const authorized = Boolean(item && shortcutIndexByRoute.has(route));
+    link.hidden = !authorized;
+    if (!authorized) {
+      link.setAttribute("aria-hidden", "true");
+      link.removeAttribute("aria-current");
+      return;
+    }
+    link.removeAttribute("aria-hidden");
+    const shortcut = `⌥${shortcutIndexByRoute.get(route) + 1}`;
+    link.setAttribute("aria-label", `${item.label}. ${item.description}. ${shortcut}`);
+    const tooltip = q(".ce-v4-dock__tooltip", link);
+    if (tooltip) tooltip.textContent = `${item.label} · ${item.description} · ${shortcut}`;
+  });
+}
+
 function ensureDock() {
-  if (runtime.dock?.isConnected) return runtime.dock;
+  if (runtime.dock?.isConnected) {
+    syncDockAccess();
+    return runtime.dock;
+  }
   const dock = create("nav", "ce-v4-dock");
-  dock.setAttribute("aria-label", "Основные этапы ContentEngine");
+  dock.setAttribute("aria-label", "Основные разделы ContentEngine");
   const glass = create("div", "ce-v4-dock__glass");
   ROUTES.forEach((item, index) => {
     const link = create("a", "ce-v4-dock__item");
@@ -874,6 +905,7 @@ function ensureDock() {
     });
   });
   runtime.dock = dock;
+  syncDockAccess();
   return dock;
 }
 
@@ -881,12 +913,20 @@ function updateDock() {
   const route = routePath();
   const snapshot = projectFlowSnapshot();
   const context = projectContext(snapshot);
+  const shortcutIndexByRoute = new Map(
+    authorizedRoutes(ROUTES).map((item, index) => [item.route, index]),
+  );
   const focusedStageIndex = activeProjectFlowIndex(route, snapshot);
   const dockRoute = route === "/workspace/tasks"
     ? (focusedStageIndex >= 0 ? PROJECT_FLOW[focusedStageIndex].route : "/workspace/home")
     : route;
   let activeItem = null;
   qa("[data-ce-v4-route]", runtime.dock).forEach((item, index) => {
+    if (item.hidden) {
+      item.classList.remove("is-active");
+      item.removeAttribute("aria-current");
+      return;
+    }
     const active = routeMatches(dockRoute, item.dataset.ceV4Route);
     const record = ROUTES[index];
     const stage = stageForRoute(item.dataset.ceV4Route, snapshot);
@@ -911,7 +951,8 @@ function updateDock() {
     const stateText = hasStageState ? PROJECT_STAGE_STATE_LABELS[stage.state] : "";
     const countText = stage && Number.isFinite(stage.count) ? `${stage.count} ${stage.countLabel}` : "";
     const reasonText = locked && stage.reason ? stage.reason : "";
-    const shortcut = `⌥${Math.min(index + 1, 9)}`;
+    const shortcutIndex = shortcutIndexByRoute.get(item.dataset.ceV4Route);
+    const shortcut = Number.isInteger(shortcutIndex) ? `⌥${shortcutIndex + 1}` : "";
     const semantic = [record?.label, stateText, countText, reasonText, record?.description, shortcut].filter(Boolean).join(" · ");
     const tooltip = q(".ce-v4-dock__tooltip", item);
     if (tooltip) tooltip.textContent = semantic;
@@ -920,7 +961,7 @@ function updateDock() {
     if (active) activeItem = item;
   });
   const glass = q(".ce-v4-dock__glass", runtime.dock);
-  if (activeItem && glass && window.innerWidth <= 680) {
+  if (activeItem && glass && window.innerWidth <= 900) {
     window.requestAnimationFrame(() => {
       const left = activeItem.offsetLeft - (glass.clientWidth - activeItem.offsetWidth) / 2;
       glass.scrollTo({
@@ -1337,7 +1378,7 @@ function openMission() {
   input.setAttribute("aria-label", "Найти рабочий стол");
   search.append(input);
   const grid = create("div", "ce-v4-mission__grid");
-  ROUTES.forEach((item, index) => {
+  authorizedRoutes(ROUTES).forEach((item, index) => {
     const button = create("button", "ce-v4-mission-card");
     button.type = "button";
     button.dataset.route = item.route;
@@ -1370,7 +1411,7 @@ function openMission() {
 }
 
 function spotlightRecords(query = "") {
-  const records = ALL_ROUTES.map((item) => ({
+  const records = authorizedRoutes(ALL_ROUTES).map((item) => ({
     title: item.label,
     subtitle: item.description,
     icon: item.icon,
@@ -1723,7 +1764,12 @@ function observeWorkspace() {
   if (!runtime.observer) runtime.observer = new MutationObserver(scheduleMount);
   runtime.observer.disconnect();
   runtime.observerRoot = root;
-  runtime.observer.observe(root, { childList: true, subtree: true });
+  runtime.observer.observe(root, {
+    attributes: true,
+    attributeFilter: ["data-workspace-authorized-routes"],
+    childList: true,
+    subtree: true,
+  });
 }
 
 function runMount() {
@@ -1818,7 +1864,7 @@ function handleKeydown(event) {
     return;
   }
   if (!editing && hasAuthenticatedWorkspace() && event.altKey && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
-    const item = ROUTES[Number(event.code.slice(-1)) - 1];
+    const item = authorizedRoutes(ROUTES)[Number(event.code.slice(-1)) - 1];
     if (item) {
       event.preventDefault();
       const snapshot = projectFlowSnapshot();
