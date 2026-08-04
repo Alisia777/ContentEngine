@@ -131,6 +131,8 @@ def test_pgtap_exercises_bare_selected_and_non_mutating_calls() -> None:
     assert "selected-project flow still returns the exact project snapshot" in source
     assert "selected project keeps its exact catalog marker" in source
     assert "project catalog and selected flow do not update the profile row" in source
+    assert "create temp table project_flow_profile_baseline" in source
+    assert "select baseline.updated_at from project_flow_profile_baseline baseline" in source
     assert "position( 'current_profile_id' in pg_get_functiondef(" in source
     assert "position( 'auth.uid()' in pg_get_functiondef(" in source
     assert source.endswith("rollback;")

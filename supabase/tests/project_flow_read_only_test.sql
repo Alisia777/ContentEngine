@@ -77,6 +77,14 @@ update content_factory.profiles profile
 set updated_at = '2000-01-01 00:00:00+00'::timestamptz
 where profile.id = 'e5000000-0000-4000-8000-000000000001'::uuid;
 
+-- The shared updated_at trigger replaces an explicitly supplied timestamp with
+-- transaction time. Snapshot that post-trigger value and prove the RPC leaves
+-- it unchanged instead of comparing against the impossible literal above.
+create temp table project_flow_profile_baseline on commit drop as
+select profile.updated_at
+from content_factory.profiles profile
+where profile.id = 'e5000000-0000-4000-8000-000000000001'::uuid;
+
 select is(
   (
     select procedure.provolatile::text
@@ -195,7 +203,10 @@ select is(
     from content_factory.profiles profile
     where profile.id = 'e5000000-0000-4000-8000-000000000001'::uuid
   ),
-  '2000-01-01 00:00:00+00'::timestamptz,
+  (
+    select baseline.updated_at
+    from project_flow_profile_baseline baseline
+  ),
   'project catalog and selected flow do not update the profile row'
 );
 
