@@ -1677,11 +1677,16 @@ function generationApprovedResearchCategoryRuleIsBound(
     line.startsWith("ResearchCategoryRule/")
   );
   if (ruleLines.length !== 1) return false;
-  const match = /^ResearchCategoryRule\/v2 category_maturity=([a-z_]+) competitor_coverage=([a-z_]+) primary_signal=([a-z0-9._]+) creative_angle=([a-z_]+) primary_hook=([a-z_]+)\.$/u
-    .exec(ruleLines[0]);
+  const match =
+    /^ResearchCategoryRule\/v2 category_maturity=([a-z_]+) competitor_coverage=([a-z_]+) primary_signal=([a-z0-9._]+) creative_angle=([a-z_]+) primary_hook=([a-z_]+)\.$/u
+      .exec(ruleLines[0]);
   if (match === null) return false;
   const categoryMaturities = new Set([
-    "emerging", "growing", "established", "saturated", "unknown",
+    "emerging",
+    "growing",
+    "established",
+    "saturated",
+    "unknown",
   ]);
   const competitorCoverages = new Set(["none", "limited", "sufficient"]);
   const structuralSignals = new Set([
@@ -1702,21 +1707,32 @@ function generationApprovedResearchCategoryRuleIsBound(
     "channel.short_vertical_video",
   ]);
   const angles = new Set([
-    "product_focus", "trust_builder", "demonstration", "comparison",
-    "objection_handling", "curiosity_gap",
+    "product_focus",
+    "trust_builder",
+    "demonstration",
+    "comparison",
+    "objection_handling",
+    "curiosity_gap",
   ]);
   const hooks = new Set([
-    "none", "question_led", "why_explanation", "before_buying",
-    "comparison", "demonstration", "first_person", "numbered", "concise",
+    "none",
+    "question_led",
+    "why_explanation",
+    "before_buying",
+    "comparison",
+    "demonstration",
+    "first_person",
+    "numbered",
+    "concise",
   ]);
   const expectedPrimaryHook = context.hook_patterns[0] || "none";
-  return categoryMaturities.has(match[1])
-    && competitorCoverages.has(match[2])
-    && structuralSignals.has(match[3])
-    && angles.has(match[4])
-    && hooks.has(match[5])
-    && match[4] === context.creative_angle
-    && match[5] === expectedPrimaryHook;
+  return categoryMaturities.has(match[1]) &&
+    competitorCoverages.has(match[2]) &&
+    structuralSignals.has(match[3]) &&
+    angles.has(match[4]) &&
+    hooks.has(match[5]) &&
+    match[4] === context.creative_angle &&
+    match[5] === expectedPrimaryHook;
 }
 
 function generationRepairPromptRequirements(
