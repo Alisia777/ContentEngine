@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine selected project v4.16</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260804.os4.16" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260804.os4.16" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell"
+           data-workspace-section="home"
+           data-workspace-role="owner"
+           data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/media /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research">
+        <script id="workspace-project-flow-snapshot" type="application/json">{"project_id":"11111111-1111-4111-8111-111111111111","project":{"id":"11111111-1111-4111-8111-111111111111","name":"Бады"},"projects":[{"id":"11111111-1111-4111-8111-111111111111","name":"Бады"}],"stages":[{"code":"files","state":"current","label":"Файлы"},{"code":"generation","state":"too_early","label":"Создать"},{"code":"review","state":"too_early","label":"Проверить"},{"code":"placement","state":"too_early","label":"Опубликовать"},{"code":"stats","state":"too_early","label":"Результат"}],"next_action":{"label":"Добавить первый материал","route":"/workspace/media?project_id=11111111-1111-4111-8111-111111111111","project_id":"11111111-1111-4111-8111-111111111111"},"counts":{"files":0}}</script>
+        <aside class="sidebar"></aside>
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content">
+              <div class="page-wrap workspace-home workspace-home--single-action ce-v4-page">
+                <section class="home-single-action" data-primary-action="true">
+                  <p class="eyebrow">Проект · Бады</p>
+                  <h1>Добавьте первый материал</h1>
+                  <p>Выберите точное фото или видео товара. После загрузки портал сам откроет следующий этап.</p>
+                  <a class="btn" href="#/workspace/media?project_id=11111111-1111-4111-8111-111111111111">Добавить материал <span aria-hidden="true">→</span></a>
+                </section>
+              </div>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "Бады",
+      }));
+      if (!location.hash.startsWith("#/workspace/home")) {
+        location.hash = "#/workspace/home?project_id=11111111-1111-4111-8111-111111111111";
+      }
+    </script>
+    <script type="module">
+      await import("../../web/app/workspace-os-v4.js?v=20260804.os4.16");
+      await window.ContentEngineDesktopV4.flush();
+      const page = document.querySelector(".page-wrap");
+      const action = document.querySelector(".home-single-action");
+      const qa = document.querySelector("#runtime-qa");
+      qa.dataset.projectMode = String(page.classList.contains("ce-v4-project-home"));
+      qa.dataset.actionVisible = String(Boolean(action.getClientRects().length));
+      qa.dataset.actionDisplay = getComputedStyle(action).display;
+      qa.dataset.primaryCount = String(document.querySelectorAll('[data-primary-action="true"]:not([hidden])').length);
+    </script>
+  </body>
+</html>

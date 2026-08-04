@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.15 route loader.
+ * ContentEngine Desktop v4.16 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.15";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.16";
 
-const BUILD = "20260804.os4.15";
+const BUILD = "20260804.os4.16";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -23,7 +23,7 @@ window.CONTENTENGINE_DESKTOP_V4 = true;
 const ROUTE_ASSETS = Object.freeze({
   aiLearning: Object.freeze({
     match: (route) => route === "/workspace/ai",
-    styles: ["ai-learning-control-room.css?v=20260804.os4.15"],
+    styles: ["ai-learning-control-room.css?v=20260804.os4.16"],
     modules: [],
   }),
   finder: Object.freeze({
@@ -248,7 +248,7 @@ function retry() {
   retryPromise = loadRoute(route, actionKey)
     .catch((error) => {
       setFailed(route, error);
-      console.error("ContentEngine Desktop v4.15 route retry failed", error);
+      console.error("ContentEngine Desktop v4.16 route retry failed", error);
       return false;
     })
     .finally(() => {
@@ -264,7 +264,7 @@ function loadCurrentRoute() {
     if (route === routePath() && actionKey === workspaceActionKey()) {
       setFailed(route, error);
     }
-    console.error("ContentEngine Desktop v4.15 current route failed to load", error);
+    console.error("ContentEngine Desktop v4.16 current route failed to load", error);
     return false;
   });
 }
@@ -302,7 +302,7 @@ function schedule() {
       if (scheduledRoute === routePath() && scheduledActionKey === workspaceActionKey()) {
         setFailed(scheduledRoute, error);
       }
-      console.error("ContentEngine Desktop v4.15 route failed to start", error);
+      console.error("ContentEngine Desktop v4.16 route failed to start", error);
     });
   });
 }

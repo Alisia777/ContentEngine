@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.15";
+} from "./supabase-api.js?v=20260804.os4.16";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.15";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.15";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.16";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.16";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -73,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260804.os4.15";
+} from "./product-research-view.js?v=20260804.os4.16";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -82,7 +82,7 @@ import {
   aiLearningView,
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
-} from "./ai-learning-control-room.js?v=20260804.os4.15";
+} from "./ai-learning-control-room.js?v=20260804.os4.16";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -94,7 +94,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.15";
+} from "./content-generation-handoff.js?v=20260804.os4.16";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -108,7 +108,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.15";
+} from "./generation-form-draft.js?v=20260804.os4.16";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -141,7 +141,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.15";
+} from "./content-review-view.js?v=20260804.os4.16";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -170,7 +170,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.15";
+} from "./workspace-board-view.js?v=20260804.os4.16";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -199,7 +199,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.15";
+} from "./training-journey.js?v=20260804.os4.16";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -218,7 +218,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.15";
+} from "./training-practical-review.js?v=20260804.os4.16";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -237,7 +237,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.15";
+} from "./my-work-view.js?v=20260804.os4.16";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -7108,6 +7108,7 @@ function renderWorkspace(section) {
   }[section];
 
   const initialSectionLoad = section !== "home"
+    && section !== "media"
     && ["idle", "loading"].includes(sectionState.status)
     && !sectionState.data;
   const content = initialSectionLoad ? workspaceInitialLoadingMarkup(section) : renderer(sectionState);
@@ -14596,6 +14597,14 @@ function renderMediaSection(sectionState) {
   const items = listFrom(data, "media", "items", "artifacts");
   const requestedView = String(state.route.query.get("view") || "upload");
   const mediaView = requestedView === "recent" ? "recent" : "upload";
+  const mediaCatalogRecovery = sectionState.status === "error"
+    ? `
+      <div class="alert alert-warning media-catalog-recovery" role="status">
+        <strong aria-hidden="true">!</strong>
+        <span>Не удалось обновить список файлов. Вы всё равно можете выбрать и загрузить файлы ниже.</span>
+        <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Повторить обновление списка</button>
+      </div>`
+    : "";
   return `
     <div class="page-wrap" data-media-view="${mediaView}">
       ${pageHeader("Материалы", "Загрузите точные фото и видео товара. Они появятся при создании ролика и останутся доступны только вашей команде.", `<span class="badge badge-success">Файлы защищены</span>`)}
@@ -14609,6 +14618,7 @@ function renderMediaSection(sectionState) {
           <p class="eyebrow">Добавить исходник</p>
           <h2 style="font:600 1.45rem/1.2 Georgia,serif; margin:0 0 8px">Точные фото или видео</h2>
           <p class="muted tiny">Файлы попадут в закрытую папку команды. До ${MEDIA_UPLOAD_BATCH_LIMIT} файлов за раз, каждый — максимум ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.</p>
+          ${mediaCatalogRecovery}
           <form id="media-upload-form" class="form-stack" novalidate>
             <button class="upload-zone" type="button" data-upload-zone data-action="choose-media-upload-files" aria-controls="media-file" aria-describedby="media-upload-help selected-file-summary">
               <span class="empty-icon" aria-hidden="true">⇧</span>
@@ -14643,7 +14653,7 @@ function renderMediaSection(sectionState) {
               </div>
             </div>
             <label class="acknowledgement"><input name="rights_confirmed" type="checkbox" required /><span>У команды есть право использовать этот материал.</span></label>
-            <button class="btn btn-block" type="submit">Загрузить файлы в защищённую папку</button>
+            <button class="btn btn-block" type="submit" data-primary-action="true">Загрузить файлы в защищённую папку</button>
           </form>
         </section>
         <section class="media-library-panel">
@@ -15076,6 +15086,15 @@ function sectionBody(sectionState, readyMarkup) {
     const section = state.route.path.startsWith("/workspace/")
       ? state.route.path.replace("/workspace/", "")
       : "";
+    if (section === "media") {
+      return `
+        <div class="empty-state media-catalog-recovery" role="alert">
+          <div class="empty-icon" aria-hidden="true">!</div>
+          <h3>Не удалось обновить список файлов</h3>
+          <p>Вы всё равно можете выбрать и загрузить файлы выше. Повторите обновление списка позже.</p>
+          <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Повторить обновление</button>
+        </div>`;
+    }
     const retry = state.sections[section]
       ? `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="${escapeHtml(section)}">Повторить</button>`
       : "";
