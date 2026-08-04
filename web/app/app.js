@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.13";
+} from "./supabase-api.js?v=20260804.os4.14";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.13";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.14";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.14";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -73,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260804.os4.13";
+} from "./product-research-view.js?v=20260804.os4.14";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -82,7 +82,7 @@ import {
   aiLearningView,
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
-} from "./ai-learning-control-room.js?v=20260804.4";
+} from "./ai-learning-control-room.js?v=20260804.os4.14";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -94,7 +94,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.13";
+} from "./content-generation-handoff.js?v=20260804.os4.14";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -108,7 +108,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.13";
+} from "./generation-form-draft.js?v=20260804.os4.14";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -141,7 +141,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.13";
+} from "./content-review-view.js?v=20260804.os4.14";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -170,7 +170,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.13";
+} from "./workspace-board-view.js?v=20260804.os4.14";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -199,7 +199,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.13";
+} from "./training-journey.js?v=20260804.os4.14";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -218,7 +218,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.13";
+} from "./training-practical-review.js?v=20260804.os4.14";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -237,7 +237,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.13";
+} from "./my-work-view.js?v=20260804.os4.14";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -6687,6 +6687,19 @@ function storedWorkspaceProject() {
   }
 }
 
+function routeWorkspaceProjectId() {
+  if (!state.route.path.startsWith("/workspace/")) return "";
+  const values = state.route.query.getAll("project_id");
+  const projectId = values.length === 1
+    ? String(values[0] || "").trim().toLowerCase()
+    : "";
+  return isWorkspaceProjectId(projectId) ? projectId : "";
+}
+
+function workspaceProjectChooserMode() {
+  return state.route.path === "/workspace/home" && !routeWorkspaceProjectId();
+}
+
 function normalizeProjectFlow(raw) {
   const source = raw?.data ?? raw ?? {};
   const projects = Array.isArray(source.projects) ? source.projects : [];
@@ -6763,18 +6776,20 @@ function exactProjectNextActionRoute(rawFlow, expectedProjectId = currentWorkspa
 }
 
 function currentWorkspaceProjectId() {
-  if (state.route.path.startsWith("/workspace/")) {
-    const values = state.route.query.getAll("project_id");
-    const routeProjectId = values.length === 1
-      ? String(state.route.query.get("project_id") || "").trim().toLowerCase()
-      : "";
-    if (isWorkspaceProjectId(routeProjectId)) return routeProjectId;
-  }
+  const routeProjectId = routeWorkspaceProjectId();
+  if (routeProjectId) return routeProjectId;
+  if (workspaceProjectChooserMode()) return "";
   const flowProjectId = String(state.projectFlow?.data?.project_id || state.projectFlow?.projectId || "")
     .trim()
     .toLowerCase();
   if (isWorkspaceProjectId(flowProjectId)) return flowProjectId;
   return storedWorkspaceProject()?.id || "";
+}
+
+function projectFlowRequestProjectId() {
+  const routeProjectId = routeWorkspaceProjectId();
+  if (workspaceProjectChooserMode()) return "";
+  return routeProjectId || currentWorkspaceProjectId();
 }
 
 function workspaceSectionRequiresProject(section, query = state.route.query) {
@@ -7045,13 +7060,10 @@ function renderWorkspace(section) {
     return;
   }
   const routeProjectId = currentWorkspaceProjectId();
+  const requestedProjectId = projectFlowRequestProjectId();
   if (
     state.projectFlow.status === "idle"
-    || (
-      routeProjectId
-      && routeProjectId !== state.projectFlow.projectId
-      && !["loading", "refreshing"].includes(state.projectFlow.status)
-    )
+    || requestedProjectId !== state.projectFlow.projectId
   ) {
     window.queueMicrotask(() => { void loadProjectFlow({ silent: true }); });
   }
@@ -7692,7 +7704,7 @@ function workspaceContextBarMarkup(activeSection, label) {
         ` : aiLearning ? `
           <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=overview">Статус</a>
           <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=knowledge">Знания</a>
-          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=teach">ОК / не ОК</a>
+          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=teach">Проверить сигнал</a>
         ` : `
           <a href="#/workspace/media">Материалы</a>
           <a class="${activeSection === "generation" ? "is-active" : ""}" href="#/workspace/generation">Создать</a>
@@ -7849,7 +7861,53 @@ function setMobileNavOpen(open, restoreFocus = false) {
   }
 }
 
+function focusAiLearningViewTab(view, attempt = 0) {
+  const normalizedView = aiLearningView(view);
+  const tab = document.getElementById(`ai-learning-tab-${normalizedView}`);
+  if (
+    state.route.path === "/workspace/ai"
+    && currentAiLearningView() === normalizedView
+    && tab instanceof HTMLButtonElement
+  ) {
+    tab.focus({ preventScroll: true });
+    tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return true;
+  }
+  if (attempt < 5) {
+    window.setTimeout(() => focusAiLearningViewTab(normalizedView, attempt + 1), 40 * (attempt + 1));
+  }
+  return false;
+}
+
+function handleAiLearningTabsKeyDown(event) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return false;
+  if (event.altKey || event.ctrlKey || event.metaKey) return false;
+  const target = event.target instanceof Element
+    ? event.target.closest('.ai-learning-view-tabs [role="tab"][data-action="select-ai-learning-view"]')
+    : null;
+  if (!(target instanceof HTMLButtonElement)) return false;
+  const tablist = target.closest('.ai-learning-view-tabs[role="tablist"]');
+  const tabs = Array.from(
+    tablist?.querySelectorAll('[role="tab"][data-action="select-ai-learning-view"]:not(:disabled)') || [],
+  ).filter((tab) => tab instanceof HTMLButtonElement);
+  const currentIndex = tabs.indexOf(target);
+  if (currentIndex < 0 || tabs.length < 1) return false;
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  const nextTab = tabs[nextIndex];
+  const view = aiLearningView(nextTab.dataset.view);
+  event.preventDefault();
+  nextTab.focus({ preventScroll: true });
+  navigate(`/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=${encodeURIComponent(view)}`);
+  window.setTimeout(() => focusAiLearningViewTab(view), 0);
+  return true;
+}
+
 function handleKeyDown(event) {
+  if (handleAiLearningTabsKeyDown(event)) return;
   const achievement = document.querySelector("[data-training-achievement]");
   if (achievement && event.key === "Escape") {
     event.preventDefault();
@@ -7975,12 +8033,17 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
 
 async function loadProjectFlow({ silent = false, force = false } = {}) {
   if (!state.api?.projectFlow) {
+    const unavailableProjectId = projectFlowRequestProjectId();
+    if (unavailableProjectId === "" && state.projectFlow.projectId !== "") {
+      state.projectFlow.data = null;
+    }
+    state.projectFlow.projectId = unavailableProjectId;
     state.projectFlow.status = "error";
     state.projectFlow.error = new Error("workspace_project_flow_unavailable");
     if (state.route.path.startsWith("/workspace/")) render();
     return null;
   }
-  const projectId = currentWorkspaceProjectId();
+  const projectId = projectFlowRequestProjectId();
   if (
     !force
     && ["loading", "refreshing"].includes(state.projectFlow.status)
@@ -7995,8 +8058,10 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   const requestId = state.projectFlow.requestId + 1;
+  const enteringChooser = projectId === "" && state.projectFlow.projectId !== "";
   state.projectFlow.requestId = requestId;
   state.projectFlow.projectId = projectId;
+  if (enteringChooser) state.projectFlow.data = null;
   state.projectFlow.status = state.projectFlow.data ? "refreshing" : "loading";
   state.projectFlow.error = null;
   if (!silent && state.route.path.startsWith("/workspace/")) render();
@@ -8011,6 +8076,7 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
+      || projectId !== projectFlowRequestProjectId()
     ) return null;
     const flow = normalizeProjectFlow(raw);
     state.projectFlow.data = flow;
@@ -8050,6 +8116,7 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
+      || projectId !== projectFlowRequestProjectId()
     ) return null;
     const serverCode = String(error?.serverCode || error?.code || "").trim().toLowerCase();
     if (
@@ -9361,7 +9428,9 @@ function homeProjectSwitcherMarkup(action) {
 
 function renderHomeSection(homeState) {
   const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {});
-  const routeProjectId = currentWorkspaceProjectId();
+  const routeProjectId = workspaceProjectChooserMode()
+    ? ""
+    : routeWorkspaceProjectId() || projectFlow.project_id || "";
   if (
     routeProjectId
     && (
@@ -13834,6 +13903,22 @@ function aiLearningMutationIsVisible(category) {
     && category === currentAiLearningCategory();
 }
 
+function focusNextAiTeachingDecision() {
+  if (state.route.path !== "/workspace/ai" || currentAiLearningView() !== "teach") return false;
+  const target = document.querySelector(
+    '.ai-learning-teaching-card button[data-primary-action="true"]:not(:disabled)',
+  ) || document.querySelector("#ai-learning-judgement-title");
+  if (!(target instanceof HTMLElement)) return false;
+  if (!target.matches("button, a, input, select, textarea, [tabindex]")) target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({
+    block: "center",
+    inline: "nearest",
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+  });
+  return true;
+}
+
 function invalidateHiddenAiLearningSnapshot() {
   if (state.route.path === "/workspace/ai") return;
   state.sections.ai.status = "idle";
@@ -13848,13 +13933,6 @@ async function decideAiTeachingCard(control) {
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
-  const decisionForm = control.closest(".ai-learning-decision-form");
-  const confirmation = decisionForm?.elements?.confirmation;
-  if (!(confirmation instanceof HTMLInputElement) || !confirmation.checked) {
-    toast("Сначала подтвердите, что проверили контекст и границы влияния.", "error");
-    confirmation?.focus();
-    return;
-  }
   const card = control.closest("[data-ai-teaching-card]") || control;
   const category = String(
     control.dataset.productCategory
@@ -13863,6 +13941,11 @@ async function decideAiTeachingCard(control) {
   ).trim().toLowerCase();
   const cardId = String(control.dataset.cardId || card.dataset.cardId || "").trim();
   const decision = String(control.dataset.decision || "").trim().toLowerCase();
+  const judgement = String(control.dataset.aiJudgement || card.dataset.aiJudgement || "unknown")
+    .trim()
+    .toLowerCase();
+  const signalLabel = String(control.dataset.signalLabel || card.dataset.signalLabel || "этот сигнал")
+    .trim();
   const cardVersion = Number(control.dataset.cardVersion || card.dataset.cardVersion);
   const cardHash = String(control.dataset.cardHash || card.dataset.cardHash || "").trim();
   const expectedScopeVersion = Number(
@@ -13877,6 +13960,7 @@ async function decideAiTeachingCard(control) {
   state.aiLearning.busyCardId = cardId;
   state.aiLearning.notice = "";
   state.aiLearning.error = "";
+  let decisionApplied = false;
   renderWorkspace("ai");
   try {
     const response = await state.api.decideAiTeachingCard({
@@ -13891,12 +13975,15 @@ async function decideAiTeachingCard(control) {
         : "operator_rejected",
       confirmation: true,
     });
-    const successMessage = decision === "approve"
-      ? "Правило подтверждено и уже выпущено в новой версии политики этой категории."
-      : "Правило помечено как неверное и исключено из активной политики категории.";
+    const successMessage = decision !== "approve"
+      ? `Сохранено: предложение «${signalLabel}» отклонено. Правило не применяется.`
+      : judgement === "bad"
+        ? `Сохранено: ИИ будет избегать сигнала «${signalLabel}».`
+        : `Сохранено: ИИ будет использовать сигнал «${signalLabel}».`;
     if (aiLearningMutationIsVisible(category)) {
       applyAuthoritativeAiLearningResponse(response, category);
       state.aiLearning.notice = successMessage;
+      decisionApplied = true;
     } else {
       invalidateHiddenAiLearningSnapshot();
       toast(successMessage, "success");
@@ -13917,7 +14004,10 @@ async function decideAiTeachingCard(control) {
     }
   } finally {
     state.aiLearning.busyCardId = "";
-    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    if (state.route.path === "/workspace/ai") {
+      renderWorkspace("ai");
+      if (decisionApplied) window.queueMicrotask(() => focusNextAiTeachingDecision());
+    }
     scheduleAiLearningPolling();
   }
 }

@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.14";
 
-const BUILD = "20260804.os4.13";
+const BUILD = "20260804.os4.14";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -241,21 +241,38 @@ function workspaceRouteRequiresProject(route) {
   return PROJECT_REQUIRED_ROUTES.has(path);
 }
 
-function explainProjectRequired() {
+function projectChooserMode() {
+  if (routePath() !== "/workspace/home") return false;
+  const values = routeQuery().getAll("project_id");
+  return values.length !== 1 || !PROJECT_ID_PATTERN.test(String(values[0] || "").trim().toLowerCase());
+}
+
+function focusProjectChoiceTarget(attempt = 0) {
+  const target = q('[data-action="retry-project-flow"]')
+    || q("[data-ce-v4-project-id]")
+    || q("#home-projects-title");
+  if (target instanceof HTMLElement) {
+    if (!target.matches("button, a, input, select, textarea, [tabindex]")) target.tabIndex = -1;
+    target.focus({ preventScroll: false });
+    target.scrollIntoView?.({ block: "center", inline: "nearest", behavior: REDUCED_MOTION.matches ? "auto" : "smooth" });
+    return true;
+  }
+  if (attempt < 5) window.setTimeout(() => focusProjectChoiceTarget(attempt + 1), 80 * (attempt + 1));
+  return false;
+}
+
+function explainProjectRequired(destination = "") {
+  const label = routeRecord(routeParts(destination).path)?.label || "Раздел";
   showSystemToast(
-    "Сначала выберите проект — после этого откроется нужный раздел.",
+    `${label}: сначала выберите проект. Нажмите на карточку проекта — раздел откроется с его данными.`,
     "warning",
   );
   if (routePath() !== "/workspace/home") {
     window.location.hash = "#/workspace/home";
+    window.setTimeout(() => focusProjectChoiceTarget(), 0);
     return;
   }
-  window.queueMicrotask(() => {
-    const heading = q("#home-projects-title");
-    if (!(heading instanceof HTMLElement)) return;
-    heading.tabIndex = -1;
-    heading.focus({ preventScroll: false });
-  });
+  window.queueMicrotask(() => focusProjectChoiceTarget());
 }
 
 function routeMatches(route, expected) {
@@ -288,7 +305,7 @@ function navigate(route, options) {
   const requestedProjectId = routeParts(requested).query.get("project_id");
   const currentProjectId = routeQuery().get("project_id") || projectContext()?.id || "";
   if (workspaceRouteRequiresProject(requested) && !requestedProjectId && !currentProjectId) {
-    explainProjectRequired();
+    explainProjectRequired(requested);
     return "/workspace/home";
   }
   const destination = settings.preserveProject === false
@@ -937,7 +954,7 @@ function ensureDock() {
     const snapshot = projectFlowSnapshot();
     if (workspaceRouteRequiresProject(destination) && !snapshot.id) {
       event.preventDefault();
-      explainProjectRequired();
+      explainProjectRequired(destination);
       return;
     }
     const stage = stageForRoute(destination, snapshot);
@@ -992,7 +1009,7 @@ function updateDock() {
     });
     item.dataset.ceV4StageState = hasStageState ? stage.state : "unknown";
     item.setAttribute("aria-current", active ? "page" : "false");
-    if (locked || projectRequired) item.setAttribute("aria-disabled", "true");
+    if (locked) item.setAttribute("aria-disabled", "true");
     else item.removeAttribute("aria-disabled");
     const count = q("[data-ce-v4-dock-count]", item);
     const showCount = Boolean(stage && Number.isFinite(stage.count) && stage.count > 0);
@@ -1007,7 +1024,9 @@ function updateDock() {
     const reasonText = locked && stage.reason ? stage.reason : "";
     const shortcutIndex = shortcutIndexByRoute.get(item.dataset.ceV4Route);
     const shortcut = Number.isInteger(shortcutIndex) ? `⌥${shortcutIndex + 1}` : "";
-    const semantic = [record?.label, stateText, countText, reasonText, record?.description, shortcut].filter(Boolean).join(" · ");
+    const semantic = projectRequired
+      ? `${record?.label || "Раздел"} — нужен проект. Нажмите, чтобы перейти к выбору проекта`
+      : [record?.label, stateText, countText, reasonText, record?.description, shortcut].filter(Boolean).join(" · ");
     const tooltip = q(".ce-v4-dock__tooltip", item);
     if (tooltip) tooltip.textContent = semantic;
     item.title = semantic;
@@ -1177,17 +1196,20 @@ function projectFlowSnapshot() {
   const rawProject = normalizeProjectRecord(raw.project);
   if (rawProject && !projects.some((item) => item.id === rawProject.id)) projects.unshift(rawProject);
 
-  const stored = storedProjectContext();
+  const chooserMode = projectChooserMode();
+  const stored = chooserMode ? null : storedProjectContext();
   const queryProjectId = String(routeQuery().get("project_id") || "").trim();
   const rootProjectId = String(root?.dataset.projectId || root?.dataset.workspaceProjectId || "").trim();
   const rawProjectId = String(raw.project_id || rawProject?.id || "").trim();
-  const id = queryProjectId || rootProjectId || rawProjectId || stored?.id || "";
+  const id = chooserMode ? "" : queryProjectId || rootProjectId || rawProjectId || stored?.id || "";
   const nextAction = normalizeProjectNextAction(rawNextAction, id);
   const catalogProject = projects.find((item) => item.id === id) || null;
   const rootProjectName = rootProjectId === id ? root?.dataset.projectName : "";
   const storedProjectName = stored?.id === id ? stored.name : "";
   const name = compact(catalogProject?.name || rootProjectName || rawProject?.name || storedProjectName || "Проект", 80);
-  const rootFolderId = String(catalogProject?.rootFolderId || rawProject?.rootFolderId || stored?.rootFolderId || id || "").trim();
+  const rootFolderId = id
+    ? String(catalogProject?.rootFolderId || rawProject?.rootFolderId || stored?.rootFolderId || id).trim()
+    : "";
   const currentStage = normalizeStageCode(
     root?.dataset.projectCurrentStage || root?.dataset.currentStage || raw.current_stage || rawProject?.currentStage || "",
   );

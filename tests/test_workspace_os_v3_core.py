@@ -28,8 +28,8 @@ def test_os_v3_assets_are_retired_from_the_active_runtime_graph() -> None:
         "workspace-os-v3-finish.css",
     )
     assert not any(any(name in asset for name in retired_names) for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260804.os4.13" in active_assets
-    assert "./workspace-os-v4-loader.js?v=20260804.os4.13" in active_assets
+    assert "./workspace-os-v4.css?v=20260804.os4.14" in active_assets
+    assert "./workspace-os-v4-loader.js?v=20260804.os4.14" in active_assets
 
 
 def test_spotlight_is_a_real_command_palette() -> None:
