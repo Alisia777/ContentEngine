@@ -1549,11 +1549,142 @@
   opacity: .68;
 }
 
+.content-review-sound-assessment {
+  display: grid;
+  margin: 0;
+  padding: 14px;
+  border: 2px solid color-mix(in srgb, var(--portal-accent) 52%, var(--portal-line));
+  border-radius: 14px;
+  gap: 12px;
+  background: color-mix(in srgb, var(--portal-accent-soft) 46%, var(--portal-surface));
+}
+
+.content-review-sound-assessment > legend,
+.content-review-sound-issues > legend {
+  padding: 0 7px;
+  color: var(--portal-ink);
+  font-size: .76rem;
+  font-weight: 950;
+}
+
+.content-review-sound-assessment > p {
+  margin: 0;
+  color: var(--portal-ink-soft);
+  font-size: .72rem;
+  line-height: 1.5;
+}
+
+.content-review-sound-assessment blockquote {
+  display: grid;
+  margin: 0;
+  padding: 12px;
+  border: 0;
+  border-left: 4px solid var(--portal-accent);
+  border-radius: 9px;
+  gap: 4px;
+  background: var(--portal-surface);
+}
+
+.content-review-sound-assessment blockquote small {
+  color: var(--portal-ink-soft);
+  font-size: .65rem;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.content-review-sound-assessment blockquote strong {
+  color: var(--portal-ink);
+  font-size: .86rem;
+  line-height: 1.45;
+}
+
+.content-review-sound-confirmations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.content-review-sound-issues {
+  display: grid;
+  margin: 0;
+  padding: 11px;
+  border: 1px solid var(--portal-line);
+  border-radius: 11px;
+  gap: 7px;
+  background: var(--portal-surface);
+}
+
+.content-review-sound-issues label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--portal-ink-soft);
+  font-size: .7rem;
+  line-height: 1.4;
+}
+
+.content-review-sound-issues input {
+  margin-top: 2px;
+  accent-color: var(--review-danger);
+}
+
+.content-review-sound-warning {
+  padding: 10px 11px;
+  color: var(--review-danger);
+  border-radius: 9px;
+  background: var(--review-danger-bg);
+  font-size: .72rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.content-review-sound-summary {
+  display: grid;
+  margin-top: 12px;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--review-success) 38%, var(--portal-line));
+  border-radius: 10px;
+  gap: 5px;
+  background: var(--review-success-bg);
+}
+
+.content-review-sound-summary.is-issues {
+  border-color: color-mix(in srgb, var(--review-danger) 45%, var(--portal-line));
+  background: var(--review-danger-bg);
+}
+
+.content-review-sound-summary.is-legacy {
+  border-color: color-mix(in srgb, var(--review-warning) 45%, var(--portal-line));
+  background: var(--review-warning-bg);
+}
+
+.content-review-sound-summary p,
+.content-review-sound-summary ul {
+  margin: 0;
+  color: var(--portal-ink-soft);
+  font-size: .7rem;
+  line-height: 1.45;
+}
+
+.content-review-sound-summary ul {
+  padding-left: 18px;
+}
+
+.content-review-sound-summary small {
+  color: var(--portal-ink-soft);
+  font-size: .64rem;
+}
+
 @media (max-width: 560px) {
   .content-review-safe-zone__toolbar {
     align-items: flex-start;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .content-review-sound-confirmations {
+    grid-template-columns: 1fr;
   }
 }
 

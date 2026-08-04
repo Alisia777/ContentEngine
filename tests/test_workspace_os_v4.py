@@ -38,7 +38,7 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
     )
     assert active_modules == [
         './workspace-os-v4-loader.js?v=20260804.os4.8',
-        './app.js?v=20260804.2',
+        './app.js?v=20260804.3',
         './workspace-build-guard.js?v=20260804.os4.8',
     ]
 
