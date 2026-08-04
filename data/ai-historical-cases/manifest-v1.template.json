@@ -1,0 +1,33 @@
+{
+  "schema_version": "ai_historical_cases.v1",
+  "product_category": "other",
+  "original_filename": "replace-with-source.xlsx",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "parser_version": "replace-with-parser-v1",
+  "cases": [
+    {
+      "external_case_id": "replace:platform:case-1",
+      "product_category": "other",
+      "product_sku": "replace-with-exact-internal-sku",
+      "marketplace_sku": "replace-with-marketplace-sku",
+      "product_title": "Replace with exact product title",
+      "brand": "Replace with exact brand",
+      "platform": "other",
+      "channel": "replace_with_channel",
+      "period_start": "2026-01-01",
+      "period_end": "2026-01-31",
+      "outcome": "review",
+      "outcome_dimension": "data_quality",
+      "status_label": "Replace with bounded reviewed status",
+      "metrics": {
+        "orders": 0
+      },
+      "confidence": 0,
+      "provenance": {
+        "sheet": "Replace with exact sheet",
+        "row": 1,
+        "row_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ]
+}

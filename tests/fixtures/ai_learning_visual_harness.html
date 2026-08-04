@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AI Learning Control Room visual harness</title>
-    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.3" />
+    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.4" />
     <style>
       html { background: #080706; }
       body { margin: 0; min-height: 100vh; background: #080706; color: #f7f3eb; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
@@ -17,7 +17,7 @@
       import {
         aiLearningControlRoomMarkup,
         normalizeAiLearningControlRoom,
-      } from "../../web/app/ai-learning-control-room.js?v=20260804.3";
+      } from "../../web/app/ai-learning-control-room.js?v=20260804.4";
 
       const definitions = [
         ["cosmetics", "Косметика и уход", 68, "developing_evidence"],
@@ -89,6 +89,16 @@
             { card_id: "30000000-0000-4000-8000-000000000001", card_version: 1, card_hash: "a".repeat(64), signal_key: "hook.demonstration_first", title: "Сначала показать товар в действии", context: "Для ухода важен понятный первый результат без медицинских обещаний.", explanation: "ИИ видит устойчивый сигнал в проверенных сценариях этой категории.", polarity: "good", status: "pending", evidence_count: 7 },
             { card_id: "30000000-0000-4000-8000-000000000002", card_version: 1, card_hash: "c".repeat(64), signal_key: "claims.instant_result", title: "Обещать мгновенный результат", context: "Фраза звучит сильнее доступных доказательств и повышает риск модерации.", explanation: "ИИ считает такой сигнал плохим и предлагает исключить его.", polarity: "bad", status: "pending", evidence_count: 5 },
           ],
+          historical_cases: [
+            { case_id: "31000000-0000-4000-8000-000000000001", event_id: "32000000-0000-4000-8000-000000000001", external_case_id: "harley:Контент_дашборд:5", product_category: "cosmetics", product_id: "35000000-0000-4000-8000-000000000001", product_sku: "WW146424", marketplace_sku: "146424", product_title: "Зубная паста 50 мл", brand: "Harley", platform: "wildberries", channel: "Instagram → WW", outcome: "good", outcome_dimension: "content_sales", status_label: "Лидер", metrics: { views: 503, orders: 32, sales: 28, buyout_rate: 0.875, sale_to_view_rate: 0.0557, period_start: "2026-06-01", period_end: "2026-06-30" }, confidence: 0.94, review_status: "pending", source: { filename: "Harley_Instagram_WW.xlsx", sheet: "Контент_дашборд", row: 5 }, scope_version: 4, event_cursor: 31 },
+            { case_id: "31000000-0000-4000-8000-000000000002", event_id: "32000000-0000-4000-8000-000000000002", external_case_id: "qeep:Ozon_воронка:8", product_category: "cosmetics", marketplace_sku: "qeepinositol", product_title: "Инозитол", brand: "QEEP", platform: "ozon", channel: "marketplace", outcome: "bad", outcome_dimension: "buyout", status_label: "Чинить выкуп", metrics: { orders: 100, sales: 59, buyout_rate: 0.59, drr: 0.31 }, confidence: 0.88, review_status: "confirmed", late_exact_sku_binding_available: true, historical_learning_binding_status: "late_unique_marketplace_sku", source: { filename: "QEEP_BI.xlsx", sheet: "Ozon_воронка", row: 8 }, scope_version: 4, event_cursor: 30 },
+            { case_id: "31000000-0000-4000-8000-000000000003", event_id: "32000000-0000-4000-8000-000000000003", external_case_id: "harley:Контент_дашборд:12", product_category: "cosmetics", marketplace_sku: "WW192017", product_title: "Ушные капли", brand: "Harley", platform: "instagram", outcome: "review", outcome_dimension: "data_quality", status_label: "Несовпадение товара и ссылки", metrics: { views: 68 }, confidence: 0.42, decision_status: "pending", resolution_status: "quarantined", provenance: { original_filename: "Harley_Instagram_WW.xlsx", sheet: "Контент_дашборд", row: 12 }, case_version: 4, head_event_id: "32000000-0000-4000-8000-000000000003", head_event_cursor: 31 },
+          ],
+          historical_case_summary: { total: 3, good: 1, bad: 1, review: 1, pending: 2, confirmed: 1, rejected: 0, quarantined: 1 },
+          historical_case_evidence: { version: "ai-historical-case-evidence-v1", confirmed_case_count: 1, confirmed_good_count: 0, confirmed_bad_count: 1, historical_learning_eligible_count: 1, historical_learning_direct_product_binding_count: 0, historical_learning_late_exact_sku_binding_count: 1, missing_exact_product_binding_count: 0, minimum_confirmed_cases_per_direction: 2, angles: [{ creative_angle: "demonstration", confirmed_case_count: 1, good_case_count: 0, bad_case_count: 1, preferred_eligible: false, avoid_eligible: false }] },
+          batches: [
+            { batch_id: "33000000-0000-4000-8000-000000000001", source_id: "40000000-0000-4000-8000-000000000002", original_filename: "Harley_Instagram_WW.xlsx", import_status: "completed_with_quarantine", case_count: 18, matched_case_count: 17, quarantined_case_count: 1, error_count: 0, imported_at: "2026-08-04T09:38:00.000Z", per_category_summary: { cosmetics: { case_count: 3, quarantined_case_count: 1 }, baa: { case_count: 4, quarantined_case_count: 2 } } },
+          ],
           activity: [
             { event_id: "e3", event_type: "policy_released", title: "Выпущена policy v4", description: "Подтверждён bounded-сигнал demonstration_first.", actor_name: "Анна", created_at: "2026-08-04T09:30:00.000Z", state_version: 12 },
             { event_id: "e2", event_type: "source_registered", title: "Добавлен файл знаний", description: "Паспорт категории Q3.xlsx поставлен на проверку.", actor_name: "Илья", created_at: "2026-08-04T09:05:00.000Z", state_version: 11 },
@@ -108,6 +118,7 @@
           can_add_link: true,
           can_upload_file: true,
           can_decide: true,
+          can_decide_historical_case: true,
           can_view_history: true,
         },
       };
@@ -117,13 +128,25 @@
         const query = new URLSearchParams(location.search);
         root.innerHTML = aiLearningControlRoomMarkup(
           normalizeAiLearningControlRoom(snapshot),
-          { category: "cosmetics", view: query.get("view") || "overview" },
+          {
+            category: "cosmetics",
+            view: query.get("view") || "overview",
+            historicalCaseFilter: query.get("case_filter") || "all",
+          },
         );
       };
       root.addEventListener("click", (event) => {
-        const control = event.target.closest('[data-action="select-ai-learning-view"]');
+        const control = event.target.closest("[data-action]");
         if (!control) return;
-        history.replaceState({}, "", `?view=${encodeURIComponent(control.dataset.view)}`);
+        const query = new URLSearchParams(location.search);
+        if (control.dataset.action === "select-ai-learning-view") {
+          query.set("view", control.dataset.view);
+        } else if (control.dataset.action === "select-ai-historical-case-filter") {
+          query.set("case_filter", control.dataset.historicalCaseFilter);
+        } else {
+          return;
+        }
+        history.replaceState({}, "", `?${query.toString()}`);
         render();
       });
       render();

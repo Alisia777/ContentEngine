@@ -25,6 +25,7 @@ export const RPC = Object.freeze({
   aiLearningControlRoom: "creator_ai_learning_control_room",
   registerAiKnowledgeSource: "creator_register_ai_knowledge_source",
   decideAiTeachingCard: "creator_decide_ai_teaching_card",
+  decideAiHistoricalCase: "creator_decide_ai_historical_case",
   generationRepairPolicy: "creator_generation_repair_policy",
   generationSpecStatus: "creator_generation_spec_status",
   prepareGenerationSpec: "creator_prepare_generation_spec",
@@ -192,6 +193,7 @@ const RESEARCH_SOURCE_STRUCTURAL_SIGNAL_PATTERN =
 const REAL_GENERATION_FUNCTION = "creator-generate";
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const RESEARCH_INGESTION_FUNCTION = "creator-research-ingestion";
+const AI_HISTORICAL_CASE_IMPORT_FUNCTION = "creator-ai-case-import";
 const RESEARCH_SATELLITE_TIMEOUT_MS = 3500;
 const RESEARCH_YOUTUBE_TERMS_VERSION = "youtube-developer-policies-2026-08-03-v1";
 const RESEARCH_OUTCOME_PLATFORMS = new Set([
@@ -812,6 +814,166 @@ export class CreatorApi {
       confirmation: true,
     });
   }
+
+  decideAiHistoricalCase(input = {}) {
+    const productCategory = String(input.product_category || "")
+      .trim()
+      .toLowerCase();
+    const caseId = String(input.case_id || "").trim().toLowerCase();
+    const eventId = String(input.event_id || "").trim().toLowerCase();
+    const decision = String(input.decision || "").trim().toLowerCase();
+    const expectedScopeVersion = Number(input.expected_scope_version);
+    const expectedEventCursor = Number(input.expected_event_cursor);
+    if (!AI_PRODUCT_CATEGORY_SET.has(productCategory)) {
+      throw new CreatorApiError("Исторический кейс относится к другой товарной категории.", {
+        code: "ai_historical_case_category_invalid",
+      });
+    }
+    if (
+      !isUuid(caseId)
+      || !isUuid(eventId)
+      || !["confirm", "reject"].includes(decision)
+      || !Number.isSafeInteger(expectedScopeVersion)
+      || expectedScopeVersion < 0
+      || !Number.isSafeInteger(expectedEventCursor)
+      || expectedEventCursor < 1
+      || input.confirmation !== true
+    ) {
+      throw new CreatorApiError("Кейс изменился. Обновите ИИ‑центр и повторите решение.", {
+        code: "ai_historical_case_decision_invalid",
+      });
+    }
+    return this.mutate(RPC.decideAiHistoricalCase, {
+      product_category: productCategory,
+      case_id: caseId,
+      event_id: eventId,
+      expected_scope_version: expectedScopeVersion,
+      expected_event_cursor: expectedEventCursor,
+      decision,
+      confirmation: true,
+    });
+  }
+
+  async invokeAiHistoricalCaseImport(input = {}) {
+    const productCategory = String(input.product_category || "")
+      .trim()
+      .toLowerCase();
+    const sourceId = String(input.source_id || "").trim().toLowerCase();
+    const adapter = String(input.adapter || "auto").trim().toLowerCase();
+    if (!AI_PRODUCT_CATEGORY_SET.has(productCategory) || !isUuid(sourceId)) {
+      throw new CreatorApiError("Не удалось связать таблицу с категорией и журналом источников.", {
+        code: "ai_historical_case_import_scope_invalid",
+      });
+    }
+    if (!["auto", "harley_effect_content_v1", "qeep_funnel_v1", "canonical_v1"].includes(adapter)) {
+      throw new CreatorApiError("Не удалось выбрать безопасный адаптер таблицы.", {
+        code: "ai_historical_case_import_adapter_invalid",
+      });
+    }
+    const scopedPayload = this.withOrganization({
+      action: "parse_and_import",
+      product_category: productCategory,
+      source_id: sourceId,
+      adapter,
+      commit: true,
+    });
+    const fingerprint = `${AI_HISTORICAL_CASE_IMPORT_FUNCTION}:${stableStringify(scopedPayload)}`;
+    const requestedIdempotencyKey = String(input.idempotency_key || "")
+      .trim()
+      .toLowerCase();
+    if (requestedIdempotencyKey && !isUuid(requestedIdempotencyKey)) {
+      throw new CreatorApiError("Ключ безопасного повтора разбора повреждён.", {
+        code: "ai_historical_case_import_idempotency_invalid",
+      });
+    }
+    const idempotencyKey = requestedIdempotencyKey
+      || this.mutationKeys[fingerprint]
+      || crypto.randomUUID();
+    this.mutationKeys[fingerprint] = idempotencyKey;
+    writeMutationKeys(this.mutationKeys);
+
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      throw new CreatorApiError("Сессия истекла перед разбором таблицы.", {
+        code: "auth_session_required",
+      });
+    }
+    let data;
+    let error;
+    try {
+      ({ data, error } = await this.supabase.functions.invoke(
+        AI_HISTORICAL_CASE_IMPORT_FUNCTION,
+        {
+          body: { ...scopedPayload, idempotency_key: idempotencyKey },
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      ));
+    } catch {
+      throw new CreatorApiError("Источник сохранён, но сервис разбора таблиц сейчас недоступен. Повторите разбор — файл загружать заново не нужно.", {
+        code: "ai_historical_case_import_unavailable",
+      });
+    }
+    if (error) {
+      throw new CreatorApiError("Источник сохранён, но разбор таблицы не завершён. Повторите разбор без новой загрузки.", {
+        code: error?.code || "ai_historical_case_import_failed",
+        message: error?.message,
+      });
+    }
+    const response = data?.data && typeof data.data === "object" && !Array.isArray(data.data)
+      ? data.data
+      : data;
+    const rawStatus = String(
+      response?.batch?.status || response?.batch?.import_status
+        || response?.status || response?.import_status || "",
+    ).trim().toLowerCase();
+    const responseStatus = String(
+      response?.status || response?.import_status || "",
+    ).trim().toLowerCase();
+    const status = ({
+      pending: "queued",
+      in_progress: "processing",
+      parsing: "processing",
+      importing: "processing",
+      imported: "completed",
+      done: "completed",
+      completed_with_quarantine: "completed",
+      quarantined: "completed",
+      parser_rejected: "failed",
+      parser_rejected_all: "failed",
+    })[rawStatus] || rawStatus;
+    const persistedParserRejection = response?.ok === false
+      && responseStatus === "parser_rejected_all"
+      && response?.retryable === true
+      && response?.batch_persisted === true
+      && response?.batch
+      && typeof response.batch === "object"
+      && !Array.isArray(response.batch)
+      && response?.snapshot
+      && typeof response.snapshot === "object"
+      && !Array.isArray(response.snapshot);
+    if (
+      !response
+      || typeof response !== "object"
+      || Array.isArray(response)
+      || (
+        !persistedParserRejection
+        && (
+          response.ok === false
+          || response.error
+          || !["queued", "processing", "completed"].includes(status)
+        )
+      )
+    ) {
+      throw new CreatorApiError("Сервис разбора вернул неполный статус. Источник сохранён; повторите разбор позже.", {
+        code: "ai_historical_case_import_response_invalid",
+      });
+    }
+    delete this.mutationKeys[fingerprint];
+    writeMutationKeys(this.mutationKeys);
+    return response;
+  }
+
 
   generationRepairPolicy(reviewId, { projectId = "", project_id: projectIdSnake = "" } = {}) {
     const normalizedReviewId = String(reviewId || "").trim();

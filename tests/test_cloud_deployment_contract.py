@@ -94,6 +94,87 @@ def test_research_chain_appends_after_deployed_training_waiver() -> None:
     ] == expected_chain
 
 
+def test_historical_case_ledger_is_collision_free_bounded_and_indexed() -> None:
+    migration = _text(
+        "supabase/migrations/202608040006_ai_historical_case_ledger.sql"
+    ).casefold()
+    pgtap = _text("supabase/tests/ai_historical_case_ledger_test.sql").casefold()
+
+    assert "creator_import_ai_historical_case_batch" in migration
+    assert "creator_authorize_ai_historical_case_import" in migration
+    assert "'actor_profile_id'" in migration
+    assert "coalesce(auth.role(), '') <> 'service_role'" in migration
+    assert "ai_historical_case_actor_not_allowed" in migration
+    assert re.search(
+        r"revoke all on function public\.creator_import_ai_historical_case_batch"
+        r"\s*\(jsonb\)\s*from public, anon, authenticated",
+        migration,
+    )
+    assert re.search(
+        r"grant execute on function public\.creator_import_ai_historical_case_batch"
+        r"\s*\(jsonb\)\s*to service_role",
+        migration,
+    )
+    assert re.search(
+        r"revoke all on function\s+"
+        r"public\.creator_authorize_ai_historical_case_import"
+        r"\s*\(jsonb\)\s*from public, anon, authenticated",
+        migration,
+    )
+    assert re.search(
+        r"grant execute on function\s+"
+        r"public\.creator_authorize_ai_historical_case_import"
+        r"\s*\(jsonb\)\s*to service_role",
+        migration,
+    )
+    assert "'bounded_source_receipt', true" in migration
+    assert "'server_parser_authorized', true" in migration
+    assert "'cases', p_payload -> 'cases'" in migration
+    assert "source_sha256_value is distinct from source_row.sha256" in migration
+    assert "ai_historical_case_source_sha256_mismatch" in pgtap
+    assert "ai_historical_case_product_sku_lookup_idx" in migration
+    assert "ai_historical_case_marketplace_sku_lookup_idx" in migration
+    assert "products_org_current_wb_article_lookup_idx" in migration
+    assert migration.count("candidate_cases as materialized") >= 2
+    assert "historical_case.product_sku = target_product_row.sku" in migration
+    assert "target_product_row.current_wb_article" in migration
+    assert "product_sku_match_count <> 1" in migration
+    assert "marketplace_match_count <> 1" in migration
+    assert "group by batch.source_id, batch.manifest_sha256" in migration
+    assert "ai_historical_manifest:" in migration
+    assert "batch_row.request_hash is distinct from request_hash_value" in migration
+    assert "return replay_value || jsonb_build_object('replayed', true)" in migration
+    assert "'replayed', batch_replayed_value" in migration
+    assert "ai_historical_semantic_decision_heads" in migration
+    assert "product_category+external_case_id+row_hash" in migration
+    assert "product_reference_partial_match" in migration
+    assert (
+        "when source.source_kind = 'file' then 'file:' || source.sha256"
+        in migration
+    )
+    assert "ai_historical_confirmed_learning_cases" in migration
+    assert "preferred_ready_product_count" in migration
+    assert "generation_advisory_ready" in migration
+    assert "'historical_case_snapshot_limit', 500" in migration
+    assert re.search(
+        r"order by historical_case\.event_cursor desc\s+limit 500", migration
+    )
+    assert "late_unique_product_sku" in pgtap
+    assert "avoid_creative_angle}' = 'demonstration'" in pgtap
+    assert "historical-import-reload-0001" in pgtap
+    assert "ai_historical_case_manifest_conflict" in pgtap
+    assert (
+        "permission denied for function creator_import_ai_historical_case_batch"
+        in pgtap
+    )
+    assert "duplicate source copies collapse to one semantic vote" in pgtap
+    assert "fresh-key replay is stable after catalog changes" in pgtap
+    assert "different row hashes remain independent" in pgtap
+    assert "late binding rejects one resolved ref" in pgtap
+    assert "every reference resolves to one product" in pgtap
+    assert "content_replay_result -> 'replayed' = 'true'::jsonb" in pgtap
+
+
 def test_production_path_is_supabase_native_pages_without_render_or_container_publish() -> None:
     assert not (ROOT / "render.yaml").exists()
     assert not (ROOT / ".github/workflows/container.yml").exists()

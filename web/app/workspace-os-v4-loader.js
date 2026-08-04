@@ -23,7 +23,7 @@ window.CONTENTENGINE_DESKTOP_V4 = true;
 const ROUTE_ASSETS = Object.freeze({
   aiLearning: Object.freeze({
     match: (route) => route === "/workspace/ai",
-    styles: ["ai-learning-control-room.css?v=20260804.3"],
+    styles: ["ai-learning-control-room.css?v=20260804.4"],
     modules: [],
   }),
   finder: Object.freeze({

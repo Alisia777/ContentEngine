@@ -21,7 +21,9 @@ env/
 *.sqlite
 *.sqlite3
 
-data/
+data/*
+!data/ai-historical-cases/
+!data/ai-historical-cases/**
 media/
 media/**
 uploads/
