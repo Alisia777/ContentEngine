@@ -1180,6 +1180,32 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 .home-project-create input:focus { border-color: rgba(236, 136, 75, .55); }
 .home-project-create small,
 .home-project-readonly { margin: 0; color: var(--ce-v4-dim); font-size: var(--ce-v4-font-helper); line-height: 1.45; }
+.home-project-create__error {
+  margin: 0;
+  color: #f3a18f;
+  font-size: var(--ce-v4-font-helper);
+  line-height: 1.45;
+}
+
+.home-project-switcher__body {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 12px;
+  overflow-y: visible;
+}
+
+.home-project-recovery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-project-recovery .home-project-board-retry {
+  min-height: 42px;
+  white-space: nowrap;
+}
 
 .home-project-grid {
   display: grid;
@@ -1460,6 +1486,8 @@ body.contentengine-desktop-v4 :is(button,a,input,select,textarea):focus-visible 
   .home-project-switcher { padding: 16px 12px; gap: 14px; }
   .home-project-switcher__head h1 { font-size: clamp(2.2rem, 12vw, 3.4rem); }
   .home-project-create form > div { grid-template-columns: 1fr; }
+  .home-project-recovery { grid-template-columns: 1fr; }
+  .home-project-recovery .home-project-board-retry { justify-self: start; white-space: normal; }
   .home-project-grid { grid-template-columns: 1fr; overflow: visible; }
   .home-project-card { min-height: 92px; padding: 13px; grid-template-columns: 38px minmax(0, 1fr); }
   .home-project-card__open { display: none; }
