@@ -154,7 +154,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  90,
+  91,
   'authenticated can execute all creator RPCs'
 );
 
