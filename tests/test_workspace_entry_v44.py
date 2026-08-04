@@ -29,7 +29,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260804.os4.10"' in INDEX
+    assert 'content="20260804.os4.11"' in INDEX
     assert './startup-route.js?v=20260803.entry1' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP
@@ -212,6 +212,7 @@ const state = {
   bootstrapStatus: "ready",
   bootstrapConfirmedAt: 0,
   bootstrapRefreshPromise: null,
+  workspaceAccessRequest: { error: "" },
   bootstrap: {
     accessState: "learning",
     workspaceAccess: false,
@@ -239,6 +240,10 @@ async function loadBootstrap(options) {
 function navigate(path, replace) {
   navigations.push([path, replace]);
   state.route = { path };
+}
+async function openFirstAvailableWorkspaceProject() {
+  navigate("/workspace/generation?project_id=qa-project");
+  return true;
 }
 
 __POLICY_FUNCTIONS__
@@ -282,7 +287,7 @@ __REFRESH_FUNCTIONS__
         text=True,
     )
     assert result.stdout == (
-        '{"silentLoads":2,"navigations":[["/workspace/home",true],["/learn",true]],'
+        '{"silentLoads":2,"navigations":[["/workspace/generation?project_id=qa-project",null],["/learn",true]],'
         '"route":"/learn","academyRequired":true,'
         '"workspaceAccess":false,"refreshSettled":true}'
     )

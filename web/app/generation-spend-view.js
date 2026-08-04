@@ -353,7 +353,7 @@ function generationCampaignCreateForm(overview, { saving = false, disabled = fal
           </div>
           <label class="field manager-spend-reason"><span>Основание бюджета *</span><textarea name="reason" required minlength="8" maxlength="500" placeholder="Например: согласован тест трёх роликов товара"></textarea></label>
           <label class="option"><input type="checkbox" name="paid_generation_enabled" value="true" checked /><span><strong>Сразу разрешить платные запуски</strong><br /><small>Кампания появится в обязательном списке при создании ролика.</small></span></label>
-          <div class="manager-spend-actions"><button class="btn btn-small" type="submit">Создать кампанию</button></div>
+          <div class="manager-spend-actions"><button class="btn btn-small" type="submit" data-primary-action="true">Создать кампанию</button></div>
         </fieldset>
       </form>
     </details>

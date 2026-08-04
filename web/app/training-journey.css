@@ -124,7 +124,7 @@
   border-radius: 999px;
   color: var(--forest);
   background: color-mix(in srgb, var(--forest) 10%, var(--surface));
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -224,7 +224,7 @@
 .training-achievement-shelf__grid a {
   grid-column: 1 / -1;
   color: var(--forest);
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 800;
   text-decoration: none;
 }
@@ -349,7 +349,7 @@
   border-radius: 999px;
   color: var(--forest);
   background: color-mix(in srgb, var(--forest) 10%, var(--surface));
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 800;
 }
 
@@ -393,7 +393,7 @@
   margin: 12px 0 4px;
   padding: 0 10px;
   color: var(--ink-soft);
-  font-size: 0.67rem;
+  font-size: 0.75rem;
   font-weight: 850;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -507,7 +507,7 @@
 
 .course-achievement-preview small {
   color: var(--ink-soft);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .course-achievement-preview strong {
@@ -730,7 +730,7 @@
 .course-mastery-coach__score span {
   margin-top: 4px;
   color: var(--ink-soft);
-  font-size: 0.73rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1175,4 +1175,67 @@ body.training-achievement-open {
   .training-achievement__badge {
     border: 2px solid Highlight;
   }
+}
+
+/* Academy owns one viewport and one vertical scroll surface. */
+html:has(.learning-gate-shell[data-learning-route]),
+body:has(.learning-gate-shell[data-learning-route]) {
+  height: 100%;
+  overflow: hidden;
+}
+
+body:has(.learning-gate-shell[data-learning-route]) > #app.app-root {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.learning-gate-shell[data-learning-route] {
+  height: 100vh;
+  height: 100svh;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.learning-gate-shell[data-learning-route] > #main-content.learning-gate-main {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.learning-gate-shell .media-upload-queue {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Active Academy remains readable without Desktop-v4-only selectors. */
+.learning-gate-shell :is(
+  button,
+  a[href],
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"]
+) {
+  font-size: max(14px, 0.875rem);
+}
+
+.learning-gate-shell :is(
+  small,
+  .tiny,
+  .field-hint,
+  .eyebrow,
+  .lesson-kicker > span,
+  .course-roadmap-group,
+  .course-mastery-coach__score span,
+  .lesson-step-rail small,
+  .visual-title,
+  .lesson-takeaway span
+) {
+  font-size: max(12px, 0.75rem);
 }

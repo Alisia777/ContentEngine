@@ -111,6 +111,37 @@ def test_paused_budget_views_keep_save_as_the_only_visual_primary() -> None:
         "campaignResumeSecondary": True,
     }
 
+    create = _run_module(
+        SPEND,
+        """
+        const data = {
+          ok: true,
+          policy: {
+            paid_generation_enabled: true,
+            daily_limit_minor: 10000,
+            monthly_limit_minor: 50000,
+            per_request_limit_minor: 2500,
+            version: 4,
+          },
+          usage: {
+            day: { remaining_minor: 10000 },
+            month: { remaining_minor: 50000 },
+          },
+          campaigns: [],
+        };
+        const html = subject.managerGenerationSpendMarkup(
+          { status: "ready", data },
+          { canEdit: true, view: "new-campaign" },
+        );
+        return {
+          primary: (html.match(/data-primary-action="true"/g) || []).length,
+          createPrimary: html.includes('id="generation-campaign-create-form"')
+            && html.includes('type="submit" data-primary-action="true">Создать кампанию</button>'),
+        };
+        """,
+    )
+    assert create == {"primary": 1, "createPrimary": True}
+
 
 def test_work_next_action_and_research_save_are_visually_primary() -> None:
     work = _run_module(
@@ -134,6 +165,7 @@ def test_work_next_action_and_research_save_are_visually_primary() -> None:
           primary: (html.match(/data-primary-action="true"/g) || []).length,
           visualPrimary: html.includes('class="btn btn-small my-work-item-action"'),
           mismatchedSecondary: html.includes('class="btn btn-secondary btn-small my-work-item-action" href="#/workspace/tasks?item=task-1&amp;view=next" data-primary-action="true"'),
+          filterSecondary: html.includes('<button class="btn btn-secondary" type="submit">Найти</button>'),
         };
         """,
     )
@@ -141,6 +173,40 @@ def test_work_next_action_and_research_save_are_visually_primary() -> None:
         "primary": 1,
         "visualPrimary": True,
         "mismatchedSecondary": False,
+        "filterSecondary": True,
+    }
+
+    delete_confirmation = _run_module(
+        MY_WORK,
+        """
+        const html = subject.myWorkWorkspaceMarkup({
+          mode: "next",
+          savedViews: [{ id: "view-1", name: "Срочные", version: 2 }],
+          pendingDeleteViewId: "view-1",
+          work: {
+            counts: { total: 1, action_required: 1 },
+            items: [{
+              item_type: "task",
+              id: "task-1",
+              status: "todo",
+              title: "Снять ролик",
+              deep_link: "#/workspace/tasks?item=task-1",
+              action_required: true,
+            }],
+          },
+        });
+        return {
+          primary: (html.match(/data-primary-action="true"/g) || []).length,
+          deletePrimary: html.includes('class="btn btn-danger btn-small my-work-view-confirm__delete"')
+            && html.includes('data-action="confirm-delete-my-work-view" data-primary-action="true"'),
+          itemSecondary: html.includes('class="btn btn-secondary btn-small my-work-item-action"'),
+        };
+        """,
+    )
+    assert delete_confirmation == {
+        "primary": 1,
+        "deletePrimary": True,
+        "itemSecondary": True,
     }
 
     result = _run_module(
@@ -156,6 +222,45 @@ def test_work_next_action_and_research_save_are_visually_primary() -> None:
     )
     assert result == {"savePrimary": False, "saveSecondary": True, "primaryCount": 1}
     assert '[data-research-view="brief"] [data-research-submit="approve"]' in FLOW_CSS
+
+    research_states = _run_module(
+        RESEARCH,
+        """
+        const start = subject.productResearchInputMarkup();
+        const approved = subject.productResearchResultMarkup(
+          { taskIds: ["task-1"] },
+          { view: "handoff" },
+        );
+        const tasks = subject.productResearchResultMarkup(
+          { id: "run-1", draftId: "draft-1", taskIds: ["task-1"] },
+          {
+            view: "handoff",
+            stageControl: {
+              available: true,
+              runId: "run-1",
+              guidance: {
+                currentDraftId: "draft-1",
+                generationHandoffAllowed: true,
+              },
+            },
+          },
+        );
+        return {
+          startPrimary: (start.match(/data-primary-action="true"/g) || []).length,
+          approvedPrimary: (approved.match(/data-primary-action="true"/g) || []).length,
+          approvedDisabledSecondary: approved.includes('class="btn btn-secondary" type="submit" data-research-submit="approve"'),
+          tasksPrimary: (tasks.match(/data-primary-action="true"/g) || []).length,
+          tasksLinkPrimary: tasks.includes('href="#/workspace/tasks" data-primary-action="true"'),
+        };
+        """,
+    )
+    assert research_states == {
+        "startPrimary": 1,
+        "approvedPrimary": 1,
+        "approvedDisabledSecondary": True,
+        "tasksPrimary": 1,
+        "tasksLinkPrimary": True,
+    }
 
 
 def test_notifications_are_an_inline_work_view_without_a_subwindow() -> None:

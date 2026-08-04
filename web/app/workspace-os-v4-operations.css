@@ -116,8 +116,8 @@ body.contentengine-desktop-v4 :is(.academy-os-window,.academy-course-os-window--
 body.contentengine-desktop-v4 .academy-v2-dock { position: relative !important; z-index: 5 !important; inset: auto !important; display: flex !important; min-height: 62px !important; padding: 8px 12px !important; border-top: 1px solid var(--ce-v4-line) !important; justify-content: flex-start !important; gap: 6px !important; overflow-x: auto !important; background: rgba(14,12,10,.96) !important; transform: none !important; }
 body.contentengine-desktop-v4 .academy-v2-dock button { min-width: 88px !important; min-height: 44px !important; padding: 6px 9px !important; border: 1px solid transparent !important; border-radius: 11px !important; color: var(--ce-v4-muted) !important; background: transparent !important; transform: none !important; }
 body.contentengine-desktop-v4 .academy-v2-dock button.is-active { color: var(--ce-v4-text) !important; border-color: rgba(236,136,75,.24) !important; background: rgba(236,136,75,.09) !important; }
-body.contentengine-desktop-v4 .academy-v2-dock button span { color: var(--ce-v4-copper-bright) !important; font-size: .68rem !important; }
-body.contentengine-desktop-v4 .academy-v2-dock button small { color: inherit !important; font-size: .6rem !important; }
+body.contentengine-desktop-v4 .academy-v2-dock button span { color: var(--ce-v4-copper-bright) !important; font-size: var(--ce-v4-font-helper, 12px) !important; }
+body.contentengine-desktop-v4 .academy-v2-dock button small { color: inherit !important; font-size: var(--ce-v4-font-helper, 12px) !important; }
 body.contentengine-desktop-v4 :is(.academy-v2-panels,.academy-os-panels) { min-height: 0 !important; overflow-y: auto !important; }
 body.contentengine-desktop-v4 :is(.learning-safety-card,.training-practical-card,.learning-work-map,.premium-exam-card) { border-color: var(--ce-v4-line) !important; background: linear-gradient(145deg,rgba(255,255,255,.028),rgba(255,255,255,.01)) !important; }
 body.contentengine-desktop-v4 :is(.learning-safety-card,.training-practical-card,.learning-work-map,.premium-exam-card) * { --portal-success: var(--ce-v4-success); }

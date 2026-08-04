@@ -32,7 +32,7 @@ body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header h1 {
 body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header p,
 body.contentengine-desktop-v4 .ce-v4-native-surface > .page-header small {
   color: var(--ce-v4-muted);
-  font-size: .68rem;
+  font-size: var(--ce-v4-font-helper, 12px);
 }
 
 body.contentengine-desktop-v4 .ce-v4-native-surface {

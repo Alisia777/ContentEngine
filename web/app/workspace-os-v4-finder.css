@@ -88,7 +88,7 @@ body.ce-v4-finder-route .workspace-board__folder-branch { padding: 0; margin: 0;
 body.ce-v4-finder-route .workspace-board__folder-group-label {
   padding: 13px 9px 5px;
   color: var(--ce-v4-dim);
-  font-size: 11px;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 820;
   letter-spacing: .11em;
   text-transform: uppercase;

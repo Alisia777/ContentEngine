@@ -26,6 +26,12 @@
   --ce-v4-dock: 92px;
 }
 
+/* Readability is a system invariant: every interactive control stays at the
+   14px control scale, even when a legacy route brings compact local rules. */
+body.contentengine-desktop-v4 :is(button, input, select, textarea, .btn, [role="button"]) {
+  font-size: var(--ce-v4-font-control) !important;
+}
+
 /* Retired nested Academy chrome must never compete with the canonical Dock. */
 :is(
   .academy-os-dock,
@@ -388,7 +394,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   place-items: center;
   color: var(--ce-v4-copper-bright);
   background: linear-gradient(145deg, rgba(236, 136, 75, 0.13), rgba(255, 255, 255, 0.018));
-  font-size: 0.63rem;
+  font-size: var(--ce-v4-font-helper);
   font-weight: 820;
   letter-spacing: 0.08em;
 }
@@ -406,7 +412,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 
 .ce-v4-menubar__identity small {
   color: var(--ce-v4-dim);
-  font-size: 0.54rem;
+  font-size: var(--ce-v4-font-helper);
   font-weight: 760;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -817,7 +823,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   place-items: center;
   color: #b9aaa0;
   background: #171310;
-  font-size: 0.61rem;
+  font-size: var(--ce-v4-font-helper);
   font-weight: 820;
   font-variant-numeric: tabular-nums;
   transition: color 160ms ease, border-color 180ms ease, background 200ms ease, box-shadow 200ms ease;
@@ -825,7 +831,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 
 .ce-v4-flowbar__label {
   overflow: hidden;
-  font-size: 0.71rem;
+  font-size: var(--ce-v4-font-control);
   font-weight: 760;
   line-height: 1.1;
   text-overflow: ellipsis;
@@ -989,7 +995,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   margin-top: 4px;
   overflow: hidden;
   color: #b9ada4;
-  font-size: 13px;
+  font-size: var(--ce-v4-font-control);
   font-weight: 720;
   line-height: 1;
   text-align: center;
@@ -1044,7 +1050,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 .ce-v4-home__route { padding: clamp(28px, 5vw, 80px); }
 .ce-v4-home__main { display: grid; min-width: 0; align-content: center; justify-items: center; }
 .ce-v4-home__copy { width: min(800px, 100%); max-width: 800px; }
-.ce-v4-eyebrow { color: var(--ce-v4-copper-bright); font-size: .62rem; font-weight: 820; letter-spacing: .16em; text-transform: uppercase; }
+.ce-v4-eyebrow { color: var(--ce-v4-copper-bright); font-size: var(--ce-v4-font-helper); font-weight: 820; letter-spacing: .16em; text-transform: uppercase; }
 .ce-v4-home__title { max-width: 18ch; margin: 18px 0 14px; color: var(--ce-v4-text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; font-size: clamp(2.25rem, 5vw, 4.8rem); font-weight: 720; line-height: .98; letter-spacing: -.04em; }
 .ce-v4-home__description { max-width: 650px; margin: 0; color: var(--ce-v4-muted); font-size: clamp(1rem, 1.45vw, 1.25rem); line-height: 1.55; }
 .ce-v4-home__actions { display: flex; margin-top: 34px; align-items: center; flex-wrap: wrap; gap: 10px; }
@@ -1090,10 +1096,10 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 .ce-v4-stage:hover,
 .ce-v4-stage:focus-visible,
 .ce-v4-stage.has-attention { color: var(--ce-v4-text); border-color: rgba(236,136,75,.22); background: rgba(236,136,75,.07); outline: none; transform: translateX(5px); }
-.ce-v4-stage b { display: grid; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.09); border-radius: 11px; place-items: center; color: var(--ce-v4-copper-bright); font-size: .67rem; }
+.ce-v4-stage b { display: grid; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.09); border-radius: 11px; place-items: center; color: var(--ce-v4-copper-bright); font-size: var(--ce-v4-font-helper); }
 .ce-v4-stage > span { display: grid; min-width: 0; gap: 3px; }
-.ce-v4-stage strong { font-size: .84rem; }
-.ce-v4-stage small { overflow: hidden; color: var(--ce-v4-dim); font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
+.ce-v4-stage strong { font-size: var(--ce-v4-font-control); }
+.ce-v4-stage small { overflow: hidden; color: var(--ce-v4-dim); font-size: var(--ce-v4-font-helper); text-overflow: ellipsis; white-space: nowrap; }
 
 /* Project-first landing: a durable root folder is a project. */
 .home-project-switcher {
@@ -1144,7 +1150,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   align-items: center;
   gap: 8px;
   color: var(--ce-v4-copper-bright);
-  font: 760 .78rem/1 system-ui, sans-serif;
+  font: 760 var(--ce-v4-font-control)/1 system-ui, sans-serif;
   cursor: pointer;
   list-style: none;
 }
@@ -1163,7 +1169,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   outline: 0;
   color: var(--ce-v4-text);
   background: rgba(0, 0, 0, .22);
-  font: 650 .78rem/1 system-ui, sans-serif;
+  font: 650 var(--ce-v4-font-control)/1 system-ui, sans-serif;
 }
 .home-project-create input:focus { border-color: rgba(236, 136, 75, .55); }
 .home-project-create small,
@@ -1176,8 +1182,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   align-content: start;
   justify-content: start;
   gap: 12px;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow-y: visible;
 }
 
 .home-project-card {
@@ -1327,24 +1332,24 @@ body.contentengine-desktop-v4 .ce-v4-project-progress__copy small { overflow: hi
 .ce-v4-mission-card { display: grid; min-height: 150px; padding: 18px; border: 1px solid var(--ce-v4-line); border-radius: 20px; grid-template-columns: auto minmax(0,1fr) auto; align-items: start; gap: 12px; color: var(--ce-v4-text); background: linear-gradient(145deg, rgba(255,255,255,.035), rgba(255,255,255,.012)); cursor: pointer; text-align: left; transition: transform 250ms var(--ce-v4-spring), border-color 180ms ease, background 180ms ease; }
 .ce-v4-mission-card:hover,
 .ce-v4-mission-card:focus-visible { border-color: rgba(236,136,75,.28); background: rgba(236,136,75,.065); outline: none; transform: translateY(-4px); }
-.ce-v4-mission-card__number { color: var(--ce-v4-dim); font-size: .6rem; font-weight: 800; }
+.ce-v4-mission-card__number { color: var(--ce-v4-dim); font-size: var(--ce-v4-font-helper); font-weight: 800; }
 .ce-v4-mission-card > span:nth-child(2) { display: grid; gap: 8px; }
 .ce-v4-mission-card__icon { display: grid; width: 40px; height: 40px; border: 1px solid rgba(236,136,75,.22); border-radius: 12px; place-items: center; color: var(--ce-v4-copper-bright); background: rgba(236,136,75,.075); }
 .ce-v4-mission-card strong { font-size: 1rem; }
-.ce-v4-mission-card small { color: var(--ce-v4-muted); font-size: .72rem; line-height: 1.45; }
+.ce-v4-mission-card small { color: var(--ce-v4-muted); font-size: var(--ce-v4-font-helper); line-height: 1.45; }
 
 .ce-v4-spotlight { width: min(760px, 100%); border-radius: 22px; }
 .ce-v4-spotlight__search { display: grid; min-height: 66px; padding: 0 18px; border-bottom: 1px solid var(--ce-v4-line); grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; color: var(--ce-v4-muted); }
 .ce-v4-spotlight__search input { width: 100%; border: 0; color: var(--ce-v4-text); background: transparent; font: 700 1rem/1.2 system-ui; outline: none; }
-.ce-v4-spotlight kbd { padding: 4px 7px; border: 1px solid var(--ce-v4-line); border-radius: 7px; color: var(--ce-v4-dim); background: rgba(255,255,255,.025); font-size: .61rem; }
+.ce-v4-spotlight kbd { padding: 4px 7px; border: 1px solid var(--ce-v4-line); border-radius: 7px; color: var(--ce-v4-dim); background: rgba(255,255,255,.025); font-size: var(--ce-v4-font-helper); }
 .ce-v4-spotlight__list { max-height: min(62dvh, 580px); padding: 8px; overflow-y: auto; }
 .ce-v4-spotlight-result { display: grid; width: 100%; min-height: 62px; padding: 9px 10px; border: 0; border-radius: 13px; grid-template-columns: 40px minmax(0,1fr) auto; align-items: center; gap: 10px; color: var(--ce-v4-text); background: transparent; cursor: pointer; text-align: left; }
 .ce-v4-spotlight-result:hover,
 .ce-v4-spotlight-result.is-active { background: rgba(236,136,75,.1); }
 .ce-v4-spotlight-result__icon { display: grid; width: 36px; height: 36px; border: 1px solid var(--ce-v4-line); border-radius: 11px; place-items: center; color: var(--ce-v4-copper-bright); background: rgba(255,255,255,.025); }
 .ce-v4-spotlight-result > span:nth-child(2) { display: grid; gap: 3px; }
-.ce-v4-spotlight-result strong { font-size: .8rem; }
-.ce-v4-spotlight-result small { overflow: hidden; color: var(--ce-v4-muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.ce-v4-spotlight-result strong { font-size: var(--ce-v4-font-control); }
+.ce-v4-spotlight-result small { overflow: hidden; color: var(--ce-v4-muted); font-size: var(--ce-v4-font-helper); text-overflow: ellipsis; white-space: nowrap; }
 .ce-v4-empty { padding: 28px; color: var(--ce-v4-muted); text-align: center; }
 
 /* Zen */
@@ -1439,7 +1444,7 @@ body.contentengine-desktop-v4 :is(button,a,input,select,textarea):focus-visible 
   .ce-v4-flowbar__step { min-width: 104px; flex-basis: 104px; }
   .ce-v4-flowbar__link { min-height: 42px; padding: 3px 7px; grid-template-columns: 23px minmax(0, 1fr); gap: 6px; }
   .ce-v4-flowbar__number { width: 23px; height: 23px; }
-  .ce-v4-flowbar__label { font-size: 0.64rem; }
+  .ce-v4-flowbar__label { font-size: var(--ce-v4-font-control); }
   body.contentengine-desktop-v4 .ce-v4-page { padding: 7px !important; }
   .ce-v4-home { min-height: 100%; border-radius: 20px; }
   .ce-v4-home__main,
@@ -1472,7 +1477,7 @@ body.contentengine-desktop-v4 :is(button,a,input,select,textarea):focus-visible 
   .ce-v4-dock__glass { max-width: 100%; min-height: 72px; padding: 6px 7px 5px; border-radius: 18px; justify-content: flex-start; }
   .ce-v4-dock__item { width: 76px; height: 61px; flex-basis: 76px; }
   .ce-v4-dock__tile { width: 36px; height: 36px; border-radius: 11px; }
-  .ce-v4-dock__label { margin-top: 3px; font-size: 12px; }
+  .ce-v4-dock__label { margin-top: 3px; font-size: var(--ce-v4-font-control); }
   .ce-v4-dock__tooltip { display: none; }
 }
 
