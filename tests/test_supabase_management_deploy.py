@@ -23,9 +23,10 @@ from scripts.deploy_supabase_management_api import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEPLOYED_PRODUCTION_TAIL = "202608030005"
+PRE_RESEARCH_PRODUCTION_TAIL = "202608030005"
+DEPLOYED_PRODUCTION_TAIL = "202608040003"
 DEPLOYED_PRODUCTION_PREFIX_SHA256 = (
-    "0d0e103852283451272f0779de4291b5d6e13bc5ed6a411c6edc15c5711c2634"
+    "b1ea460003455f16a1a9a74092ff01913989af4f4e6de1a97ed5e4f1bddf82b9"
 )
 
 
@@ -241,7 +242,7 @@ def test_repository_keeps_the_verified_production_prefix_immutable() -> None:
     fingerprint = hashlib.sha256(
         ("\n".join(deployed_prefix) + "\n").encode("ascii")
     ).hexdigest()
-    assert len(deployed_prefix) == 108
+    assert len(deployed_prefix) == 123
     assert fingerprint == DEPLOYED_PRODUCTION_PREFIX_SHA256
     assert all(
         migration.version > DEPLOYED_PRODUCTION_TAIL
@@ -249,17 +250,17 @@ def test_repository_keeps_the_verified_production_prefix_immutable() -> None:
     )
 
 
-def test_current_repository_deploys_cleanly_after_the_verified_remote_tail() -> None:
+def test_current_repository_deploys_cleanly_after_pre_research_remote_tail() -> None:
     migrations = load_migrations(REPOSITORY_ROOT / "supabase" / "migrations")
     remote_history = {
         migration.version: migration.sha256
         for migration in migrations
-        if migration.version <= DEPLOYED_PRODUCTION_TAIL
+        if migration.version <= PRE_RESEARCH_PRODUCTION_TAIL
     }
     pending_versions = [
         migration.version
         for migration in migrations
-        if migration.version > DEPLOYED_PRODUCTION_TAIL
+        if migration.version > PRE_RESEARCH_PRODUCTION_TAIL
     ]
     fake_http = FakeManagementApi(remote_history)
 
@@ -270,8 +271,8 @@ def test_current_repository_deploys_cleanly_after_the_verified_remote_tail() -> 
     )
 
     expected_research_chain = [
-        f"2026080400{suffix:02d}" for suffix in range(4, 19)
-    ]
+        f"2026080300{suffix:02d}" for suffix in range(6, 18)
+    ] + [f"2026080400{suffix:02d}" for suffix in range(1, 4)]
     assert pending_versions[: len(expected_research_chain)] == expected_research_chain
     assert pending_versions == sorted(pending_versions)
     assert applied == pending_versions

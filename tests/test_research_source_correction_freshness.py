@@ -8,7 +8,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040016_research_source_correction_freshness.sql"
+    / "202608040001_research_source_correction_freshness.sql"
 )
 PGTAP = (
     ROOT

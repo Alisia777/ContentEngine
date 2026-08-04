@@ -56,9 +56,8 @@ not create creator tasks until a person approves the draft.
 - Migration versions are forward-only. Once production records a version, no
   later pull request may add, rename, or change a migration at or below that
   deployed tail. The repository test pins the verified prefix through
-  `202608030005`; the research/AI chain therefore starts at `202608040004` and
-  remains strictly ordered after it. Never weaken the prefix/checksum guard to
-  make a backdated migration deploy.
+  `202608040003`; every future migration must remain strictly ordered after it.
+  Never weaken the prefix/checksum guard to make a backdated migration deploy.
 - `supabase/functions/creator-invite/` is deployed after migrations with JWT
   verification explicitly enabled; deployment never uses `--no-verify-jwt` or
   `--prune`.

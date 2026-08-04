@@ -48,9 +48,9 @@ insert into content_factory.research_youtube_global_rollout_decisions (
   'youtube_data_api_v3', 'youtube-data-api-v3-public-metadata-v1',
   'disabled', 'youtube-developer-policies-2026-08-03-v1',
   false, false, 'Initial fail-closed state pending reviewed deployment',
-  'migration:202608040009', 'youtube-global-disabled-202608040009',
+  'migration:202608030006', 'youtube-global-disabled-202608030006',
   encode(extensions.digest(
-    'youtube-global-disabled-202608040009', 'sha256'
+    'youtube-global-disabled-202608030006', 'sha256'
   ), 'hex')
 )
 on conflict (idempotency_key) do nothing;
