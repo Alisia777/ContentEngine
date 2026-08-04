@@ -416,8 +416,8 @@ select throws_ok(
       'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
     ))
   $$,
-  '42501', 'paid_generation_platform_not_supported',
-  'Instagram fails before a paid job or spend reservation can be created'
+  '22023', 'generation_spec_context_invalid',
+  'public project-scoped generation requires an approved spec context first'
 );
 
 create temporary table seedance_test_context (
