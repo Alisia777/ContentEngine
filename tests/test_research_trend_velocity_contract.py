@@ -128,8 +128,9 @@ def test_ui_names_the_metric_and_routes_to_human_trend_correction() -> None:
     assert 'action === "focus-research-trends-stage"' in app
     assert 'document.querySelector(\'[data-research-stage="trends"]\')' in app
     assert 'textarea[name="trend_correction"]' in app
-    assert "они не считаются разбором или конкурентом" in view
-    assert "YouTube-метаданные никогда не повышают analysis coverage" in view
+    assert "Гипотеза не становится конкурентом или трендом без решения человека" in view
+    assert "Сырые YouTube-метаданные" in view
+    assert "analysis coverage появляется лишь после точного локального parser head" in view
     assert "Формула изменена" in view
     assert "velocityContractValid" in view
     assert "supportState !== expectedSupportState" in view

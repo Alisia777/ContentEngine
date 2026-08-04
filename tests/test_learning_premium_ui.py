@@ -31,7 +31,7 @@ def test_academy_uses_the_single_v44_interface_graph() -> None:
     ):
         assert f'./{asset}?v={BUILD}' in ACTIVE_INDEX
 
-    assert './app.js?v=20260804.1' in ACTIVE_INDEX
+    assert './app.js?v=20260804.2' in ACTIVE_INDEX
 
     for retired_asset in (
         "learning-premium.css",

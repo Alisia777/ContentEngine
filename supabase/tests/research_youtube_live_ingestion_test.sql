@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
-select no_plan();
+select plan(73);
 
 select is(
   content_factory_private.research_youtube_global_state(),
@@ -32,12 +32,15 @@ select is(
      ('content_factory.research_youtube_transport_receipts'::regclass),
      ('content_factory.research_youtube_video_observations'::regclass),
      ('content_factory.research_youtube_candidate_decisions'::regclass),
-     ('content_factory.research_youtube_retention_receipts'::regclass)
+     ('content_factory.research_youtube_retention_receipts'::regclass),
+     ('content_factory.research_youtube_derived_analysis_decisions'::regclass),
+     ('content_factory.research_youtube_observation_analysis_jobs'::regclass),
+     ('content_factory.research_youtube_observation_analysis_events'::regclass)
    ) protected(table_oid)
    join pg_class relation on relation.oid = protected.table_oid
    where relation.relrowsecurity),
-  8,
-  'all eight YouTube control and evidence tables have RLS enabled'
+  11,
+  'all YouTube control, analysis and evidence tables have RLS enabled'
 );
 select is(
   (select count(*)::integer
@@ -49,7 +52,10 @@ select is(
      ('content_factory.research_youtube_transport_receipts'::regclass),
      ('content_factory.research_youtube_video_observations'::regclass),
      ('content_factory.research_youtube_candidate_decisions'::regclass),
-     ('content_factory.research_youtube_retention_receipts'::regclass)
+     ('content_factory.research_youtube_retention_receipts'::regclass),
+     ('content_factory.research_youtube_derived_analysis_decisions'::regclass),
+     ('content_factory.research_youtube_observation_analysis_jobs'::regclass),
+     ('content_factory.research_youtube_observation_analysis_events'::regclass)
    ) protected(table_oid)
    cross join (values
      ('anon'), ('authenticated'), ('service_role')
@@ -98,6 +104,16 @@ select ok(
     'public.system_purge_expired_youtube_api_data(jsonb)',
     'execute'
   )
+  and has_function_privilege(
+    'service_role',
+    'public.system_decide_research_youtube_derived_analysis(jsonb)',
+    'execute'
+  )
+  and has_function_privilege(
+    'service_role',
+    'public.system_process_due_research_youtube_observation_analysis(jsonb)',
+    'execute'
+  )
   and not has_function_privilege(
     'authenticated',
     'public.system_begin_research_youtube_transport(jsonb)',
@@ -124,6 +140,11 @@ select ok(
   and not has_function_privilege(
     'authenticated',
     'content_factory_private.research_youtube_retention_ready()',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'content_factory_private.research_youtube_derived_analysis_approved()',
     'execute'
   ),
   'private claim and retention helpers have no direct application grants'
@@ -188,30 +209,45 @@ select ok(
 );
 select ok(
   strpos(lower(pg_get_functiondef(
-    'content_factory_private.research_youtube_retention_ready()'::regprocedure
+    'content_factory_private.research_youtube_retention_ready_pre_analysis_v1()'::regprocedure
   )), 'order by receipt.purged_at desc, receipt.id desc') > 0
   and strpos(lower(pg_get_functiondef(
-    'content_factory_private.research_youtube_retention_ready()'::regprocedure
+    'content_factory_private.research_youtube_retention_ready_pre_analysis_v1()'::regprocedure
   )), 'receipt.overdue_remaining_count = 0') > 0
   and strpos(lower(pg_get_functiondef(
+    'content_factory_private.research_youtube_retention_ready_pre_analysis_v1()'::regprocedure
+  )), 'interval ''2 hours''') > 0
+  and strpos(lower(pg_get_functiondef(
     'content_factory_private.research_youtube_retention_ready()'::regprocedure
-  )), 'interval ''2 hours''') > 0,
-  'retention readiness uses only the latest fresh zero-backlog heartbeat'
+  )), 'research_youtube_observation_analysis_jobs') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.research_youtube_retention_ready()'::regprocedure
+  )), 'research_youtube_observation_analysis_events') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.research_youtube_retention_ready()'::regprocedure
+  )), 'receipt.analysis_accounted') > 0,
+  'retention readiness requires the latest zero-backlog heartbeat and no overdue analyses'
 );
 select ok(
   strpos(lower(pg_get_functiondef(
-    'public.system_purge_expired_youtube_api_data(jsonb)'::regprocedure
+    'content_factory_private.system_purge_expired_youtube_api_data_pre_analysis_v1(jsonb)'::regprocedure
   )), 'delete from content_factory.research_youtube_candidate_decisions') > 0
   and strpos(lower(pg_get_functiondef(
-    'public.system_purge_expired_youtube_api_data(jsonb)'::regprocedure
+    'content_factory_private.system_purge_expired_youtube_api_data_pre_analysis_v1(jsonb)'::regprocedure
   )), 'delete from content_factory.research_youtube_video_observations') > 0
   and strpos(lower(pg_get_functiondef(
-    'public.system_purge_expired_youtube_api_data(jsonb)'::regprocedure
+    'content_factory_private.system_purge_expired_youtube_api_data_pre_analysis_v1(jsonb)'::regprocedure
   )), 'delete from content_factory.research_youtube_transport_receipts') > 0
   and strpos(lower(pg_get_functiondef(
+    'content_factory_private.system_purge_expired_youtube_api_data_pre_analysis_v1(jsonb)'::regprocedure
+  )), 'delete from content_factory.research_youtube_transport_attempts') > 0
+  and strpos(lower(pg_get_functiondef(
     'public.system_purge_expired_youtube_api_data(jsonb)'::regprocedure
-  )), 'delete from content_factory.research_youtube_transport_attempts') > 0,
-  'the physical purge covers decisions, observations, receipts and attempts'
+  )), 'research_youtube_observation_analysis_jobs') > 0
+  and strpos(lower(pg_get_functiondef(
+    'public.system_purge_expired_youtube_api_data(jsonb)'::regprocedure
+  )), 'research-youtube-retention-receipt-v2') > 0,
+  'the physical purge covers analyses, decisions, observations, receipts and attempts'
 );
 
 select is(
@@ -998,6 +1034,37 @@ select is(
   'the exact manual canary persists no candidate observation'
 );
 
+insert into content_factory.research_youtube_retention_receipts (
+  id, purged_at, cutoff_at, observation_deleted_count,
+  candidate_decision_deleted_count, transport_receipt_deleted_count,
+  transport_attempt_deleted_count, overdue_remaining_count, successful,
+  receipt_hash
+) values (
+  'f6e00000-0000-4000-8000-000000000001',
+  now() - interval '3 hours', now() - interval '3 hours',
+  0, 0, 0, 0, 0, true,
+  content_factory_private.json_hash(
+    '{"fixture":"unfinalized-retention-receipt"}'::jsonb
+  )
+);
+select throws_ok(
+  $$
+    update content_factory.research_youtube_retention_receipts
+    set analysis_event_deleted_count = 0,
+        analysis_job_deleted_count = 0,
+        analysis_overdue_remaining_count = 0,
+        analysis_accounted = true,
+        overdue_remaining_count = 0,
+        receipt_hash = content_factory_private.json_hash(
+          '{"fixture":"forbidden-unflagged-finalization"}'::jsonb
+        )
+    where id = 'f6e00000-0000-4000-8000-000000000001'
+  $$,
+  '55000',
+  'research_youtube_retention_receipts_append_only',
+  'an unset purge GUC fails closed for an otherwise valid receipt finalization'
+);
+
 select pg_temp.make_youtube_ingestion(
   'f6700000-0000-4000-8000-00000000000b',
   'f6000000-0000-4000-8000-000000000001',
@@ -1090,6 +1157,49 @@ values (
   'youtube-expired-decision',
   content_factory_private.json_hash('{"decision":"expired"}'::jsonb)
 );
+insert into content_factory.research_youtube_observation_analysis_jobs (
+  id, organization_id, ingestion_id, parser_key, parser_version, status,
+  input_hash, attempt_count, parsed_count, claimed_at, completed_at,
+  retention_expires_at, job_hash, created_at
+) values (
+  'f6c00000-0000-4000-8000-000000000001',
+  'f6100000-0000-4000-8000-000000000001',
+  'f6700000-0000-4000-8000-00000000000b',
+  'youtube_observation_deterministic', '1.0.0', 'completed',
+  content_factory_private.research_youtube_analysis_input_hash(
+    'f6700000-0000-4000-8000-00000000000b'
+  ),
+  1, 1, now() - interval '2 days', now() - interval '2 days' + interval '1 minute',
+  now() - interval '1 day',
+  content_factory_private.json_hash(
+    '{"fixture":"expired-analysis-job"}'::jsonb
+  ),
+  now() - interval '2 days'
+);
+insert into content_factory.research_youtube_observation_analysis_events (
+  id, organization_id, observation_id, observation_hash, analysis_version,
+  parent_event_id, expected_parent_hash, origin, actor_id, parser_key,
+  parser_version, analysis, correction_reason, request_hash, event_hash,
+  idempotency_key, retention_expires_at, created_at
+) values (
+  'f6d00000-0000-4000-8000-000000000001',
+  'f6100000-0000-4000-8000-000000000001',
+  'f6a00000-0000-4000-8000-000000000001', repeat('f', 64), 1,
+  null, null, 'system_parser', null,
+  'youtube_observation_deterministic', '1.0.0',
+  content_factory_private.research_youtube_observation_analysis_payload(
+    'f6a00000-0000-4000-8000-000000000001'
+  ),
+  null,
+  content_factory_private.json_hash(
+    '{"fixture":"expired-analysis-request"}'::jsonb
+  ),
+  content_factory_private.json_hash(
+    '{"fixture":"expired-analysis-event"}'::jsonb
+  ),
+  'youtube-expired-analysis-event', now() - interval '1 day',
+  now() - interval '2 days'
+);
 select pg_temp.make_youtube_ingestion(
   'f6700000-0000-4000-8000-00000000000c',
   'f6000000-0000-4000-8000-000000000001',
@@ -1101,12 +1211,76 @@ do $$ begin
   perform set_config('request.jwt.claim.role', 'service_role', true);
 end $$;
 set local role service_role;
-select ok(
-  (public.system_purge_expired_youtube_api_data(
+do $$
+declare
+  result_value jsonb;
+begin
+  result_value := public.system_purge_expired_youtube_api_data(
     '{"limit":1}'::jsonb
-  ) ->> 'overdue_remaining_count')::integer > 0,
+  );
+  perform set_config(
+    'content_factory.youtube_test_first_combined_purge',
+    result_value::text,
+    true
+  );
+end
+$$;
+select ok(
+  (
+    current_setting(
+      'content_factory.youtube_test_first_combined_purge'
+    )::jsonb ->> 'overdue_remaining_count'
+  )::integer > 0,
   'a limit-one purge heartbeat reports the remaining overdue backlog'
 );
+reset role;
+select is(
+  (
+    with invoked as (
+      select current_setting(
+        'content_factory.youtube_test_first_combined_purge'
+      )::jsonb result
+    ), receipt as (
+      select stored.*
+      from content_factory.research_youtube_retention_receipts stored
+      cross join invoked
+      where stored.id = (invoked.result ->> 'receipt_id')::uuid
+    )
+    select jsonb_build_array(
+      receipt.analysis_event_deleted_count,
+      receipt.analysis_job_deleted_count,
+      receipt.analysis_overdue_remaining_count,
+      receipt.analysis_accounted,
+      receipt.receipt_hash = invoked.result ->> 'receipt_hash',
+      receipt.receipt_hash = content_factory_private.json_hash(
+        jsonb_build_object(
+          'version', 'research-youtube-retention-receipt-v2',
+          'cutoff_at', receipt.cutoff_at,
+          'observation_deleted_count', receipt.observation_deleted_count,
+          'candidate_decision_deleted_count',
+            receipt.candidate_decision_deleted_count,
+          'transport_receipt_deleted_count',
+            receipt.transport_receipt_deleted_count,
+          'transport_attempt_deleted_count',
+            receipt.transport_attempt_deleted_count,
+          'analysis_event_deleted_count',
+            receipt.analysis_event_deleted_count,
+          'analysis_job_deleted_count', receipt.analysis_job_deleted_count,
+          'analysis_overdue_remaining_count',
+            receipt.analysis_overdue_remaining_count,
+          'overdue_remaining_count', receipt.overdue_remaining_count,
+          'successful', receipt.successful,
+          'analysis_accounted', receipt.analysis_accounted
+        )
+      )
+    )
+    from invoked
+    cross join receipt
+  ),
+  '[1,1,0,true,true,true]'::jsonb,
+  'the combined receipt exactly hashes its analysis deletions and remaining backlog'
+);
+set local role service_role;
 select is(
   public.system_purge_expired_youtube_api_data(
     '{"limit":5000}'::jsonb
@@ -1125,15 +1299,21 @@ select is(
      invoked.result ->> 'candidate_decision_deleted_count',
      invoked.result ->> 'transport_receipt_deleted_count',
      invoked.result ->> 'transport_attempt_deleted_count',
+     invoked.result ->> 'analysis_event_deleted_count',
+     invoked.result ->> 'analysis_job_deleted_count',
+     invoked.result ->> 'analysis_overdue_remaining_count',
      invoked.result ->> 'overdue_remaining_count',
+     invoked.result ->> 'version',
+     (invoked.result ->> 'analysis_accounted')::boolean,
+     (invoked.result ->> 'receipt_hash') ~ '^[0-9a-f]{64}$',
      set_config(
        'content_factory.youtube_test_zero_receipt_id',
        invoked.result ->> 'receipt_id', true
      ) is not null
    )
    from invoked),
-  '["0","0","0","0","0",true]'::jsonb,
-  'an empty purge returns zero counts and exposes its exact heartbeat receipt id'
+  '["0","0","0","0","0","0","0","0","research-youtube-retention-v2",true,true,true]'::jsonb,
+  'an empty purge returns one finalized v2 receipt for legacy and analysis data'
 );
 reset role;
 select is(
@@ -1142,15 +1322,30 @@ select is(
       candidate_decision_deleted_count,
       transport_receipt_deleted_count,
       transport_attempt_deleted_count,
+      analysis_event_deleted_count,
+      analysis_job_deleted_count,
+      analysis_overdue_remaining_count,
       overdue_remaining_count,
-      successful
+      successful,
+      analysis_accounted,
+      receipt_hash ~ '^[0-9a-f]{64}$'
     )
    from content_factory.research_youtube_retention_receipts
    where id = current_setting(
      'content_factory.youtube_test_zero_receipt_id', true
    )::uuid),
-  '[0,0,0,0,0,true]'::jsonb,
-  'the exact receipt returned by the third purge is a successful zero-delete heartbeat'
+  '[0,0,0,0,0,0,0,0,true,true,true]'::jsonb,
+  'the returned receipt immutably accounts for the complete purge surface'
+);
+select throws_ok(
+  format(
+    'update content_factory.research_youtube_retention_receipts '
+      || 'set analysis_event_deleted_count = 1 where id = %L::uuid',
+    current_setting('content_factory.youtube_test_zero_receipt_id', true)
+  ),
+  '55000',
+  'research_youtube_retention_receipts_append_only',
+  'a finalized combined retention receipt cannot be rewritten'
 );
 select is(
   (select count(*)::integer

@@ -59,6 +59,11 @@ const RESEARCH_YOUTUBE_ERROR_CODES = new Set([
   "ingestion_lease_expired",
   "internal_error",
 ]);
+const RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_ERROR_CODES = new Set([
+  "analysis_input_changed",
+  "analysis_evidence_expired",
+  "analysis_parser_failed",
+]);
 const RESEARCH_YOUTUBE_SAVING_PHASES = new Set([
   "youtube-canary",
   "youtube-refresh",
@@ -94,11 +99,16 @@ const RESEARCH_STAGE_CONTROL_STATES = new Set([
 ]);
 const RESEARCH_STAGE_CONTROL_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const RESEARCH_CATEGORY_LEARNING_VERSION =
-  "research-category-learning-readiness-v1";
+  "research-category-learning-readiness-v2";
+const RESEARCH_CATEGORY_LEARNING_VERSIONS = new Set([
+  "research-category-learning-readiness-v1",
+  RESEARCH_CATEGORY_LEARNING_VERSION,
+]);
 const RESEARCH_CATEGORY_READINESS_DEFINITION =
-  "category-evidence-readiness-v2";
+  "category-evidence-readiness-v3";
 const RESEARCH_CATEGORY_READINESS_DEFINITIONS = new Set([
   "category-evidence-readiness-v1",
+  "category-evidence-readiness-v2",
   RESEARCH_CATEGORY_READINESS_DEFINITION,
 ]);
 const RESEARCH_CATEGORY_READINESS_MEANINGS = new Map([
@@ -107,8 +117,12 @@ const RESEARCH_CATEGORY_READINESS_MEANINGS = new Map([
     "Coverage of durable evidence plus current retention-bound YouTube metadata",
   ],
   [
-    RESEARCH_CATEGORY_READINESS_DEFINITION,
+    "category-evidence-readiness-v2",
     "Coverage of durable evidence plus retention-bound YouTube metadata; only confirmed candidates add semantic credit",
+  ],
+  [
+    RESEARCH_CATEGORY_READINESS_DEFINITION,
+    "Coverage of durable evidence plus retention-bound YouTube metadata; deterministic parser heads add analysis coverage, while only human decisions add semantic credit",
   ],
 ]);
 const RESEARCH_CATEGORY_READINESS_KIND =
@@ -266,6 +280,24 @@ const RESEARCH_CATEGORY_STRUCTURAL_SIGNAL_PATTERN =
   /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/u;
 const RESEARCH_CATEGORY_YOUTUBE_TERMS_VERSION =
   "youtube-developer-policies-2026-08-03-v1";
+const RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_SCHEMA =
+  "research-youtube-observation-analysis-v1";
+const RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_CLASSIFICATIONS = new Set([
+  "potential_competitor",
+  "adjacent",
+  "unknown",
+]);
+const RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_RECOMMENDATIONS = new Set([
+  "review_candidate",
+  "needs_more_evidence",
+]);
+const RESEARCH_YOUTUBE_OBSERVATION_JOB_STATUSES = new Set([
+  "approval_required",
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+]);
 
 function researchInputContextFromObjective(value) {
   const objective = String(value || "").trim().slice(0, 2_000);
@@ -607,6 +639,7 @@ function researchCategoryLearningUnavailable(expectedRunId, reason) {
     policies: [],
     collectionHistory: [],
     gaps: [],
+    providerStrategy: null,
   };
 }
 
@@ -1058,8 +1091,242 @@ function researchCategoryYoutubeDecision(value) {
   };
 }
 
-function researchCategoryRetainedYoutubeItem(value, { asOf = "" } = {}) {
+function researchYoutubeObservationAnalysisPayload(value) {
+  const analysis = researchCategoryExactObject(value, [
+    "schema_version",
+    "classification",
+    "review_priority",
+    "confidence",
+    "recommendation",
+    "signals",
+    "summary",
+    "limitations",
+  ]);
+  const signals = researchCategoryExactObject(analysis?.signals, [
+    "search_position",
+    "query_token_overlap_count",
+    "query_token_count",
+    "published_age_days",
+    "same_channel_observation_count",
+    "counters_present",
+  ]);
+  if (
+    !analysis
+    || analysis.schema_version !== RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_SCHEMA
+    || !RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_CLASSIFICATIONS.has(
+      analysis.classification,
+    )
+    || !Number.isSafeInteger(analysis.review_priority)
+    || analysis.review_priority < 0
+    || analysis.review_priority > 100
+    || !["low", "medium"].includes(analysis.confidence)
+    || !RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_RECOMMENDATIONS.has(
+      analysis.recommendation,
+    )
+    || !signals
+    || !Number.isSafeInteger(signals.search_position)
+    || signals.search_position < 1
+    || signals.search_position > 25
+    || !Number.isSafeInteger(signals.query_token_overlap_count)
+    || signals.query_token_overlap_count < 0
+    || signals.query_token_overlap_count > 999
+    || !Number.isSafeInteger(signals.query_token_count)
+    || signals.query_token_count < signals.query_token_overlap_count
+    || signals.query_token_count > 999
+    || !Number.isSafeInteger(signals.published_age_days)
+    || signals.published_age_days < 0
+    || signals.published_age_days > 9_999_999
+    || !Number.isSafeInteger(signals.same_channel_observation_count)
+    || signals.same_channel_observation_count < 1
+    || signals.same_channel_observation_count > 9_999_999
+    || typeof signals.counters_present !== "boolean"
+    || typeof analysis.summary !== "string"
+    || analysis.summary.trim().length < 20
+    || analysis.summary.trim().length > 1_200
+    || !Array.isArray(analysis.limitations)
+    || analysis.limitations.length < 1
+    || analysis.limitations.length > 8
+    || analysis.limitations.some((item) =>
+      typeof item !== "string"
+      || item.trim().length < 3
+      || item.trim().length > 500
+    )
+    || researchCategoryAnalysisHasForbiddenKeys(analysis)
+  ) return null;
+  return analysis;
+}
+
+export function normalizeResearchYoutubeObservationAnalysisInput(value) {
+  return researchYoutubeObservationAnalysisPayload(value);
+}
+
+function researchYoutubeObservationAnalysisEvent(value, { history = false } = {}) {
+  const source = researchCategoryExactObject(value, history
+    ? [
+        "event_id",
+        "analysis_version",
+        "parent_event_id",
+        "origin",
+        "actor_id",
+        "parser_key",
+        "parser_version",
+        "analysis",
+        "correction_reason",
+        "event_hash",
+        "created_at",
+        "retention_expires_at",
+      ]
+    : [
+        "event_id",
+        "analysis_version",
+        "origin",
+        "parser_key",
+        "parser_version",
+        "analysis",
+        "correction_reason",
+        "event_hash",
+        "created_at",
+        "retention_expires_at",
+      ]);
+  if (!source) return null;
+  const eventId = researchOutcomeUuid(source.event_id);
+  const eventHash = researchYoutubeHash(source.event_hash);
+  const parserKey = String(source.parser_key || "");
+  const parserVersion = String(source.parser_version || "").trim();
+  const createdAt = researchYoutubeTimestamp(source.created_at);
+  const retentionExpiresAt = researchYoutubeTimestamp(
+    source.retention_expires_at,
+  );
+  const analysis = researchYoutubeObservationAnalysisPayload(source.analysis);
+  const correctionReason = source.correction_reason === null
+    ? ""
+    : String(source.correction_reason || "").trim();
+  const parentEventId = history && source.parent_event_id !== null
+    ? researchOutcomeUuid(source.parent_event_id)
+    : "";
+  const actorId = history && source.actor_id !== null
+    ? researchOutcomeUuid(source.actor_id)
+    : "";
+  if (
+    !eventId
+    || !eventHash
+    || !Number.isSafeInteger(source.analysis_version)
+    || source.analysis_version < 1
+    || source.analysis_version > 100_000
+    || !RESEARCH_CATEGORY_ANALYSIS_ORIGINS.has(source.origin)
+    || !RESEARCH_CATEGORY_PROVIDER_PATTERN.test(parserKey)
+    || parserVersion.length < 1
+    || parserVersion.length > 120
+    || !analysis
+    || !createdAt
+    || !retentionExpiresAt
+    || Date.parse(createdAt) >= Date.parse(retentionExpiresAt)
+    || (source.origin === "system_parser" && correctionReason)
+    || (source.origin === "human_correction" && (
+      correctionReason.length < 3 || correctionReason.length > 1_000
+    ))
+    || (history && source.analysis_version === 1 && (parentEventId || actorId))
+    || (history && source.analysis_version > 1 && !parentEventId)
+    || (history && source.origin === "system_parser" && actorId)
+    || (history && source.origin === "human_correction" && !actorId)
+  ) return null;
+  return {
+    eventId,
+    eventHash,
+    analysisVersion: source.analysis_version,
+    parentEventId,
+    origin: source.origin,
+    actorId,
+    parserKey,
+    parserVersion,
+    analysis,
+    correctionReason,
+    createdAt,
+    retentionExpiresAt,
+  };
+}
+
+function researchYoutubeObservationAnalysisJob(value, { asOf = "" } = {}) {
   const source = researchCategoryExactObject(value, [
+    "job_id",
+    "status",
+    "attempt_count",
+    "no_retry",
+    "external_call_started",
+    "parsed_count",
+    "error_code",
+    "input_hash",
+    "job_hash",
+    "created_at",
+    "completed_at",
+  ]);
+  if (!source) return null;
+  const jobId = researchOutcomeUuid(source.job_id);
+  const status = String(source.status || "");
+  const inputHash = researchYoutubeHash(source.input_hash);
+  const jobHash = researchYoutubeHash(source.job_hash);
+  const createdAt = researchYoutubeTimestamp(source.created_at);
+  const completedAt = source.completed_at === null
+    ? ""
+    : researchYoutubeTimestamp(source.completed_at);
+  const errorCode = source.error_code === null
+    ? ""
+    : String(source.error_code || "");
+  const createdAtMs = Date.parse(createdAt);
+  const completedAtMs = Date.parse(completedAt);
+  const asOfMs = Date.parse(asOf);
+  if (
+    !jobId
+    || !RESEARCH_YOUTUBE_OBSERVATION_JOB_STATUSES.has(status)
+    || !Number.isSafeInteger(source.attempt_count)
+    || source.attempt_count < 0
+    || source.attempt_count > 1
+    || source.no_retry !== true
+    || source.external_call_started !== false
+    || !Number.isSafeInteger(source.parsed_count)
+    || source.parsed_count < 0
+    || source.parsed_count > 25
+    || !inputHash
+    || !jobHash
+    || !createdAt
+    || !Number.isFinite(asOfMs)
+    || createdAtMs > asOfMs
+    || (source.completed_at !== null && !completedAt)
+    || (["approval_required", "queued", "processing"].includes(status)
+      && completedAt)
+    || (["completed", "failed"].includes(status) && !completedAt)
+    || (status === "failed"
+      ? !RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_ERROR_CODES.has(errorCode)
+      : Boolean(errorCode))
+    || (completedAt && (
+      completedAtMs < createdAtMs || completedAtMs > asOfMs
+    ))
+    || (["approval_required", "queued"].includes(status) && (
+      source.attempt_count !== 0 || source.parsed_count !== 0
+    ))
+    || (["processing", "completed", "failed"].includes(status)
+      && source.attempt_count !== 1)
+    || (status === "failed" && source.parsed_count !== 0)
+  ) return null;
+  return {
+    jobId,
+    status,
+    attemptCount: source.attempt_count,
+    parsedCount: source.parsed_count,
+    errorCode,
+    inputHash,
+    jobHash,
+    createdAt,
+    completedAt,
+  };
+}
+
+function researchCategoryRetainedYoutubeItem(value, {
+  asOf = "",
+  analysisRequired = false,
+  analysisApproved = false,
+} = {}) {
+  const keys = [
     "source_kind",
     "observation_id",
     "ingestion_id",
@@ -1076,7 +1343,14 @@ function researchCategoryRetainedYoutubeItem(value, { asOf = "" } = {}) {
     "observation_hash",
     "latest_decision",
     "included_in_readiness",
-  ]);
+  ];
+  if (analysisRequired) keys.push(
+    "current_analysis",
+    "analysis_history",
+    "analysis_job",
+    "can_correct_analysis",
+  );
+  const source = researchCategoryExactObject(value, keys);
   if (!source) return null;
   const observationId = researchOutcomeUuid(source.observation_id);
   const ingestionId = researchOutcomeUuid(source.ingestion_id);
@@ -1094,11 +1368,24 @@ function researchCategoryRetainedYoutubeItem(value, { asOf = "" } = {}) {
   const latestDecision = source.latest_decision === null
     ? null
     : researchCategoryYoutubeDecision(source.latest_decision);
+  const currentAnalysis = analysisRequired && source.current_analysis !== null
+    ? researchYoutubeObservationAnalysisEvent(source.current_analysis)
+    : null;
+  const rawAnalysisHistory = analysisRequired
+    ? arrayValue(source.analysis_history)
+    : [];
+  const analysisHistory = rawAnalysisHistory.map((event) =>
+    researchYoutubeObservationAnalysisEvent(event, { history: true })
+  );
+  const analysisJob = analysisRequired && source.analysis_job !== null
+    ? researchYoutubeObservationAnalysisJob(source.analysis_job, { asOf })
+    : null;
   const observedAtMs = Date.parse(observedAt);
   const publishedAtMs = Date.parse(publishedAt);
   const retentionExpiresAtMs = Date.parse(retentionExpiresAt);
   const asOfMs = Date.parse(asOf);
   const expectedIncluded = latestDecision?.decision !== "exclude_candidate";
+  const expectedCanCorrect = Boolean(currentAnalysis) && analysisApproved;
   if (
     source.source_kind !== "retained_youtube_observation"
     || !observationId
@@ -1129,6 +1416,33 @@ function researchCategoryRetainedYoutubeItem(value, { asOf = "" } = {}) {
       || Date.parse(latestDecision.decidedAt) > asOfMs
       || Date.parse(latestDecision.decidedAt) >= retentionExpiresAtMs
     ))
+    || (analysisRequired && (
+      rawAnalysisHistory.length > 10
+      || analysisHistory.some((event) => !event)
+      || (source.current_analysis !== null && !currentAnalysis)
+      || (source.analysis_job !== null && !analysisJob)
+      || !analysisJob
+      || typeof source.can_correct_analysis !== "boolean"
+      || source.can_correct_analysis !== expectedCanCorrect
+      || (currentAnalysis && (
+        !analysisHistory.length
+        || analysisHistory[0].eventId !== currentAnalysis.eventId
+        || analysisHistory[0].eventHash !== currentAnalysis.eventHash
+        || analysisHistory[0].analysisVersion
+          !== currentAnalysis.analysisVersion
+        || currentAnalysis.retentionExpiresAt !== retentionExpiresAt
+      ))
+      || analysisHistory.some((event) =>
+        event.retentionExpiresAt !== retentionExpiresAt
+        || Date.parse(event.createdAt) < observedAtMs
+        || Date.parse(event.createdAt) > asOfMs
+      )
+      || (analysisJob.status === "completed" && !currentAnalysis)
+      || (["approval_required", "queued", "processing"].includes(
+        analysisJob.status,
+      )
+        && currentAnalysis)
+    ))
   ) return null;
   return {
     observationId,
@@ -1144,6 +1458,10 @@ function researchCategoryRetainedYoutubeItem(value, { asOf = "" } = {}) {
     observationHash,
     latestDecision,
     includedInReadiness: source.included_in_readiness,
+    currentAnalysis,
+    analysisHistory,
+    analysisJob,
+    canCorrectAnalysis: analysisRequired && expectedCanCorrect,
   };
 }
 
@@ -1429,13 +1747,82 @@ function researchCategoryCollectionIntent(value) {
   };
 }
 
+function researchCategoryProviderStrategy(value) {
+  const source = researchCategoryExactObject(value, [
+    "version",
+    "recommended_production_order",
+    "youtube_retrieval_capability",
+    "youtube_derived_analysis_state",
+    "youtube_derived_analysis_policy",
+    "youtube_derived_analysis_approval_ref",
+    "instagram_activation_gate",
+    "instagram_known_professional_lookup",
+    "instagram_hashtag_discovery",
+    "instagram_arbitrary_account_discovery",
+    "disabled_by_policy",
+    "recommendation",
+  ]);
+  const order = arrayValue(source?.recommended_production_order);
+  const disabled = arrayValue(source?.disabled_by_policy);
+  const approvalReference = source?.youtube_derived_analysis_approval_ref
+    === null
+    ? ""
+    : String(source?.youtube_derived_analysis_approval_ref || "").trim();
+  if (
+    !source
+    || source.version !== "social-observation-adapter-v1"
+    || order.join("|") !== "youtube_data_api_v3|instagram_meta_graph"
+    || source.youtube_retrieval_capability
+      !== "official_api_controlled_rollout"
+    || !["approval_required", "approved", "emergency_paused"].includes(
+      source.youtube_derived_analysis_state,
+    )
+    || source.youtube_derived_analysis_policy
+      !== "youtube-derived-metrics-policy-2026-06-01-v1"
+    || (source.youtube_derived_analysis_state === "approved"
+      ? approvalReference.length < 3 || approvalReference.length > 160
+      : source.youtube_derived_analysis_approval_ref !== null)
+    || source.instagram_activation_gate
+      !== "oauth_app_review_permissions_and_legal_approval_required"
+    || source.instagram_known_professional_lookup
+      !== "supported_after_approval"
+    || source.instagram_hashtag_discovery !== "limited_after_approval"
+    || source.instagram_arbitrary_account_discovery
+      !== "unsupported_coverage_gap"
+    || disabled.join("|")
+      !== "apify_scraper|bright_data_scraper|oxylabs_youtube_scraper|dataforseo_youtube_scraper"
+    || source.recommendation
+      !== "Use official APIs first; keep YouTube derived analysis approval-gated and expose unsupported coverage instead of silently scraping."
+  ) return null;
+  return {
+    version: source.version,
+    recommendedProductionOrder: order,
+    youtubeRetrievalCapability: source.youtube_retrieval_capability,
+    youtubeDerivedAnalysisState: source.youtube_derived_analysis_state,
+    youtubeDerivedAnalysisPolicy: source.youtube_derived_analysis_policy,
+    youtubeDerivedAnalysisApprovalRef: approvalReference,
+    instagramActivationGate: source.instagram_activation_gate,
+    instagramKnownProfessionalLookup: source.instagram_known_professional_lookup,
+    instagramHashtagDiscovery: source.instagram_hashtag_discovery,
+    instagramArbitraryAccountDiscovery:
+      source.instagram_arbitrary_account_discovery,
+    disabledByPolicy: disabled,
+    recommendation: source.recommendation,
+  };
+}
+
 export function normalizeResearchCategoryLearning(value) {
   const envelope = objectValue(value) || {};
   const expectedRunId = String(envelope.expectedRunId || "").trim().toLowerCase();
+  const invalid = () =>
+    researchCategoryLearningUnavailable(expectedRunId, "invalid_contract");
   if (envelope.unavailable === true) {
     return researchCategoryLearningUnavailable(expectedRunId, "satellite_unavailable");
   }
-  const source = researchCategoryExactObject(envelope.status, [
+  const rawStatus = objectValue(envelope.status);
+  const statusVersion = String(rawStatus?.version || "");
+  if (!RESEARCH_CATEGORY_LEARNING_VERSIONS.has(statusVersion)) return invalid();
+  const statusKeys = [
     "ok",
     "version",
     "organization_id",
@@ -1447,13 +1834,15 @@ export function normalizeResearchCategoryLearning(value) {
     "readiness_history",
     "collection",
     "guidance",
-  ]);
-  const invalid = () =>
-    researchCategoryLearningUnavailable(expectedRunId, "invalid_contract");
+  ];
+  if (statusVersion === RESEARCH_CATEGORY_LEARNING_VERSION) {
+    statusKeys.push("provider_strategy");
+  }
+  const source = researchCategoryExactObject(rawStatus, statusKeys);
   if (
     !source
     || source.ok !== true
-    || source.version !== RESEARCH_CATEGORY_LEARNING_VERSION
+    || !RESEARCH_CATEGORY_LEARNING_VERSIONS.has(source.version)
   ) return invalid();
   const organizationId = researchOutcomeUuid(source.organization_id);
   const runId = researchOutcomeUuid(source.run_id);
@@ -1563,21 +1952,39 @@ export function normalizeResearchCategoryLearning(value) {
     || new Set(sources.map((item) => item.sourceLedgerId)).size !== sources.length
   ) return invalid();
 
+  const analysisRequired = source.version === RESEARCH_CATEGORY_LEARNING_VERSION;
+  const providerStrategy = analysisRequired
+    ? researchCategoryProviderStrategy(source.provider_strategy)
+    : null;
+  if (analysisRequired && !providerStrategy) return invalid();
+  const retainedYoutubeKeys = [
+    "items",
+    "item_limit",
+    "retention_days",
+    "raw_captions_stored",
+    "corrected_by",
+  ];
+  if (analysisRequired) retainedYoutubeKeys.push(
+    "analysis_contract",
+    "analysis_history_limit_per_observation",
+    "analysis_corrected_by",
+    "analysis_external_call_started",
+    "analysis_automatic_retry_allowed",
+  );
   const retainedYoutubeEnvelope = researchCategoryExactObject(
     source.retained_youtube_evidence,
-    [
-      "items",
-      "item_limit",
-      "retention_days",
-      "raw_captions_stored",
-      "corrected_by",
-    ],
+    retainedYoutubeKeys,
   );
   const rawRetainedYoutubeEvidence = arrayValue(
     retainedYoutubeEnvelope?.items,
   );
   const retainedYoutubeEvidence = rawRetainedYoutubeEvidence.map((item) =>
-    researchCategoryRetainedYoutubeItem(item, { asOf })
+    researchCategoryRetainedYoutubeItem(item, {
+      asOf,
+      analysisRequired,
+      analysisApproved:
+        providerStrategy?.youtubeDerivedAnalysisState === "approved",
+    })
   );
   if (
     !retainedYoutubeEnvelope
@@ -1586,6 +1993,15 @@ export function normalizeResearchCategoryLearning(value) {
     || retainedYoutubeEnvelope.raw_captions_stored !== false
     || retainedYoutubeEnvelope.corrected_by
       !== "creator_decide_research_youtube_candidate"
+    || (analysisRequired && (
+      retainedYoutubeEnvelope.analysis_contract
+        !== RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_SCHEMA
+      || retainedYoutubeEnvelope.analysis_history_limit_per_observation !== 10
+      || retainedYoutubeEnvelope.analysis_corrected_by
+        !== "creator_correct_research_youtube_observation_analysis"
+      || retainedYoutubeEnvelope.analysis_external_call_started !== false
+      || retainedYoutubeEnvelope.analysis_automatic_retry_allowed !== false
+    ))
     || rawRetainedYoutubeEvidence.length > 50
     || retainedYoutubeEvidence.some((item) => !item)
     || new Set(retainedYoutubeEvidence.map((item) => item.observationId)).size
@@ -1740,7 +2156,7 @@ export function normalizeResearchCategoryLearning(value) {
 
   return {
     available: true,
-    version: RESEARCH_CATEGORY_LEARNING_VERSION,
+    version: source.version,
     organizationId,
     runId,
     category: {
@@ -1761,6 +2177,7 @@ export function normalizeResearchCategoryLearning(value) {
     readinessHistory,
     policies,
     collectionHistory,
+    providerStrategy,
     guidanceStatus,
     rawCaptionsStored: false,
     collection: {
@@ -1926,8 +2343,10 @@ function researchCategorySourceCardMarkup(source, { saving = false } = {}) {
   </article>`;
 }
 
-function researchCategoryRetainedYoutubeCardMarkup(item) {
+function researchCategoryRetainedYoutubeCardMarkup(item, { saving = false } = {}) {
   const decision = item.latestDecision;
+  const current = item.currentAnalysis;
+  const job = item.analysisJob;
   const decisionLabel = !decision
     ? "Решение ещё не зафиксировано"
     : decision.decision === "exclude_candidate"
@@ -1938,9 +2357,47 @@ function researchCategoryRetainedYoutubeCardMarkup(item) {
     : decision?.decision === "exclude_candidate"
       ? "Не учитывается в готовности"
       : "Только объём источников и площадка";
+  const hypothesisLabel = current
+    ? ({
+        potential_competitor: "возможный конкурент — проверить",
+        adjacent: "смежное наблюдение",
+        unknown: "недостаточно признаков",
+      })[current.analysis.classification]
+    : job?.status === "approval_required"
+      ? "локальный разбор: требуется YouTube analytics approval"
+      : job?.status === "failed"
+      ? "локальный разбор завершился ошибкой"
+      : job
+        ? `локальный разбор: ${job.status}`
+        : "локальный разбор ещё не поставлен";
+  const analysisMarkup = current ? `<section class="product-research-learning-analysis" aria-label="Машинная гипотеза по YouTube-наблюдению">
+    <header><strong>Машинная гипотеза, не установленный факт</strong><span class="badge">приоритет проверки ${current.analysis.review_priority}/100</span><span class="badge">${escapeHtml(current.analysis.confidence)}</span></header>
+    <p>${escapeHtml(current.analysis.summary)}</p>
+    <dl class="product-research-learning-lineage">
+      <div><dt>Совпадение запроса</dt><dd>${current.analysis.signals.query_token_overlap_count}/${current.analysis.signals.query_token_count} токенов</dd></div>
+      <div><dt>Позиция</dt><dd>${current.analysis.signals.search_position}</dd></div>
+      <div><dt>Возраст</dt><dd>${current.analysis.signals.published_age_days} дн.</dd></div>
+      <div><dt>Видео канала в сборе</dt><dd>${current.analysis.signals.same_channel_observation_count}</dd></div>
+      <div><dt>Public counters</dt><dd>${current.analysis.signals.counters_present ? "есть" : "нет"}</dd></div>
+      <div><dt>Версия head</dt><dd>${current.analysisVersion} · <code>${escapeHtml(current.eventHash.slice(0, 10))}…</code></dd></div>
+    </dl>
+    <ul>${current.analysis.limitations.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>
+    <details><summary>Append-only история гипотезы (${item.analysisHistory.length} из максимум 10)</summary><ol>${item.analysisHistory.map((event) => `<li><strong>v${event.analysisVersion} · ${event.origin === "human_correction" ? "исправлено человеком" : "детерминированный parser"}</strong><span>${escapeHtml(researchYoutubeDateTimeLabel(event.createdAt))}${event.correctionReason ? ` · ${escapeHtml(event.correctionReason)}` : ""}</span><code>${escapeHtml(event.eventHash.slice(0, 10))}…</code></li>`).join("")}</ol></details>
+    ${item.canCorrectAnalysis ? `<details><summary>Исправить гипотезу без повторного provider call</summary>
+      <form class="product-research-youtube-analysis-correction-form form-stack" data-observation-id="${escapeHtml(item.observationId)}" novalidate>
+        <input type="hidden" name="observation_hash" value="${escapeHtml(item.observationHash)}" />
+        <input type="hidden" name="expected_head_event_id" value="${escapeHtml(current.eventId)}" />
+        <input type="hidden" name="expected_head_hash" value="${escapeHtml(current.eventHash)}" />
+        <label class="field"><span>Исправленная retention-bound гипотеза (JSON schema v1)</span><textarea name="analysis" rows="13" required>${escapeHtml(researchCategoryPrettyAnalysis(current.analysis))}</textarea><small>Допустимы potential_competitor, adjacent и unknown. Это не подтверждение конкурента; confirm/exclude остаётся отдельным решением.</small></label>
+        <label class="field"><span>Почему меняется гипотеза</span><textarea name="correction_reason" minlength="3" maxlength="1000" required></textarea></label>
+        <label class="check-row"><input type="checkbox" name="correction_confirmation" required /><span><strong>Проверена точная версия ${current.analysisVersion}</strong><br /><small>Stale head будет отклонён; автоматического retry, provider call или durable-копирования нет.</small></span></label>
+        <button class="btn btn-secondary btn-small" type="submit" ${saving ? "disabled" : ""}>Сохранить append-only исправление</button>
+      </form>
+    </details>` : ""}
+  </section>` : `<aside class="product-research-learning-provider-blocked" role="note"><strong>${escapeHtml(hypothesisLabel)}</strong><span>${job?.status === "approval_required" ? "Official retrieval/display и derived analysis разделены. Parser останется остановлен до зафиксированного analytics-amendment approval; это видимый coverage gap, а не скрытый scraping fallback." : job?.status === "failed" ? `Код: ${escapeHtml(job.errorCode)}. Ошибка видима и не запускает повтор YouTube ingestion.` : "Фоновый worker выполнит только локальный детерминированный parser: ноль HTTP, provider attempts и стоимости."}</span></aside>`;
   return `<article class="product-research-learning-source product-research-learning-retained-youtube-card ${item.includedInReadiness ? "is-included" : "is-excluded"}">
     <header>
-      <div><span class="badge">YouTube · 29 дней</span><span class="badge">${escapeHtml(RESEARCH_YOUTUBE_PROVIDER_KEY)}</span><span class="badge">${escapeHtml(readinessLabel)}</span></div>
+      <div><span class="badge">YouTube · 29 дней</span><span class="badge">${escapeHtml(RESEARCH_YOUTUBE_PROVIDER_KEY)}</span><span class="badge">${escapeHtml(readinessLabel)}</span><span class="badge">${escapeHtml(hypothesisLabel)}</span></div>
       <a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener noreferrer nofollow">Открыть видео <span aria-hidden="true">↗</span></a>
     </header>
     <h3>${escapeHtml(item.title)}</h3>
@@ -1953,10 +2410,11 @@ function researchCategoryRetainedYoutubeCardMarkup(item) {
       <div><dt>Ingestion</dt><dd><code>${escapeHtml(item.ingestionId.slice(0, 8))}…</code></dd></div>
       <div><dt>Observation hash</dt><dd><code>${escapeHtml(item.observationHash.slice(0, 10))}…</code></dd></div>
     </dl>
+    ${analysisMarkup}
     <aside class="product-research-learning-retained-decision" role="note">
       <strong>${escapeHtml(decisionLabel)}</strong>
       ${decision ? `<span>${escapeHtml(researchYoutubeDateTimeLabel(decision.decidedAt))}${decision.reason ? ` · ${escapeHtml(decision.reason)}` : ""}</span>` : ""}
-      <small>Confirm_candidate добавляет только одно дедуплицированное наблюдение конкурента и human validation. YouTube-метаданные никогда не повышают analysis coverage. Решение корректируется append-only командой <code>creator_decide_research_youtube_candidate</code>. Raw captions не хранятся.</small>
+      <small>Confirm_candidate добавляет только одно дедуплицированное наблюдение конкурента и human validation. Сырые metadata сами не повышают analysis coverage; его повышает только точный retention-bound parser head. Решение кандидата <code>creator_decide_research_youtube_candidate</code> и исправление гипотезы <code>creator_correct_research_youtube_observation_analysis</code> — разные append-only команды. Raw captions не хранятся.</small>
     </aside>
   </article>`;
 }
@@ -2059,6 +2517,9 @@ export function researchCategoryLearningMarkup(value, {
       <button class="btn btn-secondary btn-small" type="button" data-action="refresh-product-research">Проверить общий статус</button>
     </section>`;
   }
+  const providerStrategyMarkup = control.providerStrategy
+    ? `<aside class="product-research-learning-provider-blocked" role="note"><strong>Рекомендация источников: official-first</strong><span>YouTube Data API v3 используется только в controlled rollout для разрешённого retrieval/display. Derived competitor/trend analysis: <code>${escapeHtml(control.providerStrategy.youtubeDerivedAnalysisState)}</code>${control.providerStrategy.youtubeDerivedAnalysisApprovalRef ? ` · approval <code>${escapeHtml(control.providerStrategy.youtubeDerivedAnalysisApprovalRef)}</code>` : " · требуется отдельный analytics-amendment approval"}. Meta Instagram после OAuth/App Review поддерживает lookup известных Professional accounts и ограниченный hashtag discovery; произвольный поиск аккаунтов остаётся <code>unsupported_coverage_gap</code>. Apify, Bright Data, Oxylabs и DataForSEO scraping остаются disabled_by_policy.</span></aside>`
+    : "";
   const historyMarkup = control.readinessHistory.length
     ? `<ol>${control.readinessHistory.map((snapshot, index) => {
       const newerSnapshot = control.readinessHistory[index - 1];
@@ -2078,7 +2539,7 @@ export function researchCategoryLearningMarkup(value, {
       <div class="product-research-learning-meter" style="--research-learning-score:${control.score}" role="img" aria-label="Готовность доказательной базы категории: ${control.score} процентов" title="${escapeHtml(`Готовность доказательной базы: ${control.score}%. Это не IQ и не accuracy модели.`)}">
         <strong>${control.score}%</strong><small>доказательства</small>
       </div>
-      <div><h3>Это не IQ, не accuracy модели и не гарантия качества</h3><p>Процент детерминированно показывает покрытие доказательств выбранной категории на ${escapeHtml(researchYoutubeDateTimeLabel(control.asOf))}. Неутверждённые YouTube-метаданные с 29-дневным retention дают только объём источников и площадку; они не считаются разбором или конкурентом.</p><small>Формула ${escapeHtml(control.readinessDefinition || RESEARCH_CATEGORY_READINESS_DEFINITION)} · Evidence hash <code>${escapeHtml(control.evidenceHash.slice(0, 12))}…</code> · raw captions не хранятся.</small></div>
+      <div><h3>Это не IQ, не accuracy модели и не гарантия качества</h3><p>Процент детерминированно показывает покрытие доказательств выбранной категории на ${escapeHtml(researchYoutubeDateTimeLabel(control.asOf))}. Сырые YouTube-метаданные с 29-дневным retention дают только объём и площадку; analysis coverage появляется лишь после точного локального parser head. Гипотеза не становится конкурентом или трендом без решения человека.</p><small>Формула ${escapeHtml(control.readinessDefinition || RESEARCH_CATEGORY_READINESS_DEFINITION)} · Evidence hash <code>${escapeHtml(control.evidenceHash.slice(0, 12))}…</code> · raw captions не хранятся.</small></div>
       <form class="product-research-readiness-capture-form" novalidate>
         <input type="hidden" name="expected_evidence_hash" value="${escapeHtml(control.evidenceHash)}" />
         <button class="btn btn-secondary btn-small" type="submit" ${saving ? "disabled" : ""}>Зафиксировать снимок в истории</button>
@@ -2093,11 +2554,12 @@ export function researchCategoryLearningMarkup(value, {
     <div class="product-research-learning-sources">${control.sources.length
       ? control.sources.map((source) => researchCategorySourceCardMarkup(source, { saving })).join("")
       : '<div class="product-research-empty-note"><strong>Устойчивых источников пока нет</strong><p>Процент остаётся низким; система должна предложить сбор, а не дорисовывать факты.</p></div>'}</div>
-    <div class="product-research-learning-section-heading"><div><p class="eyebrow">Retained YouTube evidence</p><h3>Свежие YouTube-наблюдения категории</h3><small>Метаданные хранятся 29 дней. До human confirm они влияют только на source volume/platform diversity; после confirm добавляют deduped competitor observation и human validation. Analysis coverage YouTube-метаданные не повышают никогда. Это не устойчивый source ledger; raw captions не сохраняются.</small></div><span class="badge">${control.retainedYoutubeEvidence.length} из максимум 50</span></div>
+    <div class="product-research-learning-section-heading"><div><p class="eyebrow">Retained YouTube evidence</p><h3>Свежие YouTube-наблюдения и машинные гипотезы</h3><small>Метаданные, parser jobs, системные разборы и исправления человека удаляются вместе через 29 дней. Локальный parser не вызывает провайдера, не повторяет ingestion и даёт credit только analysis coverage. Competitor/trend credit остаётся за отдельным human decision.</small></div><span class="badge">${control.retainedYoutubeEvidence.length} из максимум 50</span></div>
     <div class="product-research-learning-sources product-research-learning-retained-youtube">${control.retainedYoutubeEvidence.length
-      ? control.retainedYoutubeEvidence.map(researchCategoryRetainedYoutubeCardMarkup).join("")
+      ? control.retainedYoutubeEvidence.map((item) => researchCategoryRetainedYoutubeCardMarkup(item, { saving })).join("")
       : '<div class="product-research-empty-note"><strong>Сохранённых YouTube-наблюдений пока нет</strong><p>При разрешённой политике внутренний worker может собрать bounded public metadata; status/render ничего не запускают.</p></div>'}</div>
     <div class="product-research-learning-section-heading"><div><p class="eyebrow">Управляемый автосбор</p><h3>Политики YouTube и Instagram</h3><small>Только owner/admin могут менять политику; остальная готовность и source ledger остаются видимыми команде.</small></div><span class="badge">status/render без provider call</span></div>
+    ${providerStrategyMarkup}
     <div class="product-research-learning-policies">
       ${researchCategoryPolicyMarkup(control, "youtube", { saving, writable: policyWritable })}
       ${researchCategoryPolicyMarkup(control, "instagram", { saving, writable: policyWritable })}

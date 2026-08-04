@@ -15,6 +15,7 @@ const LEASE_RECONCILE_LIMIT = 50;
 const NOTIFICATION_OUTBOX_LIMIT = 12;
 const STORAGE_CLEANUP_LIMIT = 6;
 const WATCHLIST_REFRESH_PROPOSAL_LIMIT = 50;
+const YOUTUBE_OBSERVATION_ANALYSIS_LIMIT = 6;
 const WORKER_LEASE_SECONDS = 210;
 const DISPATCH_TIMEOUT_MS = 135_000;
 const RESPONSE_BODY_LIMIT = 65_536;
@@ -257,6 +258,19 @@ type AutomaticYoutubeCollectionSummary = {
   claimed: number;
   expired: number;
   ingestions: AutomaticYoutubeIngestion[];
+  code?: string;
+};
+
+export type YoutubeObservationAnalysisSummary = {
+  ok: boolean;
+  selected: number;
+  completed: number;
+  failed: number;
+  items: Json[];
+  external_call_started: false;
+  provider_attempt_count: 0;
+  cost_minor: 0;
+  automatic_retry_started: false;
   code?: string;
 };
 
@@ -657,6 +671,117 @@ export function readAutomaticYoutubeCollectionSummary(
   };
 }
 
+export function readYoutubeObservationAnalysisSummary(
+  value: unknown,
+  limit = YOUTUBE_OBSERVATION_ANALYSIS_LIMIT,
+): YoutubeObservationAnalysisSummary | null {
+  if (
+    !Number.isSafeInteger(limit) || limit < 1 ||
+    limit > YOUTUBE_OBSERVATION_ANALYSIS_LIMIT
+  ) return null;
+  const expectedKeys = new Set([
+    "ok",
+    "selected",
+    "completed",
+    "failed",
+    "items",
+    "external_call_started",
+    "provider_attempt_count",
+    "cost_minor",
+    "automatic_retry_started",
+  ]);
+  if (
+    !isRecord(value) || Object.keys(value).length !== expectedKeys.size ||
+    !Object.keys(value).every((key) => expectedKeys.has(key)) ||
+    value.ok !== true || value.external_call_started !== false ||
+    value.provider_attempt_count !== 0 ||
+    value.cost_minor !== 0 ||
+    value.automatic_retry_started !== false || !Array.isArray(value.items) ||
+    value.items.length > limit
+  ) return null;
+  const selected = safeCount(value.selected);
+  const completed = safeCount(value.completed);
+  const failed = safeCount(value.failed);
+  if (
+    selected === null || completed === null || failed === null ||
+    selected > limit || completed + failed !== selected ||
+    value.items.length !== selected
+  ) return null;
+  const jobIds = new Set<string>();
+  let completedItems = 0;
+  let failedItems = 0;
+  const allowedErrorCodes = new Set([
+    "analysis_input_changed",
+    "analysis_evidence_expired",
+    "analysis_parser_failed",
+  ]);
+  for (const item of value.items) {
+    if (!isRecord(item) || !isUuid(item.job_id) || !isUuid(item.ingestion_id)) {
+      return null;
+    }
+    if (jobIds.has(item.job_id)) return null;
+    jobIds.add(item.job_id);
+    if (item.status === "completed") {
+      if (
+        Object.keys(item).length !== 4 ||
+        !Number.isSafeInteger(item.parsed_count) ||
+        (item.parsed_count as number) < 0 ||
+        (item.parsed_count as number) > 25
+      ) return null;
+      completedItems += 1;
+      continue;
+    }
+    if (
+      item.status !== "failed" || Object.keys(item).length !== 4 ||
+      typeof item.error_code !== "string" ||
+      !allowedErrorCodes.has(item.error_code)
+    ) return null;
+    failedItems += 1;
+  }
+  if (completedItems !== completed || failedItems !== failed) return null;
+  let serializedItems = "";
+  try {
+    serializedItems = JSON.stringify(value.items);
+  } catch {
+    return null;
+  }
+  if (serializedItems.length > 32_768) return null;
+  return {
+    ok: true,
+    selected,
+    completed,
+    failed,
+    items: value.items as Json[],
+    external_call_started: false,
+    provider_attempt_count: 0,
+    cost_minor: 0,
+    automatic_retry_started: false,
+  };
+}
+
+function youtubeObservationAnalysisFailure(
+  code = "youtube_observation_analysis_failed",
+): YoutubeObservationAnalysisSummary {
+  return {
+    ok: false,
+    selected: 0,
+    completed: 0,
+    failed: 0,
+    items: [],
+    external_call_started: false,
+    provider_attempt_count: 0,
+    cost_minor: 0,
+    automatic_retry_started: false,
+    code,
+  };
+}
+
+export function youtubeObservationAnalysisHasFailure(
+  summary: YoutubeObservationAnalysisSummary,
+): boolean {
+  return !summary.ok || summary.failed > 0;
+}
+
 function readLeaseReconciliation(value: unknown): LeaseReconciliation | null {
   if (!isRecord(value) || value.ok !== true || !isRecord(value.expired)) {
     return null;
@@ -1016,6 +1141,37 @@ async function prepareAutomaticYoutubeCollection(
   };
 }
 
+export async function processDueYoutubeObservationAnalysis(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  limit = YOUTUBE_OBSERVATION_ANALYSIS_LIMIT,
+): Promise<YoutubeObservationAnalysisSummary> {
+  if (
+    !Number.isSafeInteger(limit) || limit < 1 ||
+    limit > YOUTUBE_OBSERVATION_ANALYSIS_LIMIT
+  ) {
+    return youtubeObservationAnalysisFailure(
+      "youtube_observation_analysis_limit_invalid",
+    );
+  }
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_process_due_research_youtube_observation_analysis",
+      { p_payload: { limit } },
+    );
+    const parsed = error === null
+      ? readYoutubeObservationAnalysisSummary(data, limit)
+      : null;
+    return parsed ?? youtubeObservationAnalysisFailure();
+  } catch {
+    return youtubeObservationAnalysisFailure();
+  }
+}
+
 async function completeNotificationOutbox(
   supabaseAdmin: {
     rpc: (
@@ -1357,6 +1513,17 @@ const creatorBackgroundWorker = withSupabase<Database>({
         expired: 0,
         claimed: 0,
       },
+      youtube_analysis: {
+        ok: true,
+        selected: 0,
+        completed: 0,
+        failed: 0,
+        items: [],
+        external_call_started: false,
+        provider_attempt_count: 0,
+        cost_minor: 0,
+        automatic_retry_started: false,
+      },
       storage_cleanup: {
         selected: 0,
         completed: 0,
@@ -1593,10 +1760,37 @@ const creatorBackgroundWorker = withSupabase<Database>({
     const outcomes = await Promise.all(
       targets.map((target) => dispatch(target, origin, serviceKey, secret)),
     );
+    // Persist external polling outcomes before any additional local work. A
+    // repeated external poll must never be caused by a later analysis timeout.
     const pollRecords = await recordGenerationPollOutcomes(
       supabaseAdmin,
       workerRun,
       outcomes,
+    );
+    if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
+      const heartbeatSummary = {
+        stage: "before_youtube_analysis",
+        poll_records: pollRecords,
+      };
+      await finishBackgroundWorker(
+        supabaseAdmin,
+        workerRun,
+        "failed",
+        heartbeatSummary,
+        "worker_heartbeat_failed",
+      );
+      return json(
+        { ok: false, code: "worker_heartbeat_failed", ...heartbeatSummary },
+        503,
+      );
+    }
+    // Analysis is a bounded, deterministic database mutation. It deliberately
+    // runs only after all YouTube HTTP dispatches have settled, is not a
+    // DispatchTarget, consumes none of the provider cap, and never requeues an
+    // ingestion or starts an external retry.
+    const youtubeAnalysis = await processDueYoutubeObservationAnalysis(
+      supabaseAdmin,
+      YOUTUBE_OBSERVATION_ANALYSIS_LIMIT,
     );
     const kinds: DispatchKind[] = [
       "generation",
@@ -1656,6 +1850,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
         expired: youtubeCollection.expired,
         claimed: youtubeCollection.claimed,
       },
+      youtube_analysis: youtubeAnalysis,
     };
     if (!(await heartbeatBackgroundWorker(supabaseAdmin, workerRun))) {
       await finishBackgroundWorker(
@@ -1676,7 +1871,8 @@ const creatorBackgroundWorker = withSupabase<Database>({
     const hasFailure = Object.values(failed).some((count) => count > 0) ||
       pollRecords.failed > 0 || startingWatchdog.failed > 0 ||
       storageCleanup.failed > 0 || !notification.ok || !watchlistRefresh.ok ||
-      !youtubeCollection.ok;
+      !youtubeCollection.ok ||
+      youtubeObservationAnalysisHasFailure(youtubeAnalysis);
     const fullSummary: Record<string, Json> = { ...summary, notification };
     const finished = await finishBackgroundWorker(
       supabaseAdmin,

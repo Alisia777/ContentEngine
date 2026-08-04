@@ -117,6 +117,7 @@ select is(
         'creator_configure_research_watchlist',
         'creator_control_research_stage',
         'creator_correct_research_source_analysis',
+        'creator_correct_research_youtube_observation_analysis',
         'creator_decide_research_outcome_learning',
         'creator_decide_research_youtube_candidate',
         'creator_decide_research_youtube_rollout',
@@ -140,7 +141,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  86,
+  87,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -153,7 +154,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  89,
+  90,
   'authenticated can execute all creator RPCs'
 );
 

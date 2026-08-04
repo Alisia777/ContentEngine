@@ -62,6 +62,8 @@ export const RPC = Object.freeze({
   researchCategoryLearningStatus: "creator_research_category_learning_status",
   captureResearchCategoryReadiness: "creator_capture_research_category_readiness",
   correctResearchSourceAnalysis: "creator_correct_research_source_analysis",
+  correctResearchYoutubeObservationAnalysis:
+    "creator_correct_research_youtube_observation_analysis",
   configureResearchSourceCollectionPolicy:
     "creator_configure_research_source_collection_policy",
   researchWatchlistStatus: "creator_research_watchlist_status",
@@ -169,6 +171,13 @@ const RESEARCH_SOURCE_ANALYSIS_CONFIDENCE = new Set([
   "low",
   "medium",
   "high",
+]);
+const RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_SCHEMA_VERSION =
+  "research-youtube-observation-analysis-v1";
+const RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_CLASSIFICATIONS = new Set([
+  "potential_competitor",
+  "adjacent",
+  "unknown",
 ]);
 const RESEARCH_SOURCE_STRUCTURAL_SIGNAL_PATTERN =
   /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/u;
@@ -2198,6 +2207,102 @@ export class CreatorApi {
     return source;
   }
 
+  async correctResearchYoutubeObservationAnalysis(options = {}) {
+    const observationId = String(
+      options.observation_id ?? options.observationId ?? "",
+    ).trim().toLowerCase();
+    const observationHash = String(
+      options.observation_hash ?? options.observationHash ?? "",
+    ).trim().toLowerCase();
+    const expectedHeadEventId = String(
+      options.expected_head_event_id ?? options.expectedHeadEventId ?? "",
+    ).trim().toLowerCase();
+    const expectedHeadHash = String(
+      options.expected_head_hash ?? options.expectedHeadHash ?? "",
+    ).trim().toLowerCase();
+    const expectedRetentionExpiresAt = String(
+      options.expected_retention_expires_at
+        ?? options.expectedRetentionExpiresAt
+        ?? "",
+    ).trim();
+    const expectedRetentionExpiresAtMs = Date.parse(
+      expectedRetentionExpiresAt,
+    );
+    const correctionReason = String(
+      options.correction_reason ?? options.correctionReason ?? "",
+    ).replace(/\s+/gu, " ").trim();
+    const analysis = options.analysis;
+    let analysisBytes = Number.POSITIVE_INFINITY;
+    try {
+      analysisBytes = new TextEncoder().encode(stableStringify(analysis)).length;
+    } catch {
+      analysisBytes = Number.POSITIVE_INFINITY;
+    }
+    if (
+      !isUuid(observationId)
+      || !RESEARCH_STAGE_HASH_PATTERN.test(observationHash)
+      || !isUuid(expectedHeadEventId)
+      || !RESEARCH_STAGE_HASH_PATTERN.test(expectedHeadHash)
+      || !Number.isFinite(expectedRetentionExpiresAtMs)
+      || !researchYoutubeObservationAnalysisIsValid(analysis)
+      || analysisBytes > 16_384
+      || correctionReason.length < 3
+      || correctionReason.length > 1_000
+    ) {
+      throw new CreatorApiError(
+        "Проверьте гипотезу, точную версию YouTube-наблюдения и причину исправления.",
+        { code: "research_youtube_observation_analysis_correction_invalid" },
+      );
+    }
+    const response = await this.mutate(
+      RPC.correctResearchYoutubeObservationAnalysis,
+      {
+        observation_id: observationId,
+        observation_hash: observationHash,
+        expected_head_event_id: expectedHeadEventId,
+        expected_head_hash: expectedHeadHash,
+        analysis,
+        correction_reason: correctionReason,
+      },
+    );
+    const source = response?.data && typeof response.data === "object"
+      && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    if (
+      !hasExactObjectKeys(source, [
+        "ok",
+        "event_id",
+        "event_hash",
+        "analysis_version",
+        "origin",
+        "retention_expires_at",
+        "external_call_started",
+        "provider_attempt_count",
+        "automatic_retry_started",
+      ])
+      || source.ok !== true
+      || !isUuid(String(source.event_id || "").toLowerCase())
+      || !RESEARCH_STAGE_HASH_PATTERN.test(String(source.event_hash || ""))
+      || !Number.isInteger(source.analysis_version)
+      || source.analysis_version < 2
+      || source.origin !== "human_correction"
+      || typeof source.retention_expires_at !== "string"
+      || !Number.isFinite(Date.parse(source.retention_expires_at))
+      || Date.parse(source.retention_expires_at)
+        !== expectedRetentionExpiresAtMs
+      || source.external_call_started !== false
+      || source.provider_attempt_count !== 0
+      || source.automatic_retry_started !== false
+    ) {
+      throw new CreatorApiError(
+        "Исправление гипотезы сохранено с неожиданным ответом. Не повторяйте его автоматически.",
+        { code: "research_youtube_observation_analysis_response_invalid" },
+      );
+    }
+    return source;
+  }
+
   async configureResearchSourceCollectionPolicy(runId, options = {}) {
     const normalizedRunId = this.requireResearchRunId(runId);
     const platform = String(options.platform || "").trim().toLowerCase();
@@ -4193,6 +4298,81 @@ function researchSourceAnalysisIsValid(value) {
   return true;
 }
 
+function researchYoutubeObservationAnalysisIsValid(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const exactKeys = [
+    "schema_version",
+    "classification",
+    "review_priority",
+    "confidence",
+    "recommendation",
+    "signals",
+    "summary",
+    "limitations",
+  ];
+  const signals = value.signals;
+  const signalKeys = [
+    "search_position",
+    "query_token_overlap_count",
+    "query_token_count",
+    "published_age_days",
+    "same_channel_observation_count",
+    "counters_present",
+  ];
+  if (
+    Object.keys(value).length !== exactKeys.length
+    || exactKeys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))
+    || value.schema_version
+      !== RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_SCHEMA_VERSION
+    || !RESEARCH_YOUTUBE_OBSERVATION_ANALYSIS_CLASSIFICATIONS.has(
+      value.classification,
+    )
+    || !Number.isInteger(value.review_priority)
+    || value.review_priority < 0
+    || value.review_priority > 100
+    || !["low", "medium"].includes(value.confidence)
+    || !["review_candidate", "needs_more_evidence"].includes(
+      value.recommendation,
+    )
+    || !signals
+    || typeof signals !== "object"
+    || Array.isArray(signals)
+    || Object.keys(signals).length !== signalKeys.length
+    || signalKeys.some((key) =>
+      !Object.prototype.hasOwnProperty.call(signals, key)
+    )
+    || !Number.isInteger(signals.search_position)
+    || signals.search_position < 1
+    || signals.search_position > 25
+    || !Number.isInteger(signals.query_token_overlap_count)
+    || signals.query_token_overlap_count < 0
+    || signals.query_token_overlap_count > 999
+    || !Number.isInteger(signals.query_token_count)
+    || signals.query_token_count < signals.query_token_overlap_count
+    || signals.query_token_count > 999
+    || !Number.isInteger(signals.published_age_days)
+    || signals.published_age_days < 0
+    || signals.published_age_days > 9_999_999
+    || !Number.isInteger(signals.same_channel_observation_count)
+    || signals.same_channel_observation_count < 1
+    || signals.same_channel_observation_count > 9_999_999
+    || typeof signals.counters_present !== "boolean"
+    || typeof value.summary !== "string"
+    || value.summary.trim().length < 20
+    || value.summary.trim().length > 1_200
+    || !Array.isArray(value.limitations)
+    || value.limitations.length < 1
+    || value.limitations.length > 8
+    || value.limitations.some((item) =>
+      typeof item !== "string"
+      || item.trim().length < 3
+      || item.trim().length > 500
+    )
+    || researchAnalysisHasForbiddenKeys(value)
+  ) return false;
+  return true;
+}
+
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(
@@ -5366,6 +5546,11 @@ function toFriendlyMessage(error) {
     research_source_analysis_head_stale: "Разбор источника уже изменился. Обновите ledger и проверьте новую версию.",
     research_source_analysis_invalid: "Разбор должен соответствовать schema v1 и не содержать raw captions, transcript или полный чужой текст.",
     research_source_ledger_not_found: "Источник больше не доступен в выбранной категории. Обновите ledger.",
+    research_youtube_analysis_correction_payload_invalid: "Проверьте точный head, JSON-гипотезу и причину исправления YouTube-наблюдения.",
+    research_youtube_observation_analysis_invalid: "Гипотеза должна соответствовать retention-bound schema v1 и не может содержать raw captions, transcript или provider payload.",
+    research_youtube_derived_analysis_approval_required: "Разбор YouTube остановлен до принятого analytics amendment и точного approval reference.",
+    research_youtube_observation_analysis_head_stale: "Гипотеза YouTube уже изменилась. Обновите статус и проверьте новую версию.",
+    research_youtube_observation_not_found: "YouTube-наблюдение изменилось или удалено по сроку хранения. Обновите статус.",
     research_collection_policy_payload_invalid: "Политика автосбора заполнена не полностью. Обновите статус.",
     research_collection_policy_invalid: "Проверьте provider, период, hard budget и четыре явных подтверждения.",
     research_collection_expected_policy_invalid: "Точная версия политики не определена. Обновите статус.",

@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
-select no_plan();
+select plan(49);
 
 -- This fixture exercises the automatic path without contacting YouTube.  The
 -- two recorded transport receipts are bounded provider observations, not raw
@@ -546,6 +546,233 @@ select is(
   0,
   'recorded observations contain no description, caption, transcript, tag or raw payload'
 );
+select is(
+  (select jsonb_build_array(
+     count(*)::integer,
+     min(job.status),
+     min(job.attempt_count),
+     bool_and(job.no_retry),
+     bool_or(job.external_call_started),
+     min(job.parsed_count)
+   )
+   from content_factory.research_youtube_observation_analysis_jobs job
+   where job.ingestion_id = current_setting(
+     'content_factory.test_auto_ingestion_id'
+   )::uuid),
+  '[1,"approval_required",0,true,false,0]'::jsonb,
+  'completion creates local analysis work but keeps it approval-gated'
+);
+
+create temporary table automatic_readiness_before_parser on commit drop as
+select content_factory_private.research_category_evidence_readiness(
+  'aa110000-0000-4000-8000-000000000001',
+  'aa150000-0000-4000-8000-000000000001',
+  clock_timestamp()
+) value;
+
+select is(
+  (
+    select (dimension ->> 'current')::integer
+    from jsonb_array_elements(
+      (select value -> 'dimensions' from automatic_readiness_before_parser)
+    ) dimension
+    where dimension ->> 'key' = 'analysis_coverage'
+  ),
+  (
+    select (dimension ->> 'current')::integer
+    from jsonb_array_elements(
+      (select value -> 'dimensions' from automatic_readiness_before)
+    ) dimension
+    where dimension ->> 'key' = 'analysis_coverage'
+  ),
+  'retained metadata alone does not increase structured analysis coverage'
+);
+
+create temporary table automatic_source_ledger_before_parser on commit drop as
+select count(*)::integer value
+from content_factory.research_category_source_ledger ledger
+where ledger.organization_id = 'aa110000-0000-4000-8000-000000000001'
+  and ledger.market_category_id = 'aa150000-0000-4000-8000-000000000001';
+
+do $$ begin
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+end $$;
+set local role service_role;
+select is(
+  (with processed as materialized (
+     select public.system_process_due_research_youtube_observation_analysis(
+       jsonb_build_object('limit', 1)
+     ) result
+   )
+   select jsonb_build_array(
+     (result ->> 'selected')::integer,
+     (result ->> 'completed')::integer,
+     (result ->> 'failed')::integer,
+     (result ->> 'external_call_started')::boolean,
+     (result ->> 'provider_attempt_count')::integer
+   )
+   from processed),
+  '[0,0,0,false,0]'::jsonb,
+  'derived analysis stays stopped before audited analytics approval'
+);
+select is(
+  (with decided as materialized (
+     select public.system_decide_research_youtube_derived_analysis(
+       jsonb_build_object(
+         'decision', 'approved',
+         'terms_version',
+           'youtube-derived-metrics-policy-2026-06-01-v1',
+         'terms_review_ack', true,
+         'analytics_amendment_ack', true,
+         'approval_reference', 'YT-ANALYTICS-AUDIT-TEST-001',
+         'reason', 'Test-only audited analytics approval fixture.',
+         'idempotency_key', 'youtube-derived-analysis-approved-test-001'
+       )
+     ) result
+   )
+   select jsonb_build_array(
+     result ->> 'decision',
+     result ->> 'approval_reference',
+     (result ->> 'external_call_started')::boolean,
+     (result ->> 'automatic_retry_started')::boolean
+   )
+   from decided),
+  '["approved","YT-ANALYTICS-AUDIT-TEST-001",false,false]'::jsonb,
+  'service-role approval records the exact amendment reference without provider work'
+);
+reset role;
+select is(
+  (select count(*)::integer
+   from content_factory.research_youtube_observation_analysis_events),
+  0,
+  'approval-gated processing creates no analysis events'
+);
+select is(
+  (select min(job.status)
+   from content_factory.research_youtube_observation_analysis_jobs job
+   where job.ingestion_id = current_setting(
+     'content_factory.test_auto_ingestion_id'
+   )::uuid),
+  'queued',
+  'recorded approval releases still-retained local jobs'
+);
+set local role service_role;
+select is(
+  (
+    with processed as materialized (
+      select public.system_process_due_research_youtube_observation_analysis(
+        jsonb_build_object('limit', 1)
+      ) result
+    )
+    select jsonb_build_array(
+      (result ->> 'selected')::integer,
+      (result ->> 'completed')::integer,
+      (result ->> 'failed')::integer,
+      result #>> '{items,0,status}',
+      (result #>> '{items,0,parsed_count}')::integer,
+      (result ->> 'external_call_started')::boolean,
+      (result ->> 'provider_attempt_count')::integer,
+      (result ->> 'cost_minor')::integer,
+      (result ->> 'automatic_retry_started')::boolean
+    )
+    from processed
+  ),
+  '[1,1,0,"completed",2,false,0,0,false]'::jsonb,
+  'the local parser completes one job and two events with zero provider, cost or retry'
+);
+reset role;
+
+select is(
+  (select jsonb_build_array(
+     count(*)::integer,
+     min(job.status),
+     min(job.attempt_count),
+     min(job.parsed_count),
+     bool_and(job.no_retry),
+     bool_or(job.external_call_started)
+   )
+   from content_factory.research_youtube_observation_analysis_jobs job
+   where job.ingestion_id = current_setting(
+     'content_factory.test_auto_ingestion_id'
+   )::uuid),
+  '[1,"completed",1,2,true,false]'::jsonb,
+  'the completed local job records its only attempt and cannot be retried'
+);
+select is(
+  (select jsonb_build_array(
+     count(*)::integer,
+     count(distinct event.observation_id)::integer,
+     min(event.analysis_version),
+     max(event.analysis_version),
+     bool_and(event.origin = 'system_parser'),
+     bool_and(event.retention_expires_at = observation.retention_expires_at),
+     bool_and(event.observation_hash = observation.observation_hash)
+   )
+   from content_factory.research_youtube_observation_analysis_events event
+   join content_factory.research_youtube_video_observations observation
+     on observation.organization_id = event.organization_id
+    and observation.id = event.observation_id
+    and observation.observation_hash = event.observation_hash
+   where observation.ingestion_id = current_setting(
+     'content_factory.test_auto_ingestion_id'
+   )::uuid),
+  '[2,2,1,1,true,true,true]'::jsonb,
+  'two parser events remain bound to the exact retained observation versions'
+);
+select ok(
+  not content_factory_private.research_youtube_observation_analysis_is_valid(
+    jsonb_set(
+      (select event.analysis
+       from content_factory.research_youtube_observation_analysis_events event
+       order by event.created_at, event.id
+       limit 1),
+      '{signals,search_position}',
+      '"1"'::jsonb
+    )
+  ),
+  'numeric strings cannot cross the SQL analysis schema boundary'
+);
+select ok(
+  not content_factory_private.research_youtube_observation_analysis_is_valid(
+    jsonb_set(
+      (select event.analysis
+       from content_factory.research_youtube_observation_analysis_events event
+       order by event.created_at, event.id
+       limit 1),
+      '{signals,query_token_count}',
+      '1000'::jsonb
+    )
+  ),
+  'SQL and web share the bounded three-digit token-count contract'
+);
+select ok(
+  (
+    select (dimension ->> 'current')::integer
+    from jsonb_array_elements(
+      content_factory_private.research_category_evidence_readiness(
+        'aa110000-0000-4000-8000-000000000001',
+        'aa150000-0000-4000-8000-000000000001',
+        clock_timestamp()
+      ) -> 'dimensions'
+    ) dimension
+    where dimension ->> 'key' = 'analysis_coverage'
+  ) > (
+    select (dimension ->> 'current')::integer
+    from jsonb_array_elements(
+      (select value -> 'dimensions' from automatic_readiness_before_parser)
+    ) dimension
+    where dimension ->> 'key' = 'analysis_coverage'
+  ),
+  'analysis coverage increases only after the deterministic parser succeeds'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_category_source_ledger ledger
+   where ledger.organization_id = 'aa110000-0000-4000-8000-000000000001'
+     and ledger.market_category_id = 'aa150000-0000-4000-8000-000000000001'),
+  (select value from automatic_source_ledger_before_parser),
+  'retention-bound analysis does not copy observations into the durable source ledger'
+);
 select ok(
   (
     content_factory_private.research_category_evidence_readiness(
@@ -586,7 +813,34 @@ select is(
       ) result
     )
     select jsonb_build_array(
+      result ->> 'version',
       jsonb_array_length(result #> '{retained_youtube_evidence,items}'),
+      (select count(*)::integer
+       from jsonb_array_elements(
+         result #> '{retained_youtube_evidence,items}'
+       ) retained(item)
+       where item #>> '{current_analysis,origin}' = 'system_parser'),
+      (select count(*)::integer
+       from jsonb_array_elements(
+         result #> '{retained_youtube_evidence,items}'
+       ) retained(item)
+       where jsonb_array_length(item -> 'analysis_history') = 1
+         and item #>> '{analysis_history,0,event_id}'
+           = item #>> '{current_analysis,event_id}'),
+      (select count(*)::integer
+       from jsonb_array_elements(
+         result #> '{retained_youtube_evidence,items}'
+       ) retained(item)
+       where item #>> '{analysis_job,status}' = 'completed'
+         and (item #>> '{analysis_job,attempt_count}')::integer = 1
+         and (item #>> '{analysis_job,parsed_count}')::integer = 2
+         and (item #>> '{analysis_job,no_retry}')::boolean
+         and not (item #>> '{analysis_job,external_call_started}')::boolean),
+      (select count(*)::integer
+       from jsonb_array_elements(
+         result #> '{retained_youtube_evidence,items}'
+       ) retained(item)
+       where (item ->> 'can_correct_analysis')::boolean),
       jsonb_array_length(result #> '{collection,history}'),
       result #>> '{collection,history,0,ingestion_status}',
       (result #>> '{collection,history,0,transport_attempt_count}')::integer,
@@ -594,10 +848,423 @@ select is(
     )
     from status_call
   ),
-  '[2,1,"completed",2,"blocked_pending_provider_and_legal_choice"]'::jsonb,
-  'creator status returns editable evidence and an auditable completed collection history'
+  '["research-category-learning-readiness-v2",2,2,2,2,2,1,"completed",2,"blocked_pending_provider_and_legal_choice"]'::jsonb,
+  'creator status returns current analysis, history, completed job and collection audit'
 );
 reset role;
+
+create temporary table automatic_analysis_correction_fixture on commit drop as
+select
+  observation.id as observation_id,
+  observation.observation_hash,
+  observation.retention_expires_at,
+  event.id as system_event_id,
+  event.event_hash as system_event_hash,
+  jsonb_set(
+    event.analysis,
+    '{summary}',
+    to_jsonb(
+      'Human reviewer corrected the retained parser hypothesis without changing candidate truth.'::text
+    )
+  ) as correction_analysis
+from content_factory.research_youtube_video_observations observation
+join content_factory.research_youtube_observation_analysis_events event
+  on event.organization_id = observation.organization_id
+ and event.observation_id = observation.id
+ and event.observation_hash = observation.observation_hash
+where observation.ingestion_id = current_setting(
+    'content_factory.test_auto_ingestion_id'
+  )::uuid
+  and observation.video_id = 'AutoVid0001'
+  and event.analysis_version = 1;
+
+create temporary table automatic_readiness_before_human on commit drop as
+select content_factory_private.research_category_evidence_readiness(
+  'aa110000-0000-4000-8000-000000000001',
+  'aa150000-0000-4000-8000-000000000001',
+  clock_timestamp()
+) value;
+
+do $$
+declare
+  payload_value jsonb;
+begin
+  select jsonb_build_object(
+    'organization_id', 'aa110000-0000-4000-8000-000000000001',
+    'observation_id', fixture.observation_id,
+    'observation_hash', fixture.observation_hash,
+    'expected_head_event_id', fixture.system_event_id,
+    'expected_head_hash', fixture.system_event_hash,
+    'analysis', fixture.correction_analysis,
+    'correction_reason',
+      'A human reviewer refined the local parser hypothesis.',
+    'idempotency_key', 'youtube-analysis-human-correction-test-001'
+  )
+  into payload_value
+  from automatic_analysis_correction_fixture fixture;
+  perform set_config(
+    'content_factory.test_analysis_correction_payload',
+    payload_value::text,
+    true
+  );
+end
+$$;
+
+do $$ begin
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claim.sub',
+    'aa100000-0000-4000-8000-000000000001', true
+  );
+end $$;
+set local role authenticated;
+select is(
+  (
+    with corrected as materialized (
+      select public.creator_correct_research_youtube_observation_analysis(
+        current_setting(
+          'content_factory.test_analysis_correction_payload'
+        )::jsonb
+      ) result
+    )
+    select jsonb_build_array(
+      (result ->> 'ok')::boolean,
+      result ->> 'origin',
+      (result ->> 'analysis_version')::integer,
+      (result ->> 'external_call_started')::boolean,
+      (result ->> 'provider_attempt_count')::integer,
+      (result ->> 'automatic_retry_started')::boolean,
+      result ->> 'event_id' is not null,
+      result ->> 'event_hash' is not null
+    )
+    from corrected
+  ),
+  '[true,"human_correction",2,false,0,false,true,true]'::jsonb,
+  'an exact-head correction appends human v2 without provider work or retry'
+);
+reset role;
+
+select is(
+  (
+    with head as (
+      select event.*
+      from content_factory.research_youtube_observation_analysis_events event
+      join automatic_analysis_correction_fixture fixture
+        on fixture.observation_id = event.observation_id
+       and fixture.observation_hash = event.observation_hash
+      order by event.analysis_version desc, event.id desc
+      limit 1
+    )
+    select jsonb_build_array(
+      (select count(*)::integer
+       from content_factory.research_youtube_observation_analysis_events event
+       where event.observation_id = fixture.observation_id),
+      head.analysis_version,
+      head.origin,
+      head.parent_event_id = fixture.system_event_id,
+      head.expected_parent_hash = fixture.system_event_hash,
+      head.actor_id = 'aa100000-0000-4000-8000-000000000001'::uuid,
+      head.analysis = fixture.correction_analysis,
+      head.retention_expires_at = fixture.retention_expires_at,
+      (select count(*)::integer
+       from content_factory.research_youtube_candidate_decisions decision
+       where decision.observation_id = fixture.observation_id)
+    )
+    from head
+    cross join automatic_analysis_correction_fixture fixture
+  ),
+  '[2,2,"human_correction",true,true,true,true,true,0]'::jsonb,
+  'the human head preserves the exact append-only parent chain and candidate truth'
+);
+
+set local role authenticated;
+select is(
+  (
+    with replayed as materialized (
+      select public.creator_correct_research_youtube_observation_analysis(
+        current_setting(
+          'content_factory.test_analysis_correction_payload'
+        )::jsonb
+      ) result
+    ), status_call as materialized (
+      select public.creator_research_category_learning_status(
+        jsonb_build_object(
+          'organization_id', 'aa110000-0000-4000-8000-000000000001',
+          'run_id', 'aa130000-0000-4000-8000-000000000001'
+        )
+      ) result
+    ), corrected_item as (
+      select retained.item
+      from status_call
+      cross join lateral jsonb_array_elements(
+        status_call.result #> '{retained_youtube_evidence,items}'
+      ) retained(item)
+      where retained.item ->> 'video_id' = 'AutoVid0001'
+    )
+    select jsonb_build_array(
+      replayed.result ->> 'event_id'
+        = corrected_item.item #>> '{current_analysis,event_id}',
+      replayed.result ->> 'event_hash'
+        = corrected_item.item #>> '{current_analysis,event_hash}',
+      (replayed.result ->> 'analysis_version')::integer,
+      replayed.result ->> 'origin'
+    )
+    from replayed
+    cross join corrected_item
+  ),
+  '[true,true,2,"human_correction"]'::jsonb,
+  'an exact idempotency replay returns the same human head'
+);
+select throws_ok(
+  $stale_analysis_head$
+    select public.creator_correct_research_youtube_observation_analysis(
+      current_setting(
+        'content_factory.test_analysis_correction_payload'
+      )::jsonb || jsonb_build_object(
+        'idempotency_key', 'youtube-analysis-human-correction-stale-001'
+      )
+    )
+  $stale_analysis_head$,
+  '40001',
+  'research_youtube_observation_analysis_head_stale',
+  'a second command cannot append from the superseded system head'
+);
+reset role;
+
+select is(
+  (select count(*)::integer
+   from content_factory.research_youtube_observation_analysis_events event
+   join automatic_analysis_correction_fixture fixture
+     on fixture.observation_id = event.observation_id),
+  2,
+  'idempotency replay and stale CAS create no duplicate history'
+);
+select is(
+  (
+    with after_value as (
+      select content_factory_private.research_category_evidence_readiness(
+        'aa110000-0000-4000-8000-000000000001',
+        'aa150000-0000-4000-8000-000000000001',
+        clock_timestamp()
+      ) value
+    )
+    select jsonb_build_array(
+      (select (dimension ->> 'current')::integer
+       from after_value,
+         jsonb_array_elements(after_value.value -> 'dimensions') dimension
+       where dimension ->> 'key' = 'human_validation')
+        - (select (dimension ->> 'current')::integer
+           from automatic_readiness_before_human before_value,
+             jsonb_array_elements(before_value.value -> 'dimensions') dimension
+           where dimension ->> 'key' = 'human_validation'),
+      (select (dimension ->> 'current')::integer
+       from after_value,
+         jsonb_array_elements(after_value.value -> 'dimensions') dimension
+       where dimension ->> 'key' = 'analysis_coverage')
+        - (select (dimension ->> 'current')::integer
+           from automatic_readiness_before_human before_value,
+             jsonb_array_elements(before_value.value -> 'dimensions') dimension
+           where dimension ->> 'key' = 'analysis_coverage'),
+      (select (dimension ->> 'current')::integer
+       from after_value,
+         jsonb_array_elements(after_value.value -> 'dimensions') dimension
+       where dimension ->> 'key' = 'competitor_observations')
+        - (select (dimension ->> 'current')::integer
+           from automatic_readiness_before_human before_value,
+             jsonb_array_elements(before_value.value -> 'dimensions') dimension
+           where dimension ->> 'key' = 'competitor_observations'),
+      (select (dimension ->> 'current')::integer
+       from after_value,
+         jsonb_array_elements(after_value.value -> 'dimensions') dimension
+       where dimension ->> 'key' = 'trend_recency')
+        - (select (dimension ->> 'current')::integer
+           from automatic_readiness_before_human before_value,
+             jsonb_array_elements(before_value.value -> 'dimensions') dimension
+           where dimension ->> 'key' = 'trend_recency')
+    )
+  ),
+  '[1,0,0,0]'::jsonb,
+  'human correction adds only human-validation readiness credit'
+);
+
+insert into content_factory.research_youtube_observation_analysis_jobs (
+  id, organization_id, ingestion_id, parser_key, parser_version, status,
+  input_hash, retention_expires_at, job_hash
+) values (
+  'aa1e0000-0000-4000-8000-000000000001',
+  'aa110000-0000-4000-8000-000000000001',
+  'aa170000-0000-4000-8000-000000000001',
+  'youtube_observation_deterministic', '1.0.0', 'queued',
+  content_factory_private.research_youtube_analysis_input_hash(
+    'aa170000-0000-4000-8000-000000000001'
+  ),
+  clock_timestamp() + interval '29 days',
+  content_factory_private.json_hash(
+    '{"fixture":"historical-approval-replay"}'::jsonb
+  )
+);
+
+do $$ begin
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+end $$;
+set local role service_role;
+select is(
+  public.system_decide_research_youtube_derived_analysis(
+    jsonb_build_object(
+      'decision', 'emergency_paused',
+      'terms_version', 'youtube-derived-metrics-policy-2026-06-01-v1',
+      'terms_review_ack', false,
+      'analytics_amendment_ack', false,
+      'approval_reference', null,
+      'reason', 'Pause derived analysis in the runtime gate fixture.',
+      'idempotency_key', 'youtube-derived-analysis-paused-test-001'
+    )
+  ) ->> 'decision',
+  'emergency_paused',
+  'the service gate records an append-only emergency pause'
+);
+reset role;
+
+set local role service_role;
+do $$ begin
+  perform public.system_decide_research_youtube_derived_analysis(
+    jsonb_build_object(
+      'decision', 'approved',
+      'terms_version', 'youtube-derived-metrics-policy-2026-06-01-v1',
+      'terms_review_ack', true,
+      'analytics_amendment_ack', true,
+      'approval_reference', 'YT-ANALYTICS-AUDIT-TEST-001',
+      'reason', 'Test-only audited analytics approval fixture.',
+      'idempotency_key', 'youtube-derived-analysis-approved-test-001'
+    )
+  );
+end $$;
+reset role;
+select is(
+  (select jsonb_build_array(
+     job.status,
+     content_factory_private.research_youtube_derived_analysis_approved(),
+     (select decision.decision
+      from content_factory.research_youtube_derived_analysis_decisions decision
+      order by decision.decided_at desc, decision.id desc
+      limit 1),
+     (select count(*)::integer
+      from content_factory.research_youtube_derived_analysis_decisions)
+   )
+   from content_factory.research_youtube_observation_analysis_jobs job
+   where job.id = 'aa1e0000-0000-4000-8000-000000000001'),
+  '["approval_required",false,"emergency_paused",3]'::jsonb,
+  'historical approval replay cannot diverge jobs from the latest paused gate'
+);
+
+do $$ begin
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claim.sub',
+    'aa100000-0000-4000-8000-000000000001', true
+  );
+end $$;
+set local role authenticated;
+select is(
+  (
+    with status_call as materialized (
+      select public.creator_research_category_learning_status(
+        jsonb_build_object(
+          'organization_id', 'aa110000-0000-4000-8000-000000000001',
+          'run_id', 'aa130000-0000-4000-8000-000000000001'
+        )
+      ) result
+    )
+    select jsonb_build_array(
+      result #>> '{provider_strategy,youtube_derived_analysis_state}',
+      (select count(*)::integer
+       from jsonb_array_elements(
+         result #> '{retained_youtube_evidence,items}'
+       ) retained(item)
+       where item ->> 'video_id' = 'AutoVid0001'
+         and item #>> '{current_analysis,origin}' = 'human_correction'
+         and jsonb_array_length(item -> 'analysis_history') = 2
+         and item #>> '{analysis_history,0,event_id}'
+           = item #>> '{current_analysis,event_id}'),
+      (select count(*)::integer
+       from jsonb_array_elements(
+         result #> '{retained_youtube_evidence,items}'
+       ) retained(item)
+       where (item ->> 'can_correct_analysis')::boolean)
+    )
+    from status_call
+  ),
+  '["emergency_paused",1,0]'::jsonb,
+  'paused status preserves human history but exposes no correction affordance'
+);
+select throws_ok(
+  $paused_analysis_correction$
+    with status_call as materialized (
+      select public.creator_research_category_learning_status(
+        jsonb_build_object(
+          'organization_id', 'aa110000-0000-4000-8000-000000000001',
+          'run_id', 'aa130000-0000-4000-8000-000000000001'
+        )
+      ) result
+    ), corrected_item as (
+      select retained.item
+      from status_call
+      cross join lateral jsonb_array_elements(
+        status_call.result #> '{retained_youtube_evidence,items}'
+      ) retained(item)
+      where retained.item ->> 'video_id' = 'AutoVid0001'
+    )
+    select public.creator_correct_research_youtube_observation_analysis(
+      jsonb_build_object(
+        'organization_id', 'aa110000-0000-4000-8000-000000000001',
+        'observation_id', item ->> 'observation_id',
+        'observation_hash', item ->> 'observation_hash',
+        'expected_head_event_id', item #>> '{current_analysis,event_id}',
+        'expected_head_hash', item #>> '{current_analysis,event_hash}',
+        'analysis', item #> '{current_analysis,analysis}',
+        'correction_reason', 'A paused gate must reject this correction.',
+        'idempotency_key', 'youtube-analysis-paused-correction-test-001'
+      )
+    )
+    from corrected_item
+  $paused_analysis_correction$,
+  '55000',
+  'research_youtube_derived_analysis_approval_required',
+  'the correction RPC fails closed while derived analysis is paused'
+);
+reset role;
+
+select throws_ok(
+  format(
+    'update content_factory.research_youtube_observation_analysis_events '
+      || 'set correction_reason = %L where id = %L::uuid',
+    'Forbidden in-place rewrite',
+    (select event.id
+     from content_factory.research_youtube_observation_analysis_events event
+     join automatic_analysis_correction_fixture fixture
+       on fixture.observation_id = event.observation_id
+     order by event.analysis_version desc
+     limit 1)
+  ),
+  '55000',
+  'research_youtube_observation_analysis_events_append_only',
+  'a human v2 analysis event cannot be rewritten in place'
+);
+select throws_ok(
+  format(
+    'delete from content_factory.research_youtube_observation_analysis_events '
+      || 'where id = %L::uuid',
+    (select event.id
+     from content_factory.research_youtube_observation_analysis_events event
+     join automatic_analysis_correction_fixture fixture
+       on fixture.observation_id = event.observation_id
+     order by event.analysis_version desc
+     limit 1)
+  ),
+  '55000',
+  'research_youtube_observation_analysis_events_append_only',
+  'a human v2 analysis event cannot be deleted outside retention purge'
+);
 
 do $$ begin
   perform set_config('request.jwt.claim.role', 'service_role', true);

@@ -1894,8 +1894,8 @@ select is(
 );
 select is(
   (select value ->> 'definition_version' from readiness_same_channel),
-  'category-evidence-readiness-v2',
-  'truthful YouTube semantics are isolated in readiness definition v2'
+  'category-evidence-readiness-v3',
+  'truthful YouTube semantics and parser heads are isolated in readiness definition v3'
 );
 select is(
   (select count(*)::integer

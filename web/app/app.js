@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.1";
+} from "./supabase-api.js?v=20260804.2";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -64,6 +64,7 @@ import {
   normalizeProductResearch,
   normalizeResearchCategoryLearning,
   normalizeResearchSourceAnalysisInput,
+  normalizeResearchYoutubeObservationAnalysisInput,
   normalizeResearchStageControl,
   normalizeResearchMarketRegistry,
   inspectResearchScenarioGenerationReadiness,
@@ -72,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260803.11";
+} from "./product-research-view.js?v=20260804.2";
 import {
   AI_PRODUCT_CATEGORIES,
   aiLearningCategory,
@@ -297,6 +298,7 @@ const PRODUCT_RESEARCH_YOUTUBE_PHASES = new Set([
   "youtube-refresh",
   "youtube-rollout",
   "youtube-candidate",
+  "category-learning-youtube-analysis-correction",
 ]);
 const PRODUCT_RESEARCH_YOUTUBE_TERMS_VERSION =
   "youtube-developer-policies-2026-08-03-v1";
@@ -12242,6 +12244,7 @@ function renderProductResearchSection() {
         "category-learning-capture",
         "category-learning-correction",
         "category-learning-policy",
+        "category-learning-youtube-analysis-correction",
       ].includes(research.phase),
       categoryLearningPolicyWritable: ["owner", "admin"].includes(
         state.bootstrap?.membership?.role,
@@ -14890,6 +14893,7 @@ async function handleSubmit(event) {
   else if (form.id === "product-research-youtube-rollout-form") await submitProductResearchYoutubeRollout(form, event.submitter);
   else if (form.classList.contains("product-research-youtube-candidate-form")) await submitProductResearchYoutubeCandidate(form, event.submitter);
   else if (form.classList.contains("product-research-readiness-capture-form")) await submitProductResearchReadinessCapture(form);
+  else if (form.classList.contains("product-research-youtube-analysis-correction-form")) await submitProductResearchYoutubeAnalysisCorrection(form);
   else if (form.classList.contains("product-research-source-correction-form")) await submitProductResearchSourceCorrection(form);
   else if (form.classList.contains("product-research-collection-policy-form")) await submitProductResearchCollectionPolicy(form, event.submitter);
   else if (form.classList.contains("product-research-stage-cancel-form")) await submitProductResearchStageCancel(form, event.submitter);
@@ -19967,9 +19971,12 @@ async function submitProductResearchOutcomeDecision(form, submitter) {
   if (state.route.path === "/workspace/research") renderWorkspace("research");
 }
 
-async function refreshProductResearchCategoryLearning(runId) {
+async function refreshProductResearchCategoryLearning(runId, {
+  expectedRequestId = state.productResearch.requestId,
+} = {}) {
+  const expectedRunId = String(runId || "").trim().toLowerCase();
   const raw = await withUiTimeout(
-    state.api.researchCategoryLearningStatus(runId),
+    state.api.researchCategoryLearningStatus(expectedRunId),
     WORKSPACE_REQUEST_TIMEOUT_MS,
     "research_category_learning_status_timeout",
   );
@@ -19978,13 +19985,21 @@ async function refreshProductResearchCategoryLearning(runId) {
       ? raw.data
       : raw,
     unavailable: false,
-    expectedRunId: runId,
+    expectedRunId,
   });
   if (!normalized.available) {
     throw new Error("research_category_learning_response_invalid");
   }
-  state.productResearch.record = {
-    ...state.productResearch.record,
+  const research = state.productResearch;
+  const currentRunId = String(state.productResearch.record?.id || "")
+    .trim()
+    .toLowerCase();
+  if (
+    research.requestId !== expectedRequestId
+    || currentRunId !== expectedRunId
+  ) return null;
+  research.record = {
+    ...research.record,
     categoryLearning: normalized,
   };
   return normalized;
@@ -20037,6 +20052,113 @@ async function submitProductResearchReadinessCapture(form) {
       }
     }
   }
+  research.phase = productResearchRestingPhase();
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+async function submitProductResearchYoutubeAnalysisCorrection(form) {
+  const research = state.productResearch;
+  const runId = String(research.record?.id || "").trim().toLowerCase();
+  const control = research.record?.categoryLearning;
+  const observationId = String(form.dataset.observationId || "")
+    .trim()
+    .toLowerCase();
+  const values = new FormData(form);
+  const observation = control?.retainedYoutubeEvidence?.find(
+    (item) => item.observationId === observationId,
+  );
+  const expectedHeadEventId = String(
+    values.get("expected_head_event_id") || "",
+  ).trim().toLowerCase();
+  const expectedHeadHash = String(
+    values.get("expected_head_hash") || "",
+  ).trim().toLowerCase();
+  const observationHash = String(
+    values.get("observation_hash") || "",
+  ).trim().toLowerCase();
+  if (
+    !runId
+    || !control?.available
+    || control.runId !== runId
+    || control.providerStrategy?.youtubeDerivedAnalysisState !== "approved"
+    || !observation
+    || !observation.canCorrectAnalysis
+    || !observation.currentAnalysis
+    || observation.observationHash !== observationHash
+    || observation.currentAnalysis.eventId !== expectedHeadEventId
+    || observation.currentAnalysis.eventHash !== expectedHeadHash
+    || !values.has("correction_confirmation")
+  ) {
+    toast("Гипотеза уже изменилась. Обновите статус и проверьте точную версию.", "error");
+    return;
+  }
+  let analysis;
+  try {
+    analysis = JSON.parse(String(values.get("analysis") || ""));
+  } catch {
+    toast("Исправленная гипотеза должна быть валидным JSON-объектом.", "error");
+    form.elements.analysis?.focus();
+    return;
+  }
+  analysis = normalizeResearchYoutubeObservationAnalysisInput(analysis);
+  if (!analysis) {
+    toast("Гипотеза должна точно соответствовать retention-bound schema v1 без raw текста.", "error");
+    form.elements.analysis?.focus();
+    return;
+  }
+  const correctionReason = String(
+    values.get("correction_reason") || "",
+  ).replace(/\s+/gu, " ").trim();
+  const requestId = research.requestId + 1;
+  research.requestId = requestId;
+  research.phase = "category-learning-youtube-analysis-correction";
+  research.error = "";
+  research.notice = "";
+  renderWorkspace("research");
+  let mutationCompleted = false;
+  try {
+    const correction = await state.api.correctResearchYoutubeObservationAnalysis({
+      observation_id: observationId,
+      observation_hash: observationHash,
+      expected_head_event_id: expectedHeadEventId,
+      expected_head_hash: expectedHeadHash,
+      expected_retention_expires_at: observation.retentionExpiresAt,
+      analysis,
+      correction_reason: correctionReason,
+    });
+    if (requestId !== research.requestId) return;
+    mutationCompleted = true;
+    if (
+      Date.parse(correction.retention_expires_at)
+        !== Date.parse(observation.retentionExpiresAt)
+    ) throw new Error("research_youtube_observation_analysis_response_invalid");
+    await refreshProductResearchCategoryLearning(runId, {
+      expectedRequestId: requestId,
+    });
+    if (requestId !== research.requestId) return;
+    research.notice = "Гипотеза исправлена новой append-only версией. Прежний разбор сохранён до общего retention; provider call, retry и подтверждение конкурента не выполнялись.";
+  } catch (error) {
+    if (requestId !== research.requestId) return;
+    if (mutationCompleted) {
+      research.notice = "Исправление сохранено, но свежая история временно недоступна. Не отправляйте его повторно.";
+    } else {
+      research.error = actionErrorMessage(error);
+      if ([
+        "research_youtube_observation_analysis_head_stale",
+        "research_youtube_observation_not_found",
+      ].includes(String(error?.serverCode || error?.code || ""))) {
+        try {
+          await refreshProductResearchCategoryLearning(runId, {
+            expectedRequestId: requestId,
+          });
+          if (requestId !== research.requestId) return;
+        } catch {
+          // Exact-head conflicts are visible and never retried automatically.
+        }
+      }
+    }
+  }
+  if (requestId !== research.requestId) return;
   research.phase = productResearchRestingPhase();
   if (state.route.path === "/workspace/research") renderWorkspace("research");
 }
