@@ -293,6 +293,11 @@ const markup = subject.aiLearningControlRoomMarkup(normalized, {
   view: "overview",
   saving: false,
 });
+const legacyMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "overview",
+  legacyReadOnly: true,
+});
 const wrongVersion = subject.normalizeAiLearningControlRoom({
   ...envelope,
   version: "ai-learning-control-room-v2",
@@ -379,6 +384,9 @@ return {
     && markup.includes('name="card_hash"')
     && markup.includes('name="expected_scope_version"'),
   accessibleStatus: markup.includes('aria-live=') || markup.includes('role="status"'),
+  legacyArchiveOnly: legacyMarkup.includes("Архивная политика: влияние отключено")
+    && legacyMarkup.includes("Архивный legacy-показатель")
+    && !legacyMarkup.includes("Правила, которые реально учитывает ИИ"),
   policyHeadingIds: [...markup.matchAll(/id="(ai-learning-policy-[^"]+-title)"/g)].map((match) => match[1]),
   authoritativeVersion: afterApproved.stateVersion ?? afterApproved.state_version,
   authoritativeCursor: afterApproved.eventCursor ?? afterApproved.event_cursor,
@@ -408,6 +416,7 @@ return {
         "decisions": True,
         "exactDecisionIdentity": True,
         "accessibleStatus": True,
+        "legacyArchiveOnly": True,
         "policyHeadingIds": [
             "ai-learning-policy-overview-title",
             "ai-learning-policy-history-title",

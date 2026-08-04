@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.8";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.9";
 
-const BUILD = "20260804.os4.8";
+const BUILD = "20260804.os4.9";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -21,7 +21,7 @@ window.CONTENTENGINE_DESKTOP_V4 = true;
 const ROUTE_ASSETS = Object.freeze({
   aiLearning: Object.freeze({
     match: (route) => route === "/workspace/ai",
-    styles: ["ai-learning-control-room.css?v=20260804.3"],
+    styles: ["ai-learning-control-room.css?v=20260804.4"],
     modules: [],
   }),
   finder: Object.freeze({

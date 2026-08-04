@@ -192,5 +192,5 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260804.2' in INDEX
-    assert './supabase-api.js?v=20260804.2' in APP
+    assert './app.js?v=20260804.3' in INDEX
+    assert './supabase-api.js?v=20260804.3' in APP

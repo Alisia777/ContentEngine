@@ -23,6 +23,7 @@ const ACTION_ROUTES = Object.freeze({
   "/workspace/ai": Object.freeze({
     defaultView: "overview",
     views: ["overview", "knowledge", "teach", "history"],
+    entities: { scope: ["overview", "knowledge", "teach", "history"] },
     qualifiers: {
       category: Object.freeze({
         defaultValue: "cosmetics",

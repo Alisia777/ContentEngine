@@ -1,4 +1,4 @@
-import { CreatorApi } from "./supabase-api.js?v=20260804.2";
+import { CreatorApi } from "./supabase-api.js?v=20260804.3";
 
 /*
  * ContentEngine Desktop v4 · Context menus and Trash.

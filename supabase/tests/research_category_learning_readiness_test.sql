@@ -603,6 +603,74 @@ select lives_ok(
   $runtime_resolve$,
   'first category confirmation atomically registers and bootstraps sources'
 );
+insert into content_factory.product_research_runs (
+  id, organization_id, product_id, created_by, status, input, summary,
+  request_hash, idempotency_key, finished_at, created_at
+) values (
+  'c0100000-0000-4000-8000-000000000009',
+  'c0100000-0000-4000-8000-000000000002',
+  'c0100000-0000-4000-8000-000000000003',
+  'c0100000-0000-4000-8000-000000000001',
+  'cancelled', '{}'::jsonb, '{}'::jsonb,
+  repeat('d', 64), 'category-readiness-newer-unbound-run',
+  clock_timestamp(),
+  clock_timestamp() + interval '1 minute'
+);
+create temporary table runtime_ai_market_scope_index on commit drop as
+select public.creator_ai_learning_market_scope_index(jsonb_build_object(
+  'organization_id', 'c0100000-0000-4000-8000-000000000002',
+  'limit', 50
+)) value;
+select is(
+  (select value ->> 'version' from runtime_ai_market_scope_index),
+  'ai-learning-market-scope-index-v1',
+  'the AI control room reads the dynamic market-scope contract'
+);
+select is(
+  (select jsonb_array_length(value -> 'scopes')
+   from runtime_ai_market_scope_index),
+  1,
+  'one current product binding creates one explicit AI market context'
+);
+select is(
+  (select value #>> '{scopes,0,run_id}'
+   from runtime_ai_market_scope_index),
+  'c0100000-0000-4000-8000-000000000004',
+  'the AI context keeps the exact binding source run instead of a newer unrelated run'
+);
+select is(
+  (select value #>> '{scopes,0,market_category_id}'
+   from runtime_ai_market_scope_index),
+  (select binding.category_id::text
+   from content_factory.research_product_market_category_bindings binding
+   where binding.product_id = 'c0100000-0000-4000-8000-000000000003'
+   order by binding.binding_version desc, binding.id desc
+   limit 1),
+  'the index exposes the exact dynamic category UUID without other fallback'
+);
+select is(
+  (select value #>> '{scopes,0,readiness,definition_version}'
+   from runtime_ai_market_scope_index),
+  'category-evidence-readiness-v3',
+  'the index publishes only the current truthful readiness formula'
+);
+select is(
+  (select (value #>> '{scopes,0,readiness,score}')::integer
+   from runtime_ai_market_scope_index),
+  (select (
+     content_factory_private.research_category_evidence_readiness(
+       'c0100000-0000-4000-8000-000000000002',
+       binding.category_id,
+       (select (value ->> 'as_of')::timestamptz
+        from runtime_ai_market_scope_index)
+     ) ->> 'score'
+   )::integer
+   from content_factory.research_product_market_category_bindings binding
+   where binding.product_id = 'c0100000-0000-4000-8000-000000000003'
+   order by binding.binding_version desc, binding.id desc
+   limit 1),
+  'the AI index score exactly equals research evidence readiness at one as-of'
+);
 select is(
   (select count(*)::integer
    from content_factory.research_category_source_ledger ledger

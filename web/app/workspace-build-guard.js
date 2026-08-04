@@ -4,7 +4,7 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260804.os4.8";
+const CURRENT_BUILD = "20260804.os4.9";
 const BUILD_BADGE = "Desktop · 4.7";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;

@@ -98,4 +98,4 @@ def test_portal_explains_quality_before_business_performance() -> None:
     assert 'source: "performance_learning"' in APP
     assert '"creator_generation_learning_policy"' in EDGE
     assert "./content-generation-handoff.js?v=20260803.1" in APP
-    assert "./app.js?v=20260804.2" in INDEX
+    assert "./app.js?v=20260804.3" in INDEX

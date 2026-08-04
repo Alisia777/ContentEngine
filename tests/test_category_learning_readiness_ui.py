@@ -814,7 +814,8 @@ def test_youtube_analysis_submit_is_approval_cas_and_retention_bound() -> None:
         "expected_retention_expires_at: observation.retentionExpiresAt"
         in handler
     )
-    assert "refreshProductResearchCategoryLearning(runId, {" in handler
+    assert "refreshCategoryLearningUi(" in handler
+    assert "expectedRequestId: requestId" in handler
     assert "expectedRequestId: requestId" in handler
 
 
@@ -1109,8 +1110,8 @@ def test_runtime_wiring_is_bounded_honest_and_mobile_safe() -> None:
     assert "> summary:focus-visible::after" in css
     assert ":hover > summary::after" in css
     assert "@media (max-width: 620px)" in css
-    assert '"./supabase-api.js?v=20260804.2"' in app
+    assert '"./supabase-api.js?v=20260804.3"' in app
     assert '"./product-research-view.js?v=20260804.2"' in app
     assert 'href="./product-research.css?v=20260803.9"' in index
-    assert 'src="./app.js?v=20260804.2"' in index
+    assert 'src="./app.js?v=20260804.3"' in index
     assert "20260803.os4.8" not in index

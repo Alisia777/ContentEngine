@@ -17,6 +17,7 @@ export const RPC = Object.freeze({
   generationMediaIdentity: "creator_generation_media_identity",
   generationLearningPolicy: "creator_generation_learning_policy",
   aiLearningControlRoom: "creator_ai_learning_control_room",
+  aiLearningMarketScopeIndex: "creator_ai_learning_market_scope_index",
   registerAiKnowledgeSource: "creator_register_ai_knowledge_source",
   decideAiTeachingCard: "creator_decide_ai_teaching_card",
   generationRepairPolicy: "creator_generation_repair_policy",
@@ -657,6 +658,23 @@ export class CreatorApi {
     return this.call(
       RPC.aiLearningControlRoom,
       this.withOrganization({ product_category: normalizedCategory }),
+    );
+  }
+
+  aiLearningMarketScopeIndex({ limit = 50 } = {}) {
+    const normalizedLimit = Number(limit);
+    if (
+      !Number.isSafeInteger(normalizedLimit)
+      || normalizedLimit < 1
+      || normalizedLimit > 50
+    ) {
+      throw new CreatorApiError("Проверьте ограничение списка рыночных категорий.", {
+        code: "ai_learning_market_scope_index_limit_invalid",
+      });
+    }
+    return this.call(
+      RPC.aiLearningMarketScopeIndex,
+      this.withOrganization({ limit: normalizedLimit }),
     );
   }
 
@@ -5374,6 +5392,8 @@ function toFriendlyMessage(error) {
     paid_generation_product_category_binding_invalid: "Сервер не смог связать категорию с точным товаром платного запуска.",
     ai_learning_category_invalid: "Выберите точную товарную категорию ИИ‑центра.",
     ai_learning_control_room_payload_invalid: "Параметры ИИ‑центра устарели. Откройте категорию заново.",
+    ai_learning_market_scope_index_payload_invalid: "Параметры списка рыночных категорий устарели. Обновите ИИ‑центр.",
+    ai_learning_market_scope_index_limit_invalid: "Не удалось безопасно ограничить список рыночных категорий.",
     ai_knowledge_source_kind_invalid: "Добавьте HTTPS‑ссылку или поддерживаемый файл.",
     ai_knowledge_source_payload_invalid: "Форма источника устарела. Обновите ИИ‑центр и повторите добавление.",
     ai_knowledge_source_copy_invalid: "Проверьте название и пояснение к источнику.",

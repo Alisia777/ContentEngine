@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AI Learning Control Room visual harness</title>
-    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.3" />
+    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.4" />
     <style>
       html { background: #080706; }
       body { margin: 0; min-height: 100vh; background: #080706; color: #f7f3eb; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
@@ -16,8 +16,10 @@
     <script type="module">
       import {
         aiLearningControlRoomMarkup,
+        aiLearningMarketScopeIndexMarkup,
         normalizeAiLearningControlRoom,
-      } from "../../web/app/ai-learning-control-room.js?v=20260804.3";
+        normalizeAiLearningMarketScopeIndex,
+      } from "../../web/app/ai-learning-control-room.js?v=20260804.4";
 
       const definitions = [
         ["cosmetics", "Косметика и уход", 68, "developing_evidence"],
@@ -112,12 +114,77 @@
         },
       };
 
+      const marketDimensions = dimensions.map((item) => ({
+        ...item,
+        weighted_points: Math.floor(item.weight * item.score / 100),
+        next_action: `improve_${item.key}`,
+      }));
+      const marketScore = marketDimensions.reduce(
+        (total, item) => total + item.weighted_points,
+        0,
+      );
+      const marketScopeId = "50000000-0000-4000-8000-000000000001";
+      const marketIndex = normalizeAiLearningMarketScopeIndex({
+        ok: true,
+        version: "ai-learning-market-scope-index-v1",
+        organization_id: "10000000-0000-4000-8000-000000000001",
+        metric_kind: "category_evidence_readiness_not_model_iq",
+        as_of: "2026-08-04T09:42:00.000Z",
+        scopes: [{
+          scope_id: marketScopeId,
+          product_id: "60000000-0000-4000-8000-000000000001",
+          product_name: "Сыворотка Barrier Lab",
+          product_status: "active",
+          market_category_id: "70000000-0000-4000-8000-000000000001",
+          canonical_name: "Восстанавливающие сыворотки для барьера кожи",
+          definition: "Сыворотки с проверяемым фокусом на поддержке кожного барьера.",
+          binding_id: marketScopeId,
+          binding_version: 3,
+          run_id: "80000000-0000-4000-8000-000000000001",
+          run_status: "completed",
+          run_finished_at: "2026-08-04T09:30:00.000Z",
+          readiness: {
+            metric_kind: "category_evidence_readiness_not_model_iq",
+            definition_version: "category-evidence-readiness-v3",
+            score: marketScore,
+            dimensions: marketDimensions,
+            weights_total: 100,
+            evidence_hash: "e".repeat(64),
+            as_of: "2026-08-04T09:42:00.000Z",
+          },
+          guidance: {
+            status: "developing_evidence",
+            gaps: marketDimensions.filter((item) => item.missing > 0),
+            recommended_next_action: marketDimensions[0].next_action,
+          },
+        }],
+        limits: {
+          item_limit: 50,
+          detail_rpc: "creator_research_category_learning_status",
+          score_is_model_iq: false,
+          status_read_only: true,
+          external_call_started: false,
+        },
+      });
+      const marketLearningMarkup = aiLearningMarketScopeIndexMarkup(
+        marketIndex,
+        {
+          selectedScopeId: marketScopeId,
+          detailMarkup: `<section class="ai-learning-section"><div class="ai-learning-section-heading"><div><p class="ai-learning-eyebrow">Source ledger · append-only</p><h2>Проверяемые источники и разбор</h2></div><span>readiness v3</span></div><div class="ai-learning-source-list"><article class="ai-learning-source"><div><strong>YouTube Data API · public metadata</strong><p>Текущий parser head сохранён; correction создаст новую версию и оставит прежнюю в истории.</p></div></article><article class="ai-learning-source"><div><strong>Независимый отраслевой обзор</strong><p>Источник, analysis hash и human decision доступны для проверки перед использованием.</p></div></article></div></section>`,
+        },
+      );
+
       const root = document.querySelector("#visual-harness");
       const render = () => {
         const query = new URLSearchParams(location.search);
         root.innerHTML = aiLearningControlRoomMarkup(
           normalizeAiLearningControlRoom(snapshot),
-          { category: "cosmetics", view: query.get("view") || "overview" },
+          {
+            category: "cosmetics",
+            view: query.get("view") || "overview",
+            marketLearningMarkup,
+            legacyReadOnly: true,
+          },
         );
       };
       root.addEventListener("click", (event) => {
