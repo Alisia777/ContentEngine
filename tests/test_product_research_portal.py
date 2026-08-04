@@ -385,3 +385,20 @@ def test_research_ui_has_loading_error_dark_mobile_and_reduced_motion_states() -
         ".product-research-score-ring",
     ):
         assert contract in CSS
+
+
+def test_approved_research_keeps_its_handoff_status_kind() -> None:
+    result = _run_view_module(
+        """
+        return {
+          approved: subject.productResearchStatusKind("approved"),
+          ready: subject.productResearchStatusKind("completed"),
+          active: subject.productResearchStatusKind("processing"),
+        };
+        """
+    )
+    assert result == {
+        "approved": "approved",
+        "ready": "ready",
+        "active": "active",
+    }

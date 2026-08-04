@@ -80,6 +80,8 @@ const runtime = {
   flushWaiters: [],
   menubar: null,
   dock: null,
+  dockResizeObserver: null,
+  dockMutationObserver: null,
   mission: null,
   spotlight: null,
   spotlightRecords: [],
@@ -89,6 +91,7 @@ const runtime = {
   observedVideos: new WeakSet(),
   clockTimer: 0,
   scrollTimer: 0,
+  viewportFrame: 0,
   fullscreenListening: false,
   restoredRoute: "",
   restoredScrollNodes: new WeakSet(),
@@ -595,10 +598,18 @@ function ensureDock() {
     });
   });
   runtime.dock = dock;
+  if ("ResizeObserver" in window) {
+    runtime.dockResizeObserver ||= new ResizeObserver(handleViewportChange);
+    runtime.dockResizeObserver.disconnect();
+    runtime.dockResizeObserver.observe(glass);
+  }
+  runtime.dockMutationObserver ||= new MutationObserver(handleViewportChange);
+  runtime.dockMutationObserver.disconnect();
+  runtime.dockMutationObserver.observe(glass, { childList: true });
   return dock;
 }
 
-function updateDock() {
+function updateDock({ immediate = false } = {}) {
   const route = routePath();
   let activeItem = null;
   qa("[data-ce-v4-route]", runtime.dock).forEach((item) => {
@@ -608,12 +619,18 @@ function updateDock() {
     if (active) activeItem = item;
   });
   const glass = q(".ce-v4-dock__glass", runtime.dock);
-  if (activeItem && glass && window.innerWidth <= 680) {
+  if (!glass) return;
+  if (window.innerWidth > 680) {
+    if (glass.scrollLeft) glass.scrollTo({ left: 0, behavior: "auto" });
+    return;
+  }
+  if (activeItem) {
     window.requestAnimationFrame(() => {
-      const left = activeItem.offsetLeft - (glass.clientWidth - activeItem.offsetWidth) / 2;
+      const targetLeft = activeItem.offsetLeft - (glass.clientWidth - activeItem.offsetWidth) / 2;
+      const maxLeft = Math.max(0, glass.scrollWidth - glass.clientWidth);
       glass.scrollTo({
-        left: Math.max(0, left),
-        behavior: REDUCED_MOTION.matches ? "auto" : "smooth",
+        left: Math.min(maxLeft, Math.max(0, targetLeft)),
+        behavior: immediate || REDUCED_MOTION.matches ? "auto" : "smooth",
       });
     });
   }
@@ -1039,6 +1056,8 @@ function mount() {
     closeTransientOverlays(true);
     runtime.menubar?.remove();
     runtime.dock?.remove();
+    runtime.dockResizeObserver?.disconnect();
+    runtime.dockMutationObserver?.disconnect();
     runtime.menubar = null;
     runtime.dock = null;
     document.body.classList.remove("contentengine-desktop-v4");
@@ -1173,6 +1192,17 @@ function handleScroll() {
   runtime.scrollTimer = window.setTimeout(() => captureScroll(routePath(), workspaceActionKey()), 180);
 }
 
+function handleViewportChange() {
+  if (!isWorkspaceRoute() || !hasAuthenticatedWorkspace()) return;
+  if (runtime.viewportFrame) return;
+  runtime.viewportFrame = window.requestAnimationFrame(() => {
+    runtime.viewportFrame = window.requestAnimationFrame(() => {
+      runtime.viewportFrame = 0;
+      updateDock({ immediate: true });
+    });
+  });
+}
+
 function handlePointerDown(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target?.closest(".ce-v4-menubar__tools")) closeToolsMenu();
@@ -1187,6 +1217,9 @@ function bindScrollOwner() {
 
 window.addEventListener("hashchange", handleHashChange, { capture: true, passive: true });
 window.addEventListener("scroll", handleScroll, { passive: true });
+window.addEventListener("resize", handleViewportChange, { passive: true });
+window.addEventListener("orientationchange", handleViewportChange, { passive: true });
+window.visualViewport?.addEventListener("resize", handleViewportChange, { passive: true });
 document.addEventListener(CLOSE_TRANSIENTS_EVENT, (event) => {
   if (event.detail?.source !== "core") closeTransientOverlays(true);
 });

@@ -73,7 +73,6 @@ import {
   parseContentGenerationHandoff,
 } from "./content-generation-handoff.js?v=20260730.1";
 import {
-  generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
 } from "./generation-quality-training.js?v=20260728.1";
 import {
@@ -564,7 +563,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не начинайте новую работу, пока текущая требует решения или точного блокера.",
     nextLabel: "Вернуться к главному действию",
     nextHref: "#/workspace/home",
-    guideHref: "#/learn/factory_basics",
   }),
   board: Object.freeze({
     kicker: "Шаг 2 из 6",
@@ -574,7 +572,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не продолжайте работу с похожим товаром, чужим роликом или неподтверждённым артикулом.",
     nextLabel: "Создать контент",
     nextHref: "#/workspace/generation",
-    guideHref: "#/learn/factory_basics",
   }),
   media: Object.freeze({
     kicker: "Файлы · добавить",
@@ -584,7 +581,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не используйте похожий товар, другой вкус, объём или чужой ролик.",
     nextLabel: "Создать ролик",
     nextHref: "#/workspace/generation",
-    guideHref: "#/learn/factory_basics",
   }),
   research: Object.freeze({
     kicker: "Исследование продукта",
@@ -594,7 +590,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Прогноз не гарантирует просмотры и продажи. Не утверждайте ТЗ, пока не проверены источники, свойства товара и рекламный режим.",
     nextLabel: "Утвердить ТЗ и создать задачи",
     nextHref: "#/workspace/tasks",
-    guideHref: "#/learn/video_quality",
   }),
   generation: Object.freeze({
     kicker: "Шаг 3 из 6",
@@ -604,7 +599,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не нажимайте запуск повторно, пока уже созданная работа обрабатывается.",
     nextLabel: "Проверить контент",
     nextHref: "#/workspace/review",
-    guideHref: "#/learn/video_quality",
   }),
   review: Object.freeze({
     kicker: "Шаг 4 из 6",
@@ -614,7 +608,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Высокий балл качества не отменяет рекламный, медицинский или правовой блокер.",
     nextLabel: "Опубликовать одобренное",
     nextHref: "#/workspace/placement?view=next",
-    guideHref: "#/learn/video_quality",
   }),
   tasks: Object.freeze({
     kicker: "Рабочий контекст · задачи",
@@ -624,7 +617,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не принимайте ролик с искажённым товаром, обрывом речи или чужой упаковкой.",
     nextLabel: "Разместить одобренное",
     nextHref: "#/workspace/placement",
-    guideHref: "#/learn/factory_basics",
   }),
   placement: Object.freeze({
     kicker: "Шаг 5 из 6",
@@ -634,7 +626,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Если рекламный статус неясен, остановитесь и запросите решение руководителя.",
     nextLabel: "Внести метрики",
     nextHref: "#/workspace/stats",
-    guideHref: "#/learn/publishing_funnel",
   }),
   stats: Object.freeze({
     kicker: "Шаг 6 из 6",
@@ -644,7 +635,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не переносите цифры из другого поста и не оставляйте источник пустым.",
     nextLabel: "Вернуться к главному действию",
     nextHref: "#/workspace/home",
-    guideHref: "#/learn/publishing_funnel",
   }),
   payouts: Object.freeze({
     kicker: "Результаты · выплаты",
@@ -654,7 +644,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Статус «Одобрено» ещё не означает, что деньги уже переведены.",
     nextLabel: "Вернуться к обзору",
     nextHref: "#/workspace/home",
-    guideHref: "#/learn/security_wb",
   }),
   feedback: Object.freeze({
     kicker: "Помощь",
@@ -664,7 +653,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не отправляйте пароли, коды входа, платёжные данные или секретные ключи.",
     nextLabel: "Вернуться к работе",
     nextHref: "#/workspace/home",
-    guideHref: "#/learn/security_wb",
   }),
   team: Object.freeze({
     kicker: "Управление",
@@ -674,7 +662,6 @@ const WORKSPACE_SECTION_META = Object.freeze({
     guard: "Не создавайте общие учётки и не передавайте временный пароль в открытом чате.",
     nextLabel: "Вернуться к обзору",
     nextHref: "#/workspace/home",
-    guideHref: "#/learn/security_wb",
   }),
 });
 
@@ -1859,11 +1846,14 @@ function bindGlobalEvents() {
     BOOTSTRAP_ACCESS_REFRESH_INTERVAL_MS,
   );
   window.addEventListener("hashchange", () => {
+    const previousPath = state.route.path;
     const previousActionKey = workspaceActionKey(state.route);
     window.ContentEngineDesktopV4?.captureCurrentAction?.(previousActionKey);
     state.route = parseRoute();
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
+    const preserveWorkspaceContext = previousPath === state.route.path
+      && state.route.path.startsWith("/workspace/");
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
     if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
     if (
@@ -1889,7 +1879,7 @@ function bindGlobalEvents() {
       state.operationalHealth.status = "idle";
       state.generationSpend.status = "idle";
     }
-    state.routeTransition = actionChanged;
+    state.routeTransition = actionChanged && !preserveWorkspaceContext;
     if (
       state.route.path === "/workspace/home"
       && !["loading", "refreshing"].includes(state.home.status)
@@ -1898,7 +1888,11 @@ function bindGlobalEvents() {
     state.myWork.notificationsOpen = false;
     document.body.classList.remove("notification-center-open");
     render();
-    settleRouteView({ resetAction: actionChanged, expectedActionKey: nextActionKey });
+    settleRouteView({
+      resetAction: actionChanged,
+      preserveWorkspaceContext,
+      expectedActionKey: nextActionKey,
+    });
     track("route_viewed", { route: state.route.path });
   });
   window.addEventListener("resize", () => {
@@ -6216,12 +6210,31 @@ function workspaceContentSignature(section, content) {
   return `${section}:${content.length}:${(hash >>> 0).toString(36)}`;
 }
 
+function workspaceViewIdentity(section) {
+  const query = state.route.query.toString();
+  return `/workspace/${section}${query ? `?${query}` : ""}`;
+}
+
+const workspaceRevealTimers = new WeakMap();
+
 function revealWorkspaceContent(container) {
   if (!(container instanceof HTMLElement)) return;
+  const pendingTimer = workspaceRevealTimers.get(container);
+  if (pendingTimer) {
+    window.clearTimeout(pendingTimer);
+    workspaceRevealTimers.delete(container);
+  }
+  container.classList.remove("ce-v4-content-reveal");
+  if (prefersReducedMotion()) return;
+  // Restart the light content-only transition without replacing the persistent
+  // shell or any preserved form/file controls.
+  void container.offsetWidth;
   container.classList.add("ce-v4-content-reveal");
-  window.setTimeout(() => {
+  const timer = window.setTimeout(() => {
+    workspaceRevealTimers.delete(container);
     if (container.isConnected) container.classList.remove("ce-v4-content-reveal");
   }, 320);
+  workspaceRevealTimers.set(container, timer);
 }
 
 function canonicalFactoryFlowSection(section) {
@@ -6239,6 +6252,7 @@ function syncPersistentWorkspaceShell(shell, section) {
   shell.dataset.workspaceSection = section;
   shell.dataset.workspaceRoute = `/workspace/${section}`;
   shell.dataset.workspaceActionKey = workspaceActionKey(state.route);
+  shell.dataset.workspaceView = workspaceViewIdentity(section);
   if (window.CONTENTENGINE_DESKTOP_V4 === true) {
     shell.dataset.workspaceAuthorizedRoutes = visibleWorkspaceTabs()
       .map(([key]) => `/workspace/${key}`)
@@ -6246,7 +6260,11 @@ function syncPersistentWorkspaceShell(shell, section) {
     shell.dataset.workspaceRole = String(state.bootstrap?.membership?.role || "");
     return;
   }
-  const tabLabel = visibleWorkspaceTabs().find(([key]) => key === section)?.[1] || "Кабинет";
+  const notificationActive = section === "work"
+    && state.route.query.get("view") === "notifications";
+  const tabLabel = notificationActive
+    ? "Уведомления"
+    : visibleWorkspaceTabs().find(([key]) => key === section)?.[1] || "Кабинет";
   const stage = factoryFlowStage(section);
   const context = stage
     ? `Производственный цикл · этап ${stage.step} из ${String(FACTORY_FLOW.length).padStart(2, "0")}`
@@ -6260,8 +6278,11 @@ function syncPersistentWorkspaceShell(shell, section) {
   }
   const mobileBrand = shell.querySelector(".mobile-brand");
   if (mobileBrand) mobileBrand.textContent = `КОНТЕНТ ИИ · ${tabLabel}`;
+  const activeHref = notificationActive
+    ? "#/workspace/work?view=notifications"
+    : `#/workspace/${section}`;
   shell.querySelectorAll('.workspace-nav a[href^="#/workspace/"]').forEach((link) => {
-    const active = link.getAttribute("href") === `#/workspace/${section}`;
+    const active = link.getAttribute("href") === activeHref;
     link.classList.toggle("active", active);
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -6313,13 +6334,22 @@ function renderWorkspace(section) {
     const nextActionKey = workspaceActionKey(state.route);
     const previousActionKey = String(existingShell.dataset.workspaceActionKey || "");
     const sameAction = previousActionKey === nextActionKey;
+    const viewChanged = existingShell.dataset.workspaceView !== workspaceViewIdentity(section);
+    const preserveWorkspaceContext = existingShell.dataset.workspaceRoute === state.route.path;
     syncPersistentWorkspaceShell(existingShell, section);
+    if (!sameAction && preserveWorkspaceContext) {
+      const main = existingContent.closest("#main-content");
+      if (main instanceof HTMLElement) main.dataset.ceV4ActionEntry = nextActionKey;
+    }
     if (existingContent.dataset.ceV4RenderSignature === contentSignature) {
+      if (viewChanged) revealWorkspaceContent(existingContent);
       if (!sameAction) {
-        const main = existingContent.closest("#main-content");
-        if (main instanceof HTMLElement) main.className = consumeRouteTransitionClass();
-        resetWorkspaceRouteEntry(existingContent, section);
-        window.ContentEngineDesktopV4?.requestMount?.();
+        if (!preserveWorkspaceContext) {
+          const main = existingContent.closest("#main-content");
+          if (main instanceof HTMLElement) main.className = consumeRouteTransitionClass();
+          resetWorkspaceRouteEntry(existingContent, section);
+          window.ContentEngineDesktopV4?.requestMount?.();
+        }
       }
       refreshNotificationLayer();
       scheduleWorkspaceDeepLinkFocus(section);
@@ -6338,6 +6368,15 @@ function renderWorkspace(section) {
     const focusedControl = sameAction ? captureWorkspaceFocus(existingContent) : null;
     const dirtyForms = sameAction ? captureDirtyWorkspaceForms(existingContent) : [];
     const scrollSnapshot = sameAction ? captureWorkspaceScroll(existingContent) : [];
+    const samePathFocusedControl = !sameAction && preserveWorkspaceContext
+      ? captureWorkspaceFocus(existingContent)
+      : null;
+    const samePathDirtyForms = !sameAction && preserveWorkspaceContext
+      ? captureDirtyWorkspaceForms(existingContent)
+      : [];
+    const samePathScrollSnapshot = !sameAction && preserveWorkspaceContext
+      ? captureWorkspaceScroll(existingContent)
+      : [];
     patchWorkspaceContent(existingContent, content);
     existingContent.dataset.ceV4RenderSignature = contentSignature;
     existingContent.dataset.ceV4InitialLoading = String(initialSectionLoad);
@@ -6345,13 +6384,17 @@ function renderWorkspace(section) {
       restoreDirtyWorkspaceForms(existingContent, dirtyForms);
       restoreWorkspaceFocus(existingContent, focusedControl, section);
       restoreWorkspaceScroll(existingContent, scrollSnapshot, section);
+    } else if (preserveWorkspaceContext) {
+      restoreDirtyWorkspaceForms(existingContent, samePathDirtyForms);
+      restoreWorkspaceFocus(existingContent, samePathFocusedControl, section);
+      restoreWorkspaceScroll(existingContent, samePathScrollSnapshot, section);
     } else {
       const main = existingContent.closest("#main-content");
       if (main instanceof HTMLElement) main.className = consumeRouteTransitionClass();
       resetWorkspaceRouteEntry(existingContent, section);
     }
     window.ContentEngineDesktopV4?.requestMount?.();
-    if (revealLoadedContent) revealWorkspaceContent(existingContent);
+    if (revealLoadedContent || viewChanged) revealWorkspaceContent(existingContent);
     refreshNotificationLayer();
     scheduleWorkspaceDeepLinkFocus(section);
     return;
@@ -6486,6 +6529,7 @@ function captureWorkspaceFocus(container) {
   const trainingWalkthrough = active.closest?.("[data-training-walkthrough]");
   return {
     actionKey: workspaceActionKey(state.route),
+    node: active,
     id: String(active.id || ""),
     action,
     actionIndex: action ? actionCandidates.indexOf(active) : -1,
@@ -6512,7 +6556,12 @@ function restoreWorkspaceFocus(container, identity, section) {
   window.queueMicrotask(() => {
     if (identity.actionKey !== workspaceActionKey(state.route)) return;
     const candidates = Array.from(container.querySelectorAll("button, a, input, select, textarea, [tabindex]"));
-    let target = identity.id ? candidates.find((item) => item.id === identity.id) : null;
+    let target = identity.node instanceof HTMLElement
+      && identity.node.isConnected
+      && container.contains(identity.node)
+      ? identity.node
+      : null;
+    if (!target && identity.id) target = candidates.find((item) => item.id === identity.id);
     if (!target && identity.action) {
       const actionCandidates = candidates.filter((item) => item.dataset?.action === identity.action);
       target = actionCandidates.find((item) => (
@@ -6752,7 +6801,7 @@ function workspaceScaffold(content, activeSection) {
     })}</div>
   `;
   return `
-    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}">
+    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}" data-workspace-view="${escapeHtml(workspaceViewIdentity(activeSection))}">
       <aside class="sidebar" aria-label="Основная навигация">
         ${brandMarkup()}
         <nav class="workspace-nav">
@@ -7150,6 +7199,10 @@ function handleKeyDown(event) {
 }
 
 function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = "") {
+  const notificationActive = !learningOnly
+    && activeSection === "work"
+    && state.route.query.get("view") === "notifications";
+  const navigationSection = notificationActive ? "" : activeSection;
   return `
     <nav id="mobile-navigation" class="mobile-nav" aria-label="Мобильная навигация">
       ${learningOnly ? `
@@ -7166,7 +7219,7 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
           ${key === "media" ? `<span class="nav-caption nav-caption-spaced">Производство · 01–06</span>` : ""}
           ${key === "feedback" ? `<span class="nav-caption nav-caption-spaced">Поддержка</span>` : ""}
           ${key === "team" ? `<span class="nav-caption nav-caption-spaced">Управление</span>` : ""}
-          ${workspaceNavLinkMarkup(key, label, icon, activeSection)}
+          ${workspaceNavLinkMarkup(key, label, icon, navigationSection)}
         `).join("")}
       `}
       ${navigationModePickerMarkup("mobile", true)}
@@ -8035,7 +8088,7 @@ function homeNextAction({
         ? "AI-проверка завершена, но в команде нет другого участника с действующим допуском. Добавьте или восстановите независимого проверяющего."
         : "AI-проверка завершена, но подходящий независимый проверяющий пока не назначен. Результат безопасно заблокирован до решения руководителя.",
       href: canInviteReviewer
-        ? "#/workspace/team"
+        ? "#/workspace/team?view=invite"
         : `#/workspace/review?view=current&review=${encodeURIComponent(unassignedReview.id)}`,
       cta: canInviteReviewer
         ? "Открыть команду"
@@ -8110,11 +8163,16 @@ function homeNextAction({
     return !publication?.observed_at;
   });
   if (completedPlacementWithoutMetrics) {
+    const completedPlacementId = String(
+      completedPlacementWithoutMetrics.id
+      || completedPlacementWithoutMetrics.placement_id
+      || "",
+    );
     return {
       step: "Зафиксируйте результат",
       title: "Добавьте первый снимок метрик",
       description: "Ролик уже опубликован. Сохраните показатели вместе с датой и ссылкой на конкретный пост.",
-      href: "#/workspace/stats",
+      href: `#/workspace/stats?view=new${completedPlacementId ? `&placement=${encodeURIComponent(completedPlacementId)}` : ""}`,
       cta: "Внести показатели",
       doneWhen: "В разделе есть дата, источник и первый набор показателей.",
       nextHint: "После проверки результата следите за начислением.",
@@ -8122,11 +8180,12 @@ function homeNextAction({
   }
   const waitingPayout = payouts.find((item) => ["pending", "approved"].includes(String(item.status || "").toLowerCase()));
   if (waitingPayout) {
+    const payoutId = String(waitingPayout.id || waitingPayout.payout_id || "");
     return {
       step: "Проверьте расчёт",
       title: "Начисление ещё не завершено",
       description: "Сверьте сумму и статус. «Одобрено» означает подтверждение, но не завершённый внешний перевод.",
-      href: "#/workspace/payouts",
+      href: `#/workspace/payouts?view=next${payoutId ? `&payout=${encodeURIComponent(payoutId)}` : ""}`,
       cta: "Открыть выплаты",
       doneWhen: "Статус изменился на «Выплачено» или сохранена понятная причина ожидания.",
       nextHint: "После выплаты цикл этой задачи завершён.",
@@ -11854,7 +11913,7 @@ function taskActionsMarkup(item) {
     return '<span class="muted tiny">Видео создаётся. Статус задачи изменится автоматически.</span>';
   }
   const action = (nextStatus, label, secondary = false) =>
-    `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}">${label}</button>`;
+    `<button class="btn ${secondary ? "btn-secondary " : ""}btn-small" type="button" data-action="transition-task" data-task-id="${taskId}" data-status="${nextStatus}"${secondary ? "" : ' data-primary-action="true"'}>${label}</button>`;
   const generatedVideoReady = item.task_type === "video_review"
     && String(result.generation_status || "").toLowerCase() === "succeeded"
     && String(result.output_media_id || "").trim();
@@ -11862,7 +11921,7 @@ function taskActionsMarkup(item) {
     restoreGeneratedVideoQaEvidence();
     const preparedEvidence = generatedVideoQaEvidenceForMedia(String(result.output_media_id || ""));
     return `
-      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}">${preparedEvidence?.status === "ready" ? "Продолжить готовую проверку" : "Открыть проверку контента"}</button>
+      <button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(result.output_media_id)}" data-primary-action="true">${preparedEvidence?.status === "ready" ? "Продолжить готовую проверку" : "Открыть проверку контента"}</button>
       <span class="muted tiny">Итог фиксируется только внутри проверки контента.</span>
     `;
   }
@@ -12498,9 +12557,6 @@ function pageHeader(title, description, actions = "") {
   const meta = WORKSPACE_SECTION_META[activeSection] || WORKSPACE_SECTION_META.home;
   const inFactoryFlow = Boolean(factoryFlowStage(activeSection));
   const nativeV4 = window.CONTENTENGINE_DESKTOP_V4 === true;
-  const guideLink = academyRoutesReachable()
-    ? `<a class="workspace-guide-link" href="${escapeHtml(meta.guideHref || "#/learn")}"><span aria-hidden="true">?</span> Инструкция для этого шага</a>`
-    : "";
   return `
     ${nativeV4 ? workspaceActionGuideMarkup(meta) : ""}
     <section class="workspace-page-intro">
@@ -12513,7 +12569,6 @@ function pageHeader(title, description, actions = "") {
         </div>
         <div class="page-actions">
           ${actions}
-          ${guideLink}
         </div>
       </header>
       ${!nativeV4 && inFactoryFlow ? factoryFlowMarkup(activeSection) : ""}
@@ -14762,9 +14817,6 @@ function generationRepairMarkup(form = null) {
   const policy = normalizeGenerationRepairPolicy(state.generationRepair.data);
   if (!policy?.applied) return "";
   const active = form ? activeGenerationRepairPolicy(form) : policy;
-  const training = academyRoutesReachable()
-    ? generationQualityTrainingRecommendation(policy)
-    : null;
   const labels = policy.guardCodes
     .map(generationQualityGuardLabel)
     .filter(Boolean);
@@ -14778,7 +14830,6 @@ function generationRepairMarkup(form = null) {
   return `
     <div id="generation-repair-status" class="generation-learning-status" data-state="${active ? "applied" : "warning"}" role="status">
       <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span></div>
-      ${training ? `<div class="generation-learning-status__actions"><a class="btn btn-secondary btn-small generation-quality-training-link" href="${escapeHtml(training.href)}" aria-label="${escapeHtml(`Открыть урок: ${training.title}`)}">${escapeHtml(training.title)} · 5 мин</a></div>` : ""}
     </div>
   `;
 }
@@ -14810,9 +14861,6 @@ function generationLearningMarkup(form = null) {
   const qualityGuardLabels = (policy?.qualityGuardCodes || [])
     .map(generationQualityGuardLabel)
     .filter(Boolean);
-  const training = academyRoutesReachable()
-    ? generationQualityTrainingRecommendation(policy)
-    : null;
   const strongerGuardCount = (policy?.qualityGuardCodes || [])
     .filter((code) => policy?.qualityGuardVariants?.[code] === 2)
     .length;
@@ -14927,7 +14975,6 @@ function generationLearningMarkup(form = null) {
     <div id="generation-learning-status" class="generation-learning-status" data-state="${stateName}" role="status">
       <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span></div>
       <div class="generation-learning-status__actions">
-        ${training ? `<a class="btn btn-secondary btn-small generation-quality-training-link" href="${escapeHtml(training.href)}" aria-label="${escapeHtml(`Открыть урок: ${training.title}`)}">${escapeHtml(training.title)} · 5 мин</a>` : ""}
         ${action}
       </div>
     </div>
@@ -18865,36 +18912,51 @@ function navigate(path, replace = false) {
   const normalized = path.startsWith("/") ? path : `/${path}`;
   const hash = `#${normalized}`;
   if (replace) {
+    const previousPath = state.route.path;
     const previousActionKey = workspaceActionKey(state.route);
     window.ContentEngineDesktopV4?.captureCurrentAction?.(previousActionKey);
     const next = new URL(window.location.href);
     next.hash = hash;
     window.history.replaceState({}, "", next);
-    window.ContentEngineDesktopV4?.syncRoute?.();
     state.route = parseRoute();
+    window.ContentEngineDesktopV4?.syncRoute?.();
+    window.ContentEngineDesktopV4Loader?.syncRoute?.();
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
+    const preserveWorkspaceContext = previousPath === state.route.path
+      && state.route.path.startsWith("/workspace/");
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
-    state.routeTransition = actionChanged;
+    state.routeTransition = actionChanged && !preserveWorkspaceContext;
     if (
       state.route.path === "/workspace/home"
       && !["loading", "refreshing"].includes(state.home.status)
     ) state.home.status = "idle";
     render();
-    settleRouteView({ resetAction: actionChanged, expectedActionKey: nextActionKey });
+    settleRouteView({
+      resetAction: actionChanged,
+      preserveWorkspaceContext,
+      expectedActionKey: nextActionKey,
+    });
   } else if (window.location.hash === hash) {
+    const previousPath = state.route.path;
     const previousActionKey = workspaceActionKey(state.route);
     state.route = parseRoute();
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
+    const preserveWorkspaceContext = previousPath === state.route.path
+      && state.route.path.startsWith("/workspace/");
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
-    state.routeTransition = actionChanged;
+    state.routeTransition = actionChanged && !preserveWorkspaceContext;
     if (
       state.route.path === "/workspace/home"
       && !["loading", "refreshing"].includes(state.home.status)
     ) state.home.status = "idle";
     render();
-    settleRouteView({ resetAction: actionChanged, expectedActionKey: nextActionKey });
+    settleRouteView({
+      resetAction: actionChanged,
+      preserveWorkspaceContext,
+      expectedActionKey: nextActionKey,
+    });
   } else {
     window.ContentEngineDesktopV4?.captureCurrentAction?.(workspaceActionKey(state.route));
     window.location.hash = normalized;
@@ -19163,7 +19225,11 @@ function scheduleWorkspaceDeepLinkFocus(section) {
   }));
 }
 
-function settleRouteView({ resetAction = true, expectedActionKey = workspaceActionKey(state.route) } = {}) {
+function settleRouteView({
+  resetAction = true,
+  preserveWorkspaceContext = false,
+  expectedActionKey = workspaceActionKey(state.route),
+} = {}) {
   window.requestAnimationFrame(() => {
     const path = state.route.path;
     if (workspaceActionKey(state.route) !== expectedActionKey) return;
@@ -19193,6 +19259,7 @@ function settleRouteView({ resetAction = true, expectedActionKey = workspaceActi
     }
     document.title = `${label || "Контент ИИ Завод"} · Контент ИИ Завод`;
     if (path.startsWith("/workspace/")) {
+      if (preserveWorkspaceContext) return;
       if (resetAction) {
         const section = path.replace("/workspace/", "");
         resetWorkspaceRouteEntry(document.querySelector("#workspace-content"), section);

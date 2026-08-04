@@ -471,6 +471,8 @@ def test_workspace_navigation_has_one_production_dock_and_no_academy_entry() -> 
 
     assert "#/learn" not in scaffold
     assert "Обучение" not in scaffold
+    assert 'href="#/learn"' not in scaffold
+    assert "learningLinks" not in scaffold
     assert 'route: "/learn"' not in primary_routes
     assert 'route: "/learn"' not in secondary_routes
     assert "Инструкции" not in secondary_routes

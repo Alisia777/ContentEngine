@@ -412,6 +412,211 @@ async function dockMagnificationResult(browser) {
   };
 }
 
+async function permissionAwareToolsResult(context) {
+  const page = await context.newPage();
+  await page.goto(`${baseUrl}/tests/fixtures/workspace_v43_harness.html`, { waitUntil: "load" });
+  await page.waitForFunction(() => window.ContentEngineDesktopV4 && document.querySelector("[data-ce-v4-tools-menu]"));
+  const routes = () => page.evaluate(() => ({
+    visible: [...document.querySelectorAll("[data-ce-v4-tools-route]")]
+      .filter((item) => !item.hidden)
+      .map((item) => item.dataset.ceV4ToolsRoute),
+    hidden: [...document.querySelectorAll("[data-ce-v4-tools-route]")]
+      .filter((item) => item.hidden)
+      .map((item) => item.dataset.ceV4ToolsRoute),
+  }));
+  await page.evaluate(async () => {
+    document.querySelector(".workspace-shell").dataset.workspaceAuthorizedRoutes = "/workspace/feedback";
+    await window.ContentEngineDesktopV4.flush();
+  });
+  const reviewer = await routes();
+  await page.click("[data-ce-v4-tools-trigger]");
+  await page.focus("[data-ce-v4-tools-trigger]");
+  await page.keyboard.press("End");
+  reviewer.lastFocused = await page.evaluate(() => document.activeElement?.dataset.ceV4ToolsRoute || "");
+  await page.keyboard.press("Escape");
+  await page.evaluate(async () => {
+    document.querySelector(".workspace-shell").dataset.workspaceAuthorizedRoutes += " /workspace/research";
+    await window.ContentEngineDesktopV4.flush();
+  });
+  const producer = await routes();
+  await page.evaluate(async () => {
+    document.querySelector(".workspace-shell").dataset.workspaceAuthorizedRoutes += " /workspace/team";
+    await window.ContentEngineDesktopV4.flush();
+  });
+  const manager = await routes();
+  await page.click("[data-ce-v4-tools-trigger]");
+  await page.focus("[data-ce-v4-tools-trigger]");
+  await page.keyboard.press("End");
+  manager.lastFocused = await page.evaluate(() => document.activeElement?.dataset.ceV4ToolsRoute || "");
+  await page.close();
+  return { reviewer, producer, manager };
+}
+
+async function dockViewportResizeResult(browser) {
+  const context = await browser.newContext({
+    reducedMotion: "no-preference",
+    viewport: { width: 1100, height: 700 },
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/tests/fixtures/workspace_v43_harness.html`, { waitUntil: "load" });
+    await page.waitForFunction(() => window.ContentEngineDesktopV4 && document.querySelector(".ce-v4-dock"));
+    await page.evaluate(() => { location.hash = "#/workspace/stats"; });
+    await page.waitForFunction(() => document.querySelector('[data-ce-v4-route="/workspace/stats"]')?.classList.contains("is-active"));
+    await page.waitForTimeout(500);
+    const settled = await page.evaluate(() => {
+      const glass = document.querySelector(".ce-v4-dock__glass");
+      const style = getComputedStyle(glass);
+      return {
+        fillMode: style.animationFillMode,
+        transform: style.transform,
+      };
+    });
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.waitForFunction(() => {
+      const glass = document.querySelector(".ce-v4-dock__glass");
+      const active = document.querySelector('[data-ce-v4-route="/workspace/stats"].is-active');
+      if (!glass || !active) return false;
+      const glassRect = glass.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      return Math.abs(
+        (activeRect.left + activeRect.width / 2) - (glassRect.left + glassRect.width / 2),
+      ) <= 2;
+    });
+    const portrait = await page.evaluate(() => {
+      const glass = document.querySelector(".ce-v4-dock__glass");
+      const active = document.querySelector('[data-ce-v4-route="/workspace/stats"].is-active');
+      const glassRect = glass.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      return {
+        scrollLeft: glass.scrollLeft,
+        centered: Math.abs(
+          (activeRect.left + activeRect.width / 2) - (glassRect.left + glassRect.width / 2),
+        ),
+        fullyVisible: activeRect.left >= glassRect.left - 1 && activeRect.right <= glassRect.right + 1,
+        horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      };
+    });
+    await page.evaluate(() => {
+      const glass = document.querySelector(".ce-v4-dock__glass");
+      const active = document.querySelector('[data-ce-v4-route="/workspace/stats"].is-active');
+      const extra = document.querySelector('[data-ce-v4-route="/workspace/home"]')?.cloneNode(true);
+      if (glass && active && extra) {
+        extra.removeAttribute("aria-current");
+        extra.classList.remove("is-active", "is-launching");
+        extra.dataset.ceV4Route = "/workspace/extra-fixture";
+        glass.insertBefore(extra, active);
+      }
+      window.dispatchEvent(new Event("orientationchange"));
+      window.visualViewport?.dispatchEvent(new Event("resize"));
+    });
+    await page.waitForFunction(() => {
+      const glass = document.querySelector(".ce-v4-dock__glass");
+      const active = document.querySelector('[data-ce-v4-route="/workspace/stats"].is-active');
+      if (!glass || !active) return false;
+      const glassRect = glass.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      return Math.abs(
+        (activeRect.left + activeRect.width / 2) - (glassRect.left + glassRect.width / 2),
+      ) <= 2;
+    });
+    const lateChild = await page.evaluate(() => {
+      const glass = document.querySelector(".ce-v4-dock__glass");
+      const active = document.querySelector('[data-ce-v4-route="/workspace/stats"].is-active');
+      const glassRect = glass.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      return {
+        centered: Math.abs(
+          (activeRect.left + activeRect.width / 2) - (glassRect.left + glassRect.width / 2),
+        ),
+        extraPresent: Boolean(document.querySelector('[data-ce-v4-route="/workspace/extra-fixture"]')),
+      };
+    });
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await page.waitForFunction(() => document.querySelector(".ce-v4-dock__glass")?.scrollLeft === 0);
+    const landscape = await page.evaluate(() => ({
+      scrollLeft: document.querySelector(".ce-v4-dock__glass").scrollLeft,
+      shellCount: document.querySelectorAll(".workspace-shell").length,
+      menubarCount: document.querySelectorAll(".ce-v4-menubar").length,
+      dockCount: document.querySelectorAll(".ce-v4-dock").length,
+    }));
+    return { settled, portrait, lateChild, landscape };
+  } finally {
+    await context.close();
+  }
+}
+
+async function fullscreenResult(browser) {
+  const context = await browser.newContext({
+    reducedMotion: "no-preference",
+    viewport: { width: 1440, height: 900 },
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/tests/fixtures/workspace_v43_harness.html`, { waitUntil: "load" });
+    await page.waitForFunction(() => (
+      window.ContentEngineDesktopV4
+      && document.querySelector("[data-ce-v4-fullscreen]")
+    ));
+    await page.waitForTimeout(500);
+    const snapshot = () => page.evaluate(() => {
+      const control = document.querySelector("[data-ce-v4-fullscreen]");
+      const rect = (node) => {
+        const value = node.getBoundingClientRect();
+        return { x: value.x, y: value.y, width: value.width, height: value.height };
+      };
+      return {
+        active: Boolean(document.fullscreenElement || document.webkitFullscreenElement),
+        hidden: control.hidden,
+        disabled: control.disabled,
+        pressed: control.getAttribute("aria-pressed"),
+        label: control.getAttribute("aria-label") || "",
+        fullscreenEnabled: document.fullscreenEnabled !== false,
+        shellCount: document.querySelectorAll(".workspace-shell").length,
+        menubarCount: document.querySelectorAll(".ce-v4-menubar").length,
+        dockCount: document.querySelectorAll(".ce-v4-dock").length,
+        horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+        menubarRect: rect(document.querySelector(".ce-v4-menubar")),
+        dockRect: rect(document.querySelector(".ce-v4-dock")),
+        qa: { ...document.querySelector("#runtime-qa").dataset },
+      };
+    });
+    const initial = await snapshot();
+    await page.click("[data-ce-v4-fullscreen]");
+    await page.waitForFunction(() => (
+      document.querySelector("[data-ce-v4-fullscreen]")?.getAttribute("aria-pressed") === "true"
+      && Boolean(document.fullscreenElement || document.webkitFullscreenElement)
+    ));
+    const entered = await snapshot();
+    await page.click("[data-ce-v4-fullscreen]");
+    await page.waitForFunction(() => (
+      document.querySelector("[data-ce-v4-fullscreen]")?.getAttribute("aria-pressed") === "false"
+      && !document.fullscreenElement
+      && !document.webkitFullscreenElement
+    ));
+    const exited = await snapshot();
+    const drift = (left, right) => Math.max(
+      Math.abs(left.x - right.x),
+      Math.abs(left.y - right.y),
+      Math.abs(left.width - right.width),
+      Math.abs(left.height - right.height),
+    );
+    return {
+      initial,
+      entered,
+      exited,
+      shellDrift: Math.max(
+        drift(initial.menubarRect, entered.menubarRect),
+        drift(initial.menubarRect, exited.menubarRect),
+        drift(initial.dockRect, entered.dockRect),
+        drift(initial.dockRect, exited.dockRect),
+      ),
+    };
+  } finally {
+    await context.close();
+  }
+}
+
 (async () => {
   const browser = await webkit.launch({ headless: true, executablePath });
   try {
@@ -424,10 +629,13 @@ async function dockMagnificationResult(browser) {
     const scroll = await fixtureResult(normal, "workspace_scroll_order_harness.html");
     const motion = await routeMotionResult(normal);
     const menu = await desktopMenuResult(normal);
+    const permissionAwareTools = await permissionAwareToolsResult(normal);
     await normal.close();
     const mobileMenu = await mobileMenuResult(browser);
     const reducedMotion = await reducedMotionResult(browser);
     const dockMagnification = await dockMagnificationResult(browser);
+    const dockViewportResize = await dockViewportResizeResult(browser);
+    const fullscreen = await fullscreenResult(browser);
 
     const checks = {
       domPatch: domPatch.passed === "true",
@@ -508,6 +716,46 @@ async function dockMagnificationResult(browser) {
         && dockMagnification.cleanup
         && dockMagnification.reducedMotionNone
         && dockMagnification.touchNone,
+      permissionAwareTools: permissionAwareTools.reviewer.visible.join(",") === "/workspace/feedback"
+        && permissionAwareTools.reviewer.hidden.length === 0
+        && permissionAwareTools.reviewer.lastFocused === "/workspace/feedback"
+        && permissionAwareTools.producer.visible.join(",") === "/workspace/research,/workspace/feedback"
+        && permissionAwareTools.producer.hidden.length === 0
+        && permissionAwareTools.manager.visible.join(",") === "/workspace/research,/workspace/team,/workspace/feedback"
+        && permissionAwareTools.manager.hidden.length === 0
+        && permissionAwareTools.manager.lastFocused === "/workspace/feedback",
+      dockViewportResize: dockViewportResize.settled.fillMode === "none"
+        && dockViewportResize.settled.transform === "none"
+        && dockViewportResize.portrait.scrollLeft > 0
+        && dockViewportResize.portrait.centered <= 2
+        && dockViewportResize.portrait.fullyVisible
+        && dockViewportResize.portrait.horizontalOverflow === 0
+        && dockViewportResize.lateChild.extraPresent
+        && dockViewportResize.lateChild.centered <= 2
+        && dockViewportResize.landscape.scrollLeft === 0
+        && dockViewportResize.landscape.shellCount === 1
+        && dockViewportResize.landscape.menubarCount === 1
+        && dockViewportResize.landscape.dockCount === 1,
+      fullscreenToggle: !fullscreen.initial.active
+        && !fullscreen.initial.hidden
+        && !fullscreen.initial.disabled
+        && fullscreen.initial.pressed === "false"
+        && fullscreen.entered.active
+        && fullscreen.entered.pressed === "true"
+        && fullscreen.entered.label.includes("Выйти")
+        && fullscreen.entered.qa.fullscreenEntered === "true"
+        && fullscreen.entered.qa.fullscreenCurrent === "true"
+        && !fullscreen.exited.active
+        && fullscreen.exited.pressed === "false"
+        && fullscreen.exited.label.includes("Перейти")
+        && fullscreen.exited.qa.fullscreenCurrent === "false"
+        && [fullscreen.initial, fullscreen.entered, fullscreen.exited].every((state) => (
+          state.shellCount === 1
+          && state.menubarCount === 1
+          && state.dockCount === 1
+          && state.horizontalOverflow === 0
+         ))
+         && fullscreen.shellDrift <= 0.5,
     };
     const passed = Object.values(checks).every(Boolean);
     console.log(JSON.stringify({
@@ -521,6 +769,9 @@ async function dockMagnificationResult(browser) {
       mobileMenu,
       reducedMotion,
       dockMagnification,
+      permissionAwareTools,
+      dockViewportResize,
+      fullscreen,
     }, null, 2));
     if (!passed) process.exitCode = 1;
   } finally {

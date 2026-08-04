@@ -103,6 +103,7 @@ export function normalizeProductResearch(raw, previous = null) {
 
 export function productResearchStatusKind(status) {
   const normalized = String(status || "").toLowerCase();
+  if (normalized === "approved") return "approved";
   if (READY_STATUSES.has(normalized)) return "ready";
   if (["failed", "cancelled", "rejected"].includes(normalized)) return "failed";
   return ACTIVE_STATUSES.has(normalized) ? "active" : "active";

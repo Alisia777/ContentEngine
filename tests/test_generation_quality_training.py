@@ -102,14 +102,13 @@ process.stdout.write(JSON.stringify({{
     assert payload["forged"] is None
 
 
-def test_generation_repair_and_recurring_learning_surface_targeted_training() -> None:
+def test_targeted_training_remains_academy_owned_without_dead_workspace_links() -> None:
     assert 'from "./generation-quality-training.js?v=20260728.1"' in APP
-    assert APP.count("generationQualityTrainingRecommendation(policy)") >= 2
-    assert "generation-quality-training-link" in APP
+    assert "generationQualityTrainingRecommendation(policy)" not in APP
+    assert "generation-quality-training-link" not in APP
     assert "Точечное повторение после QA" in APP
     assert "targetedGenerationQualityLesson(" in APP
     assert "scroll: Boolean(targetedLesson)" in APP
-    assert ".generation-quality-training-link" in STYLES
     assert ".quality-training-arrival" in STYLES
     assert "@media (max-width: 760px)" in STYLES
     assert "min-width: 0;" in STYLES
