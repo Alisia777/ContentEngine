@@ -1,3 +1,4 @@
+-- Ordered after the generated-video sound release gate installed at 202608040004.
 begin;
 
 -- A project is a durable workflow boundary, not the folder currently visible

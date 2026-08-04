@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT_MIGRATION = (ROOT / "supabase/migrations/202608040004_project_scoped_workflow.sql").read_text(encoding="utf-8")
+PROJECT_MIGRATION = (ROOT / "supabase/migrations/202608040005_project_scoped_workflow.sql").read_text(encoding="utf-8")
 COMPLIANCE_MIGRATION = (ROOT / "supabase/migrations/202607140007_placement_compliance_ack.sql").read_text(
     encoding="utf-8"
 )

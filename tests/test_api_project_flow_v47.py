@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
-    ROOT / "supabase/migrations/202608040004_project_scoped_workflow.sql"
+    ROOT / "supabase/migrations/202608040005_project_scoped_workflow.sql"
 ).read_text(encoding="utf-8")
 FOLDER_MIGRATION = (
     ROOT / "supabase/migrations/202607160001_workspace_folders.sql"
