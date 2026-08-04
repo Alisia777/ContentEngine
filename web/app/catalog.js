@@ -36,6 +36,7 @@ export const SIMPLE_WORKSPACE_TAB_KEYS = Object.freeze([
   "media",
   "generation",
   "review",
+  "ai",
   "tasks",
   "placement",
   "stats",
@@ -53,6 +54,7 @@ export const WORKSPACE_TABS = Object.freeze([
   ["work", "Моя работа", "●"],
   ["board", "Рабочий стол", "▦"],
   ["research", "Разбор товара", "⌕"],
+  ["ai", "ИИ-центр", "◉"],
   ["feedback", "Помощь и идеи", "+"],
   ["team", "Команда", "◎"],
 ]);

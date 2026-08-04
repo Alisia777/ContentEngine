@@ -1,4 +1,4 @@
-/* ContentEngine Desktop v4.6 · calm, compositor-only motion system. */
+/* ContentEngine Desktop v4.7 · calm, compositor-only motion system. */
 
 :root {
   --ce-motion-instant: 90ms;
@@ -260,11 +260,7 @@ body.contentengine-desktop-v4 :is(
   }
 }
 
-@media (max-width: 680px) {
-  body.contentengine-desktop-v4 .ce-v4-menubar__start {
-    display: none !important;
-  }
-
+@media (max-width: 900px) {
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
     justify-content: flex-start !important;
     overflow-x: auto !important;
@@ -276,6 +272,12 @@ body.contentengine-desktop-v4 :is(
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__item {
     scroll-snap-align: center;
+  }
+}
+
+@media (max-width: 680px) {
+  body.contentengine-desktop-v4 .ce-v4-menubar__start {
+    display: none !important;
   }
 }
 

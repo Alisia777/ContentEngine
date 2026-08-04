@@ -106,12 +106,42 @@ select is(
         'creator_generation_media_identity',
         'creator_generation_learning_policy',
         'creator_generation_repair_policy',
-        'creator_configure_tracking_link'
+        'creator_prepare_generation_spec',
+        'creator_control_generation_spec',
+        'creator_generation_spec_status',
+        'creator_generation_spec_effective_policy',
+        'creator_configure_tracking_link',
+        'creator_capture_research_category_readiness',
+        'creator_claim_research_youtube_ingestion',
+        'creator_configure_research_source_collection_policy',
+        'creator_configure_research_watchlist',
+        'creator_control_research_stage',
+        'creator_correct_research_source_analysis',
+        'creator_correct_research_youtube_observation_analysis',
+        'creator_decide_research_outcome_learning',
+        'creator_decide_research_youtube_candidate',
+        'creator_decide_research_youtube_rollout',
+        'creator_prepare_research_outcome_generation_selection',
+        'creator_refresh_research_outcome_learning',
+        'creator_request_research_youtube_canary',
+        'creator_request_research_youtube_refresh',
+        'creator_research_category_learning_status',
+        'creator_research_market_category_registry',
+        'creator_research_outcome_generation_advisory',
+        'creator_research_outcome_learning_scopes',
+        'creator_research_outcome_learning_status',
+        'creator_research_provider_status',
+        'creator_research_stage_control_status',
+        'creator_research_stage_ledger',
+        'creator_research_watchlist_status',
+        'creator_research_youtube_overview',
+        'creator_research_youtube_status',
+        'creator_resolve_research_market_category'
       ])
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  57,
+  87,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -124,7 +154,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  57,
+  90,
   'authenticated can execute all creator RPCs'
 );
 

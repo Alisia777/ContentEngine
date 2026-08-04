@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.6 route loader.
+ * ContentEngine Desktop v4.7 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.8";
 
-const BUILD = "20260803.os4.6";
+const BUILD = "20260804.os4.8";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -19,6 +19,11 @@ let lastScheduledActionKey = "";
 window.CONTENTENGINE_DESKTOP_V4 = true;
 
 const ROUTE_ASSETS = Object.freeze({
+  aiLearning: Object.freeze({
+    match: (route) => route === "/workspace/ai",
+    styles: ["ai-learning-control-room.css?v=20260804.3"],
+    modules: [],
+  }),
   finder: Object.freeze({
     match: (route) => route === "/workspace/board",
     styles: [`workspace-os-v4-finder.css?v=${BUILD}`],
@@ -175,7 +180,7 @@ function schedule() {
     queued = false;
     void loadRoute(routePath(), workspaceActionKey()).catch((error) => {
       setFailed(routePath());
-      console.error("ContentEngine Desktop v4.6 route failed to start", error);
+      console.error("ContentEngine Desktop v4.7 route failed to start", error);
     });
   });
 }

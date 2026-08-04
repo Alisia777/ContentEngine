@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: watchdog fixtures represent already-processing paid jobs from
+-- before generation specifications. Keep every watchdog/lifecycle trigger and
+-- bypass only the new insert-time spec gate for those grandfathered rows.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 -- A compact processing-job fixture derived from
 -- real_generation_reconciliation_test.sql.  It deliberately creates the full
 -- batch -> generation -> review-task chain so the watchdog is exercised
@@ -1633,6 +1639,11 @@ select throws_ok(
   'active_membership_required',
   'a manager cannot inspect another organization health scope'
 );
+
+reset role;
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

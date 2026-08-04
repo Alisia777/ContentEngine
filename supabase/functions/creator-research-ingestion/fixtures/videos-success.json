@@ -1,0 +1,54 @@
+{
+  "kind": "youtube#videoListResponse",
+  "etag": "videos-etag-sanitized-v1",
+  "pageInfo": {
+    "totalResults": 2,
+    "resultsPerPage": 2
+  },
+  "items": [
+    {
+      "id": "abcDEF12345",
+      "etag": "video-alpha-etag-v1",
+      "snippet": {
+        "publishedAt": "2026-07-30T09:15:00Z",
+        "channelId": "UCaaaaaaaaaaaaaaaaaaaaaa",
+        "title": "Санитизированный пример демонстрации товара",
+        "channelTitle": "Канал Alpha",
+        "categoryId": "26"
+      },
+      "contentDetails": {
+        "duration": "PT42S"
+      },
+      "statistics": {
+        "viewCount": "12500",
+        "likeCount": "730",
+        "commentCount": "41"
+      },
+      "status": {
+        "privacyStatus": "public",
+        "embeddable": true
+      }
+    },
+    {
+      "id": "zyxWVU98765",
+      "etag": "video-beta-etag-v1",
+      "snippet": {
+        "publishedAt": "2026-07-28T12:30:00Z",
+        "channelId": "UCbbbbbbbbbbbbbbbbbbbbbb",
+        "title": "Санитизированный пример сравнения",
+        "channelTitle": "Канал Beta",
+        "categoryId": "26"
+      },
+      "contentDetails": {
+        "duration": "PT1M8S"
+      },
+      "statistics": {
+        "viewCount": "9800"
+      },
+      "status": {
+        "privacyStatus": "public",
+        "embeddable": true
+      }
+    }
+  ]
+}

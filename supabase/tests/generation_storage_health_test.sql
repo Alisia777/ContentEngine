@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: health snapshots include active paid jobs that predate generation
+-- specifications. Preserve all health/lifecycle triggers and bypass only the
+-- new insert-time spec gate while those grandfathered rows are seeded.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 select plan(31);
 
 create or replace function pg_temp.grant_generation_health_training_gate(
@@ -785,6 +791,9 @@ select is(
   4::bigint,
   'health reads do not retry or replace generation jobs'
 );
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

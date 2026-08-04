@@ -399,7 +399,8 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
         ROOT / "supabase/test-fixtures/training_assessment_v5_keys.sql"
     ).read_text(encoding="utf-8").casefold()
     assert "'creator_submit_course_check'" in creator
-    assert creator.count("\n  57,\n") >= 2
+    assert "87,\n  'all browser rpcs expose exactly p_payload jsonb'" in creator
+    assert "90,\n  'authenticated can execute all creator rpcs'" in creator
     assert "'creator_save_practical_project'" in creator
     assert "'creator_decide_practical_project'" in creator
     assert "'creator_submit_platform_simulator'" in creator
@@ -419,6 +420,12 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
     assert "valid_final_exam_key_count <> final_exam_question_count" in grading_fixture
     assert "test_final_exam_fixture_invalid" in grading_fixture
     assert "pg_temp.final_exam_test_rationales()" in creator
+
+    provider_control = (
+        PGTAP_DIR / "research_provider_control_plane_test.sql"
+    ).read_text(encoding="utf-8").casefold()
+    assert "'course-check:' || p_key_prefix || ':' || module_row.code" in provider_control
+    assert "provider-control-course:" not in provider_control
 
     fixture_files = {
         "limited_member_provisioning_test.sql": 2,

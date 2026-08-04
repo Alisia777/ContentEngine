@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
+-- TEST-ONLY: this legacy provider-contract suite exercises the preserved
+-- pre-v15 paid-start layer. The public v15 spec boundary is covered separately
+-- by generation_spec_control_test.sql.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
 create or replace function pg_temp.canonical_gen4_prompt(
   p_product_name text,
   p_sku text
@@ -372,7 +378,7 @@ $$;
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-spend-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -391,7 +397,7 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-count-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -410,7 +416,7 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-media-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -445,7 +451,7 @@ select is(
 );
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-viewer-denied-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -472,7 +478,7 @@ end;
 $$;
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-uncertified-denied-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -507,7 +513,7 @@ select is(
 );
 
 insert into paid_runway_context (initial_response)
-values (public.creator_start_real_generation(jsonb_build_object(
+values (content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-success-path-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -582,7 +588,7 @@ select throws_ok(
   'generic task actions cannot unblock an active paid generation review'
 );
 select is(
-  public.creator_start_real_generation(jsonb_build_object(
+  content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
     'organization_id', '80000000-0000-4000-8000-000000000001',
     'idempotency_key', 'real-success-path-0001',
     'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -602,7 +608,7 @@ select is(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-assignee-concurrency-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -619,7 +625,7 @@ select throws_ok(
 );
 
 update paid_runway_context
-set reviewer_response = public.creator_start_real_generation(jsonb_build_object(
+set reviewer_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-reviewer-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -633,7 +639,7 @@ set reviewer_response = public.creator_start_real_generation(jsonb_build_object(
   'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25'
 ));
 update paid_runway_context
-set operator_response = public.creator_start_real_generation(jsonb_build_object(
+set operator_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-operator-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -649,7 +655,7 @@ set operator_response = public.creator_start_real_generation(jsonb_build_object(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-org-concurrency-reject-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -885,7 +891,7 @@ begin
   -- Three jobs already count against the daily cap. Add and immediately fail
   -- seven more; failed provider attempts still consume the anti-abuse quota.
   for ordinal in 1..7 loop
-    response := public.creator_start_real_generation(jsonb_build_object(
+    response := content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-seed-' || lpad(ordinal::text, 4, '0'),
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -912,7 +918,7 @@ $$;
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-reject-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
@@ -951,6 +957,9 @@ select is(
   1,
   'idempotent start stores one durable command receipt'
 );
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
 
 select * from finish();
 rollback;

@@ -126,6 +126,7 @@ encrypted secrets in that environment:
 | `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 | `RUNWAYML_API_SECRET` | Server-only provider key synchronized to Supabase for explicitly confirmed paid video generation |
 | `OPENAI_API_KEY` | Server-only provider key synchronized to Supabase for explicitly confirmed product research with web search and image analysis |
+| `YOUTUBE_DATA_API_KEY` | Optional server-only key synchronized to Supabase for the default-disabled official YouTube ingestion adapter; required before a manual canary or controlled rollout |
 | `CONTENTENGINE_WORKER_SECRET` | Random 32+ character secret synchronized to the private Edge worker and Supabase Vault for native Cron dispatch |
 
 Configure these as repository **Variables**, because the independent Pages
@@ -144,6 +145,11 @@ Never configure `sb_secret_*`, `service_role`, a database URL, or a provider key
 as a Pages variable. The build creates `_site/config.js` at release time and
 fails if the key is not a publishable key or if the artifact contains a server
 secret/local endpoint marker.
+
+If `YOUTUBE_DATA_API_KEY` is absent, the deployment removes an older synchronized
+copy and the ingestion adapter remains fail-closed. Adding the secret does not
+enable collection by itself: global rollout, organization rollout, retention,
+terms, quota, legal and hard-budget gates still require explicit decisions.
 
 Prepare `SUPABASE_EXAM_KEYS_B64` and `SUPABASE_TRAINING_KEYS_B64` outside the
 repository and paste them directly into the environment-secret form. Do not

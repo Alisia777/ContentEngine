@@ -39,7 +39,7 @@ def _between(source: str, start: str, end: str) -> str:
 
 
 def test_v46_loader_has_exactly_the_three_intentional_route_adapters() -> None:
-    assert 'const BUILD = "20260803.os4.6"' in LOADER
+    assert 'const BUILD = "20260804.os4.8"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -194,7 +194,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.8"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',

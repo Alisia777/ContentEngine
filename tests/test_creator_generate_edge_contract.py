@@ -100,7 +100,10 @@ def test_paid_provider_post_is_guarded_by_sanitized_database_budget_claim() -> N
             "function budgetErrorHttpStatus"
         )
     ]
-    assert 'value.message === "real_generation_reconciliation_required"' in claim_sanitizer
+    assert 'code === "real_generation_reconciliation_required"' in claim_sanitizer
+    assert 'code === "generation_spec_provider_start_stale"' in claim_sanitizer
+    assert 'typeof value.message === "string"' in claim_sanitizer
+    assert 'typeof value.code === "string"' in claim_sanitizer
 
     start = source.index("const claim = await claimSystemJob(current.id)")
     provider_post = source.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`', start)

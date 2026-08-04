@@ -1,0 +1,36 @@
+{
+  "kind": "youtube#searchListResponse",
+  "etag": "search-etag-sanitized-v1",
+  "nextPageToken": "SANITIZED_NEXT_PAGE_TOKEN",
+  "regionCode": "RU",
+  "pageInfo": {
+    "totalResults": 2,
+    "resultsPerPage": 2
+  },
+  "items": [
+    {
+      "id": {
+        "kind": "youtube#video",
+        "videoId": "abcDEF12345"
+      },
+      "snippet": {
+        "publishedAt": "2026-07-30T09:15:00Z",
+        "channelId": "UCaaaaaaaaaaaaaaaaaaaaaa",
+        "title": "Санитизированный пример демонстрации товара",
+        "channelTitle": "Канал Alpha"
+      }
+    },
+    {
+      "id": {
+        "kind": "youtube#video",
+        "videoId": "zyxWVU98765"
+      },
+      "snippet": {
+        "publishedAt": "2026-07-28T12:30:00Z",
+        "channelId": "UCbbbbbbbbbbbbbbbbbbbbbb",
+        "title": "Санитизированный пример сравнения",
+        "channelTitle": "Канал Beta"
+      }
+    }
+  ]
+}
