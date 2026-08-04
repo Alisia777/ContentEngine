@@ -36,6 +36,9 @@ const AI_HISTORICAL_BATCH_STATUSES = new Set([
   "completed",
   "failed",
 ]);
+const AI_RESEARCH_INBOX_STATUSES = new Set(["awaiting_human_review"]);
+const AI_RESEARCH_DECISIONS = new Set(["approve", "reject"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const CREATIVE_ANGLE_LABELS = Object.freeze({
   product_focus: "Товар — главный объект",
@@ -234,6 +237,20 @@ export function normalizeAiLearningControlRoom(value, options = {}) {
     && versionValid
     && categoryContractValid
     && hasSnapshotData;
+  const researchInbox = available
+    ? normalizeResearchInbox(
+      source.research_inbox || source.researchInbox
+        || rawDetail?.research_inbox || rawDetail?.researchInbox,
+      selectedCategory,
+    )
+    : [];
+  const researchDecisions = available
+    ? normalizeResearchDecisions(
+      source.research_decisions || source.researchDecisions
+        || rawDetail?.research_decisions || rawDetail?.researchDecisions,
+      selectedCategory,
+    )
+    : [];
 
   return {
     available,
@@ -259,6 +276,8 @@ export function normalizeAiLearningControlRoom(value, options = {}) {
     categories,
     category,
     categoryDetail: category,
+    researchInbox,
+    researchDecisions,
     guidance: normalizeGuidance(source.guidance, category),
     notice: cleanText(source.notice || source.message, 800),
     error: cleanText(
@@ -341,10 +360,11 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   const status = statusMeta(category.status, category.score, category.available);
   const busyCardId = cleanText(options.busyCardId, 200);
   const busyHistoricalCaseId = cleanText(options.busyHistoricalCaseId, 200);
+  const busyResearchReceiptId = cleanText(options.busyResearchReceiptId, 200);
   const historicalCaseFilter = aiHistoricalCaseFilter(options.historicalCaseFilter);
   const busy = Boolean(
     options.busy || options.saving || options.loading || options.refreshing
-      || busyCardId || busyHistoricalCaseId,
+      || busyCardId || busyHistoricalCaseId || busyResearchReceiptId,
   );
   const notice = cleanText(options.notice || control.notice, 800);
   const error = cleanText(options.error || control.error, 800);
@@ -354,7 +374,16 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   const canDecideHistoricalCase = control.available
     && control.capabilities.canDecideHistoricalCase
     && !busy;
+  const canDecideResearchInbox = control.available
+    && control.capabilities.canDecideResearchInbox
+    && !busy;
   const updatedLabel = formatDateTime(options.lastUpdatedAt || control.asOf);
+  const researchInbox = arrayFrom(control.researchInbox).filter(
+    (item) => item.productCategory === selectedCategory,
+  );
+  const researchDecisions = arrayFrom(control.researchDecisions).filter(
+    (item) => item.productCategory === selectedCategory,
+  );
   const statusAnnouncement = busy
     ? `Обновляем категорию «${category.label}». Текущая готовность доказательной базы ${category.score} процентов.`
     : `${category.label}. ${status.label}. Готовность доказательной базы ${category.score} процентов.`;
@@ -387,6 +416,13 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     ${!control.available ? unavailableMarkup(control.reason) : ""}
     ${error ? `<div class="ai-learning-message is-error" role="alert">${escapeHtml(error)}</div>` : ""}
     ${notice ? `<div class="ai-learning-message" role="status">${escapeHtml(notice)}</div>` : ""}
+    ${researchInboxMarkup(
+      researchInbox,
+      researchDecisions,
+      selectedCategory,
+      control,
+      { canDecideResearchInbox, busy, busyResearchReceiptId },
+    )}
 
     <div class="ai-learning-category-strip" role="group" aria-label="Категории товаров">
       ${control.categories.map((item) => categoryButtonMarkup(item, selectedCategory, busy)).join("")}
@@ -425,6 +461,69 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     <div class="ai-learning-view-panel" id="ai-learning-panel-history" role="tabpanel" aria-labelledby="ai-learning-tab-history" ${view === "history" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-history">
       ${view === "history" ? historyMarkup(category, control) : ""}
     </div>
+  </section>`;
+}
+
+function researchInboxMarkup(
+  items,
+  decisions,
+  productCategory,
+  control,
+  { canDecideResearchInbox, busy, busyResearchReceiptId },
+) {
+  if (!items.length && !decisions.length) return "";
+  const title = items.length === 1
+    ? "1 исследование ждёт вашей проверки"
+    : items.length > 1
+      ? `${items.length} исследований ждут вашей проверки`
+      : "Очередь исследований разобрана";
+  const pendingMarkup = items.length
+    ? `<div class="ai-learning-source-list">
+      ${items.map((item) => {
+        const itemBusy = busyResearchReceiptId === item.id;
+        const disabled = busy || itemBusy || !canDecideResearchInbox;
+        return `<article class="ai-learning-source is-active" data-research-receipt-id="${escapeHtml(item.id)}" data-ce-patch-key="ai-research-receipt-${escapeHtml(item.id)}">
+          <div class="ai-learning-source-kind" aria-hidden="true">↳</div>
+          <div class="ai-learning-source-copy">
+            <div><span>Исследование</span><span class="ai-learning-source-status">Ждёт решения человека</span></div>
+            <h3>${escapeHtml(item.title || item.productName || "Новое исследование")}</h3>
+            <p>${escapeHtml([item.projectName, item.productName].filter(Boolean).join(" · ") || "Откройте точный проект и результат")}</p>
+            <small>${item.sourceCount} ${item.sourceCount === 1 ? "источник" : "источников"}${item.receivedAt ? ` · получено ${escapeHtml(formatDateTime(item.receivedAt))}` : ""}</small>
+            <a href="${escapeHtml(item.deepLink)}">Открыть факты и источники <span aria-hidden="true">→</span></a>
+            <small>Нажимая «Проверено — принять», вы подтверждаете, что открыли результат и сверили факты и источники. Это решение не создаёт правило ИИ.</small>
+            <div class="ai-learning-decision-actions">
+              <button class="is-primary is-good" type="button" data-primary-action="true" data-action="decide-ai-research-receipt" data-product-category="${escapeHtml(productCategory)}" data-receipt-id="${escapeHtml(item.id)}" data-receipt-hash="${escapeHtml(item.receiptHash)}" data-event-cursor="${item.eventCursor}" data-decision="approve" data-confirmation="true" ${disabled ? "disabled" : ""}>${itemBusy ? "Сохраняем…" : "Проверено — принять"}</button>
+              <button class="is-secondary" type="button" data-action="decide-ai-research-receipt" data-product-category="${escapeHtml(productCategory)}" data-receipt-id="${escapeHtml(item.id)}" data-receipt-hash="${escapeHtml(item.receiptHash)}" data-event-cursor="${item.eventCursor}" data-decision="reject" data-confirmation="true" ${disabled ? "disabled" : ""}>${itemBusy ? "Сохраняем…" : "Не использовать"}</button>
+            </div>
+            ${capabilityHint(control.capabilities.canDecideResearchInbox, "разбирать входящие исследования")}
+          </div>
+        </article>`;
+      }).join("")}
+    </div>`
+    : `<div class="ai-learning-recorded-decision is-good" role="status"><strong>Новых исследований для решения нет</strong><span>Последние решения сохранены в журнале ниже.</span></div>`;
+  const historyMarkup = decisions.length
+    ? `<div class="ai-learning-research-decision-history" aria-label="Последние решения по исследованиям">
+      <div class="ai-learning-section-heading"><div><p class="ai-learning-eyebrow">Сохранённые решения</p><h3>Что уже разобрано</h3></div><span>${decisions.length}</span></div>
+      <div class="ai-learning-source-list">
+        ${decisions.map((item) => `<article class="ai-learning-source" data-ce-patch-key="ai-research-decision-${escapeHtml(item.id)}">
+          <div class="ai-learning-source-kind" aria-hidden="true">${item.decision === "approve" ? "✓" : "×"}</div>
+          <div class="ai-learning-source-copy">
+            <div><span>Решение человека</span><span class="ai-learning-source-status">${item.decision === "approve" ? "Проверено и принято" : "Исключено"}</span></div>
+            <h3>${escapeHtml(item.title || item.productName || "Исследование")}</h3>
+            <p>${escapeHtml([item.projectName, item.productName].filter(Boolean).join(" · ") || "Решение сохранено")}</p>
+            <small>${item.decidedByName ? `${escapeHtml(item.decidedByName)} · ` : ""}${escapeHtml(formatDateTime(item.decidedAt) || "время решения не указано")}</small>
+            <a href="${escapeHtml(item.deepLink)}">Открыть сохранённое исследование <span aria-hidden="true">→</span></a>
+          </div>
+        </article>`).join("")}
+      </div>
+    </div>`
+    : "";
+  return `<section class="ai-learning-signal-summary ai-learning-research-inbox" aria-labelledby="ai-learning-research-inbox-title" data-ce-patch-key="ai-research-inbox-${escapeHtml(productCategory)}-${items.length}-${items[0]?.eventCursor || 0}-${decisions[0]?.eventCursor || 0}">
+    <div class="ai-learning-signal-summary__heading">
+      <div><p class="ai-learning-eyebrow">Входящие из исследований</p><h2 id="ai-learning-research-inbox-title">${escapeHtml(title)}</h2><p>«Принять» закрывает входящее как проверенное человеком, «Не использовать» исключает его. Оба решения сохраняются в истории, но сами по себе не обучают ИИ, не копируют сырой анализ в промпт и не меняют правила генерации.</p></div>
+    </div>
+    ${pendingMarkup}
+    ${historyMarkup}
   </section>`;
 }
 
@@ -1939,12 +2038,165 @@ function normalizeCapabilities(raw, actor) {
       ["can_decide_historical_case", "canDecideHistoricalCase"],
       false,
     ),
+    canDecideResearchInbox: capability(
+      source,
+      ["can_decide_research_inbox", "canDecideResearchInbox"],
+      false,
+    ),
     canViewHistory: capability(
       source,
       ["view_history", "can_view_history", "canViewHistory"],
       true,
     ),
   };
+}
+
+function normalizeResearchInbox(raw, selectedCategory) {
+  return arrayFrom(raw).map((item, index) => {
+    const source = objectValue(item);
+    if (!source) return null;
+    const productCategory = cleanText(
+      source.product_category || source.productCategory,
+      80,
+    ).toLowerCase();
+    const status = cleanText(source.status, 80).toLowerCase();
+    const projectId = cleanText(source.project_id || source.projectId, 80);
+    const runId = cleanText(source.run_id || source.runId, 80);
+    const receiptId = cleanText(
+      source.receipt_id || source.receiptId || source.id,
+      80,
+    );
+    if (
+      productCategory !== selectedCategory
+      || !AI_CATEGORY_BY_KEY.has(productCategory)
+      || !AI_RESEARCH_INBOX_STATUSES.has(status)
+      || !UUID_PATTERN.test(projectId)
+      || !UUID_PATTERN.test(runId)
+      || !UUID_PATTERN.test(receiptId)
+      || source.requires_human_review !== true
+      || source.raw_research_enters_prompt_automatically !== false
+      || source.affects_effective_policy !== false
+    ) return null;
+    return {
+      id: receiptId,
+      projectId,
+      runId,
+      productCategory,
+      status,
+      receiptHash: cleanText(
+        source.receipt_hash || source.receiptHash,
+        64,
+      ).toLowerCase(),
+      projectName: cleanText(
+        source.project_name || source.projectName,
+        180,
+      ),
+      productName: cleanText(
+        source.product_name || source.productName,
+        240,
+      ),
+      title: cleanText(
+        source.research_title || source.researchTitle || source.title,
+        240,
+      ),
+      sourceCount: nonNegativeInteger(
+        source.source_count ?? source.sourceCount,
+        0,
+      ),
+      eventCursor: nonNegativeInteger(
+        source.event_cursor ?? source.eventCursor,
+        index + 1,
+      ),
+      receivedAt: timestamp(
+        source.received_at || source.receivedAt,
+      ),
+      deepLink: `#/workspace/research?project_id=${projectId}&run=${runId}`,
+      requiresHumanReview: true,
+      affectsEffectivePolicy: false,
+    };
+  }).filter((item) => (
+    item && /^[0-9a-f]{64}$/u.test(item.receiptHash)
+  )).slice(0, 50);
+}
+
+function normalizeResearchDecisions(raw, selectedCategory) {
+  return arrayFrom(raw).map((item, index) => {
+    const source = objectValue(item);
+    if (!source) return null;
+    const productCategory = cleanText(
+      source.product_category || source.productCategory,
+      80,
+    ).toLowerCase();
+    const decision = cleanText(source.decision, 20).toLowerCase();
+    const dispositionId = cleanText(
+      source.disposition_id || source.dispositionId || source.id,
+      80,
+    );
+    const receiptId = cleanText(
+      source.receipt_id || source.receiptId,
+      80,
+    );
+    const projectId = cleanText(source.project_id || source.projectId, 80);
+    const runId = cleanText(source.run_id || source.runId, 80);
+    const receiptHash = cleanText(
+      source.receipt_hash || source.receiptHash,
+      64,
+    ).toLowerCase();
+    if (
+      productCategory !== selectedCategory
+      || !AI_CATEGORY_BY_KEY.has(productCategory)
+      || !AI_RESEARCH_DECISIONS.has(decision)
+      || !UUID_PATTERN.test(dispositionId)
+      || !UUID_PATTERN.test(receiptId)
+      || !UUID_PATTERN.test(projectId)
+      || !UUID_PATTERN.test(runId)
+      || !/^[0-9a-f]{64}$/u.test(receiptHash)
+      || source.human_review_completed !== true
+      || source.raw_research_enters_prompt_automatically !== false
+      || source.affects_effective_policy !== false
+    ) return null;
+    return {
+      id: dispositionId,
+      receiptId,
+      receiptHash,
+      projectId,
+      runId,
+      productCategory,
+      decision,
+      reasonCode: cleanText(
+        source.reason_code || source.reasonCode,
+        120,
+      ),
+      projectName: cleanText(
+        source.project_name || source.projectName,
+        180,
+      ),
+      productName: cleanText(
+        source.product_name || source.productName,
+        240,
+      ),
+      title: cleanText(
+        source.research_title || source.researchTitle || source.title,
+        240,
+      ),
+      decidedBy: cleanText(
+        source.decided_by || source.decidedBy,
+        80,
+      ),
+      decidedByName: cleanText(
+        source.decided_by_name || source.decidedByName,
+        180,
+      ),
+      decidedAt: timestamp(source.decided_at || source.decidedAt),
+      eventCursor: nonNegativeInteger(
+        source.event_cursor ?? source.eventCursor,
+        index + 1,
+      ),
+      deepLink: `#/workspace/research?project_id=${projectId}&run=${runId}`,
+      humanReviewCompleted: true,
+      affectsEffectivePolicy: false,
+    };
+  }).filter(Boolean).slice(0, 50);
 }
 
 function normalizeGuidance(raw, category) {

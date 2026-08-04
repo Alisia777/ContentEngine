@@ -220,13 +220,26 @@ def test_create_project_submission_can_succeed_while_catalog_is_in_error() -> No
     script = f"""
 const projectId = "33333333-3333-4333-8333-333333333333";
 let createCalls = 0;
+let boardRefreshCalls = 0;
 const navigations = [];
+const handoffs = [];
 const state = {{
   api: {{
     createProject: async (payload) => {{
       createCalls += 1;
       if (payload.name !== "Новый проект") throw new Error("wrong-name");
-      return {{ project_id: projectId, project: {{ id: projectId, name: payload.name }} }};
+      return {{
+        project_id: projectId,
+        project: {{ id: projectId, name: payload.name }},
+        next_action: {{
+          stage: "files",
+          label: "Добавить исходник",
+          route: `/workspace/board?project_id=${{projectId}}`,
+          project_id: projectId,
+          entity_type: "workspace_project",
+          entity_id: projectId,
+        }},
+      }};
     }},
   }},
   route: {{ path: "/workspace/home" }},
@@ -239,8 +252,10 @@ globalThis.FormData = class {{
 const renderWorkspace = () => undefined;
 const normalizeProjectFlow = (value) => ({{ project_id: value.project_id, projects: [], ...value }});
 const isWorkspaceProjectId = (value) => /^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[1-8][0-9a-f]{{3}}-[89ab][0-9a-f]{{3}}-[0-9a-f]{{12}}$/iu.test(String(value));
-const persistWorkspaceProject = () => true;
-const refreshWorkspaceBoardAfterMutation = async () => undefined;
+const activateWorkspaceProject = (id) => {{ state.projectFlow.projectId = id; return true; }};
+const exactProjectNextActionRoute = (flow, id) => flow.project_id === id ? flow.next_action.route : "";
+const refreshWorkspaceBoardAfterMutation = async () => {{ boardRefreshCalls += 1; throw new Error("finder-unavailable"); }};
+const flowHandoff = async (route, message, nextLabel) => handoffs.push({{ route, message, nextLabel }});
 const navigate = (route) => navigations.push(route);
 const actionErrorMessage = (error) => error.message;
 {submit}
@@ -251,7 +266,11 @@ if (state.workspaceBoard.busy) throw new Error("create-stuck-busy");
 if (state.projectFlow.status !== "ready") throw new Error(`status:${{state.projectFlow.status}}`);
 if (state.projectFlow.projectId !== projectId) throw new Error(`project:${{state.projectFlow.projectId}}`);
 if (state.projectFlow.error !== null) throw new Error("catalog-error-not-cleared");
-if (navigations[0] !== `/workspace/board?project_id=${{projectId}}`) throw new Error(`navigation:${{navigations[0]}}`);
+if (boardRefreshCalls !== 0) throw new Error(`early-board-refresh:${{boardRefreshCalls}}`);
+if (handoffs.length !== 1) throw new Error(`handoffs:${{handoffs.length}}`);
+if (handoffs[0].route !== `/workspace/board?project_id=${{projectId}}`) throw new Error(`handoff:${{handoffs[0].route}}`);
+if (!handoffs[0].message.includes("создан")) throw new Error("success-message-missing");
+if (navigations.length !== 0) throw new Error(`fallback-navigation:${{navigations[0]}}`);
 process.stdout.write("ok");
 """
     _run_node(script)

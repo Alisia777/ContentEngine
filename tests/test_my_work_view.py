@@ -151,8 +151,8 @@ def test_my_work_is_a_first_class_simple_workspace_route() -> None:
     assert '"work"' in simple_block
     assert 'work: renderMyWorkSection' in APP
     assert 'state.api.myWork({ ...myWorkRequestOptions(state.myWork.filters), projectId })' in APP
-    assert 'from "./my-work-view.js?v=20260804.os4.16"' in APP
-    assert './my-work.css?v=20260804.os4.16' in INDEX
+    assert 'from "./my-work-view.js?v=20260804.os4.17"' in APP
+    assert './my-work.css?v=20260804.os4.17' in INDEX
 
 
 def test_my_work_wires_saved_views_notifications_and_keyset_pagination() -> None:

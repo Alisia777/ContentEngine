@@ -83,15 +83,23 @@ def test_research_persists_only_provider_citations_and_private_signed_images() -
 def test_ambiguous_openai_outcome_is_terminal_and_never_auto_replayed() -> None:
     source = _source()
 
-    status_gate = source.index('if (authorized.status !== "queued")')
+    status_gate = source.index(
+        'if (authorized.status === "queued" && payload.action === "status")'
+    )
     claim = source.index('"system_claim_product_research"', status_gate)
-    provider = source.index("providerResponse = await fetchWithTimeout", claim)
-    assert status_gate < claim < provider
-    assert 'if (!claim.claimed)' in source[claim:provider]
+    observer = source.index("if (!claim.claimed)", claim)
+    paid_post = source.index(
+        "providerResponse = await fetchWithTimeout(\n        OPENAI_RESPONSES_URL,",
+        observer,
+    )
+    assert status_gate < claim < observer < paid_post
+    assert 'method: "GET"' in source[observer:paid_post]
+    assert 'method: "POST"' not in source[observer:paid_post]
+    assert source.count('method: "POST"') == 1
     assert '"idempotency-key": `product-research:${claim.run.id}`' in source
     assert '"X-Client-Request-Id": claim.run.id' in source
     assert '"provider_outcome_unknown"' in source
-    assert "Автоматического повтора платного запроса нет" in source
+    assert "it never issues another POST" in source
     assert 'status === 408 || status >= 500' in source
     assert '"provider_timeout"' not in source
 

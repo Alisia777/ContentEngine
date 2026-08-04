@@ -666,6 +666,16 @@ body.contentengine-desktop-v4 .home-single-action > footer small {
   text-align: right;
 }
 
+body.contentengine-desktop-v4 .home-single-action__project-nav {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+body.contentengine-desktop-v4 .home-project-switch-control {
+  min-height: 38px;
+}
+
 body.contentengine-desktop-v4 .home-single-action__body {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
@@ -755,6 +765,11 @@ body.contentengine-desktop-v4 .home-single-action__facts dd {
 
   body.contentengine-desktop-v4 .home-single-action > footer small {
     text-align: left;
+  }
+
+  body.contentengine-desktop-v4 .home-single-action__project-nav {
+    width: 100%;
+    justify-items: stretch;
   }
 
   body.contentengine-desktop-v4 .home-single-action > footer .btn {

@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.16";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.17";
 
-const BUILD = "20260804.os4.16";
+const BUILD = "20260804.os4.17";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -318,6 +318,14 @@ function navigate(route, options) {
   return destination;
 }
 
+function navigatePrimaryRoute(route) {
+  const requested = String(route || "/workspace/home");
+  if (routeParts(requested).path === "/workspace/home") {
+    return navigate("/workspace/home", { preserveProject: false });
+  }
+  return navigate(requested);
+}
+
 function focusFinderSearch(query = "") {
   const value = String(query || "").trim();
   if (value) storage("session")?.setItem(FINDER_QUERY_KEY, value);
@@ -610,7 +618,10 @@ function handoff(route, options = {}) {
 function projectMenuParts() {
   const trigger = q("[data-ce-v4-project-trigger]", runtime.menubar);
   const menu = q("[data-ce-v4-project-menu]", runtime.menubar);
-  const items = qa("[data-ce-v4-project-option], [data-ce-v4-all-projects]", menu);
+  const items = qa(
+    "[data-ce-v4-project-option], [data-ce-v4-create-project], [data-ce-v4-all-projects]",
+    menu,
+  );
   return { trigger, menu, items };
 }
 
@@ -657,7 +668,9 @@ function handleProjectMenuKeydown(event) {
     closeProjectMenu();
     return;
   }
-  const current = items.indexOf(target?.closest?.("[data-ce-v4-project-option], [data-ce-v4-all-projects]"));
+  const current = items.indexOf(target?.closest?.(
+    "[data-ce-v4-project-option], [data-ce-v4-create-project], [data-ce-v4-all-projects]",
+  ));
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
   const next = event.key === "Home"
@@ -686,6 +699,10 @@ function projectSelectionRoute(project) {
 function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
   const { trigger, menu } = projectMenuParts();
   if (!trigger || !menu) return;
+  const workspaceRole = String(
+    q(".workspace-shell[data-workspace-role]")?.dataset.workspaceRole || "",
+  ).trim().toLowerCase();
+  const canCreateProject = ["owner", "admin", "producer"].includes(workspaceRole);
   const triggerName = q("[data-ce-v4-project-name]", trigger);
   const triggerMeta = q("[data-ce-v4-project-meta]", trigger);
   if (triggerName) triggerName.textContent = snapshot.id ? snapshot.name : "Выбрать проект";
@@ -696,6 +713,7 @@ function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
   const signature = JSON.stringify({
     id: snapshot.id,
     nextAction: snapshot.nextAction?.route || "",
+    canCreateProject,
     projects: snapshot.projects.map((project) => [
       project.id,
       project.name,
@@ -731,8 +749,23 @@ function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
     link.append(mark, copy, create("span", "ce-v4-project-menu__check", selected ? "✓" : ""));
     fragment.append(link);
   });
-  const allProjects = create("a", "ce-v4-project-menu__all", "Все проекты");
-  allProjects.href = `#${routeWithProject("/workspace/home", snapshot.id)}`;
+  if (canCreateProject) {
+    const createProject = create(
+      "button",
+      "ce-v4-project-menu__command ce-v4-project-menu__create",
+      "＋ Новый проект",
+    );
+    createProject.type = "button";
+    createProject.dataset.ceV4CreateProject = "true";
+    createProject.setAttribute("role", "menuitem");
+    fragment.append(createProject);
+  }
+  const allProjects = create(
+    "button",
+    "ce-v4-project-menu__command ce-v4-project-menu__all",
+    "Все проекты",
+  );
+  allProjects.type = "button";
   allProjects.dataset.ceV4AllProjects = "true";
   allProjects.setAttribute("role", "menuitem");
   fragment.append(allProjects);
@@ -852,7 +885,18 @@ function ensureMenubar() {
       closeProjectMenu();
       navigate(projectOption.getAttribute("href")?.replace(/^#/, "") || projectSelectionRoute(selected));
     }
-    if (target?.closest("[data-ce-v4-all-projects]")) closeProjectMenu();
+    if (target?.closest("[data-ce-v4-create-project]")) {
+      event.preventDefault();
+      closeProjectMenu();
+      navigate("/workspace/home?view=new", { preserveProject: false });
+      return;
+    }
+    if (target?.closest("[data-ce-v4-all-projects]")) {
+      event.preventDefault();
+      closeProjectMenu();
+      navigate("/workspace/home", { preserveProject: false });
+      return;
+    }
     if (target?.closest("[data-ce-v4-refresh]")) refreshWorkspace();
     if (target?.closest("[data-ce-v4-fullscreen]")) void toggleFullscreen();
     const notificationControl = target?.closest("[data-ce-v4-notifications]");
@@ -952,6 +996,13 @@ function ensureDock() {
     if (!(item instanceof HTMLElement)) return;
     const destination = String(item.dataset.ceV4Route || "");
     const snapshot = projectFlowSnapshot();
+    const opensProjectCatalog = routeParts(destination).path === "/workspace/home";
+    if (opensProjectCatalog) {
+      event.preventDefault();
+      event.stopPropagation();
+      navigatePrimaryRoute(destination);
+      return;
+    }
     if (workspaceRouteRequiresProject(destination) && !snapshot.id) {
       event.preventDefault();
       explainProjectRequired(destination);
@@ -963,7 +1014,7 @@ function ensureDock() {
       explainLockedStage(stage);
       return;
     }
-    if (!destination || routeMatches(routePath(), destination)) return;
+    if (!destination || (!opensProjectCatalog && routeMatches(routePath(), destination))) return;
     item.classList.remove("is-launching");
     window.requestAnimationFrame(() => {
       if (!item.isConnected) return;
@@ -1000,7 +1051,9 @@ function updateDock() {
     const hasStageState = Boolean(snapshot.hasFlow && stage && stage.state !== "unknown");
     const locked = stageLocked(stage, snapshot);
     const projectRequired = workspaceRouteRequiresProject(item.dataset.ceV4Route) && !snapshot.id;
-    const destination = stage?.destination || projectRoute(item.dataset.ceV4Route, context);
+    const destination = item.dataset.ceV4Route === "/workspace/home"
+      ? "/workspace/home"
+      : stage?.destination || projectRoute(item.dataset.ceV4Route, context);
     item.href = `#${destination}`;
     item.classList.toggle("is-active", active);
     item.classList.toggle("is-project-required", projectRequired);
@@ -1476,7 +1529,7 @@ function openMission() {
     const target = event.target instanceof Element ? event.target : null;
     if (event.target === backdrop || target?.closest("[data-ce-v4-close]")) closeElementOverlay("mission");
     const route = target?.closest("[data-route]")?.dataset.route;
-    if (route) navigate(route);
+    if (route) navigatePrimaryRoute(route);
   });
   input.addEventListener("input", () => {
     const needle = input.value.trim().toLocaleLowerCase("ru-RU");
@@ -1493,7 +1546,7 @@ function spotlightRecords(query = "") {
     subtitle: item.description,
     icon: item.icon,
     keywords: `${item.label} ${item.description}`.toLocaleLowerCase("ru-RU"),
-    run: () => navigate(item.route),
+    run: () => navigatePrimaryRoute(item.route),
   }));
   qa(".workspace-board__item, .task-card, .my-work-item, .placement-card, [data-generation-job-id]").filter(isVisible).slice(0, 80).forEach((node) => {
     const title = compact(q("h2, h3, strong", node)?.textContent || node.textContent, 100);
@@ -1947,7 +2000,7 @@ function handleKeydown(event) {
       const snapshot = projectFlowSnapshot();
       const stage = stageForRoute(item.route, snapshot);
       if (stageLocked(stage, snapshot)) explainLockedStage(stage);
-      else navigate(item.route);
+      else navigatePrimaryRoute(item.route);
     }
   }
 }

@@ -371,6 +371,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
             rpc,
             platforms: payload.platforms,
             project_id: payload.project_id,
+            product_category: payload.product_category,
           });
           return { run: { id: "research-run-1", status: "queued" } };
         };
@@ -381,6 +382,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
         const accepted = await api.startProductResearch({
           product_name: "Точный товар",
           sku: "WB-100",
+          product_category: "electronics",
           platforms: ["wildberries"],
           project_id: "11111111-1111-4111-8111-111111111111",
           paid_analysis_ack: true,
@@ -388,6 +390,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
         const acceptedOzon = await api.startProductResearch({
           product_name: "Точный товар",
           sku: "OZON-100",
+          product_category: "electronics",
           platforms: ["ozon"],
           project_id: "11111111-1111-4111-8111-111111111111",
           paid_analysis_ack: true,
@@ -397,6 +400,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
           await api.startProductResearch({
             product_name: "Точный товар",
             sku: "WB-100",
+            product_category: "electronics",
             platforms: ["telegram"],
             project_id: "11111111-1111-4111-8111-111111111111",
             paid_analysis_ack: true,
@@ -421,6 +425,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
                 "rpc": "creator_start_project_research",
                 "platforms": ["wildberries"],
                 "project_id": "11111111-1111-4111-8111-111111111111",
+                "product_category": "electronics",
             },
             {
                 "kind": "edge",
@@ -435,6 +440,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
                 "rpc": "creator_start_project_research",
                 "platforms": ["ozon"],
                 "project_id": "11111111-1111-4111-8111-111111111111",
+                "product_category": "electronics",
             },
             {
                 "kind": "edge",

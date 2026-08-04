@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.16";
+} from "./supabase-api.js?v=20260804.os4.17";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.16";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.16";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.17";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.17";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -73,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260804.os4.16";
+} from "./product-research-view.js?v=20260804.os4.17";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -82,7 +82,7 @@ import {
   aiLearningView,
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
-} from "./ai-learning-control-room.js?v=20260804.os4.16";
+} from "./ai-learning-control-room.js?v=20260804.os4.17";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -94,7 +94,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.16";
+} from "./content-generation-handoff.js?v=20260804.os4.17";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -108,7 +108,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.16";
+} from "./generation-form-draft.js?v=20260804.os4.17";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -141,7 +141,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.16";
+} from "./content-review-view.js?v=20260804.os4.17";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -170,7 +170,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.16";
+} from "./workspace-board-view.js?v=20260804.os4.17";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -199,7 +199,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.16";
+} from "./training-journey.js?v=20260804.os4.17";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -218,7 +218,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.16";
+} from "./training-practical-review.js?v=20260804.os4.17";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -237,7 +237,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.16";
+} from "./my-work-view.js?v=20260804.os4.17";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1214,6 +1214,7 @@ const state = {
     requestId: 0,
     busyCardId: "",
     busyHistoricalCaseId: "",
+    busyResearchReceiptId: "",
     historicalCaseFilter: "all",
     historicalImport: {
       active: false,
@@ -9284,33 +9285,72 @@ async function submitHomeProjectCreate(form) {
   const values = new FormData(form);
   const name = String(values.get("folder_name") || "").trim();
   if (!name || state.workspaceBoard.busy) return;
+  const knownProjects = normalizeProjectFlow(state.projectFlow?.data || {}).projects;
   state.workspaceBoard.projectDraftName = name;
   state.workspaceBoard.busy = true;
   state.workspaceBoard.projectCreateError = "";
   state.workspaceBoard.notice = "";
   renderWorkspace("home");
+
+  let response;
   try {
-    const response = await state.api.createProject({ name });
-    const source = response?.data ?? response ?? {};
-    const folderId = String(source.folder?.id || source.folder_id || "");
-    const projectId = String(source.project?.id || source.project_id || folderId || "").trim().toLowerCase();
-    if (!isWorkspaceProjectId(projectId)) throw new Error("workspace_project_id_missing");
-    state.workspaceBoard.selectedFolderId = "all";
-    state.workspaceBoard.notice = `Проект «${name}» создан.`;
-    state.workspaceBoard.projectDraftName = "";
-    state.workspaceBoard.projectCreateError = "";
-    persistWorkspaceProject(projectId, name);
-    state.projectFlow.data = normalizeProjectFlow(source);
-    state.projectFlow.projectId = projectId;
-    state.projectFlow.status = "ready";
-    state.projectFlow.error = null;
-    await refreshWorkspaceBoardAfterMutation();
-    navigate(`/workspace/board?project_id=${encodeURIComponent(projectId)}`);
+    response = await state.api.createProject({ name });
   } catch (error) {
     state.workspaceBoard.projectCreateError = actionErrorMessage(error);
-  } finally {
     state.workspaceBoard.busy = false;
     if (state.route.path === "/workspace/home") renderWorkspace("home");
+    return;
+  }
+
+  const source = response?.data ?? response ?? {};
+  const flowSource = source.flow && typeof source.flow === "object" ? source.flow : source;
+  const createdFlow = normalizeProjectFlow(flowSource);
+  const folderId = String(source.folder?.id || source.folder_id || "");
+  const projectId = String(
+    createdFlow.project_id || source.project?.id || source.project_id || folderId || "",
+  ).trim().toLowerCase();
+
+  state.workspaceBoard.busy = false;
+  state.workspaceBoard.projectCreateError = "";
+  state.workspaceBoard.projectDraftName = "";
+  state.workspaceBoard.selectedFolderId = "all";
+
+  if (!isWorkspaceProjectId(projectId)) {
+    state.workspaceBoard.notice = "Проект создан, но не открылся автоматически. Выберите его в обновлённом списке.";
+    state.projectFlow.status = "idle";
+    state.projectFlow.data = null;
+    state.projectFlow.error = null;
+    toast(state.workspaceBoard.notice, "warning");
+    navigate("/workspace/home", false, { scopeProject: false });
+    return;
+  }
+
+  activateWorkspaceProject(projectId, name);
+  state.workspaceBoard.notice = `Проект «${name}» создан.`;
+  const createdProject = createdFlow.project && typeof createdFlow.project === "object"
+    ? createdFlow.project
+    : { id: projectId, name };
+  createdFlow.projects = [createdProject, ...createdFlow.projects, ...knownProjects]
+    .filter((project, index, projects) => {
+      const id = String(project?.id || "").trim().toLowerCase();
+      return isWorkspaceProjectId(id)
+        && projects.findIndex((candidate) => String(candidate?.id || "").trim().toLowerCase() === id) === index;
+    });
+  state.projectFlow.data = createdFlow;
+  state.projectFlow.projectId = projectId;
+  state.projectFlow.status = "ready";
+  state.projectFlow.error = null;
+
+  const nextRoute = exactProjectNextActionRoute(createdFlow, projectId)
+    || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
+  try {
+    await flowHandoff(
+      nextRoute,
+      `Проект «${name}» создан`,
+      "Открываем первый шаг проекта",
+    );
+  } catch {
+    navigate(nextRoute);
   }
 }
 
@@ -9328,6 +9368,9 @@ function homeProjectSwitcherMarkup(action) {
   const projectListFailed = !loading
     && !projects.length
     && projectFlowFailed;
+  const createOnly = canCreateProject
+    && state.route?.path === "/workspace/home"
+    && String(state.route?.query?.get?.("view") || "").trim().toLowerCase() === "new";
   const projectDraftName = String(state.workspaceBoard.projectDraftName || "");
   const projectCreateError = String(state.workspaceBoard.projectCreateError || "").trim();
   const storedProject = projectListFailed ? storedWorkspaceProject() : null;
@@ -9384,10 +9427,8 @@ function homeProjectSwitcherMarkup(action) {
           <span class="home-project-card__open">Продолжить <i aria-hidden="true">→</i></span>
         </a>`;
     }).join("");
-  const createProject = canCreateProject ? `
-    <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
-      <summary><span aria-hidden="true">＋</span> Новый проект</summary>
-      <form id="home-project-create-form">
+  const projectCreateForm = `
+      <form id="home-project-create-form" aria-label="Создать новый проект">
         <label for="home-project-name">Название проекта</label>
         <div>
           <input id="home-project-name"
@@ -9405,10 +9446,14 @@ function homeProjectSwitcherMarkup(action) {
         </div>
         ${projectCreateError
           ? `<p class="home-project-create__error" role="alert">${escapeHtml(projectCreateError)}</p>`
-          : projectListFailed
-            ? '<small>Список временно недоступен, но новый проект можно создать прямо сейчас.</small>'
-            : '<small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>'}
-      </form>
+            : projectListFailed
+              ? '<small>Список временно недоступен, но новый проект можно создать прямо сейчас.</small>'
+              : '<small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>'}
+      </form>`;
+  const createProject = canCreateProject ? `
+    <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
+      <summary><span aria-hidden="true">＋</span> Новый проект</summary>
+      ${projectCreateForm}
     </details>` : `
     <p class="home-project-readonly">Новый проект создаёт руководитель. Выберите доступный проект ниже.</p>`;
   const retryIsPrimary = projectListFailed && !canCreateProject;
@@ -9417,6 +9462,23 @@ function homeProjectSwitcherMarkup(action) {
   const actionControl = action.controlAction
     ? `<button class="btn btn-secondary" type="button" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
     : `<a class="btn btn-secondary" href="${escapeHtml(action.href || "#/workspace/board")}">${escapeHtml(action.cta || "Открыть")} <span aria-hidden="true">→</span></a>`;
+  if (createOnly) {
+    return `
+      <section class="home-project-switcher home-project-create-surface" data-ce-v4-project-home aria-labelledby="home-project-create-title">
+        <header>
+          <p class="eyebrow">Новый рабочий стол</p>
+          <h1 id="home-project-create-title">Создайте проект</h1>
+          <p>Дайте проекту понятное название. Портал создаст рабочие папки и сразу откроет первое действие.</p>
+        </header>
+        <div class="home-project-create home-project-create--surface">
+          ${projectCreateForm}
+        </div>
+        <footer>
+          <button class="btn btn-secondary" type="button" data-action="open-project-chooser">← Все проекты</button>
+          <small>Текущий проект не удаляется и остаётся в списке.</small>
+        </footer>
+      </section>`;
+  }
   return `
     <section class="home-project-switcher" data-ce-v4-project-home aria-labelledby="home-projects-title">
       <header class="home-project-switcher__head">
@@ -9467,6 +9529,13 @@ function homeProjectSwitcherMarkup(action) {
 
 function renderHomeSection(homeState) {
   const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const canCreateProject = ["owner", "admin", "producer"].includes(
+    String(state.bootstrap?.membership?.role || "").trim().toLowerCase(),
+  );
+  const projectChooserControl = `
+    <button class="btn btn-secondary home-project-switch-control"
+            type="button"
+            data-action="open-project-chooser">${canCreateProject ? "Сменить или создать проект" : "Сменить проект"}</button>`;
   const routeProjectId = workspaceProjectChooserMode()
     ? ""
     : routeWorkspaceProjectId() || projectFlow.project_id || "";
@@ -9491,6 +9560,7 @@ function renderHomeSection(homeState) {
           </div>
           <footer>
             ${failed ? '<button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Повторить</button>' : '<span class="muted" role="status">Подождите несколько секунд…</span>'}
+            ${projectChooserControl}
           </footer>
         </section>
       </div>`;
@@ -9546,7 +9616,10 @@ function renderHomeSection(homeState) {
             <span class="home-single-action__mark" aria-hidden="true">!</span>
             <div><h1 id="home-next-action-missing">Следующее действие не определено</h1><p>Портал не откроет случайный раздел или объект из общей очереди. Обновите серверное состояние проекта.</p></div>
           </div>
-          <footer><button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Обновить цепочку</button></footer>
+          <footer>
+            <button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Обновить цепочку</button>
+            ${projectChooserControl}
+          </footer>
         </section>
       </div>`;
   }
@@ -9576,7 +9649,10 @@ function renderHomeSection(homeState) {
         </dl>
         <footer>
           ${actionControl}
-          <small>Другой проект выбирается в постоянной панели сверху. Этапы переключаются через Dock.</small>
+          <span class="home-single-action__project-nav">
+            ${projectChooserControl}
+            <small>Этапы текущего проекта переключаются через Dock.</small>
+          </span>
         </footer>
       </section>
     </div>`;
@@ -13805,10 +13881,12 @@ function renderAiLearningSection(sectionState) {
     refreshing: sectionState.status === "refreshing",
     busy: Boolean(
       state.aiLearning.knowledgeMutationKind
-        || state.aiLearning.historicalImport.inFlight,
+        || state.aiLearning.historicalImport.inFlight
+        || state.aiLearning.busyResearchReceiptId,
     ),
     busyCardId: state.aiLearning.busyCardId,
     busyHistoricalCaseId: state.aiLearning.busyHistoricalCaseId,
+    busyResearchReceiptId: state.aiLearning.busyResearchReceiptId,
     historicalCaseFilter: state.aiLearning.historicalCaseFilter,
     historicalImport: state.aiLearning.historicalImport,
     notice: state.aiLearning.notice,
@@ -13832,6 +13910,7 @@ function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
     || !state.session
     || state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
   ) return;
@@ -13847,6 +13926,7 @@ async function pollAiLearningControlRoom() {
     || document.visibilityState !== "visible"
     || state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
   ) return null;
@@ -13969,6 +14049,7 @@ async function decideAiTeachingCard(control) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -14055,6 +14136,7 @@ async function decideAiHistoricalCase(control) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -14129,6 +14211,82 @@ async function decideAiHistoricalCase(control) {
   } finally {
     if (state.aiLearning.busyHistoricalCaseId === caseId) {
       state.aiLearning.busyHistoricalCaseId = "";
+    }
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
+async function decideAiResearchReceipt(control) {
+  if (
+    state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
+    || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.historicalImport.inFlight
+  ) return;
+  const card = control.closest("[data-research-receipt-id]") || control;
+  const category = String(
+    control.dataset.productCategory
+      || card.dataset.productCategory
+      || currentAiLearningCategory(),
+  ).trim().toLowerCase();
+  const receiptId = String(
+    control.dataset.receiptId || card.dataset.researchReceiptId || "",
+  ).trim().toLowerCase();
+  const receiptHash = String(control.dataset.receiptHash || "")
+    .trim()
+    .toLowerCase();
+  const decision = String(control.dataset.decision || "").trim().toLowerCase();
+  if (category !== currentAiLearningCategory()) {
+    toast("Категория уже изменилась. Решение по исследованию не отправлено.", "error");
+    return;
+  }
+
+  stopAiLearningPolling();
+  const mutationRequestId = state.aiLearning.requestId + 1;
+  state.aiLearning.requestId = mutationRequestId;
+  state.aiLearning.busyResearchReceiptId = receiptId;
+  state.aiLearning.notice = "";
+  state.aiLearning.error = "";
+  renderWorkspace("ai");
+  try {
+    const response = await state.api.decideAiResearchReceipt({
+      product_category: category,
+      receipt_id: receiptId,
+      receipt_hash: receiptHash,
+      decision,
+      confirmation: true,
+    });
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const successMessage = decision === "approve"
+      ? "Исследование проверено и принято в журнал ИИ-центра. Оно не меняет правила и промпты автоматически."
+      : "Исследование исключено из входящих ИИ-центра. Решение сохранено в журнале.";
+    if (aiLearningMutationIsVisible(category)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+      state.aiLearning.notice = successMessage;
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+      toast(successMessage, "success");
+    }
+    await track("ai_research_receipt_decided", {
+      product_category: category,
+      receipt_id: receiptId,
+      decision,
+    });
+  } catch (error) {
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const diagnostic = String(
+      error?.serverCode || error?.code || error?.message || "",
+    );
+    state.aiLearning.error = actionErrorMessage(error);
+    if (/ai_research_receipt_(?:stale|already_decided)/u.test(diagnostic)) {
+      await loadAiLearningControlRoom({ silent: true });
+      state.aiLearning.error = "Эта запись уже изменилась в другой вкладке. Решение не повторялось; показан свежий статус.";
+    }
+  } finally {
+    if (state.aiLearning.busyResearchReceiptId === receiptId) {
+      state.aiLearning.busyResearchReceiptId = "";
     }
     if (state.route.path === "/workspace/ai") renderWorkspace("ai");
     scheduleAiLearningPolling();
@@ -14308,7 +14466,11 @@ async function importAiHistoricalCasesFromRegisteredSource({
   productCategory,
   filename,
 } = {}) {
-  if (state.aiLearning.historicalImport.inFlight || state.aiLearning.busyHistoricalCaseId) return;
+  if (
+    state.aiLearning.historicalImport.inFlight
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
+  ) return;
   const category = aiLearningCategory(productCategory, currentAiLearningCategory());
   const normalizedSourceId = String(sourceId || "").trim().toLowerCase();
   const previous = state.aiLearning.historicalImport;
@@ -14441,6 +14603,7 @@ async function submitAiKnowledgeLink(form) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -14491,6 +14654,7 @@ async function submitAiKnowledgeFile(form) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -15200,6 +15364,16 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "open-project-chooser") {
+    navigate("/workspace/home", false, { scopeProject: false });
+    return;
+  }
+
+  if (action === "open-project-create") {
+    navigate("/workspace/home?view=new", false, { scopeProject: false });
+    return;
+  }
+
   if (action === "retry-project-flow") {
     control.disabled = true;
     state.projectFlow.status = "idle";
@@ -15256,6 +15430,11 @@ async function handleClick(event) {
 
   if (action === "decide-ai-historical-case") {
     await decideAiHistoricalCase(control);
+    return;
+  }
+
+  if (action === "decide-ai-research-receipt") {
+    await decideAiResearchReceipt(control);
     return;
   }
 
@@ -15793,6 +15972,23 @@ async function handleClick(event) {
 
   if (action === "refresh-product-research") {
     await pollProductResearchStatus();
+    return;
+  }
+
+  if (action === "copy-product-research-support-id") {
+    const researchId = String(
+      control.dataset.researchId || state.productResearch.record?.id || "",
+    ).trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(researchId)) {
+      toast("ID запуска недоступен. Обновите страницу и откройте исследование снова.", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(`ContentEngine research run: ${researchId}`);
+      toast("ID запуска скопирован для поддержки.", "success");
+    } catch {
+      toast(`ID запуска: ${researchId}`, "info");
+    }
     return;
   }
 
@@ -21334,8 +21530,12 @@ async function submitProductResearchStart(form) {
   if (!projectId) return;
   const values = new FormData(form);
   const paidAnalysisConfirmed = values.has("paid_analysis_ack");
+  const humanReviewConfirmed = values.has("human_review_ack");
   const productName = String(values.get("product_name") || "").trim();
   const sku = String(values.get("sku") || "").trim();
+  const productCategory = String(
+    values.get("product_category") || "",
+  ).trim().toLowerCase();
   const categoryName = String(values.get("category_name") || "").trim();
   const researchFocus = String(values.get("research_focus") || "").trim();
   const competitorReferences = String(
@@ -21349,6 +21549,18 @@ async function submitProductResearchStart(form) {
   if (!paidAnalysisConfirmed) {
     toast("Подтвердите платный ИИ-анализ перед запуском.", "error");
     form.elements.paid_analysis_ack?.focus();
+    return;
+  }
+  if (!humanReviewConfirmed) {
+    toast("Подтвердите, что проверите результат до создания задач.", "error");
+    form.elements.human_review_ack?.focus();
+    return;
+  }
+  if (!AI_PRODUCT_CATEGORIES.some((category) => (
+    category.key === productCategory
+  ))) {
+    toast("Выберите одну категорию для входящих ИИ-центра.", "error");
+    form.elements.product_category?.focus();
     return;
   }
   if (!platforms.length) {
@@ -21404,6 +21616,7 @@ async function submitProductResearchStart(form) {
     researchInput: {
       objective,
       objectiveKey,
+      productCategory,
       marketplaceUrl,
       sourceMediaIds,
       platforms,
@@ -21425,6 +21638,7 @@ async function submitProductResearchStart(form) {
       {
         sku,
         product_name: productName,
+        product_category: productCategory,
         objective,
         marketplace_url: marketplaceUrl || null,
         source_media_ids: sourceMediaIds,
@@ -21447,6 +21661,7 @@ async function submitProductResearchStart(form) {
       run_id: state.productResearch.record.id,
       source_media_count: sourceMediaIds.length,
       platform_count: platforms.length,
+      product_category: productCategory,
       category_provided: Boolean(categoryName),
       competitor_references_provided: Boolean(competitorReferences),
     });
@@ -24443,6 +24658,7 @@ function clearAuthenticatedState() {
   state.aiLearning.requestId += 1;
   state.aiLearning.busyCardId = "";
   state.aiLearning.busyHistoricalCaseId = "";
+  state.aiLearning.busyResearchReceiptId = "";
   state.aiLearning.knowledgeMutationKind = "";
   state.aiLearning.historicalCaseFilter = "all";
   state.aiLearning.historicalImport = {
