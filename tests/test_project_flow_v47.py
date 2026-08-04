@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import shutil
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -360,6 +362,126 @@ def test_project_catalog_is_lightweight_until_one_project_is_selected() -> None:
     assert "grant execute on function public.creator_project_flow(jsonb)" in catalog
 
 
+def test_unscoped_home_is_a_catalog_request_and_never_reuses_stale_project_state() -> None:
+    route_id = _function(APP, "function routeWorkspaceProjectId(")
+    chooser = _function(APP, "function workspaceProjectChooserMode(")
+    current_id = _function(APP, "function currentWorkspaceProjectId(")
+    request_id = _function(APP, "function projectFlowRequestProjectId(")
+    workspace = _function(APP, "function renderWorkspace(")
+    loader = _function(APP, "async function loadProjectFlow(")
+    home = _function(APP, "function renderHomeSection(")
+    v4_snapshot = _function(CORE, "function projectFlowSnapshot(")
+
+    # Only one valid URL value can select a project. The bare home route is a
+    # deliberate chooser, even if sessionStorage still remembers yesterday's
+    # project.
+    assert 'state.route.query.getAll("project_id")' in route_id
+    assert 'state.route.path === "/workspace/home"' in chooser
+    assert "!routeWorkspaceProjectId()" in chooser
+    assert 'if (workspaceProjectChooserMode()) return ""' in current_id
+    assert current_id.index("workspaceProjectChooserMode()") < current_id.index(
+        "storedWorkspaceProject()"
+    )
+
+    # The request scope is computed once and passed through unchanged. In
+    # chooser mode this value is the empty string, which invokes the lightweight
+    # catalog branch instead of one expensive project snapshot.
+    assert 'if (workspaceProjectChooserMode()) return ""' in request_id
+    assert "const requestedProjectId = projectFlowRequestProjectId()" in workspace
+    assert "requestedProjectId !== state.projectFlow.projectId" in workspace
+    assert '["loading", "refreshing"].includes(state.projectFlow.status)' not in workspace[
+        workspace.index("const requestedProjectId") : workspace.index("loadProjectFlow")
+    ]
+    assert "const projectId = projectFlowRequestProjectId()" in loader
+    assert loader.count("projectId !== projectFlowRequestProjectId()") == 2
+    assert "const unavailableProjectId = projectFlowRequestProjectId()" in loader
+    assert "state.projectFlow.projectId = unavailableProjectId" in loader
+    assert "state.api.projectFlow({ projectId, includeProjects: true })" in loader
+    assert "currentWorkspaceProjectId()" not in loader[
+        : loader.index("state.api.projectFlow({ projectId, includeProjects: true })")
+    ]
+    assert "workspaceProjectChooserMode()" in home
+
+    # Desktop v4 independently derives its Dock snapshot. It must apply the
+    # same chooser boundary and therefore cannot resurrect a stored project.
+    assert "const chooserMode = projectChooserMode()" in v4_snapshot
+    assert "const stored = chooserMode ? null : storedProjectContext()" in v4_snapshot
+    assert 'const id = chooserMode ? "" :' in v4_snapshot
+    assert 'const id = queryProjectId || rootProjectId || rawProjectId || stored?.id || ""' not in v4_snapshot
+
+
+def test_catalog_request_supersedes_an_inflight_stale_project_snapshot() -> None:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for the project-flow race contract"
+    loader = _function(APP, "async function loadProjectFlow(")
+    script = f"""
+const projectA = "11111111-1111-4111-8111-111111111111";
+let requestScope = projectA;
+let resolveProjectA;
+let resolveCatalog;
+const calls = [];
+const navigations = [];
+const state = {{
+  api: {{
+    projectFlow: ({{ projectId }}) => {{
+      calls.push(projectId);
+      return new Promise((resolve) => {{
+        if (projectId) resolveProjectA = resolve;
+        else resolveCatalog = resolve;
+      }});
+    }},
+  }},
+  dataEpoch: 7,
+  user: {{ id: "user-1" }},
+  route: {{ path: "/workspace/review", query: new URLSearchParams(`project_id=${{projectA}}`) }},
+  projectFlow: {{ status: "idle", projectId: "", requestId: 0, data: null, error: null }},
+}};
+const WORKSPACE_PROJECT_FLOW_TIMEOUT_MS = 10_000;
+const projectFlowRequestProjectId = () => requestScope;
+const withUiTimeout = (promise) => promise;
+const normalizeProjectFlow = (value) => value;
+const render = () => undefined;
+const persistWorkspaceProject = () => undefined;
+const currentWorkspaceProjectName = () => "Проект";
+const navigate = (route) => navigations.push(route);
+const workspaceSectionRequiresProject = () => false;
+const clearWorkspaceProjectSelection = () => true;
+{loader}
+
+const staleRequest = loadProjectFlow({{ silent: true }});
+requestScope = "";
+state.route = {{ path: "/workspace/home", query: new URLSearchParams() }};
+const catalogRequest = loadProjectFlow({{ silent: true }});
+
+if (JSON.stringify(calls) !== JSON.stringify([projectA, ""])) throw new Error(`calls:${{JSON.stringify(calls)}}`);
+resolveProjectA({{ project_id: projectA, project: {{ id: projectA, name: "Старый" }}, projects: [], stages: [] }});
+await staleRequest;
+if (navigations.length) throw new Error(`stale-navigation:${{navigations.join(",")}}`);
+resolveCatalog({{
+  project_id: "",
+  project: null,
+  projects: [{{ id: "22222222-2222-4222-8222-222222222222", name: "Новый" }}],
+  stages: [],
+}});
+await catalogRequest;
+if (state.projectFlow.projectId !== "") throw new Error(`scope:${{state.projectFlow.projectId}}`);
+if (state.projectFlow.data?.project_id !== "") throw new Error("catalog-lost");
+if (navigations.length) throw new Error(`catalog-navigation:${{navigations.join(",")}}`);
+process.stdout.write("ok");
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.stdout == "ok"
+
+
 def test_global_workspace_routes_work_without_a_project_but_production_routes_do_not() -> None:
     policy = _function(APP, "function workspaceSectionRequiresProject(")
     workspace = _function(APP, "function renderWorkspace(")
@@ -502,7 +624,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260804.os4.13"
+    build = "20260804.os4.14"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (

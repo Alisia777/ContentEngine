@@ -987,7 +987,7 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 .ce-v4-dock__item.is-stage-current .ce-v4-dock__tile { border-color: rgba(255, 180, 126, .54); box-shadow: 0 0 0 3px rgba(236, 136, 75, .08), 0 17px 38px rgba(0, 0, 0, .4); }
 .ce-v4-dock__item.is-stage-blocked .ce-v4-dock__tile { border-color: rgba(239, 129, 121, .42); color: var(--ce-v4-danger); }
 .ce-v4-dock__item.is-stage-future { color: #82766f; }
-.ce-v4-dock__item[aria-disabled="true"] { cursor: not-allowed; }
+.ce-v4-dock__item[aria-disabled="true"] { cursor: pointer; }
 .ce-v4-dock__item.is-project-required:not(.is-active) { color: #8e8179; }
 .ce-v4-dock__item.is-project-required:not(.is-active) .ce-v4-dock__tile {
   border-style: dashed;
@@ -1016,7 +1016,8 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
   position: absolute;
   bottom: calc(100% + 12px);
   left: 50%;
-  max-width: min(300px, 80vw);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
   padding: 6px 9px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
@@ -1298,7 +1299,7 @@ body.contentengine-desktop-v4 .ce-v4-project-progress__copy small { overflow: hi
 .ce-v4-project-progress__steps a.is-blocked .ce-v4-project-progress__marker { border-color: rgba(239,129,121,.5); background: rgba(239,129,121,.1); }
 .ce-v4-project-progress__steps a.is-future { color: #81756e; }
 .ce-v4-project-progress__steps a.is-viewing { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.025); }
-.ce-v4-project-progress__steps a[aria-disabled="true"] { cursor: not-allowed; }
+.ce-v4-project-progress__steps a[aria-disabled="true"] { cursor: pointer; }
 
 /* Mission Control + Spotlight */
 .ce-v4-mission-backdrop,

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AI Learning Control Room visual harness</title>
-    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.4" />
+    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.os4.14" />
     <style>
       html { background: #080706; }
       body { margin: 0; min-height: 100vh; background: #080706; color: #f7f3eb; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
@@ -17,7 +17,7 @@
       import {
         aiLearningControlRoomMarkup,
         normalizeAiLearningControlRoom,
-      } from "../../web/app/ai-learning-control-room.js?v=20260804.4";
+      } from "../../web/app/ai-learning-control-room.js?v=20260804.os4.14";
 
       const definitions = [
         ["cosmetics", "Косметика и уход", 68, "developing_evidence"],
@@ -109,8 +109,8 @@
             policy_hash: "d".repeat(64),
             status: "active",
             rules: [
-              { id: "demonstration_first", label: "Начинать с демонстрации", effect: "Предпочитать bounded-угол demonstration для категории cosmetics." },
-              { id: "no_instant_claim", label: "Не обещать мгновенный эффект", effect: "Сохранять claim-guards и человеческую проверку." },
+              { id: "preferred_angle", label: "Что хорошо", effect: "demonstration" },
+              { id: "avoid_angle", label: "Что плохо", effect: "curiosity_gap" },
             ],
           },
         },

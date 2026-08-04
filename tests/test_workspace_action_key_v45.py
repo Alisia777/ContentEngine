@@ -53,6 +53,7 @@ def test_normalized_action_key_executes_view_and_whitelisted_entity_boundaries()
           aiExplicitDefault: workspaceActionKey("#/workspace/ai?view=overview&category=cosmetics"),
           aiFoodKnowledge: workspaceActionKey("#/workspace/ai?category=food&view=knowledge"),
           aiFoodTeach: workspaceActionKey("#/workspace/ai?category=food&view=teach"),
+          aiFoodCases: workspaceActionKey("#/workspace/ai?category=food&view=cases"),
           aiInvalidCategory: workspaceActionKey("#/workspace/ai?category=pets&view=overview"),
           aiDuplicateCategory: workspaceActionKey("#/workspace/ai?category=food&category=food&view=overview"),
           teamMembers: workspaceActionKey("#/workspace/team?view=members"),
@@ -75,6 +76,7 @@ def test_normalized_action_key_executes_view_and_whitelisted_entity_boundaries()
     assert result["aiDefault"] == result["aiExplicitDefault"] == "/workspace/ai?view=overview&category=cosmetics"
     assert result["aiFoodKnowledge"] == "/workspace/ai?view=knowledge&category=food"
     assert result["aiFoodTeach"] == "/workspace/ai?view=teach&category=food"
+    assert result["aiFoodCases"] == "/workspace/ai?view=cases&category=food"
     assert result["aiInvalidCategory"] == result["aiDuplicateCategory"] == result["aiDefault"]
     assert result["teamMembers"] != result["teamBudget"]
     assert result["taskQueue"] == "/workspace/tasks?view=queue"
@@ -185,7 +187,7 @@ def test_reduced_motion_action_enter_is_removed_synchronously() -> None:
 
 
 def test_loader_core_and_app_share_the_same_action_key_contract() -> None:
-    import_marker = 'from "./workspace-action-key.js?v=20260804.os4.13"'
+    import_marker = 'from "./workspace-action-key.js?v=20260804.os4.14"'
     assert import_marker in APP
     assert import_marker in CORE
     assert import_marker in LOADER

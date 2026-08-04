@@ -200,6 +200,15 @@ const makeCategory = (key) => ({
   gaps: (key === "cosmetics" ? dimensions : dimensions.map((item) => ({
     ...item, current: 0, missing: item.target,
   }))).filter((item) => item.missing > 0),
+  effective_policy: key === "cosmetics" ? {
+    version: "policy-7",
+    hash: "d".repeat(64),
+    status: "active",
+    rules: [
+      { id: "preferred_angle", label: "Что хорошо", effect: "demonstration" },
+      { id: "avoid_angle", label: "Что плохо", effect: "curiosity_gap" },
+    ],
+  } : { status: "none", rules: [] },
   teaching_cards: key === "cosmetics" ? [teachingCard] : [],
   historical_cases: key === "cosmetics" ? [
     {
@@ -403,21 +412,38 @@ const normalized = subject.normalizeAiLearningControlRoom(envelope, {
 const normalizedFood = subject.normalizeAiLearningControlRoom(envelope, {
   category: "food",
 });
-const markup = subject.aiLearningControlRoomMarkup(normalized, {
+const overviewMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   category: "cosmetics",
   view: "overview",
   saving: false,
 });
-const reviewMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+const knowledgeMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "knowledge",
+});
+const teachingMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   category: "cosmetics",
   view: "teach",
+});
+const casesMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "cases",
+});
+const historyMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "history",
+});
+const markup = [overviewMarkup, knowledgeMarkup, teachingMarkup, casesMarkup, historyMarkup].join("\n");
+const reviewMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "cases",
   historicalCaseFilter: "review",
 });
 const matchedReviewEnvelope = structuredClone(envelope);
 matchedReviewEnvelope.categories[0].historical_cases[2].resolution_status = "matched";
 const matchedReviewMarkup = subject.aiLearningControlRoomMarkup(
   subject.normalizeAiLearningControlRoom(matchedReviewEnvelope, { category: "cosmetics" }),
-  { category: "cosmetics", view: "teach", historicalCaseFilter: "review" },
+  { category: "cosmetics", view: "cases", historicalCaseFilter: "review" },
 );
 const matchedReviewCard = matchedReviewMarkup.slice(
   matchedReviewMarkup.indexOf('data-case-id="31000000-0000-4000-8000-000000000003"'),
@@ -461,7 +487,7 @@ zeroScopeEnvelope.categories[0].historical_cases[0].case_version = 0;
 delete zeroScopeEnvelope.categories[0].historical_cases[0].scope_version;
 const zeroScopeMarkup = subject.aiLearningControlRoomMarkup(
   subject.normalizeAiLearningControlRoom(zeroScopeEnvelope, { category: "cosmetics" }),
-  { category: "cosmetics", view: "teach" },
+  { category: "cosmetics", view: "cases" },
 );
 const zeroScopeStart = zeroScopeMarkup.indexOf('data-case-id="31000000-0000-4000-8000-000000000001"');
 const zeroScopeCard = zeroScopeMarkup.slice(
@@ -481,7 +507,7 @@ zeroExactEnvelope.categories[0].historical_case_evidence.angles[0] = {
 };
 const zeroExactMarkup = subject.aiLearningControlRoomMarkup(
   subject.normalizeAiLearningControlRoom(zeroExactEnvelope, { category: "cosmetics" }),
-  { category: "cosmetics", view: "teach" },
+  { category: "cosmetics", view: "cases" },
 );
 const persistedFailureEnvelope = structuredClone(envelope);
 persistedFailureEnvelope.categories[0].batches = [{
@@ -499,7 +525,7 @@ persistedFailureEnvelope.categories[0].batches = [{
 }];
 const persistedFailureMarkup = subject.aiLearningControlRoomMarkup(
   subject.normalizeAiLearningControlRoom(persistedFailureEnvelope, { category: "cosmetics" }),
-  { category: "cosmetics", view: "teach" },
+  { category: "cosmetics", view: "cases" },
 );
 const persistedProcessingEnvelope = structuredClone(envelope);
 persistedProcessingEnvelope.categories[0].batches = [{
@@ -527,7 +553,7 @@ persistedProcessingEnvelope.categories[0].batches = [{
 }];
 const persistedProcessingMarkup = subject.aiLearningControlRoomMarkup(
   subject.normalizeAiLearningControlRoom(persistedProcessingEnvelope, { category: "cosmetics" }),
-  { category: "cosmetics", view: "teach" },
+  { category: "cosmetics", view: "cases" },
 );
 const registeredSpreadsheetEnvelope = structuredClone(envelope);
 registeredSpreadsheetEnvelope.categories[0].knowledge_sources.push({
@@ -545,7 +571,7 @@ const registeredSpreadsheetMarkup = subject.aiLearningControlRoomMarkup(
 );
 const authoritativeLocalMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   category: "cosmetics",
-  view: "teach",
+  view: "cases",
   historicalImport: {
     active: true,
     inFlight: false,
@@ -558,7 +584,7 @@ const authoritativeLocalMarkup = subject.aiLearningControlRoomMarkup(normalized,
 });
 const unrelatedLocalMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   category: "cosmetics",
-  view: "teach",
+  view: "cases",
   historicalImport: {
     active: true,
     inFlight: false,
@@ -608,7 +634,7 @@ return {
   gapGuidance: markup.includes("Чего не хватает ИИ")
     && (markup.includes("Не хватает") || markup.includes("add_reviewable_source")),
   honestMetric: /evidence|доказательн/iu.test(markup)
-    && /IQ/iu.test(markup)
+    && /IQ|интеллект/iu.test(markup)
     && /не|not/iu.test(markup),
   forms: [
     markup.includes('id="ai-knowledge-link-form"'),
@@ -742,6 +768,211 @@ return {
     }
 
 
+def test_ai_signals_use_plain_russian_and_offer_one_decision_at_a_time() -> None:
+    view = _read(VIEW_PATH)
+    labels_match = re.search(
+        r"const\s+CREATIVE_ANGLE_LABELS\s*=\s*Object\.freeze\(\{(?P<body>.*?)\}\);",
+        view,
+        flags=re.DOTALL,
+    )
+    assert labels_match is not None
+    labels_source = labels_match.group("body")
+    for key in (
+        "product_focus",
+        "trust_builder",
+        "demonstration",
+        "comparison",
+        "objection_handling",
+        "curiosity_gap",
+    ):
+        value = re.search(
+            rf'(?:^|\n)\s*(?:"{key}"|{key})\s*:\s*"(?P<label>[^"]+)"',
+            labels_source,
+        )
+        assert value is not None, f"Missing Russian label for creative angle {key}"
+        assert re.search(r"[А-Яа-яЁё]", value.group("label"))
+
+    result = _run_module(
+        VIEW_PATH,
+        AI_CONTROL_ROOM_FIXTURE
+        + r"""
+const normalize = (value) => subject.normalizeAiLearningControlRoom(value, {
+  category: "cosmetics",
+});
+const render = (value, view = "overview") => subject.aiLearningControlRoomMarkup(
+  normalize(value),
+  { category: "cosmetics", view },
+);
+const overview = render(envelope, "overview");
+const goodTeach = render(envelope, "teach");
+const casesView = render(envelope, "cases");
+const historyView = render(envelope, "history");
+const historicalNextEnvelope = structuredClone(envelope);
+historicalNextEnvelope.categories[0].teaching_cards = [];
+const historicalNextOverview = render(historicalNextEnvelope, "overview");
+
+const badEnvelope = structuredClone(envelope);
+badEnvelope.categories[0].teaching_cards[0] = {
+  ...badEnvelope.categories[0].teaching_cards[0],
+  card_id: "30000000-0000-4000-8000-000000000002",
+  card_hash: "e".repeat(64),
+  signal_key: "hook.curiosity_gap",
+  ai_judgement: "bad",
+  title: "Начать с интриги без доказательства",
+};
+const badTeach = render(badEnvelope, "teach");
+
+const genericEnvelope = structuredClone(envelope);
+genericEnvelope.categories[0].teaching_cards[0] = {
+  ...genericEnvelope.categories[0].teaching_cards[0],
+  card_id: "30000000-0000-4000-8000-000000000005",
+  card_hash: "2".repeat(64),
+  signal_key: "claims.instant_result",
+  ai_judgement: "bad",
+  title: "Обещать мгновенный результат",
+  context: "Обещание сильнее доступных доказательств и повышает риск модерации.",
+  explanation: "Три проверенных исхода не подтверждают мгновенный эффект.",
+};
+const genericTeach = render(genericEnvelope, "teach");
+
+const queuedEnvelope = structuredClone(envelope);
+const first = queuedEnvelope.categories[0].teaching_cards[0];
+queuedEnvelope.categories[0].teaching_cards = [
+  first,
+  {
+    ...first,
+    card_id: "30000000-0000-4000-8000-000000000003",
+    card_hash: "f".repeat(64),
+    signal_key: "hook.curiosity_gap",
+    ai_judgement: "bad",
+    title: "Второй кандидат",
+  },
+  {
+    ...first,
+    card_id: "30000000-0000-4000-8000-000000000004",
+    card_hash: "1".repeat(64),
+    signal_key: "hook.comparison",
+    status: "approved",
+    decision: "approve",
+    title: "Уже принятое правило",
+  },
+];
+const queuedTeach = render(queuedEnvelope, "teach");
+
+const candidateCard = (html) => {
+  const start = html.indexOf("<article class=\"ai-learning-teaching-card");
+  if (start < 0) return "";
+  const end = html.indexOf("</article>", start);
+  return html.slice(start, end < 0 ? html.length : end + 10);
+};
+const decisionLabels = (html) => [...candidateCard(html).matchAll(
+  /<button[^>]*data-action="decide-ai-teaching-card"[^>]*>(.*?)<\/button>/gs,
+)].map((match) => match[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+const goodCard = candidateCard(goodTeach);
+const badCard = candidateCard(badTeach);
+const genericCard = candidateCard(genericTeach);
+const goodButtons = decisionLabels(goodTeach);
+const badButtons = decisionLabels(badTeach);
+const panelSlice = (html, panel, nextPanel = "") => {
+  const start = html.indexOf(`id="ai-learning-panel-${panel}"`);
+  const end = nextPanel ? html.indexOf(`id="ai-learning-panel-${nextPanel}"`, start + 1) : html.length;
+  return start < 0 ? "" : html.slice(start, end < 0 ? html.length : end);
+};
+const teachPanel = panelSlice(goodTeach, "teach", "cases");
+const casesPanel = panelSlice(casesView, "cases", "history");
+const historyPanel = panelSlice(historyView, "history");
+
+return {
+  summary: ["Можно использовать", "Нужно избегать", "Данных недостаточно"]
+    .every((label) => overview.includes(label)),
+  neutralSummary: overview.includes("Только подтверждённые правила")
+    && overview.includes("Что ИИ реально применяет"),
+  policyAnglesLocalized: !overview.includes(">demonstration<")
+    && !overview.includes(">curiosity_gap<"),
+  guidancePreserved: normalize(envelope).guidance.recommendedNextAction === "add_category_source",
+  onePendingCandidate: (queuedTeach.match(/data-ai-teaching-card(?:\s|>)/g) || []).length === 1
+    && queuedTeach.includes("Второй кандидат") === false
+    && queuedTeach.includes("Уже принятое правило") === false,
+  candidateCopy: goodCard.includes("Предложение: использовать")
+    && badCard.includes("Предупреждение: избегать"),
+  teamDecisionMetric: goodCard.includes("Решений команды")
+    && badCard.includes("Решений команды"),
+  dynamicButtons: goodButtons.length === 2
+    && badButtons.length === 2
+    && JSON.stringify(goodButtons) !== JSON.stringify(badButtons)
+    && goodButtons.some((label) => /использ/iu.test(label))
+    && badButtons.some((label) => /избег/iu.test(label)),
+  noConfirmationCheckbox: !goodCard.includes('type="checkbox"')
+    && !badCard.includes('type="checkbox"'),
+  noFalseAiVerdict: !goodTeach.includes("ИИ считает сигнал")
+    && !badTeach.includes("ИИ считает сигнал"),
+  genericAuthoritativeCopy: genericCard.includes("Обещать мгновенный результат")
+    && genericCard.includes("Обещание сильнее доступных доказательств")
+    && genericCard.includes("Три проверенных исхода не подтверждают")
+    && !genericCard.includes("Сигнал ещё не распознан")
+    && !genericCard.includes("claims.instant_result"),
+  oneTabOneAction: casesPanel.includes("data-ai-historical-case")
+    && !teachPanel.includes("data-ai-historical-case")
+    && !historyPanel.includes("data-ai-historical-case")
+    && !casesPanel.slice(0, casesPanel.indexOf(">") + 1).includes("hidden"),
+  historicalNextAction: historicalNextOverview.includes('data-view="cases"')
+    && historicalNextOverview.includes("Проверить исторический кейс"),
+};
+""",
+    )
+
+    assert result == {
+        "summary": True,
+        "neutralSummary": True,
+        "policyAnglesLocalized": True,
+        "guidancePreserved": True,
+        "onePendingCandidate": True,
+        "candidateCopy": True,
+        "teamDecisionMetric": True,
+        "dynamicButtons": True,
+        "noConfirmationCheckbox": True,
+        "noFalseAiVerdict": True,
+        "genericAuthoritativeCopy": True,
+        "oneTabOneAction": True,
+        "historicalNextAction": True,
+    }
+
+
+def test_ai_teaching_advances_focus_to_the_next_single_decision() -> None:
+    app = _read(APP_PATH)
+    view = _read(VIEW_PATH)
+    focus = _js_function(app, "focusNextAiTeachingDecision")
+    decide = _js_function(app, "decideAiTeachingCard")
+
+    assert 'currentAiLearningView() !== "teach"' in focus
+    assert 'button[data-primary-action="true"]:not(:disabled)' in focus
+    assert 'document.querySelector("#ai-learning-judgement-title")' in focus
+    assert "target.focus({ preventScroll: true })" in focus
+    assert "let decisionApplied = false" in decide
+    assert "decisionApplied = true" in decide
+    assert "window.queueMicrotask(() => focusNextAiTeachingDecision())" in decide
+    assert 'data-primary-action="true" data-action="decide-ai-teaching-card"' in view
+
+
+def test_ai_learning_tabs_support_full_keyboard_navigation() -> None:
+    app = _read(APP_PATH)
+    handler = _js_function(app, "handleAiLearningTabsKeyDown")
+    focus = _js_function(app, "focusAiLearningViewTab")
+    global_keydown = _js_function(app, "handleKeyDown")
+
+    for key in ("ArrowLeft", "ArrowRight", "Home", "End"):
+        assert f'"{key}"' in handler
+    assert ".ai-learning-view-tabs" in handler
+    assert 'role="tab"' in handler
+    assert "event.preventDefault()" in handler
+    assert "nextTab.focus({ preventScroll: true })" in handler
+    assert "navigate(`/workspace/ai?category=" in handler
+    assert "focusAiLearningViewTab(view)" in handler
+    assert "tab.focus({ preventScroll: true })" in focus
+    assert "currentAiLearningView() === normalizedView" in focus
+    assert "handleAiLearningTabsKeyDown(event)" in global_keydown
+
+
 def test_baa_history_keeps_all_319_cases_and_review_is_not_quarantine() -> None:
     result = _run_module(
         VIEW_PATH,
@@ -794,7 +1025,7 @@ const normalized = subject.normalizeAiLearningControlRoom(qeepEnvelope, {
 });
 const markup = subject.aiLearningControlRoomMarkup(normalized, {
   category: "baa",
-  view: "teach",
+  view: "cases",
   historicalCaseFilter: "review",
 });
 const ledgerStart = markup.indexOf('<details class="ai-learning-historical-batches"');
@@ -855,7 +1086,7 @@ const cardFrom = (snapshot) => {
   });
   const markup = subject.aiLearningControlRoomMarkup(normalized, {
     category: "cosmetics",
-    view: "teach",
+    view: "cases",
   });
   const start = markup.indexOf('data-case-id="31000000-0000-4000-8000-000000000001"');
   return {
