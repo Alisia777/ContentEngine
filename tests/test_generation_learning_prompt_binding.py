@@ -36,7 +36,7 @@ def test_browser_normalizer_accepts_wire_and_idempotent_app_shapes() -> None:
 
 
 def test_edge_binds_current_server_policy_to_exact_provider_prompt() -> None:
-    start = EDGE[
+    _start = EDGE[
         EDGE.index("const startPayload = readStartPayload(body)") :
         EDGE.index("const { data: startData, error: startError }")
     ]
@@ -182,6 +182,6 @@ def test_release_versions_bind_the_fixed_client_edge_and_adapter() -> None:
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in EDGE
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in APP
     assert "./content-generation-handoff.js?v=20260803.1" in APP
-    assert "./supabase-api.js?v=20260803.8" in APP
-    assert "./app.js?v=20260803.os4.13" in INDEX
+    assert "./supabase-api.js?v=20260804.1" in APP
+    assert "./app.js?v=20260804.1" in INDEX
     assert "generation_learning_prompt_binding_invalid" in ADAPTER

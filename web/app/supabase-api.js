@@ -16,6 +16,9 @@ export const RPC = Object.freeze({
   workspaceSection: "creator_workspace_section",
   generationMediaIdentity: "creator_generation_media_identity",
   generationLearningPolicy: "creator_generation_learning_policy",
+  aiLearningControlRoom: "creator_ai_learning_control_room",
+  registerAiKnowledgeSource: "creator_register_ai_knowledge_source",
+  decideAiTeachingCard: "creator_decide_ai_teaching_card",
   generationRepairPolicy: "creator_generation_repair_policy",
   generationSpecStatus: "creator_generation_spec_status",
   prepareGenerationSpec: "creator_prepare_generation_spec",
@@ -97,6 +100,26 @@ export const PRODUCT_RESEARCH_PLATFORMS = Object.freeze([
   "vk",
   "wildberries",
   "ozon",
+]);
+export const AI_PRODUCT_CATEGORIES = Object.freeze([
+  "cosmetics",
+  "baa",
+  "sports_food",
+  "food",
+  "household",
+  "apparel",
+  "electronics",
+  "other",
+]);
+export const AI_KNOWLEDGE_BUCKET = "contentengine-knowledge";
+const AI_PRODUCT_CATEGORY_SET = new Set(AI_PRODUCT_CATEGORIES);
+const AI_KNOWLEDGE_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "text/markdown",
+  "text/plain",
 ]);
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
 const RESEARCH_STAGE_SET = new Set([
@@ -614,6 +637,149 @@ export class CreatorApi {
       product_category: normalizedProductCategory,
     }));
   }
+
+  aiLearningControlRoom({ category = "cosmetics" } = {}) {
+    const normalizedCategory = String(category || "").trim().toLowerCase();
+    if (!AI_PRODUCT_CATEGORY_SET.has(normalizedCategory)) {
+      throw new CreatorApiError("Выберите точную товарную категорию ИИ‑центра.", {
+        code: "ai_learning_category_invalid",
+      });
+    }
+    return this.call(
+      RPC.aiLearningControlRoom,
+      this.withOrganization({ product_category: normalizedCategory }),
+    );
+  }
+
+  registerAiKnowledgeSource(source = {}) {
+    const productCategory = String(source.product_category || "")
+      .trim()
+      .toLowerCase();
+    const sourceKind = String(source.source_kind || "").trim().toLowerCase();
+    const title = String(source.title || "").replace(/\s+/gu, " ").trim();
+    const note = String(source.note || "").replace(/\s+/gu, " ").trim();
+    if (!AI_PRODUCT_CATEGORY_SET.has(productCategory)) {
+      throw new CreatorApiError("Источник должен относиться к одной точной товарной категории.", {
+        code: "ai_learning_category_invalid",
+      });
+    }
+    if (!new Set(["link", "file"]).has(sourceKind)) {
+      throw new CreatorApiError("Добавьте HTTPS‑ссылку или поддерживаемый файл.", {
+        code: "ai_knowledge_source_kind_invalid",
+      });
+    }
+    if (title.length < 2 || title.length > 180 || note.length > 1_000) {
+      throw new CreatorApiError("Проверьте название и короткое пояснение к источнику.", {
+        code: "ai_knowledge_source_copy_invalid",
+      });
+    }
+    if (source.rights_confirmed !== true) {
+      throw new CreatorApiError("Подтвердите право команды использовать источник для обучения.", {
+        code: "ai_knowledge_source_rights_required",
+      });
+    }
+
+    const payload = {
+      product_category: productCategory,
+      source_kind: sourceKind,
+      title,
+      note,
+      rights_confirmed: true,
+    };
+    if (sourceKind === "link") {
+      const sourceUrl = String(source.source_url || "").trim();
+      let parsed;
+      try {
+        parsed = new URL(sourceUrl);
+      } catch {
+        parsed = null;
+      }
+      if (
+        !parsed
+        || parsed.protocol !== "https:"
+        || parsed.username
+        || parsed.password
+        || sourceUrl.length > 2_048
+      ) {
+        throw new CreatorApiError("Добавьте публичную HTTPS‑ссылку без логина и пароля.", {
+          code: "ai_knowledge_source_url_invalid",
+        });
+      }
+      payload.source_url = parsed.href;
+    } else {
+      const objectKey = String(source.object_key || "").trim();
+      const originalFilename = String(source.original_filename || "").trim();
+      const mimeType = String(source.mime_type || "").trim().toLowerCase();
+      const sizeBytes = Number(source.size_bytes);
+      const sha256 = String(source.sha256 || "").trim().toLowerCase();
+      this.assertAiKnowledgeObjectKey(AI_KNOWLEDGE_BUCKET, objectKey);
+      if (
+        originalFilename.length < 1
+        || originalFilename.length > 240
+        || !AI_KNOWLEDGE_MIME_TYPES.has(mimeType)
+        || !Number.isInteger(sizeBytes)
+        || sizeBytes < 1
+        || sizeBytes > 25 * 1024 * 1024
+        || !/^[0-9a-f]{64}$/u.test(sha256)
+      ) {
+        throw new CreatorApiError("Файл знаний не прошёл проверку типа, размера или контрольной суммы.", {
+          code: "ai_knowledge_source_file_invalid",
+        });
+      }
+      Object.assign(payload, {
+        bucket: AI_KNOWLEDGE_BUCKET,
+        object_key: objectKey,
+        original_filename: originalFilename,
+        mime_type: mimeType,
+        size_bytes: sizeBytes,
+        sha256,
+      });
+    }
+    return this.mutate(RPC.registerAiKnowledgeSource, payload);
+  }
+
+  decideAiTeachingCard(input = {}) {
+    const productCategory = String(input.product_category || "")
+      .trim()
+      .toLowerCase();
+    const cardId = String(input.card_id || "").trim().toLowerCase();
+    const cardHash = String(input.card_hash || "").trim().toLowerCase();
+    const decision = String(input.decision || "").trim().toLowerCase();
+    const cardVersion = Number(input.card_version);
+    const expectedScopeVersion = Number(input.expected_scope_version);
+    const reasonCode = String(input.reason_code || "").trim().toLowerCase();
+    if (!AI_PRODUCT_CATEGORY_SET.has(productCategory)) {
+      throw new CreatorApiError("Карточка обратной связи относится к другой категории.", {
+        code: "ai_learning_category_invalid",
+      });
+    }
+    if (
+      !isUuid(cardId)
+      || !/^[0-9a-f]{64}$/u.test(cardHash)
+      || !["approve", "reject"].includes(decision)
+      || !Number.isInteger(cardVersion)
+      || cardVersion < 1
+      || !Number.isInteger(expectedScopeVersion)
+      || expectedScopeVersion < 0
+      || !["operator_confirmed", "operator_rejected"].includes(reasonCode)
+      || input.confirmation !== true
+    ) {
+      throw new CreatorApiError("Карточка изменилась. Обновите ИИ‑центр и повторите решение.", {
+        code: "ai_teaching_decision_invalid",
+      });
+    }
+    return this.mutate(RPC.decideAiTeachingCard, {
+      product_category: productCategory,
+      card_id: cardId,
+      card_hash: cardHash,
+      card_version: cardVersion,
+      expected_scope_version: expectedScopeVersion,
+      decision,
+      reason_code: reasonCode,
+      confirmation: true,
+    });
+  }
+
 
   generationRepairPolicy(reviewId) {
     const normalizedReviewId = String(reviewId || "").trim();
@@ -3738,6 +3904,40 @@ export class CreatorApi {
     return data;
   }
 
+  async uploadAiKnowledgeObject(objectKey, file, contentType = file?.type) {
+    this.assertAiKnowledgeObjectKey(AI_KNOWLEDGE_BUCKET, objectKey);
+    const mimeType = String(contentType || "").trim().toLowerCase();
+    const sizeBytes = Number(file?.size);
+    if (
+      !AI_KNOWLEDGE_MIME_TYPES.has(mimeType)
+      || !Number.isInteger(sizeBytes)
+      || sizeBytes < 1
+      || sizeBytes > 25 * 1024 * 1024
+    ) {
+      throw new CreatorApiError("Файл знаний не прошёл проверку типа или размера.", {
+        code: "ai_knowledge_source_file_invalid",
+      });
+    }
+    const { data, error } = await this.supabase.storage
+      .from(AI_KNOWLEDGE_BUCKET)
+      .upload(objectKey, file, {
+        cacheControl: "3600",
+        contentType: mimeType,
+        upsert: false,
+      });
+    if (error) throw new CreatorApiError(toFriendlyMessage(error), error);
+    return data;
+  }
+
+  async removeAiKnowledgeObject(objectKey) {
+    this.assertAiKnowledgeObjectKey(AI_KNOWLEDGE_BUCKET, objectKey);
+    const { error } = await this.supabase.storage
+      .from(AI_KNOWLEDGE_BUCKET)
+      .remove([objectKey]);
+    if (error) throw new CreatorApiError(toFriendlyMessage(error), error);
+  }
+
+
   async removePrivateObject(objectKey) {
     this.assertPrivateObjectKey(objectKey);
     const { error } = await this.supabase.storage
@@ -3842,6 +4042,23 @@ export class CreatorApi {
       });
     }
   }
+
+  assertAiKnowledgeObjectKey(bucketId, objectKey) {
+    const key = String(objectKey || "");
+    if (
+      bucketId !== AI_KNOWLEDGE_BUCKET
+      || !this.storagePrefix
+      || !key.startsWith(`${this.storagePrefix}ai-knowledge/`)
+      || key === `${this.storagePrefix}ai-knowledge/`
+      || key.includes("..")
+      || key.includes("\\")
+    ) {
+      throw new CreatorApiError("Нет доступа к защищённой базе знаний.", {
+        code: "storage_access_denied",
+      });
+    }
+  }
+
 
   assertReadableObjectKey(objectKey) {
     const key = String(objectKey || "");
@@ -4975,6 +5192,27 @@ function toFriendlyMessage(error) {
     paid_generation_campaign_not_active: "Выбранная кампания не активна.",
     paid_generation_product_category_invalid: "Выберите категорию товара для правил QA и обязательных предупреждений.",
     paid_generation_product_category_binding_invalid: "Сервер не смог связать категорию с точным товаром платного запуска.",
+    ai_learning_category_invalid: "Выберите точную товарную категорию ИИ‑центра.",
+    ai_learning_control_room_payload_invalid: "Параметры ИИ‑центра устарели. Откройте категорию заново.",
+    ai_knowledge_source_kind_invalid: "Добавьте HTTPS‑ссылку или поддерживаемый файл.",
+    ai_knowledge_source_payload_invalid: "Форма источника устарела. Обновите ИИ‑центр и повторите добавление.",
+    ai_knowledge_source_copy_invalid: "Проверьте название и пояснение к источнику.",
+    ai_knowledge_source_rights_required: "Подтвердите право команды использовать источник для обучения.",
+    ai_knowledge_source_link_invalid: "Проверьте ссылку и её контрольные данные.",
+    ai_knowledge_source_url_invalid: "Добавьте публичную HTTPS‑ссылку без логина и пароля.",
+    ai_knowledge_source_file_invalid: "Файл знаний не прошёл проверку типа, размера или контрольной суммы.",
+    ai_knowledge_storage_access_denied: "Сервер отклонил путь файла вне защищённой папки этой команды.",
+    ai_knowledge_storage_object_not_found: "Загруженный файл не найден в защищённой папке команды.",
+    ai_knowledge_storage_metadata_invalid: "Хранилище вернуло неполные контрольные данные файла.",
+    ai_knowledge_storage_metadata_mismatch: "Размер или тип файла изменился при загрузке; источник не зарегистрирован.",
+    ai_knowledge_source_quota_exceeded: "Для этой категории уже зарегистрировано слишком много источников.",
+    ai_knowledge_storage_quota_exceeded: "Лимит закрытой базы знаний исчерпан.",
+    ai_teaching_card_not_found: "Карточка обучения изменилась. Обновите ИИ‑центр.",
+    ai_teaching_card_stale: "Версия карточки изменилась. Решение не применено — обновите ИИ‑центр.",
+    ai_teaching_scope_version_conflict: "Эта категория уже получила новую обратную связь. Данные обновлены; повторите решение осознанно.",
+    ai_teaching_decision_payload_invalid: "Форма решения устарела. Обновите ИИ‑центр.",
+    ai_teaching_decision_identity_invalid: "Не удалось подтвердить точную версию карточки и категории.",
+    ai_teaching_decision_invalid: "Проверьте решение по карточке обучения.",
     paid_generation_campaign_policy_missing: "Для кампании ещё не настроен денежный лимит.",
     paid_generation_campaign_paused: "Платные запуски в этой кампании приостановлены.",
     generation_campaign_per_request_budget_exceeded: "Цена ролика превышает разовый лимит кампании.",

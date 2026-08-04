@@ -1,4 +1,4 @@
-"""Focused contracts for the project-first Desktop v4.6 reset.
+"""Focused contracts for the project-first Desktop v4.7 reset.
 
 These tests intentionally check user-visible architecture instead of exact copy,
 build hashes, helper names, or incidental markup ordering.  The contract is:

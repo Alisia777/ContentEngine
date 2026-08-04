@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.7";
 
-const BUILD = "20260803.os4.6";
+const BUILD = "20260804.os4.7";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -32,6 +32,7 @@ const ROUTES = Object.freeze([
 
 const SECONDARY_ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/research", label: "Исследования", icon: "search", description: "Факты, источники и сценарии" }),
+  Object.freeze({ route: "/workspace/ai", label: "ИИ-центр", icon: "spark", description: "Знания категорий и обратная связь" }),
   Object.freeze({ route: "/workspace/team", label: "Команда", icon: "work", description: "Доступы и участники" }),
   Object.freeze({ route: "/workspace/feedback", label: "Помощь", icon: "tasks", description: "Сообщить о препятствии" }),
 ]);
@@ -44,7 +45,7 @@ const PROJECT_FLOW = Object.freeze([
   Object.freeze({ route: "/workspace/placement", label: "Опубликовать" }),
   Object.freeze({ route: "/workspace/stats", label: "Результат" }),
 ]);
-const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"]);
+const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"]);
 
 const ICONS = Object.freeze({
   home: ["M3 10.5 12 3l9 7.5", "M5.5 9.5V21h13V9.5", "M9 21v-6h6v6"],
@@ -401,7 +402,7 @@ async function toggleFullscreen() {
 function refreshWorkspace() {
   const page = currentPage();
   const control = q(
-    '[data-action="refresh-section"], [data-action="refresh-home"]',
+    '[data-action="refresh-section"], [data-action="refresh-home"], [data-action="refresh-ai-learning"]',
     page,
   );
   if (control instanceof HTMLElement) control.click();

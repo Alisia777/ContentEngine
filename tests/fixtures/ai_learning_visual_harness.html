@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Learning Control Room visual harness</title>
+    <link rel="stylesheet" href="../../web/app/ai-learning-control-room.css?v=20260804.3" />
+    <style>
+      html { background: #080706; }
+      body { margin: 0; min-height: 100vh; background: #080706; color: #f7f3eb; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      main { width: min(1520px, 100%); margin: 0 auto; }
+    </style>
+  </head>
+  <body>
+    <main id="visual-harness"></main>
+    <script type="module">
+      import {
+        aiLearningControlRoomMarkup,
+        normalizeAiLearningControlRoom,
+      } from "../../web/app/ai-learning-control-room.js?v=20260804.3";
+
+      const definitions = [
+        ["cosmetics", "Косметика и уход", 68, "developing_evidence"],
+        ["baa", "БАД", 42, "insufficient_evidence"],
+        ["sports_food", "Спортивное питание", 55, "developing_evidence"],
+        ["food", "Еда и напитки", 36, "insufficient_evidence"],
+        ["household", "Товары для дома", 74, "developing_evidence"],
+        ["apparel", "Одежда и аксессуары", 61, "developing_evidence"],
+        ["electronics", "Электроника", 79, "strong_evidence"],
+        ["other", "Другая категория", 18, "cold_start"],
+      ];
+      const dimensions = [
+        ["source_volume", "Объём проверяемых источников", 8, 12, 20],
+        ["platform_diversity", "Разнообразие площадок", 2, 3, 15],
+        ["competitor_observations", "Наблюдения конкурентов", 3, 5, 20],
+        ["trend_recency", "Свежесть трендов", 4, 6, 15],
+        ["analysis_coverage", "Структурированный охват", 5, 8, 15],
+        ["human_validation", "Проверка человеком", 3, 4, 15],
+      ].map(([key, label, current, target, weight]) => ({
+        key, label, current, target, weight,
+        missing: target - current,
+        score: Math.round(current / target * 100),
+        next_action: `Добавить ещё ${target - current} проверяемых сигнала`,
+      }));
+      const categories = definitions.map(([product_category, label, readiness_score, readiness_status]) => ({
+        product_category,
+        label,
+        readiness_score,
+        readiness_status,
+        source_count: Math.max(1, Math.round(readiness_score / 12)),
+        pending_teaching_count: product_category === "cosmetics" ? 2 : 0,
+        scope_version: product_category === "cosmetics" ? 4 : 1,
+      }));
+      const snapshot = {
+        ok: true,
+        schema_version: "ai-learning-control-room-v1",
+        organization_id: "10000000-0000-4000-8000-000000000001",
+        run_id: "20000000-0000-4000-8000-000000000001",
+        selected_category: "cosmetics",
+        state_version: 12,
+        event_cursor: 31,
+        as_of: "2026-08-04T09:42:00.000Z",
+        categories,
+        category_detail: {
+          product_category: "cosmetics",
+          label: "Косметика и уход",
+          scope_version: 4,
+          readiness: {
+            metric_kind: "category_evidence_readiness_not_model_iq",
+            is_ai_iq: false,
+            is_quality_guarantee: false,
+            score: 68,
+            status: "developing_evidence",
+            evidence_count: 27,
+            source_count: 8,
+            dimensions,
+            evidence_hash: "b".repeat(64),
+            as_of: "2026-08-04T09:42:00.000Z",
+          },
+          gaps: [
+            { key: "competitor_observations", title: "Мало сравнений с конкурентами", description: "Нужны свежие примеры карточек и UGC из этой категории.", missing: 2, priority: "high", next_action: "Добавить два независимых наблюдения" },
+            { key: "human_validation", title: "Нужна ещё одна проверка команды", description: "Одна карточка суждения пока не подтверждена человеком.", missing: 1, priority: "normal", next_action: "Решить карточку «хорошо / плохо»" },
+          ],
+          knowledge_sources: [
+            { source_id: "40000000-0000-4000-8000-000000000001", source_kind: "link", source_url: "https://example.com/cosmetics", title: "Разбор карточек категории", status: "verified", provenance: "example.com · публичный материал", created_at: "2026-08-04T08:10:00.000Z" },
+            { source_id: "40000000-0000-4000-8000-000000000002", source_kind: "file", title: "Паспорт категории Q3.xlsx", status: "processing", provenance: "Закрытая база знаний команды", created_at: "2026-08-04T09:05:00.000Z" },
+          ],
+          teaching_cards: [
+            { card_id: "30000000-0000-4000-8000-000000000001", card_version: 1, card_hash: "a".repeat(64), signal_key: "hook.demonstration_first", title: "Сначала показать товар в действии", context: "Для ухода важен понятный первый результат без медицинских обещаний.", explanation: "ИИ видит устойчивый сигнал в проверенных сценариях этой категории.", polarity: "good", status: "pending", evidence_count: 7 },
+            { card_id: "30000000-0000-4000-8000-000000000002", card_version: 1, card_hash: "c".repeat(64), signal_key: "claims.instant_result", title: "Обещать мгновенный результат", context: "Фраза звучит сильнее доступных доказательств и повышает риск модерации.", explanation: "ИИ считает такой сигнал плохим и предлагает исключить его.", polarity: "bad", status: "pending", evidence_count: 5 },
+          ],
+          activity: [
+            { event_id: "e3", event_type: "policy_released", title: "Выпущена policy v4", description: "Подтверждён bounded-сигнал demonstration_first.", actor_name: "Анна", created_at: "2026-08-04T09:30:00.000Z", state_version: 12 },
+            { event_id: "e2", event_type: "source_registered", title: "Добавлен файл знаний", description: "Паспорт категории Q3.xlsx поставлен на проверку.", actor_name: "Илья", created_at: "2026-08-04T09:05:00.000Z", state_version: 11 },
+            { event_id: "e1", event_type: "decision_approved", title: "Суждение подтверждено", description: "Команда отметила demonstration_first как хороший сигнал.", actor_name: "Анна", created_at: "2026-08-04T08:42:00.000Z", state_version: 10 },
+          ],
+          effective_policy: {
+            version: 4,
+            policy_hash: "d".repeat(64),
+            status: "active",
+            rules: [
+              { id: "demonstration_first", label: "Начинать с демонстрации", effect: "Предпочитать bounded-угол demonstration для категории cosmetics." },
+              { id: "no_instant_claim", label: "Не обещать мгновенный эффект", effect: "Сохранять claim-guards и человеческую проверку." },
+            ],
+          },
+        },
+        capabilities: {
+          can_add_link: true,
+          can_upload_file: true,
+          can_decide: true,
+          can_view_history: true,
+        },
+      };
+
+      const root = document.querySelector("#visual-harness");
+      const render = () => {
+        const query = new URLSearchParams(location.search);
+        root.innerHTML = aiLearningControlRoomMarkup(
+          normalizeAiLearningControlRoom(snapshot),
+          { category: "cosmetics", view: query.get("view") || "overview" },
+        );
+      };
+      root.addEventListener("click", (event) => {
+        const control = event.target.closest('[data-action="select-ai-learning-view"]');
+        if (!control) return;
+        history.replaceState({}, "", `?view=${encodeURIComponent(control.dataset.view)}`);
+        render();
+      });
+      render();
+      document.documentElement.dataset.harnessReady = "true";
+    </script>
+  </body>
+</html>

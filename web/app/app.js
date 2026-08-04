@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260803.8";
+} from "./supabase-api.js?v=20260804.1";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260803.os4.6";
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260803.os4.6";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.7";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.7";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -26,7 +26,7 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260724.1";
+} from "./catalog.js?v=20260804.1";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
@@ -73,6 +73,14 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
 } from "./product-research-view.js?v=20260803.11";
+import {
+  AI_PRODUCT_CATEGORIES,
+  aiLearningCategory,
+  aiLearningControlRoomMarkup,
+  aiLearningView,
+  applyAiLearningControlRoomMutation,
+  normalizeAiLearningControlRoom,
+} from "./ai-learning-control-room.js?v=20260804.3";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -130,7 +138,7 @@ import {
   resolveContentReviewMediaSelection,
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
-} from "./content-review-view.js?v=20260803.os4.6";
+} from "./content-review-view.js?v=20260804.os4.7";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -159,7 +167,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260803.os4.6";
+} from "./workspace-board-view.js?v=20260804.os4.7";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -207,7 +215,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260803.os4.6";
+} from "./training-practical-review.js?v=20260804.os4.7";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -226,7 +234,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260803.os4.6";
+} from "./my-work-view.js?v=20260804.os4.7";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -273,6 +281,16 @@ const GENERATION_PREFLIGHT_READY_TTL_MS = 2 * 60 * 1_000;
 const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
+const AI_LEARNING_POLL_INTERVAL_MS = 6_000;
+const AI_KNOWLEDGE_MAX_FILE_BYTES = 25 * 1024 * 1024;
+const AI_KNOWLEDGE_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "text/markdown",
+  "text/plain",
+]);
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
 const PRODUCT_RESEARCH_YOUTUBE_PHASES = new Set([
   "youtube-canary",
@@ -616,6 +634,16 @@ const WORKSPACE_SECTION_META = Object.freeze({
     nextLabel: "Утвердить ТЗ и создать задачи",
     nextHref: "#/workspace/tasks",
     guideHref: "#/learn/video_quality",
+  }),
+  ai: Object.freeze({
+    kicker: "ИИ · командный пункт",
+    note: "Живая готовность знаний, строгая категория и решения человека с историей",
+    now: "Выберите категорию и закройте её главный пробел: источник, пример или решение «ОК / не ОК».",
+    done: "У категории есть проверенные источники, человеческая обратная связь и активное безопасное правило.",
+    guard: "Файлы и ссылки не попадают в промпт напрямую; влияние получает только подтверждённое структурное правило.",
+    nextLabel: "Создать контент с новой политикой",
+    nextHref: "#/workspace/generation",
+    guideHref: "#/workspace/feedback?topic=ai-learning",
   }),
   generation: Object.freeze({
     kicker: "Шаг 3 из 6",
@@ -1164,6 +1192,15 @@ const state = {
     serverLoaded: false,
   },
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
+  aiLearning: {
+    pollTimer: null,
+    requestId: 0,
+    busyCardId: "",
+    knowledgeMutationKind: "",
+    notice: "",
+    error: "",
+    lastUpdatedAt: 0,
+  },
   sections: Object.fromEntries(
     WORKSPACE_TABS.map(([key]) => [key, { status: key === "research" ? "ready" : "idle", data: null, error: null, requestId: 0 }]),
   ),
@@ -1926,8 +1963,14 @@ function bindGlobalEvents() {
   );
   window.addEventListener("hashchange", () => {
     const previousActionKey = workspaceActionKey(state.route);
+    const previousAiCategory = state.route.path === "/workspace/ai"
+      ? currentAiLearningCategory()
+      : "";
     window.ContentEngineDesktopV4?.captureCurrentAction?.(previousActionKey);
     state.route = parseRoute();
+    const nextAiCategory = state.route.path === "/workspace/ai"
+      ? currentAiLearningCategory()
+      : "";
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
@@ -1946,6 +1989,17 @@ function bindGlobalEvents() {
       state.generationModelAcceptance.status = "idle";
     }
     if (state.route.path !== "/workspace/research") stopProductResearchPolling();
+    if (state.route.path !== "/workspace/ai") {
+      stopAiLearningPolling();
+    } else if (previousAiCategory && previousAiCategory !== nextAiCategory) {
+      stopAiLearningPolling();
+      state.aiLearning.requestId += 1;
+      state.sections.ai.status = "idle";
+      state.sections.ai.data = null;
+      state.sections.ai.error = null;
+      state.aiLearning.error = "";
+      state.aiLearning.notice = "";
+    }
     if (state.route.path !== "/workspace/review") stopContentReviewPolling();
     if (
       state.route.path === "/workspace/team"
@@ -1981,9 +2035,11 @@ function bindGlobalEvents() {
       resumeGeneratedVideoTechnicalQa();
       resumeGeneratedVideoReviewAutopilot();
       scheduleContentReviewPolling(250);
+      scheduleAiLearningPolling(250);
     } else {
       stopRealGenerationPolling();
       stopContentReviewPolling();
+      stopAiLearningPolling();
     }
   });
 
@@ -6347,7 +6403,9 @@ function renderWorkspace(section) {
     });
   }
   const sectionState = section === "home" ? state.home : state.sections[section];
-  if (section === "research" && sectionState.status === "idle") {
+  if (section === "ai" && sectionState.status === "idle") {
+    window.queueMicrotask(() => loadAiLearningControlRoom());
+  } else if (section === "research" && sectionState.status === "idle") {
     sectionState.status = "ready";
   } else if (sectionState.status === "idle") {
     window.queueMicrotask(() => section === "home" ? loadHome() : loadSection(section));
@@ -6365,6 +6423,7 @@ function renderWorkspace(section) {
     tasks: renderTasksSection,
     media: renderMediaSection,
     research: renderProductResearchSection,
+    ai: renderAiLearningSection,
     feedback: renderFeedbackSection,
     team: renderTeamSection,
   }[section];
@@ -6891,10 +6950,17 @@ function canManageProductResearch() {
   return ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
 }
 
+function canViewAiLearning() {
+  return ["owner", "admin", "producer", "reviewer"].includes(
+    state.bootstrap?.membership?.role,
+  );
+}
+
 function visibleWorkspaceTabs() {
   const accessible = WORKSPACE_TABS.filter(([key]) => (
     (key !== "team" || canManageTeam())
     && (key !== "research" || canManageProductResearch())
+    && (key !== "ai" || canViewAiLearning())
   ));
   const workTab = accessible.find(([key]) => key === "work");
   return [
@@ -6933,8 +6999,11 @@ function brandAtmosphereMarkup() {
 function workspaceContextBarMarkup(activeSection, label) {
   const stage = factoryFlowStage(activeSection);
   const learning = activeSection === "learning";
+  const aiLearning = activeSection === "ai";
   const context = activeSection === "learning"
     ? "Академия команды"
+    : aiLearning
+      ? "Контур обучения ИИ"
     : stage
       ? `Производственный цикл · этап ${stage.step} из ${String(FACTORY_FLOW.length).padStart(2, "0")}`
       : "Рабочее пространство";
@@ -6949,6 +7018,10 @@ function workspaceContextBarMarkup(activeSection, label) {
           <a href="#/learn">Курсы</a>
           <a href="#/learn/first-shift">Первая смена</a>
           <a href="#/learn/exam">Экзамен</a>
+        ` : aiLearning ? `
+          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=overview">Статус</a>
+          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=knowledge">Знания</a>
+          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=teach">ОК / не ОК</a>
         ` : `
           <a href="#/workspace/media">Материалы</a>
           <a class="${activeSection === "generation" ? "is-active" : ""}" href="#/workspace/generation">Создать</a>
@@ -12346,6 +12419,412 @@ async function pollProductResearchStatus({ silent = false } = {}) {
   scheduleProductResearchPolling();
 }
 
+function aiProductCategoryIds() {
+  return AI_PRODUCT_CATEGORIES.map((item) => String(
+    typeof item === "string" ? item : item?.id || item?.value || "",
+  )).filter(Boolean);
+}
+
+function currentAiLearningCategory() {
+  const available = aiProductCategoryIds();
+  const action = workspaceActionDescriptor(state.route);
+  const requested = action.path === "/workspace/ai"
+    ? String(action.qualifiers?.category || "")
+    : "";
+  const normalized = aiLearningCategory(requested, available[0] || "cosmetics");
+  return available.includes(normalized) ? normalized : available[0] || "cosmetics";
+}
+
+function currentAiLearningView() {
+  const action = workspaceActionDescriptor(state.route);
+  return aiLearningView(action.path === "/workspace/ai" ? action.view : "overview");
+}
+
+function renderAiLearningSection(sectionState) {
+  if (!canViewAiLearning()) {
+    return `<div class="page-wrap">${alertMarkup("ИИ‑центр доступен руководителю, продюсеру и проверяющему.", "danger")}</div>`;
+  }
+  const snapshot = sectionState.data
+    ? normalizeAiLearningControlRoom(sectionState.data)
+    : null;
+  return aiLearningControlRoomMarkup(snapshot, {
+    category: currentAiLearningCategory(),
+    view: currentAiLearningView(),
+    loading: ["idle", "loading"].includes(sectionState.status),
+    refreshing: sectionState.status === "refreshing",
+    busy: Boolean(state.aiLearning.knowledgeMutationKind),
+    busyCardId: state.aiLearning.busyCardId,
+    notice: state.aiLearning.notice,
+    error: state.aiLearning.error || (sectionState.error ? actionErrorMessage(sectionState.error) : ""),
+    lastUpdatedAt: state.aiLearning.lastUpdatedAt,
+  });
+}
+
+function stopAiLearningPolling() {
+  if (state.aiLearning.pollTimer !== null) {
+    window.clearTimeout(state.aiLearning.pollTimer);
+  }
+  state.aiLearning.pollTimer = null;
+}
+
+function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
+  stopAiLearningPolling();
+  if (
+    state.route.path !== "/workspace/ai"
+    || document.visibilityState !== "visible"
+    || !state.session
+    || state.aiLearning.busyCardId
+    || state.aiLearning.knowledgeMutationKind
+  ) return;
+  state.aiLearning.pollTimer = window.setTimeout(() => {
+    state.aiLearning.pollTimer = null;
+    void pollAiLearningControlRoom();
+  }, Math.max(500, Number(delay) || AI_LEARNING_POLL_INTERVAL_MS));
+}
+
+async function pollAiLearningControlRoom() {
+  if (
+    state.route.path !== "/workspace/ai"
+    || document.visibilityState !== "visible"
+    || state.aiLearning.busyCardId
+    || state.aiLearning.knowledgeMutationKind
+  ) return null;
+  return loadAiLearningControlRoom({ silent: true });
+}
+
+async function loadAiLearningControlRoom({ silent = false } = {}) {
+  const section = state.sections.ai;
+  const category = currentAiLearningCategory();
+  if (!section || !state.api || !canViewAiLearning()) return null;
+  const requestId = state.aiLearning.requestId + 1;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  state.aiLearning.requestId = requestId;
+  section.requestId += 1;
+  section.status = section.data && silent ? "refreshing" : "loading";
+  section.error = null;
+  if (!silent && state.route.path === "/workspace/ai") renderWorkspace("ai");
+  try {
+    const raw = await withUiTimeout(
+      state.api.aiLearningControlRoom({ category }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "ai_learning_control_room_timeout",
+    );
+    if (
+      requestId !== state.aiLearning.requestId
+      || requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || state.route.path !== "/workspace/ai"
+      || category !== currentAiLearningCategory()
+    ) return null;
+    const normalized = normalizeAiLearningControlRoom(raw);
+    if (normalized.selectedCategory !== category) {
+      throw new Error("ai_learning_control_room_category_mismatch");
+    }
+    const current = section.data
+      ? normalizeAiLearningControlRoom(section.data)
+      : null;
+    if (
+      current?.available
+      && (
+        normalized.stateVersion < current.stateVersion
+        || normalized.eventCursor < current.eventCursor
+      )
+    ) {
+      section.status = "ready";
+      section.error = null;
+      if (!silent && state.route.path === "/workspace/ai") renderWorkspace("ai");
+      return current;
+    }
+    section.data = normalized;
+    section.status = "ready";
+    section.error = null;
+    state.aiLearning.error = "";
+    state.aiLearning.lastUpdatedAt = Date.now();
+    renderWorkspace("ai");
+    return normalized;
+  } catch (error) {
+    if (
+      requestId !== state.aiLearning.requestId
+      || requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || category !== currentAiLearningCategory()
+    ) return null;
+    section.status = section.data ? "ready" : "error";
+    section.error = error;
+    state.aiLearning.error = String(error?.message || "") === "ai_learning_control_room_timeout"
+      ? "Статус знаний не ответил вовремя. Последний подтверждённый снимок оставлен на экране."
+      : actionErrorMessage(error);
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    return null;
+  } finally {
+    scheduleAiLearningPolling();
+  }
+}
+
+function applyAuthoritativeAiLearningResponse(response, category) {
+  const section = state.sections.ai;
+  const next = applyAiLearningControlRoomMutation(section.data, response);
+  if (!next || next.selectedCategory !== category) {
+    throw new Error("ai_learning_control_room_response_invalid");
+  }
+  section.data = next;
+  section.status = "ready";
+  section.error = null;
+  state.aiLearning.error = "";
+  state.aiLearning.lastUpdatedAt = Date.now();
+  return next;
+}
+
+function aiLearningMutationIsVisible(category) {
+  return state.route.path === "/workspace/ai"
+    && category === currentAiLearningCategory();
+}
+
+function invalidateHiddenAiLearningSnapshot() {
+  if (state.route.path === "/workspace/ai") return;
+  state.sections.ai.status = "idle";
+  state.sections.ai.data = null;
+  state.sections.ai.error = null;
+}
+
+async function decideAiTeachingCard(control) {
+  if (state.aiLearning.busyCardId || state.aiLearning.knowledgeMutationKind) return;
+  const decisionForm = control.closest(".ai-learning-decision-form");
+  const confirmation = decisionForm?.elements?.confirmation;
+  if (!(confirmation instanceof HTMLInputElement) || !confirmation.checked) {
+    toast("Сначала подтвердите, что проверили контекст и границы влияния.", "error");
+    confirmation?.focus();
+    return;
+  }
+  const card = control.closest("[data-ai-teaching-card]") || control;
+  const category = String(
+    control.dataset.productCategory
+      || card.dataset.productCategory
+      || currentAiLearningCategory(),
+  ).trim().toLowerCase();
+  const cardId = String(control.dataset.cardId || card.dataset.cardId || "").trim();
+  const decision = String(control.dataset.decision || "").trim().toLowerCase();
+  const cardVersion = Number(control.dataset.cardVersion || card.dataset.cardVersion);
+  const cardHash = String(control.dataset.cardHash || card.dataset.cardHash || "").trim();
+  const expectedScopeVersion = Number(
+    control.dataset.scopeVersion || card.dataset.scopeVersion,
+  );
+  if (category !== currentAiLearningCategory()) {
+    toast("Категория уже изменилась. Решение не отправлено.", "error");
+    return;
+  }
+  stopAiLearningPolling();
+  state.aiLearning.requestId += 1;
+  state.aiLearning.busyCardId = cardId;
+  state.aiLearning.notice = "";
+  state.aiLearning.error = "";
+  renderWorkspace("ai");
+  try {
+    const response = await state.api.decideAiTeachingCard({
+      product_category: category,
+      card_id: cardId,
+      card_hash: cardHash,
+      card_version: cardVersion,
+      expected_scope_version: expectedScopeVersion,
+      decision,
+      reason_code: decision === "approve"
+        ? "operator_confirmed"
+        : "operator_rejected",
+      confirmation: true,
+    });
+    const successMessage = decision === "approve"
+      ? "Правило подтверждено и уже выпущено в новой версии политики этой категории."
+      : "Правило помечено как неверное и исключено из активной политики категории.";
+    if (aiLearningMutationIsVisible(category)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+      state.aiLearning.notice = successMessage;
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+      toast(successMessage, "success");
+    }
+    await track("ai_teaching_card_decided", {
+      product_category: category,
+      card_id: cardId,
+      decision,
+    });
+  } catch (error) {
+    const diagnostic = String(
+      error?.serverCode || error?.code || error?.message || "",
+    );
+    state.aiLearning.error = actionErrorMessage(error);
+    if (/ai_teaching_(?:card_stale|scope_version_conflict)/u.test(diagnostic)) {
+      await loadAiLearningControlRoom({ silent: true });
+      state.aiLearning.error = "Категория уже изменилась в другой вкладке. Решение не повторялось; проверьте свежую карточку.";
+    }
+  } finally {
+    state.aiLearning.busyCardId = "";
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
+function aiKnowledgeMimeType(file) {
+  const declared = String(file?.type || "").trim().toLowerCase();
+  if (AI_KNOWLEDGE_MIME_TYPES.has(declared)) return declared;
+  const extension = String(file?.name || "").split(".").pop()?.toLowerCase();
+  return {
+    pdf: "application/pdf",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    csv: "text/csv",
+    md: "text/markdown",
+    txt: "text/plain",
+  }[extension] || "";
+}
+
+function aiKnowledgeObjectKey(filename) {
+  const org = String(state.bootstrap?.organization?.id || "");
+  const user = String(state.user?.id || "");
+  const prefix = String(state.bootstrap?.storage?.pathPrefix || "");
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+  if (!uuid.test(org) || !uuid.test(user) || prefix !== `${org}/${user}/`) {
+    throw new Error("Supabase не подтвердил безопасный путь базы знаний.");
+  }
+  const month = new Date().toISOString().slice(0, 7);
+  const safeName = String(filename || "knowledge")
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._-]/gu, "-")
+    .replace(/-+/gu, "-")
+    .slice(-120);
+  return `${prefix}ai-knowledge/${month}/${crypto.randomUUID()}-${safeName}`;
+}
+
+function finishAiKnowledgeMutation(form, { reset = false } = {}) {
+  state.aiLearning.knowledgeMutationKind = "";
+  const connected = form.id ? document.getElementById(form.id) : null;
+  const candidates = new Set([form, connected].filter((item) => item instanceof HTMLFormElement));
+  candidates.forEach((candidate) => {
+    if (reset) {
+      candidate.reset();
+      delete candidate.dataset.dirty;
+    }
+    if (candidate.dataset.busy === "true") setFormBusy(candidate, false);
+  });
+}
+
+async function submitAiKnowledgeLink(form) {
+  if (!form.reportValidity()) return;
+  if (state.aiLearning.busyCardId || state.aiLearning.knowledgeMutationKind) return;
+  const values = new FormData(form);
+  const category = String(values.get("product_category") || "").trim().toLowerCase();
+  stopAiLearningPolling();
+  state.aiLearning.requestId += 1;
+  state.aiLearning.knowledgeMutationKind = "link";
+  setFormBusy(form, true, "Добавляем источник…");
+  state.aiLearning.error = "";
+  state.aiLearning.notice = "";
+  let registered = false;
+  if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+  try {
+    const response = await state.api.registerAiKnowledgeSource({
+      product_category: category,
+      source_kind: "link",
+      title: values.get("title"),
+      source_url: values.get("source_url"),
+      note: values.get("note"),
+      rights_confirmed: values.get("rights_confirmed") === "on",
+    });
+    registered = true;
+    const successMessage = "Ссылка зарегистрирована в этой категории. До отдельного проверенного разбора её содержимое не влияет на промпт.";
+    if (aiLearningMutationIsVisible(category)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+      state.aiLearning.notice = successMessage;
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+      toast(successMessage, "success");
+    }
+    form.reset();
+    await track("ai_knowledge_source_added", {
+      product_category: category,
+      source_kind: "link",
+    });
+  } catch (error) {
+    state.aiLearning.error = actionErrorMessage(error);
+  } finally {
+    finishAiKnowledgeMutation(form, { reset: registered });
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
+async function submitAiKnowledgeFile(form) {
+  if (!form.reportValidity()) return;
+  if (state.aiLearning.busyCardId || state.aiLearning.knowledgeMutationKind) return;
+  const values = new FormData(form);
+  const file = form.elements.file?.files?.[0];
+  const category = String(values.get("product_category") || "").trim().toLowerCase();
+  if (!(file instanceof File)) {
+    toast("Выберите один файл знаний.", "error");
+    return;
+  }
+  const mimeType = aiKnowledgeMimeType(file);
+  if (!mimeType || file.size < 1 || file.size > AI_KNOWLEDGE_MAX_FILE_BYTES) {
+    toast("Поддерживаются PDF, DOCX, XLSX, CSV, MD и TXT до 25 МБ.", "error");
+    return;
+  }
+  let objectKey = "";
+  let uploaded = false;
+  let registered = false;
+  stopAiLearningPolling();
+  state.aiLearning.requestId += 1;
+  state.aiLearning.knowledgeMutationKind = "file";
+  setFormBusy(form, true, "Загружаем знания…");
+  state.aiLearning.error = "";
+  state.aiLearning.notice = "";
+  if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+  try {
+    objectKey = aiKnowledgeObjectKey(file.name);
+    const sha256 = await fileSha256(file);
+    await state.api.uploadAiKnowledgeObject(objectKey, file, mimeType);
+    uploaded = true;
+    const response = await state.api.registerAiKnowledgeSource({
+      product_category: category,
+      source_kind: "file",
+      title: String(values.get("title") || file.name),
+      note: values.get("note"),
+      rights_confirmed: values.get("rights_confirmed") === "on",
+      object_key: objectKey,
+      original_filename: file.name,
+      mime_type: mimeType,
+      size_bytes: file.size,
+      sha256,
+    });
+    uploaded = false;
+    registered = true;
+    const successMessage = "Файл сохранён в закрытой базе знаний. До отдельного проверенного разбора его содержимое не влияет на промпт.";
+    if (aiLearningMutationIsVisible(category)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+      state.aiLearning.notice = successMessage;
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+      toast(successMessage, "success");
+    }
+    form.reset();
+    await track("ai_knowledge_source_added", {
+      product_category: category,
+      source_kind: "file",
+      mime_type: mimeType,
+      size_bytes: file.size,
+    });
+  } catch (error) {
+    if (uploaded && objectKey) {
+      await state.api.removeAiKnowledgeObject(objectKey).catch(() => {});
+    }
+    state.aiLearning.error = actionErrorMessage(error);
+  } finally {
+    finishAiKnowledgeMutation(form, { reset: registered });
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
+
 function renderMediaSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "media", "items", "artifacts");
@@ -12933,6 +13412,38 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "select-ai-learning-category") {
+    const category = aiLearningCategory(control.dataset.categoryKey);
+    navigate(`/workspace/ai?category=${encodeURIComponent(category)}&view=${encodeURIComponent(currentAiLearningView())}`);
+    return;
+  }
+
+  if (action === "select-ai-learning-view") {
+    const view = aiLearningView(control.dataset.view);
+    navigate(`/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=${encodeURIComponent(view)}`);
+    return;
+  }
+
+  if (action === "refresh-ai-learning") {
+    state.aiLearning.notice = "";
+    state.aiLearning.error = "";
+    await loadAiLearningControlRoom();
+    return;
+  }
+
+  if (action === "choose-ai-knowledge-file") {
+    const form = control.closest("#ai-knowledge-file-form");
+    const input = form?.elements?.file;
+    if (!(input instanceof HTMLInputElement) || input.disabled) return;
+    input.click();
+    return;
+  }
+
+  if (action === "decide-ai-teaching-card") {
+    await decideAiTeachingCard(control);
+    return;
+  }
 
   if (action === "choose-media-upload-files") {
     const form = control.closest("#media-upload-form");
@@ -14366,6 +14877,8 @@ async function handleSubmit(event) {
   else if (form.id === "my-work-filter-form") await submitMyWorkFilters(form);
   else if (form.id === "save-my-work-view-form") await submitSavedMyWorkView(form);
   else if (form.id === "generation-archive-filter-form") await submitGenerationArchiveFilters(form);
+  else if (form.id === "ai-knowledge-link-form") await submitAiKnowledgeLink(form);
+  else if (form.id === "ai-knowledge-file-form") await submitAiKnowledgeFile(form);
   else if (form.id === "product-research-start-form") await submitProductResearchStart(form);
   else if (form.id === "product-research-watchlist-form") await submitProductResearchWatchlist(form, event.submitter);
   else if (form.id === "product-research-market-category-search-form") await submitProductResearchMarketCategorySearch(form);
@@ -14642,6 +15155,16 @@ async function submitSavedMyWorkView(form) {
 
 function handleChange(event) {
   handleFormActivity(event);
+
+  if (event.target.id === "ai-knowledge-file") {
+    const file = event.target.files?.[0];
+    const summary = event.target.form?.querySelector("[data-ai-file-summary]");
+    if (summary) {
+      summary.textContent = file
+        ? `${file.name} · ${formatBytes(file.size)}`
+        : "Файл не выбран";
+    }
+  }
 
   if (event.target.matches("[data-learning-track-select]")) {
     const selected = persistLearningTrack(event.target.value);
@@ -21622,6 +22145,7 @@ function clearAuthenticatedState() {
   stopRealGenerationPolling();
   stopProductResearchPolling();
   stopContentReviewPolling();
+  stopAiLearningPolling();
   clearStoredPkceVerifier();
   if (state.resetCountdownTimer) window.clearInterval(state.resetCountdownTimer);
   setMobileNavOpen(false);
@@ -21692,6 +22216,12 @@ function clearAuthenticatedState() {
   state.generationModelAcceptance.data = null;
   state.generationModelAcceptance.error = null;
   state.generationModelAcceptance.updatedAt = 0;
+  state.aiLearning.requestId += 1;
+  state.aiLearning.busyCardId = "";
+  state.aiLearning.knowledgeMutationKind = "";
+  state.aiLearning.notice = "";
+  state.aiLearning.error = "";
+  state.aiLearning.lastUpdatedAt = 0;
   state.generationLearning.requestId += 1;
   clearGenerationLearningRetry();
   state.generationLearning.status = "idle";

@@ -244,9 +244,10 @@ def test_menubar_has_notification_bell_while_navigation_counts_stay_stable() -> 
     tools_keyboard = _between(CORE, "function handleToolsMenuKeydown(event) {", "async function toggleFullscreen()")
 
     assert routes.count("Object.freeze({ route:") == 6
-    assert secondary.count("Object.freeze({ route:") == 3
+    assert secondary.count("Object.freeze({ route:") == 4
     assert re.findall(r'route: "([^"]+)"', secondary) == [
         "/workspace/research",
+        "/workspace/ai",
         "/workspace/team",
         "/workspace/feedback",
     ]
@@ -255,7 +256,7 @@ def test_menubar_has_notification_bell_while_navigation_counts_stay_stable() -> 
     assert 'iconButton("", "Открыть уведомления", "bell")' in menubar
     assert "notificationControl.dataset.ceV4Notifications" in menubar
     assert 'route: "/workspace/work?view=notifications"' not in routes + secondary
-    assert 'const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/team"])' in CORE
+    assert 'const ROLE_GATED_SECONDARY_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"])' in CORE
     authorization = _between(CORE, "function secondaryRouteIsAuthorized(route) {", "function createToolsMenuItem(item) {")
     sync = _between(CORE, "function syncToolsMenu() {", "function closeToolsMenu(")
     assert "shell?.dataset.workspaceAuthorizedRoutes" in authorization

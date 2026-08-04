@@ -20,6 +20,16 @@ const ACTION_ROUTES = Object.freeze({
   "/workspace/payouts": Object.freeze({ defaultView: "next", views: ["next", "history"], entities: { payout: ["next", "history"] } }),
   "/workspace/tasks": Object.freeze({ defaultView: "next", views: ["next", "queue"], entities: { item: ["next", "queue"] } }),
   "/workspace/research": Object.freeze({ defaultView: "evidence", views: ["evidence", "corrections", "brief", "approve", "handoff"] }),
+  "/workspace/ai": Object.freeze({
+    defaultView: "overview",
+    views: ["overview", "knowledge", "teach", "history"],
+    qualifiers: {
+      category: Object.freeze({
+        defaultValue: "cosmetics",
+        values: ["cosmetics", "baa", "sports_food", "food", "household", "apparel", "electronics", "other"],
+      }),
+    },
+  }),
   "/workspace/feedback": Object.freeze({ defaultView: "new", views: ["new", "history"] }),
   "/workspace/team": Object.freeze({
     defaultView: "members",
@@ -76,14 +86,25 @@ export function workspaceActionDescriptor(input) {
     view = "current";
   }
 
+  const qualifiers = Object.freeze(Object.fromEntries(
+    Object.entries(definition.qualifiers || {}).map(([parameter, contract]) => {
+      const requested = singleQueryValue(query, parameter);
+      const value = contract.values.includes(requested) ? requested : contract.defaultValue;
+      return [parameter, value];
+    }),
+  ));
+  const qualifierSuffix = Object.entries(qualifiers)
+    .map(([parameter, value]) => `&${parameter}=${encodeURIComponent(value)}`)
+    .join("");
   const entity = validEntityCandidates.find((candidate) => candidate.views.includes(view)) || null;
   const entitySuffix = entity ? `&${entity.parameter}=${encodeURIComponent(entity.value)}` : "";
   return Object.freeze({
     path,
     view,
+    qualifiers,
     entityParameter: entity?.parameter || "",
     entityId: entity?.value || "",
-    key: `${path}?view=${encodeURIComponent(view)}${entitySuffix}`,
+    key: `${path}?view=${encodeURIComponent(view)}${qualifierSuffix}${entitySuffix}`,
   });
 }
 
