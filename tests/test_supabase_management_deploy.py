@@ -25,7 +25,7 @@ from scripts.deploy_supabase_management_api import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEPLOYED_PRODUCTION_TAIL = "202608030005"
 DEPLOYED_PRODUCTION_PREFIX_SHA256 = (
-    "9e74993f1ed1dbb7a7db1066b80053c93db0a2fc1555de3a9fff1c64173ff057"
+    "0d0e103852283451272f0779de4291b5d6e13bc5ed6a411c6edc15c5711c2634"
 )
 
 
@@ -207,6 +207,23 @@ def _fixture_migrations(tmp_path: Path):
     _write_migration(tmp_path, "202607130001", "select 1;")
     _write_migration(tmp_path, "202607130002", "select 2;")
     return load_migrations(tmp_path)
+
+
+def test_migration_identity_is_independent_of_checkout_line_endings(
+    tmp_path: Path,
+) -> None:
+    version = "202607130001"
+    path = tmp_path / f"{version}_test.sql"
+    lf_body = b"begin;\nselect 1;\ncommit;\n"
+    path.write_bytes(lf_body)
+    lf_migration = load_migrations(tmp_path)[0]
+
+    path.write_bytes(lf_body.replace(b"\n", b"\r\n"))
+    crlf_migration = load_migrations(tmp_path)[0]
+
+    assert lf_migration.sha256 == hashlib.sha256(lf_body).hexdigest()
+    assert crlf_migration.sha256 == lf_migration.sha256
+    assert crlf_migration.body == lf_migration.body
 
 
 def test_repository_keeps_the_verified_production_prefix_immutable() -> None:
