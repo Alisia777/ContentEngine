@@ -1,4 +1,4 @@
-export const CONTENT_GENERATION_HANDOFF_VERSION = 2;
+export const CONTENT_GENERATION_HANDOFF_VERSION = 5;
 export const CONTENT_GENERATION_PROMPT_LIMIT = 1_200;
 export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
@@ -26,6 +26,30 @@ const SAFE_SCENARIO_INTENT_LIMIT = 400;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const EXPLICIT_SPOKEN_LINE_PATTERN =
   /(^|[.!?…]\s+)((?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\s+(?:говорит|произносит|рассказывает)|реплика\s+героя(?:\s+дословно)?))\s*:\s*[«“"]([^»”"]{2,500})[»”"]\s*[.!?…]?/iu;
+const EXTERNAL_REFERENCE_PATTERN =
+  /(?:\b(?:https?|ftp|file|data|mailto|javascript|blob|ipfs|s3|gs|tel|urn):(?=\/\/|\S)|(?:^|[^\p{L}\p{N}_-])www\.|(?:^|[^\p{L}\p{N}_-])(?:\d{1,3}\.){3}\d{1,3}(?=[:/?#]|$|[^\p{L}\p{N}_.-])|(?:^|[^\p{L}\p{N}_-])(?:[\p{L}\p{N}-]+\.)+(?:com|org|net|edu|gov|io|ai|app|dev|co|me|tv|info|biz|xyz|online|site|shop|store|tech|ru|рф|su|ua|by|kz|[a-z]{2}|xn--[a-z0-9-]{2,59})(?=[:/?#]|$|[^\p{L}\p{N}_-])|(?:^|[^\p{L}\p{N}_-])(?:[\p{L}\p{N}-]+\.)+[\p{L}a-z]{2,24}(?=[:/?#]))/iu;
+const RESEARCH_CATEGORY_MATURITIES = new Set([
+  "emerging", "growing", "established", "saturated", "unknown",
+]);
+const RESEARCH_COMPETITOR_COVERAGES = new Set([
+  "none", "limited", "sufficient",
+]);
+const RESEARCH_CATEGORY_STRUCTURAL_SIGNALS = new Set([
+  "hook.problem_first",
+  "hook.result_first",
+  "format.single_action_demo",
+  "format.step_by_step",
+  "format.comparison",
+  "format.unboxing",
+  "format.creator_explainer",
+  "proof.product_in_use",
+  "proof.before_after",
+  "proof.social_proof",
+  "offer.bundle",
+  "offer.price_anchor",
+  "channel.marketplace_native_video",
+  "channel.short_vertical_video",
+]);
 
 export function contentGenerationDurationSeconds(mode, value = null) {
   const normalizedMode = normalizeMode(mode);
@@ -96,6 +120,7 @@ export function createContentGenerationHandoff(
       "Исследование Ozon можно утвердить и передать в задачи, но платная автогенерация для Ozon пока не подключена.",
     );
   }
+  const requiresResearchCategoryRule = hasModernResearchCategoryAnalysis(record);
   return {
     version: CONTENT_GENERATION_HANDOFF_VERSION,
     createdAt: Number(now),
@@ -107,6 +132,14 @@ export function createContentGenerationHandoff(
     sourceIds: uniqueStrings(record?.sourceIds, 24),
     researchGuidanceStatus,
     researchDecision,
+    requiresResearchCategoryRule,
+    researchCategoryBinding: normalizedResearchCategoryBinding(
+      record,
+      requiresResearchCategoryRule,
+    ),
+    researchCategoryPolicy: requiresResearchCategoryRule
+      ? boundedResearchCategoryPolicy(record?.rawBrief)
+      : null,
     scenario: {
       position: normalizedIndex + 1,
       title: cleanText(scenario.title) || `Сценарий ${normalizedIndex + 1}`,
@@ -166,7 +199,21 @@ export function compileContentGenerationPrompt(
     }], []);
   }
 
+  if (
+    handoff.requiresResearchCategoryRule
+    && !handoff.researchCategoryBinding
+  ) {
+    return result("", [{
+      code: "research_category_binding_required",
+      message: "Обновите привязку категории из утверждённого исследования перед генерацией.",
+    }], []);
+  }
+
   const normalizedMode = normalizeMode(mode);
+  const researchCategoryRule = generationResearchCategorySignal(handoff);
+  const researchCategoryRuleFragment = generationResearchCategoryRuleFragment(
+    researchCategoryRule,
+  );
   if (normalizedMode === REAL_PHOTO_MODE) {
     const visualDirection = photoScenarioVisualDirection(handoff);
     return compileSafeGenerationBrief({
@@ -180,6 +227,7 @@ export function compileContentGenerationPrompt(
       durationSeconds: 0,
       productCategory,
       researchDecision: handoff.researchDecision,
+      researchCategoryRule,
     });
   }
   const seedance = normalizedMode === REAL_SEEDANCE_MODE;
@@ -268,6 +316,7 @@ export function compileContentGenerationPrompt(
     required(researchDecision
       ? `Решение пользователя после исследования — имеет приоритет над исходным сценарием: ${researchDecision}.`
       : ""),
+    required(researchCategoryRuleFragment),
     optional(`Хук: ${scenario.hook}.`),
     required(`Действие в кадре: ${action || "[ДОБАВЬТЕ ОДНО ПОНЯТНОЕ ДЕЙСТВИЕ]"}.`),
     required(interaction.requirement),
@@ -289,9 +338,10 @@ export function compileContentGenerationPrompt(
       learningPolicy,
       normalizedMode,
       repairPolicy,
+      Boolean(researchCategoryRuleFragment),
     )),
   ];
-  const prompt = fitPrompt(promptLines, CONTENT_GENERATION_PROMPT_LIMIT);
+  const prompt = fitPrompt(promptLines, generationPromptLimit(normalizedMode));
   if (!prompt) {
     blockers.push({
       code: "prompt_too_long",
@@ -304,6 +354,7 @@ export function compileContentGenerationPrompt(
     avoidClaims: brief.avoidClaims,
     durationSeconds: normalizedDuration,
     productCategory,
+    researchCategoryRuleRequired: handoff.requiresResearchCategoryRule,
   });
   for (const blocker of inspection.blockers) {
     if (!blockers.some((item) => item.code === blocker.code)) blockers.push(blocker);
@@ -330,6 +381,7 @@ export function compileSafeGenerationBrief({
   repairPolicy = null,
   durationSeconds: requestedDurationSeconds = null,
   productCategory = "",
+  researchCategoryRule = null,
 } = {}) {
   const normalizedMode = normalizeMode(mode);
   const exactProductName = cleanText(productName);
@@ -343,10 +395,14 @@ export function compileSafeGenerationBrief({
   const safeVisualDirection = cleanText(visualDirection);
   const safeAvoidClaims = uniqueStrings(avoidClaims, 8);
   const safeResearchDecision = cleanResearchDecision(researchDecision);
+  const researchCategoryRuleFragment = generationResearchCategoryRuleFragment(
+    researchCategoryRule,
+  );
   const learningDirection = generationLearningDirection(
     learningPolicy,
     normalizedMode,
     repairPolicy,
+    Boolean(researchCategoryRuleFragment),
   );
   const interaction = inferProductInteractionProfile({
     productName: exactProductName,
@@ -395,6 +451,7 @@ export function compileSafeGenerationBrief({
       required(safeResearchDecision
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
+      required(researchCategoryRuleFragment),
       optional("Студийное фото: один товар целиком по центру, нейтральный фон, мягкий свет, естественная тень, высокая детализация."),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
@@ -415,6 +472,7 @@ export function compileSafeGenerationBrief({
       required(safeResearchDecision
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
+      required(researchCategoryRuleFragment),
       optional(
         safeScenarioIntent
           ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
@@ -447,6 +505,7 @@ export function compileSafeGenerationBrief({
       required(safeResearchDecision
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
+      required(researchCategoryRuleFragment),
       optional(
         safeScenarioIntent
           ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
@@ -468,7 +527,7 @@ export function compileSafeGenerationBrief({
     ];
   }
 
-  const prompt = fitPrompt(promptLines, CONTENT_GENERATION_PROMPT_LIMIT);
+  const prompt = fitPrompt(promptLines, generationPromptLimit(normalizedMode));
   if (!prompt) {
     blockers.push({
       code: "prompt_too_long",
@@ -480,6 +539,7 @@ export function compileSafeGenerationBrief({
     avoidClaims: safeAvoidClaims,
     durationSeconds,
     productCategory,
+    researchCategoryRuleRequired: Boolean(researchCategoryRuleFragment),
   });
   for (const blocker of inspection.blockers) {
     if (!blockers.some((item) => item.code === blocker.code)) blockers.push(blocker);
@@ -495,12 +555,12 @@ export function compileSafeGenerationBrief({
 export function inferGenerationCreativeSignals({
   hook = "",
   shotList = "",
-  visualDirection = "",
 } = {}) {
-  const combined = cleanText(`${hook} ${shotList} ${visualDirection}`);
+  const normalizedHook = cleanText(hook);
+  const combined = cleanText(`${normalizedHook} ${shotList}`);
   const lowered = combined.toLocaleLowerCase("ru-RU");
   const hookPatterns = [];
-  if (hook.includes("?")) hookPatterns.push("question_led");
+  if (normalizedHook.includes("?")) hookPatterns.push("question_led");
   if (/(?:^|[^\p{L}\p{N}_])(?:why|почему|зачем)(?=$|[^\p{L}\p{N}_])/iu.test(lowered)) {
     hookPatterns.push("why_explanation");
   }
@@ -522,7 +582,8 @@ export function inferGenerationCreativeSignals({
   ) {
     hookPatterns.push("numbered");
   }
-  if (cleanText(hook).length > 0 && cleanText(hook).length <= 72) {
+  const hookCodePointLength = [...normalizedHook].length;
+  if (hookCodePointLength > 0 && hookCodePointLength <= 72) {
     hookPatterns.push("concise");
   }
 
@@ -541,6 +602,81 @@ export function inferGenerationCreativeSignals({
     creativeAngle,
     hookPatterns: [...new Set(hookPatterns)].slice(0, 8),
   };
+}
+
+export function generationResearchCategorySignal(handoff) {
+  if (
+    handoff?.requiresResearchCategoryRule !== true
+    || !validResearchCategoryBinding(handoff?.researchCategoryBinding)
+    || !validResearchCategoryPolicy(handoff?.researchCategoryPolicy)
+  ) return null;
+  return {
+    ...inferGenerationCreativeSignals({
+    hook: handoff?.scenario?.hook,
+    shotList: handoff?.scenario?.shotList,
+    }),
+    categoryMaturity: handoff.researchCategoryPolicy.categoryMaturity,
+    competitorCoverage: handoff.researchCategoryPolicy.competitorCoverage,
+    primarySignal: handoff.researchCategoryPolicy.primarySignal,
+  };
+}
+
+/**
+ * A provider-visible, server-verifiable rule derived only from the bounded
+ * structure of an approved research scenario plus bounded category maturity,
+ * competitor coverage and an allowlisted structural trend key. Raw captions,
+ * competitor copy, URLs and arbitrary research prose can never enter it.
+ */
+export function generationResearchCategoryRuleFragment(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const allowedAngles = new Set([
+    "product_focus",
+    "trust_builder",
+    "demonstration",
+    "comparison",
+    "objection_handling",
+    "curiosity_gap",
+  ]);
+  const allowedHooks = new Set([
+    "question_led",
+    "why_explanation",
+    "before_buying",
+    "comparison",
+    "demonstration",
+    "first_person",
+    "numbered",
+    "concise",
+  ]);
+  const creativeAngle = cleanText(
+    value.creativeAngle || value.creative_angle,
+  ).toLowerCase();
+  const categoryMaturity = cleanText(
+    value.categoryMaturity || value.category_maturity,
+  ).toLowerCase();
+  const competitorCoverage = cleanText(
+    value.competitorCoverage || value.competitor_coverage,
+  ).toLowerCase();
+  const primarySignal = cleanText(
+    value.primarySignal || value.primary_signal,
+  ).toLowerCase();
+  const hooks = Array.isArray(value.hookPatterns || value.hook_patterns)
+    ? (value.hookPatterns || value.hook_patterns)
+      .map((item) => cleanText(item).toLowerCase())
+      .filter(Boolean)
+    : [];
+  if (
+    !allowedAngles.has(creativeAngle)
+    || !RESEARCH_CATEGORY_MATURITIES.has(categoryMaturity)
+    || !RESEARCH_COMPETITOR_COVERAGES.has(competitorCoverage)
+    || (
+      primarySignal !== "none"
+      && !RESEARCH_CATEGORY_STRUCTURAL_SIGNALS.has(primarySignal)
+    )
+    || hooks.length > 8
+    || new Set(hooks).size !== hooks.length
+    || hooks.some((hook) => !allowedHooks.has(hook))
+  ) return "";
+  return `ResearchCategoryRule/v2 category_maturity=${categoryMaturity} competitor_coverage=${competitorCoverage} primary_signal=${primarySignal} creative_angle=${creativeAngle} primary_hook=${hooks[0] || "none"}.`;
 }
 
 export function normalizeGenerationLearningPolicy(value) {
@@ -909,8 +1045,18 @@ function policyField(value, wireName, normalizedName) {
   return hasNormalizedValue ? value[normalizedName] : undefined;
 }
 
-function generationLearningDirection(value, mode, repairValue = null) {
-  const policy = normalizeGenerationLearningPolicy(value);
+function generationLearningDirection(
+  value,
+  mode,
+  repairValue = null,
+  researchCategoryRuleApplied = false,
+) {
+  // Until the immutable spec has an explicit quality-guard-only provenance,
+  // a research category rule owns the entire learned prompt surface.  This
+  // keeps the stored creative signal identical to what the provider sees.
+  const policy = researchCategoryRuleApplied
+    ? null
+    : normalizeGenerationLearningPolicy(value);
   const repairPolicy = normalizeGenerationRepairPolicy(repairValue);
   if (!policy?.applied && !repairPolicy?.applied) return "";
   const photoDirections = {
@@ -929,7 +1075,7 @@ function generationLearningDirection(value, mode, repairValue = null) {
     objection_handling: "Обученное направление: одна проверяемая деталь товара.",
     curiosity_gap: "Обученное направление: заметная деталь, затем товар целиком.",
   };
-  const angleDirection = !policy?.applied
+  const angleDirection = !policy?.applied || researchCategoryRuleApplied
     ? ""
     : mode === REAL_PHOTO_MODE
     ? photoDirections[policy.preferredAngle] || ""
@@ -944,7 +1090,9 @@ function generationLearningDirection(value, mode, repairValue = null) {
     numbered: "Структурный hook: один понятный шаг без цифр и надписей.",
     concise: "Структурный hook: простой первый кадр сразу показывает товар.",
   };
-  const hookDirection = !policy?.applied || mode === REAL_PHOTO_MODE
+  const hookDirection = !policy?.applied
+    || researchCategoryRuleApplied
+    || mode === REAL_PHOTO_MODE
     ? ""
     : hookDirections[policy.preferredHookPatterns[0]] || "";
   const photoQualityGuards = {
@@ -1064,6 +1212,7 @@ export function inspectContentGenerationPrompt(
     productCategory = "",
     avoidClaims = [],
     durationSeconds = null,
+    researchCategoryRuleRequired = false,
   } = {},
 ) {
   const promptLines = String(prompt ?? "").split(/\r?\n/u).map(cleanText).filter(Boolean);
@@ -1079,10 +1228,30 @@ export function inspectContentGenerationPrompt(
     blockers.push({ code: "prompt_missing", message: "Промпт для генерации пуст." });
     return result(normalized, blockers, warnings);
   }
-  if (normalized.length > CONTENT_GENERATION_PROMPT_LIMIT) {
+  const promptLimit = generationPromptLimit(normalizedMode);
+  if (normalized.length > promptLimit) {
     blockers.push({
       code: "prompt_too_long",
-      message: `Промпт длиннее ${CONTENT_GENERATION_PROMPT_LIMIT} символов.`,
+      message: `Промпт длиннее ${promptLimit} символов.`,
+    });
+  }
+  if (EXTERNAL_REFERENCE_PATTERN.test(normalized)) {
+    blockers.push({
+      code: "external_url_forbidden",
+      message: "Удалите URL из задания: источники остаются в исследовании, а не передаются генератору.",
+    });
+  }
+  const researchCategoryRuleTokenCount = (
+    normalized.match(/researchcategoryrule\//giu) || []
+  ).length;
+  if (
+    researchCategoryRuleRequired
+      ? researchCategoryRuleTokenCount !== 1
+      : researchCategoryRuleTokenCount !== 0
+  ) {
+    blockers.push({
+      code: "research_category_rule_token_invalid",
+      message: "Обновите сценарий: служебное правило категории должно добавляться системой ровно один раз.",
     });
   }
   if (productName && !normalized.toLocaleLowerCase("ru-RU").includes(
@@ -1396,6 +1565,24 @@ function validHandoff(value, now = Date.now()) {
     createdAt > current + 60_000 || current - createdAt > HANDOFF_MAX_AGE_MS
   ) return false;
   if (
+    typeof value.requiresResearchCategoryRule !== "boolean"
+    || (
+      !value.requiresResearchCategoryRule
+      && (
+        value.researchCategoryBinding !== null
+        || value.researchCategoryPolicy !== null
+      )
+    )
+    || (
+      value.requiresResearchCategoryRule
+      && !validResearchCategoryPolicy(value.researchCategoryPolicy)
+    )
+  ) return false;
+  if (
+    value.researchCategoryBinding !== null
+    && !validResearchCategoryBinding(value.researchCategoryBinding)
+  ) return false;
+  if (
     !cleanText(value.researchId) || !cleanText(value.draftId) ||
     !cleanText(value.productName) || !cleanText(value.sku) ||
     !UUID_PATTERN.test(cleanText(value.projectId).toLowerCase())
@@ -1434,6 +1621,96 @@ function validHandoff(value, now = Date.now()) {
   return true;
 }
 
+function hasModernResearchCategoryAnalysis(record) {
+  if (record?.hasCategoryAnalysis === true) return true;
+  const source = record?.rawBrief?.category_analysis;
+  return Boolean(
+    source
+    && typeof source === "object"
+    && !Array.isArray(source),
+  );
+}
+
+function boundedResearchCategoryPolicy(rawBrief) {
+  const brief = rawBrief && typeof rawBrief === "object" && !Array.isArray(rawBrief)
+    ? rawBrief
+    : {};
+  const category = brief.category_analysis;
+  const competitors = brief.competitor_analysis;
+  const trends = brief.trend_analysis;
+  const categoryMaturity = RESEARCH_CATEGORY_MATURITIES.has(
+    cleanText(category?.maturity).toLowerCase(),
+  ) ? cleanText(category.maturity).toLowerCase() : "unknown";
+  const competitorCoverage = RESEARCH_COMPETITOR_COVERAGES.has(
+    cleanText(competitors?.coverage).toLowerCase(),
+  ) ? cleanText(competitors.coverage).toLowerCase() : "none";
+  const primaryTrend = trends?.signal_catalog_version === "structural_v1"
+    && Array.isArray(trends?.signals)
+    ? trends.signals.find((signal) => {
+      const signalKey = cleanText(signal?.signal_key).toLowerCase();
+      return RESEARCH_CATEGORY_STRUCTURAL_SIGNALS.has(signalKey)
+        && signal?.recommended_use === "test"
+        && ["medium", "high"].includes(cleanText(signal?.confidence).toLowerCase())
+        && ["emerging", "growing", "stable", "declining"].includes(
+          cleanText(signal?.direction).toLowerCase(),
+        );
+    })
+    : null;
+  return {
+    categoryMaturity,
+    competitorCoverage,
+    primarySignal: cleanText(primaryTrend?.signal_key).toLowerCase() || "none",
+  };
+}
+
+function validResearchCategoryPolicy(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === 3
+    && keys.every((key) => [
+      "categoryMaturity", "competitorCoverage", "primarySignal",
+    ].includes(key))
+    && RESEARCH_CATEGORY_MATURITIES.has(value.categoryMaturity)
+    && RESEARCH_COMPETITOR_COVERAGES.has(value.competitorCoverage)
+    && (
+      value.primarySignal === "none"
+      || RESEARCH_CATEGORY_STRUCTURAL_SIGNALS.has(value.primarySignal)
+    );
+}
+
+function normalizedResearchCategoryBinding(record, required = false) {
+  if (!required) return null;
+  const source = record?.marketRegistry?.currentBinding;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return null;
+  }
+  const value = {
+    categoryId: cleanText(source.categoryId || source.category_id).toLowerCase(),
+    bindingId: cleanText(source.bindingId || source.binding_id).toLowerCase(),
+    bindingVersion: Number(source.bindingVersion || source.binding_version),
+    sourceRunId: cleanText(source.sourceRunId || source.source_run_id).toLowerCase(),
+    sourceDraftId: cleanText(source.sourceDraftId || source.source_draft_id).toLowerCase(),
+    candidateHash: cleanText(source.candidateHash || source.candidate_hash).toLowerCase(),
+  };
+  return validResearchCategoryBinding(value) ? value : null;
+}
+
+function validResearchCategoryBinding(value) {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && UUID_PATTERN.test(cleanText(value.categoryId).toLowerCase())
+    && UUID_PATTERN.test(cleanText(value.bindingId).toLowerCase())
+    && Number.isInteger(Number(value.bindingVersion))
+    && Number(value.bindingVersion) >= 1
+    && Number(value.bindingVersion) <= 100_000
+    && UUID_PATTERN.test(cleanText(value.sourceRunId).toLowerCase())
+    && UUID_PATTERN.test(cleanText(value.sourceDraftId).toLowerCase())
+    && /^[0-9a-f]{64}$/u.test(cleanText(value.candidateHash).toLowerCase())
+  );
+}
+
 function fitPrompt(items, maximum) {
   const active = items.filter((item) => item.text);
   const render = () => active.map((item) => item.text).join("\n");
@@ -1449,6 +1726,12 @@ function fitPrompt(items, maximum) {
     if (render().length <= maximum) return render();
   }
   return "";
+}
+
+function generationPromptLimit(mode) {
+  return normalizeMode(mode) === REAL_GEN4_MODE
+    ? 1_000
+    : CONTENT_GENERATION_PROMPT_LIMIT;
 }
 
 function required(text) {

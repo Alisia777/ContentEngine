@@ -4,6 +4,150 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 select no_plan();
 
+select ok(
+  content_factory_private.generation_spec_prompt_has_external_reference(
+    'Show instagram.com/raw, youtu.be/abc, instagram.com), and youtu.be.'
+  ),
+  'bare social and video domains never cross the provider boundary'
+);
+select ok(
+  content_factory_private.generation_spec_prompt_has_external_reference(
+    'youtu.be'
+  ),
+  'a bare YouTube short domain is rejected in isolation'
+);
+select ok(
+  content_factory_private.generation_spec_prompt_has_external_reference(
+    'youtu.be.'
+  ),
+  'a punctuated bare YouTube short domain is rejected in isolation'
+);
+select ok(
+  content_factory_private.generation_spec_prompt_has_external_reference(
+    'competitor.de'
+  ),
+  'a bare two-letter country-code domain is rejected in isolation'
+);
+select ok(
+  content_factory_private.generation_spec_prompt_has_external_reference(
+    'Fetch ftp://source.example/path'
+  ),
+  'non-http URI schemes never cross the provider boundary'
+);
+select ok(
+  content_factory_private.generation_spec_prompt_has_external_reference(
+    U&'Sources: \043F\0440\0438\043C\0435\0440.\0440\0444/path example.xn--p1ai/path 192.168.0.1/path data:text/plain,secret'
+  ),
+  'IDN, punycode, IP paths and non-slash URI schemes stay in the ledger'
+);
+select ok(
+  not content_factory_private.generation_spec_prompt_has_external_reference(
+    'Exact products: Dr.Jart+ Cicapair, Dr.Ceuracle and Gen4.Turbo.'
+  ),
+  'dotted product and model names are not mistaken for URLs'
+);
+
+select is(
+  content_factory_private.generation_spec_research_structure(
+    jsonb_build_object('scenarios', jsonb_build_array(jsonb_build_object(
+      'hook', 'anywhy', 'shot_list', '[]'::jsonb
+    ))),
+    1
+  ) -> 'hook_patterns',
+  '["concise"]'::jsonb,
+  'embedded why text is not misclassified as a research hook'
+);
+select is(
+  content_factory_private.generation_spec_research_structure(
+    jsonb_build_object('scenarios', jsonb_build_array(jsonb_build_object(
+      'hook', 'vsready', 'shot_list', '[]'::jsonb
+    ))),
+    1
+  ) -> 'hook_patterns',
+  '["comparison", "concise"]'::jsonb,
+  'the SQL compiler shares the browser start-boundary comparison rule'
+);
+select is(
+  content_factory_private.generation_spec_research_structure(
+    jsonb_build_object('scenarios', jsonb_build_array(jsonb_build_object(
+      'hook', '', 'shot_list', jsonb_build_array('before', 'buying')
+    ))),
+    1
+  ) -> 'hook_patterns',
+  '["before_buying"]'::jsonb,
+  'array shot lines are normalized exactly like the browser handoff'
+);
+select is(
+  content_factory_private.generation_spec_research_structure(
+    jsonb_build_object('scenarios', jsonb_build_array(jsonb_build_object(
+      'hook', '',
+      'shot_list', jsonb_build_array(jsonb_build_object(
+        'seconds', '0-2',
+        'visual', E'before\nbuying',
+        'voiceover', 'neutral',
+        'on_screen_text', 'без текста'
+      ))
+    ))),
+    1
+  ) -> 'hook_patterns',
+  '["before_buying"]'::jsonb,
+  'object shot fields are reconstructed before whitespace normalization'
+);
+select is(
+  content_factory_private.generation_spec_research_structure(
+    jsonb_build_object('scenarios', jsonb_build_array(jsonb_build_object(
+      'hook', repeat('a', 71) || '😀', 'shot_list', '[]'::jsonb
+    ))),
+    1
+  ) -> 'hook_patterns',
+  '["concise"]'::jsonb,
+  'the 72-code-point hook boundary matches JavaScript Unicode semantics'
+);
+select is(
+  content_factory_private.generation_spec_research_structure(
+    jsonb_build_object(
+      'category_analysis', jsonb_build_object('maturity', 'growing'),
+      'competitor_analysis', jsonb_build_object('coverage', 'sufficient'),
+      'trend_analysis', jsonb_build_object(
+        'signal_catalog_version', 'structural_v1',
+        'signals', jsonb_build_array(jsonb_build_object(
+          'signal_key', 'format.comparison',
+          'direction', 'growing',
+          'confidence', 'medium',
+          'recommended_use', 'test'
+        ))
+      ),
+      'scenarios', jsonb_build_array(jsonb_build_object(
+        'hook', 'Compare options', 'shot_list', '[]'::jsonb
+      ))
+    ),
+    1
+  ) - array['creative_angle', 'hook_patterns', 'compiler_version']::text[],
+  jsonb_build_object(
+    'category_maturity', 'growing',
+    'competitor_coverage', 'sufficient',
+    'primary_signal', 'format.comparison'
+  ),
+  'the category rule consumes only bounded approved category research enums'
+);
+select is(
+  content_factory_private.generation_spec_prompt_has_exact_category_rule(
+    'Safe line' || E'\n'
+      || 'ResearchCategoryRule/v2 category_maturity=growing '
+      || 'competitor_coverage=sufficient primary_signal=format.comparison '
+      || 'creative_angle=comparison primary_hook=question_led.' || E'\n'
+      || 'ResearchCategoryRule/v2 category_maturity=saturated '
+      || 'competitor_coverage=limited primary_signal=proof.product_in_use '
+      || 'creative_angle=trust_builder primary_hook=concise.',
+    'ResearchCategoryRule/v2 category_maturity=growing '
+      || 'competitor_coverage=sufficient primary_signal=format.comparison '
+      || 'creative_angle=comparison '
+      || 'primary_hook=question_led.'
+  ),
+  false,
+  'a second conflicting reserved category rule can never be receipted'
+);
+
 select has_table(
   'content_factory', 'research_category_source_ledger',
   'durable category source lineage ledger exists'
@@ -485,6 +629,7 @@ insert into content_factory.product_research_runs (
       'source_ids', jsonb_build_array('web:s7')
     ),
     'competitor_analysis', jsonb_build_object(
+      'coverage', 'sufficient',
       'competitors', jsonb_build_array(jsonb_build_object(
         'name', 'PROVIDER_PROSE_NEVER_COPY',
         'source_ids', jsonb_build_array('web:s1')
@@ -493,9 +638,13 @@ insert into content_factory.product_research_runs (
       'content_gaps', '[]'::jsonb
     ),
     'trend_analysis', jsonb_build_object(
+      'signal_catalog_version', 'structural_v1',
       'signals', jsonb_build_array(jsonb_build_object(
         'signal_key', 'format.comparison',
         'signal', 'PROVIDER_TREND_PROSE_NEVER_COPY',
+        'direction', 'growing',
+        'confidence', 'high',
+        'recommended_use', 'test',
         'source_ids', jsonb_build_array('web:s1', 'web:s2')
       ))
     ),
@@ -627,6 +776,527 @@ select lives_ok(
   $runtime_resolve$,
   'first category confirmation atomically registers and bootstraps sources'
 );
+
+select throws_ok(
+  $same_category_new_project$
+    do $new_project$
+    declare
+      brief_value jsonb := jsonb_build_object(
+        'category_analysis', jsonb_build_object(
+          'category_name', 'Runtime evidence category',
+          'definition', 'The same stable category with project-local evidence.',
+          'maturity', 'saturated'
+        ),
+        'competitor_analysis', jsonb_build_object('coverage', 'limited'),
+        'trend_analysis', jsonb_build_object(
+          'signal_catalog_version', 'structural_v1',
+          'signals', jsonb_build_array(jsonb_build_object(
+            'signal_key', 'proof.social_proof',
+            'direction', 'stable',
+            'confidence', 'high',
+            'recommended_use', 'test'
+          ))
+        ),
+        'scenarios', jsonb_build_array(jsonb_build_object(
+          'hook', 'Before buying, verify the exact product in use',
+          'shot_list', jsonb_build_array('Show the exact product')
+        ))
+      );
+      temporal_binding record;
+      structure_value jsonb;
+    begin
+      insert into content_factory.product_research_runs (
+        id, organization_id, project_id, product_id, created_by, status,
+        input, summary, request_hash, completion_hash, idempotency_key,
+        finished_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000077',
+        'c0100000-0000-4000-8000-000000000002',
+        'c0100000-0000-4000-8000-000000000008',
+        'c0100000-0000-4000-8000-000000000003',
+        'c0100000-0000-4000-8000-000000000001',
+        'completed', '{}'::jsonb, brief_value,
+        repeat('7', 64), repeat('8', 64),
+        'category-rule-same-category-new-project', clock_timestamp()
+      );
+      insert into content_factory.creative_brief_drafts (
+        id, organization_id, project_id, run_id, product_id, created_by,
+        origin, version, status, title, brief, source_ids, task_blueprint,
+        content_hash
+      ) values (
+        'c0100000-0000-4000-8000-000000000078',
+        'c0100000-0000-4000-8000-000000000002',
+        'c0100000-0000-4000-8000-000000000008',
+        'c0100000-0000-4000-8000-000000000077',
+        'c0100000-0000-4000-8000-000000000003',
+        'c0100000-0000-4000-8000-000000000001',
+        'human', 1, 'approved', 'Same category in another project',
+        brief_value, '[]'::jsonb, '[]'::jsonb,
+        content_factory_private.json_hash(brief_value)
+      );
+      select * into temporal_binding
+      from content_factory_private
+        .generation_spec_research_category_temporal_binding(
+          'c0100000-0000-4000-8000-000000000002',
+          'c0100000-0000-4000-8000-000000000077',
+          'c0100000-0000-4000-8000-000000000078'
+        );
+      if temporal_binding.category_binding_id is null
+         or temporal_binding.category_binding_source_run_id <>
+              'c0100000-0000-4000-8000-000000000004'::uuid then
+        raise exception 'same_category_new_project_identity_failed';
+      end if;
+      structure_value := content_factory_private
+        .generation_spec_research_structure(brief_value, 1);
+      if structure_value ->> 'category_maturity' <> 'saturated'
+         or structure_value ->> 'competitor_coverage' <> 'limited'
+         or structure_value ->> 'primary_signal' <> 'proof.social_proof' then
+        raise exception 'same_category_new_project_rule_failed';
+      end if;
+      perform content_factory_private
+        .require_generation_project_provenance_v49(
+          'c0100000-0000-4000-8000-000000000002',
+          'c0100000-0000-4000-8000-000000000008',
+          'c0100000-0000-4000-8000-000000000003',
+          jsonb_build_object(
+            'research_id', 'c0100000-0000-4000-8000-000000000077',
+            'creative_brief_draft_id',
+              'c0100000-0000-4000-8000-000000000078',
+            'scenario_position', 1
+          ),
+          null, null, '{}'::jsonb
+        );
+      raise exception 'same_category_new_project_ok';
+    end
+    $new_project$
+  $same_category_new_project$,
+  'P0001', 'same_category_new_project_ok',
+  'a later project reuses stable category identity but compiles its own rule'
+);
+
+insert into content_factory.research_market_categories (
+  id, organization_id, canonical_name, normalized_name, definition,
+  status, created_by
+) values (
+  'c0100000-0000-4000-8000-000000000076',
+  'c0100000-0000-4000-8000-000000000002',
+  'Runtime retirement category', 'runtime retirement category',
+  'A temporary category used to verify audited retirement and replay.',
+  'active', 'c0100000-0000-4000-8000-000000000001'
+);
+create temporary table runtime_category_retirement on commit drop as
+select public.creator_retire_research_market_category(jsonb_build_object(
+  'organization_id', 'c0100000-0000-4000-8000-000000000002',
+  'category_id', 'c0100000-0000-4000-8000-000000000076',
+  'reason', 'Retire a temporary category through the audited control.',
+  'confirmation', true,
+  'idempotency_key', 'category-readiness-runtime-retirement'
+)) value;
+select is(
+  (select value ->> 'status' from runtime_category_retirement),
+  'retired',
+  'an owner can retire a category through the confirmed audited control'
+);
+select is(
+  (select status
+   from content_factory.research_market_categories
+   where id = 'c0100000-0000-4000-8000-000000000076'),
+  'retired',
+  'the audited category retirement updates the registry status'
+);
+create temporary table runtime_category_retirement_replay on commit drop as
+select public.creator_retire_research_market_category(jsonb_build_object(
+  'organization_id', 'c0100000-0000-4000-8000-000000000002',
+  'category_id', 'c0100000-0000-4000-8000-000000000076',
+  'reason', 'Retire a temporary category through the audited control.',
+  'confirmation', true,
+  'idempotency_key', 'category-readiness-runtime-retirement'
+)) value;
+select is(
+  (select value ->> 'replayed' from runtime_category_retirement_replay),
+  'true',
+  'category retirement is safely idempotent on retry'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_market_category_retirement_events
+   where category_id = 'c0100000-0000-4000-8000-000000000076'),
+  1,
+  'category retirement records exactly one immutable audit event'
+);
+select throws_ok(
+  $$
+    update content_factory.research_market_categories
+    set status = 'active'
+    where id = 'c0100000-0000-4000-8000-000000000076'
+  $$,
+  '55000', 'research_market_categories_append_only',
+  'a retired category cannot be restored by direct mutation'
+);
+
+select throws_ok(
+  $same_category_temporal$
+    do $same_category$
+    declare
+      current_binding
+        content_factory.research_product_market_category_bindings%rowtype;
+      resolved record;
+      brief_value jsonb := jsonb_build_object(
+        'category_analysis', jsonb_build_object(
+          'category_name', 'Runtime evidence category',
+          'definition', 'Changed evidence for the same stable market identity.',
+          'maturity', 'established'
+        ),
+        'scenarios', jsonb_build_array(jsonb_build_object(
+          'hook', 'Show one updated category scenario',
+          'shot_list', jsonb_build_array('Show the exact product')
+        ))
+      );
+    begin
+      select binding.* into current_binding
+      from content_factory.research_product_market_category_bindings binding
+      where binding.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and binding.product_id =
+          'c0100000-0000-4000-8000-000000000003'
+      order by binding.binding_version desc, binding.id desc
+      limit 1;
+      insert into content_factory.product_research_runs (
+        id, organization_id, product_id, created_by, status, input, summary,
+        request_hash, completion_hash, idempotency_key, finished_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000070',
+        current_binding.organization_id, current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'completed', '{}'::jsonb, brief_value,
+        repeat('7', 64), repeat('8', 64),
+        'category-rule-same-category-new-evidence', clock_timestamp()
+      );
+      insert into content_factory.creative_brief_drafts (
+        id, organization_id, run_id, product_id, created_by, origin, version,
+        status, title, brief, source_ids, task_blueprint, content_hash
+      ) values (
+        'c0100000-0000-4000-8000-000000000071',
+        current_binding.organization_id,
+        'c0100000-0000-4000-8000-000000000070',
+        current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'human', 1, 'draft', 'Same category changed evidence', brief_value,
+        '[]'::jsonb, '[]'::jsonb,
+        content_factory_private.json_hash(brief_value)
+      );
+      select * into resolved
+      from content_factory_private
+        .generation_spec_research_category_temporal_binding(
+          current_binding.organization_id,
+          'c0100000-0000-4000-8000-000000000070',
+          'c0100000-0000-4000-8000-000000000071'
+        );
+      if resolved.category_binding_id is distinct from current_binding.id then
+        raise exception 'same_category_temporal_binding_failed';
+      end if;
+      raise exception 'same_category_temporal_binding_ok';
+    end
+    $same_category$
+  $same_category_temporal$,
+  'P0001', 'same_category_temporal_binding_ok',
+  'changed evidence in the same canonical category reuses stable identity'
+);
+
+select throws_ok(
+  $same_category_new_alias$
+    do $new_alias$
+    declare
+      current_binding
+        content_factory.research_product_market_category_bindings%rowtype;
+      resolution_value jsonb;
+      replay_value jsonb;
+      temporal_binding record;
+      brief_value jsonb := jsonb_build_object(
+        'category_analysis', jsonb_build_object(
+          'category_name', 'Runtime evidence synonym',
+          'definition', 'A new synonym for the same stable market category.',
+          'maturity', 'growing'
+        ),
+        'scenarios', jsonb_build_array(jsonb_build_object(
+          'hook', 'Show the same category under its new synonym',
+          'shot_list', jsonb_build_array('Show the exact product')
+        ))
+      );
+    begin
+      select binding.* into current_binding
+      from content_factory.research_product_market_category_bindings binding
+      where binding.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and binding.product_id =
+          'c0100000-0000-4000-8000-000000000003'
+      order by binding.binding_version desc, binding.id desc
+      limit 1;
+      insert into content_factory.product_research_runs (
+        id, organization_id, product_id, created_by, status, input, summary,
+        request_hash, completion_hash, idempotency_key, finished_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000080',
+        current_binding.organization_id, current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'completed', '{}'::jsonb, brief_value,
+        repeat('1', 64), repeat('2', 64),
+        'category-rule-new-alias-run', clock_timestamp()
+      );
+      insert into content_factory.creative_brief_drafts (
+        id, organization_id, run_id, product_id, created_by, origin, version,
+        status, title, brief, source_ids, task_blueprint, content_hash
+      ) values (
+        'c0100000-0000-4000-8000-000000000081',
+        current_binding.organization_id,
+        'c0100000-0000-4000-8000-000000000080',
+        current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'ai', 1, 'draft', 'Same category new synonym', brief_value,
+        '[]'::jsonb, '[]'::jsonb,
+        content_factory_private.json_hash(brief_value)
+      );
+      resolution_value :=
+        public.creator_reaffirm_research_market_category(
+          jsonb_build_object(
+            'organization_id', current_binding.organization_id,
+            'run_id', 'c0100000-0000-4000-8000-000000000080',
+            'action', 'reaffirm',
+            'category_id', current_binding.category_id,
+            'candidate_hash', content_factory_private.json_hash(
+              brief_value -> 'category_analysis'
+            ),
+            'confirmation', true,
+            'reason', 'Confirm the proposed name as the same category.',
+            'idempotency_key', 'category-rule-new-alias-reaffirm'
+          )
+        );
+      replay_value := public.creator_reaffirm_research_market_category(
+        jsonb_build_object(
+          'organization_id', current_binding.organization_id,
+          'run_id', 'c0100000-0000-4000-8000-000000000080',
+          'action', 'reaffirm',
+          'category_id', current_binding.category_id,
+          'candidate_hash', content_factory_private.json_hash(
+            brief_value -> 'category_analysis'
+          ),
+          'confirmation', true,
+          'reason', 'Confirm the proposed name as the same category.',
+          'idempotency_key', 'category-rule-new-alias-reaffirm'
+        )
+      );
+      select * into temporal_binding
+      from content_factory_private
+        .generation_spec_research_category_temporal_binding(
+          current_binding.organization_id,
+          'c0100000-0000-4000-8000-000000000080',
+          'c0100000-0000-4000-8000-000000000081'
+        );
+      if resolution_value #>> '{binding,decision_action}' <> 'reaffirm'
+         or resolution_value #>> '{binding,category_key}' <>
+              current_binding.category_id::text
+         or replay_value #>> '{binding,binding_id}' <>
+              resolution_value #>> '{binding,binding_id}'
+         or temporal_binding.category_binding_id::text <>
+              resolution_value #>> '{binding,binding_id}'
+         or content_factory_private.research_draft_market_category_id(
+              current_binding.organization_id,
+              'c0100000-0000-4000-8000-000000000080',
+              'c0100000-0000-4000-8000-000000000081'
+            ) is distinct from current_binding.category_id
+         or not exists (
+              select 1
+              from content_factory.research_market_category_aliases alias
+              where alias.organization_id = current_binding.organization_id
+                and alias.category_id = current_binding.category_id
+                and alias.normalized_alias =
+                  'runtime evidence synonym'
+            ) then
+        raise exception 'same_category_new_alias_failed';
+      end if;
+      raise exception 'same_category_new_alias_ok';
+    end
+    $new_alias$
+  $same_category_new_alias$,
+  'P0001', 'same_category_new_alias_ok',
+  'a user can append one audited synonym without duplicating the category'
+);
+
+select throws_ok(
+  $exact_reclass_temporal$
+    do $exact_reclass$
+    declare
+      current_binding
+        content_factory.research_product_market_category_bindings%rowtype;
+      resolved record;
+      analysis_event_id_value uuid;
+      brief_value jsonb := jsonb_build_object(
+        'category_analysis', jsonb_build_object(
+          'category_name', 'Runtime reclassified category',
+          'definition', 'A new exact category selected for this research draft.',
+          'maturity', 'emerging'
+        ),
+        'scenarios', jsonb_build_array(jsonb_build_object(
+          'hook', 'Show one reclassified category scenario',
+          'shot_list', jsonb_build_array('Show the exact product')
+        ))
+      );
+    begin
+      select binding.* into current_binding
+      from content_factory.research_product_market_category_bindings binding
+      where binding.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and binding.product_id =
+          'c0100000-0000-4000-8000-000000000003'
+      order by binding.binding_version desc, binding.id desc
+      limit 1;
+      insert into content_factory.product_research_runs (
+        id, organization_id, product_id, created_by, status, input, summary,
+        request_hash, completion_hash, idempotency_key, finished_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000072',
+        current_binding.organization_id, current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'completed', '{}'::jsonb, brief_value,
+        repeat('9', 64), repeat('a', 64),
+        'category-rule-exact-reclass-run', clock_timestamp()
+      );
+      insert into content_factory.product_research_sources (
+        id, organization_id, run_id, product_id, created_by, source_type,
+        source_url, title, content_hash, trust_level, extracted_facts,
+        metadata, fetched_at, created_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000079',
+        current_binding.organization_id,
+        'c0100000-0000-4000-8000-000000000072',
+        current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'social_video',
+        'https://example.test/exact-reclassification-source',
+        'Exact reclassification source', repeat('f', 64), 'public',
+        '[]'::jsonb,
+        jsonb_build_object(
+          'model_source_id', 'web:exact-reclass',
+          'classification', 'category'
+        ),
+        clock_timestamp(), clock_timestamp()
+      );
+      insert into content_factory.creative_brief_drafts (
+        id, organization_id, run_id, product_id, created_by, origin, version,
+        status, title, brief, source_ids, task_blueprint, content_hash
+      ) values (
+        'c0100000-0000-4000-8000-000000000073',
+        current_binding.organization_id,
+        'c0100000-0000-4000-8000-000000000072',
+        current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'human', 1, 'draft', 'Exact reclassification source', brief_value,
+        jsonb_build_array('c0100000-0000-4000-8000-000000000079'),
+        '[]'::jsonb,
+        content_factory_private.json_hash(brief_value)
+      );
+      insert into content_factory.research_market_categories (
+        id, organization_id, canonical_name, normalized_name, definition,
+        status, created_by
+      ) values (
+        'c0100000-0000-4000-8000-000000000074',
+        current_binding.organization_id, 'Runtime reclassified category',
+        'runtime reclassified category',
+        'A new exact category selected for this research draft.', 'active',
+        'c0100000-0000-4000-8000-000000000001'
+      );
+      insert into content_factory.research_product_market_category_bindings (
+        id, organization_id, product_id, category_id, previous_binding_id,
+        binding_version, decision_action, source_run_id, source_draft_id,
+        candidate_hash, reason, confirmed_by, idempotency_key
+      ) values (
+        'c0100000-0000-4000-8000-000000000075',
+        current_binding.organization_id, current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000074', current_binding.id,
+        current_binding.binding_version + 1, 'reclassify',
+        'c0100000-0000-4000-8000-000000000072',
+        'c0100000-0000-4000-8000-000000000073',
+        content_factory_private.json_hash(brief_value -> 'category_analysis'),
+        'Confirm exact source-draft reclassification.',
+        'c0100000-0000-4000-8000-000000000001',
+        'category-rule-exact-reclass-binding'
+      );
+      perform public.system_register_research_category_sources(
+        jsonb_build_object(
+          'organization_id', current_binding.organization_id,
+          'run_id', 'c0100000-0000-4000-8000-000000000072'
+        )
+      );
+      select event.id into analysis_event_id_value
+      from content_factory.research_category_source_ledger ledger
+      join content_factory.research_source_analysis_events event
+        on event.organization_id = ledger.organization_id
+       and event.source_ledger_id = ledger.id
+      where ledger.organization_id = current_binding.organization_id
+        and ledger.market_category_id =
+          'c0100000-0000-4000-8000-000000000074'
+        and ledger.source_id =
+          'c0100000-0000-4000-8000-000000000079'
+      order by event.analysis_version desc, event.id desc
+      limit 1;
+      perform content_factory_private
+        .append_research_draft_source_analysis_binding(
+          current_binding.organization_id,
+          'c0100000-0000-4000-8000-000000000072',
+          'c0100000-0000-4000-8000-000000000073',
+          'c0100000-0000-4000-8000-000000000079',
+          analysis_event_id_value, 'baseline_adoption'
+        );
+      if content_factory_private.research_draft_market_category_id(
+           current_binding.organization_id,
+           'c0100000-0000-4000-8000-000000000072',
+           'c0100000-0000-4000-8000-000000000073'
+         ) is distinct from
+           'c0100000-0000-4000-8000-000000000074'::uuid then
+        raise exception 'exact_reclass_source_category_failed';
+      end if;
+      if not content_factory_private.research_draft_source_analysis_fresh(
+           current_binding.organization_id,
+           'c0100000-0000-4000-8000-000000000072',
+           'c0100000-0000-4000-8000-000000000073'
+         ) then
+        raise exception 'exact_reclass_source_freshness_failed';
+      end if;
+      if (
+        select binding.market_category_id
+        from content_factory.research_draft_source_analysis_bindings binding
+        where binding.organization_id = current_binding.organization_id
+          and binding.run_id =
+            'c0100000-0000-4000-8000-000000000072'
+          and binding.draft_id =
+            'c0100000-0000-4000-8000-000000000073'
+          and binding.source_id =
+            'c0100000-0000-4000-8000-000000000079'
+        order by binding.binding_version desc, binding.id desc
+        limit 1
+      ) is distinct from
+          'c0100000-0000-4000-8000-000000000074'::uuid then
+        raise exception 'exact_reclass_source_binding_failed';
+      end if;
+      select * into resolved
+      from content_factory_private
+        .generation_spec_research_category_temporal_binding(
+          current_binding.organization_id,
+          'c0100000-0000-4000-8000-000000000072',
+          'c0100000-0000-4000-8000-000000000073'
+        );
+      if resolved.category_binding_id is distinct from
+           'c0100000-0000-4000-8000-000000000075'::uuid then
+        raise exception 'exact_reclass_temporal_binding_failed';
+      end if;
+      raise exception 'exact_reclass_temporal_binding_ok';
+    end
+    $exact_reclass$
+  $exact_reclass_temporal$,
+  'P0001', 'exact_reclass_temporal_binding_ok',
+  'exact source-draft reclassification wins even after draft creation'
+);
+
 insert into content_factory.product_research_runs (
   id, organization_id, product_id, created_by, status, input, summary,
   request_hash, idempotency_key, finished_at, created_at
@@ -810,6 +1480,7 @@ update correction_generation_state state
 set prepare_result = public.creator_prepare_generation_spec(
   jsonb_build_object(
     'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'project_id', 'c0100000-0000-4000-8000-000000000007',
     'idempotency_key', 'category-readiness-spec-prepare',
     'exact_scope', jsonb_build_object(
       'primary_media_id', 'c0100000-0000-4000-8000-000000000006',
@@ -829,14 +1500,27 @@ set prepare_result = public.creator_prepare_generation_spec(
       'Точный товар: Category Readiness Runtime Product, артикул CATEGORY-READINESS-RUNTIME. Создай один непрерывный вертикальный ролик длительностью 5 секунд. Без речи, дикторского текста и сгенерированных надписей. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара. '
       || content_factory_private.generation_product_interaction_requirement(
         'Category Readiness Runtime Product', 'other'
-      ),
+      )
+      || E'\n'
+      || content_factory_private
+        .generation_spec_research_category_rule_fragment(
+          content_factory_private.generation_spec_research_structure(
+            (select draft.brief
+             from content_factory.creative_brief_drafts draft
+             where draft.id =
+               'c0100000-0000-4000-8000-000000000005'),
+            1
+          ) || jsonb_build_object('source', 'approved_research')
+        ),
     'learning_context',
       content_factory_private.generation_spec_research_structure(
         (select draft.brief
          from content_factory.creative_brief_drafts draft
          where draft.id = 'c0100000-0000-4000-8000-000000000005'),
         1
-      ) || jsonb_build_object(
+      ) - array[
+        'category_maturity', 'competitor_coverage', 'primary_signal'
+      ]::text[] || jsonb_build_object(
         'source', 'approved_research',
         'creative_brief_draft_id',
           'c0100000-0000-4000-8000-000000000005',
@@ -862,11 +1546,214 @@ select is(
   'draft',
   'fresh source-analysis evidence can prepare a governed generation spec'
 );
+select is(
+  (select count(*)::integer
+   from content_factory.generation_spec_research_category_rule_bindings receipt
+   join correction_generation_state state
+     on receipt.spec_id =
+       (state.prepare_result #>> '{generation_spec,spec_id}')::uuid
+    and receipt.spec_version =
+       (state.prepare_result #>> '{generation_spec,spec_version}')::integer
+   join content_factory.generation_spec_versions version
+     on version.organization_id = receipt.organization_id
+    and version.version_id = receipt.generation_spec_version_id
+   where receipt.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and receipt.research_run_id =
+       'c0100000-0000-4000-8000-000000000004'
+     and receipt.research_draft_id =
+       'c0100000-0000-4000-8000-000000000005'
+     and receipt.market_category_id = (
+       select binding.category_id
+       from content_factory.research_product_market_category_bindings binding
+       where binding.organization_id = receipt.organization_id
+         and binding.product_id = receipt.product_id
+       order by binding.binding_version desc, binding.id desc
+       limit 1
+     )
+     and receipt.prompt_hash = version.prompt_hash
+     and receipt.rule_hash = content_factory_private.raw_text_sha256(
+       receipt.rule_version || ' category_maturity='
+         || receipt.category_maturity
+       || ' competitor_coverage=' || receipt.competitor_coverage
+       || ' primary_signal=' || receipt.primary_signal
+       || ' creative_angle=' || receipt.creative_angle
+       || ' primary_hook=' || receipt.primary_hook || '.'
+     )
+     and content_factory_private
+       .generation_spec_prompt_has_exact_category_rule(
+         version.compiled_prompt,
+         receipt.rule_version || ' category_maturity='
+           || receipt.category_maturity
+           || ' competitor_coverage=' || receipt.competitor_coverage
+           || ' primary_signal=' || receipt.primary_signal
+           || ' creative_angle=' || receipt.creative_angle
+           || ' primary_hook=' || receipt.primary_hook || '.'
+       )),
+  1,
+  'approved research appends one exact category/spec/prompt/rule receipt'
+);
+select is(
+  (select concat_ws('|', receipt.category_maturity,
+                           receipt.competitor_coverage,
+                           receipt.primary_signal)
+   from content_factory.generation_spec_research_category_rule_bindings receipt
+   join correction_generation_state state
+     on receipt.spec_id =
+       (state.prepare_result #>> '{generation_spec,spec_id}')::uuid
+    and receipt.spec_version =
+       (state.prepare_result #>> '{generation_spec,spec_version}')::integer),
+  'growing|sufficient|format.comparison',
+  'the DB end-to-end receipt binds non-default category research fields'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.generation_spec_research_category_rule_bindings receipt
+   join correction_generation_state state
+     on receipt.spec_id =
+       (state.prepare_result #>> '{generation_spec,spec_id}')::uuid
+    and receipt.spec_version =
+       (state.prepare_result #>> '{generation_spec,spec_version}')::integer
+   where to_jsonb(receipt)::text ~*
+     '(https?://|do_not_copy|provider_|source_url|title|extracted_fact)'),
+  0,
+  'the immutable category-rule receipt contains no source URL or source prose'
+);
+select is(
+  (select content_factory_private
+     .generation_spec_research_category_rule_current(
+       'c0100000-0000-4000-8000-000000000002',
+       (state.prepare_result #>> '{generation_spec,spec_id}')::uuid,
+       (state.prepare_result #>> '{generation_spec,spec_version}')::integer,
+       state.prepare_result #>> '{generation_spec,spec_hash}'
+     )
+   from correction_generation_state state),
+  true,
+  'the exact research category rule is current before category drift'
+);
+select throws_ok(
+  $category_retirement_stale$
+    do $retirement$
+    declare
+      current_binding
+        content_factory.research_product_market_category_bindings%rowtype;
+      spec_state record;
+    begin
+      select binding.* into current_binding
+      from content_factory.research_product_market_category_bindings binding
+      where binding.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and binding.product_id =
+          'c0100000-0000-4000-8000-000000000003'
+      order by binding.binding_version desc, binding.id desc
+      limit 1;
+      perform public.creator_retire_research_market_category(
+        jsonb_build_object(
+          'organization_id', current_binding.organization_id,
+          'category_id', current_binding.category_id,
+          'reason', 'Retire the bound category and invalidate its old rule.',
+          'confirmation', true,
+          'idempotency_key', 'category-rule-retirement-stale-rolled-back'
+        )
+      );
+      select
+        (state.prepare_result #>> '{generation_spec,spec_id}')::uuid as spec_id,
+        (state.prepare_result #>> '{generation_spec,spec_version}')::integer
+          as spec_version,
+        state.prepare_result #>> '{generation_spec,spec_hash}' as spec_hash
+      into spec_state
+      from correction_generation_state state;
+      perform public.creator_control_generation_spec(jsonb_build_object(
+        'organization_id', current_binding.organization_id,
+        'project_id', 'c0100000-0000-4000-8000-000000000007',
+        'spec_id', spec_state.spec_id,
+        'expected_spec_version', spec_state.spec_version,
+        'expected_spec_hash', spec_state.spec_hash,
+        'action', 'approve',
+        'confirmation', true,
+        'reason', 'A retired category rule must fail closed.',
+        'idempotency_key', 'category-rule-retired-approval-rolled-back'
+      ));
+    end
+    $retirement$
+  $category_retirement_stale$,
+  '55000',
+  'generation_spec_research_category_rule_stale',
+  'retiring a bound category invalidates its old generation rule'
+);
+select throws_ok(
+  $category_drift$
+    do $drift$
+    declare
+      current_binding
+        content_factory.research_product_market_category_bindings%rowtype;
+      spec_state record;
+    begin
+      select binding.* into current_binding
+      from content_factory.research_product_market_category_bindings binding
+      where binding.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and binding.product_id =
+          'c0100000-0000-4000-8000-000000000003'
+      order by binding.binding_version desc, binding.id desc
+      limit 1;
+
+      insert into content_factory.research_market_categories (
+        id, organization_id, canonical_name, normalized_name, definition,
+        status, created_by
+      ) values (
+        'c0100000-0000-4000-8000-000000000060',
+        'c0100000-0000-4000-8000-000000000002',
+        'Temporary drift category', 'temporary drift category',
+        'A temporary alternative category used only inside a rolled-back test.',
+        'active', 'c0100000-0000-4000-8000-000000000001'
+      );
+      insert into content_factory.research_product_market_category_bindings (
+        id, organization_id, product_id, category_id, previous_binding_id,
+        binding_version, decision_action, source_run_id, source_draft_id,
+        candidate_hash, reason, confirmed_by, idempotency_key
+      ) values (
+        'c0100000-0000-4000-8000-000000000061',
+        current_binding.organization_id, current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000060', current_binding.id,
+        current_binding.binding_version + 1, 'create_and_reclassify',
+        current_binding.source_run_id, current_binding.source_draft_id,
+        repeat('6', 64), 'Exercise category drift fail-close.',
+        'c0100000-0000-4000-8000-000000000001',
+        'category-rule-drift-rolled-back'
+      );
+
+      select
+        (state.prepare_result #>> '{generation_spec,spec_id}')::uuid as spec_id,
+        (state.prepare_result #>> '{generation_spec,spec_version}')::integer
+          as spec_version,
+        state.prepare_result #>> '{generation_spec,spec_hash}' as spec_hash
+      into spec_state
+      from correction_generation_state state;
+      perform public.creator_control_generation_spec(jsonb_build_object(
+        'organization_id', 'c0100000-0000-4000-8000-000000000002',
+        'project_id', 'c0100000-0000-4000-8000-000000000007',
+        'spec_id', spec_state.spec_id,
+        'expected_spec_version', spec_state.spec_version,
+        'expected_spec_hash', spec_state.spec_hash,
+        'action', 'approve',
+        'confirmation', true,
+        'reason', 'Stale category approval must fail closed.',
+        'idempotency_key', 'category-rule-stale-approval-rolled-back'
+      ));
+    end
+    $drift$
+  $category_drift$,
+  '55000',
+  'generation_spec_research_category_rule_stale',
+  'a newer category classification invalidates the old research rule'
+);
 
 update correction_generation_state state
 set approve_result = public.creator_control_generation_spec(
   jsonb_build_object(
     'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'project_id', 'c0100000-0000-4000-8000-000000000007',
     'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
     'expected_spec_version',
       (state.prepare_result #>> '{generation_spec,spec_version}')::integer,
@@ -931,7 +1818,9 @@ set start_result = public.creator_start_real_generation(
          from content_factory.creative_brief_drafts draft
          where draft.id = 'c0100000-0000-4000-8000-000000000005'),
         1
-      ) || jsonb_build_object(
+      ) - array[
+        'category_maturity', 'competitor_coverage', 'primary_signal'
+      ]::text[] || jsonb_build_object(
         'source', 'approved_research',
         'creative_brief_draft_id',
           'c0100000-0000-4000-8000-000000000005',
@@ -954,6 +1843,80 @@ select is(
    from correction_generation_state),
   'queued',
   'fresh approved research can reserve one paid job without provider start'
+);
+
+select throws_ok(
+  $queued_category_drift$
+    do $queued_drift$
+    declare
+      current_binding
+        content_factory.research_product_market_category_bindings%rowtype;
+      spec_state record;
+      claim_result jsonb;
+    begin
+      select binding.* into current_binding
+      from content_factory.research_product_market_category_bindings binding
+      where binding.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and binding.product_id =
+          'c0100000-0000-4000-8000-000000000003'
+      order by binding.binding_version desc, binding.id desc
+      limit 1;
+      insert into content_factory.research_market_categories (
+        id, organization_id, canonical_name, normalized_name, definition,
+        status, created_by
+      ) values (
+        'c0100000-0000-4000-8000-000000000064',
+        current_binding.organization_id,
+        'Queued drift category', 'queued drift category',
+        'A temporary category proving the final provider-start category gate.',
+        'active', 'c0100000-0000-4000-8000-000000000001'
+      );
+      insert into content_factory.research_product_market_category_bindings (
+        id, organization_id, product_id, category_id, previous_binding_id,
+        binding_version, decision_action, source_run_id, source_draft_id,
+        candidate_hash, reason, confirmed_by, idempotency_key
+      ) values (
+        'c0100000-0000-4000-8000-000000000065',
+        current_binding.organization_id, current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000064', current_binding.id,
+        current_binding.binding_version + 1, 'create_and_reclassify',
+        current_binding.source_run_id, current_binding.source_draft_id,
+        repeat('6', 64), 'Exercise the queued provider-start category guard.',
+        'c0100000-0000-4000-8000-000000000001',
+        'category-rule-queued-drift-rolled-back'
+      );
+      select
+        (state.approve_result #>> '{generation_spec,spec_id}')::uuid as spec_id,
+        (state.approve_result #>> '{generation_spec,spec_version}')::integer
+          as spec_version,
+        state.approve_result #>> '{generation_spec,spec_hash}' as spec_hash,
+        state.start_result #>> '{job,id}' as job_id
+      into spec_state
+      from correction_generation_state state;
+      if content_factory_private
+           .generation_spec_research_category_rule_current(
+             current_binding.organization_id, spec_state.spec_id,
+             spec_state.spec_version, spec_state.spec_hash
+           ) then
+        raise exception 'queued_category_drift_not_detected';
+      end if;
+      claim_result := public.system_update_real_generation(
+        jsonb_build_object('job_id', spec_state.job_id, 'status', 'starting')
+      );
+      if claim_result ->> 'code' <>
+           'generation_spec_provider_start_stale'
+         or claim_result #>> '{job,status}' <> 'failed'
+         or claim_result #>> '{job,failure_code}' <>
+           'generation_spec_provider_start_stale' then
+        raise exception 'queued_category_guard_failed';
+      end if;
+      raise exception 'queued_category_guard_ok';
+    end
+    $queued_drift$
+  $queued_category_drift$,
+  'P0001', 'queued_category_guard_ok',
+  'queued work is terminalized when its category changes before provider IO'
 );
 
 -- A second run observes the same category content through new local source
@@ -1391,6 +2354,7 @@ select throws_ok(
   $$
     select public.creator_control_generation_spec(jsonb_build_object(
       'organization_id', 'c0100000-0000-4000-8000-000000000002',
+      'project_id', 'c0100000-0000-4000-8000-000000000007',
       'spec_id', state.approve_result #>> '{generation_spec,spec_id}',
       'expected_spec_version',
         (state.approve_result #>> '{generation_spec,spec_version}')::integer,

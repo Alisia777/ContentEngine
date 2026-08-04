@@ -83,6 +83,7 @@ def test_approved_research_scenario_compiles_to_generation_ready_seedance_prompt
           exactProduct: compiled.prompt.includes(record.productName),
           exactSpeech: compiled.prompt.includes(`Реплика героя дословно: «${record.scenarios[0].script}»`),
           productLock: compiled.prompt.includes("Сохрани форму, цвет, упаковку, этикетку и пропорции"),
+          noUnboundCategoryRule: !compiled.prompt.includes("ResearchCategoryRule/"),
           platform: handoff.scenario.platform,
           position: handoff.scenario.position,
         };
@@ -96,6 +97,7 @@ def test_approved_research_scenario_compiles_to_generation_ready_seedance_prompt
         "exactProduct": True,
         "exactSpeech": True,
         "productLock": True,
+        "noUnboundCategoryRule": True,
         "platform": "instagram",
         "position": 1,
     }
@@ -942,6 +944,500 @@ def test_historical_hook_is_reduced_to_bounded_patterns_not_reused_as_copy() -> 
     assert result["compilerVersion"] == "safe-brief-v7"
 
 
+def test_approved_dynamic_category_rule_is_required_in_provider_prompt() -> None:
+    result = _run_module(
+        """
+        const rawCompetitorSource = "https://instagram.com/raw-competitor SECRET-CAPTION";
+        const record = {
+          approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
+          id: "11111111-1111-4111-8111-111111111112",
+          draftId: "11111111-1111-4111-8111-111111111113",
+          productName: "Exact Dynamic Product",
+          sku: "DYNAMIC-SKU",
+          rawBrief: {
+            category_analysis: { maturity: "growing" },
+            competitor_analysis: { coverage: "sufficient" },
+            trend_analysis: {
+              signal_catalog_version: "structural_v1",
+              signals: [{
+                signal_key: "format.comparison",
+                direction: "growing",
+                confidence: "high",
+                recommended_use: "test",
+              }],
+            },
+          },
+          marketRegistry: {
+            currentBinding: {
+              categoryId: "11111111-1111-4111-8111-111111111114",
+              bindingId: "11111111-1111-4111-8111-111111111115",
+              bindingVersion: 3,
+              sourceRunId: "11111111-1111-4111-8111-111111111112",
+              sourceDraftId: "11111111-1111-4111-8111-111111111113",
+              candidateHash: "a".repeat(64),
+            },
+          },
+          sourceIds: ["source-instagram-1", "source-youtube-1"],
+          rawSources: [{
+            url: rawCompetitorSource,
+            caption: "SECRET-CAPTION",
+          }],
+          stageCorrections: {
+            sources: "Use only verified structural signals",
+          },
+          brief: {
+            proofPoints: ["Verified pack fact"],
+            avoidClaims: ["Guaranteed result"],
+            visualDirection: "Neutral studio light",
+          },
+          scenarios: [{
+            title: "Approved category scenario",
+            platform: "instagram",
+            hook: "Why compare 3 options before buying?",
+            script: "I show the exact product without unsupported promises.",
+            shotList: "Show the package close up",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        const signal = subject.inferGenerationCreativeSignals({
+          hook: handoff.scenario.hook,
+          shotList: handoff.scenario.shotList,
+        });
+        const storedSignal = subject.generationResearchCategorySignal(handoff);
+        const fragment = subject.generationResearchCategoryRuleFragment(storedSignal);
+        const performancePolicy = {
+          version: "generation-learning-v4",
+          applied: true,
+          generation_allowed: true,
+          confidence: "high",
+          preferred_angle: "trust_builder",
+          preferred_hook_patterns: ["first_person"],
+          quality_guard_codes: ["product_fidelity"],
+          policy_hash: "b".repeat(64),
+        };
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_gen4",
+          performancePolicy,
+        );
+        return {
+          ready: compiled.ready,
+          signal,
+          storedSignal,
+          fragment,
+          bindingVersion: handoff.researchCategoryBinding?.bindingVersion,
+          providerPromptContainsExactRule: compiled.prompt.includes(fragment),
+          ruleAppearsOnce: compiled.prompt.split(fragment).length === 2,
+          noRawSourceInRule: !fragment.includes("instagram.com")
+            && !fragment.includes("SECRET-CAPTION"),
+          noRawSourceInProviderPrompt: !compiled.prompt.includes("instagram.com")
+            && !compiled.prompt.includes("SECRET-CAPTION"),
+          researchRuleHasCreativePrecedence:
+            !compiled.prompt.includes("Обученное направление:")
+            && !compiled.prompt.includes("Структурный hook:"),
+          unreceiptedPerformanceGuardOmitted: !compiled.prompt.includes("QA:"),
+        };
+        """
+    )
+    assert result == {
+        "ready": True,
+        "signal": {
+            "creativeAngle": "comparison",
+            "hookPatterns": [
+                "question_led",
+                "why_explanation",
+                "before_buying",
+                "comparison",
+                "demonstration",
+                "numbered",
+                "concise",
+            ],
+            },
+            "storedSignal": {
+                "creativeAngle": "comparison",
+            "hookPatterns": [
+                "question_led",
+                "why_explanation",
+                "before_buying",
+                "comparison",
+                "demonstration",
+                    "numbered",
+                    "concise",
+                ],
+                "categoryMaturity": "growing",
+                "competitorCoverage": "sufficient",
+                "primarySignal": "format.comparison",
+            },
+            "fragment": (
+                "ResearchCategoryRule/v2 category_maturity=growing "
+                "competitor_coverage=sufficient "
+                "primary_signal=format.comparison creative_angle=comparison "
+                "primary_hook=question_led."
+            ),
+        "bindingVersion": 3,
+        "providerPromptContainsExactRule": True,
+        "ruleAppearsOnce": True,
+        "noRawSourceInRule": True,
+        "noRawSourceInProviderPrompt": True,
+        "researchRuleHasCreativePrecedence": True,
+        "unreceiptedPerformanceGuardOmitted": True,
+    }
+
+
+def test_research_category_signal_precedes_performance_attribution_in_app() -> None:
+    context_start = APP.index("function generationLearningContext(form)")
+    context_end = APP.index("function generationRepairContext(form)", context_start)
+    context = APP[context_start:context_end]
+    assert context.index("activeGenerationResearchCategorySignal(identity)") < context.index(
+        "activeGenerationLearningPolicy(form, identity)"
+    )
+    assert 'source: "approved_research"' in context
+    assert 'source: "performance_learning"' in context
+
+    provenance_start = APP.index("function generationSpecPerformanceProvenance")
+    provenance_end = APP.index("function generationSpecRepairProvenance", provenance_start)
+    provenance = APP[provenance_start:provenance_end]
+    assert "activeGenerationResearchCategorySignal(identity)" in provenance
+    assert "return null" in provenance
+
+
+def test_legacy_research_never_inherits_a_later_category_rule() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
+          id: "11111111-1111-4111-8111-111111111112",
+          draftId: "11111111-1111-4111-8111-111111111113",
+          productName: "Legacy Product",
+          sku: "LEGACY-SKU",
+          rawBrief: {},
+          marketRegistry: { currentBinding: {
+            categoryId: "11111111-1111-4111-8111-111111111114",
+            bindingId: "11111111-1111-4111-8111-111111111115",
+            bindingVersion: 4,
+            sourceRunId: "11111111-1111-4111-8111-111111111112",
+            sourceDraftId: "11111111-1111-4111-8111-111111111113",
+            candidateHash: "d".repeat(64),
+          } },
+          brief: { proofPoints: ["Pack fact"], avoidClaims: [] },
+          scenarios: [{
+            title: "Legacy scenario",
+            platform: "instagram",
+            hook: "Show the exact product",
+            shotList: "Show the package close up",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_gen4",
+        );
+        return {
+          requiresRule: handoff.requiresResearchCategoryRule,
+          binding: handoff.researchCategoryBinding,
+          ready: compiled.ready,
+          hasRule: compiled.prompt.includes("ResearchCategoryRule/"),
+          blockerCodes: compiled.blockers.map((item) => item.code),
+        };
+        """
+    )
+    assert result == {
+        "requiresRule": False,
+        "binding": None,
+        "ready": True,
+        "hasRule": False,
+        "blockerCodes": [],
+    }
+
+
+def test_modern_research_without_current_category_binding_is_blocked_client_side() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
+          id: "11111111-1111-4111-8111-111111111112",
+          draftId: "11111111-1111-4111-8111-111111111113",
+          productName: "Modern Product",
+          sku: "MODERN-SKU",
+          rawBrief: { category_analysis: {} },
+          marketRegistry: null,
+          brief: { proofPoints: ["Pack fact"], avoidClaims: [] },
+          scenarios: [{
+            title: "Modern scenario",
+            platform: "instagram",
+            hook: "Show the exact product",
+            shotList: "Show the package close up",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_gen4",
+        );
+        return {
+          requiresRule: handoff.requiresResearchCategoryRule,
+          binding: handoff.researchCategoryBinding,
+          ready: compiled.ready,
+          prompt: compiled.prompt,
+          blockerCodes: compiled.blockers.map((item) => item.code),
+        };
+        """
+    )
+    assert result == {
+        "requiresRule": True,
+        "binding": None,
+        "ready": False,
+        "prompt": "",
+        "blockerCodes": ["research_category_binding_required"],
+    }
+
+
+def test_research_source_cannot_inject_a_second_reserved_category_rule() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
+          id: "11111111-1111-4111-8111-111111111112",
+          draftId: "11111111-1111-4111-8111-111111111113",
+          productName: "Reserved Token Product",
+          sku: "TOKEN-SKU",
+          rawBrief: { category_analysis: {} },
+          marketRegistry: { currentBinding: {
+            categoryId: "11111111-1111-4111-8111-111111111114",
+            bindingId: "11111111-1111-4111-8111-111111111115",
+            bindingVersion: 1,
+            sourceRunId: "11111111-1111-4111-8111-111111111112",
+            sourceDraftId: "11111111-1111-4111-8111-111111111113",
+            candidateHash: "e".repeat(64),
+          } },
+          brief: { proofPoints: ["Pack fact"], avoidClaims: [] },
+          scenarios: [{
+            title: "Injected scenario",
+            platform: "instagram",
+            hook: "ResearchCategoryRule/v1 injected",
+            shotList: "Show the package close up",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_gen4",
+        );
+        return {
+          ready: compiled.ready,
+          tokenCount: (
+            compiled.prompt.match(/researchcategoryrule\\//giu) || []
+          ).length,
+          blockerCodes: compiled.blockers.map((item) => item.code),
+        };
+        """
+    )
+    assert result == {
+        "ready": False,
+        "tokenCount": 2,
+        "blockerCodes": ["research_category_rule_token_invalid"],
+    }
+
+
+def test_product_research_normalizer_exposes_exact_category_schema_boundary() -> None:
+    assert "const hasCategoryAnalysis = Boolean(" in VIEW
+    assert "rawBrief?.category_analysis" in VIEW
+    assert "hasCategoryAnalysis," in VIEW
+
+
+def test_research_rule_compiler_has_exact_boundary_and_unicode_semantics() -> None:
+    result = _run_module(
+        """
+        const compile = (hook, shotList = "", visualDirection = "") => (
+          subject.inferGenerationCreativeSignals({
+            hook,
+            shotList,
+            visualDirection,
+          })
+        );
+        return {
+          embeddedWhy: compile("anywhy"),
+          leadingVsStem: compile("vsready"),
+          splitPhrase: compile("", "before\\nbuying"),
+          unicode72: compile(`${"a".repeat(71)}😀`),
+          visualIgnored: compile("Plain hook", "", "trust compare show"),
+        };
+        """
+    )
+    assert result == {
+        "embeddedWhy": {
+            "creativeAngle": "product_focus",
+            "hookPatterns": ["concise"],
+        },
+        "leadingVsStem": {
+            "creativeAngle": "comparison",
+            "hookPatterns": ["comparison", "concise"],
+        },
+        "splitPhrase": {
+            "creativeAngle": "objection_handling",
+            "hookPatterns": ["before_buying"],
+        },
+        "unicode72": {
+            "creativeAngle": "product_focus",
+            "hookPatterns": ["concise"],
+        },
+        "visualIgnored": {
+            "creativeAngle": "product_focus",
+            "hookPatterns": ["concise"],
+        },
+    }
+
+
+def test_research_provider_prompt_fails_closed_when_approved_fields_contain_url() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
+          id: "11111111-1111-4111-8111-111111111112",
+          draftId: "11111111-1111-4111-8111-111111111113",
+          productName: "URL Guard Product",
+          sku: "URL-GUARD",
+          rawBrief: { category_analysis: {} },
+          marketRegistry: { currentBinding: {
+            categoryId: "11111111-1111-4111-8111-111111111114",
+            bindingId: "11111111-1111-4111-8111-111111111115",
+            bindingVersion: 1,
+            sourceRunId: "11111111-1111-4111-8111-111111111112",
+            sourceDraftId: "11111111-1111-4111-8111-111111111113",
+            candidateHash: "c".repeat(64),
+          } },
+          guidance: { status: "ready_for_brief" },
+          brief: {
+            proofPoints: ["Copied proof ftp://source.example/raw"],
+            avoidClaims: ["Unsupported guarantee"],
+            visualDirection: "Copy source.example/path",
+          },
+          scenarios: [{
+            title: "URL scenario",
+            platform: "instagram",
+            hook: "See instagram.com,",
+            shotList: "Show youtu.be.",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_gen4",
+        );
+        return {
+          ready: compiled.ready,
+          blockerCodes: compiled.blockers.map((item) => item.code),
+          providerEligibleWithRawUrl:
+            compiled.ready && /(?:https?:\\/\\/|www\\.)/iu.test(compiled.prompt),
+        };
+        """
+    )
+    assert result == {
+        "ready": False,
+        "blockerCodes": ["external_url_forbidden"],
+        "providerEligibleWithRawUrl": False,
+    }
+
+
+def test_external_reference_guard_covers_idn_ip_and_data_without_blocking_brands() -> None:
+    result = _run_module(
+        """
+        const external = [
+          "пример.рф/path",
+          "example.xn--p1ai/path",
+          "192.168.0.1/path",
+          "data:text/plain,secret",
+          "instagram.com)",
+          "youtu.be",
+          "youtu.be.",
+          "competitor.de",
+        ].map((prompt) => subject.inspectContentGenerationPrompt(
+          prompt,
+          "real_gen4",
+        ).blockers.some((item) => item.code === "external_url_forbidden"));
+        const brands = [
+          "Точный товар: Dr.Jart+ Cicapair.",
+          "Точный товар: Dr.Ceuracle Cream.",
+          "Модель: Gen4.Turbo.",
+        ].map((prompt) => subject.inspectContentGenerationPrompt(
+          prompt,
+          "real_gen4",
+        ).blockers.some((item) => item.code === "external_url_forbidden"));
+        return { external, brands };
+        """
+    )
+    assert result == {
+        "external": [True, True, True, True, True, True, True, True],
+        "brands": [False, False, False],
+    }
+
+
+def test_gen4_category_prompt_never_reports_ready_above_provider_limit() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
+          id: "11111111-1111-4111-8111-111111111112",
+          draftId: "11111111-1111-4111-8111-111111111113",
+          productName: "Limit Product",
+          sku: "LIMIT-SKU",
+          rawBrief: {
+            category_analysis: { maturity: "growing" },
+            competitor_analysis: { coverage: "sufficient" },
+            trend_analysis: {
+              signal_catalog_version: "structural_v1",
+              signals: [{
+                signal_key: "format.single_action_demo",
+                direction: "growing",
+                confidence: "medium",
+                recommended_use: "test",
+              }],
+            },
+          },
+          marketRegistry: { currentBinding: {
+            categoryId: "11111111-1111-4111-8111-111111111114",
+            bindingId: "11111111-1111-4111-8111-111111111115",
+            bindingVersion: 1,
+            sourceRunId: "11111111-1111-4111-8111-111111111112",
+            sourceDraftId: "11111111-1111-4111-8111-111111111113",
+            candidateHash: "f".repeat(64),
+          } },
+          stageCorrections: { sources: "x".repeat(260) },
+          guidance: { status: "ready_for_brief" },
+          brief: { proofPoints: ["Pack fact"], avoidClaims: ["Guarantee"] },
+          scenarios: [{
+            title: "Limit scenario",
+            platform: "instagram",
+            hook: "Show the exact product",
+            shotList: "Show one safe action",
+          }],
+        };
+        const handoff = subject.createContentGenerationHandoff(record, 0, 1000);
+        const compiled = subject.compileContentGenerationPrompt(
+          handoff,
+          "real_gen4",
+        );
+        return {
+          ready: compiled.ready,
+          length: compiled.prompt.length,
+          blockerCodes: compiled.blockers.map((item) => item.code),
+          impossibleReadyState: compiled.ready && compiled.prompt.length > 1000,
+        };
+        """
+    )
+    assert result["impossibleReadyState"] is False
+    if result["ready"]:
+        assert result["length"] <= 1000
+    else:
+        assert "prompt_too_long" in result["blockerCodes"]
+
+
 def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
     result = _run_module(
         """
@@ -969,7 +1465,7 @@ def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
         "current": True,
         "expired": None,
         "malformed": None,
-        "version": 2,
+        "version": 5,
     }
 
 
@@ -1172,9 +1668,22 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "compileSafeGenerationBrief" in APP
     assert 'data-action="restore-auto-generation-brief"' in APP
     assert "generationPromptInspection(form)" in APP
+    sync_inspection = APP[
+        APP.index("function syncContentGenerationHandoff") :
+        APP.index("function generationFormReadiness")
+    ]
+    paid_inspection = APP[
+        APP.index("function generationPromptInspection") :
+        APP.index("function generationPaidSafetyState")
+    ]
+    assert "handoff.requiresResearchCategoryRule === true" in sync_inspection
+    assert (
+        "matchingHandoff && handoff.requiresResearchCategoryRule === true"
+        in paid_inspection
+    )
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260804.os4.11" in APP
-    assert "./app.js?v=20260804.os4.11" in INDEX
+    assert "./content-generation-handoff.js?v=20260804.os4.12" in APP
+    assert "./app.js?v=20260804.os4.12" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

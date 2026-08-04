@@ -261,6 +261,13 @@ def test_market_category_api_sends_only_the_confirmed_action_branch() -> None:
           reason: "Уточнены границы рынка",
           canonical_name: "must be ignored",
         });
+        await api.resolveResearchMarketCategory(runId, {
+          action: "reaffirm",
+          candidate_hash: hash,
+          confirmation: true,
+          category_id: categoryId,
+          reason: "Подтверждён новый синоним той же категории",
+        });
         await api.searchResearchMarketCategories(runId, "  Уход   за волосами ");
         const rejected = [];
         for (const options of [
@@ -277,6 +284,7 @@ def test_market_category_api_sends_only_the_confirmed_action_branch() -> None:
 
     create_payload = result["calls"][0]["payload"]
     reclassify_payload = result["calls"][1]["payload"]
+    reaffirm_payload = result["calls"][2]["payload"]
     assert result["calls"][0]["rpc"] == "creator_resolve_research_market_category"
     assert create_payload["action"] == "create_and_bind"
     assert create_payload["aliases"] == ["Несмываемый Уход"]
@@ -284,6 +292,10 @@ def test_market_category_api_sends_only_the_confirmed_action_branch() -> None:
     assert reclassify_payload["action"] == "reclassify"
     assert reclassify_payload["category_id"] == "20000000-0000-4000-8000-000000000001"
     assert "canonical_name" not in reclassify_payload
+    assert result["calls"][2]["rpc"] == "creator_reaffirm_research_market_category"
+    assert reaffirm_payload["action"] == "reaffirm"
+    assert reaffirm_payload["category_id"] == "20000000-0000-4000-8000-000000000001"
+    assert reaffirm_payload["reason"] == "Подтверждён новый синоним той же категории"
     assert result["reads"] == [{
         "rpc": "creator_research_market_category_registry",
         "payload": {
@@ -464,9 +476,10 @@ def test_market_identity_ui_keeps_category_decisions_explicit_and_reset_safe() -
           escapedCandidate: unboundMarkup.includes("&lt;script&gt;Новая&lt;/script&gt;") && !unboundMarkup.includes("<script>"),
           unboundActions: [unboundMarkup.includes('data-market-category-action="bind_existing"'), unboundMarkup.includes('data-market-category-action="create_and_bind"')],
           boundActions: [boundMarkup.includes('data-market-category-action="reclassify"'), boundMarkup.includes('data-market-category-action="create_and_reclassify"')],
+          reaffirmAction: boundMarkup.includes('data-market-category-action="reaffirm"')
+            && boundMarkup.includes(`name="category_id" value="${currentId}"`),
           splitForms: unboundMarkup.includes('id="product-research-market-category-existing-form"') && unboundMarkup.includes('id="product-research-market-category-create-form"') && (unboundMarkup.match(/product-research-market-category-form/g) || []).length === 2,
           exactSearch: unboundMarkup.includes('id="product-research-market-category-search-form"') && unboundMarkup.includes("точное каноническое название"),
-          currentIdLeaked: boundMarkup.includes(currentId),
           otherIdSelectable: boundMarkup.includes(`value="${otherId}"`),
           resetLabel: unboundMarkup.includes("новая база") && !unboundMarkup.includes("снижается → растёт"),
           velocity: unbound.trendVelocity.length === 1
@@ -504,9 +517,9 @@ def test_market_identity_ui_keeps_category_decisions_explicit_and_reset_safe() -
         "escapedCandidate": True,
         "unboundActions": [True, True],
         "boundActions": [True, True],
+        "reaffirmAction": True,
         "splitForms": True,
         "exactSearch": True,
-        "currentIdLeaked": False,
         "otherIdSelectable": True,
         "resetLabel": True,
         "velocity": True,
@@ -590,7 +603,9 @@ def test_market_resolver_is_append_only_and_app_never_auto_retries_decision() ->
     assert "paid_provider_action: false" in handler
     assert "compliance_category_changed: false" in handler
     assert handler.count("resolveResearchMarketCategory") == 1
-    assert "return this.mutate(RPC.resolveResearchMarketCategory, payload)" in api_resolver
+    assert "action === \"reaffirm\"" in api_resolver
+    assert "RPC.reaffirmResearchMarketCategory" in api_resolver
+    assert "RPC.resolveResearchMarketCategory" in api_resolver
     assert "productResearchStatus" not in api_resolver
 
     new_research_handler = app[

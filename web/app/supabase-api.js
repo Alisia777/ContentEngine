@@ -78,6 +78,9 @@ export const RPC = Object.freeze({
   researchProviderStatus: "creator_research_provider_status",
   researchMarketCategoryRegistry: "creator_research_market_category_registry",
   resolveResearchMarketCategory: "creator_resolve_research_market_category",
+  reaffirmResearchMarketCategory:
+    "creator_reaffirm_research_market_category",
+  retireResearchMarketCategory: "creator_retire_research_market_category",
   researchOutcomeLearningScopes: "creator_research_outcome_learning_scopes",
   researchOutcomeLearningStatus: "creator_research_outcome_learning_status",
   refreshResearchOutcomeLearning: "creator_refresh_research_outcome_learning",
@@ -847,10 +850,13 @@ export class CreatorApi {
     }));
   }
 
-  generationSpecStatus(context) {
+  generationSpecStatus(context = {}) {
     return this.call(
       RPC.generationSpecStatus,
-      this.withOrganization(normalizeGenerationSpecReference(context)),
+      this.withOrganization({
+        ...normalizeGenerationSpecReference(context),
+        project_id: requiredProjectId(context.project_id || context.projectId),
+      }),
     );
   }
 
@@ -873,6 +879,7 @@ export class CreatorApi {
       });
     }
     return this.mutate(RPC.prepareGenerationSpec, {
+      project_id: requiredProjectId(input.project_id || input.projectId),
       exact_scope: exactScope,
       editable_intent: editableIntent,
       proposed_prompt: proposedPrompt,
@@ -922,6 +929,7 @@ export class CreatorApi {
       });
     }
     const payload = {
+      project_id: requiredProjectId(input.project_id || input.projectId),
       spec_id: reference.spec_id,
       expected_spec_version: reference.spec_version,
       expected_spec_hash: reference.spec_hash,
@@ -944,10 +952,13 @@ export class CreatorApi {
     return this.mutate(RPC.controlGenerationSpec, payload);
   }
 
-  generationSpecEffectivePolicy(context) {
+  generationSpecEffectivePolicy(context = {}) {
     return this.call(
       RPC.generationSpecEffectivePolicy,
-      this.withOrganization(normalizeGenerationSpecReference(context)),
+      this.withOrganization({
+        ...normalizeGenerationSpecReference(context),
+        project_id: requiredProjectId(context.project_id || context.projectId),
+      }),
     );
   }
 
@@ -2655,7 +2666,7 @@ export class CreatorApi {
     const normalizedRunId = this.requireResearchRunId(runId);
     const action = String(options.action || "").trim().toLowerCase();
     const createActions = new Set(["create_and_bind", "create_and_reclassify"]);
-    const existingActions = new Set(["bind_existing", "reclassify"]);
+    const existingActions = new Set(["bind_existing", "reclassify", "reaffirm"]);
     if (!createActions.has(action) && !existingActions.has(action)) {
       throw new CreatorApiError("Выберите, как подтвердить рыночную категорию.", {
         code: "research_market_decision_action_invalid",
@@ -2719,7 +2730,7 @@ export class CreatorApi {
       payload.aliases = aliases;
     }
     const reason = String(options.reason || "").trim();
-    if (reason) {
+    if (reason || action === "reaffirm") {
       if (reason.length < 3 || reason.length > 500) {
         throw new CreatorApiError("Кратко объясните решение по категории (3–500 символов).", {
           code: "research_market_decision_reason_invalid",
@@ -2727,7 +2738,38 @@ export class CreatorApi {
       }
       payload.reason = reason;
     }
-    return this.mutate(RPC.resolveResearchMarketCategory, payload);
+    return this.mutate(
+      action === "reaffirm"
+        ? RPC.reaffirmResearchMarketCategory
+        : RPC.resolveResearchMarketCategory,
+      payload,
+    );
+  }
+
+  async retireResearchMarketCategory(categoryId, options = {}) {
+    const normalizedCategoryId = String(categoryId || "").trim().toLowerCase();
+    if (!isUuid(normalizedCategoryId)) {
+      throw new CreatorApiError("Рыночная категория не найдена.", {
+        code: "research_market_category_not_found",
+      });
+    }
+    const reason = String(options.reason || "").replace(/\s+/gu, " ").trim();
+    if (reason.length < 3 || reason.length > 500) {
+      throw new CreatorApiError(
+        "Объясните причину вывода категории из использования (3–500 символов).",
+        { code: "research_market_category_retirement_reason_invalid" },
+      );
+    }
+    if (options.confirmation !== true) {
+      throw new CreatorApiError("Подтвердите вывод категории из использования.", {
+        code: "research_market_category_retirement_confirmation_required",
+      });
+    }
+    return this.mutate(RPC.retireResearchMarketCategory, {
+      category_id: normalizedCategoryId,
+      reason,
+      confirmation: true,
+    });
   }
 
   searchResearchMarketCategories(runId, query) {
@@ -5645,6 +5687,10 @@ function toFriendlyMessage(error) {
     .filter(Boolean)
     .join(" ");
   const known = {
+    project_id_required: "Выберите активный проект и заново подготовьте версию ТЗ.",
+    workspace_project_not_found: "Активный проект больше недоступен. Вернитесь на рабочий стол и выберите проект заново.",
+    generation_spec_project_scope_mismatch: "Исследование, товар или исходники относятся к другому проекту. Платный запуск остановлен.",
+    generation_spec_research_category_rule_stale: "Правило категории из исследования изменилось. Бесплатно пересчитайте ТЗ и утвердите новую версию.",
     onboarding_required: "Сначала завершите обучение и сдайте экзамен.",
     final_exam_required: "Рабочий кабинет откроется после итогового экзамена.",
     four_courses_required: "Сначала завершите все четыре обязательных курса.",
@@ -5831,6 +5877,9 @@ function toFriendlyMessage(error) {
     research_market_category_binding_required: "Сначала подтвердите исходную рыночную категорию товара.",
     research_market_category_unchanged: "Выберите категорию, отличную от текущей.",
     research_market_category_alias_conflict: "Такое название уже принадлежит другой рыночной категории.",
+    research_market_category_alias_already_registered: "Этот синоним уже связан с текущей категорией. Обновите исследование.",
+    research_market_category_reaffirmation_stale: "Текущая категория изменилась. Обновите исследование перед подтверждением синонима.",
+    research_market_category_reaffirmation_source_failed: "Не удалось связать источники исследования с подтверждённым синонимом. Решение не сохранено.",
     research_market_aliases_invalid: "Добавьте не более 10 корректных названий-синонимов.",
     research_market_registry_query_invalid: "Введите точное название или сохранённый синоним категории.",
     research_outcome_refresh_payload_invalid: "Не удалось определить точный контур результатов. Обновите исследование.",

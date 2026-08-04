@@ -116,6 +116,8 @@ const BUDGET_ERROR_CODES: ReadonlySet<string> = new Set([
   "generation_campaign_budget_policy_changed",
 ]);
 const GENERATION_SPEC_VALIDATION_ERROR_CODES = new Set([
+  "project_id_required",
+  "workspace_project_not_found",
   "generation_spec_context_invalid",
   "generation_spec_effective_payload_invalid",
   "generation_spec_prepare_payload_invalid",
@@ -137,6 +139,8 @@ const GENERATION_SPEC_VALIDATION_ERROR_CODES = new Set([
   "generation_spec_reference_bundle_invalid",
 ]);
 const GENERATION_SPEC_CONFLICT_ERROR_CODES = new Set([
+  "generation_spec_project_scope_mismatch",
+  "generation_spec_research_category_rule_stale",
   "generation_spec_approval_required",
   "generation_spec_approval_state_invalid",
   "generation_spec_stale",
@@ -163,6 +167,7 @@ const GENERATION_SPEC_CONFLICT_ERROR_CODES = new Set([
   "idempotency_key_conflict",
 ]);
 const GENERATION_SPEC_INTERNAL_ERROR_CODES = new Set([
+  "project_context_invalid",
   "generation_spec_ledger_append_only",
   "research_outcome_generation_assignment_binding_invalid",
   "research_outcome_generation_assignment_invalid",
@@ -408,6 +413,7 @@ type GenerationSpecScope = {
 };
 
 type GenerationSpecEffectivePolicy = {
+  projectId: string;
   generationSpecContext: GenerationSpecContext;
   exactScope: GenerationSpecScope;
   compiledPrompt: string;
@@ -1380,6 +1386,7 @@ function readGenerationSpecEffectivePolicy(
   const keys = new Set([
     "ok",
     "version",
+    "project_id",
     "generation_spec_context",
     "status",
     "exact_scope",
@@ -1397,6 +1404,7 @@ function readGenerationSpecEffectivePolicy(
     !hasOnlyKeys(value, keys) || Object.keys(value).length !== keys.size ||
     value.ok !== true ||
     value.version !== "generation-spec-effective-policy-v1" ||
+    !isUuid(value.project_id) ||
     value.status !== "approved_current" ||
     value.automatic_approval !== false ||
     value.automatic_spend !== false ||
@@ -1445,6 +1453,7 @@ function readGenerationSpecEffectivePolicy(
     !SHA256_PATTERN.test(value.final_policy_hash)
   ) return null;
   return {
+    projectId: value.project_id,
     generationSpecContext: context,
     exactScope: scope,
     compiledPrompt: value.compiled_prompt,
@@ -1653,6 +1662,61 @@ function generationLearningPromptIsBound(
   );
   return requirements !== null &&
     requirements.every((requirement) => payload.brief.includes(requirement));
+}
+
+function generationApprovedResearchCategoryRuleIsBound(
+  policy: GenerationSpecEffectivePolicy,
+): boolean {
+  const context = policy.learningContext;
+  if (context.source !== "approved_research") return false;
+  const reservedTokens = policy.compiledPrompt.match(
+    /researchcategoryrule\//giu,
+  ) || [];
+  if (reservedTokens.length !== 1) return false;
+  const ruleLines = policy.compiledPrompt.split(/\r?\n/u).filter((line) =>
+    line.startsWith("ResearchCategoryRule/")
+  );
+  if (ruleLines.length !== 1) return false;
+  const match = /^ResearchCategoryRule\/v2 category_maturity=([a-z_]+) competitor_coverage=([a-z_]+) primary_signal=([a-z0-9._]+) creative_angle=([a-z_]+) primary_hook=([a-z_]+)\.$/u
+    .exec(ruleLines[0]);
+  if (match === null) return false;
+  const categoryMaturities = new Set([
+    "emerging", "growing", "established", "saturated", "unknown",
+  ]);
+  const competitorCoverages = new Set(["none", "limited", "sufficient"]);
+  const structuralSignals = new Set([
+    "none",
+    "hook.problem_first",
+    "hook.result_first",
+    "format.single_action_demo",
+    "format.step_by_step",
+    "format.comparison",
+    "format.unboxing",
+    "format.creator_explainer",
+    "proof.product_in_use",
+    "proof.before_after",
+    "proof.social_proof",
+    "offer.bundle",
+    "offer.price_anchor",
+    "channel.marketplace_native_video",
+    "channel.short_vertical_video",
+  ]);
+  const angles = new Set([
+    "product_focus", "trust_builder", "demonstration", "comparison",
+    "objection_handling", "curiosity_gap",
+  ]);
+  const hooks = new Set([
+    "none", "question_led", "why_explanation", "before_buying",
+    "comparison", "demonstration", "first_person", "numbered", "concise",
+  ]);
+  const expectedPrimaryHook = context.hook_patterns[0] || "none";
+  return categoryMaturities.has(match[1])
+    && competitorCoverages.has(match[2])
+    && structuralSignals.has(match[3])
+    && angles.has(match[4])
+    && hooks.has(match[5])
+    && match[4] === context.creative_angle
+    && match[5] === expectedPrimaryHook;
 }
 
 function generationRepairPromptRequirements(
@@ -3599,6 +3663,7 @@ async function handleCreatorGenerate(
       {
         p_payload: {
           organization_id: startPayload.organization_id,
+          project_id: startPayload.project_id,
           ...startPayload.generation_spec_context,
         },
       },
@@ -3648,6 +3713,7 @@ async function handleCreatorGenerate(
   const effectiveRepair = effectiveGenerationPolicy.repairContext;
   const requestedRepair = startPayload.repair_context || null;
   if (
+    effectiveGenerationPolicy.projectId !== startPayload.project_id ||
     stableJson(effectiveGenerationPolicy.generationSpecContext) !==
       stableJson(startPayload.generation_spec_context) ||
     stableJson(effectiveGenerationPolicy.exactScope) !==
@@ -3749,10 +3815,13 @@ async function handleCreatorGenerate(
     );
   }
   const learningSource = startPayload.learning_context.source;
+  const approvedResearchCategoryPrecedence =
+    generationApprovedResearchCategoryRuleIsBound(effectiveGenerationPolicy);
   if (
     learningPolicy.applied &&
     learningSource !== "performance_learning" &&
-    startPayload.learning_opt_out !== true
+    startPayload.learning_opt_out !== true &&
+    !approvedResearchCategoryPrecedence
   ) {
     return json(
       request,

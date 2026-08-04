@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.11";
+} from "./supabase-api.js?v=20260804.os4.12";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.11";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.11";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.12";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.12";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -74,7 +74,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260804.os4.11";
+} from "./product-research-view.js?v=20260804.os4.12";
 import {
   AI_PRODUCT_CATEGORIES,
   aiLearningCategory,
@@ -84,19 +84,20 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260804.os4.11";
+} from "./ai-learning-control-room.js?v=20260804.os4.12";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
   createContentGenerationHandoff,
   GENERATION_LEARNING_COMPILER_VERSION,
   GENERATION_REPAIR_COMPILER_VERSION,
+  generationResearchCategorySignal,
   inferGenerationCreativeSignals,
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.11";
+} from "./content-generation-handoff.js?v=20260804.os4.12";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -110,7 +111,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.11";
+} from "./generation-form-draft.js?v=20260804.os4.12";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -143,7 +144,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.11";
+} from "./content-review-view.js?v=20260804.os4.12";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -172,7 +173,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.11";
+} from "./workspace-board-view.js?v=20260804.os4.12";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -201,7 +202,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.11";
+} from "./training-journey.js?v=20260804.os4.12";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -220,7 +221,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.11";
+} from "./training-practical-review.js?v=20260804.os4.12";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -239,7 +240,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.11";
+} from "./my-work-view.js?v=20260804.os4.12";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -9574,6 +9575,8 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
     avoidClaims: handoff.creativeBrief?.avoidClaims || [],
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
     productCategory: form.elements.product_category?.value,
+    researchCategoryRuleRequired:
+      handoff.requiresResearchCategoryRule === true,
   });
   const compilerWarnings = brief?.value === compiled.prompt ? compiled.warnings : [];
   const evaluation = {
@@ -9655,6 +9658,8 @@ function generationPromptInspection(form) {
       avoidClaims: matchingHandoff ? handoff.creativeBrief?.avoidClaims || [] : [],
       durationSeconds: generationSkuForForm(form)?.durationSeconds,
       productCategory: form.elements.product_category?.value,
+      researchCategoryRuleRequired:
+        matchingHandoff && handoff.requiresResearchCategoryRule === true,
     },
   );
 }
@@ -17968,6 +17973,23 @@ function generationLearningContext(form) {
     form?.elements?.product_category?.value || "",
   ).trim().toLowerCase();
   if (!identity || !autoPrompt || currentPrompt !== autoPrompt) return null;
+  const handoff = state.contentGenerationHandoff;
+  const researchCategorySignal = activeGenerationResearchCategorySignal(identity);
+  if (
+    researchCategorySignal
+    && contentReviewUuid(handoff?.researchId)
+    && contentReviewUuid(handoff?.draftId)
+  ) {
+    return {
+      creative_angle: researchCategorySignal.creativeAngle,
+      hook_patterns: researchCategorySignal.hookPatterns,
+      source: "approved_research",
+      compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+      creative_brief_draft_id: handoff.draftId,
+      scenario_position: handoff.scenario.position,
+      product_category: productCategory,
+    };
+  }
   const policy = activeGenerationLearningPolicy(form, identity);
   if (policy?.applied) {
     return {
@@ -17979,23 +18001,15 @@ function generationLearningContext(form) {
       product_category: productCategory,
     };
   }
-  const handoff = state.contentGenerationHandoff;
+  const researchSignal = activeGenerationResearchSignal(identity);
   if (
-    handoff
-    && handoff.sku === identity.sku
-    && handoff.productName === identity.productName
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-      String(handoff.draftId || ""),
-    )
+    researchSignal
+    && contentReviewUuid(handoff?.researchId)
+    && contentReviewUuid(handoff?.draftId)
   ) {
-    const signal = inferGenerationCreativeSignals({
-      hook: handoff.scenario?.hook,
-      shotList: handoff.scenario?.shotList,
-      visualDirection: handoff.creativeBrief?.visualDirection,
-    });
     return {
-      creative_angle: signal.creativeAngle,
-      hook_patterns: signal.hookPatterns,
+      creative_angle: researchSignal.creativeAngle,
+      hook_patterns: researchSignal.hookPatterns,
       source: "approved_research",
       compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
       creative_brief_draft_id: handoff.draftId,
@@ -18010,6 +18024,25 @@ function generationLearningContext(form) {
     compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
     product_category: productCategory,
   };
+}
+
+function activeGenerationResearchSignal(identity) {
+  const handoff = state.contentGenerationHandoff;
+  if (
+    !identity
+    || !handoff
+    || handoff.sku !== identity.sku
+    || handoff.productName !== identity.productName
+  ) return null;
+  return inferGenerationCreativeSignals({
+    hook: handoff.scenario?.hook,
+    shotList: handoff.scenario?.shotList,
+  });
+}
+
+function activeGenerationResearchCategorySignal(identity) {
+  if (!activeGenerationResearchSignal(identity)) return null;
+  return generationResearchCategorySignal(state.contentGenerationHandoff);
 }
 
 function generationRepairContext(form) {
@@ -18112,6 +18145,7 @@ function generationSpecResearchProvenance(
 }
 
 function generationSpecPerformanceProvenance(form, identity = null) {
+  if (activeGenerationResearchCategorySignal(identity)) return null;
   const policy = activeGenerationLearningPolicy(form, identity);
   if (!policy?.applied || !policy.policyHash || !policy.version) return null;
   return {
@@ -18132,6 +18166,7 @@ function generationSpecRepairProvenance(form, identity = null) {
 
 function generationSpecPreparePayload(form) {
   const identity = selectedGenerationProductIdentity(form);
+  const projectId = currentWorkspaceProjectId();
   const exactScope = generationSpecExactScope(form, identity);
   const compiled = automaticGenerationBriefCandidate(form, identity);
   const currentBrief = String(form?.elements?.brief?.value || "").trim();
@@ -18150,6 +18185,7 @@ function generationSpecPreparePayload(form) {
   );
   if (
     !identity
+    || !isWorkspaceProjectId(projectId)
     || !exactScope
     || compiled?.ready !== true
     || !editableIntent
@@ -18161,6 +18197,7 @@ function generationSpecPreparePayload(form) {
   ) return null;
   const repairContext = generationRepairContext(form);
   return {
+    project_id: projectId,
     exact_scope: exactScope,
     editable_intent: editableIntent,
     proposed_prompt: currentBrief && currentBrief === acceptedAutomaticBrief
@@ -18299,6 +18336,7 @@ async function refreshGenerationSpec(form, { force = false } = {}) {
   const current = state.generationSpec.data?.generationSpec;
   if (!form || !current) return null;
   const context = {
+    project_id: requireWorkspaceProjectId(),
     spec_id: current.spec_id,
     spec_version: current.spec_version,
     spec_hash: current.spec_hash,
@@ -18524,6 +18562,7 @@ async function runGenerationSpecControl(form, action, {
       });
     } else {
       const input = {
+        project_id: preparedPayload.project_id,
         spec_id: current.spec_id,
         expected_spec_version: current.spec_version,
         expected_spec_hash: current.spec_hash,
@@ -20994,6 +21033,7 @@ async function submitProductResearchMarketCategory(form, submitter) {
     "create_and_bind",
     "reclassify",
     "create_and_reclassify",
+    "reaffirm",
   ]);
   if (!runId || !allowedActions.has(action)) {
     toast("Не удалось определить решение по рыночной категории. Обновите раздел.", "error");
@@ -21002,7 +21042,7 @@ async function submitProductResearchMarketCategory(form, submitter) {
   const registry = research.record?.marketRegistry;
   const currentBinding = registry?.currentBinding || null;
   const allowedForState = currentBinding
-    ? new Set(["reclassify", "create_and_reclassify"])
+    ? new Set(["reclassify", "create_and_reclassify", "reaffirm"])
     : new Set(["bind_existing", "create_and_bind"]);
   if (!registry?.available || registry.canResolve === false || !allowedForState.has(action)) {
     toast("Состояние категории изменилось. Обновите исследование перед решением.", "error");
@@ -21030,7 +21070,7 @@ async function submitProductResearchMarketCategory(form, submitter) {
     confirmation: true,
     reason,
   };
-  if (["bind_existing", "reclassify"].includes(action)) {
+  if (["bind_existing", "reclassify", "reaffirm"].includes(action)) {
     options.category_id = String(values.get("category_id") || "").trim();
   } else {
     options.canonical_name = String(values.get("canonical_name") || "").trim();
@@ -21077,6 +21117,8 @@ async function submitProductResearchMarketCategory(form, submitter) {
       "research_market_category_not_found",
       "research_market_category_unchanged",
       "research_market_category_alias_conflict",
+      "research_market_category_alias_already_registered",
+      "research_market_category_reaffirmation_stale",
     ]);
     if (refreshConflictCodes.has(code)) {
       try {
