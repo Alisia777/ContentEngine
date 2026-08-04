@@ -201,6 +201,10 @@ def test_pgtap_traps_legacy_reader_and_proves_empty_project_isolation() -> None:
     assert "empty selected-project finder returns without scanning neighbor history" in source
     assert "workspace_folder_project_mismatch" in source
     assert "legacy_reader_called" in source
+    assert (
+        "creator_workspace_section_pre_project_reader_recovery_v416( "
+        "p_payload jsonb default '{}'::jsonb )"
+    ) in source
     assert "empty project media bypasses the trapped legacy reader" in source
     assert "populated project media is returned without the trapped legacy reader" in source
     assert "media result preserves the exact selected project identity" in source

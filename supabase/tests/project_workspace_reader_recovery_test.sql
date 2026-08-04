@@ -249,7 +249,7 @@ select throws_ok(
 reset role;
 create or replace function
   content_factory_private.creator_workspace_section_pre_project_reader_recovery_v416(
-    p_payload jsonb
+    p_payload jsonb default '{}'::jsonb
   )
 returns jsonb
 language plpgsql
