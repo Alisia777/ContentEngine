@@ -419,9 +419,9 @@ select ok(
 );
 select ok(
   (
-    select response ?& array['ok', 'batches', '_meta']
+    select response ?& array['ok', 'project_id', 'batches', '_meta']
       and (
-        select count(*) = 3
+        select count(*) = 4
         from jsonb_object_keys(response)
       )
     from generation_archive_first

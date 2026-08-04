@@ -416,12 +416,17 @@ begin
     '81111111-1111-4111-8111-111111111111',
     true
   );
+  perform set_config(
+    'contentengine.project_id',
+    '80100000-0000-4000-8000-000000000001',
+    true
+  );
 end;
 $$;
 
 select throws_ok(
   $$
-    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
+    select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
       'project_id', '80100000-0000-4000-8000-000000000001',
       'media_ids', '["83000000-0000-4000-8000-000000000002"]'::jsonb
@@ -469,7 +474,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-count-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 2, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -489,7 +493,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-media-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -525,7 +528,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-viewer-denied-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -553,7 +555,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-uncertified-denied-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -589,7 +590,6 @@ select is(
 insert into paid_runway_context (initial_response)
 values (content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
-  'project_id', '80100000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-success-path-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '9:16',
@@ -665,7 +665,6 @@ select throws_ok(
 select is(
   content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
     'organization_id', '80000000-0000-4000-8000-000000000001',
-    'project_id', '80100000-0000-4000-8000-000000000001',
     'idempotency_key', 'real-success-path-0001',
     'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
     'count', 1, 'format', '9:16',
@@ -686,7 +685,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-assignee-concurrency-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1', 'brief', 'Second paid job.',
@@ -704,7 +702,6 @@ select throws_ok(
 update paid_runway_context
 set reviewer_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
-  'project_id', '80100000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-reviewer-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '1:1',
@@ -719,7 +716,6 @@ set reviewer_response = content_factory_private.creator_start_real_generation_pr
 update paid_runway_context
 set operator_response = content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
-  'project_id', '80100000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-operator-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '16:9',
@@ -736,7 +732,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-org-concurrency-reject-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1', 'brief', 'Fourth concurrent job.',
@@ -975,7 +970,6 @@ begin
   for ordinal in 1..7 loop
     response := content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-seed-' || lpad(ordinal::text, 4, '0'),
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1',
@@ -1003,7 +997,6 @@ select throws_ok(
   $$
     select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-reject-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1', 'brief', 'Over the daily quota.',

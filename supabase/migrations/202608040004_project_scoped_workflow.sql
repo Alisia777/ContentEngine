@@ -2205,7 +2205,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  organization_id uuid;
+  v_organization_id uuid;
   project_id_value uuid;
   folder_id_value uuid;
   inner_payload jsonb;
@@ -2226,15 +2226,15 @@ begin
   if not (p_payload ? 'project_id') then
     raise exception using errcode = '22023', message = 'project_id_required';
   end if;
-  organization_id := content_factory_private.resolve_organization(p_payload);
+  v_organization_id := content_factory_private.resolve_organization(p_payload);
   project_id_value := content_factory_private.require_uuid(p_payload, 'project_id');
   perform content_factory_private.require_workspace_project(
-    organization_id, project_id_value
+    v_organization_id, project_id_value
   );
   if nullif(btrim(coalesce(p_payload ->> 'folder_id', '')), '') is not null then
     folder_id_value := content_factory_private.require_uuid(p_payload, 'folder_id');
     if content_factory_private.workspace_project_for_folder(
-         organization_id, folder_id_value
+         v_organization_id, folder_id_value
        ) is distinct from project_id_value then
       raise exception using errcode = '42501', message = 'workspace_folder_project_mismatch';
     end if;
@@ -2272,7 +2272,7 @@ begin
       item.value ->> 'type' = 'media'
       and exists (
         select 1 from content_factory.media_objects media
-        where media.organization_id = organization_id
+        where media.organization_id = v_organization_id
           and media.id::text = item.value ->> 'id'
           and media.project_id = project_id_value
       )
@@ -2280,7 +2280,7 @@ begin
       item.value ->> 'type' = 'task'
       and exists (
         select 1 from content_factory.creator_tasks task
-        where task.organization_id = organization_id
+        where task.organization_id = v_organization_id
           and task.id::text = item.value ->> 'id'
           and task.project_id = project_id_value
       )
@@ -2348,10 +2348,10 @@ begin
   from jsonb_array_elements(coalesce(result_value -> 'folders', '[]'::jsonb))
     with ordinality folder(value, ordinality)
   join content_factory.workspace_folders folder_row
-    on folder_row.organization_id = organization_id
+    on folder_row.organization_id = v_organization_id
    and folder_row.id::text = folder.value ->> 'id'
   where content_factory_private.workspace_project_for_folder(
-    organization_id, folder_row.id
+    v_organization_id, folder_row.id
   ) = project_id_value;
 
   if folder_id_value is not null then
@@ -2366,7 +2366,7 @@ begin
       )
     into current_folder_value
     from content_factory.workspace_folders folder
-    where folder.organization_id = organization_id
+    where folder.organization_id = v_organization_id
       and folder.id = folder_id_value
       and folder.status = 'active';
   end if;
@@ -2544,7 +2544,7 @@ set search_path = ''
 as $$
 declare
   user_id uuid;
-  organization_id uuid;
+  v_organization_id uuid;
   project_id_value uuid;
   section_value text;
   actor_role text;
@@ -2564,10 +2564,10 @@ begin
     end if;
     raise exception using errcode = '22023', message = 'project_id_required';
   end if;
-  organization_id := content_factory_private.resolve_organization(p_payload);
+  v_organization_id := content_factory_private.resolve_organization(p_payload);
   user_id := content_factory_private.current_profile_id();
   actor_role := content_factory_private.membership_role(
-    organization_id, true,
+    v_organization_id, true,
     array['owner', 'admin', 'producer', 'reviewer', 'operator']
   );
   team_scope := actor_role = any(array[
@@ -2578,7 +2578,7 @@ begin
   end if;
   project_id_value := content_factory_private.require_uuid(p_payload, 'project_id');
   perform content_factory_private.require_workspace_project(
-    organization_id, project_id_value
+    v_organization_id, project_id_value
   );
   if section_value in ('team', 'feedback') then
     raise exception using errcode = '22023', message = 'workspace_section_not_project_scoped';
@@ -2602,7 +2602,7 @@ begin
       result_value,
       '{batches}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'batches', 'generation_batches', 'batch'
       ),
       true
@@ -2611,7 +2611,7 @@ begin
       result_value,
       '{media}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'media', 'generation_media', 'media'
       ),
       true
@@ -2621,7 +2621,7 @@ begin
       result_value,
       '{placements}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'placements', 'placement_items', 'placement'
       ),
       true
@@ -2631,7 +2631,7 @@ begin
       result_value,
       '{publications}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'publications', 'stats_publications', 'placement'
       ),
       true
@@ -2640,7 +2640,7 @@ begin
       result_value,
       '{publication_options}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'publication_options', 'stats_publication_options', 'placement'
       ),
       true
@@ -2686,7 +2686,7 @@ begin
     from (
       select candidate.*
       from content_factory.creator_tasks candidate
-      where candidate.organization_id = organization_id
+      where candidate.organization_id = v_organization_id
         and candidate.project_id = project_id_value
         and (team_scope or candidate.assignee_id = user_id)
       order by
@@ -2720,7 +2720,7 @@ begin
       result_value,
       '{media}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'media', 'media_items', 'media'
       ),
       true
@@ -2730,7 +2730,7 @@ begin
       result_value,
       '{payouts}',
       content_factory_private.project_workspace_collection_v47(
-        organization_id, project_id_value, p_payload, result_value,
+        v_organization_id, project_id_value, p_payload, result_value,
         'payouts', 'payout_items', 'payout'
       ),
       true
@@ -2746,7 +2746,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.generation_batches batch
-      where batch.organization_id = organization_id
+      where batch.organization_id = v_organization_id
         and batch.id::text = item.value ->> 'id'
         and batch.project_id = project_id_value
     );
@@ -2760,7 +2760,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.media_objects media
-      where media.organization_id = organization_id
+      where media.organization_id = v_organization_id
         and media.id::text = item.value ->> 'id'
         and media.project_id = project_id_value
     );
@@ -2774,7 +2774,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.placements placement
-      where placement.organization_id = organization_id
+      where placement.organization_id = v_organization_id
         and placement.id::text = item.value ->> 'id'
         and placement.project_id = project_id_value
     );
@@ -2788,7 +2788,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.placements placement
-      where placement.organization_id = organization_id
+      where placement.organization_id = v_organization_id
         and placement.id::text = item.value ->> 'id'
         and placement.project_id = project_id_value
     );
@@ -2816,7 +2816,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.placements placement
-      where placement.organization_id = organization_id
+      where placement.organization_id = v_organization_id
         and placement.id::text = item.value ->> 'id'
         and placement.project_id = project_id_value
     );
@@ -2830,7 +2830,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.creator_tasks task
-      where task.organization_id = organization_id
+      where task.organization_id = v_organization_id
         and task.id::text = item.value ->> 'id'
         and task.project_id = project_id_value
     );
@@ -2844,7 +2844,7 @@ begin
       with ordinality item(value, ordinality)
     where exists (
       select 1 from content_factory.media_objects media
-      where media.organization_id = organization_id
+      where media.organization_id = v_organization_id
         and media.id::text = item.value ->> 'id'
         and media.project_id = project_id_value
     );
@@ -2862,7 +2862,7 @@ begin
       join content_factory.creator_tasks task
         on task.organization_id = payout.organization_id
        and task.id = payout.task_id
-      where payout.organization_id = organization_id
+      where payout.organization_id = v_organization_id
         and payout.id::text = item.value ->> 'id'
         and task.project_id = project_id_value
     );
@@ -2904,7 +2904,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  organization_id uuid;
+  v_organization_id uuid;
   project_id_value uuid;
   result_value jsonb;
   items_value jsonb;
@@ -2926,10 +2926,10 @@ begin
   if not (p_payload ? 'project_id') then
     raise exception using errcode = '22023', message = 'project_id_required';
   end if;
-  organization_id := content_factory_private.resolve_organization(p_payload);
+  v_organization_id := content_factory_private.resolve_organization(p_payload);
   project_id_value := content_factory_private.require_uuid(p_payload, 'project_id');
   perform content_factory_private.require_workspace_project(
-    organization_id, project_id_value
+    v_organization_id, project_id_value
   );
   result_value := content_factory_private.creator_my_work_pre_project_v47(
     p_payload - 'project_id'
@@ -2955,25 +2955,25 @@ begin
     where case item.value ->> 'item_type'
       when 'task' then exists (
         select 1 from content_factory.creator_tasks task
-        where task.organization_id = organization_id
+        where task.organization_id = v_organization_id
           and task.id::text = item.value ->> 'id'
           and task.project_id = project_id_value
       )
       when 'generation' then exists (
         select 1 from content_factory.generation_jobs job
-        where job.organization_id = organization_id
+        where job.organization_id = v_organization_id
           and job.id::text = item.value ->> 'id'
           and job.project_id = project_id_value
       )
       when 'review' then exists (
         select 1 from content_factory.content_review_runs review
-        where review.organization_id = organization_id
+        where review.organization_id = v_organization_id
           and review.id::text = item.value ->> 'id'
           and review.project_id = project_id_value
       )
       when 'placement' then exists (
         select 1 from content_factory.placements placement
-        where placement.organization_id = organization_id
+        where placement.organization_id = v_organization_id
           and placement.id::text = item.value ->> 'id'
           and placement.project_id = project_id_value
       )
@@ -2983,7 +2983,7 @@ begin
         join content_factory.creator_tasks task
           on task.organization_id = payout.organization_id
          and task.id = payout.task_id
-        where payout.organization_id = organization_id
+        where payout.organization_id = v_organization_id
           and payout.id::text = item.value ->> 'id'
           and task.project_id = project_id_value
       ) else false
@@ -3338,7 +3338,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  organization_id uuid;
+  v_organization_id uuid;
   project_id_value uuid;
   result_value jsonb;
   media_value jsonb;
@@ -3349,10 +3349,10 @@ begin
   if not (p_payload ? 'project_id') then
     raise exception using errcode = '22023', message = 'project_id_required';
   end if;
-  organization_id := content_factory_private.resolve_organization(p_payload);
+  v_organization_id := content_factory_private.resolve_organization(p_payload);
   project_id_value := content_factory_private.require_uuid(p_payload, 'project_id');
   perform content_factory_private.require_workspace_project(
-    organization_id, project_id_value
+    v_organization_id, project_id_value
   );
   previous_project_setting := current_setting(
     'contentengine.project_id',
@@ -3389,7 +3389,7 @@ begin
     with ordinality item(value, ordinality)
   where exists (
     select 1 from content_factory.media_objects media
-    where media.organization_id = organization_id
+    where media.organization_id = v_organization_id
       and media.id::text = item.value ->> 'id'
       and media.project_id = project_id_value
   );
@@ -3401,7 +3401,7 @@ begin
     with ordinality item(value, ordinality)
   where exists (
     select 1 from content_factory.content_review_runs review
-    where review.organization_id = organization_id
+    where review.organization_id = v_organization_id
       and review.id::text = item.value ->> 'id'
       and review.project_id = project_id_value
   );
@@ -3582,6 +3582,71 @@ begin
 end;
 $preserve_project_mutations$;
 
+-- Three preserved review mutations predate the six-argument command receipt
+-- contract and still call finish_command with four arguments. Repair their
+-- installed definitions after the rename so actor and request hashes remain
+-- authoritative; a compatibility overload would silently weaken idempotency.
+do $repair_preserved_command_receipts_v47$
+declare
+  alias_name text;
+  function_oid oid;
+  function_definition text;
+  repaired_definition text;
+  legacy_finish_pattern constant text :=
+    $finish_pattern$perform[[:space:]]+content_factory_private[.]finish_command[(][[:space:]]*organization_id,[[:space:]]*('[^']+'),[[:space:]]*idempotency_key_value,[[:space:]]*result_value[[:space:]]*[)];$finish_pattern$;
+  repaired_finish_pattern constant text :=
+    $finish_pattern$perform[[:space:]]+content_factory_private[.]finish_command[(][[:space:]]*organization_id,[[:space:]]*user_id,[[:space:]]*'[^']+',[[:space:]]*idempotency_key_value,[[:space:]]*request_payload,[[:space:]]*result_value[[:space:]]*[)];$finish_pattern$;
+begin
+  foreach alias_name in array array[
+    'creator_approve_generated_photo_review_with_context_pre_project_v47',
+    'creator_start_generated_video_review_pre_project_v47',
+    'creator_approve_generated_video_review_with_context_pre_project_v47'
+  ] loop
+    select proc.oid
+      into function_oid
+    from pg_catalog.pg_proc proc
+    join pg_catalog.pg_namespace namespace
+      on namespace.oid = proc.pronamespace
+    where namespace.nspname = 'content_factory_private'
+      and proc.proname = left(alias_name, 63)
+      and proc.pronargs = 1
+      and proc.proargtypes[0] = 'pg_catalog.jsonb'::pg_catalog.regtype::oid
+    order by proc.oid desc
+    limit 1;
+
+    if function_oid is null then
+      raise exception using
+        errcode = '55000',
+        message = 'project_preserved_command_not_found';
+    end if;
+
+    function_definition := pg_catalog.pg_get_functiondef(function_oid);
+    repaired_definition := pg_catalog.regexp_replace(
+      function_definition,
+      legacy_finish_pattern,
+      $finish_replacement$perform content_factory_private.finish_command(
+    organization_id,
+    user_id,
+    \1,
+    idempotency_key_value,
+    request_payload,
+    result_value
+  );$finish_replacement$,
+      'i'
+    );
+    if repaired_definition = function_definition then
+      if function_definition !~* repaired_finish_pattern then
+        raise exception using
+          errcode = '55000',
+          message = 'project_preserved_command_repair_failed';
+      end if;
+      continue;
+    end if;
+    execute repaired_definition;
+  end loop;
+end;
+$repair_preserved_command_receipts_v47$;
+
 create or replace function content_factory_private.call_project_scoped_v47(
   p_alias_name text,
   p_payload jsonb,
@@ -3619,7 +3684,7 @@ declare
     'creator_commit_content_review_evidence_pre_project_v47',
     'creator_real_generation_reconciliation_context_pre_project_v47'
   ];
-  organization_id uuid;
+  v_organization_id uuid;
   project_id_value uuid;
   entity_id_value uuid;
   inner_payload jsonb;
@@ -3635,17 +3700,17 @@ begin
     raise exception using errcode = '22023', message = 'project_id_required';
   end if;
 
-  organization_id := content_factory_private.resolve_organization(p_payload);
+  v_organization_id := content_factory_private.resolve_organization(p_payload);
   project_id_value := content_factory_private.require_uuid(p_payload, 'project_id');
   perform content_factory_private.require_workspace_project(
-    organization_id, project_id_value
+    v_organization_id, project_id_value
   );
   if p_entity_kind is not null then
     entity_id_value := content_factory_private.require_uuid(
       p_payload, p_entity_field
     );
     perform content_factory_private.require_project_entity(
-      organization_id, project_id_value, p_entity_kind, entity_id_value
+      v_organization_id, project_id_value, p_entity_kind, entity_id_value
     );
   end if;
   if p_media_list then
@@ -3656,7 +3721,7 @@ begin
          from jsonb_array_elements_text(media_ids_value) item(value)
          where not exists (
            select 1 from content_factory.media_objects media
-           where media.organization_id = organization_id
+           where media.organization_id = v_organization_id
              and media.id::text = item.value
              and media.project_id = project_id_value
              and media.status = 'ready'
@@ -3703,7 +3768,7 @@ begin
         errcode = '55000', message = 'project_scoped_result_invalid';
     end;
     perform content_factory_private.require_project_entity(
-      organization_id, project_id_value, 'media', entity_id_value
+      v_organization_id, project_id_value, 'media', entity_id_value
     );
   end if;
   result_value := result_value || jsonb_build_object(
@@ -3921,6 +3986,105 @@ create or replace function public.creator_generation_learning_policy(
     'media', 'media_id', false
   )
 $$;
+
+-- The research advisory predates project scope and calls the public learning
+-- policy internally without project_id. Preserve its governed implementation,
+-- then derive context only from the exact organization/media row before that
+-- internal policy call. Missing or unscoped media fails closed.
+do $preserve_research_advisory_v47$
+begin
+  if to_regprocedure(
+    'content_factory_private.research_outcome_generation_advisory_pre_project_v47(uuid,uuid,text,text,text)'
+  ) is null then
+    alter function
+      content_factory_private.research_outcome_generation_advisory(
+        uuid, uuid, text, text, text
+      ) rename to research_outcome_generation_advisory_pre_project_v47;
+  end if;
+end;
+$preserve_research_advisory_v47$;
+
+revoke all on function
+  content_factory_private.research_outcome_generation_advisory_pre_project_v47(
+    uuid, uuid, text, text, text
+  ) from public, anon, authenticated, service_role;
+
+create or replace function
+  content_factory_private.research_outcome_generation_advisory(
+    p_organization_id uuid,
+    p_media_id uuid,
+    p_platform text,
+    p_model text,
+    p_product_category text
+  )
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_project_id uuid;
+  previous_project_setting text;
+  result_value jsonb;
+begin
+  select media.project_id
+    into v_project_id
+  from content_factory.media_objects media
+  where media.organization_id = p_organization_id
+    and media.id = p_media_id;
+
+  if not found or v_project_id is null then
+    raise exception using
+      errcode = '42501',
+      message = 'project_entity_mismatch';
+  end if;
+  perform content_factory_private.require_workspace_project(
+    p_organization_id, v_project_id
+  );
+  perform content_factory_private.require_project_entity(
+    p_organization_id, v_project_id, 'media', p_media_id
+  );
+
+  previous_project_setting := current_setting(
+    'contentengine.project_id',
+    true
+  );
+  perform set_config(
+    'contentengine.project_id',
+    v_project_id::text,
+    true
+  );
+  begin
+    result_value :=
+      content_factory_private.research_outcome_generation_advisory_pre_project_v47(
+        p_organization_id,
+        p_media_id,
+        p_platform,
+        p_model,
+        p_product_category
+      );
+  exception when others then
+    perform set_config(
+      'contentengine.project_id',
+      coalesce(previous_project_setting, ''),
+      true
+    );
+    raise;
+  end;
+  perform set_config(
+    'contentengine.project_id',
+    coalesce(previous_project_setting, ''),
+    true
+  );
+  return result_value;
+end;
+$$;
+
+revoke all on function
+  content_factory_private.research_outcome_generation_advisory(
+    uuid, uuid, text, text, text
+  ) from public, anon, authenticated, service_role;
 
 create or replace function public.creator_decide_payout(
   p_payload jsonb default '{}'::jsonb

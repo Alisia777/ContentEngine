@@ -612,6 +612,11 @@ begin
     '96000000-0000-4000-8000-000000000001',
     true
   );
+  perform set_config(
+    'contentengine.project_id',
+    '96100000-0000-4000-8000-000000000101',
+    true
+  );
 end;
 $$;
 
@@ -626,7 +631,6 @@ values (
   'paid_generation',
   content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
     'organization_id', '96100000-0000-4000-8000-000000000001',
-    'project_id', '96100000-0000-4000-8000-000000000101',
     'idempotency_key', 'operational-generation-0001',
     'sku', 'OPS-SKU-1',
     'product_name', 'Operational product',

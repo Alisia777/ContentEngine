@@ -245,7 +245,7 @@ select is(
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname = 'public'
      and procedure.proname in (
-       'creator_start_product_research',
+       'creator_start_project_research',
        'creator_research_provider_status'
      )
      and has_function_privilege('authenticated', procedure.oid, 'execute')),
@@ -258,7 +258,7 @@ select is(
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname = 'public'
      and procedure.proname in (
-       'creator_start_product_research',
+       'creator_start_project_research',
        'creator_research_provider_status'
      )
      and has_function_privilege('anon', procedure.oid, 'execute')),
