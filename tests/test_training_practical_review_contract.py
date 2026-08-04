@@ -299,4 +299,4 @@ def test_database_workflow_and_legacy_fixture_cover_the_new_gate() -> None:
     assert "pgtap-practical-approve-reviewer-0001" in bootstrap_review
     assert "pgtap-practical-approve-owner-0001" not in bootstrap_review
     assert "87,\n  'all browser rpcs expose exactly p_payload jsonb'" in CREATOR_FACTORY
-    assert "97,\n  'authenticated can execute all creator rpcs'" in CREATOR_FACTORY
+    assert "98,\n  'authenticated can execute all creator rpcs'" in CREATOR_FACTORY
