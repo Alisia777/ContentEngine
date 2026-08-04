@@ -1131,7 +1131,7 @@ input[type="radio"] {
   margin: 0;
   padding: 0;
   list-style: none;
-  grid-template-columns: repeat(var(--workflow-step-count, 6), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--workflow-step-count, 5), minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1711,7 +1711,7 @@ input[type="radio"] {
   margin: 0;
   padding: 0;
   list-style: none;
-  grid-template-columns: repeat(var(--workflow-step-count, 6), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--workflow-step-count, 5), minmax(0, 1fr));
   gap: 9px;
 }
 
@@ -2601,7 +2601,7 @@ input[type="radio"] {
   display: grid;
   margin: 34px 0 0;
   padding: 0;
-  grid-template-columns: repeat(var(--workflow-step-count, 6), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--workflow-step-count, 5), minmax(0, 1fr));
   list-style: none;
   gap: 0;
 }

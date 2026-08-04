@@ -23,11 +23,17 @@
 
       const content = document.querySelector("#workspace-content");
       const result = document.querySelector("#result");
+      const escapeHtmlAttribute = (value) => String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
       const boardMarkup = ({ updated = false, query = "" } = {}) => `
         <div class="page-wrap">
           <section class="workspace-board">
             <form id="workspace-board-filter-form" role="search">
-              <input name="query" type="search" value="${query}" aria-label="Найти проект, папку, SKU или файл" />
+              <input name="query" type="search" value="${escapeHtmlAttribute(query)}" aria-label="Найти проект, папку, SKU или файл" />
             </form>
             <div class="workspace-board__layout">
               <aside class="workspace-board__sidebar">

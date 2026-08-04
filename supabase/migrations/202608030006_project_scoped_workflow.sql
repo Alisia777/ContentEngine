@@ -525,7 +525,7 @@ with research_scope as (
          count(*) as source_count,
          count(media.project_id) as scoped_source_count,
          count(distinct media.project_id) as project_count,
-         min(media.project_id) as project_id
+         min(media.project_id::text)::uuid as project_id
   from content_factory.product_research_sources source
   left join content_factory.media_objects media
     on media.organization_id = source.organization_id

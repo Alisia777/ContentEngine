@@ -352,10 +352,11 @@ def test_workspace_api_scopes_pagination_and_rejects_bad_options_before_rpc() ->
           STORAGE_BUCKET: "creator-private",
         });
         api.organizationId = "organization-1";
+        const projectId = "11111111-1111-4111-8111-111111111111";
         const cursor = {
           generation_batches: { at: "2026-07-15T10:00:00Z", id: "batch-1" },
         };
-        await api.workspaceSection("generation", { page_size: 50, cursor });
+        await api.workspaceSection("generation", { project_id: projectId, page_size: 50, cursor });
 
         const errorCode = (operation) => {
           try {
@@ -367,11 +368,11 @@ def test_workspace_api_scopes_pagination_and_rejects_bad_options_before_rpc() ->
         };
         const beforeInvalid = calls.length;
         const invalid = {
-          zero: errorCode(() => api.workspaceSection("generation", { page_size: 0 })),
-          high: errorCode(() => api.workspaceSection("generation", { page_size: 101 })),
-          fraction: errorCode(() => api.workspaceSection("generation", { page_size: 1.5 })),
-          nullCursor: errorCode(() => api.workspaceSection("generation", { cursor: null })),
-          arrayCursor: errorCode(() => api.workspaceSection("generation", { cursor: [] })),
+          zero: errorCode(() => api.workspaceSection("generation", { project_id: projectId, page_size: 0 })),
+          high: errorCode(() => api.workspaceSection("generation", { project_id: projectId, page_size: 101 })),
+          fraction: errorCode(() => api.workspaceSection("generation", { project_id: projectId, page_size: 1.5 })),
+          nullCursor: errorCode(() => api.workspaceSection("generation", { project_id: projectId, cursor: null })),
+          arrayCursor: errorCode(() => api.workspaceSection("generation", { project_id: projectId, cursor: [] })),
         };
         return { calls, beforeInvalid, afterInvalid: calls.length, invalid };
         """,
@@ -392,6 +393,7 @@ def test_workspace_api_scopes_pagination_and_rejects_bad_options_before_rpc() ->
             "args": {
                 "p_payload": {
                     "section": "generation",
+                    "project_id": "11111111-1111-4111-8111-111111111111",
                     "page_size": 50,
                     "cursor": {
                         "generation_batches": {
@@ -422,7 +424,9 @@ def test_generation_archive_filters_and_cursor_are_server_scoped() -> None:
           STORAGE_BUCKET: "creator-private",
         });
         api.organizationId = "organization-1";
+        const projectId = "11111111-1111-4111-8111-111111111111";
         await api.generationArchive({
+          project_id: projectId,
           period: "12w",
           status: "issue",
           query: " WB-159068498 ",
@@ -440,11 +444,11 @@ def test_generation_archive_filters_and_cursor_are_server_scoped() -> None:
         };
         const beforeInvalid = calls.length;
         const invalid = {
-          period: errorCode({ period: "year" }),
-          status: errorCode({ status: "unknown" }),
-          query: errorCode({ query: "x".repeat(121) }),
-          page: errorCode({ page_size: 101 }),
-          cursor: errorCode({ cursor: { at: "now", id: "id", extra: true } }),
+          period: errorCode({ project_id: projectId, period: "year" }),
+          status: errorCode({ project_id: projectId, status: "unknown" }),
+          query: errorCode({ project_id: projectId, query: "x".repeat(121) }),
+          page: errorCode({ project_id: projectId, page_size: 101 }),
+          cursor: errorCode({ project_id: projectId, cursor: { at: "now", id: "id", extra: true } }),
         };
         return { calls, beforeInvalid, afterInvalid: calls.length, invalid };
         """,
@@ -464,6 +468,7 @@ def test_generation_archive_filters_and_cursor_are_server_scoped() -> None:
             "args": {
                 "p_payload": {
                     "period": "12w",
+                    "project_id": "11111111-1111-4111-8111-111111111111",
                     "status": "issue",
                     "query": "WB-159068498",
                     "page_size": 50,

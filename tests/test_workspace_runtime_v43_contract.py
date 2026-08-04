@@ -232,8 +232,8 @@ def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> No
         "export function patchWorkspaceContent(",
         "\n}",
     )
-    assert 'document.createElement("template")' in public_patch
-    assert "patchChildren(container, template.content)" in public_patch
+    assert "parseWorkspaceMarkup(markup)" in public_patch
+    assert "patchChildren(container, parseWorkspaceMarkup(markup))" in public_patch
     assert "container.innerHTML" not in public_patch
 
     assert '<article class="card media-card" data-media-id=' in APP_JS
@@ -325,6 +325,27 @@ def test_live_browser_harnesses_cover_identity_motion_and_runtime_resets() -> No
         "folderFilter",
     ):
         assert marker in FINDER_PATCH_FIXTURE
+
+
+def test_dom_reconciler_sanitizes_markup_before_adopting_nodes() -> None:
+    patch = _between(
+        DOM_PATCH,
+        "export function patchWorkspaceContent(",
+        "\n}",
+    )
+    assert "parseWorkspaceMarkup(markup)" in patch
+    assert "innerHTML" not in patch
+    assert 'import "https://cdn.jsdelivr.net/npm/dompurify@3.4.13/dist/purify.min.js"' in DOM_PATCH
+    assert 'DOMPurify.sanitize(String(markup || ""), {' in DOM_PATCH
+    assert "RETURN_DOM_FRAGMENT: true" in DOM_PATCH
+    assert "BLOCKED_MARKUP_ELEMENTS" in DOM_PATCH
+    assert 'FORBID_ATTR: ["srcdoc", "srcset"]' in DOM_PATCH
+    assert "hardenWorkspaceMarkup(fragment)" in DOM_PATCH
+    assert "escapeHtmlAttribute(query)" in FINDER_PATCH_FIXTURE
+    assert "unsafeScriptNotExecuted" in DOM_PATCH_FIXTURE
+    assert "unsafeScriptRemoved" in DOM_PATCH_FIXTURE
+    assert "unsafeEventsRemoved" in DOM_PATCH_FIXTURE
+    assert "unsafeUrlsRemoved" in DOM_PATCH_FIXTURE
 
 
 def test_desktop_owns_the_viewport_and_main_content_owns_scrolling() -> None:

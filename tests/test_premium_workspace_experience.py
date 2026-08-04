@@ -8,13 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 CATALOG = (ROOT / "web/app/catalog.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "web/app/styles.css").read_text(encoding="utf-8")
+FLOW_STYLES = (ROOT / "web/app/workspace-os-v4-flow.css").read_text(encoding="utf-8")
 INDEX = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
 SUPABASE_API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
 WORKSPACE_OS = (ROOT / "web/app/workspace-os-v4.js").read_text(encoding="utf-8")
 
 
 EXPECTED_FLOW = [
-    "home",
     "board",
     "generation",
     "review",
@@ -69,13 +69,13 @@ def test_workspace_opens_on_a_dedicated_today_home() -> None:
     assert 'href="#/workspace/home"' in APP
 
 
-def test_factory_flow_has_six_ordered_user_facing_stages() -> None:
+def test_factory_flow_has_five_ordered_user_facing_actions() -> None:
     flow = _between(APP, "const FACTORY_FLOW", "const HOME_SECTION_KEYS")
     flow_keys = re.findall(r'key:\s*"([a-z]+)"', flow)
     flow_steps = re.findall(r'step:\s*"(\d{2})"', flow)
 
     assert flow_keys == EXPECTED_FLOW
-    assert flow_steps == ["01", "02", "03", "04", "05", "06"]
+    assert flow_steps == ["01", "02", "03", "04", "05"]
 
 
 def test_home_and_section_headers_share_the_premium_flow_language() -> None:
@@ -83,10 +83,11 @@ def test_home_and_section_headers_share_the_premium_flow_language() -> None:
     header = _between(APP, "function pageHeader", "function factoryFlowMarkup")
     flow = _between(APP, "function factoryFlowMarkup", "function sectionBody")
 
-    assert 'class="home-hero"' in home
-    assert 'class="home-flow-list"' in home
-    assert "FACTORY_FLOW.map" in home
-    assert "<h2>${FACTORY_FLOW.length} этапов одного результата</h2>" in home
+    assert "workspace-home--single-action" in home
+    assert 'class="card home-single-action"' in home
+    assert 'class="home-single-action__facts"' in home
+    assert 'data-primary-action="true"' in home
+    assert "homeProjectSwitcherMarkup" in home
     assert 'class="workspace-page-intro"' in header
     assert "factoryFlowMarkup(activeSection)" in header
     assert 'class="factory-flow"' in flow
@@ -96,10 +97,10 @@ def test_home_and_section_headers_share_the_premium_flow_language() -> None:
     for selector in (
         ".workspace-page-intro",
         ".factory-flow",
-        ".home-hero",
-        ".home-flow-list",
     ):
         assert selector in STYLES
+    for selector in (".workspace-home--single-action", ".home-single-action"):
+        assert selector in FLOW_STYLES
 
 
 def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
@@ -107,7 +108,7 @@ def test_every_workspace_step_explains_now_done_stop_and_next() -> None:
     direction = _between(APP, "function workspaceDirectionMarkup", "function pageHeader")
     header = _between(APP, "function pageHeader", "function factoryFlowMarkup")
 
-    for key in EXPECTED_FLOW[1:]:
+    for key in EXPECTED_FLOW:
         block = _between(metadata, f"  {key}: Object.freeze({{", "  }),")
         for field in ("now", "done", "guard", "nextLabel", "nextHref", "guideHref"):
             assert f"{field}:" in block
@@ -157,18 +158,17 @@ def test_primary_navigation_is_exactly_six_ordered_workspace_apps() -> None:
 
 
 def test_home_action_closes_the_loop_through_metrics_and_payouts() -> None:
-    home = _between(APP, "function homeNextAction", "function renderHomeSection")
+    home = _between(APP, "function serverProjectNextAction", "async function submitHomeProjectCreate")
     rendered_home = _between(APP, "function renderHomeSection", "function realGenerationSku")
 
-    assert "publications" in home
-    assert "payouts" in home
-    assert 'href: "#/workspace/stats"' in home
-    assert 'href: "#/workspace/payouts"' in home
+    assert "exactProjectNextActionRoute(rawFlow, projectId)" in home
+    assert "projectId" in home
     assert "doneWhen" in home
     assert "nextHint" in home
-    assert 'class="home-next-action-proof"' in rendered_home
+    assert "serverProjectNextAction(projectFlow.next_action, projectFlow)" in rendered_home
+    assert 'class="home-single-action__facts"' in rendered_home
     assert "Готово, когда" in rendered_home
-    assert ".home-next-action-proof" in STYLES
+    assert ".home-single-action__facts" in FLOW_STYLES
 
 
 def test_home_action_routes_from_publication_to_metrics_then_payout() -> None:
@@ -460,14 +460,17 @@ def test_paid_generation_stays_single_flight_across_workspace_rerenders() -> Non
     assert "delete form.dataset.busy" in busy
 
 
-def test_home_counts_only_real_user_actions_and_labels_data_scope() -> None:
-    helpers = _between(APP, "function isActionablePlacement", "function realGenerationSku")
+def test_home_uses_the_server_scoped_project_next_action() -> None:
+    home = _between(APP, "function renderHomeSection", "function realGenerationSku")
+    exact_route = _between(APP, "function exactProjectNextActionRoute", "function currentWorkspaceProjectName")
 
-    assert '["scheduled", "ready"]' in helpers
-    assert "placements.filter(isActionablePlacement)" in helpers
-    assert "!isAutomaticGenerationWait(item)" in helpers
-    assert "последние 50 записей каждого раздела" in helpers
-    assert ".home-data-scope" in STYLES
+    assert "const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {})" in home
+    assert "projectFlow.project_id" in home
+    assert "serverProjectNextAction(projectFlow.next_action, projectFlow)" in home
+    assert "workspace-home--single-action" in home
+    assert "expectedProjectId" in exact_route
+    assert "action?.project_id" in exact_route
+    assert 'params.getAll("project_id")' in exact_route
 
 
 def test_mobile_grids_and_focus_states_are_explicitly_accessible() -> None:
