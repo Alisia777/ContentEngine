@@ -2575,7 +2575,21 @@ begin
     'owner', 'admin', 'producer', 'reviewer'
   ]);
   if p_payload ? 'page_size' then
-    page_size_value := (p_payload ->> 'page_size')::integer;
+    if coalesce(p_payload ->> 'page_size', '') !~ '^[0-9]+$' then
+      raise exception using
+        errcode = '22023', message = 'workspace_page_size_invalid';
+    end if;
+    begin
+      page_size_value := (p_payload ->> 'page_size')::integer;
+    exception
+      when invalid_text_representation or numeric_value_out_of_range then
+        raise exception using
+          errcode = '22023', message = 'workspace_page_size_invalid';
+    end;
+    if page_size_value not between 1 and 100 then
+      raise exception using
+        errcode = '22023', message = 'workspace_page_size_invalid';
+    end if;
   end if;
   project_id_value := content_factory_private.require_uuid(p_payload, 'project_id');
   perform content_factory_private.require_workspace_project(

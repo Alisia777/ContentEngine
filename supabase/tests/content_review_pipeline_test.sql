@@ -930,7 +930,7 @@ select throws_ok(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-invalid-extra',
-    'media_object_id', '95300000-0000-4000-8000-000000000002',
+    'media_id', '95300000-0000-4000-8000-000000000002',
     'platform', 'vk',
     'product_category', 'cosmetics',
     'unexpected', true
@@ -955,7 +955,7 @@ select throws_ok(
     'organization_id', '95100000-0000-4000-8000-000000000001',
     'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-foreign-media',
-    'media_object_id', '95300000-0000-4000-8000-000000000001',
+    'media_id', '95300000-0000-4000-8000-000000000001',
     'platform', 'vk',
     'product_category', 'cosmetics'
   ))$$,

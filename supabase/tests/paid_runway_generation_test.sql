@@ -452,9 +452,8 @@ select throws_ok(
 
 select throws_ok(
   $$
-    select public.creator_start_real_generation(jsonb_build_object(
+    select content_factory_private.creator_start_real_generation_pre_generation_spec_v15(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
-      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-spend-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',

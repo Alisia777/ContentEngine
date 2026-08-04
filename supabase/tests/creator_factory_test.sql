@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(47);
+select plan(48);
 
 create or replace function pg_temp.final_exam_test_rationales()
 returns jsonb
@@ -154,7 +154,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  90,
+  97,
   'authenticated can execute all creator RPCs'
 );
 
@@ -977,6 +977,20 @@ select throws_ok(
   '22023',
   'workspace_page_size_invalid',
   'workspace page integer overflow has a stable validation error'
+);
+
+select throws_ok(
+  $$
+    select public.creator_workspace_section(jsonb_build_object(
+      'organization_id', (select organization_id from creator_test_context),
+      'project_id', (select project_id from creator_test_context),
+      'section', 'generation',
+      'page_size', 'not-an-integer'
+    ))
+  $$,
+  '22023',
+  'workspace_page_size_invalid',
+  'workspace page invalid text has a stable validation error'
 );
 
 select throws_ok(
