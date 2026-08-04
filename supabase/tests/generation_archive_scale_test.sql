@@ -217,6 +217,26 @@ values
     'owner', 'active'
   );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+)
+values
+  (
+    'a8300000-0000-4000-8000-000000000001',
+    'a8200000-0000-4000-8000-000000000001', null,
+    'Generation archive main project', 'blue', 'project', null,
+    'active', 1024, 'a8100000-0000-4000-8000-000000000001',
+    'a8100000-0000-4000-8000-000000000001'
+  ),
+  (
+    'a8300000-0000-4000-8000-000000000002',
+    'a8200000-0000-4000-8000-000000000002', null,
+    'Generation archive other project', 'slate', 'project', null,
+    'active', 1024, 'a8100000-0000-4000-8000-000000000003',
+    'a8100000-0000-4000-8000-000000000003'
+  );
+
 select lives_ok(
   $$select pg_temp.grant_generation_archive_training_gate(
     'a8200000-0000-4000-8000-000000000001',
@@ -258,13 +278,14 @@ values
 -- 1,005 rows exercise eleven pages. Groups of 250 share a timestamp so the
 -- UUID tie-breaker is required; the first four groups cover the current 4w.
 insert into content_factory.generation_batches (
-  id, organization_id, product_id, created_by, name, mode,
+  id, organization_id, project_id, product_id, created_by, name, mode,
   allow_real_spend, status, total_requested, total_created, input,
   request_hash, idempotency_key, created_at, updated_at
 )
 select
   ('a8500000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
   'a8200000-0000-4000-8000-000000000001'::uuid,
+  'a8300000-0000-4000-8000-000000000001'::uuid,
   'a8400000-0000-4000-8000-000000000001'::uuid,
   case when series <= 3
     then 'a8100000-0000-4000-8000-000000000002'::uuid
@@ -282,13 +303,14 @@ select
 from generate_series(1, 1005) series;
 
 insert into content_factory.generation_batches (
-  id, organization_id, product_id, created_by, name, mode,
+  id, organization_id, project_id, product_id, created_by, name, mode,
   allow_real_spend, status, total_requested, total_created, input,
   request_hash, idempotency_key, created_at, updated_at
 )
 values (
   'b8500000-0000-4000-8000-000000000001',
   'a8200000-0000-4000-8000-000000000002',
+  'a8300000-0000-4000-8000-000000000002',
   'a8400000-0000-4000-8000-000000000002',
   'a8100000-0000-4000-8000-000000000003',
   'Other tenant archive batch',
@@ -338,6 +360,7 @@ begin
     response := public.creator_generation_archive(
       jsonb_build_object(
         'organization_id', 'a8200000-0000-4000-8000-000000000001',
+        'project_id', 'a8300000-0000-4000-8000-000000000001',
         'period', 'all',
         'status', 'all',
         'page_size', 100
@@ -485,6 +508,7 @@ select is(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', 'week',
     'query', 'a8500000-0000-4000-8000-000000000001',
     'page_size', 100
@@ -495,6 +519,7 @@ select is(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', 'week',
     'query', 'a8500000-0000-4000-8000-000000000251',
     'page_size', 100
@@ -505,6 +530,7 @@ select is(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', '4w', 'query', 'Archive batch 1000', 'page_size', 100
   )) -> 'batches'),
   1,
@@ -513,6 +539,7 @@ select is(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', '4w', 'query', 'Archive batch 1001', 'page_size', 100
   )) -> 'batches'),
   0,
@@ -521,6 +548,7 @@ select is(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'query', 'a8500000-0000-4000-8000-000000001001',
     'page_size', 100
   )) -> 'batches'),
@@ -530,6 +558,7 @@ select is(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', 'all', 'query', '  ARCHIVE BATCH 1005  ', 'page_size', 100
   )) -> 'batches'),
   1,
@@ -541,6 +570,7 @@ select ok(
     from jsonb_array_elements(public.creator_generation_archive(
       jsonb_build_object(
         'organization_id', 'a8200000-0000-4000-8000-000000000001',
+        'project_id', 'a8300000-0000-4000-8000-000000000001',
         'period', 'all', 'status', 'issue', 'page_size', 100
       )
     ) -> 'batches') item
@@ -554,6 +584,7 @@ select ok(
     from jsonb_array_elements(public.creator_generation_archive(
       jsonb_build_object(
         'organization_id', 'a8200000-0000-4000-8000-000000000001',
+        'project_id', 'a8300000-0000-4000-8000-000000000001',
         'period', 'all', 'status', 'ready', 'page_size', 100
       )
     ) -> 'batches') item
@@ -564,6 +595,7 @@ select ok(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', 'all', 'status', 'active', 'page_size', 100
   )) -> 'batches'),
   0,
@@ -578,6 +610,7 @@ select set_config(
 select is(
   jsonb_array_length(public.creator_generation_archive(jsonb_build_object(
     'organization_id', 'a8200000-0000-4000-8000-000000000001',
+    'project_id', 'a8300000-0000-4000-8000-000000000001',
     'period', 'all', 'page_size', 100
   )) -> 'batches'),
   3,
@@ -589,6 +622,7 @@ select ok(
     from jsonb_array_elements(public.creator_generation_archive(
       jsonb_build_object(
         'organization_id', 'a8200000-0000-4000-8000-000000000001',
+        'project_id', 'a8300000-0000-4000-8000-000000000001',
         'period', 'all', 'page_size', 100
       )
     ) -> 'batches') item
@@ -609,7 +643,8 @@ select set_config(
 select throws_ok(
   $$
     select public.creator_generation_archive(jsonb_build_object(
-      'organization_id', 'a8200000-0000-4000-8000-000000000001'
+      'organization_id', 'a8200000-0000-4000-8000-000000000001',
+      'project_id', 'a8300000-0000-4000-8000-000000000001'
     ))
   $$,
   '42501',
@@ -623,36 +658,47 @@ select set_config(
   true
 );
 select throws_ok(
-  $$select public.creator_generation_archive('{"period":"year"}'::jsonb)$$,
+  $$select public.creator_generation_archive(
+    '{"project_id":"a8300000-0000-4000-8000-000000000001","period":"year"}'::jsonb
+  )$$,
   '22023', 'generation_archive_period_invalid',
   'unknown periods fail closed'
 );
 select throws_ok(
-  $$select public.creator_generation_archive('{"status":"unknown"}'::jsonb)$$,
+  $$select public.creator_generation_archive(
+    '{"project_id":"a8300000-0000-4000-8000-000000000001","status":"unknown"}'::jsonb
+  )$$,
   '22023', 'generation_archive_status_invalid',
   'unknown status groups fail closed'
 );
 select throws_ok(
-  $$select public.creator_generation_archive('{"page_size":101}'::jsonb)$$,
+  $$select public.creator_generation_archive(
+    '{"project_id":"a8300000-0000-4000-8000-000000000001","page_size":101}'::jsonb
+  )$$,
   '22023', 'generation_archive_page_size_invalid',
   'oversized pages fail closed'
 );
 select throws_ok(
   $$select public.creator_generation_archive(
-    '{"cursor":{"at":"not-a-time","id":"not-a-uuid"}}'::jsonb
+    '{"project_id":"a8300000-0000-4000-8000-000000000001","cursor":{"at":"not-a-time","id":"not-a-uuid"}}'::jsonb
   )$$,
   '22023', 'generation_archive_cursor_invalid',
   'malformed keysets fail closed'
 );
 select throws_ok(
   $$select public.creator_generation_archive(
-    jsonb_build_object('query', E'unsafe\nquery')
+    jsonb_build_object(
+      'project_id', 'a8300000-0000-4000-8000-000000000001',
+      'query', E'unsafe\nquery'
+    )
   )$$,
   '22023', 'generation_archive_query_invalid',
   'control characters in search fail closed'
 );
 select throws_ok(
-  $$select public.creator_generation_archive('{"extra":true}'::jsonb)$$,
+  $$select public.creator_generation_archive(
+    '{"project_id":"a8300000-0000-4000-8000-000000000001","extra":true}'::jsonb
+  )$$,
   '22023', 'generation_archive_payload_invalid',
   'unknown payload fields fail closed'
 );

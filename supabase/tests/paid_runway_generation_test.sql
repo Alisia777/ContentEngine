@@ -169,7 +169,7 @@ begin
 end;
 $course_gate_fixture$;
 
-select plan(42);
+select plan(44);
 
 select ok(
   has_function_privilege(
@@ -259,6 +259,26 @@ values
   ('80000000-0000-4000-8000-000000000001', '81555555-5555-4555-8555-555555555555', 'viewer', 'active'),
   ('80000000-0000-4000-8000-000000000001', '81666666-6666-4666-8666-666666666666', 'operator', 'active');
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+)
+values
+  (
+    '80100000-0000-4000-8000-000000000001',
+    '80000000-0000-4000-8000-000000000001', null,
+    'Paid Runway project', 'blue', 'project', null, 'active', 1024,
+    '81111111-1111-4111-8111-111111111111',
+    '81111111-1111-4111-8111-111111111111'
+  ),
+  (
+    '80100000-0000-4000-8000-000000000002',
+    '80000000-0000-4000-8000-000000000001', null,
+    'Other paid project', 'slate', 'project', null, 'active', 2048,
+    '81111111-1111-4111-8111-111111111111',
+    '81111111-1111-4111-8111-111111111111'
+  );
+
 insert into content_factory.generation_spend_policies (
   organization_id, paid_generation_enabled,
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
@@ -335,23 +355,46 @@ values (
 );
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
-values (
-  '83000000-0000-4000-8000-000000000001',
-  '80000000-0000-4000-8000-000000000001',
-  '81111111-1111-4111-8111-111111111111',
-  '82000000-0000-4000-8000-000000000001',
-  'contentengine-private',
-  '80000000-0000-4000-8000-000000000001/81111111-1111-4111-8111-111111111111/uploads/runway-source.jpg',
-  'image/jpeg',
-  2048,
-  repeat('a', 64),
-  'ready',
-  '{"kind":"product_photo","original_filename":"runway-source.jpg","rights_confirmed":true}'::jsonb,
-  'paid-runway-source-0001'
-);
+values
+  (
+    '83000000-0000-4000-8000-000000000001',
+    '80000000-0000-4000-8000-000000000001',
+    '80100000-0000-4000-8000-000000000001',
+    '81111111-1111-4111-8111-111111111111',
+    '82000000-0000-4000-8000-000000000001',
+    'contentengine-private',
+    '80000000-0000-4000-8000-000000000001/81111111-1111-4111-8111-111111111111/uploads/runway-source.jpg',
+    'image/jpeg', 2048, repeat('a', 64), 'ready',
+    '{"kind":"product_photo","original_filename":"runway-source.jpg","rights_confirmed":true}'::jsonb,
+    'paid-runway-source-0001'
+  ),
+  (
+    '83000000-0000-4000-8000-000000000002',
+    '80000000-0000-4000-8000-000000000001',
+    '80100000-0000-4000-8000-000000000002',
+    '81111111-1111-4111-8111-111111111111',
+    '82000000-0000-4000-8000-000000000001',
+    'contentengine-private',
+    '80000000-0000-4000-8000-000000000001/81111111-1111-4111-8111-111111111111/uploads/other-project.jpg',
+    'image/jpeg', 1024, repeat('b', 64), 'ready',
+    '{"kind":"product_photo","original_filename":"other-project.jpg","rights_confirmed":true}'::jsonb,
+    'paid-runway-other-project-0001'
+  ),
+  (
+    '83000000-0000-4000-8000-000000000003',
+    '80000000-0000-4000-8000-000000000001',
+    '80100000-0000-4000-8000-000000000001',
+    '81111111-1111-4111-8111-111111111111',
+    '82000000-0000-4000-8000-000000000001',
+    'contentengine-private',
+    '80000000-0000-4000-8000-000000000001/81111111-1111-4111-8111-111111111111/uploads/not-ready.jpg',
+    'image/jpeg', 1024, repeat('c', 64), 'uploading',
+    '{"kind":"product_photo","original_filename":"not-ready.jpg","rights_confirmed":true}'::jsonb,
+    'paid-runway-not-ready-0001'
+  );
 
 create temporary table paid_runway_context (
   initial_response jsonb,
@@ -374,6 +417,33 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
+      'media_ids', '["83000000-0000-4000-8000-000000000002"]'::jsonb
+    ))
+  $$,
+  '42501',
+  'project_media_scope_mismatch',
+  'a ready reference from another project is rejected before generation'
+);
+
+select throws_ok(
+  $$
+    select public.creator_start_real_generation(jsonb_build_object(
+      'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
+      'media_ids', '["83000000-0000-4000-8000-000000000003"]'::jsonb
+    ))
+  $$,
+  '42501',
+  'project_media_scope_mismatch',
+  'a same-project reference must be ready before generation'
+);
+
+select throws_ok(
+  $$
+    select public.creator_start_real_generation(jsonb_build_object(
+      'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-spend-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -393,6 +463,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-count-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 2, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -412,6 +483,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-bad-media-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -447,6 +519,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-viewer-denied-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -474,6 +547,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-uncertified-denied-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '9:16', 'brief', 'A clean product turntable.',
@@ -509,6 +583,7 @@ select is(
 insert into paid_runway_context (initial_response)
 values (public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
+  'project_id', '80100000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-success-path-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '9:16',
@@ -584,6 +659,7 @@ select throws_ok(
 select is(
   public.creator_start_real_generation(jsonb_build_object(
     'organization_id', '80000000-0000-4000-8000-000000000001',
+    'project_id', '80100000-0000-4000-8000-000000000001',
     'idempotency_key', 'real-success-path-0001',
     'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
     'count', 1, 'format', '9:16',
@@ -604,6 +680,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-assignee-concurrency-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1', 'brief', 'Second paid job.',
@@ -621,6 +698,7 @@ select throws_ok(
 update paid_runway_context
 set reviewer_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
+  'project_id', '80100000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-reviewer-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '1:1',
@@ -635,6 +713,7 @@ set reviewer_response = public.creator_start_real_generation(jsonb_build_object(
 update paid_runway_context
 set operator_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '80000000-0000-4000-8000-000000000001',
+  'project_id', '80100000-0000-4000-8000-000000000001',
   'idempotency_key', 'real-org-concurrency-operator-0001',
   'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
   'count', 1, 'format', '16:9',
@@ -651,6 +730,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-org-concurrency-reject-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1', 'brief', 'Fourth concurrent job.',
@@ -827,6 +907,7 @@ select ok(
 select ok(
   (public.creator_real_generation_status(jsonb_build_object(
     'organization_id', '80000000-0000-4000-8000-000000000001',
+    'project_id', '80100000-0000-4000-8000-000000000001',
     'job_id', (select initial_response #>> '{job,id}' from paid_runway_context)
   )) #>> '{job,updated_at}') is not null,
   'authorized user status includes updated_at for timeout recovery'
@@ -845,6 +926,7 @@ select throws_ok(
   $$
     select public.creator_real_generation_status(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'job_id', (select initial_response #>> '{job,id}' from paid_runway_context)
     ))
   $$,
@@ -887,6 +969,7 @@ begin
   for ordinal in 1..7 loop
     response := public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-seed-' || lpad(ordinal::text, 4, '0'),
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1',
@@ -914,6 +997,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '80000000-0000-4000-8000-000000000001',
+      'project_id', '80100000-0000-4000-8000-000000000001',
       'idempotency_key', 'real-daily-reject-0001',
       'sku', 'REAL-SKU-1', 'product_name', 'Runway product',
       'count', 1, 'format', '1:1', 'brief', 'Over the daily quota.',

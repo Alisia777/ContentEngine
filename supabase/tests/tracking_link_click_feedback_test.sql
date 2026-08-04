@@ -45,17 +45,19 @@ select ok(
 create temporary table tracking_test_context (
   organization_id uuid not null,
   profile_id uuid not null,
+  project_id uuid not null,
   product_id uuid not null,
   task_id uuid not null,
   placement_id uuid not null
 ) on commit drop;
 
 insert into tracking_test_context (
-  organization_id, profile_id, product_id, task_id, placement_id
+  organization_id, profile_id, project_id, product_id, task_id, placement_id
 )
 select
   (bootstrap -> 'organization' ->> 'id')::uuid,
   'a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1'::uuid,
+  'a5a5a5a5-a5a5-45a5-85a5-a5a5a5a5a5a5'::uuid,
   'a2a2a2a2-a2a2-42a2-82a2-a2a2a2a2a2a2'::uuid,
   'a3a3a3a3-a3a3-43a3-83a3-a3a3a3a3a3a3'::uuid,
   'a4a4a4a4-a4a4-44a4-84a4-a4a4a4a4a4a4'::uuid
@@ -84,6 +86,22 @@ select
   context.profile_id
 from tracking_test_context context;
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, kind, status, position,
+  created_by, updated_by
+)
+select
+  context.project_id,
+  context.organization_id,
+  null,
+  'Tracking publication project',
+  'project',
+  'active',
+  1024,
+  context.profile_id,
+  context.profile_id
+from tracking_test_context context;
+
 insert into content_factory.products (
   id, organization_id, sku, title, status, metadata, created_by
 )
@@ -98,7 +116,7 @@ select
 from tracking_test_context context;
 
 insert into content_factory.creator_tasks (
-  id, organization_id, assignee_id, created_by, product_id,
+  id, organization_id, assignee_id, created_by, product_id, project_id,
   task_type, title, instructions, status, idempotency_key,
   completed_at
 )
@@ -108,6 +126,7 @@ select
   context.profile_id,
   context.profile_id,
   context.product_id,
+  context.project_id,
   'placement',
   'Publish tracking fixture',
   'Use the first-party tracking link.',
@@ -118,6 +137,7 @@ from tracking_test_context context;
 
 insert into content_factory.placements (
   id, organization_id, product_id, task_id, assigned_to, created_by,
+  project_id,
   platform, destination_ref, status, published_at, final_url,
   request_hash, idempotency_key, metadata
 )
@@ -128,6 +148,7 @@ select
   context.task_id,
   context.profile_id,
   context.profile_id,
+  context.project_id,
   'youtube',
   '@tracking-owner',
   'published',
@@ -145,6 +166,7 @@ create temporary table tracking_configuration (
 insert into tracking_configuration (result)
 select public.creator_configure_tracking_link(jsonb_build_object(
   'organization_id', context.organization_id,
+  'project_id', context.project_id,
   'placement_id', context.placement_id,
   'target_url', 'https://shop.example/products/tracking-fixture',
   'idempotency_key', 'pgtap-configure-tracking-link-0001'
@@ -306,6 +328,7 @@ create temporary table tracking_placement_workspace (
 insert into tracking_placement_workspace (result)
 select public.creator_workspace_section(jsonb_build_object(
   'organization_id', context.organization_id,
+  'project_id', context.project_id,
   'section', 'placement'
 ))
 from tracking_test_context context;
@@ -327,6 +350,7 @@ create temporary table tracking_stats_workspace (
 insert into tracking_stats_workspace (result)
 select public.creator_workspace_section(jsonb_build_object(
   'organization_id', context.organization_id,
+  'project_id', context.project_id,
   'section', 'stats'
 ))
 from tracking_test_context context;
@@ -352,6 +376,7 @@ select throws_ok(
   $$
     select public.creator_configure_tracking_link(jsonb_build_object(
       'organization_id', context.organization_id,
+      'project_id', context.project_id,
       'placement_id', context.placement_id,
       'target_url', 'https://shop.example/products/changed-target',
       'idempotency_key', 'pgtap-configure-tracking-link-0002'

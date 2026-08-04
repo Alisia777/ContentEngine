@@ -33,3 +33,15 @@ def test_placement_private_base_is_preserved_behind_the_project_wrapper() -> Non
     ) in COMPLIANCE_MIGRATION
     assert "result := content_factory_private.creator_confirm_placement(p_payload)" in COMPLIANCE_MIGRATION
     assert "creator_confirm_placement_pre_project_v47" in PROJECT_MIGRATION
+
+
+def test_project_media_guard_defers_empty_list_validation_to_inner_rpc() -> None:
+    start = PROJECT_MIGRATION.index("create or replace function content_factory_private.call_project_scoped_v47")
+    end = PROJECT_MIGRATION.index("create or replace function", start + 1)
+    dispatcher = PROJECT_MIGRATION[start:end]
+
+    assert "jsonb_typeof(media_ids_value) = 'array'" in dispatcher
+    assert "media.project_id = project_id_value" in dispatcher
+    assert "media.status = 'ready'" in dispatcher
+    assert "jsonb_array_length(media_ids_value) < 1" not in dispatcher
+    assert "jsonb_typeof(media_ids_value) <> 'array'" not in dispatcher

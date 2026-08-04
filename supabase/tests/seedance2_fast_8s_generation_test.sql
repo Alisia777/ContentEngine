@@ -278,6 +278,18 @@ values (
   'active'
 );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+)
+values (
+  '90100000-0000-4000-8000-000000000001',
+  '90000000-0000-4000-8000-000000000001', null,
+  'Seedance generation project', 'blue', 'project', null, 'active', 1024,
+  '91111111-1111-4111-8111-111111111111',
+  '91111111-1111-4111-8111-111111111111'
+);
+
 insert into content_factory.generation_spend_policies (
   organization_id, paid_generation_enabled,
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
@@ -319,24 +331,6 @@ begin
 end;
 $$;
 
-select throws_ok(
-  $$
-    select public.creator_start_real_generation(jsonb_build_object(
-      'organization_id', '90000000-0000-4000-8000-000000000001',
-      'idempotency_key', 'seedance-instagram-preflight-0001',
-      'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
-      'count', 1, 'format', '9:16', 'brief', 'A paid Instagram video.',
-      'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
-      'platform', 'instagram', 'destination_ref', 'seedance-test',
-      'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
-      'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
-      'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
-    ))
-  $$,
-  '42501', 'paid_generation_platform_not_supported',
-  'Instagram fails before a paid job or spend reservation can be created'
-);
-
 insert into content_factory.products (
   id, organization_id, sku, title, status, created_by
 )
@@ -350,13 +344,14 @@ values (
 );
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 )
 values
   (
     '93000000-0000-4000-8000-000000000001',
     '90000000-0000-4000-8000-000000000001',
+    '90100000-0000-4000-8000-000000000001',
     '91111111-1111-4111-8111-111111111111',
     '92000000-0000-4000-8000-000000000001',
     'contentengine-private',
@@ -368,6 +363,7 @@ values
   (
     '93000000-0000-4000-8000-000000000002',
     '90000000-0000-4000-8000-000000000001',
+    '90100000-0000-4000-8000-000000000001',
     '91111111-1111-4111-8111-111111111111',
     '92000000-0000-4000-8000-000000000001',
     'contentengine-private',
@@ -376,6 +372,25 @@ values
     '{"kind":"packshot","original_filename":"unapproved-seedance.jpg","rights_confirmed":false}'::jsonb,
     'seedance-unapproved-media-0001'
   );
+
+select throws_ok(
+  $$
+    select public.creator_start_real_generation(jsonb_build_object(
+      'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
+      'idempotency_key', 'seedance-instagram-preflight-0001',
+      'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
+      'count', 1, 'format', '9:16', 'brief', 'A paid Instagram video.',
+      'media_ids', '["93000000-0000-4000-8000-000000000001"]'::jsonb,
+      'platform', 'instagram', 'destination_ref', 'seedance-test',
+      'mode', 'real', 'provider', 'runway', 'model', 'seedance2_fast',
+      'duration_seconds', 8, 'audio', true, 'allow_real_spend', true,
+      'spend_confirmation', 'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32'
+    ))
+  $$,
+  '42501', 'paid_generation_platform_not_supported',
+  'Instagram fails before a paid job or spend reservation can be created'
+);
 
 create temporary table seedance_test_context (
   success_response jsonb,
@@ -399,6 +414,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-audio-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
       'count', 1, 'format', '9:16', 'brief', 'Show the exact product speaking.',
@@ -417,6 +433,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-ratio-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
       'count', 1, 'format', '16:9', 'brief', 'Show the exact product speaking.',
@@ -435,6 +452,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-confirm-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
       'count', 1, 'format', '9:16', 'brief', 'Show the exact product speaking.',
@@ -453,6 +471,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-prompt-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
       'count', 1, 'format', '9:16', 'brief', '',
@@ -471,6 +490,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-media-reject-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
       'count', 1, 'format', '9:16', 'brief', 'Show the exact product speaking.',
@@ -488,6 +508,7 @@ select throws_ok(
 insert into seedance_test_context (success_response)
 values (public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
+  'project_id', '90100000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-success-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
   'count', 1, 'format', '9:16',
@@ -573,6 +594,7 @@ select ok(
 select is(
   public.creator_start_real_generation(jsonb_build_object(
     'organization_id', '90000000-0000-4000-8000-000000000001',
+    'project_id', '90100000-0000-4000-8000-000000000001',
     'idempotency_key', 'seedance-success-0001',
     'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
     'count', 1, 'format', '9:16',
@@ -593,6 +615,7 @@ select is(
 select is(
   public.creator_real_generation_status(jsonb_build_object(
     'organization_id', '90000000-0000-4000-8000-000000000001',
+    'project_id', '90100000-0000-4000-8000-000000000001',
     'job_id', (select success_response #>> '{job,id}' from seedance_test_context)
   )) #>> '{job,audio}',
   'true',
@@ -733,6 +756,7 @@ select ok(
 select is(
   public.creator_real_generation_status(jsonb_build_object(
     'organization_id', '90000000-0000-4000-8000-000000000001',
+    'project_id', '90100000-0000-4000-8000-000000000001',
     'job_id', (select success_response #>> '{job,id}' from seedance_test_context)
   )) #>> '{job,estimated_credits}',
   '435',
@@ -742,6 +766,7 @@ select is(
 update seedance_test_context
 set failure_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
+  'project_id', '90100000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-failure-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
   'count', 1, 'format', '9:16',
@@ -906,6 +931,7 @@ select ok(
 update seedance_test_context
 set nonrefund_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
+  'project_id', '90100000-0000-4000-8000-000000000001',
   'idempotency_key', 'seedance-nonrefund-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
   'count', 1, 'format', '9:16',
@@ -969,6 +995,7 @@ select throws_ok(
   $$
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', '90000000-0000-4000-8000-000000000001',
+      'project_id', '90100000-0000-4000-8000-000000000001',
       'idempotency_key', 'seedance-success-0001',
       'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
       'count', 1, 'format', '9:16', 'brief', 'Show the exact product speaking clearly.',
@@ -986,6 +1013,7 @@ select throws_ok(
 update seedance_test_context
 set gen4_response = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', '90000000-0000-4000-8000-000000000001',
+  'project_id', '90100000-0000-4000-8000-000000000001',
   'idempotency_key', 'gen4-after-seedance-0001',
   'sku', 'SEEDANCE-SKU-1', 'product_name', 'Seedance product',
   'count', 1, 'format', '16:9',

@@ -3650,9 +3650,8 @@ begin
   end if;
   if p_media_list then
     media_ids_value := coalesce(p_payload -> 'media_ids', '[]'::jsonb);
-    if jsonb_typeof(media_ids_value) <> 'array'
-       or jsonb_array_length(media_ids_value) < 1
-       or exists (
+    if jsonb_typeof(media_ids_value) = 'array'
+       and exists (
          select 1
          from jsonb_array_elements_text(media_ids_value) item(value)
          where not exists (
