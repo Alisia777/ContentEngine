@@ -139,4 +139,3 @@ def test_project_chooser_home_still_owns_the_project_surface() -> None:
 
     assert mounted["projectMode"] is True
     assert mounted["chooserSurface"] == "true"
-
