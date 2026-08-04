@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.11 route loader.
+ * ContentEngine Desktop v4.12 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.11";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.12";
 
-const BUILD = "20260804.os4.11";
+const BUILD = "20260804.os4.12";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -239,7 +239,7 @@ function retry() {
   retryPromise = loadRoute(route, actionKey)
     .catch((error) => {
       setFailed(route, error);
-      console.error("ContentEngine Desktop v4.11 route retry failed", error);
+      console.error("ContentEngine Desktop v4.12 route retry failed", error);
       return false;
     })
     .finally(() => {
@@ -277,7 +277,7 @@ function schedule() {
       if (scheduledRoute === routePath() && scheduledActionKey === workspaceActionKey()) {
         setFailed(scheduledRoute, error);
       }
-      console.error("ContentEngine Desktop v4.11 route failed to start", error);
+      console.error("ContentEngine Desktop v4.12 route failed to start", error);
     });
   });
 }
