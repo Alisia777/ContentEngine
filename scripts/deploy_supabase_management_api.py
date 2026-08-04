@@ -277,15 +277,19 @@ def load_migrations(directory: Path) -> list[Migration]:
         versions.add(version)
 
         raw = path.read_bytes()
+        # Git may materialize text files as CRLF on Windows while production
+        # deploys from a Linux checkout. Migration identity must therefore be
+        # based on one canonical byte representation, not checkout settings.
+        canonical_raw = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         try:
-            sql = raw.decode("utf-8")
+            sql = canonical_raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ConfigurationError("A migration is not valid UTF-8") from exc
         migrations.append(
             Migration(
                 version=version,
                 path=path,
-                sha256=hashlib.sha256(raw).hexdigest(),
+                sha256=hashlib.sha256(canonical_raw).hexdigest(),
                 body=_unwrap_transaction(sql, source_label=path.name),
             )
         )
