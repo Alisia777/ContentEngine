@@ -11,6 +11,8 @@ const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
+export const SEEDANCE_RUSSIAN_DICTION_GUARD =
+  "Русская дикция: каждое слово и окончание произнеси отчётливо, без акцента и лишних гласных; числа, градусы и названия — точно; сохрани паузы между короткими фразами.";
 const PRODUCT_INTERACTION_PREFIX = "Масштаб и действие:";
 const COUNTERTOP_PRODUCT_PATTERN =
   /(?:пароварк|мультиварк|аэрогрил|духовк|микроволнов|кофемашин|кофеварк|электрогрил|тостер|соковыжимал|хлебопеч|кухонн\p{L}*\s+комбайн|стационарн\p{L}*\s+блендер|steamer|air\s*fryer|microwave|coffee\s*machine|countertop\s*appliance)/iu;
@@ -262,6 +264,11 @@ export function compileContentGenerationPrompt(
     required(`Действие в кадре: ${action || "[ДОБАВЬТЕ ОДНО ПОНЯТНОЕ ДЕЙСТВИЕ]"}.`),
     required(interaction.requirement),
     required(spokenLine),
+    required(
+      seedance && /\p{Script=Cyrillic}/u.test(scenario.spokenScript)
+        ? SEEDANCE_RUSSIAN_DICTION_GUARD
+        : "",
+    ),
     required(seedance ? GENERATED_TEXT_GUARD : ""),
     optional(brief.visualDirection ? `Визуальное направление: ${brief.visualDirection}.` : ""),
     optional(brief.keyMessage ? `Главная мысль: ${brief.keyMessage}.` : ""),
@@ -439,6 +446,11 @@ export function compileSafeGenerationBrief({
       ),
       required(interaction.requirement),
       required(`Реплика героя дословно: «${spokenLine}»`),
+      required(
+        /\p{Script=Cyrillic}/u.test(spokenLine)
+          ? SEEDANCE_RUSSIAN_DICTION_GUARD
+          : "",
+      ),
       required(GENERATED_TEXT_GUARD),
       required(learningDirection),
       optional(safeVisualDirection ? `Визуальное направление: ${safeVisualDirection}.` : ""),
@@ -1123,6 +1135,15 @@ export function inspectContentGenerationPrompt(
         blockers.push({
           code: "spoken_script_too_long",
           message: `Для ${normalizedDuration} секунд оставьте в точной реплике не больше ${spokenWordLimit} слов.`,
+        });
+      }
+      if (
+        /\p{Script=Cyrillic}/u.test(match[1])
+        && !normalized.includes(SEEDANCE_RUSSIAN_DICTION_GUARD)
+      ) {
+        blockers.push({
+          code: "russian_diction_guard_missing",
+          message: "Верните обязательное требование к русской дикции, окончаниям, числам и паузам.",
         });
       }
     }

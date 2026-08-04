@@ -17,6 +17,8 @@ const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
+const SEEDANCE_RUSSIAN_DICTION_GUARD =
+  "Русская дикция: каждое слово и окончание произнеси отчётливо, без акцента и лишних гласных; числа, градусы и названия — точно; сохрани паузы между короткими фразами.";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
@@ -887,6 +889,10 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
     if (spokenMatch === null || spokenMatch[1].includes("[СОКРАТИТЕ")) {
       return false;
     }
+    if (
+      /\p{Script=Cyrillic}/u.test(spokenMatch[1]) &&
+      !payload.brief.includes(SEEDANCE_RUSSIAN_DICTION_GUARD)
+    ) return false;
     const spokenWords = countPromptWords(spokenMatch[1]);
     return spokenWords >= 1 &&
       spokenWords <= seedanceSpokenWordLimit(payload.duration_seconds);

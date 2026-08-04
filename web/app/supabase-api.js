@@ -3312,6 +3312,7 @@ export class CreatorApi {
     resolvedRecommendationCodes = [],
     riskAcknowledgements = [],
     mediaWatchedConfirmed = false,
+    soundAssessment = null,
   } = {}) {
     const normalizedDecision = String(decision || "").trim().toLowerCase();
     const normalizedComment = String(comment || "").trim();
@@ -3327,6 +3328,10 @@ export class CreatorApi {
     }
     const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
     const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
+    const safeSoundAssessment = normalizeGeneratedVideoSoundAssessment(
+      soundAssessment,
+      { required: false },
+    );
     if (mediaWatchedConfirmed !== true) {
       throw new CreatorApiError("Перед решением полностью просмотрите защищённый файл со звуком и субтитрами.", {
         code: "content_review_media_watch_required",
@@ -3339,6 +3344,9 @@ export class CreatorApi {
       resolved_recommendation_codes: safeResolvedCodes,
       risk_acknowledgements: safeRiskAcknowledgements,
       media_watched_confirmed: true,
+      ...(safeSoundAssessment
+        ? { sound_assessment: safeSoundAssessment }
+        : {}),
     });
   }
 
@@ -3410,6 +3418,7 @@ export class CreatorApi {
     riskAcknowledgements = [],
     resolvedRecommendationCodes = [],
     mediaWatchedConfirmed = false,
+    soundAssessment = null,
   } = {}) {
     const normalizedComment = String(comment || "").trim();
     const productCategory = String(context?.productCategory || "").trim().toLowerCase();
@@ -3449,6 +3458,10 @@ export class CreatorApi {
     }
     const safeRiskAcknowledgements = normalizeContentReviewCodes(riskAcknowledgements);
     const safeResolvedCodes = normalizeContentReviewCodes(resolvedRecommendationCodes);
+    const safeSoundAssessment = normalizeGeneratedVideoSoundAssessment(
+      soundAssessment,
+      { required: true },
+    );
     return this.mutate(RPC.approveGeneratedVideoWithContext, {
       review_id: this.requireContentReviewId(reviewId),
       reason: normalizedComment,
@@ -3469,6 +3482,7 @@ export class CreatorApi {
       rkn_registered: context?.rknRegistered === true,
       risk_acknowledgements: safeRiskAcknowledgements,
       resolved_recommendation_codes: safeResolvedCodes,
+      sound_assessment: safeSoundAssessment,
     });
   }
 
@@ -4190,6 +4204,63 @@ function normalizeContentReviewCodes(values) {
     });
   }
   return normalized;
+}
+
+const GENERATED_VIDEO_SOUND_ISSUE_CODES = new Set([
+  "slurred_words",
+  "wrong_words",
+  "foreign_accent",
+  "numbers_units",
+  "wrong_voice_tone",
+  "lip_sync",
+  "noise_clipping",
+  "silence_dropout",
+  "unexpected_audio",
+  "other",
+]);
+
+function normalizeGeneratedVideoSoundAssessment(value, { required = false } = {}) {
+  if (value === null || value === undefined || value === "") {
+    if (!required) return null;
+    throw new CreatorApiError("После полного прослушивания зафиксируйте отдельную оценку звука.", {
+      code: "content_review_sound_assessment_required",
+    });
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CreatorApiError("Оценка звука имеет неверный формат.", {
+      code: "content_review_sound_assessment_invalid",
+    });
+  }
+  const status = String(value.status || "").trim().toLowerCase();
+  if (!status && !required) return null;
+  const issueCodes = [...new Set(
+    (Array.isArray(value.issueCodes) ? value.issueCodes : [])
+      .map((item) => String(item || "").trim().toLowerCase())
+      .filter(Boolean),
+  )];
+  const note = String(value.note || "").trim();
+  if (
+    !["clear", "issues_found", "silent_expected"].includes(status)
+    || issueCodes.length > GENERATED_VIDEO_SOUND_ISSUE_CODES.size
+    || issueCodes.some((code) => !GENERATED_VIDEO_SOUND_ISSUE_CODES.has(code))
+    || note.length > 1_000
+  ) {
+    throw new CreatorApiError("Оценка звука имеет неверный формат.", {
+      code: "content_review_sound_assessment_invalid",
+    });
+  }
+  return {
+    audio: value.audio === true,
+    status,
+    issue_codes: issueCodes,
+    spoken_script_heard_exactly_confirmed:
+      value.spokenScriptHeardExactlyConfirmed === true,
+    diction_clear_confirmed: value.dictionClearConfirmed === true,
+    voice_style_confirmed: value.voiceStyleConfirmed === true,
+    audio_sync_confirmed: value.audioSyncConfirmed === true,
+    silence_expected_confirmed: value.silenceExpectedConfirmed === true,
+    note,
+  };
 }
 
 const MUTATION_KEY_STORAGE = "contentengine.pending-mutation-keys.v1";
@@ -5630,6 +5701,28 @@ function toFriendlyMessage(error) {
     content_review_decision_reason_invalid: "Объясните решение текстом от 10 до 2000 символов.",
     content_review_decision_codes_invalid: "Список подтверждений проверки имеет неверный формат.",
     content_review_media_watch_required: "Перед решением полностью просмотрите защищённый файл со звуком и субтитрами.",
+    content_review_sound_assessment_required: "После полного прослушивания зафиксируйте отдельную оценку звука.",
+    content_review_sound_assessment_invalid: "Оценка звука неполна или имеет неверный формат. Проверьте дикцию и отмеченные ошибки.",
+    content_review_sound_assessment_payload_invalid: "Оценка звука неполна или имеет неверный формат. Проверьте дикцию и отмеченные ошибки.",
+    content_review_sound_assessment_boolean_invalid: "Подтверждения проверки звука имеют неверный формат. Обновите страницу и повторите оценку.",
+    content_review_sound_assessment_value_invalid: "Оценка звука содержит недопустимое значение. Проверьте отметки и заметку.",
+    content_review_sound_assessment_conflict: "Для этой точной версии уже сохранена другая оценка звука. Обновите проверку.",
+    content_review_sound_issues_block_approval: "Ролик со звуковой ошибкой нельзя одобрить. Верните его на доработку или отклоните.",
+    content_review_sound_clear_confirmation_required: "Для чистого звука подтвердите дословную реплику, дикцию, голос и синхронизацию.",
+    content_review_sound_clear_invalid: "Для чистого звука подтвердите дословную реплику, дикцию, голос и синхронизацию.",
+    content_review_sound_issues_invalid: "Проверьте выбранные типы звуковых ошибок и ожидаемый режим аудио.",
+    content_review_sound_issues_note_required: "Опишите найденную звуковую ошибку минимум пятью символами.",
+    content_review_sound_silence_invalid: "Для немого режима подтвердите тишину либо зафиксируйте неожиданный звук как ошибку.",
+    content_review_sound_audio_mismatch: "Режим звука не совпал с защищёнными данными генерации. Обновите проверку.",
+    content_review_sound_spoken_script_provenance_invalid: "Точная реплика не привязана к защищённому заданию генерации. Одобрение заблокировано.",
+    content_review_sound_source_invalid: "Защищённый MP4 или завершённая проверка изменились. Обновите статус.",
+    content_review_sound_provenance_invalid: "Не удалось подтвердить происхождение звука из точного задания генерации.",
+    content_review_sound_decision_invalid: "Оценка звука не совпала с неизменяемым решением. Обновите проверку.",
+    content_review_sound_assessment_version_invalid: "Версия формы оценки звука устарела. Обновите портал.",
+    content_review_sound_assessment_not_normalized: "Оценка звука изменилась при серверной проверке. Обновите форму и повторите.",
+    content_review_sound_assessment_not_applicable: "Оценка звука доступна только для сгенерированного MP4.",
+    content_review_sound_lineage_invalid: "Не удалось подтвердить связь оценки звука с этой версией ролика.",
+    content_review_sound_context_lineage_invalid: "Контекстная версия ролика потеряла связь с исходной оценкой звука.",
     content_review_external_ai_processing_required: "Для контрольных кадров с узнаваемыми людьми подтвердите законное основание и необходимое информирование о внешней AI-обработке.",
     external_ai_processing_basis_required: "Для контрольных кадров с узнаваемыми людьми подтвердите законное основание и необходимое информирование о передаче данных внешнему AI-провайдеру.",
     content_review_not_completed: "Решение можно сохранить только после завершения проверки.",
