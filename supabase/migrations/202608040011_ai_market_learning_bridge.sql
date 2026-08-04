@@ -1,5 +1,9 @@
 begin;
 
+-- Kept after the category-rule migrations because main already owns version
+-- 202608040006 for the historical-case ledger. The bridge reads the final
+-- governed category state and does not participate in migrations 007-010.
+
 -- The research subsystem is the only evidence/readiness authority for market
 -- categories.  This read model exposes every product's current dynamic
 -- category binding to the AI control room without copying the parser, source
