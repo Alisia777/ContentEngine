@@ -31,7 +31,7 @@ GENERATION_SPEC_MIGRATION_PATH = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608030013_generation_spec_control.sql"
+    / "202608030017_generation_spec_control.sql"
 )
 
 PRODUCT_CATEGORIES = (

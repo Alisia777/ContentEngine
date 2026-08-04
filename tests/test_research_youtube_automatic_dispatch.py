@@ -7,7 +7,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / (
     "supabase/migrations/"
-    "202608030011_research_category_learning_readiness.sql"
+    "202608030015_research_category_learning_readiness.sql"
 )
 WORKER = ROOT / "supabase/functions/creator-background-worker/index.ts"
 INGESTION = ROOT / "supabase/functions/creator-research-ingestion/index.ts"

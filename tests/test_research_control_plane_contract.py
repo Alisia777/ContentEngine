@@ -16,10 +16,10 @@ APP_PATH = ROOT / "web/app/app.js"
 VIEW_PATH = ROOT / "web/app/product-research-view.js"
 EDGE_PATH = ROOT / "supabase/functions/creator-product-research/index.ts"
 PROVIDER_SQL_PATH = (
-    ROOT / "supabase/migrations/202608030003_research_provider_control_plane.sql"
+    ROOT / "supabase/migrations/202608030008_research_provider_control_plane.sql"
 )
 MARKET_SQL_PATH = (
-    ROOT / "supabase/migrations/202608030004_research_market_intelligence_identity.sql"
+    ROOT / "supabase/migrations/202608030009_research_market_intelligence_identity.sql"
 )
 
 

@@ -16,7 +16,7 @@ APP_PATH = ROOT / "web/app/app.js"
 VIEW_PATH = ROOT / "web/app/product-research-view.js"
 WORKER_PATH = ROOT / "supabase/functions/creator-background-worker/index.ts"
 WATCHLIST_MIGRATION_PATH = (
-    ROOT / "supabase/migrations/202608030002_research_watchlist_memory.sql"
+    ROOT / "supabase/migrations/202608030007_research_watchlist_memory.sql"
 )
 
 

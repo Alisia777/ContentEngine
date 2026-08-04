@@ -12,11 +12,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = (
-    ROOT / "supabase/migrations/202608030006_research_outcome_learning_control.sql"
+    ROOT / "supabase/migrations/202608030010_research_outcome_learning_control.sql"
 )
 GENERATION_CONSUMPTION_MIGRATION_PATH = (
     ROOT
-    / "supabase/migrations/202608030009_research_outcome_generation_consumption.sql"
+    / "supabase/migrations/202608030013_research_outcome_generation_consumption.sql"
 )
 API_PATH = ROOT / "web/app/supabase-api.js"
 VIEW_PATH = ROOT / "web/app/product-research-view.js"

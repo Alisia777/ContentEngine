@@ -1,6 +1,6 @@
 # Learning Content Machine v1
 
-Статус: целевая архитектура и CI-проверенный вертикальный срез P0/P1 до миграции `012`; live-rollout выключен
+Статус: целевая архитектура и CI-проверенный вертикальный срез P0/P1 до миграции `016`; live-rollout выключен
 Дата: 2026-08-03
 
 ## 1. Цель
@@ -33,23 +33,23 @@ ContentEngine должен стать управляемой обучающей�
 → следующая гипотеза
 ```
 
-> Важная граница: миграция `202608030007_research_youtube_live_ingestion.sql`,
+> Важная граница: миграция `202608030011_research_youtube_live_ingestion.sql`,
 > Edge adapter и UI реализуют управляемые canary/refresh для официального YouTube
 > Data API. Однако это не означает работающий production parser: provider catalog
 > по умолчанию остаётся `planned/disabled`, отдельный global rollout gate —
 > `disabled`; миграция и Edge не развёрнуты, API key не установлен, внешний
-> runtime canary не выполнялся. Миграция `007` сама по себе не создаёт
-> периодический refresh; локальный opt-in scheduler добавляется только в `011`
+> runtime canary не выполнялся. Миграция `011` сама по себе не создаёт
+> периодический refresh; локальный opt-in scheduler добавляется только в `015`
 > и также default-disabled. Automatic fallback нет. Публичные YouTube API Data
 > показываются только как отдельные
 > наблюдения в порядке выдачи, удаляются в пределах retention и не используются
 > в генерации; derived metrics, рейтинги, дельты и агрегации по ним запрещены.
-> Миграция `008` добавляет read-only registry нескольких точных outcome scopes,
-> а `009` — явную краткоживущую apply/control selection поверх активной advisory
+> Миграция `012` добавляет read-only registry нескольких точных outcome scopes,
+> а `013` — явную краткоживущую apply/control selection поверх активной advisory
 > memory. Но binding selection к generation job намеренно закрыт, effectiveness
 > остаётся `unknown`, `generation_binding_state=gated`, поэтому production
 > generation consumption всё ещё `gated_not_wired`.
-> Миграция `010` локально добавляет корректируемый stage graph: immutable branch
+> Миграция `014` локально добавляет корректируемый stage graph: immutable branch
 > и head events, точные текущие heads, `patch/reject/revert/fork/cancel` и
 > подготовку `recompute` через отдельный дочерний research run. Каждая команда
 > привязана к canonical hash точного snapshot всех семи heads; созданный `fork`
@@ -63,7 +63,7 @@ ContentEngine должен стать управляемой обучающей�
 > только после истечения lease; cancel не вызывает provider/Edge, retry или
 > spend. Наличие локального кода не означает production-доступность.
 >
-> Миграция `011` локально добавляет отдельный контур готовности доказательной
+> Миграция `015` локально добавляет отдельный контур готовности доказательной
 > базы категории: долговечный source ledger для источников product research,
 > append-only историю структурированного разбора и человеческих исправлений,
 > детерминированную шкалу 0–100 и bounded историю снимков. Это не «IQ ИИ», не
@@ -75,7 +75,7 @@ ContentEngine должен стать управляемой обучающей�
 > fail-closed до выбора поставщика и юридического решения. Ни status RPC, ни
 > рендер интерфейса не начинают внешний вызов.
 >
-> Миграция `012` добавляет append-only числовую историю ширины доказательной
+> Миграция `016` добавляет append-only числовую историю ширины доказательной
 > поддержки структурных трендовых сигналов. Она сравнивает только соседние
 > human-approved snapshots одного watchlist: долю точных source junctions
 > сигнала в источниках снимка, delta и нормализованную скорость за 30 дней.
@@ -105,12 +105,12 @@ ContentEngine должен стать управляемой обучающей�
   и задачи после approval;
 - полные доказательства остаются неизменяемыми: человеческая правка не
   переписывает provider citations;
-- миграция `202608030001_research_stage_control_ledger.sql` подготавливает
+- миграция `202608030006_research_stage_control_ledger.sql` подготавливает
   immutable stage artifacts, per-stage evidence, dependency hashes и decision
   ledger; save/approve guards запрещают удалить v2 evidence, утвердить AI draft
   напрямую или скрыто обойти non-ready guidance;
 - production validator покрыт исполняемыми Deno fixtures и включён в CI.
-- миграция `202608030002_research_watchlist_memory.sql` добавляет RPC-only
+- миграция `202608030007_research_watchlist_memory.sql` добавляет RPC-only
   watchlist товара, immutable approved-v2 snapshots, точные source junctions,
   deterministic competitor/trend change set, contradiction marker, freshness
   и idempotent due proposals;
@@ -123,7 +123,7 @@ ContentEngine должен стать управляемой обучающей�
 - production UI даёт явные `enable/update/pause/resume`, показывает историю и
   следующий шаг, а новый анализ открывает как предзаполненную форму с отдельным
   подтверждением стоимости.
-- миграция `202608030003_research_provider_control_plane.sql` закрывает скрытый
+- миграция `202608030008_research_provider_control_plane.sql` закрывает скрытый
   spend-path: `paid_analysis_ack` атомарно создаёт authorization вместе с run,
   claim без authorization запрещён, а Edge обязан неизменяемо связать ровно
   один allowlisted provider/adapter до внешнего HTTP-вызова;
@@ -133,7 +133,7 @@ ContentEngine должен стать управляемой обучающей�
 - каталог содержит production `openai_web_search` и disabled/planned
   `youtube_data_api_v3`: наличие записи YouTube не означает работающую загрузку
   данных или пройденный commercial/quota canary;
-- миграция `202608030004_research_market_intelligence_identity.sql` отделяет
+- миграция `202608030009_research_market_intelligence_identity.sql` отделяет
   динамическую рыночную категорию от закрытого compliance-контура: tenant-scoped
   registry, точные aliases и append-only product bindings меняются только через
   явные `bind/create/reclassify` решения с stale candidate hash;
@@ -145,7 +145,7 @@ ContentEngine должен стать управляемой обучающей�
   текущую привязку и bounded trend timeline. Создание или переклассификация
   требуют отдельного checkbox и не меняют compliance category, не вызывают
   provider и не запускают новый анализ.
-- миграция `202608030006_research_outcome_learning_control.sql` добавляет пять
+- миграция `202608030010_research_outcome_learning_control.sql` добавляет пять
   RPC-only append-only ledger: exact outcome lineage, candidate evidence,
   human decisions и versioned active/inactive memory с rollback target;
 - refresh принимает только зрелые first-party cumulative metrics (не ранее 72
@@ -166,7 +166,7 @@ ContentEngine должен стать управляемой обучающей�
   generation, placement или publication actions;
 - активированная версия остаётся рекомендацией и не подключена к auto-ТЗ,
   существующей generation-learning policy или платной генерации.
-- миграция `202608030007_research_youtube_live_ingestion.sql` добавляет
+- миграция `202608030011_research_youtube_live_ingestion.sql` добавляет
   tenant-scoped request/lease/quota/retention ledger, ручные canary/refresh,
   transport receipts для `search.list` и `videos.list`, аварийную остановку и
   управляемые rollout/candidate решения. Edge и production UI поддерживают этот
@@ -180,18 +180,18 @@ ContentEngine должен стать управляемой обучающей�
   штатно очищенную только при отдельном серверном доказательстве, что retention
   heartbeat пересёк 29-дневную границу этого запуска; без такого доказательства
   интерфейс остаётся fail-closed;
-- миграция `202608030008_research_outcome_scope_registry.sql` добавляет
+- миграция `202608030012_research_outcome_scope_registry.sql` добавляет
   read-only discovery до 50 точных category/platform/model scopes из approved
   scenario lineage и outcome ledgers. UI не угадывает scope при нескольких
   вариантах: пользователь выбирает точный контур, а status загружается только
   для него;
-- миграция `202608030009_research_outcome_generation_consumption.sql` добавляет
+- миграция `202608030013_research_outcome_generation_consumption.sql` добавляет
   безопасный advisory и explicit apply/control selection с повторной проверкой
   category binding, active memory, candidate evidence и базовой policy. Эта
   foundation не записывает generation job и не может создать assignment:
   effectiveness пока `unknown`, binding `gated`, production consumption не
   подключён.
-- миграция `202608030010_research_stage_control_loop.sql` добавляет точную
+- миграция `202608030014_research_stage_control_loop.sql` добавляет точную
   идентичность входов stage artifact, tenant-scoped branches, append-only head
   events и защищённую текущую проекцию семи этапов. Каждая мутация требует
   совпадения `head_event_id`, `artifact_id`, `content_hash`, а также canonical
@@ -221,7 +221,7 @@ ContentEngine должен стать управляемой обучающей�
   и один server-recommended next action без provider, spend, generation или
   publication side effects. Corrections UI загружает этот envelope отдельно от
   обычного polling research status и не повторяет provider-вызов автоматически.
-- миграция `202608030011_research_category_learning_readiness.sql` добавляет
+- миграция `202608030015_research_category_learning_readiness.sql` добавляет
   category-level source registry, строгую схему
   `research-source-interpretation-v1`, exact-head correction chain и readiness
   из шести проверяемых измерений общим весом 100. Каждый пробел возвращает
@@ -231,7 +231,7 @@ ContentEngine должен стать управляемой обучающей�
   истории. Источники конкурентов считаются как дедуплицированные наблюдения, а
   не выдаются за доказанное число независимых конкурентов;
 - retained YouTube observations и решения `confirm/exclude` остаются в
-  ограниченном 29-дневном контуре миграции `007`. Они могут влиять только на
+  ограниченном 29-дневном контуре миграции `011`. Они могут влиять только на
   текущую готовность и теряют этот вклад после физической очистки; raw captions,
   transcript и чужие сценарии в source analysis и learning memory запрещены;
 - versioned collection policy требует точную версию YouTube Terms, явные
@@ -244,7 +244,7 @@ ContentEngine должен стать управляемой обучающей�
   provider contract отображается пользователю как конкретный пробел, а не
   заменяется скрытым scraper или LLM-догадкой. Кандидаты и условия выбора
   зафиксированы отдельно в `docs/SOCIAL_SOURCE_PROVIDER_DECISION.md`.
-- миграция `202608030012_research_trend_velocity_and_readiness_truth.sql`
+- миграция `202608030016_research_trend_velocity_and_readiness_truth.sql`
   сохраняет immutable support-velocity events для соседних утверждённых
   snapshots. Формула использует basis points точных source junctions,
   минимальный интервал 72 часа, явные `baseline`, `category_reset`,
@@ -346,7 +346,7 @@ reference/regression-контуром и не доказывает наличи�
 Пробелы после текущего локального P0-среза:
 
 - семь research stages теперь имеют отдельные immutable artifacts и versioned
-  branch heads в миграции `010`; свежий PostgreSQL 17/PGlite apply проходит, но
+  branch heads в миграции `014`; свежий PostgreSQL 17/PGlite apply проходит, но
   миграция не применена в локальном Supabase/staging, а
   production данные ещё не прошли backfill и tenant-isolation проверку;
 - самостоятельные `patch`, `reject`, `revert`, `fork` и downstream-инвалидация
@@ -459,7 +459,7 @@ reference/regression-контуром и не доказывает наличи�
 - `approve` — фиксирует версию как разрешённый вход downstream-этапа;
 - `reject` — запрещает downstream-использование и требует причины;
 - `fork` — в целевой архитектуре создаёт независимую ветку гипотезы. Локальный
-  контур `010` намеренно ограничивает её read-only сравнением без merge/promote;
+  контур `014` намеренно ограничивает её read-only сравнением без merge/promote;
 - `revert` — создаёт новый head, payload которого равен выбранной старой версии;
   история после неё не удаляется;
 - `recompute` — запускает модель на выбранных upstream-версиях и создаёт новую
@@ -480,7 +480,7 @@ Patch или новая approved-версия upstream-этапа не удал�
 которые были фактически использованы. Поздняя правка исследования не меняет
 происхождение уже опубликованного результата.
 
-### 4.4. Локальный stage-control loop `010`
+### 4.4. Локальный stage-control loop `014`
 
 Текущая реализация использует четыре tenant-scoped сущности:
 
@@ -522,7 +522,7 @@ service RPC либо применяет полный source-backed snapshot к r
 Такой request можно немедленно закрыть как `superseded`; активный child не
 перезапускается, а его поздний результат отбрасывается без применения и нового spend.
 
-`fork` в текущем `010` — только immutable snapshot для сравнения с main. Ветку
+`fork` в текущем `014` — только immutable snapshot для сравнения с main. Ветку
 нельзя править, пересчитывать, утверждать или переносить обратно; merge/promote
 контракт не реализован и не подразумевается интерфейсом.
 
@@ -872,7 +872,7 @@ P0-C остаётся default-disabled в практическом смысле:
 
 Следующее расширение P0:
 
-- применить и проверить уже прошедшие PostgreSQL 17/PGlite migrations `001`–`011`
+- применить и проверить уже прошедшие PostgreSQL 17/PGlite migrations `006`–`015`
   в локальном Supabase и staging;
 - пройти реальный `patch → stale → recompute → approve → generation handoff`
   round-trip и проверить recovery без повторного provider spend;
@@ -1045,7 +1045,7 @@ generation lineage.
 платного провайдера. Система сама считает freshness, сравнивает совместимые
 версии, собирает точную цепочку зрелых first-party outcomes и предлагает bounded
 candidate memory; обновление данных и каждое решение о памяти выполняются только
-после отдельного подтверждения. Миграции `007`–`012` дополняют этот срез
+после отдельного подтверждения. Миграции `011`–`016` дополняют этот срез
 управляемым официальным YouTube transport, exact multi-scope registry и
 effectiveness-gated selection foundation. Но YouTube provider/global gates
 остаются default disabled, код не развёрнут, ключ и runtime canary отсутствуют;
