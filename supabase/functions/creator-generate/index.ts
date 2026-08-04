@@ -18,7 +18,7 @@ const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
 const SEEDANCE_RUSSIAN_DICTION_GUARD =
-  "Русская дикция: каждое слово и окончание произнеси отчётливо, без акцента и лишних гласных; числа, градусы и названия — точно; сохрани паузы между короткими фразами.";
+  "Русская дикция: чётко, без акцента/лишних гласных; все слова/окончания; числа/градусы/названия точно; чёткие паузы.";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
