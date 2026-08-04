@@ -90,7 +90,7 @@ select is(
     ))),
     1
   ) -> 'hook_patterns',
-  '["before_buying"]'::jsonb,
+  '["before_buying", "numbered"]'::jsonb,
   'object shot fields are reconstructed before whitespace normalization'
 );
 select is(
@@ -805,6 +805,11 @@ select throws_ok(
       temporal_binding record;
       structure_value jsonb;
     begin
+      perform set_config(
+        'contentengine.project_id',
+        'c0100000-0000-4000-8000-000000000008',
+        true
+      );
       insert into content_factory.product_research_runs (
         id, organization_id, project_id, product_id, created_by, status,
         input, summary, request_hash, completion_hash, idempotency_key,
@@ -819,10 +824,30 @@ select throws_ok(
         repeat('7', 64), repeat('8', 64),
         'category-rule-same-category-new-project', clock_timestamp()
       );
+      insert into content_factory.product_research_sources (
+        id, organization_id, run_id, product_id, created_by, source_type,
+        source_url, title, content_hash, trust_level, extracted_facts,
+        metadata, fetched_at, created_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000082',
+        'c0100000-0000-4000-8000-000000000002',
+        'c0100000-0000-4000-8000-000000000077',
+        'c0100000-0000-4000-8000-000000000003',
+        'c0100000-0000-4000-8000-000000000001',
+        'social_video',
+        'https://example.test/same-category-new-project-source',
+        'Same category project-local source', repeat('b', 64), 'public',
+        jsonb_build_array('Project-local category evidence'),
+        jsonb_build_object(
+          'model_source_id', 'web:same-category-new-project',
+          'classification', 'category'
+        ),
+        clock_timestamp(), clock_timestamp()
+      );
       insert into content_factory.creative_brief_drafts (
         id, organization_id, project_id, run_id, product_id, created_by,
         origin, version, status, title, brief, source_ids, task_blueprint,
-        content_hash
+        content_hash, approved_by, approved_at
       ) values (
         'c0100000-0000-4000-8000-000000000078',
         'c0100000-0000-4000-8000-000000000002',
@@ -831,8 +856,14 @@ select throws_ok(
         'c0100000-0000-4000-8000-000000000003',
         'c0100000-0000-4000-8000-000000000001',
         'human', 1, 'approved', 'Same category in another project',
-        brief_value, '[]'::jsonb, '[]'::jsonb,
-        content_factory_private.json_hash(brief_value)
+        brief_value,
+        jsonb_build_array('c0100000-0000-4000-8000-000000000082'),
+        jsonb_build_array(jsonb_build_object(
+          'title', 'Verify project-local category evidence',
+          'instructions', 'Compile only the later project evidence.'
+        )),
+        content_factory_private.json_hash(brief_value),
+        'c0100000-0000-4000-8000-000000000001', clock_timestamp()
       );
       select * into temporal_binding
       from content_factory_private
@@ -866,6 +897,11 @@ select throws_ok(
           ),
           null, null, '{}'::jsonb
         );
+      perform set_config(
+        'contentengine.project_id',
+        'c0100000-0000-4000-8000-000000000007',
+        true
+      );
       raise exception 'same_category_new_project_ok';
     end
     $new_project$
@@ -972,6 +1008,26 @@ select throws_ok(
         repeat('7', 64), repeat('8', 64),
         'category-rule-same-category-new-evidence', clock_timestamp()
       );
+      insert into content_factory.product_research_sources (
+        id, organization_id, run_id, product_id, created_by, source_type,
+        source_url, title, content_hash, trust_level, extracted_facts,
+        metadata, fetched_at, created_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000083',
+        current_binding.organization_id,
+        'c0100000-0000-4000-8000-000000000070',
+        current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'market_data',
+        'https://example.test/same-category-new-evidence-source',
+        'Same category changed evidence source', repeat('c', 64), 'public',
+        jsonb_build_array('Changed evidence for the stable category'),
+        jsonb_build_object(
+          'model_source_id', 'web:same-category-new-evidence',
+          'classification', 'category'
+        ),
+        clock_timestamp(), clock_timestamp()
+      );
       insert into content_factory.creative_brief_drafts (
         id, organization_id, run_id, product_id, created_by, origin, version,
         status, title, brief, source_ids, task_blueprint, content_hash
@@ -982,7 +1038,11 @@ select throws_ok(
         current_binding.product_id,
         'c0100000-0000-4000-8000-000000000001',
         'human', 1, 'draft', 'Same category changed evidence', brief_value,
-        '[]'::jsonb, '[]'::jsonb,
+        jsonb_build_array('c0100000-0000-4000-8000-000000000083'),
+        jsonb_build_array(jsonb_build_object(
+          'title', 'Verify changed category evidence',
+          'instructions', 'Retain the stable category identity.'
+        )),
         content_factory_private.json_hash(brief_value)
       );
       select * into resolved
@@ -1043,6 +1103,26 @@ select throws_ok(
         repeat('1', 64), repeat('2', 64),
         'category-rule-new-alias-run', clock_timestamp()
       );
+      insert into content_factory.product_research_sources (
+        id, organization_id, run_id, product_id, created_by, source_type,
+        source_url, title, content_hash, trust_level, extracted_facts,
+        metadata, fetched_at, created_at
+      ) values (
+        'c0100000-0000-4000-8000-000000000084',
+        current_binding.organization_id,
+        'c0100000-0000-4000-8000-000000000080',
+        current_binding.product_id,
+        'c0100000-0000-4000-8000-000000000001',
+        'social_video',
+        'https://example.test/same-category-new-alias-source',
+        'Same category new synonym source', repeat('d', 64), 'public',
+        jsonb_build_array('Evidence described with a new category synonym'),
+        jsonb_build_object(
+          'model_source_id', 'web:same-category-new-alias',
+          'classification', 'category'
+        ),
+        clock_timestamp(), clock_timestamp()
+      );
       insert into content_factory.creative_brief_drafts (
         id, organization_id, run_id, product_id, created_by, origin, version,
         status, title, brief, source_ids, task_blueprint, content_hash
@@ -1053,7 +1133,11 @@ select throws_ok(
         current_binding.product_id,
         'c0100000-0000-4000-8000-000000000001',
         'ai', 1, 'draft', 'Same category new synonym', brief_value,
-        '[]'::jsonb, '[]'::jsonb,
+        jsonb_build_array('c0100000-0000-4000-8000-000000000084'),
+        jsonb_build_array(jsonb_build_object(
+          'title', 'Verify the new category synonym',
+          'instructions', 'Reaffirm the stable category without duplication.'
+        )),
         content_factory_private.json_hash(brief_value)
       );
       resolution_value :=
@@ -1192,7 +1276,10 @@ select throws_ok(
         'c0100000-0000-4000-8000-000000000001',
         'human', 1, 'draft', 'Exact reclassification source', brief_value,
         jsonb_build_array('c0100000-0000-4000-8000-000000000079'),
-        '[]'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+          'title', 'Verify exact source-draft reclassification',
+          'instructions', 'Bind the source to the exact reclassified category.'
+        )),
         content_factory_private.json_hash(brief_value)
       );
       insert into content_factory.research_market_categories (

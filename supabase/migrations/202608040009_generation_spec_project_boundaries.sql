@@ -865,6 +865,19 @@ begin
     organization_id_value, project_id_value,
     spec_id_value, expected_version_value, expected_hash_value, null
   );
+  -- Category-rule currentness intentionally includes source-analysis
+  -- freshness.  Preserve the more specific source-provenance failure before
+  -- applying the stricter composite category gate; the approval-event trigger
+  -- rechecks the same provenance inside the delegated approval transaction.
+  if p_payload ->> 'action' = 'approve'
+     and not content_factory_private.research_generation_spec_evidence_fresh(
+       organization_id_value, spec_id_value,
+       expected_version_value, expected_hash_value
+     ) then
+    raise exception using
+      errcode = '55000',
+      message = 'generation_spec_research_provenance_stale';
+  end if;
   if p_payload ->> 'action' = 'approve'
      and not content_factory_private
        .generation_spec_research_category_rule_current(

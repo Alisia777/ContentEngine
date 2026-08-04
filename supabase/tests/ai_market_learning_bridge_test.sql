@@ -83,14 +83,23 @@ select ok(
 select ok(
   strpos(lower(pg_get_functiondef(
     'public.creator_generation_learning_policy(jsonb)'::regprocedure
+  )), 'creator_generation_learning_policy_pre_historical_case_v1') > 0
+  and strpos(lower(pg_get_functiondef(
+    'public.creator_generation_learning_policy(jsonb)'::regprocedure
+  )), 'creator_generation_learning_policy_pre_ai_control_room_v8') = 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.creator_generation_learning_policy_pre_historical_case_v1(jsonb)'::regprocedure
   )), 'call_project_scoped_v47') > 0
   and strpos(lower(pg_get_functiondef(
-    'public.creator_generation_learning_policy(jsonb)'::regprocedure
+    'content_factory_private.creator_generation_learning_policy_pre_historical_case_v1(jsonb)'::regprocedure
   )), 'creator_generation_learning_policy_pre_project_v47') > 0
   and strpos(lower(pg_get_functiondef(
-    'public.creator_generation_learning_policy(jsonb)'::regprocedure
-  )), 'creator_generation_learning_policy_pre_ai_control_room_v8') = 0,
-  'the public learning policy preserves exact project-scoped dispatch'
+    'content_factory_private.creator_generation_learning_policy_pre_historical_case_v1(jsonb)'::regprocedure
+  )), 'project_payload_from_context_v47') > 0
+  and strpos(regexp_replace(lower(pg_get_functiondef(
+    'content_factory_private.creator_generation_learning_policy_pre_historical_case_v1(jsonb)'::regprocedure
+  )), '[[:space:]]+', ' ', 'g'), '''media'', ''media_id'', false') > 0,
+  'the public learning policy preserves exact project-scoped dispatch through the historical wrapper'
 );
 
 select ok(
